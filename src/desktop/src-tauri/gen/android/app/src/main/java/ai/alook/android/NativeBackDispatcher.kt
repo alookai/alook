@@ -18,6 +18,15 @@ internal class NativeBackDispatcher(
         }
     }
 
+    fun progress(value: Float?, evaluate: (String) -> Unit) {
+        if (closed || inFlight) return
+        val progress = value?.takeIf { it.isFinite() }?.coerceIn(0f, 1f)
+        try {
+            evaluate("window.dispatchEvent(new CustomEvent('alook:native-back-progress', { detail: { progress: ${progress ?: "null"} } }));")
+        } catch (_: RuntimeException) {
+        }
+    }
+
     fun close() {
         closed = true
         inFlight = false

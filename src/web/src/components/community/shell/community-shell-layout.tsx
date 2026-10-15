@@ -39,6 +39,7 @@ import {
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import { Shell } from "./shell"
+import styles from "./mobile-back-motion.module.css"
 import { useHydratedClient } from "./use-hydrated-client"
 
 const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
@@ -385,9 +386,11 @@ export function CommunityShellLayout({
       data-community-route-kind={routeKind}
       data-testid={testId}
       data-slot="community-shell-root"
+      data-mobile-back-surface={breakpoint === "mobile" && preserveHiddenMobileModules ? surface : undefined}
+      className={styles.pages}
     >
       {(!isMobileDetail || preserveHiddenMobileModules) && (
-        <div inert={isMobileDetail} aria-hidden={isMobileDetail || undefined} className={cn(
+        <div data-mobile-back-rail inert={isMobileDetail} aria-hidden={isMobileDetail || undefined} className={cn(
           "flex min-h-0",
           isInitialDetail && "hidden sm:contents",
           isMobileDetail && preserveHiddenMobileModules && "hidden",
@@ -396,6 +399,7 @@ export function CommunityShellLayout({
         </div>
       )}
       <div
+        data-mobile-back-body
         className={cn(
           "relative flex min-h-0 min-w-0 flex-1 flex-col",
           !isMobileDetail && !isInitialDetail && "pt-2",
@@ -417,7 +421,7 @@ export function CommunityShellLayout({
             disabled={!isDesktop}
             className={cn(
               "min-h-0 flex-1",
-              !isDesktop && [
+              !isDesktop && !(isMobileDetail && preserveHiddenMobileModules) && [
                 "max-sm:*:data-[mobile-active=true]:flex-1!",
                 "max-sm:*:data-[mobile-hidden=true]:flex-none!",
                 "max-sm:*:data-[mobile-hidden=true]:w-0!",
@@ -449,7 +453,7 @@ export function CommunityShellLayout({
                 ref={sidebarPanelRef}
                 data-slot="community-sidebar-panel-content"
                 data-community-mobile-surface={isMobileList ? "list" : undefined}
-                hidden={isMobileDetail}
+                hidden={isMobileDetail && !preserveHiddenMobileModules}
                 inert={isMobileDetail}
                 aria-hidden={isMobileDetail || undefined}
                 className={cn(

@@ -442,6 +442,31 @@ describe("useTimelineReadObserver", () => {
     expect(coordinator.submit).toHaveBeenCalledOnce()
   })
 
+  it("keeps the mounted mobile parent silent until its inert layer becomes active", () => {
+    const row = makeRow("message-4")
+    const root = makeRoot([row])
+    const parent = document.createElement("section")
+    parent.setAttribute("data-mobile-back-parent", "")
+    parent.setAttribute("inert", "")
+    parent.append(root)
+    useTestRender({ scrollRootEl: root })
+    takeUnmounts()
+    trigger(observers[0]!, row)
+    for (const listener of pageShowListeners) listener()
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
+    expect(coordinator.resume).not.toHaveBeenCalled()
+    parent.removeAttribute("inert")
+    act(() => mutationCallback!([{
+      type: "attributes", target: parent, attributeName: "inert", oldValue: "",
+      addedNodes: [], removedNodes: [],
+    } as unknown as MutationRecord], {} as MutationObserver))
+    trigger(observers[0]!, row)
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    trigger(observers.at(-1)!, row)
+    expect(coordinator.submit).toHaveBeenCalledOnce()
+  })
+
   it("keeps all read side effects silent while presentation is hidden and inert", () => {
     hookState.candidate = {
       channelId: "channel-1",

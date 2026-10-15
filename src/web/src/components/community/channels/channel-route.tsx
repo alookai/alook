@@ -114,8 +114,8 @@ function ChannelRouteFrame(target: RouteTarget) {
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
   return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col">
     <ThreadSplitView
-      split={split} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
-      parent={split && server && parent ? <ThreadSplitParentSurface
+      split={split} mobileBack={breakpoint === "mobile" && isThread && !!parent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+      parent={(split || breakpoint === "mobile" && isThread) && server && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}
         viewer={currentUser} onNavigateParent={navigateServerRoot}

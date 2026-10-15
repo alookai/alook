@@ -26,12 +26,14 @@ const threadSplitLayoutStorage = {
 
 export function ThreadSplitView({
   split,
+  mobileBack = false,
   parent,
   thread,
   conversationSubtype = "thread",
   resolvingParent = false,
 }: {
   split: boolean
+  mobileBack?: boolean
   parent: ReactNode
   thread: ReactNode
   conversationSubtype?: "unknown" | "text" | "forum" | "thread"
@@ -47,6 +49,7 @@ export function ThreadSplitView({
   return (
     <main
       data-testid={isThread ? tid.threadSplit : undefined}
+      data-mobile-back-thread={mobileBack || undefined}
       data-layout={split ? resolvingParent ? "pending" : "split" : "full"}
       data-community-conversation-subtype={conversationSubtype === "unknown" ? undefined : conversationSubtype}
       className="relative flex min-h-0 min-w-0 flex-1"
@@ -59,7 +62,7 @@ export function ThreadSplitView({
         disabled={!split || resolvingParent}
         aria-hidden={resolvingParent || undefined}
         inert={resolvingParent || undefined}
-        className={cn("min-h-0 flex-1", resolvingParent && "invisible", !split && [
+        className={cn("min-h-0 flex-1", resolvingParent && "invisible", !split && !mobileBack && [
           "*:data-[layout-hidden=true]:flex-none!",
           "*:data-[layout-hidden=true]:w-0!",
           "*:data-[layout-hidden=true]:min-w-0!",
@@ -78,8 +81,11 @@ export function ThreadSplitView({
           data-layout-hidden={!split || undefined}
           className="flex min-h-0 min-w-0 flex-col"
         >
-          {split && <section
+          {(split || mobileBack) && <section
             data-testid={tid.threadSplitParent}
+            data-mobile-back-parent
+            inert={mobileBack}
+            aria-hidden={mobileBack || undefined}
             aria-label="Parent conversation"
             className="flex min-h-0 min-w-0 flex-1 flex-col"
           >

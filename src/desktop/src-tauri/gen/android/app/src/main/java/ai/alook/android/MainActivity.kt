@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.graphics.Insets
@@ -54,6 +55,16 @@ class MainActivity : TauriActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         nativeBackCallback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                nativeBackDispatcher.progress(0f) { mainWebView?.evaluateJavascript(it, null) }
+            }
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                nativeBackDispatcher.progress(backEvent.progress) { mainWebView?.evaluateJavascript(it, null) }
+            }
+            override fun handleOnBackCancelled() {
+                nativeBackDispatcher.progress(null) { mainWebView?.evaluateJavascript(it, null) }
+            }
+
             override fun handleOnBackPressed() {
                 val webView = mainWebView
                 if (webView == null) {

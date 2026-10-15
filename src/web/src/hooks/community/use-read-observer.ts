@@ -27,6 +27,7 @@ const READ_VISIBILITY_THRESHOLD = 0.2
 const MESSAGE_LIST_CONTENT_SELECTOR = "[data-message-list-content]"
 
 function readPresentationReadable(scrollRootEl: HTMLElement) {
+  if (scrollRootEl.closest("[data-mobile-back-parent][inert]")) return false
   const content = scrollRootEl.querySelector<HTMLElement>(MESSAGE_LIST_CONTENT_SELECTOR)
   if (!content) return true
   return content.getAttribute("aria-hidden") === "false"
@@ -289,6 +290,10 @@ export function useTimelineReadObserver({
       attributeOldValue: true,
       childList: true,
       subtree: true,
+    })
+    const parentLayer = scrollRootEl.closest("[data-mobile-back-parent]")
+    if (parentLayer) mutations?.observe(parentLayer, {
+      attributes: true, attributeFilter: ["inert"], attributeOldValue: true,
     })
     document.addEventListener("visibilitychange", sample)
     window.addEventListener("pageshow", sample)
