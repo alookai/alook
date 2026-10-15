@@ -222,7 +222,20 @@ async function typeReplyAfterAuthorMention(
   await expect(mention).toHaveAttribute("data-label", `${author.name}#${author.discriminator}`)
   await expect(editable).toHaveText(`@${author.name}`)
   await expect(editable).toBeFocused()
-  await editable.press("End")
+  await editable.press("ControlOrMeta+A")
+  await editable.press("ArrowRight")
+  await expect.poll(() => editable.evaluate((element) => {
+    const selection = element.ownerDocument.getSelection()
+    if (
+      !selection?.isCollapsed
+      || !selection.focusNode
+      || !element.contains(selection.focusNode)
+    ) return false
+    const remaining = element.ownerDocument.createRange()
+    remaining.selectNodeContents(element)
+    remaining.setStart(selection.focusNode, selection.focusOffset)
+    return remaining.toString() === ""
+  }), { message: "reply typing starts after the existing author mention" }).toBe(true)
   await editable.pressSequentially(body)
   await expect(mention).toHaveCount(1)
   await expect(editable).toHaveText(`@${author.name} ${body}`)
