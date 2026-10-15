@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { createElement, type PropsWithChildren } from "react"
+import { createElement, useLayoutEffect, type PropsWithChildren } from "react"
 import { act, waitFor, renderHook as renderOwnedHook } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -261,6 +261,49 @@ describe("current native conversation",()=>{
     intentRevision++
     expect(presentation({viewerUserId:"viewer",targetId:"channel_1"})).toBe(false)
     rendered.unmount();expect(presentation({viewerUserId:"viewer",targetId:"channel_1"})).toBeUndefined()
+  })
+  it("rejects presentation after readiness retires and before passive consumer cleanup", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", "208")
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const identity = { viewerUserId: "viewer", targetId: "channel_1" }
+    const probes: { consumerPresent: boolean; authorized: boolean | undefined }[] = []
+    const nativeCalls = () => ({
+      take: hookMocks.take.mock.calls.length,
+      dismiss: hookMocks.dismiss.mock.calls.length,
+      conversation: hookMocks.dismissConversation.mock.calls.length,
+    })
+    const rendered = renderHook(({ ready }) => {
+      useCurrent(ready)
+      useLayoutEffect(() => {
+        if (!ready) {
+          probes.push({
+            consumerPresent: consumer.current !== null,
+            authorized: presentation(identity),
+          })
+        }
+      }, [ready])
+    }, { wrapper, initialProps: { ready: true } })
+    await waitFor(() => expect(hookMocks.dismissConversation).toHaveBeenCalledOnce())
+    await waitFor(() => expect(window.localStorage.length).toBe(0))
+    expect(presentation(identity)).toBe(true)
+    const before = nativeCalls()
+
+    rendered.rerender({ ready: false })
+
+    expect(probes).toEqual([{ consumerPresent: true, authorized: false }])
+    const retired = log.mock.calls
+      .filter(([prefix]) => prefix === "ALOOK208")
+      .map(([, raw]) => JSON.parse(raw as string))
+      .filter((event) => event.stage === "ready.retired")
+    expect(retired).toHaveLength(1)
+    expect(retired[0].data).toEqual({ viewerUserId: "viewer", dismissalTarget: target })
+    expect(nativeCalls()).toEqual(before)
+    expect(window.localStorage.length).toBe(0)
+    expect(consumer.current).toBeNull()
+    expect(presentation(identity)).toBe(false)
+    rendered.unmount()
+    expect(presentation(identity)).toBeUndefined()
   })
   it.each(["not ready","hidden","pending elsewhere","parent split"])("does not consume %s",async state=>{
     vi.stubEnv("NODE_ENV", "development");vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", "208")
