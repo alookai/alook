@@ -412,6 +412,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   ).join("\n\n"))
   const bobInfo = await memberInfo("alice", serverId, userId("bob"))
   const aliceInfo = await memberInfo("alice", serverId, userId("alice"))
+  const replyAuthorMention = `@${bobInfo.name}#${bobInfo.discriminator}`
 
   const alice = await asUser("alice", { hasTouch: true })
   const bob = await asUser("bob")
@@ -486,6 +487,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · channel alternate ${stamp}`)
   await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   const replyBody = `swipe reply ${stamp}`
+  const replyContent = `${replyAuthorMention} ${replyBody}`
   const replyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
@@ -498,14 +500,18 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     message: { id: string; content: string; replyToId: string | null }
   }
   expect(replyPayload.message.replyToId).toBe(channelBobSecondMessageId)
-  expect(replyPayload.message.content).toBe(replyBody)
+  expect(replyPayload.message.content).toBe(replyContent)
   await expect.poll(() => bobProxy.frames.some((frame) => (
-    frameHasMessage(frame, channelId, replyPayload.message.id)
-    && communityFrameEvents(frame).some((event) => (
-      (event.message as { replyTo?: { id: string } } | undefined)?.replyTo?.id === channelBobSecondMessageId
+    communityFrameEvents(frame).some((event) => (
+      event.type === "community:message.create"
+      && event.channelId === channelId
+      && event.message?.id === replyPayload.message.id
+      && event.message.content === replyContent
+      && (event.message as { replyTo?: { id: string } }).replyTo?.id === channelBobSecondMessageId
     ))
   )), { timeout: 20_000 }).toBe(true)
   await expectMessageVisible(bob.page, replyBody)
+  await expect(bob.page.getByTestId(tid.message(replyPayload.message.id))).toContainText(`@${bobInfo.name}`)
 
   await alice.page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
   await bob.page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
@@ -581,6 +587,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · thread target ${stamp}`)
   await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   const threadReplyBody = `thread swipe reply ${stamp}`
+  const threadReplyContent = `${replyAuthorMention} ${threadReplyBody}`
   const threadReplyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`
@@ -593,13 +600,19 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     message: { id: string; content: string; replyToId: string | null }
   }
   expect(threadReplyPayload.message.replyToId).toBe(threadBobMessageId)
-  expect(threadReplyPayload.message.content).toBe(threadReplyBody)
+  expect(threadReplyPayload.message.content).toBe(threadReplyContent)
   await expect.poll(() => bobProxy.frames.some((frame) => (
-    frameHasMessage(frame, threadId, threadReplyPayload.message.id)
-    && communityFrameEvents(frame).some((event) => (
-      (event.message as { replyTo?: { id: string } } | undefined)?.replyTo?.id === threadBobMessageId
+    communityFrameEvents(frame).some((event) => (
+      event.type === "community:message.create"
+      && event.channelId === threadId
+      && event.message?.id === threadReplyPayload.message.id
+      && event.message.content === threadReplyContent
+      && (event.message as { replyTo?: { id: string } }).replyTo?.id === threadBobMessageId
     ))
   )), { timeout: 20_000 }).toBe(true)
+  const receivedThreadReply = bob.page.getByTestId(tid.message(threadReplyPayload.message.id))
+  await expect(receivedThreadReply).toContainText(threadReplyBody)
+  await expect(receivedThreadReply).toContainText(`@${bobInfo.name}`)
 
   await alice.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
   await bob.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
@@ -799,6 +812,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   await expect(composerEditable(alice.page)).toBeFocused()
   const dmReplyBody = `dm swipe reply ${stamp}`
+  const dmReplyContent = `${replyAuthorMention} ${dmReplyBody}`
   const dmReplyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${dmId}/messages`
@@ -811,13 +825,19 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     message: { id: string; content: string; replyToId: string | null }
   }
   expect(dmReplyPayload.message.replyToId).toBe(dmWsReadyId)
-  expect(dmReplyPayload.message.content).toBe(dmReplyBody)
+  expect(dmReplyPayload.message.content).toBe(dmReplyContent)
   await expect.poll(() => bobProxy.frames.some((frame) => (
-    frameHasMessage(frame, dmId, dmReplyPayload.message.id)
-    && communityFrameEvents(frame).some((event) => (
-      (event.message as { replyTo?: { id: string } } | undefined)?.replyTo?.id === dmWsReadyId
+    communityFrameEvents(frame).some((event) => (
+      event.type === "community:message.create"
+      && event.channelId === dmId
+      && event.message?.id === dmReplyPayload.message.id
+      && event.message.content === dmReplyContent
+      && (event.message as { replyTo?: { id: string } }).replyTo?.id === dmWsReadyId
     ))
   )), { timeout: 20_000 }).toBe(true)
+  const receivedDmReply = bob.page.getByTestId(tid.message(dmReplyPayload.message.id))
+  await expect(receivedDmReply).toContainText(dmReplyBody)
+  await expect(receivedDmReply).toContainText(`@${bobInfo.name}`)
   const beforeDmTypingSeq = await latestSeq(alice.page, dmId)
   const dmScrollerBeforeTyping = await settledScrollerGeometry(alice.page)
   const bobDmEditable = composerEditable(bob.page)
