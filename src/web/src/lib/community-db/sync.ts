@@ -3,7 +3,7 @@ import { communityRequestOptions as qualifiedCommunityRequestOptions } from "@/l
 import { isAbortError } from "@/lib/errors"
 import { isOwnerServerDeleteScopeEvictionBlocked } from "@/lib/community/eject-server"
 
-import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
+import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime-owner"
 import { notifyManager,type QueryClient } from "@tanstack/react-query"
 import { createStore } from "@tanstack/store"
 import type { Query } from "@tanstack/react-query"

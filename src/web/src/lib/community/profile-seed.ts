@@ -1,5 +1,5 @@
 import { loadCommunityRequest } from "@/lib/community/account-cache-lifecycle"
-import { createStore } from "@tanstack/react-store"
+import { createStore } from "@tanstack/store"
 import type {
   CommunityProfilePatch,
 } from "@/lib/community/models/people"
