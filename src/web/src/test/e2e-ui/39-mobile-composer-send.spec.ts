@@ -104,6 +104,7 @@ async function expectHoverKeyboardSend({
 async function expectExplicitTouchSend({
   page,
   root = page,
+  backgroundRoot,
   route,
   channelId,
   label,
@@ -113,6 +114,7 @@ async function expectExplicitTouchSend({
 }: {
   page: Page
   root?: Page | Locator
+  backgroundRoot?: Locator
   route: string
   channelId: string
   label: string
@@ -170,14 +172,21 @@ async function expectExplicitTouchSend({
     await expect(send).toBeVisible()
   }
 
-  await page.getByTestId(tid.composerFileInput).setInputFiles({
+  if (backgroundRoot) {
+    await expect(backgroundRoot).toHaveAttribute("inert", "")
+    await expect(backgroundRoot.getByTestId(tid.composerFileInput)).toHaveCount(1)
+    await expect(root.getByTestId(tid.composerFileInput)).toHaveCount(1)
+    await expect(page.getByTestId(tid.composerFileInput)).toHaveCount(2)
+  }
+
+  await root.getByTestId(tid.composerFileInput).setInputFiles({
     name: `${label}.txt`,
     mimeType: "text/plain",
     buffer: Buffer.from("pending attachment eligibility"),
   })
-  await expect(page.getByRole("button", { name: "Remove file" })).toBeVisible()
+  await expect(root.getByRole("button", { name: "Remove file" })).toBeVisible()
   await expect(send).toBeEnabled()
-  await page.getByRole("button", { name: "Remove file" }).click()
+  await root.getByRole("button", { name: "Remove file" }).click()
   await expect(send).toBeDisabled()
 
   const firstLine = `${label} first ${Date.now()}`
@@ -292,6 +301,7 @@ test.describe("composer send by input capability", () => {
     await expectExplicitTouchSend({
       page,
       root: page.getByTestId(tid.threadSplitPanel),
+      backgroundRoot: page.getByTestId(tid.threadSplitParent),
       route: `/c/channels/${serverId}/${threadId}`,
       channelId: threadId,
       label: "thread",
