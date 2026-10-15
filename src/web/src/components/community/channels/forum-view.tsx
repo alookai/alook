@@ -8,6 +8,7 @@ import { useVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { Archive, ArchiveRestore, MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { LineClamp } from "@/components/ui/line-clamp"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
@@ -103,22 +104,21 @@ function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; s
       data-testid={tid.forumThreadTitle(postId)}
       aria-label={`${name}${seq === undefined ? "" : ` #${seq}`}`}
       title={name}
-      className="flex w-full min-w-0 max-w-full items-end gap-1.5 text-[15px] font-semibold leading-tight"
+      className="w-full min-w-0 max-w-full text-[15px] font-semibold leading-tight"
     >
-      <span
-        data-testid={tid.forumThreadTitleText(postId)}
-        className="line-clamp-2 min-w-0 wrap-break-word"
-      >
-        {name}
-      </span>
-      {seq !== undefined && (
-        <span
-          data-testid={tid.forumThreadSeq(postId)}
-          className="shrink-0 whitespace-nowrap font-mono text-[13px] font-medium text-muted-foreground"
-        >
-          <span className="opacity-60">#</span>{seq}
-        </span>
-      )}
+      <LineClamp
+        text={name}
+        maxLines={2}
+        textTestId={tid.forumThreadTitleText(postId)}
+        after={seq === undefined ? undefined : (
+          <span
+            data-testid={tid.forumThreadSeq(postId)}
+            className="font-mono text-[13px] font-medium text-muted-foreground"
+          >
+            <span className="opacity-60">#</span>{seq}
+          </span>
+        )}
+      />
     </h3>
   )
 }
