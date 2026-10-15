@@ -58,19 +58,24 @@ describe("Resend contact lifecycle with the official SDK", () => {
     expect(logs.warn).not.toHaveBeenCalled()
   })
 
-  it("creates a definitely missing contact with the exact segment and no subscription reset", async () => {
+  it("creates a missing contact with name and segment before sending its signup event", async () => {
     fetchMock.mockResolvedValueOnce(providerError(404, "not_found"))
       .mockResolvedValueOnce(response({ id: "new-contact", object: "contact" }))
+      .mockResolvedValueOnce(response({ object: "event", event: "new_signup" }))
 
     await expect(syncResendSignupContact(env, user)).resolves.toBeUndefined()
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(requestAt(0)).toEqual({
       url: `https://api.resend.com/contacts/${user.email}`, method: "GET", body: undefined,
     })
     expect(requestAt(1)).toEqual({
       url: "https://api.resend.com/contacts", method: "POST",
       body: { email: user.email, first_name: user.name, segments: [{ id: segmentId }] },
+    })
+    expect(requestAt(2)).toEqual({
+      url: "https://api.resend.com/events/send", method: "POST",
+      body: { event: "new_signup", contact_id: "new-contact" },
     })
     expect(logs.warn).not.toHaveBeenCalled()
   })
@@ -79,10 +84,11 @@ describe("Resend contact lifecycle with the official SDK", () => {
     fetchMock.mockResolvedValueOnce(existingContact(unsubscribed))
       .mockResolvedValueOnce(response({ id: "contact-1", object: "contact" }))
       .mockResolvedValueOnce(response({ id: segmentId }))
+    if (!unsubscribed) fetchMock.mockResolvedValueOnce(response({ object: "event", event: "new_signup" }))
 
     await expect(syncResendSignupContact(env, user)).resolves.toBeUndefined()
 
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(unsubscribed ? 3 : 4)
     expect(requestAt(1)).toEqual({
       url: "https://api.resend.com/contacts/contact-1", method: "PATCH",
       body: { first_name: user.name },
@@ -91,7 +97,63 @@ describe("Resend contact lifecycle with the official SDK", () => {
       url: `https://api.resend.com/contacts/contact-1/segments/${segmentId}`,
       method: "POST", body: undefined,
     })
+    if (!unsubscribed) {
+      expect(requestAt(3)).toEqual({
+        url: "https://api.resend.com/events/send", method: "POST",
+        body: { event: "new_signup", contact_id: "contact-1" },
+      })
+    }
     expect(logs.warn).not.toHaveBeenCalled()
+  })
+
+  it.each(["create", "segment"] as const)("waits for %s success before sending the event", async (stage) => {
+    let complete!: (value: Response) => void
+    const pending = new Promise<Response>((resolve) => { complete = resolve })
+    fetchMock.mockResolvedValueOnce(stage === "create" ? providerError(404, "not_found") : existingContact())
+    if (stage === "segment") fetchMock.mockResolvedValueOnce(response({ id: "contact-1" }))
+    fetchMock.mockReturnValueOnce(pending)
+      .mockResolvedValueOnce(response({ object: "event", event: "new_signup" }))
+
+    const work = syncResendSignupContact(env, user)
+    const beforeEvent = stage === "create" ? 2 : 3
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(beforeEvent))
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/events/send"))).toBe(false)
+
+    complete(response({ id: stage === "create" ? "new-contact" : segmentId }))
+    await expect(work).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(beforeEvent + 1)
+    expect(requestAt(beforeEvent).body).toEqual({
+      event: "new_signup", contact_id: stage === "create" ? "new-contact" : "contact-1",
+    })
+  })
+
+  it.each([422, 429, 500])("logs an event rejection (%i) without retrying or failing signup sync", async (status) => {
+    fetchMock.mockResolvedValueOnce(existingContact())
+      .mockResolvedValueOnce(response({ id: "contact-1" }))
+      .mockResolvedValueOnce(response({ id: segmentId }))
+      .mockResolvedValueOnce(providerError(status))
+
+    await expect(syncResendSignupContact(env, user)).resolves.toBeUndefined()
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(requestAt(3).url).toBe("https://api.resend.com/events/send")
+    expect(logs.warn.mock.calls).toEqual([
+      ["resend_contact_sync_failed", { action: "signup", stage: "event", errorCategory: "provider_error", statusCode: status }],
+    ])
+  })
+
+  it("contains an uncertain event network failure without retrying", async () => {
+    fetchMock.mockResolvedValueOnce(providerError(404, "not_found"))
+      .mockResolvedValueOnce(response({ id: "new-contact" }))
+      .mockRejectedValueOnce(new Error(privateError))
+
+    await expect(syncResendSignupContact(env, user)).resolves.toBeUndefined()
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(requestAt(2).url).toBe("https://api.resend.com/events/send")
+    expect(logs.warn.mock.calls).toEqual([
+      ["resend_contact_sync_failed", { action: "signup", stage: "event", errorCategory: "provider_error" }],
+    ])
   })
 
   it.each([[429, "rate_limit_exceeded"], [404, "validation_error"]])(

@@ -14,10 +14,11 @@ afterEach(() => {
 })
 
 describe("official Resend SDK in workerd", () => {
-  it("loads the SDK and creates a contact within the original execution context", async () => {
+  it("creates a contact and sends its signup event within the original execution context", async () => {
     const fetchMock = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ name: "not_found", statusCode: 404, message: "Missing contact" }, { status: 404 }))
       .mockResolvedValueOnce(Response.json({ id: "runtime-contact", object: "contact" }))
+      .mockResolvedValueOnce(Response.json({ object: "event", event: "new_signup" }))
     vi.stubGlobal("fetch", fetchMock)
     const context = createExecutionContext()
     context.waitUntil(syncResendSignupContact(env, user))
@@ -25,11 +26,41 @@ describe("official Resend SDK in workerd", () => {
     expect(await response.text()).toBe("created")
     await waitOnExecutionContext(context)
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(fetchMock.mock.calls[1]?.[0]).toBe("https://api.resend.com/contacts")
     expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toEqual({
       email: user.email, first_name: user.name, segments: [{ id: segmentId }],
     })
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("https://api.resend.com/events/send")
+    expect(JSON.parse(fetchMock.mock.calls[2]?.[1]?.body as string)).toEqual({
+      event: "new_signup", contact_id: "runtime-contact",
+    })
+  })
+
+  it("contains a failed signup event within waitUntil without retrying or logging private data", async () => {
+    const privateError = `${user.email} ${user.name} ${env.RESEND_API_KEY}`
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ id: "runtime-contact", unsubscribed: false }))
+      .mockResolvedValueOnce(Response.json({ id: "runtime-contact" }))
+      .mockResolvedValueOnce(Response.json({ id: segmentId }))
+      .mockResolvedValueOnce(Response.json({ name: "application_error", statusCode: 500, message: privateError }, { status: 500 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const log = vi.spyOn(console, "log")
+    const error = vi.spyOn(console, "error")
+    const context = createExecutionContext()
+    context.waitUntil(syncResendSignupContact(env, user))
+    await expect(waitOnExecutionContext(context)).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock.mock.calls[3]?.[0]).toBe("https://api.resend.com/events/send")
+    expect(error).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalledOnce()
+    expect(JSON.parse(log.mock.calls[0]?.[0] as string)).toMatchObject({
+      service: "resend-contacts", msg: "resend_contact_sync_failed", action: "signup",
+      stage: "event", errorCategory: "provider_error", statusCode: 500,
+    })
+    for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
+      expect(JSON.stringify(log.mock.calls)).not.toContain(value)
+    }
   })
 
   it("contains unsubscribe provider failure without leaking its body or email through console", async () => {
