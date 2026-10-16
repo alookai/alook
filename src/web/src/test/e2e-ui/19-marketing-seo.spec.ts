@@ -157,6 +157,7 @@ test("desktop landing keeps the embedded phone Back control on true mobile geome
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto("/")
 
+  await page.locator('[data-slot="phone-mockup-card"]').scrollIntoViewIfNeeded()
   const stage = page.getByTestId(tid.landingMobileMotionStage)
   await stage.scrollIntoViewIfNeeded()
   const back = stage.locator('button[aria-label="Back"]')

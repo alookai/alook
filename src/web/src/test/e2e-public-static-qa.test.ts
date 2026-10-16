@@ -44,6 +44,32 @@ function fixture() {
 }
 
 describe("public static QA immutable input and phase controls", () => {
+  it("loads the real supplementary config with original budgets and a mandatory phase-capability dependency", async () => {
+    vi.stubEnv("ALOOK_PUBLIC_STATIC_QA", "0")
+    const { default: ordinary } = await import("../../playwright.config")
+    const { default: supplementary } = await import("../../playwright.public-static-qa.config")
+    expect(process.env.ALOOK_PUBLIC_STATIC_QA).toBe("1")
+    expect(supplementary).toMatchObject({
+      testDir: "./src/test/e2e-ui/_qa/public-static",
+      testMatch: "**/*.qa.ts",
+      timeout: 60_000,
+      expect: { timeout: 10_000 },
+      workers: 1,
+      retries: 0,
+      maxFailures: 1,
+    })
+    expect(supplementary.globalSetup).toBe(ordinary.globalSetup)
+    expect(supplementary.globalTeardown).toBe(ordinary.globalTeardown)
+    expect(supplementary.use).toEqual(ordinary.use)
+    expect(supplementary.projects).toHaveLength(ordinary.projects!.length * 2)
+    for (const project of ordinary.projects!) {
+      const capabilityName = `${project.name}-phase-capability`
+      const capability = supplementary.projects!.find(value => value.name === capabilityName)
+      const journeys = supplementary.projects!.find(value => value.name === project.name)
+      expect(capability).toMatchObject({ ...project, name: capabilityName, grep: /@phase-capability/ })
+      expect(journeys).toMatchObject({ ...project, grepInvert: /@phase-capability/, dependencies: [capabilityName] })
+    }
+  })
   it("submits only once for a separately owned same-device login and retains its original failure", async () => {
     const visits: string[] = [], submits: number[] = []
     const failure = new Error("UI response lost")
