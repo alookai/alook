@@ -2,10 +2,11 @@ export const metadata = {
   slug: "keep-context-across-coding-agent-sessions",
   title: "How to Keep Context Across Multiple Coding Agent Sessions",
   date: "2026-07-28",
+  dateModified: "2026-10-16",
   author: "Alook Team",
   excerpt:
-    "Coding agents start sessions cold. Files, git, tool memory, and handoff notes each keep different pieces. Map what continues and what still breaks.",
-  readingTime: "8 min read",
+    "Coding agents start sessions cold. Agent memory, rules, git, and handoffs keep different pieces. Map what continues and what still breaks.",
+  readingTime: "9 min read",
   image: "/blog/keep-context-across-coding-agent-sessions/hero-og.webp",
 };
 
@@ -14,6 +15,14 @@ export const jsonLd = [
     "@context": "https://schema.org",
     "@type": "FAQPage",
     mainEntity: [
+      {
+        "@type": "Question",
+        name: "What is agent memory for coding agents?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Agent memory is how a coding agent keeps, organizes, and later retrieves information from earlier work. Retrieved pieces can become context for a new call; saving something does not mean it is already loaded.",
+        },
+      },
       {
         "@type": "Question",
         name: "Do CLAUDE.md or AGENTS.md restore my last chat?",
@@ -27,7 +36,7 @@ export const jsonLd = [
         name: "Is session resume enough when I switch from Claude Code to Cursor?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "No. Resume and auto memory stay with the product that stored them.",
+          text: "Usually not by itself. Resume and product auto memory stay with the tool that stored them. Shared files or an integration can bridge work, but private stores do not sync automatically.",
         },
       },
       {
@@ -35,7 +44,23 @@ export const jsonLd = [
         name: "What belongs in a handoff file?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Goal, done, changed paths, verified checks, not-done or blocked items, next step, and do-not-touch notes — rewritten each handoff.",
+          text: "Goal, done, changed paths, verified checks, not-done or blocked items, next step, and do-not-touch notes. Rewrite the file at each handoff, then re-check it for stale facts before the next edit.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "How to give AI agent memory for past interactions",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Save a compact record (product memory note or repo handoff), retrieve it in the next session, select only what the current task needs into context, then verify it against the current branch. That is not a full chat replay.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "How do I add memory to my AI agent? How do I give an AI agent persistent memory?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Pick the tool's native memory when you stay in one runtime, or a repo handoff when you may switch tools. Write the note, confirm where it lives, load or @-mention it next time, and update or delete it when the decision changes. Persistent storage still needs an explicit read.",
         },
       },
       {
@@ -52,25 +77,50 @@ export const jsonLd = [
 
 ![What survives a coding agent session: rules files, git, same-tool resume, and handoff notes](/blog/keep-context-across-coding-agent-sessions/hero.webp)
 
-*Composite scenario for illustration — not a customer case study.*
+*Composite scenario for illustration, not a customer case study.*
 
 You spend an hour with a coding agent sorting out an API boundary. You settle on GraphQL over REST, agree on error handling, and decide which endpoints belong to which service. Then the session ends.
 
-Tomorrow you open a new session in the same repo. The agent can read the files. It has no record of yesterday's thread. You re-explain the constraints. It suggests REST.
+Tomorrow you open a new session in the same repo without resume and without loading yesterday's notes. The agent can read the files. It does not have yesterday's thread in context. You re-explain the constraints. It suggests REST.
 
-Context does not survive between sessions by default. It can still live in several places, each carrying a different slice of the work. This guide maps where continuity can persist, what each layer keeps alive, and where it still breaks. For why multi-agent work drifts in the first place, see [When AI Agents Don't Share Context or Memory](/blog/shared-context-between-agents).
+A new session usually starts with a cold context window. Continuity still lives in several places, each carrying a different slice of the work. This guide maps those carriers, how **agent memory** relates to context, and where the story still breaks. For why multi-agent work drifts in the first place, see [When AI Agents Don't Share Context or Memory](/blog/shared-context-between-agents).
+
+## Context, agent memory, and what each one does
+
+**Context** is the input information available to the model when it generates an answer. The **context window** is the capacity limit for that input and related output. Anthropic's [context engineering guide](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) treats the window as a capacity constraint, not a full archive of every prior message.
+
+**AI agent memory** is how tools keep, organize, retrieve, and update information from earlier work so it can be selected again later. Claude Code's [memory docs](https://code.claude.com/docs/en/memory) and frameworks such as [LangChain's memory overview](https://docs.langchain.com/oss/python/concepts/memory) use related language: stored state can be retrieved; retrieved pieces can become context. Saving something does not mean it is already loaded, and loading it does not mean the model will use it correctly.
+
+### AI agent memory system: persistent context
+
+An **AI agent memory system** stores notes so they can outlive one chat window. Those stored notes provide **persistent context** when the next call retrieves and includes them. **AI agent persistent memory** can retain selected notes between sessions; the next run still has to retrieve and check them.
+
+Keep four carriers separate:
+
+- **Rules files** (`CLAUDE.md`, `AGENTS.md`, Cursor rules)
+  - What it is: stable instructions loaded into new sessions
+  - What it is not: a replay of Tuesday's chat
+- **Session history / resume**
+  - What it is: a record or checkpoint of one product's thread
+  - What it is not: guaranteed full transcript replay across tools
+- **Product memory** (e.g. Claude auto memory)
+  - What it is: notes the tool stores for later sessions
+  - What it is not: cross-machine or cross-vendor sync by default
+- **Handoff markdown**
+  - What it is: a portable WIP story you maintain
+  - What it is not: automatic notification or always-fresh truth
+
+Short-term memory can still be persisted (for example, thread-scoped checkpoints in LangGraph). Do not treat “short-term” as “never saved.”
 
 ## Coding agent sessions start with a cold context window
 
 Claude Code and Cursor both treat a new session as a cold conversational start.
 
-[Claude Code's memory docs](https://code.claude.com/docs/en/memory) say it directly: each Claude Code session begins with a fresh context window. What loads next is not the full chat. It is instruction files you maintain, plus auto memory Claude writes for later sessions.
+[Claude Code's memory docs](https://code.claude.com/docs/en/memory) say each Claude Code session begins with a fresh context window. What loads next is not the full chat. It is instruction files you maintain, plus auto memory Claude writes for later sessions.
 
 [Cursor's rules docs](https://cursor.com/docs/rules.md) draw the same line: large language models do not retain memory between completions. Project rules and `AGENTS.md` inject instructions into the prompt. They do not replay yesterday's thread.
 
-"Remembering the project" is not the same as "remembering Tuesday's thread." The agent can see the codebase. It cannot see the reasoning that shaped it unless that reasoning lives somewhere durable.
-
-Anthropic's [context engineering guide](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) pushes the same idea: give the model a compact set of high-signal information for the next action, not every prior message.
+"Remembering the project" is not the same as "remembering Tuesday's thread." The agent can see the codebase. It cannot see the reasoning that shaped it unless that reasoning lives somewhere durable and then gets selected into context.
 
 What survives a session boundary depends on which carriers you use.
 
@@ -94,13 +144,28 @@ Commits, PR descriptions, branch names, review threads.
 
 **Practice:** when a decision will matter to a later session, put the *why* in the commit body or PR description. Treat Git as code truth. For decision truth, you usually need another carrier.
 
-## Resume one runtime without expecting cross-tool memory
+## Resume one runtime without expecting automatic cross-tool memory
 
-Claude Code auto memory and `claude --continue` / `claude --resume`; multi-agent work inside Codex's own product surfaces.
+### How to persist memory across agent sessions
 
-**What continues (same runtime):** Claude Code can save notes (build commands, debugging patterns, preferences) under `~/.claude/projects/<project>/memory/`. The first 200 lines of `MEMORY.md`, or the first 25KB, whichever comes first, load at session start ([memory docs](https://code.claude.com/docs/en/memory)). [Best practices](https://code.claude.com/docs/en/best-practices) document `claude --continue` for the most recent session and `claude --resume` to pick from a list. Codex ships a [local CLI](https://github.com/openai/codex) and a separate app experience; agent work there stays inside OpenAI's surfaces, not inside Claude Code.
+Inside one product, use that product's memory store and resume. Across tools, write a repo handoff file the next runtime can read. Neither path syncs private stores automatically.
 
-**Where it breaks:** all of this is single-runtime. Claude's auto memory does not reach Codex. Codex sessions do not load into Claude Code. Resume restores one product's history, not another tool's. Switch runtimes, and there is no automatic path for those notes.
+Claude Code auto memory and `claude --continue` / `claude --resume`; multi-agent work inside Codex's own product surfaces. This is where **persistent agent memory** usually shows up in coding tools: a store that can outlive one chat window inside that product.
+
+**What continues (same runtime, same machine):** Claude Code can save notes (build commands, debugging patterns, preferences) under `~/.claude/projects/<project>/memory/`. At session start it loads the first 200 lines of `MEMORY.md`, or the first 25KB, whichever comes first; other topic files load on demand ([how it works](https://code.claude.com/docs/en/memory#how-it-works)). Auto memory is local to that machine and shared across worktrees for the same repo; it does not automatically sync across machines or cloud environments.
+
+To reopen work in that same product, [best practices](https://code.claude.com/docs/en/best-practices) document `claude --continue` for the most recent session and `claude --resume` to pick from a list. Codex ships a [local CLI](https://github.com/openai/codex) and a separate app experience; agent work there stays inside OpenAI's surfaces, not inside Claude Code.
+
+**Example: save → retrieve → select → verify (Claude auto memory):**
+
+1. **Save:** end of day, ask Claude Code to write “use GraphQL gateway; do not reopen REST debate” into project auto memory. Confirm the note appears under `~/.claude/projects/<project>/memory/` (in `MEMORY.md` or a topic file such as `api-boundary.md`).
+2. **Retrieve next session:** on the same machine, open the same repo and start Claude Code so startup can load `MEMORY.md` (first 200 lines or 25KB, whichever comes first). If the note lives in a topic file, open or `@`-mention that file so it is actually read, not only stored.
+3. **Select into context:** ask the agent to quote the GraphQL decision from that memory file before proposing API edits.
+4. **Verify freshness:** open the latest PR for the gateway change and check the memory note still matches the PR description and current branch; if the decision changed, update or delete the memory entry before more edits.
+
+Saved ≠ fully loaded. Loaded ≠ still true.
+
+**Where it breaks:** Claude's auto memory does not reach Codex by itself, and Codex sessions do not load into Claude Code. Resume restores one product's history, not another tool's private store. Shared repo files or an integration can still bridge work; there is no automatic private-store sync across vendors or machines.
 
 **Practice:** manage context aggressively inside one runtime. Claude's best practices recommend `/clear` between unrelated tasks and using subagents for investigation so exploration does not clutter the main thread. Do not mistake per-runtime memory for cross-tool continuity.
 
@@ -110,15 +175,21 @@ Claude Code [subagents](https://code.claude.com/docs/en/sub-agents) and [Agent T
 
 **What continues:** work that stays inside one ecosystem. Subagents run scoped tasks and return results to the parent. Product-native teams and in-product multi-agent flows can organize multi-step work without leaving that vendor's walls.
 
-**Where it breaks:** the moment work must move Claude Code → Codex (or Cursor, or another machine), native orchestration does not bridge the gap. Ownership and task status stay inside each runtime. For the dual-runtime case, see [bringing Claude Code and Codex into the same team](/blog/claude-code-and-codex-same-team). For nested helpers versus independent agents, see [Claude Code subagents vs independent coding agents](/blog/claude-code-subagents-vs-independent-agents).
+**Where it breaks:** when work must move Claude Code → Codex (or Cursor, or another machine), native orchestration does not bridge private ownership and task status by itself. For the dual-runtime case, see [bringing Claude Code and Codex into the same team](/blog/claude-code-and-codex-same-team). For nested helpers versus independent agents, see [Claude Code subagents vs independent coding agents](/blog/claude-code-subagents-vs-independent-agents).
 
 ## Write a handoff file before the next coding session
 
-A `HANDOFF.md`, `STATUS.md`, or short notes file at a fixed path in the repo.
+**How to add memory to AI agent sessions:** put the working story in a file the next session can open.
+
+A `HANDOFF.md`, `STATUS.md`, or short notes file at a fixed path in the repo. Treat it as a portable memory artifact you control, not as the same thing as product auto memory.
 
 ![Handoff.md template: goal, done, changed paths, verified, next step, do not touch](/blog/keep-context-across-coding-agent-sessions/handoff-template.webp)
 
-**What continues:** current goal, what was done, what changed, what to verify, what not to touch, and who owns the next step — if the outgoing session writes it before closing and the next session reads it before editing.
+[Open the full-size handoff template](/blog/keep-context-across-coding-agent-sessions/handoff-template.webp).
+
+**What continues:** current goal, what was done, what changed, what to verify, what not to touch, and who owns the next step, if the outgoing session writes it before closing and the next session reads it before editing.
+
+Use the same save → read → verify habit as the Claude memory example above, but write the artifact to a fixed repo path such as `docs/HANDOFF.md`. That is the main difference: product auto memory stays inside one tool and machine; a handoff file can be opened by any runtime that can read the repo, including after you switch tools.
 
 **Where it breaks:** a handoff nobody updates is worse than none. It needs a habit: write at task end, read at task start. It does not notify you. Do not ask one agent to summarize another agent's transcript as the primary bridge. Write the conclusions directly.
 
@@ -128,14 +199,15 @@ A `HANDOFF.md`, `STATUS.md`, or short notes file at a fixed path in the repo.
 
 ![Context carriers: what each layer continues and where it breaks](/blog/keep-context-across-coding-agent-sessions/carrier-map.webp)
 
-| Carrier | Continues | Breaks at |
-| --- | --- | --- |
-| Instruction files | Stable rules, architecture | Live WIP, weekly decisions |
-| Git / PR | Code changes, written review | Unwritten decisions |
-| Session resume / auto memory | Same tool, same project store | Other runtimes |
-| Nested agents / in-product multi-agent | Inside one ecosystem | Cross-runtime ownership |
-| Handoff markdown | Portable WIP story | Neglect, no template |
-| Coordination layer | Roles, threads, task status across agents | (next section) |
+[Open the full-size carrier map](/blog/keep-context-across-coding-agent-sessions/carrier-map.webp).
+
+- **Instruction files:** retain stable rules and architecture. They do not track live work or weekly decisions.
+- **Git / PR:** retain code changes and written review. Unwritten decisions are missing.
+- **Session resume / auto memory:** retain one tool's history or notes. Other runtimes and machines do not load private stores automatically.
+- **Nested agents / in-product multi-agent:** coordinate inside one ecosystem. Cross-runtime ownership still needs a bridge.
+- **Handoff markdown:** carries a portable work summary. It fails when the note is stale or nobody maintains it.
+- **Coordination layer:** connects roles, threads, and task status across agents. The next section explains its scope.
+
 
 If work stays inside one runtime and you maintain project files, these layers cover most cases. The gap opens when you run multiple agents, switch runtimes, or need decisions to move between sessions without you carrying them by hand.
 
@@ -143,9 +215,9 @@ If work stays inside one runtime and you maintain project files, these layers co
 
 The layers above still leave you as the sync point: read one session's output, paste into the next, or maintain a handoff no agent refreshes on its own.
 
-When that bridging is daily, the missing piece is not "more memory files." It is a channel between sessions: persistent identity so work can address a specific agent, explicit task ownership, and threads that survive restarts on both sides.
+When that bridging is daily, the missing piece is not only “more memory files.” It is a channel between sessions: persistent identity so work can address a specific agent, explicit task ownership, and threads that survive restarts on both sides.
 
-We built [Alook](https://alook.ai) as that coordination layer for local coding agents. Agents keep their own runtimes and in-tool memory. Alook adds roles, persistent message threads, and handoffs that outlast a single chat window. See [supported agents](/blog/ai-agent-team#supported-agents) for the current runtime list, and [how to build an AI agent team](/blog/ai-agent-team) for roles and handoffs.
+We built [Alook](https://alook.ai) as that coordination layer for local coding agents. Agents keep their own runtimes and in-tool memory. Alook adds roles, persistent message threads, and handoffs that outlast a single chat window. It does not merge every bot's private runtime memory. See [supported agents](/blog/ai-agent-team#supported-agents) for the current runtime list, and [how to build an AI agent team](/blog/ai-agent-team) for roles and handoffs.
 
 Context can persist in files, in Git, in runtime memory, in handoff notes. Each carries something. None carries everything. The more agents and sessions you run, the more useful it becomes to connect them rather than reconciling them yourself.
 
@@ -153,14 +225,24 @@ Related: [When AI Agents Don't Share Context or Memory](/blog/shared-context-bet
 
 ## FAQ
 
+**What is agent memory for coding agents?**  
+**Agent memory** is how a coding agent keeps, organizes, and later retrieves information from earlier work. Retrieved pieces can become context for a new call; saving something does not mean it is already loaded.
+
 **Do CLAUDE.md or AGENTS.md restore my last chat?**  
 No. They load instructions into a new session. They are not a transcript replay.
 
 **Is session resume enough when I switch from Claude Code to Cursor?**  
-No. Resume and auto memory stay with the product that stored them.
+Usually not by itself. Resume and product auto memory stay with the tool that stored them. Shared files or an integration can bridge work, but private stores do not sync automatically.
 
 **What belongs in a handoff file?**  
-Goal, done, changed paths, verified checks, not-done or blocked items, next step, and do-not-touch notes — rewritten each handoff.
+Goal, done, changed paths, verified checks, not-done or blocked items, next step, and do-not-touch notes. Rewrite the file at each handoff, then re-check it for stale facts before the next edit.
+
+**How to give AI agent memory for past interactions**  
+Save a compact record (product memory note or repo handoff), retrieve it in the next session, select only what the current task needs into context, then verify it against the current branch. That is not a full chat replay.
+
+**How do I add memory to my AI agent?**  
+**How do I give an AI agent persistent memory?**  
+Pick the tool's native memory when you stay in one runtime, or a repo handoff when you may switch tools. Write the note, confirm where it lives, load or `@`-mention it next time, and update or delete it when the decision changes. Persistent storage still needs an explicit read.
 
 **When do you need more than files and git?**  
 When work crosses runtimes or spans days and you need owned next steps plus a thread you can reopen without reconstructing the chat.
