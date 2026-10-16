@@ -142,9 +142,15 @@ after building both from the exact source under test; setup checks that
 both Worker entrypoints exist, but does not prove their freshness. This
 entry does not provide Next source hot reload: rebuild for source changes.
 
-Local setup backs up existing Web `.wrangler/state`, resets the test
-database and creates fresh actors. Teardown stops the owned process groups
-before restoring the prior state; startup failures use the same cleanup.
+With the checkout's local state users stopped, local setup moves existing
+Web `.wrangler/state` to its sibling `.wrangler/state.e2e-backup` before
+either build. This preserves the original bytes, file types and permission
+modes, including under a restrictive umask. Startup then resets the test
+database and creates fresh actors without replacing that original backup.
+Teardown stops the owned process groups before moving the original state
+back; build and startup failures use the same cleanup. An unresolved backup
+blocks preparation and remains available for recovery; do not delete it
+or start another run over it.
 Do not set `CI=1` to select the Worker graph: CI also disables the local
 state backup. Formal QA probes must use the same managed setup and teardown.
 

@@ -8,6 +8,7 @@ import { stripInlineMarkup, type CommunityRole as Role } from "@alook/shared"
 import { Avatar } from "@/components/community/avatar"
 import { MemberList } from "@/components/community/members/member-list"
 import { Message } from "@/components/community/messages/message"
+import { MessageAuthorLine } from "@/components/community/messages/message-author-line"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -145,14 +146,12 @@ function renderCommunityPanelBody({
           <Avatar label={author.avatar} seed={message.authorId} size={24} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm font-medium">{author.name}</span>
-            {message.createdAt && (
-              <span className="text-xs text-muted-foreground">
-                {formatRelativeTime(message.createdAt)}
-              </span>
-            )}
-          </div>
+          <MessageAuthorLine
+            variant="compact"
+            authorName={author.name}
+            timestamp={message.createdAt ? formatRelativeTime(message.createdAt) : undefined}
+            timestampProps={{ dateTime: message.createdAt }}
+          />
           <div className="truncate text-sm text-muted-foreground">
             {stripInlineMarkup(message.content ?? "")}
           </div>

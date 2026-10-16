@@ -3,6 +3,7 @@
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
+import { MessageAuthorLine } from "./message-author-line"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,11 +28,6 @@ import { RemoteContentImage } from "@/components/remote-image/remote-image"
 // plain caption above it is enough to mark it as context, not part of the
 // thread's own reply timeline.
 //
-// The parent lives in the OUTER channel — since server membership grants
-// channel access, any thread viewer can fetch it via the shared endpoint.
-// Fetching client-side (rather than embedding in the channels/[id] response)
-// keeps the parent live: an edit or reaction on the source message would
-// reflect here without a page reload once the mutation invalidates this key.
 export function ThreadOpener({
   parentMessageId,
   parentChannelId,
@@ -138,17 +134,12 @@ export function ThreadOpener({
           <Avatar label={avatarLabel} seed={msg.authorId} size={40} />
         </button>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex items-baseline gap-2">
-            <button
-              onClick={(e) => onOpenProfile?.(authorName, e, undefined, msg.authorId)}
-              className="text-[15px] font-semibold hover:underline"
-            >
-              {authorName}
-            </button>
-            <span className="text-xs text-muted-foreground" suppressHydrationWarning>
-              {formatMessageTime(msg.createdAt)}
-            </span>
-          </div>
+          <MessageAuthorLine
+            authorName={authorName}
+            onAuthorClick={(e) => onOpenProfile?.(authorName, e, undefined, msg.authorId)}
+            timestamp={formatMessageTime(msg.createdAt)}
+            timestampProps={{ dateTime: msg.createdAt }}
+          />
 
           {visibleContent && (
             <MessageBody

@@ -356,6 +356,22 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe("Message author line", () => {
+  it.each([false, true])("keeps selection local while grouped is %s", (grouped) => {
+    const onToggleSelect = vi.fn()
+    const view = rtlRender(makeTree({
+      m: baseMsg({ grouped }),
+      selectMode: true,
+      selected: true,
+      onToggleSelect,
+    }))
+    expect(view.container.querySelectorAll("[data-message-author-line]")).toHaveLength(grouped ? 0 : 1)
+    expect(view.container.querySelectorAll("[data-message-selection-checkbox]")).toHaveLength(1)
+    fireEvent.click(view.getByText("hello"))
+    expect(onToggleSelect).toHaveBeenCalledOnce()
+  })
+})
+
 describe("Message memo comparator", () => {
   it.each([true, false])("selects an external-link message without navigating (hover: %s)", async (hoverCapable) => {
     const onToggleSelect = vi.fn()

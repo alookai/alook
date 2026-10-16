@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -67,6 +67,11 @@ function resetCalls() {
   return transport.spawnSync.mock.calls.filter(([command, args]) => command === "pnpm" && args[1] === "db:reset")
 }
 
+async function startPreparedServices() {
+  runtime.prepareServices()
+  return runtime.startServices()
+}
+
 beforeEach(async () => {
   vi.stubEnv("CI", "")
   vi.stubEnv("ALOOK_E2E_FORCE_FRESH", "")
@@ -114,6 +119,130 @@ afterAll(() => {
 })
 
 describe("normal UI service startup", () => {
+  it("preserves pre-build state bytes, types and modes after a failed build under umask077", async () => {
+    priorState()
+    const nested = resolve(stateDir, "nested")
+    mkdirSync(nested)
+    const linked = resolve(nested, "original-link")
+    if (process.platform !== "win32") symlinkSync("../prior-state", linked)
+    chmodSync(stateDir, 0o751)
+    chmodSync(nested, 0o750)
+    chmodSync(priorFile, 0o644)
+    const originalModes = {
+      file: lstatSync(priorFile).mode & 0o777,
+      state: lstatSync(stateDir).mode & 0o777,
+      nested: lstatSync(nested).mode & 0o777,
+    }
+    const seen: unknown[] = []
+    transport.spawnSync.mockImplementation((command) => {
+      if (command !== "pnpm") return { status: 0, stdout: "", stderr: "" }
+      seen.push({
+        original: readFileSync(resolve(backupDir, "prior-state"), "utf8"),
+        mode: lstatSync(resolve(backupDir, "prior-state")).mode & 0o777,
+        restorePending: readLifecycleState(statePath)?.restorePending,
+      })
+      mkdirSync(stateDir, { recursive: true })
+      writeFileSync(priorFile, "mutated by failed build")
+      return { status: 1, signal: null, stdout: "", stderr: "" }
+    })
+    const previousUmask = process.umask(0o077)
+    try {
+      expect(() => runtime.prepareServices()).toThrow("web worker build failed")
+      await runtime.stopServicesAndRestore()
+      expect(seen).toEqual([{ original: "original local state", mode: originalModes.file, restorePending: true }])
+      expect(readFileSync(priorFile, "utf8")).toBe("original local state")
+      expect(lstatSync(priorFile).mode & 0o777).toBe(originalModes.file)
+      expect(lstatSync(stateDir).mode & 0o777).toBe(originalModes.state)
+      expect(lstatSync(nested).mode & 0o777).toBe(originalModes.nested)
+      if (process.platform !== "win32") {
+        expect(originalModes).toEqual({ file: 0o644, state: 0o751, nested: 0o750 })
+        expect(lstatSync(linked).isSymbolicLink()).toBe(true)
+        expect(readlinkSync(linked)).toBe("../prior-state")
+      }
+      expect(existsSync(backupDir)).toBe(false)
+      expect(transport.spawn).not.toHaveBeenCalled()
+      writeFileSync(priorFile, "after restored build failure")
+      await runtime.stopServicesAndRestore()
+      expect(readFileSync(priorFile, "utf8")).toBe("after restored build failure")
+    } finally {
+      process.umask(previousUmask)
+    }
+  })
+
+  it("retains the pre-build baseline through preparation and native startup", async () => {
+    priorState()
+    const previousSpawn = transport.spawnSync.getMockImplementation()!
+    transport.spawnSync.mockImplementation((command, args, options) => {
+      if (command === "pnpm" && args[1] !== "db:reset") {
+        mkdirSync(stateDir, { recursive: true })
+        writeFileSync(priorFile, "build-created state")
+      }
+      return previousSpawn(command, args, options)
+    })
+    coldHealth()
+    runtime.prepareServices()
+    expect(readFileSync(resolve(backupDir, "prior-state"), "utf8")).toBe("original local state")
+    expect(readLifecycleState(statePath)?.restorePending).toBe(true)
+    const starting = runtime.startServices()
+    await vi.advanceTimersByTimeAsync(1_000)
+    await starting
+    expect(readFileSync(resolve(backupDir, "prior-state"), "utf8")).toBe("original local state")
+    await runtime.stopServicesAndRestore()
+    expect(readFileSync(priorFile, "utf8")).toBe("original local state")
+    expect(existsSync(initializedFile)).toBe(false)
+  })
+
+  it.each(process.platform === "win32" ? ["directory", "file"] : ["directory", "file", "dangling link"])("rejects an unresolved %s backup before a build without replacing either state", (kind) => {
+    priorState()
+    if (kind === "directory") {
+      mkdirSync(backupDir)
+      writeFileSync(resolve(backupDir, "prior-state"), "unresolved original")
+    } else if (kind === "file") writeFileSync(backupDir, "unresolved original")
+    else symlinkSync("missing-original", backupDir)
+    expect(() => runtime.prepareServices()).toThrow("unresolved E2E state backup")
+    expect(readFileSync(priorFile, "utf8")).toBe("original local state")
+    if (kind === "dangling link") expect(readlinkSync(backupDir)).toBe("missing-original")
+    else expect(readFileSync(kind === "directory" ? resolve(backupDir, "prior-state") : backupDir, "utf8")).toBe("unresolved original")
+    expect(transport.spawnSync).not.toHaveBeenCalled()
+    expect(readLifecycleState(statePath)?.restorePending).toBe(false)
+  })
+
+  it.each(process.platform === "win32" ? ["file"] : ["file", "dangling link"])("rejects a %s state root before changing it or building", (kind) => {
+    mkdirSync(dirname(stateDir), { recursive: true })
+    if (kind === "file") writeFileSync(stateDir, "unexpected state file")
+    else symlinkSync("missing-state", stateDir)
+    expect(() => runtime.prepareServices()).toThrow("E2E local state must be a directory")
+    if (kind === "file") expect(readFileSync(stateDir, "utf8")).toBe("unexpected state file")
+    else expect(readlinkSync(stateDir)).toBe("missing-state")
+    expect(existsSync(backupDir)).toBe(false)
+    expect(transport.spawnSync).not.toHaveBeenCalled()
+    expect(readLifecycleState(statePath)?.restorePending).toBe(false)
+  })
+
+  it("does not back up build-created state when no local state existed before preparation", async () => {
+    const previousSpawn = transport.spawnSync.getMockImplementation()!
+    transport.spawnSync.mockImplementation((command, args, options) => {
+      if (command === "pnpm" && args[1] !== "db:reset") {
+        mkdirSync(stateDir, { recursive: true })
+        writeFileSync(priorFile, "build-created state")
+      }
+      return previousSpawn(command, args, options)
+    })
+    coldHealth()
+    expect(existsSync(stateDir)).toBe(false)
+    runtime.prepareServices()
+    expect(readFileSync(priorFile, "utf8")).toBe("build-created state")
+    expect(readLifecycleState(statePath)?.restorePending).toBe(false)
+    const starting = runtime.startServices()
+    await vi.advanceTimersByTimeAsync(1_000)
+    await starting
+    expect(existsSync(backupDir)).toBe(false)
+    expect(readLifecycleState(statePath)?.restorePending).toBe(false)
+    await runtime.stopServicesAndRestore()
+    expect(existsSync(priorFile)).toBe(false)
+    expect(existsSync(initializedFile)).toBe(true)
+  })
+
   it("waits for the native graph's exact health before warmup and owns its process group", async () => {
     const web = heldHealth()
     vi.stubGlobal("fetch", vi.fn((url: string) => {
@@ -121,7 +250,7 @@ describe("normal UI service startup", () => {
       return Promise.resolve(health())
     }))
 
-    const starting = runtime.startServices()
+    const starting = startPreparedServices()
     await vi.advanceTimersByTimeAsync(1_000)
     expect(transport.spawn).toHaveBeenCalledTimes(1)
     expect(readLifecycleState(resolve(transport.root, "state.json"))?.services.map((service) => service.name)).toEqual(["web-zones"])
@@ -143,7 +272,7 @@ describe("normal UI service startup", () => {
     const web = heldHealth()
     vi.stubGlobal("fetch", vi.fn(() => web.promise.then(health)))
 
-    const starting = runtime.startServices()
+    const starting = startPreparedServices()
     const failed = expect(starting).rejects.toThrow("web-zones exited before readiness (code 1, signal null)")
     await vi.advanceTimersByTimeAsync(1_000)
     expect(transport.spawn).toHaveBeenCalledTimes(1)
@@ -168,7 +297,7 @@ describe("normal UI service startup", () => {
       return spawnChild()
     })
 
-    const starting = runtime.startServices()
+    const starting = startPreparedServices()
     await vi.advanceTimersByTimeAsync(1_000)
     await starting
 
@@ -197,7 +326,7 @@ describe("normal UI service startup", () => {
       return { status: 1, signal: null, stdout: "", stderr: "migration failed\n" }
     })
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
-    const starting = runtime.startServices()
+    const starting = startPreparedServices()
     const failed = starting.then(() => null, (error: unknown) => error)
     await vi.advanceTimersByTimeAsync(1_000)
     expect(await failed).toMatchObject({ message: "db:reset failed (exit 1, signal null)" })
@@ -220,7 +349,7 @@ describe("normal UI service startup", () => {
     priorState()
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(health())))
 
-    const starting = runtime.startServices()
+    const starting = startPreparedServices()
     await vi.advanceTimersByTimeAsync(1_000)
     expect((await starting).map(({ name }) => name)).toEqual(["web-zones"])
     expect(transport.spawn).toHaveBeenCalledTimes(1)
@@ -241,7 +370,7 @@ describe("normal UI service startup", () => {
         ? new Response('{"status":"unavailable"}', { status: 503 })
         : health(),
     )))
-    const starting = runtime.startServices()
+    const starting = startPreparedServices()
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect((await starting).map(({ name }) => name)).toEqual(["web-zones"])
@@ -264,7 +393,7 @@ describe("normal UI service startup", () => {
       return spawnChild()
     })
 
-    const starting = runtime.startServices()
+    const starting = startPreparedServices()
     await vi.advanceTimersByTimeAsync(1_000)
     expect(await starting).toHaveLength(count)
     expect(initialProbeCounts[0]).toBe(0)
@@ -282,7 +411,7 @@ describe("normal UI service startup", () => {
         ? new Response("original warmup failure", { status: 500 })
         : health(),
     )))
-    const starting = runtime.startServices()
+    const starting = startPreparedServices()
     const failed = starting.then(() => null, (error: unknown) => error)
     await vi.advanceTimersByTimeAsync(1_000)
     expect(await failed).toMatchObject({ message: "Route warm-up failed (500 /c/channels/warmup)" })

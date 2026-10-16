@@ -4,12 +4,13 @@ import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const useMessageMock = vi.fn()
+const profileState = vi.hoisted(() => ({ name: "Alice" }))
 vi.mock("@/hooks/community/use-message", () => ({
   useMessage: (...args: unknown[]) => useMessageMock(...args),
 }))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: (userId?: string) => userId
-    ? { id: userId, name: "Alice", avatar: "A" }
+    ? { id: userId, name: profileState.name, avatar: "A" }
     : undefined,
 }))
 vi.mock("@/hooks/use-hover-capable", () => ({ useHoverCapable: () => true }))
@@ -26,8 +27,43 @@ import { attachmentImageFrameStyle } from "./attachment-layout"
 
 describe("ThreadOpener image attachment layout", () => {
   afterEach(() => {
+    profileState.name = "Alice"
     vi.useRealTimers()
     vi.unstubAllGlobals()
+  })
+
+  it("keeps the full canonical author, exact profile target and original Jump action", () => {
+    const authorName = "这是很长的作者姓名 LongUnbrokenName".repeat(4)
+    const createdAt = "2026-08-08T00:00:00.000Z"
+    profileState.name = authorName
+    useMessageMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      message: {
+        id: "opener_1", type: "chat", authorId: "user_1",
+        authorName: "Stale name", createdAt, content: "Original body",
+      },
+    })
+    const onOpenProfile = vi.fn()
+    const onJump = vi.fn()
+    const renderer = render(React.createElement(ThreadOpener, {
+      parentMessageId: "opener_1", parentChannelId: "parent_1", serverId: "server_1",
+      viewerUserId: "viewer_1", onOpenProfile, onJump,
+    }))
+    const author = renderer.getByRole("button", { name: authorName })
+    expect(author).toHaveAttribute("title", authorName)
+    expect(renderer.queryByText("Stale name")).toBeNull()
+    expect(renderer.container.querySelector("[data-message-author-line] time"))
+      .toHaveAttribute("datetime", createdAt)
+    fireEvent.click(author)
+    expect(onOpenProfile).toHaveBeenCalledExactlyOnceWith(
+      authorName, expect.objectContaining({ target: author }), undefined, "user_1",
+    )
+    expect(renderer.getByText("Thread started from")).toBeInTheDocument()
+    expect(renderer.getByText("Original body")).toBeInTheDocument()
+    fireEvent.click(renderer.getByRole("button", { name: "Jump to message" }))
+    expect(onJump).toHaveBeenCalledOnce()
+    expect(onOpenProfile).toHaveBeenCalledOnce()
   })
 
   it.each(["attachment", "Markdown"])("retires a previous opener's $name attempt even when its source is reused", async (kind) => {

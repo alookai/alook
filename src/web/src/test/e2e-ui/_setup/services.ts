@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "child_process"
 import { createRequire } from "module"
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, rmSync, statSync } from "fs"
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, renameSync, rmSync, statSync } from "fs"
 import { dirname, resolve } from "path"
 import { QUEUE_URL, REPO_ROOT, resolveWsUrl, SERVICE_LOG_DIR, SERVICE_STATE_PATH, SINGLE_RUNTIME, WEB_URL } from "./paths"
 import {
@@ -84,26 +84,33 @@ export function readinessExitMessage(
 
 export { SINGLE_RUNTIME } from "./paths"
 
-// Local D1/DO state that `db:reset` wipes. Backing it up to a sibling path
-// (outside `.wrangler/state`, so `rm -rf .wrangler/state` can't touch it)
-// lets a local run restore the developer's dev data on teardown. CI has no
-// prior state, so backup/restore is a no-op there.
 const STATE_DIR = resolve(REPO_ROOT, "src/web/.wrangler/state")
 const STATE_BACKUP_DIR = resolve(REPO_ROOT, "src/web/.wrangler/state.e2e-backup")
 
-// Returns true if a backup was taken (i.e. there was existing state to save).
-function backupState(): boolean {
-  if (process.env.CI || !existsSync(STATE_DIR)) return false
-  rmSync(STATE_BACKUP_DIR, { recursive: true, force: true })
-  cpSync(STATE_DIR, STATE_BACKUP_DIR, { recursive: true })
-  return true
+function backupState(): void {
+  const state = readLifecycleState(SERVICE_STATE_PATH)
+  if (!state) throw new Error("service lifecycle state was not initialized")
+  if (process.env.CI) return
+  if (lstatSync(STATE_BACKUP_DIR, { throwIfNoEntry: false })) throw new Error(`unresolved E2E state backup: ${STATE_BACKUP_DIR}`)
+  if (state.restorePending) throw new Error("E2E state restoration is already pending")
+  const original = lstatSync(STATE_DIR, { throwIfNoEntry: false })
+  if (!original) return
+  if (!original.isDirectory()) throw new Error("E2E local state must be a directory")
+  writeLifecycleState(SERVICE_STATE_PATH, { ...state, restorePending: true })
+  try {
+    renameSync(STATE_DIR, STATE_BACKUP_DIR)
+  } catch (error) {
+    writeLifecycleState(SERVICE_STATE_PATH, state)
+    throw error
+  }
 }
 
 export function restoreState(): void {
-  if (!existsSync(STATE_BACKUP_DIR)) return
+  if (!lstatSync(STATE_BACKUP_DIR, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error("E2E state backup must be a directory during restoration")
+  }
   rmSync(STATE_DIR, { recursive: true, force: true })
-  cpSync(STATE_BACKUP_DIR, STATE_DIR, { recursive: true })
-  rmSync(STATE_BACKUP_DIR, { recursive: true, force: true })
+  renameSync(STATE_BACKUP_DIR, STATE_DIR)
 }
 
 export async function hasExactHealth(
@@ -257,6 +264,7 @@ export function serviceBuildCommands(
 }
 
 export function prepareServices(): void {
+  backupState()
   for (const build of serviceBuildCommands()) {
     const res = spawnSync("pnpm", build.args, {
       cwd: REPO_ROOT,
@@ -499,8 +507,9 @@ export async function startServices(): Promise<ManagedService[]> {
   await new Promise((r) => setTimeout(r, 1000))
   const initialState = readLifecycleState(SERVICE_STATE_PATH)
   if (!initialState) throw new Error("service lifecycle state was not initialized")
-  const restorePending = backupState()
-  writeLifecycleState(SERVICE_STATE_PATH, { ...initialState, restorePending })
+  if (initialState.restorePending && !lstatSync(STATE_BACKUP_DIR, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error("E2E state backup is missing before service startup")
+  }
   resetDb()
   rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
   mkdirSync(SERVICE_LOG_DIR, { recursive: true })
