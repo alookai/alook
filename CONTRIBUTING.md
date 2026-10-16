@@ -103,6 +103,60 @@ Use the body to explain *what and why*, not how. Reference issues with `Closes #
 
 Tests run on both Ubuntu and Windows in CI.
 
+### UI browser E2E and formal local QA
+
+Run `pnpm test:e2e-ui` from the repository root. Local runs and CI use the
+same built Worker graph: one pinned Wrangler loads Web, WS and the real
+queue worker; Blog runs separately with its own storage. The public ingress
+is `http://localhost:3000`, with Web on port 3001 and Blog on port 3002. Stop other dev
+stacks before this run. The runner does not reuse a stack based on health
+responses and does not stop listeners owned by another worktree.
+
+Prepare local Worker variables before running. If the files do not exist,
+copy `src/web/.dev.vars.example` to `src/web/.dev.vars` and
+`src/queue-worker/.dev.vars.example` to `src/queue-worker/.dev.vars`.
+Fill in local `BETTER_AUTH_SECRET` and `ENCRYPTION_KEY`; the queue worker
+must use the same encryption key as Web. Keep these files private. The Web
+Worker variables must also include:
+
+```dotenv
+BETTER_AUTH_URL=http://localhost:3000
+NODE_ENV=development
+DEV_WS_DO_URL=http://localhost:3000
+```
+
+`NODE_ENV` here is a local Worker variable, not a build command override.
+The auth URL, browser origin and WS ingress must agree. The browser's token
+response can override its compiled WS port, so changing only a test URL is
+insufficient. The test process also honors `ALOOK_SERVER_URL` and
+`DEV_WS_DO_URL`; both must describe this graph's public ingress. A stale
+split WS override such as `http://localhost:8789` is rejected. An override does not reconfigure
+the launcher's fixed ports. Machines connect through
+`/api/ws/community-machine` at the same ingress.
+
+Both Web and Blog are built before startup. Set `ALOOK_E2E_PREBUILT=1` only
+after building both from the exact source under test; setup checks that
+both Worker entrypoints exist, but does not prove their freshness. This
+entry does not provide Next source hot reload: rebuild for source changes.
+
+Local setup backs up existing Web `.wrangler/state`, resets the test
+database and creates fresh actors. Teardown stops the owned process groups
+before restoring the prior state; startup failures use the same cleanup.
+Do not set `CI=1` to select the Worker graph: CI also disables the local
+state backup. Formal QA probes must use the same managed setup and teardown.
+
+Verify actual shared D1 reads/writes, browser and machine WS events, and
+task execution rather than health alone. When the development branch is
+selected, Web calls the real queue worker's task handler over binding-first
+HTTP; this is not durable Cloudflare Queue delivery. Record the transport
+that actually ran. Worker count, retries, timeouts and the CI matrix retain
+their existing settings.
+
+This entry covers UI Playwright and QA using its lifecycle. The separate
+Vitest API/integration `pnpm test:e2e` job, root `pnpm dev`, Email topology
+and full-stack hot reload retain their existing entrypoints and remain
+outside this change.
+
 ## Scripts Reference
 
 | Command | What it does |
