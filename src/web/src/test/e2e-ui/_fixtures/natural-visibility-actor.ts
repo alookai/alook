@@ -33,6 +33,7 @@ export function createNaturalVisibilityActor(input: {
   try {
     child = spawn(executable, [
       "--headless=new", "--no-sandbox", "--no-first-run", "--no-default-browser-check",
+      "--use-mock-keychain",
       "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
       `--user-data-dir=${profile}`, "about:blank",
     ], { detached: true, stdio: ["ignore", "ignore", "pipe"] })
