@@ -4,7 +4,7 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
 import { dmHref } from "@/lib/community/community-route"
-import { useCallback, useMemo } from "react"
+import { Activity, useCallback, useLayoutEffect, useMemo, useState } from "react"
 import { useCommunityRouteFrame } from "./community-route-context"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { useCurrentChannelId } from "@/stores/community"
@@ -13,10 +13,15 @@ import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { useInboxUnreads } from "@/hooks/community/use-inbox"
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
 // and no `[serverId]` param — everything is scoped to the current user.
-export function DmSidebarSlot() {
+export function DmSidebarSlot({ visible = true }: { visible?: boolean }) {
   const { frame } = useCommunityRouteFrame()
-  if (frame.scope.kind !== "me") return null
-  return <MeSidebar />
+  const inMe = frame.scope.kind === "me"
+  const [visitedMe, setVisitedMe] = useState(inMe)
+  useLayoutEffect(() => {
+    if (inMe) setVisitedMe(true)
+  }, [inMe])
+  if (!inMe && !visitedMe) return null
+  return <Activity mode={inMe && visible ? "visible" : "hidden"}><MeSidebar /></Activity>
 }
 
 function MeSidebar() {
