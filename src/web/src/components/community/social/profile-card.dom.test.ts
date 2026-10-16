@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, it, expect, vi } from "vitest"
-import { act, fireEvent, render, screen, setupUser } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 import {
   displayOwnerHandle,
   resolveAuditPreviewPlacement,
@@ -166,22 +166,6 @@ function findInterruptButton(container: HTMLElement) {
 }
 
 describe("ProfileCard contextual metadata", () => {
-  it("gives the mobile profile a visible Close without stopping a bot", async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const onClose = vi.fn()
-    const user = setupUser()
-    render(createElement(CommunityTestProvider, { client }, createElement(ProfileCard, {
-      data: { name: "Test bot", userId: "agent_1", about: "Test content" },
-      x: 0, y: 0, bp: "mobile", onClose,
-    })))
-    const close = await screen.findByRole("button", { name: "Close profile" })
-    expect(close).not.toHaveClass("sr-only")
-    expect(close).toBeVisible()
-    await user.click(close)
-    expect(onClose).toHaveBeenCalledOnce()
-    expect(mocks.interruptAgent).not.toHaveBeenCalled()
-  })
-
   it.each([
     ["desktop", "button"], ["desktop", "Enter"],
     ["mobile", "button"], ["mobile", "Enter"],

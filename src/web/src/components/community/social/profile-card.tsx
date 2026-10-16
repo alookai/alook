@@ -2,12 +2,11 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, type ComponentProps } from "react"
-import { Bot, MessagesSquare, Shield, UserRound, XIcon } from "lucide-react"
+import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
 import { SeededBackdrop } from "@/components/avatar"
 import { resolveAvatar } from "@/lib/avatar/resolve"
@@ -388,16 +387,11 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
           side="bottom"
           showOverlay
           showCloseButton={false}
-          className="max-h-dvh data-[side=bottom]:border-t-0 bg-transparent p-3 shadow-none"
+          className="data-[side=bottom]:border-t-0 bg-transparent p-3 shadow-none"
         >
           <SheetTitle className="sr-only">{name} profile</SheetTitle>
-          <div className="mb-2 flex shrink-0 justify-end">
-            <SheetClose aria-label="Close profile" render={<Button variant="ghost" size="icon-sm" className="size-11 bg-popover" />}>
-              <XIcon />
-              <span className="sr-only">Close profile</span>
-            </SheetClose>
-          </div>
-          <div className="flex min-h-0 flex-col gap-2 overflow-y-auto thin-scrollbar">
+          <SheetClose className="sr-only">Close profile</SheetClose>
+          <div className="flex flex-col gap-2">
             {secondaryCards}
             <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
           </div>
