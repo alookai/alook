@@ -8,6 +8,7 @@ import { UserBar } from "./user-bar"
 import { InboxPopover } from "./community-inbox-popover"
 import { ShellFrameOverlays } from "./shell-frame-overlays"
 import { CommunityShellLayout } from "./community-shell-layout"
+import { DmSidebarSlot } from "./dm-sidebar-slot"
 import { ProfileCard } from "../social/profile-card"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import type { CommunityCheckpointPlan } from "@/lib/community/community-route"
@@ -106,6 +107,7 @@ export function ShellFrameView({
           aria-hidden={checkpoint.sidebar.kind !== "keep" || undefined}
           className="flex min-h-0 flex-1 flex-col"
         >
+          <DmSidebarSlot visible={checkpoint.sidebar.kind === "keep"} />
           {breakpoint === "desktop" ? sidebar() : sidebar({ noHeader: false })}
         </div>
         {checkpoint.sidebar.kind === "server-skeleton"
