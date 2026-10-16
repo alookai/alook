@@ -589,7 +589,7 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
           record({ event: "payload-held", id: observedTransactions.get(this.transaction)?.id ?? null, payloadRead: reads, mode: this.transaction.mode, trusted: event.isTrusted })
           pending.push(() => {
             record({ event: "dispatch-begin" })
-            try { record({ event: "dispatch-return", accepted: request.dispatchEvent(event) }) } catch (error) {
+            try { record({ event: "dispatch-return", accepted: request.dispatchEvent(new Event(event.type, { bubbles: event.bubbles, cancelable: event.cancelable })) }) } catch (error) {
               record({ event: "dispatch-throw", name: error instanceof Error ? error.name : "unknown" })
               throw error
             }

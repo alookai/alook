@@ -693,6 +693,7 @@ test.describe("message scroll characterization", () => {
     await installScrollTrace(anchored.page)
     await anchored.page.goto(`/c/channels/${serverId}/${loadingChannelId}`, { waitUntil: "commit" })
     await expect(anchored.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
+    await expect(anchored.page.getByTestId(tid.messageScroller)).toHaveAttribute("data-pagination-enabled", "true")
     const older = await holdNextRequest(actors,
       anchored.page,
       `**/api/community/channels/${loadingChannelId}/messages**`,

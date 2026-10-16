@@ -3073,3 +3073,8 @@ body {
 .markdown-chat .message-markdown-blocks > * {
   margin-block: 0 !important;
 }
+
+/* Virtual message rows must measure code content, not Streamdown's offscreen placeholder. */
+[data-message-list-content] [data-streamdown="code-block"] {
+  content-visibility: visible !important;
+}

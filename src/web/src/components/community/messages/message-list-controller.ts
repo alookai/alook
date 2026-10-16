@@ -235,6 +235,7 @@ export function useMessageListController({
     scrollRef,
     virtualizer,
     readPositionReady,
+    paginationEnabled,
     jumpTo,
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,
