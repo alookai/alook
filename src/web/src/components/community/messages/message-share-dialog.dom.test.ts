@@ -318,6 +318,9 @@ describe("MessageShareDialog message projection", () => {
     expect(timestamp.classList).toContain("text-muted-foreground")
     expect(timestamp.parentElement?.classList).toContain("items-baseline")
     expect(timestamp.parentElement?.classList).toContain("gap-2")
+    expect(timestamp).toHaveAttribute("datetime", createdAt)
+    expect(timestamp.parentElement?.querySelector("button")).toBeNull()
+    expect(timestamp.previousElementSibling).toHaveAttribute("title", "Alice")
   })
 
   it("keeps the author and timestamp collapsed for grouped follow-ups", async () => {

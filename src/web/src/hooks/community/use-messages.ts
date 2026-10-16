@@ -162,11 +162,11 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
       && client.getQueryCache().get(captured.queryHash) === captured
     void client.infiniteQuery({ ...tail, staleTime: 0, select: undefined }).then(() => {
       if (!isCurrent()) return
-      present.setState((state) => state.attempt === attempt ? { ...state, pending: false, version: attempt,
-        window: { key: tail.queryKey, initial: { mode: "newest" }, tag } } : state)
+      present.setState((state) => ({ ...state, pending: false, version: attempt,
+        window: { key: tail.queryKey, initial: { mode: "newest" }, tag } }))
     }, (error: unknown) => {
       if (!isCurrent()) return
-      present.setState((state) => state.attempt === attempt ? { ...state, pending: false, error: error instanceof Error ? error : new Error("Could not load recent messages") } : state)
+      present.setState((state) => ({ ...state, pending: false, error: error instanceof Error ? error : new Error("Could not load recent messages") }))
     })
   }, [channelId, client, observation, owner, present, tag])
   const error = query.error ?? entry.error

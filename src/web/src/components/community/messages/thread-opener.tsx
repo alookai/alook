@@ -3,6 +3,7 @@
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
+import { MessageAuthorLine } from "./message-author-line"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -133,17 +134,12 @@ export function ThreadOpener({
           <Avatar label={avatarLabel} seed={msg.authorId} size={40} />
         </button>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex items-baseline gap-2">
-            <button
-              onClick={(e) => onOpenProfile?.(authorName, e, undefined, msg.authorId)}
-              className="text-[15px] font-semibold hover:underline"
-            >
-              {authorName}
-            </button>
-            <span className="text-xs text-muted-foreground" suppressHydrationWarning>
-              {formatMessageTime(msg.createdAt)}
-            </span>
-          </div>
+          <MessageAuthorLine
+            authorName={authorName}
+            onAuthorClick={(e) => onOpenProfile?.(authorName, e, undefined, msg.authorId)}
+            timestamp={formatMessageTime(msg.createdAt)}
+            timestampProps={{ dateTime: msg.createdAt }}
+          />
 
           {visibleContent && (
             <MessageBody

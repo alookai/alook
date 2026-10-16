@@ -13,4 +13,8 @@ describe("community document selection input", () => {
   it.each(["/c", "/c/me", "/c/me/friends", "/c/invite/token", "/sign-in", "https://elsewhere.test/c/me/bots", "/c/me/bots?settings=private", "/c/me/bots?msg=bad/slash"])("rejects an unsupported or unnormalized header %s", value => {
     expect(readCommunityDocumentRoute(value)).toBeNull()
   })
+  it.each([null, "", "/c/me/with space", "/c/me/%", "/c/me/\u0000", "/c/me/\ud800", "/c/../../sign-in", "/c/me/bots?tag=" + "x".repeat(101), "/c/me/" + "x".repeat(2048)])("rejects a noncanonical bounded header without replacing native URL: %j", value => {
+    expect(readCommunityDocumentRoute(value)).toBeNull()
+  })
+
 })

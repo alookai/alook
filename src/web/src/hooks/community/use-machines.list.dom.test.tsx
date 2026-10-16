@@ -79,4 +79,26 @@ describe("machine list primary readiness", () => {
     expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/machines?view=list", "/api/community/machines?view=observations"])
     hook.unmount()
   })
+  it("merges observed quota only into its matching live row and preserves unmatched rows", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const primary = deferred<MachinesResponse>()
+    const first = { id: "m1", hostname: "one", displayName: "One", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "0.1.53", status: "online" as const, createdAt: "created", updatedAt: "updated" }
+    const second = { ...first, id: "m2", hostname: "two", status: "offline" as const }
+    const quota: [] = []
+    load.mockImplementation((url: string) => url.endsWith("view=list") ? primary.promise
+      : Promise.resolve({ quotas: [{ machineId: "m1", quota }, { machineId: "removed", quota: [] }] }))
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
+    const hook = renderHook(() => useMachines(), { wrapper })
+    await waitFor(() => expect(client.getQueryData([...communityKeys.machines(), "observations"])).toMatchObject({ quotas: [{ machineId: "m1", quota }, { machineId: "removed", quota: [] }] }))
+    expect(hook.result.current.machines).toEqual([])
+    expect(hook.result.current.isPending).toBe(true)
+    await act(async () => primary.resolve({ machines: [first, second] }))
+    await waitFor(() => expect(hook.result.current.machines[0]).toHaveProperty("quota", quota))
+    expect(hook.result.current.machines.map(row => row.id)).toEqual(["m1", "m2"])
+    expect(hook.result.current.machines[1]).toEqual(second)
+    expect(hook.result.current.machines[1]).not.toHaveProperty("quota")
+    expect(client.getQueryData<MachinesResponse>(communityKeys.machines())?.machines[0]).not.toHaveProperty("quota")
+    hook.unmount()
+  })
+
 })

@@ -16,7 +16,7 @@ import {
   waitForServicesReady,
   wranglerLogEnvironment,
 } from "./e2e-ui/_setup/services"
-import { resolveMachineWsUrl, resolveWsUrl } from "./e2e-ui/_setup/paths"
+import { MACHINE_WS_URL, resolveMachineWsUrl, resolveWsUrl, WEB_URL, WS_URL } from "./e2e-ui/_setup/paths"
 
 const temporaryRoots: string[] = []
 
@@ -25,6 +25,13 @@ afterEach(() => {
 })
 
 describe("UI E2E service definitions", () => {
+  it("uses the native Worker graph and Web upgrade URLs by default locally", () => {
+    expect(serviceDefinitions().map(({ name }) => name)).toEqual(["web-zones"])
+    expect(WS_URL).toBe(WEB_URL)
+    expect(MACHINE_WS_URL).toBe(`${WEB_URL}/api/ws/community-machine`)
+    expect(serviceBuildCommands(undefined, false).map(({ name }) => name)).toEqual(["web worker", "Blog worker"])
+  })
+
   it("launches the exact Web workspace Wrangler instead of a PATH-selected CLI", () => {
     const runtime = resolveE2EWranglerRuntime()
     const requireFromTest = createRequire(import.meta.url)
@@ -57,7 +64,7 @@ describe("UI E2E service definitions", () => {
     }])
   })
 
-  it("requires the real queue consumer alongside web and ws-do locally", () => {
+  it("keeps the explicit split definition as a compatibility input with real worker URLs", () => {
     expect(serviceDefinitions(false).map(({ name, command }) => ({ name, command }))).toEqual([
       { name: "web", command: "pnpm" },
       { name: "ws-do", command: "pnpm" },
@@ -67,6 +74,8 @@ describe("UI E2E service definitions", () => {
       name: "queue-worker", command: "pnpm", args: ["--filter", "@alook/queue-worker", "dev"],
       healthUrl: "http://localhost:8790/health", expectedStatus: 200, expectedBody: { status: "ok" },
     })
+    expect(serviceDefinitions(false).find(({ name }) => name === "ws-do")?.healthUrl)
+      .toBe("http://localhost:8789/health")
   })
 
   it("skips both builds only when both prebuilt worker entrypoints exist", () => {
@@ -99,12 +108,20 @@ describe("UI E2E service definitions", () => {
     })).toBe("http://localhost:8789")
   })
 
-  it("always honors an explicit ws-do URL", () => {
+  it("honors an explicit WS URL at the native graph's Web ingress", () => {
     expect(resolveWsUrl({
-      webUrl: "http://localhost:3000",
+      webUrl: "http://localhost:9000",
       explicitWsUrl: "http://localhost:9000",
       singleRuntime: true,
     })).toBe("http://localhost:9000")
+  })
+
+  it("rejects a stale split WS override instead of leaving the native graph", () => {
+    expect(() => resolveWsUrl({
+      webUrl: "http://localhost:3000",
+      explicitWsUrl: "http://localhost:8789",
+      singleRuntime: true,
+    })).toThrow("UI E2E WS URL must match the Web ingress")
   })
 
   it("routes machine upgrades through the web worker in the single runtime", () => {

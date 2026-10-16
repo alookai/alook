@@ -5,6 +5,7 @@ import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture as fixture, dmConversationEntryFixture, conversationEntryTarget as target } from "@/test/conversation-entry-fixtures"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
+import { registerCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot } from "@/lib/community-db/sync"
 import { conversationEntryOptions, publishConversationEntry } from "@/lib/community/conversation-entry"
 import { communityKeys } from "@/lib/query-keys"
@@ -181,4 +182,32 @@ describe("conversation entry selection", () => {
     expect(load).not.toHaveBeenCalled()
     hook.unmount()
   })
+  it("withdraws a completed proof and exactly refetches after its real registry registration retires", async () => {
+    const { wrapper, publish, registry, client } = await setup()
+    const original = publish()
+    const hook = renderHook(() => useConversationEntry({ ...target }), { wrapper })
+    expect(hook.result.current.canRead).toBe(true)
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+    const request = deferred<ReturnType<typeof fixture>>()
+    load.mockReturnValue(request.promise)
+    const unregister = registerCommunityDbRegistry(registry)
+    let dispose!: () => void
+    await act(async () => {
+      unregister()
+      dispose = registerCommunityDbRegistry(registry)
+      hook.rerender()
+    })
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: conversationEntryOptions(client, target).queryKey, exact: true })
+    expect(hook.result.current.canRead).toBe(false)
+    expect(hook.result.current.resource).toBeUndefined()
+    await act(async () => request.resolve(fixture()))
+    await waitFor(() => expect(hook.result.current.canRead).toBe(true))
+    expect(hook.result.current.resource?.proof.ownerGeneration).toBe(registry.runtime.lifecycle.get().generation)
+    expect(hook.result.current.resource?.proof.ownerGeneration).toBeGreaterThan(original.proof.ownerGeneration)
+    invalidate.mockRestore()
+    hook.unmount()
+    dispose()
+  })
+
 })

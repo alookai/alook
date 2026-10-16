@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { communityMessagePreviewFromLegacy, CommunityLegacyMessageResourceSchema, communityChannelResourceFromStorage, CommunityMessageAttachmentSchema, CommunityMessagePreviewSchema, CommunityResourceProfileSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, normalizeCommunityChannelIdentity, normalizeCommunityChannelResource, normalizeCommunityChannelResourcePreview, normalizeCommunityMessageResource } from "../src"
 import { communityResourceChannelFixture, communityResourceMessageFixture } from "./community-ws-events.fixtures"
 import { COMMUNITY_CONTRACT_HEADER, requestsCommunityContract } from "../src/community-contract"
-import { CommunityConversationEntryReadSchema, communityReadSchemas } from "../src/community-resources"
+import { CommunityConversationEntryReadSchema, communityReadSchemas, type CommunityChannelResource } from "../src/community-resources"
 
 describe("common community resources", () => {
   it.each([2, 3] as const)("selects read contract %s without accepting the other version", (contractVersion) => {
@@ -97,6 +97,44 @@ describe("conversation entry resource", () => {
     page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
     surfaceReceipt: { channelId: communityResourceChannelFixture.id, surfaceKind: "channel" },
     readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null },
+  })
+
+
+  const forumEntry = () => {
+    const value = entry()
+    const channel: CommunityChannelResource = { ...value.channel, type: "forum" }
+    const child = { ...channel, id: "child", type: "thread" as const, parentChannelId: channel.id, parentMessageId: "opener" }
+    const opener = { ...communityResourceMessageFixture.message, id: "opener", channelId: channel.id }
+    const message = { ...opener, id: "reply", channelId: child.id }
+    return { ...value, channel, surfaceReceipt: { ...value.surfaceReceipt, surfaceKind: "forum" }, forumFeed: {
+      contractVersion: 3, channelId: channel.id, channel, threads: [child],
+      included: { messages: [opener, message], tags: [{ messageId: "opener", tag: "tag" }], participantCounts: [{ channelId: child.id, count: 1 }],
+        profiles: [{ id: "peer", name: "Peer", discriminator: "1234", avatar: null, avatarVersion: 0 }],
+        members: [{ channelId: child.id, userId: "peer", relation: "notify", source: "added", isCreator: false, role: null, memberId: null }] },
+      page: { nextCursor: null, hasMore: false },
+    } }
+  }
+
+  it("accepts a complete forum entry with opener, child messages and matching notification profiles", () => {
+    const value = forumEntry()
+    expect(CommunityConversationEntryReadSchema.parse(value)).toEqual(value)
+  })
+
+  it.each(["feed-server", "thread-parent", "thread-server", "message", "tag", "count", "member-channel", "member-relation", "member-profile"] as const)("rejects foreign forum included scope: %s", kind => {
+    const value = forumEntry()
+    const feed = value.forumFeed
+    if (kind === "feed-server") feed.channel = { ...feed.channel, serverId: "foreign" }
+    if (kind === "thread-parent") feed.threads[0].parentChannelId = "foreign"
+    if (kind === "thread-server") feed.threads[0].serverId = "foreign"
+    if (kind === "message") feed.included.messages[1].channelId = "foreign"
+    if (kind === "tag") feed.included.tags[0].messageId = "foreign"
+    if (kind === "count") feed.included.participantCounts[0].channelId = "foreign"
+    if (kind === "member-channel") feed.included.members[0].channelId = "foreign"
+    if (kind === "member-relation") feed.included.members[0].relation = "access"
+    if (kind === "member-profile") feed.included.profiles = []
+    const result = CommunityConversationEntryReadSchema.safeParse(value)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some(issue => issue.code === "custom" && issue.path[0] === "forumFeed")).toBe(true)
   })
 
   it("preserves a confirmed empty entry without inventing a read pointer", () => {

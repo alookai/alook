@@ -356,6 +356,10 @@ describe("BotMarkSticker", () => {
     expect(renderer.container.textContent).toContain("First")
     expect(renderer.container.textContent).not.toContain("**First**")
     expect(renderer.container.textContent).toContain("Gus")
+    const authorLine = rows[0]!.querySelector("[data-message-author-line]")!
+    expect(authorLine.querySelector("button")).toBeNull()
+    expect(authorLine.querySelector('[title="Gus"]')).toHaveTextContent("Gus")
+    expect(authorLine.querySelector("time")).toHaveAttribute("datetime", "2026-09-04T00:00:00.000Z")
     const messageContent = rows[0]!.querySelector("[data-community-message-body]")!
     expect(messageContent.querySelector('[data-streamdown="strong"]')).toHaveTextContent("First")
     expect(messageContent.querySelector("code")).toHaveTextContent("code")

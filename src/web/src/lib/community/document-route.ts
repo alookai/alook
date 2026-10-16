@@ -23,8 +23,6 @@ export function communityDocumentRoute(url: URL): string | null {
 
 export function readCommunityDocumentRoute(value: string | null): string | null {
   if (!value || !value.startsWith("/c/") || value.length > 2048) return null
-  try {
-    const canonical = communityDocumentRoute(new URL(value, "https://alook.invalid"))
-    return canonical === value ? canonical : null
-  } catch { return null }
+  const canonical = communityDocumentRoute(new URL(value, "https://alook.invalid"))
+  return canonical === value ? canonical : null
 }

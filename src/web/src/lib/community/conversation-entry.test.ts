@@ -5,7 +5,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { retireCommunityAccount } from "./account-cache-lifecycle"
-import { conversationEntryOptions, findConversationEntryWindow, publishConversationEntry } from "./conversation-entry"
+import { conversationEntryOptions, currentConversationReadState, findConversationEntryWindow, publishConversationEntry } from "./conversation-entry"
 import type { MessageWindowData } from "./message-window"
 
 const load = vi.hoisted(() => vi.fn())
@@ -193,4 +193,50 @@ describe("conversation entry canonical publication", () => {
     expect(registry.collections.channels.get("c1")).toBeUndefined()
     expect(registry.collections.messages.get("m1")).toBeUndefined()
   })
+  it("reads canonical registry rows and clock after their transport queries are removed", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const row = { channelId: "c1", lastReadMessageId: "read", lastReadAt: "at", lastReadSeq: 7, observedRevision: 9 }
+    registry.collections.readStates.utils.writeUpsert(row)
+    client.removeQueries({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "readStates"), exact: true })
+    const indexed = registry.collections.readStates.get("c1")
+    expect(indexed).toMatchObject(row)
+    expect(currentConversationReadState(client, "c1")).toBe(indexed)
+    registry.collections.readStateClock.utils.writeUpsert({ id: "account", revision: 9 })
+    client.removeQueries({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "readStateClock"), exact: true })
+    expect(currentConversationReadState(client, "not-yet-read")).toEqual({ channelId: "not-yet-read", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0, observedRevision: 9 })
+  })
+
+  it("has no current read pointer before either a row or an account clock is known", async () => {
+    const { client } = await createCommunityQueryOwner()
+    expect(currentConversationReadState(client, "unknown")).toBeUndefined()
+  })
+
+  it("finds its canonical window after channel transport query eviction", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = entry()
+    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    client.removeQueries({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "channels"), exact: true })
+    expect(registry.collections.channels.get("c1")?.resourceComplete).toBe(true)
+    expect(findConversationEntryWindow(client, target, resource, value.readState)?.key).toEqual(resource.windowKey)
+  })
+
+  it("admits a missing read pointer only for its qualified newest window with no newer page", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const value = entry()
+    value.readState = { channelId: "c1", lastReadMessageId: "missing", lastReadAt: "at", lastReadSeq: 10 }
+    value.selection = { reason: "read_pointer_missing", anchorMessageId: null }
+    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    expect(findConversationEntryWindow(client, target, resource, value.readState)?.initial).toEqual({ mode: "newest" })
+    expect(findConversationEntryWindow(client, target, resource, { ...value.readState, lastReadMessageId: "newer" })).toBeUndefined()
+    expect(findConversationEntryWindow(client, { ...target, anchorMessageId: "explicit" }, resource, value.readState)).toBeUndefined()
+    const data = client.getQueryData<MessageWindowData>(resource.windowKey)!
+    client.setQueryData(resource.windowKey, { ...data, pages: data.pages.map(page => ({ ...page, hasMoreNewer: true })) })
+    expect(findConversationEntryWindow(client, target, resource, value.readState)).toBeUndefined()
+    client.setQueryData(resource.windowKey, data)
+    const historical = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "elsewhere" })
+    client.setQueryData(historical, data)
+    client.removeQueries({ queryKey: resource.windowKey, exact: true })
+    expect(findConversationEntryWindow(client, target, resource, value.readState)).toBeUndefined()
+  })
+
 })
