@@ -2,10 +2,11 @@ export const metadata = {
   slug: "multi-agent-workflow-patterns",
   title: "7 Multi-Agent Workflow Patterns for AI Coding Agents",
   date: "2026-06-11",
+  dateModified: "2026-10-16",
   author: "Alook Team",
   excerpt:
-    "Seven multi-agent workflow patterns for AI coding agents, from bug-to-PR and releases to research briefs, documentation, monitoring, and follow-up.",
-  readingTime: "8 min read",
+    "Seven multi-agent workflow patterns for AI coding agents, with a worked bug-to-PR example covering inputs, handoffs, acceptance, and failure returns.",
+  readingTime: "9 min read",
   image: "/blog/multi-agent-workflow-patterns/hero.webp",
 };
 
@@ -43,7 +44,7 @@ export const jsonLd = [
         name: "Which agents does Alook support?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi.",
+          text: "Alook currently supports Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi.",
         },
       },
     ],
@@ -60,11 +61,11 @@ That sounds less exciting than "autonomous AI team." Good. The practical version
 
 A single coding agent can handle a lot. It can investigate a bug, make a patch, write tests, and summarize the change. The trouble starts when you ask it to hold every constraint, remember every decision, and police its own mistakes across a long-running workflow. Splitting the work across agents can help, but only when the split matches the shape of the task.
 
-This guide covers seven multi-agent workflow patterns that are concrete enough to build around. Use them as templates, not laws.
+The seven multi-agent workflow examples below are concrete enough to build around. Use them as templates, not laws. Pattern 1 walks through a bug report that becomes a pull request, with roles and handoffs written out.
 
 ## What makes a workflow multi-agent?
 
-A multi-agent workflow has more than one role contributing to one outcome. Those roles may run in sequence, in parallel, or on a schedule. The important part is the contract between them.
+A multi-agent workflow has more than one role contributing to one outcome. Those roles may run in sequence, in parallel, or on a schedule. The important part is the contract between them: who owns each stage, what they must hand off, where review happens, and when the run should stop. Deeper platform orchestration stays in the linked guide.
 
 Every useful workflow should define:
 
@@ -86,19 +87,59 @@ Alook keeps the assignment, status, and handoff in one room. It does not create 
 
 ## Pattern 1: Bug report to PR
 
-This is the most natural workflow for AI coding agents because the work already has stages.
+This AI agent coding workflow has four stages: reproduce, patch, review, and merge.
 
-The trigger is a new bug report. An investigator agent reproduces the issue, reads logs or failing tests, and writes a short diagnosis. A developer agent uses that diagnosis to prepare a focused patch. A reviewer agent checks the diff against the original report, confirms tests, and flags anything that still needs human judgment.
+### Worked example: checkout total wrong after coupon
 
-The handoff matters. The investigator should not say "fix auth." It should provide a concrete artifact:
+The whole scene below is **hypothetical**, including the issue text, file paths, log lines, and test names. Keep your own repo's paths and checks.
 
-- Summary of the user-visible bug
-- Reproduction steps
-- Likely files or components involved
-- Evidence gathered
-- Constraints the developer should not violate
+**Input (trigger artifact)**
 
-This workflow breaks down when the bug report is vague or the expected behavior is a product decision. In that case, the right move is to ask for clarification, not generate a speculative PR.
+- Issue title: `Checkout shows $0 after applying SAVE10`
+- Cart math before tax: subtotal **`$100.00`**, coupon `SAVE10` takes **`$10.00`** off, expected total **`$90.00`**
+- Actual: after the coupon applies, the order summary shows total **`$0.00`**
+- Environment: staging, logged-in user, cart with one paid item
+- Constraints: do not change pricing rules outside coupon application; do not touch payment capture or tax calculation
+
+**Roles**
+
+1. Investigator agent — reproduce and diagnose only
+2. Developer agent — patch from the diagnosis artifact
+3. Reviewer agent — check the diff against the issue and test evidence
+4. Human — merge or send the work back
+
+**Handoff artifact (investigator → developer)**
+
+The investigator must not say "fix checkout." Pass a short **diagnosis note**:
+
+- **User-visible bug:** total drops to `$0.00` after `SAVE10` instead of `$90.00` on a `$100.00` pre-tax subtotal
+- **Reproduction:** add SKU `SKU-100` → apply `SAVE10` → open order summary
+- **Likely area** (hypothetical path): `src/checkout/coupon.ts` discount application order
+- **Evidence** (hypothetical): staging log line `coupon.apply amount=null`; failing test `checkout.coupon.spec.ts`
+- **Do not change:** tax calculation, payment capture, or non-coupon promo codes
+
+**Developer acceptance before handoff to review**
+
+- Branch or worktree owns only coupon/checkout paths named in the diagnosis
+- Patch restores **`$100.00 − $10.00 = $90.00`** for `SAVE10` on this cart
+- Existing coupon test updated or new regression test added and passing locally
+- Summary lists files touched and what was not changed
+
+**Reviewer acceptance before human merge**
+
+- **Diff matches the diagnosis scope** (no drive-by refactors)
+- Reproduction steps in the issue no longer fail on the branch
+- Tests cited by the developer are present and green
+- Open questions flagged for a person (pricing policy, ambiguous expected behavior)
+
+**Failure return**
+
+- Cannot reproduce → **human** (issue author). Pause and ask for better steps or a recording.
+- Diagnosis names the wrong files → **investigator**. Developer does not guess a second patch.
+- Patch fixes the total but breaks another coupon path → **developer**. Reviewer rejects and includes the new failing case in the next handoff.
+- Expected behavior is a product call → **human**. No speculative PR.
+
+Each role waits on a named artifact. A failed check returns the work to a specific owner instead of looping inside one chat. This workflow breaks down when the bug report is vague or the expected behavior is a product decision. In that case, ask for clarification instead of opening a speculative PR.
 
 ## Pattern 2: Release preparation
 
@@ -214,7 +255,7 @@ Avoid starting with strategy, taste, negotiation, or live production decisions. 
 
 The important part is state. A workflow is hard to trust when every agent starts from a blank chat. Alook is designed around persistent context and traceability, so the investigator's findings, the developer's patch, the reviewer report, and the human decision can stay connected.
 
-Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi. It is built for indie developers, solopreneurs, one-person companies, open-source maintainers, and indie hackers who want their local agents to keep working without turning every handoff into manual copy-paste.
+Alook currently supports Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi. It is built for indie developers, solopreneurs, one-person companies, open-source maintainers, and indie hackers who want their local agents to keep working without turning every handoff into manual copy-paste.
 
 ## Multi-agent workflow FAQ
 
@@ -232,6 +273,6 @@ Start with the smallest workflow that has a real handoff. Many teams begin with 
 
 **Which agents does Alook support?**
 
-Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi.
+Alook currently supports Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi.
 
 Want to apply these patterns to a larger operating model? Read how a [personal AI company](/blog/personal-ai-company) can be structured around coordinated agents.
