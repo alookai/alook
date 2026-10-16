@@ -3,7 +3,7 @@ import type { APIResponse, BrowserContext, BrowserContextOptions, Page, Response
 import { createHash } from "crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { resolve } from "path"
-import { loginAndSaveState } from "../_setup/auth"
+import { loginAndSaveState, signIn } from "../_setup/auth"
 import { AUTH_DIR, SERVICE_STATE_PATH, WEB_URL } from "../_setup/paths"
 import { readLifecycleState } from "../_setup/service-lifecycle"
 import { USER_KEYS, type SeededUser, type UserKey } from "../_setup/users"
@@ -15,6 +15,7 @@ import { retrySeedRequest } from "./seed-retry"
 export type CaseActors = {
   asUser: (key: UserKey, options?: Omit<BrowserContextOptions, "storageState">) => Promise<{ context: BrowserContext; page: Page }>
   asNaturalUser: (key: UserKey, viewport: { width: number; height: number }) => Promise<{ context: BrowserContext; page: Page }>
+  signInOnPage: (key: UserKey, page: Page) => Promise<void>
   userId: (key: UserKey) => string
   userName: (key: UserKey) => string
   sessionCookie: (key: UserKey) => string
@@ -28,6 +29,7 @@ export type SignedOutEvidence = { context: BrowserContext; page: Page; protected
 export type ServerDeletionEvidence = { page: Page; response: PlaywrightResponse }
 export type OwnedCaseResource<T> = { readonly value: T; close: () => Promise<void> }
 export type CaseResources = {
+  readonly deadline: number
   newContext: (options?: BrowserContextOptions) => Promise<BrowserContext>
   closeContext: (context: BrowserContext) => Promise<void>
   own: <T>(value: T, dispose: (value: T) => Promise<void>) => OwnedCaseResource<T>
@@ -69,14 +71,15 @@ async function checkCleanupFailure(testInfo: TestInfo): Promise<void> {
   throw new Error(`Case fixture blocked by unresolved cleanup: ${failure.identity.testId}, worker ${failure.identity.workerIndex}`)
 }
 
-export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseResources: CaseResources; caseExitOwner: CaseExitOwner; caseCleanupGuard: void }>({
+export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseResources: CaseResources; caseExitOwner: CaseExitOwner; caseCleanupGuard: number }>({
   serviceGuard: async ({ caseCleanupGuard, serviceGuard }, provide) => {
     void caseCleanupGuard
     await provide(serviceGuard)
   },
   caseCleanupGuard: [async ({ }, provide, testInfo) => {
+    const deadline = Date.now() + testInfo.timeout
     await checkCleanupFailure(testInfo)
-    await provide()
+    await provide(deadline)
   }, { auto: true }],
   caseActors: async ({ caseExitOwner }, provide) => { await provide(caseExitOwner.allocate) },
   caseResources: async ({ caseExitOwner }, provide) => { await provide(caseExitOwner.resources) },
@@ -171,7 +174,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       operationCount += 1
       return resource
     }
-    const caseResources: CaseResources = { newContext: (options) => newContext(options, null), closeContext, own }
+    const caseResources: CaseResources = { deadline: caseCleanupGuard, newContext: (options) => newContext(options, null), closeContext, own }
     const sessionCookie = (key: UserKey): string => {
       const state = JSON.parse(readFileSync(user(key).storageState, "utf8")) as { cookies: Array<{ name: string; value: string }> }
       return state.cookies.filter((cookie) => cookie.name.startsWith("better-auth")).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ")
@@ -331,6 +334,54 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
         }
         await testInfo.attach("case-actor-ownership", { body: JSON.stringify({ identity, actors: roles.map((key) => ({ key, userId: user(key).userId })) }), contentType: "application/json" })
         return {
+          signInOnPage: async (key, page) => {
+            const actor = user(key)
+            const context = page.context()
+            const registration = contexts.get(context)
+            if (exiting || !registration || closedContexts.has(context) || page.isClosed()) throw new Error("Same-device login requires an open page owned by this case")
+            if ((await context.cookies()).some(cookie => cookie.name.startsWith("better-auth"))) throw new Error("Same-device login requires the previous UI session to be signed out")
+            const session = { cookie: "", submitted: false, captureFailed: false, role: key, userId: actor.userId, pending: undefined as Promise<void> | undefined }
+            own(session, async session => {
+              await session.pending?.catch(() => {})
+              if (session.captureFailed) throw new Error("Additional case session capture failed; retirement remains unknown")
+              if (!session.cookie) {
+                if (session.submitted) throw new Error("Additional case login was submitted without a captured cookie; server session retirement remains UNKNOWN")
+                return
+              }
+              if (session.cookie === originalSessions.get(key)) throw new Error("Additional-session cleanup must not retire the original resource session")
+              const signal = () => {
+                const remaining = caseCleanupGuard - Date.now()
+                if (remaining <= 0) throw new Error("Additional case session retirement exceeded its original deadline")
+                return AbortSignal.timeout(remaining)
+              }
+              const probe = () => fetch(`${WEB_URL}/api/ws/token?refresh=1`, { signal: signal(), headers: { Cookie: session.cookie, Origin: WEB_URL } })
+              const before = await probe()
+              if (before.status === 401) {
+                if (before.headers.get("content-type") !== "text/plain;charset=UTF-8" || await before.text() !== "Unauthorized") throw new Error("Additional case session returned an abnormal unauthorized response")
+                return
+              }
+              if (!before.ok || (await before.json() as { userId?: string }).userId !== session.userId) throw new Error("Additional case session has an unexpected identity during cleanup")
+              const response = await fetch(`${WEB_URL}/api/auth/sign-out`, { method: "POST", signal: signal(), headers: { Cookie: session.cookie, Origin: WEB_URL, "Content-Type": "application/json" }, body: "{}" })
+              const after = await probe()
+              if (!response.ok || after.status !== 401 || after.headers.get("content-type") !== "text/plain;charset=UTF-8" || await after.text() !== "Unauthorized") throw new Error("Additional case session retirement failed")
+            })
+            session.pending = (async () => {
+              const errors: unknown[] = []
+              try { await signIn(page, actor.email, { singleAttempt: true, onSubmission: () => { session.submitted = true } }) } catch (error) { errors.push(error) }
+              try { session.cookie = (await context.cookies()).filter(value => value.name.startsWith("better-auth")).map(value => `${value.name}=${value.value}`).join("; ") }
+              catch (error) { session.captureFailed = true; errors.push(error) }
+              if (errors.length === 1) throw errors[0]
+              if (errors.length > 1) throw new AggregateError(errors, "Additional case login and session capture failed")
+            })()
+            await session.pending
+            const cookie = session.cookie
+            if (exiting || !contexts.has(context) || !cookie || cookie === originalSessions.get(key)) throw new Error("Same-device UI login completed outside its owned live session")
+            const me = await context.request.get(`${WEB_URL}/api/ws/token`)
+            if (!me.ok() || (await me.json() as { userId?: string }).userId !== actor.userId) throw new Error("Same-device UI login returned a different case actor")
+            if (exiting || !contexts.has(context) || closedContexts.has(context)) throw new Error("Additional case session identity completed after retirement")
+            contexts.set(context, { ...registration, role: key, kind: "actor" })
+            await testInfo.attach("case-same-device-login", { body: JSON.stringify({ identity, contextOrdinal: registration.ordinal, role: key, userId: actor.userId, sessionFingerprint: createHash("sha256").update(cookie).digest("hex"), originalResourceSessionPreserved: true }), contentType: "application/json" })
+          },
           asUser: async (key, options) => {
             const context = await newContext({ ...options, storageState: user(key).storageState }, key)
             const page = await context.newPage()

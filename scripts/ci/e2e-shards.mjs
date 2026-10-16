@@ -85,6 +85,7 @@ export const SPEC_SECONDS = {
   "63-mobile-notification-chat-route.spec.ts": DEFAULT_SPEC_SECONDS,
   "64-billing-contact.spec.ts": 6,
   "65-analytics-document-boundary.spec.ts": DEFAULT_SPEC_SECONDS,
+  "66-public-static-resource-cache.spec.ts": DEFAULT_SPEC_SECONDS,
 }
 
 function walk(directory) {

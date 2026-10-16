@@ -2,7 +2,8 @@ import { spawn, spawnSync, type ChildProcess } from "child_process"
 import { createRequire } from "module"
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, renameSync, rmSync, statSync } from "fs"
 import { dirname, resolve } from "path"
-import { QUEUE_URL, REPO_ROOT, resolveWsUrl, SERVICE_LOG_DIR, SERVICE_STATE_PATH, SINGLE_RUNTIME, WEB_URL } from "./paths"
+import { assertPublicStaticWriteSeparation, canonicalPhasePath, readPhaseFile, readPublicStaticManifest } from "../../../../scripts/dev-zone-processes.mjs"
+import { AUTH_DIR, QUEUE_URL, REPO_ROOT, resolveWsUrl, SERVICE_LOG_DIR, SERVICE_STATE_PATH, SINGLE_RUNTIME, WEB_URL } from "./paths"
 import {
   addServiceProcess,
   applyHealthProbe,
@@ -10,8 +11,23 @@ import {
   failLifecycle,
   readLifecycleState,
   writeLifecycleState,
+  phaseReadinessFailure,
+  phaseProbeCrossed,
+  type PublicStaticPhaseReceipt,
   type ServiceLifecycleState,
 } from "./service-lifecycle"
+
+export function publicStaticQaManifest(verify = true) {
+  const file = process.env.ALOOK_E2E_RELEASE_MANIFEST
+  if (process.env.ALOOK_PUBLIC_STATIC_QA === "1" && !file) throw new Error("Supplementary public static QA requires ALOOK_E2E_RELEASE_MANIFEST")
+  if (!file) return null
+  if (process.env.ALOOK_PUBLIC_STATIC_QA !== "1" || process.env.ALOOK_E2E_PREBUILT !== "1") throw new Error("Release phases require explicit supplementary QA and prebuilt inputs")
+  if (canonicalPhasePath(file).startsWith(`${canonicalPhasePath(AUTH_DIR)}/`)) throw new Error("Release input manifest must survive the ordinary auth-directory reset")
+  const manifest = readPublicStaticManifest(file, AUTH_DIR, verify)
+  if (manifest.defaultRelease !== "Nplus1") throw new Error("The complete candidate QA run requires Nplus1 as its default release")
+  assertPublicStaticWriteSeparation(manifest, [AUTH_DIR, STATE_DIR, STATE_BACKUP_DIR, SERVICE_LOG_DIR, resolve(REPO_ROOT, "src/web/blog/.wrangler/state"), resolve(REPO_ROOT, ".wrangler/registry")])
+  return manifest
+}
 
 export interface ManagedService {
   name: string
@@ -264,8 +280,10 @@ export function serviceBuildCommands(
 }
 
 export function prepareServices(): void {
+  const phaseManifest = publicStaticQaManifest()
+  const builds = phaseManifest ? [] : serviceBuildCommands()
   backupState()
-  for (const build of serviceBuildCommands()) {
+  for (const build of builds) {
     const res = spawnSync("pnpm", build.args, {
       cwd: REPO_ROOT,
       stdio: "inherit",
@@ -375,6 +393,7 @@ export function serviceDefinitions(singleRuntime = SINGLE_RUNTIME): ServiceDefin
   }
 
   const runtime = resolveE2EWranglerRuntime()
+  const phaseManifest = publicStaticQaManifest(false)
   return [{
     name: "web-zones",
     command: "pnpm",
@@ -385,6 +404,7 @@ export function serviceDefinitions(singleRuntime = SINGLE_RUNTIME): ServiceDefin
       "--with-ws-do",
       "--wrangler-entry",
       runtime.entry,
+      ...(phaseManifest ? ["--public-static-manifest", resolve(process.env.ALOOK_E2E_RELEASE_MANIFEST!), "--public-static-owner-root", AUTH_DIR] : []),
     ],
     healthUrl: webHealth,
     expectedStatus: 200,
@@ -454,7 +474,43 @@ function startHealthSupervisor(services: ManagedService[]): void {
     healthProbeInFlight = true
     try {
       for (const service of services) {
+        const manifest = publicStaticQaManifest(false)
+        let sample: PublicStaticPhaseReceipt | undefined
+        const readExpectedPhase = () => {
+          const value = readPhaseFile(resolve(manifest!.controlDirectory, "receipt.json")) as PublicStaticPhaseReceipt | null
+          const failure = phaseReadinessFailure(value, Date.now())
+          if (failure || value?.runId !== manifest!.runId || value.manifestDigest !== manifest!.digest) throw new Error(failure ?? "Public static phase receipt has a foreign identity")
+          return value
+        }
+        if (manifest) {
+          readExpectedPhase()
+          const stable = await hasExactHealth("http://127.0.0.1:8789/health")
+          if (!stable.ok) {
+            const current = readLifecycleState(SERVICE_STATE_PATH)
+            if (current) writeLifecycleState(SERVICE_STATE_PATH, failLifecycle(current, { service: "stable-ws-queue", kind: "health", at: new Date().toISOString(), detail: stable.detail }))
+            stopHealthSupervisor()
+            return
+          }
+          sample = readExpectedPhase()
+          if (sample.status === "switching") continue
+          let blogFailure: string | undefined
+          try {
+            const blog = await fetch(`${WEB_URL}/blog`, { redirect: "manual", signal: AbortSignal.timeout(3_000) })
+            if (blog.status !== 200 || !(blog.headers.get("content-type") ?? "").includes("text/html")) blogFailure = "Blog phase health did not return its public document"
+            await blog.body?.cancel()
+          } catch (error) { blogFailure = error instanceof Error ? error.message : String(error) }
+          const after = readExpectedPhase()
+          if (phaseProbeCrossed(sample, after, Date.now())) continue
+          sample = after
+          if (blogFailure) {
+            const current = readLifecycleState(SERVICE_STATE_PATH)
+            if (current) writeLifecycleState(SERVICE_STATE_PATH, failLifecycle(current, { service: "blog", kind: "health", at: new Date().toISOString(), detail: blogFailure }))
+            stopHealthSupervisor()
+            return
+          }
+        }
         const result = await hasExactHealth(service.healthUrl)
+        if (manifest && sample && phaseProbeCrossed(sample, readExpectedPhase(), Date.now())) continue
         const state = readLifecycleState(SERVICE_STATE_PATH)
         if (!state) return
         const updated = applyHealthProbe(state, service.name, {
@@ -469,6 +525,10 @@ function startHealthSupervisor(services: ManagedService[]): void {
           return
         }
       }
+    } catch (error) {
+      const state = readLifecycleState(SERVICE_STATE_PATH)
+      if (state) writeLifecycleState(SERVICE_STATE_PATH, failLifecycle(state, { service: "web-zones", kind: "health", at: new Date().toISOString(), detail: error instanceof Error ? error.message : String(error) }))
+      stopHealthSupervisor()
     } finally {
       healthProbeInFlight = false
     }

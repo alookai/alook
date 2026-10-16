@@ -7,6 +7,10 @@ vi.mock("@/components/analytics-consent", () => ({
   AnalyticsConsent: "analytics-consent",
 }));
 
+vi.mock("@/components/service-worker-registration", () => ({
+  ServiceWorkerRegistration: "public-service-worker-registration",
+}));
+
 vi.mock("@/components/theme-color-sync", () => ({
   ThemeColorSync: "theme-color-sync",
 }));
@@ -39,6 +43,13 @@ vi.mock("@/lib/seo/site-metadata", () => ({
 import BlogRootLayout, { metadata, viewport } from "./layout";
 
 describe("BlogRootLayout", () => {
+  it("mounts the shared root service worker registration on a direct Blog entry", () => {
+    const layout = BlogRootLayout({ children: createElement("main", null, "Post") });
+    const body = layout.props.children[1];
+    expect(body.props.children.filter((child: { type: unknown }) => child.type === "public-service-worker-registration"))
+      .toHaveLength(1);
+  });
+
   it("renders the shared analytics consent control after blog content", () => {
     const child = createElement("main", null, "Post");
     const layout = BlogRootLayout({ children: child });

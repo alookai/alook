@@ -14,6 +14,7 @@
     "src/components/error-content.tsx",
     "src/components/not-found-content.tsx",
     "src/components/public-layout.tsx",
+    "src/components/service-worker-registration.tsx",
     "src/components/theme-color-sync.tsx",
     "src/components/theme-provider.tsx",
     "src/components/theme-toggle.tsx",
