@@ -17,6 +17,78 @@ export type QaAsset = { url: string; path: string; zone: "main" | "blog"; bytes:
 export type NativeResource = { url: string; bytes: number; sha256: string; fromServiceWorker: boolean }
 export type ExpirationRow = { id: string; cacheName: string; url: string; timestamp: number }
 
+export function createPublicStaticForensicRecord(options: { now?: () => number; monotonic?: () => string; limit?: number } = {}) {
+  const now = options.now ?? Date.now
+  const monotonic = options.monotonic ?? (() => process.hrtime.bigint().toString())
+  const limit = options.limit ?? 512
+  if (!Number.isInteger(limit) || limit < 1 || limit > 4096) throw new Error("Invalid forensic record limit")
+  const rows: Array<Record<string, string | number>> = []
+  const pending = new Set<number>()
+  let sequence = 0, request = 0, dropped = 0, observerFailures = 0
+  let phase = "setup"
+  const allowedPhases = new Set(["setup", "before", "after", "activated", "cleanup"])
+  const record = (event: string, values: Record<string, string | number> = {}) => {
+    try {
+      if (rows.length >= limit) { dropped++; return }
+      rows.push({ ...values, sequence: ++sequence, event, phase, pid: process.pid, unixMS: now(), monotonicNS: monotonic() })
+    } catch { observerFailures++ }
+  }
+  const pathOf = (path: string) => {
+    if (["/api/community/machines", "/api/community/machines/pair", "/api/community/daemon/activate"].includes(path)) return path
+    if (/^\/api\/community\/machines\/[^/?#]+$/.test(path)) return "/api/community/machines/:owned-machine"
+    if (/^\/api\/community\/channels\/[^/?#]+\/messages$/.test(path)) return "/api/community/channels/:owned-channel/messages"
+    return "other"
+  }
+  return {
+    phase(value: string) { phase = allowedPhases.has(value) ? value : "unknown" },
+    event(value: "ready-send-before" | "ready-send-returned" | "ws-open" | "ws-close" | "cleanup-start" | "activation-committed") { record(value) },
+    frame(value: string) { record("ws-frame", { type: value === "machine:heartbeat" ? value : "other" }) },
+    start(method: string, path: string) {
+      const id = ++request
+      pending.add(id)
+      record("http-start", { request: id, method: ["GET", "POST", "PATCH", "PUT", "DELETE"].includes(method) ? method : "other", path: pathOf(path) })
+      return id
+    },
+    response(id: number, response: Pick<Response, "status" | "headers">) {
+      try {
+        const timing = response.headers.get("server-timing") ?? ""
+        const metrics: string[] = []
+        let start = 0, quoted = false, escaped = false
+        if (timing.length <= 4096) for (let index = 0; index < timing.length; index++) {
+          const char = timing[index]
+          if (escaped) escaped = false
+          else if (quoted && char === "\\") escaped = true
+          else if (char === '"') quoted = !quoted
+          else if (char === "," && !quoted) { metrics.push(timing.slice(start, index).trim()); start = index + 1 }
+        }
+        if (timing.length <= 4096 && !quoted && !escaped) metrics.push(timing.slice(start).trim())
+        else metrics.length = 0
+        const named = (name: string) => metrics.filter(metric => metric.split(";", 1)[0]?.trim() === name)
+        const sampling = named("alook_sampling"), context = named("alook_server")
+        const selected = sampling.length === 1 ? /^alook_sampling;\s*desc="(selected|not_selected|unavailable)"$/.exec(sampling[0]!)?.[1] : undefined
+        const parent = context.length === 1 ? /^alook_server;\s*desc="(00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2})"$/.exec(context[0]!)?.[1] : undefined
+        const server = parent && !/^00-0{32}-/.test(parent) && !/-0{16}-/.test(parent) ? parent : undefined
+        record("http-response", { request: id, status: response.status, sampling: selected ?? "unavailable", ...(server ? { serverTraceContext: server } : {}) })
+        pending.delete(id)
+      } catch { observerFailures++ }
+    },
+    failed(id: number) { record("http-fetch-error", { request: id }); pending.delete(id) },
+    snapshot() { return { schema: 1, clocks: { unixMS: "Date.now; same-host wall clock, not monotonic", monotonicNS: "process.hrtime.bigint; same PID order only" }, qualification: "Local call-site observations only; ready send is not native receive/commit or SQLite concurrency", dropped, observerFailures, pendingRequests: pending.size, complete: dropped === 0 && observerFailures === 0 && pending.size === 0, rows: rows.map(row => ({ ...row })) } },
+  }
+}
+
+const forensicRecords = new WeakMap<CaseResources, ReturnType<typeof createPublicStaticForensicRecord>>()
+
+export function ownPublicStaticForensics(resources: CaseResources, testInfo: TestInfo) {
+  if (process.env.ALOOK_E2E_PUBLIC_STATIC_FORENSICS !== "1" || forensicRecords.has(resources)) return
+  const record = createPublicStaticForensicRecord()
+  forensicRecords.set(resources, record)
+  resources.own(record, async record => {
+    forensicRecords.delete(resources)
+    await attachQa(testInfo, "original-path-forensic-call-sites", record.snapshot())
+  })
+}
+
 export function blogBuildIdFromScripts(scripts: string) {
   const normalized = scripts.replace(/\\"/g, '"')
   const ids = [...new Set([...normalized.matchAll(/"b"\s*:\s*"([a-zA-Z0-9_-]+)"/g)].map(match => match[1]))]
@@ -45,6 +117,7 @@ export function blocked(testInfo: TestInfo, reason: string): never {
 
 export function createQaPhaseOwner(resources: CaseResources, testInfo: TestInfo) {
   const manifest = requiredQaManifest()
+  ownPublicStaticForensics(resources, testInfo)
   const receiptPath = resolve(manifest.controlDirectory, "receipt.json")
   const requestPath = resolve(manifest.controlDirectory, "request.json")
   const caseId = testInfo.testId
@@ -420,7 +493,16 @@ export function qaDeadlineSignal(resources: CaseResources) {
 }
 
 export async function qaApi<T>(actors: CaseActors, resources: CaseResources, role: "alice" | "bob", path: string, init?: RequestInit): Promise<{ status: number; body: T }> {
-  const response = await fetch(`${WEB_URL}${path}`, { ...init, signal: qaDeadlineSignal(resources), headers: { Cookie: actors.sessionCookie(role), Origin: WEB_URL, ...(init?.body ? { "content-type": "application/json" } : {}), ...init?.headers } })
+  const observation = forensicRecords.get(resources)
+  const request = observation?.start(init?.method ?? "GET", path)
+  let response: Response
+  try {
+    response = await fetch(`${WEB_URL}${path}`, { ...init, signal: qaDeadlineSignal(resources), headers: { Cookie: actors.sessionCookie(role), Origin: WEB_URL, ...(init?.body ? { "content-type": "application/json" } : {}), ...init?.headers } })
+  } catch (error) {
+    if (request !== undefined) observation!.failed(request)
+    throw error
+  }
+  if (request !== undefined) observation!.response(request, response)
   if (!response.ok) throw new Error(`QA ${init?.method ?? "GET"} ${path} returned ${response.status}`)
   return { status: response.status, body: await response.json() as T }
 }
@@ -450,9 +532,12 @@ export async function ownedBusiness(actors: CaseActors, role: "alice" | "bob", r
 }
 
 export async function ownD1WsProbe(actors: CaseActors, resources: CaseResources, testInfo: TestInfo) {
+  const observation = forensicRecords.get(resources)
   const hostname = `qa222-${createHash("sha256").update(testInfo.testId).digest("hex").slice(0, 20)}`
   const state = { machineId: "", pairingRequested: false, tokenId: "", tokenConsumed: false, activationOutcome: "not_attempted", activationPending: undefined as Promise<void> | undefined, socket: undefined as WebSocket | undefined, closed: undefined as Promise<void> | undefined, opened: 0, closes: 0, frames: [] as Array<{ type: string }> }
   const owner = resources.own(state, async state => {
+    observation?.phase("cleanup")
+    observation?.event("cleanup-start")
     const errors: unknown[] = []
     await state.activationPending?.catch(error => errors.push(error))
     if (state.pairingRequested && !state.tokenConsumed) errors.push(new Error(`Pairing token consumption remains UNKNOWN (${state.activationOutcome}); no public revocation proof is available`))
@@ -480,10 +565,12 @@ export async function ownD1WsProbe(actors: CaseActors, resources: CaseResources,
     state.tokenId = pair.body.tokenId
     if (!state.tokenId) throw new Error("Pairing response did not identify its issued token")
     state.activationOutcome = "unknown"
+    const activationRequest = observation?.start("POST", "/api/community/daemon/activate")
     const response = await fetch(`${WEB_URL}/api/community/daemon/activate`, {
       method: "POST", signal: qaDeadlineSignal(resources), headers: { Authorization: `Bearer ${state.tokenId}`, Origin: WEB_URL, "content-type": "application/json" },
       body: JSON.stringify({ hostname, platform: "linux", arch: "x64", osRelease: "qa", daemonVersion: "0.1.53", runtimeReport: [] }),
     })
+    if (activationRequest !== undefined) observation!.response(activationRequest, response)
     expect(response.status).toBe(200)
     const activation = await response.json() as { machineId: string; credential: string; sessionOutcome: string }
     state.machineId = activation.machineId
@@ -492,29 +579,34 @@ export async function ownD1WsProbe(actors: CaseActors, resources: CaseResources,
     expect(activation.machineId).toBeTruthy()
     expect(activation.credential).toBeTruthy()
     state.tokenConsumed = true
+    observation?.event("activation-committed")
     const NativeSocket = globalThis.WebSocket as unknown as new (url: string, options: { headers: Record<string, string> }) => WebSocket
     state.socket = new NativeSocket(MACHINE_WS_URL.replace(/^http/, "ws"), { headers: { Authorization: `Bearer ${activation.credential}`, Origin: WEB_URL } })
-    state.closed = new Promise(resolveClose => state.socket!.addEventListener("close", () => { state.closes++; resolveClose() }, { once: true }))
+    state.closed = new Promise(resolveClose => state.socket!.addEventListener("close", () => { state.closes++; observation?.event("ws-close"); resolveClose() }, { once: true }))
     state.socket.addEventListener("message", event => {
       const frame = JSON.parse(String(event.data)) as { type: string; nonce?: string }
       state.frames.push({ type: frame.type })
+      observation?.frame(frame.type)
       if (frame.type === "machine:heartbeat") state.socket!.send(JSON.stringify({ type: "machine_heartbeat_ack", nonce: frame.nonce }))
     })
     await withinQaDeadline(new Promise<void>((resolveOpen, reject) => {
-      state.socket!.addEventListener("open", () => { state.opened++; resolveOpen() }, { once: true })
+      state.socket!.addEventListener("open", () => { state.opened++; observation?.event("ws-open"); resolveOpen() }, { once: true })
       state.socket!.addEventListener("error", () => reject(new Error("Real same-origin machine WS failed")), { once: true })
       state.socket!.addEventListener("close", () => reject(new Error("Real same-origin machine WS closed before ready")), { once: true })
     }), resources.deadline)
   })()
   await state.activationPending
   const writeAndRead = async (phase: string) => {
+    observation?.phase(phase)
     const socket = state.socket!
     const observedFrom = Date.now()
     expect(state.socket!.readyState).toBe(WebSocket.OPEN)
     expect(state.opened).toBe(1)
     expect(state.closes).toBe(0)
     const changedHostname = `${hostname}-${phase}`
+    observation?.event("ready-send-before")
     state.socket!.send(JSON.stringify({ type: "ready", runtimeReport: [], runningAgents: [], capabilities: ["control-heartbeat-v1"], hostname: changedHostname, platform: "linux", arch: "x64", osRelease: "qa", daemonVersion: "0.1.53" }))
+    observation?.event("ready-send-returned")
     await expect.poll(async () => (await qaApi<{ machines: Array<{ id: string; hostname: string; status: string }> }>(actors, resources, "alice", "/api/community/machines")).body.machines.find(value => value.id === state.machineId)).toMatchObject({ id: state.machineId, hostname: changedHostname, status: "online" })
     expect(state.socket).toBe(socket)
     expect(socket.readyState).toBe(WebSocket.OPEN)

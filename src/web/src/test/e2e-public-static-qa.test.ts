@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { EventEmitter } from "node:events"
@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { assertPublicStaticInputs, assertPublicStaticWriteSeparation, builtPrecacheEntries, containedPath, phaseWorkerDefinitions, readPublicStaticManifest, validatePhaseCommand, validatePublicStaticManifest } from "../../scripts/dev-zone-processes.mjs"
 import { createPhaseGate, createUpgradeSocketOwner } from "../../scripts/dev-zone-ingress.mjs"
 import { phaseProbeCrossed, phaseReadinessFailure, type PublicStaticPhaseReceipt } from "./e2e-ui/_setup/service-lifecycle"
-import { publicStaticQaManifest, serviceDefinitions } from "./e2e-ui/_setup/services"
+import { capturePublicStaticRuntimeState, cleanupWithPublicStaticEvidence, publicStaticQaManifest, serviceDefinitions } from "./e2e-ui/_setup/services"
 import { signIn } from "./e2e-ui/_setup/auth"
-import { assertFaultBase, blogBuildIdFromScripts, exactSwRequest, releaseDelta, runQaScope, withinQaDeadline, type QaAsset } from "./e2e-ui/_fixtures/public-static-qa"
+import { assertFaultBase, blogBuildIdFromScripts, createPublicStaticForensicRecord, exactSwRequest, ownPublicStaticForensics, qaApi, releaseDelta, runQaScope, withinQaDeadline, type QaAsset } from "./e2e-ui/_fixtures/public-static-qa"
 
 const directories: string[] = []
-afterEach(() => { vi.unstubAllEnvs(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "alook-222-phase-unit-"))
@@ -340,5 +340,191 @@ describe("public static QA immutable input and phase controls", () => {
     expect(phaseReadinessFailure({ ...receipt, expectedStops: [{ label: "stable WS/queue", pid: 10 }, { label: "Blog backend", pid: 20 }] }, 1_000)).toContain("invalid")
     expect(phaseReadinessFailure({ ...receipt, expectedStops: [{ label: "main backend", pid: 10 }, { label: "Blog backend", pid: 10 }] }, 1_000)).toContain("invalid")
     expect(phaseReadinessFailure({ ...receipt, status: "failed", failure: "stable socket lost" }, 1_000)).toBe("stable socket lost")
+  })
+})
+
+describe("original-path forensic evidence", () => {
+  const initial = () => ({ status: "stopping" as const, restorePending: true, services: [{ name: "owned", pid: 123, startedAt: "unit", healthUrl: "unit", expectedStatus: 200, expectedBody: { status: "ok" as const }, logPath: "unit", internalLogDirectory: "unit" }], health: {} })
+  const cleanup = (overrides: Partial<Parameters<typeof cleanupWithPublicStaticEvidence>[1]> = {}) => {
+    const order: string[] = []
+    const dependencies = { terminate: () => { order.push("terminate") }, waitForStop: async () => { order.push("stopped"); return true }, capture: () => { order.push("capture") }, restore: () => { order.push("restore") }, persist: (state: Parameters<Parameters<typeof cleanupWithPublicStaticEvidence>[1]["persist"]>[0]) => { order.push(`persist:${state.status}:${state.restorePending}`) }, ...overrides }
+    return { order, dependencies }
+  }
+  const captureFixture = () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook-222-forensic-unit-"))
+    directories.push(directory)
+    const runtimeRoot = join(directory, "runtime"), ownerRoot = join(directory, "owner"), controlDirectory = join(ownerRoot, "control")
+    mkdirSync(runtimeRoot)
+    mkdirSync(controlDirectory, { recursive: true })
+    return { runtimeRoot, ownerRoot, controlDirectory, runId: "unit-forensic-222", manifestDigest: "a".repeat(64) }
+  }
+  const observedApi = () => {
+    const callbacks: Array<() => Promise<void>> = []
+    const attachments: Array<{ body: string }> = []
+    const resources = { deadline: Date.now() + 10_000, own: (value: unknown, dispose: (value: unknown) => Promise<void>) => { const close = () => dispose(value); callbacks.push(close); return { value, close } } } as unknown as Parameters<typeof ownPublicStaticForensics>[0]
+    const info = { attach: async (_name: string, value: { body: string }) => { attachments.push(value) } } as unknown as Parameters<typeof ownPublicStaticForensics>[1]
+    vi.stubEnv("ALOOK_E2E_PUBLIC_STATIC_FORENSICS", "1")
+    ownPublicStaticForensics(resources, info)
+    return { resources, info, attachments, flush: async () => { for (const callback of callbacks.splice(0)) await callback() } }
+  }
+
+  it("requires the explicit forensic flag and supplementary mode before setup mutates state", () => {
+    vi.stubEnv("ALOOK_E2E_PUBLIC_STATIC_FORENSICS", "0")
+    expect(() => publicStaticQaManifest(false)).toThrow("Invalid public static forensic opt-in")
+    vi.stubEnv("ALOOK_E2E_PUBLIC_STATIC_FORENSICS", "1")
+    vi.stubEnv("ALOOK_PUBLIC_STATIC_QA", "0")
+    expect(() => publicStaticQaManifest(false)).toThrow("requires supplementary QA")
+  })
+
+  it("separates ready submission, probe IDs, work and cleanup while excluding dynamic data", () => {
+    let clock = 0
+    const record = createPublicStaticForensicRecord({ now: () => ++clock, monotonic: () => String(clock) })
+    record.phase("before")
+    record.event("ready-send-before")
+    record.event("ready-send-returned")
+    const request = record.start("GET", "/api/community/machines")
+    record.response(request, new Response(null, { status: 500, headers: { "server-timing": 'alook_sampling;desc="selected"', "set-cookie": "unit-private-cookie" } }))
+    record.phase("cleanup")
+    record.event("cleanup-start")
+    record.failed(record.start("DELETE", "/api/community/machines/unit-private-machine"))
+    record.phase("unit-private-phase")
+    record.frame("unit-private-frame")
+    record.failed(record.start("unit-private-method", "/unit-private-query?token=unit-private-token"))
+    const snapshot = record.snapshot()
+    expect(snapshot.complete).toBe(true)
+    expect(snapshot.rows.slice(0, 4).map(value => value.event)).toEqual(["ready-send-before", "ready-send-returned", "http-start", "http-response"])
+    expect(snapshot.rows[3]).toMatchObject({ request, status: 500, phase: "before", sampling: "selected" })
+    expect(snapshot.rows[5]).toMatchObject({ method: "DELETE", phase: "cleanup", path: "/api/community/machines/:owned-machine" })
+    expect(snapshot.rows.find(value => value.path === "other")).toMatchObject({ phase: "unknown", method: "other", path: "other" })
+    expect(JSON.stringify(snapshot)).not.toContain("unit-private")
+    snapshot.rows[0]!.event = "changed-copy"
+    expect(record.snapshot().rows[0]!.event).toBe("ready-send-before")
+  })
+
+  it("keeps missing or ambiguous native trace identity unavailable and records observer incompleteness", () => {
+    const record = createPublicStaticForensicRecord({ limit: 2 })
+    record.response(1, new Response(null, { headers: { "server-timing": 'alook_sampling;desc="selected",alook_sampling;desc="not_selected",alook_server;desc="00-00000000000000000000000000000000-1111111111111111-01"' } }))
+    expect(record.snapshot().rows[0]).toMatchObject({ sampling: "unavailable" })
+    expect(record.snapshot().rows[0]).not.toHaveProperty("serverTraceContext")
+    record.event("ws-open")
+    record.event("ws-close")
+    expect(record.snapshot()).toMatchObject({ complete: false, dropped: 1, observerFailures: 0 })
+    const broken = createPublicStaticForensicRecord({ now: () => { throw new Error("observer-clock") } })
+    expect(() => broken.event("ws-open")).not.toThrow()
+    expect(broken.snapshot()).toMatchObject({ complete: false, observerFailures: 1, rows: [] })
+    const pending = createPublicStaticForensicRecord()
+    pending.start("POST", "/api/community/daemon/activate")
+    expect(pending.snapshot()).toMatchObject({ complete: false, pendingRequests: 1 })
+  })
+
+  it("rejects malformed duplicate trace metrics even alongside a valid native value", () => {
+    const parent = `00-${"1".repeat(32)}-${"2".repeat(16)}-01`
+    const record = createPublicStaticForensicRecord()
+    record.response(1, new Response(null, { headers: { "server-timing": `alook_sampling;desc="selected",alook_server;desc="${parent}"` } }))
+    expect(record.snapshot().rows[0]).toMatchObject({ sampling: "selected", serverTraceContext: parent })
+    record.response(2, new Response(null, { headers: { "server-timing": `alook_sampling;desc="selected",alook_sampling;desc="garbage",alook_server;desc="${parent}",alook_server;desc="malformed"` } }))
+    expect(record.snapshot().rows[1]).toMatchObject({ sampling: "unavailable" })
+    expect(record.snapshot().rows[1]).not.toHaveProperty("serverTraceContext")
+    record.response(3, new Response(null, { headers: { "server-timing": `other;desc="quoted,alook_sampling;desc=selected",alook_server;desc="${parent}"` } }))
+    expect(record.snapshot().rows[2]).toMatchObject({ sampling: "unavailable", serverTraceContext: parent })
+  })
+
+  it("records the original500 once and does not consume its body or change request credentials", async () => {
+    const observed = observedApi()
+    const json = vi.fn(() => { throw new Error("must not read failed response") })
+    const response = { status: 500, ok: false, headers: new Headers({ "server-timing": 'alook_sampling;desc="selected"' }), json }
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => response)
+    vi.stubGlobal("fetch", fetchMock)
+    const actors = { sessionCookie: () => "unit-private-cookie" } as unknown as Parameters<typeof qaApi>[0]
+    await expect(qaApi(actors, observed.resources, "alice", "/api/community/machines")).rejects.toThrow("QA GET /api/community/machines returned 500")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ headers: { Cookie: "unit-private-cookie" } })
+    expect(json).not.toHaveBeenCalled()
+    await observed.flush()
+    const snapshot = JSON.parse(observed.attachments[0]!.body)
+    expect(snapshot.rows.map((value: { event: string }) => value.event)).toEqual(["http-start", "http-response"])
+    expect(snapshot.rows[1]).toMatchObject({ request: 1, status: 500 })
+    expect(observed.attachments[0]!.body).not.toContain("unit-private-cookie")
+  })
+
+  it("rethrows the same fetch failure and releases the case observation even on failure", async () => {
+    const observed = observedApi(), failure = new Error("original transport failure")
+    const fetchMock = vi.fn(async () => { throw failure })
+    vi.stubGlobal("fetch", fetchMock)
+    const actors = { sessionCookie: () => "unit-private-cookie" } as unknown as Parameters<typeof qaApi>[0]
+    await expect(qaApi(actors, observed.resources, "alice", "/api/community/machines")).rejects.toBe(failure)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await observed.flush()
+    expect(JSON.parse(observed.attachments[0]!.body).rows[1]).toMatchObject({ event: "http-fetch-error", request: 1 })
+    ownPublicStaticForensics(observed.resources, observed.info)
+    await observed.flush()
+    expect(observed.attachments).toHaveLength(2)
+    expect(JSON.parse(observed.attachments[1]!.body).rows).toHaveLength(0)
+  })
+
+  it("copies complete stopped state and WAL/SHM byte and mode exact without opening SQLite", () => {
+    const options = captureFixture(), state = join(options.runtimeRoot, "src/web/.wrangler/state/v3/observability")
+    mkdirSync(state, { recursive: true })
+    const originals = ["trace.sqlite", "trace.sqlite-wal", "trace.sqlite-shm"]
+    for (const [index, name] of originals.entries()) { writeFileSync(join(state, name), Buffer.from([0, index, 255, 7])); chmodSync(join(state, name), 0o640) }
+    const receipt = capturePublicStaticRuntimeState(options)
+    expect(receipt.files.filter(value => value.type === "file")).toHaveLength(3)
+    for (const name of originals) {
+      const source = join(state, name), copied = join(options.controlDirectory, "forensics-stopped-state/src/web/.wrangler/state/v3/observability", name)
+      expect(readFileSync(copied)).toEqual(readFileSync(source))
+      expect(statSync(copied).mode & 0o777).toBe(0o640)
+      expect(receipt.files.find(value => value.path.endsWith(`/${name}`))!.sha256).toBe(createHash("sha256").update(readFileSync(source)).digest("hex"))
+    }
+    expect(receipt.sources.find(value => value.path === "src/web/blog/.wrangler/state")).toMatchObject({ present: false })
+    expect(() => capturePublicStaticRuntimeState(options)).toThrow("already exists")
+  })
+
+  it("rejects escaped, aliased and linked capture paths without following a foreign state tree", () => {
+    const escaped = captureFixture()
+    expect(() => capturePublicStaticRuntimeState({ ...escaped, controlDirectory: escaped.runtimeRoot })).toThrow("case owner")
+    const overlap = captureFixture(), state = join(overlap.runtimeRoot, "src/web/.wrangler/state")
+    mkdirSync(join(state, "control"), { recursive: true })
+    expect(() => capturePublicStaticRuntimeState({ ...overlap, ownerRoot: state, controlDirectory: join(state, "control") })).toThrow("overlap")
+    const linked = captureFixture(), link = join(linked.runtimeRoot, "src/web/.wrangler/state"), foreign = join(dirname(linked.runtimeRoot), "foreign")
+    mkdirSync(foreign)
+    writeFileSync(join(foreign, "untouched"), "foreign-state")
+    mkdirSync(dirname(link), { recursive: true })
+    symlinkSync(foreign, link)
+    expect(() => capturePublicStaticRuntimeState(linked)).toThrow("symlinks")
+    expect(readFileSync(join(foreign, "untouched"), "utf8")).toBe("foreign-state")
+  })
+
+  it("captures only after known stop and before restoring, then persists the final lifecycle", async () => {
+    const { order, dependencies } = cleanup()
+    const state = await cleanupWithPublicStaticEvidence(initial(), dependencies)
+    expect(order).toEqual(["terminate", "stopped", "capture", "restore", "persist:stopped:false"])
+    expect(state).toMatchObject({ status: "stopped", restorePending: false })
+    const withoutBackup = cleanup()
+    await cleanupWithPublicStaticEvidence({ ...initial(), restorePending: false }, withoutBackup.dependencies)
+    expect(withoutBackup.order).toEqual(["terminate", "stopped", "capture", "persist:stopped:false"])
+  })
+
+  it("restores and persists despite capture failure, while keeping both original restoration and capture errors", async () => {
+    const failure = new Error("capture failed"), restoration = new Error("original restore failed")
+    const first = cleanup({ capture: () => { first.order.push("capture"); throw failure } })
+    await expect(cleanupWithPublicStaticEvidence(initial(), first.dependencies)).rejects.toBe(failure)
+    expect(first.order).toEqual(["terminate", "stopped", "capture", "restore", "persist:stopped:false"])
+    const second = cleanup({ capture: () => { throw failure }, restore: () => { throw restoration } })
+    try { await cleanupWithPublicStaticEvidence(initial(), second.dependencies); expect.fail("expected original restoration failure") } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError)
+      expect((error as AggregateError).errors).toEqual([restoration, failure])
+    }
+    const persistence = new Error("original persistence failed")
+    const third = cleanup({ capture: () => { throw failure }, persist: () => { throw persistence } })
+    try { await cleanupWithPublicStaticEvidence(initial(), third.dependencies); expect.fail("expected original persistence failure") } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError)
+      expect((error as AggregateError).errors).toEqual([persistence, failure])
+    }
+  })
+
+  it("does not capture or restore when the original shutdown remains unknown", async () => {
+    const { order, dependencies } = cleanup({ waitForStop: async () => false })
+    await expect(cleanupWithPublicStaticEvidence(initial(), dependencies)).rejects.toThrow("E2E services did not stop")
+    expect(order).toEqual(["terminate", "terminate"])
   })
 })
