@@ -504,6 +504,14 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
 async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: string, newId: string) {
   await page.addInitScript(({ key, accountKey, channelsKey, oldId, newId }) => {
     const original = IDBObjectStore.prototype.get
+    const originalCursor = IDBObjectStore.prototype.openCursor
+    const cursorTransactions = new WeakSet<IDBTransaction>()
+    let selectedPayload = false
+    IDBObjectStore.prototype.openCursor = function (...args) {
+      const request = originalCursor.apply(this, args)
+      if (this.transaction.db.name === "keyval-store" && this.name === "keyval") cursorTransactions.add(this.transaction)
+      return request
+    }
     const pending: Array<() => void> = []
     let reads = 0
     type RetirementCheck = { complete: boolean; accountChanged: boolean; scopeChanged: boolean; channelsReset: boolean }
@@ -598,7 +606,11 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
           if (query === channelsKey) check.channels = value
         }, { once: true })
       }
-      if (ownedStore && query === key && ++reads === 2) {
+      if (ownedStore && query === key) reads += 1
+      if (ownedStore && query === key && !selectedPayload && this.transaction.mode === "readwrite"
+        && !cursorTransactions.has(this.transaction) && priorKeys.length === 4
+        && priorKeys.every((kind, index) => kind === ["device", "scope", "account", "channels"][index])) {
+        selectedPayload = true
         request.addEventListener("success", event => {
           if (state.released) return
           event.stopImmediatePropagation()
