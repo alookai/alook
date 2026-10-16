@@ -12,6 +12,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/component
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
+import { MessageAuthorLine } from "./message-author-line"
 import {
   copyMessageExternalLink,
   messageExternalLinkTargetFromEventTarget,
@@ -666,14 +667,13 @@ function MessageImpl({
           )}
           {!m.grouped && (
             <div className={`relative flex items-baseline gap-2${selectable ? " pr-6" : ""}`}>
-              <button
-                onClick={(e) => onOpenProfile?.(authorName, e, undefined, m.authorId)}
-                className="min-w-0 max-w-full truncate text-[15px] font-semibold hover:underline"
-                style={{ color: m.color ?? "var(--foreground)" }}
-              >
-                {authorName}
-              </button>
-              <span className="shrink-0 text-xs text-muted-foreground" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
+              <MessageAuthorLine
+                authorName={authorName}
+                onAuthorClick={(e) => onOpenProfile?.(authorName, e, undefined, m.authorId)}
+                color={m.color ?? "var(--foreground)"}
+                timestamp={formatMessageTime(m.createdAt)}
+                timestampProps={{ dateTime: m.createdAt }}
+              />
               {selectable && (
                 <span
                   aria-hidden

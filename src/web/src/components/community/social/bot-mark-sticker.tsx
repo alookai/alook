@@ -12,6 +12,7 @@ import { formatRelativeTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
 import { Avatar } from "../avatar"
 import { MessageBody } from "../messages/message-body"
+import { MessageAuthorLine } from "../messages/message-author-line"
 import { BotAuditActiveRow } from "./bot-audit-preview"
 import styles from "./bot-mark-sticker.module.css"
 
@@ -208,16 +209,12 @@ export function BotMarkSticker({
                           size={28}
                         />
                         <div className="w-fit min-w-0 max-w-full">
-                          <div className="flex w-fit min-w-0 max-w-full items-center gap-2 text-xs leading-4">
-                            <span className="min-w-0 truncate font-semibold">
-                              {mark.m.authorName || "Deleted user"}
-                            </span>
-                            {mark.m.createdAt && (
-                              <time dateTime={mark.m.createdAt} className="shrink-0 whitespace-nowrap font-mono text-[9px] tabular-nums text-(--note-muted)">
-                                {formatRelativeTime(mark.m.createdAt)}
-                              </time>
-                            )}
-                          </div>
+                          <MessageAuthorLine
+                            variant="note"
+                            authorName={mark.m.authorName || "Deleted user"}
+                            timestamp={mark.m.createdAt ? formatRelativeTime(mark.m.createdAt) : undefined}
+                            timestampProps={{ dateTime: mark.m.createdAt }}
+                          />
                           <div title={location} className="flex w-fit min-w-0 max-w-full items-center gap-1 text-[10px] leading-4 text-(--note-muted)">
                             <span className={mark.serverId ? "min-w-0 truncate" : "shrink-0"}>
                               {locationPrefix}
