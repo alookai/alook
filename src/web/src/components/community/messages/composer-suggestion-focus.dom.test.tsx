@@ -10,6 +10,7 @@ import { CommunityMentionList, ChannelRefList } from "./composer-suggestion-popu
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { useComposerController } from "./use-composer-controller"
 import { TextChannelSurface } from "../channels/text-channel-surface"
+import { NATIVE_MOBILE_BACK_EVENT, useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
 import type { MessageChannelControllerValue } from "./message-channel-controller"
 
 const files = vi.hoisted(() => ({
@@ -108,6 +109,11 @@ function dispatchDeletion(editor: Editor, key: "Delete" | "Backspace", options: 
   return event
 }
 
+function BackListener({ replacePath }: { replacePath: (path: string) => void }) {
+  useNativeMobileBack({ dismissShellOverlay: () => false, parentPath: "/c/me", replacePath })
+  return null
+}
+
 describe("composer suggestion focus with installed TipTap", () => {
   beforeEach(() => {
     localStorage.clear()
@@ -122,6 +128,59 @@ describe("composer suggestion focus with installed TipTap", () => {
     delete (Range.prototype as Partial<Range>).getClientRects
     delete (document as Partial<Document>).elementFromPoint
     vi.restoreAllMocks()
+  })
+
+  it.each(["@", "/"])("native Back closes the active %s suggestion without leaving the draft", async (trigger) => {
+    const probeRef: Probe = { current: null }
+    const replacePath = vi.fn()
+    render(<><BackListener replacePath={replacePath} /><Harness {...props} probeRef={probeRef} draftKey="native-back" /></>)
+    const editor = await editorOf(probeRef)
+    await type(editor, trigger)
+    await screen.findByTestId(trigger === "@" ? "community-mention-popup" : "community-channel-ref-popup")
+    const draft = editor.getJSON()
+    const event = new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })
+    act(() => { window.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(true)
+    expect(probeRef.current!.mentionPopup.command).toBeNull()
+    expect(probeRef.current!.channelRefPopup.command).toBeNull()
+    expect(editor.getJSON()).toEqual(draft)
+    expect(readComposerDraft("viewer:native-back")).toEqual(draft)
+    expect(replacePath).not.toHaveBeenCalled()
+  })
+
+  it("native Back remains with a composing editor", async () => {
+    const probeRef: Probe = { current: null }
+    const replacePath = vi.fn()
+    render(<><BackListener replacePath={replacePath} /><Harness {...props} probeRef={probeRef} /></>)
+    const editor = await editorOf(probeRef)
+    await type(editor, "test")
+    act(() => { fireEvent.compositionStart(editor.view.dom) })
+    const draft = editor.getJSON()
+    act(() => { window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })) })
+    expect(editor.getJSON()).toEqual(draft)
+    expect(replacePath).not.toHaveBeenCalled()
+    act(() => { fireEvent.compositionEnd(editor.view.dom) })
+  })
+
+  it("retires a destroyed editor owner and gives a rebuilt editor its own Back", async () => {
+    const first: Probe = { current: null }, second: Probe = { current: null }
+    const replacePath = vi.fn()
+    const listener = <BackListener replacePath={replacePath} />
+    const view = render(<>{listener}<Harness key="first" {...props} probeRef={first} draftKey="retiring-editor" /></>)
+    const oldEditor = await editorOf(first)
+    await type(oldEditor, "@a")
+    await screen.findByTestId("community-mention-popup")
+    view.rerender(<>{listener}<Harness key="second" {...props} probeRef={second} draftKey="rebuilt-editor" /></>)
+    await waitFor(() => { expect(oldEditor.isDestroyed).toBe(true) })
+    const editor = await editorOf(second)
+    await type(editor, "/g")
+    await screen.findByTestId("community-channel-ref-popup")
+    act(() => { window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })) })
+    expect(second.current!.channelRefPopup.command).toBeNull()
+    expect(editor.getText()).toBe("/g")
+    expect(replacePath).not.toHaveBeenCalled()
+    act(() => { window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })) })
+    expect(replacePath).toHaveBeenCalledExactlyOnceWith("/c/me")
   })
 
   it("keeps the current thread edit and candidate when an embedded parent mounts late, then accepts a parent click", async () => {

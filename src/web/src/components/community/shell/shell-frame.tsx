@@ -317,7 +317,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   useNativeMobileBack({
     mobile: breakpoint === "mobile",
     animate: !navigation.navigationPending && userBarExtension.active === "none",
-    gestureKey: committedFrame.href,
+    gestureKey: JSON.stringify([currentUser.id, committedFrame.href]),
     dismissShellOverlay: dismissNativeBackShellOverlay,
     parentPath: mobileParentPath,
     replacePath,

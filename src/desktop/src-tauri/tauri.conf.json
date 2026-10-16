@@ -51,6 +51,7 @@
         "native-oauth-mobile",
         "mobile-share-image-mobile",
         "mobile-system-notification-mobile",
+        "native-back-mobile",
         "file-save"
       ]
     }

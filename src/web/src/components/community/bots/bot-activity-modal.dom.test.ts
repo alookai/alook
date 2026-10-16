@@ -34,6 +34,7 @@ const {
 }))
 let scrollDescriptor: PropertyDescriptor | undefined
 let bodyHeight = 300
+let deferScrollEvents = false
 let rowHeights = new Map<string, number>()
 let bodyResizeObservers: Array<{ callback: ResizeObserverCallback; elements: Set<Element> }> = []
 
@@ -150,7 +151,7 @@ function scrollBody(renderer: ReturnType<typeof render>, offset: number) {
 }
 
 function eventTop(renderer: ReturnType<typeof render>, id: string) {
-  return renderer.container.querySelector<HTMLElement>(`[data-activity-event-id="${id}"]`)!.getBoundingClientRect().top
+  return renderer.container.querySelector<HTMLElement>(`[data-activity-event-id="${id}"] activity-row`)!.getBoundingClientRect().top
 }
 
 function events(count: number, day = "2026-08-27") {
@@ -200,6 +201,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
     fetchNextPage.mockResolvedValue({ isError: false, data: { pages: [{ events: [] }] } })
     sheetProps.current = null
     bodyHeight = 300
+    deferScrollEvents = false
     rowHeights = new Map()
     bodyResizeObservers = []
     vi.useFakeTimers()
@@ -217,8 +219,10 @@ describe("BotActivityModal CommunitySheet contract", () => {
     })
     const isRoot = (node: HTMLElement) => node.dataset.testid === "activity-body"
     const rowHeight = (node: HTMLElement) => {
+      if (node.closest("[data-activity-date]")) return 33
       const row = node.closest<HTMLElement>("[data-activity-row-key]")
-      return row?.dataset.activityRowKey?.includes(":date:") ? 24 : rowHeights.get(row?.dataset.activityEventId ?? "") ?? 44
+      const body = rowHeights.get(row?.dataset.activityEventId ?? "") ?? 44
+      return body + (node === row && row.querySelector("[data-activity-date]") ? 33 : 0)
     }
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return isRoot(this) ? bodyHeight : rowHeight(this) })
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return this.clientHeight })
@@ -230,14 +234,20 @@ describe("BotActivityModal CommunitySheet contract", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const row = this.closest<HTMLElement>("[data-activity-row-key]")
       const root = this.closest<HTMLElement>('[data-testid="activity-body"]')
-      const start = Number.parseFloat(row?.style.transform.match(/translateY\((-?[\d.]+)px\)/)?.[1] ?? "0")
-      return DOMRect.fromRect({ width: 672, height: this.clientHeight, y: isRoot(this) ? 0 : start - (root?.scrollTop ?? 0) })
+      const transform = row?.style.transform ?? ""
+      const start = transform.startsWith("translate3d(")
+        ? Number.parseFloat(transform.split(",")[1])
+        : Number.parseFloat(transform.match(/translateY\((-?[\d.]+)px\)/)?.[1] ?? "0")
+      const suffix = row && this.closest("[data-activity-date]") ? rowHeights.get(row.dataset.activityEventId ?? "") ?? 44 : 0
+      const sticky = this.closest("[data-activity-sticky-date]")
+      return DOMRect.fromRect({ width: 672, height: this.clientHeight, y: isRoot(this) || sticky ? 0 : start + suffix - (root?.scrollTop ?? 0) })
     })
     scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
     Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: function (this: HTMLElement, options: ScrollToOptions | number) {
       if (typeof options === "number") return
       this.scrollTop = Math.max(0, Math.min(options.top ?? this.scrollTop, this.scrollHeight - this.clientHeight))
-      this.dispatchEvent(new Event("scroll"))
+      if (deferScrollEvents) window.setTimeout(() => this.dispatchEvent(new Event("scroll")), 0)
+      else this.dispatchEvent(new Event("scroll"))
     } })
   })
   afterEach(() => {
@@ -328,7 +338,9 @@ describe("BotActivityModal CommunitySheet contract", () => {
       event("old", "2026-08-26T12:00:00.000Z"),
     ]
     const populated = renderModal().renderer
-    expect(populated.container.querySelectorAll('[data-activity-row-key*="date:"]')).toHaveLength(2)
+    expect(populated.container.querySelectorAll("[data-activity-date]")).toHaveLength(2)
+    expect(populated.container.querySelectorAll("[data-activity-row-key]")).toHaveLength(2)
+    expect(populated.container.querySelector('[data-activity-row-key*="date:"]')).toBeNull()
     expect([...populated.container.querySelectorAll("activity-row")]
       .map((row) => row.getAttribute("data-event-id")))
       .toEqual(["old", "new"])
@@ -402,6 +414,36 @@ describe("BotActivityModal CommunitySheet contract", () => {
     resizeBody(300)
     expect(root.scrollTop).toBe(root.scrollHeight - root.clientHeight)
     expect(renderer.container.querySelector('[data-event-id="event-119"]')).toBeInTheDocument()
+  })
+
+  it("selects the new bot's latest event when the mounted modal switches identity", () => {
+    auditState.events = events(120)
+    const { renderer } = renderModal()
+    scrollBody(renderer, 100)
+    auditState.events = events(80).map(item => ({ ...item, id: `other-${item.id}` }))
+    updateModal(renderer, { bot: { ...bot, id: "bot-2", name: "Other Bot" } })
+    const root = renderer.getByTestId("activity-body")
+    expect(auditHook).toHaveBeenLastCalledWith("bot-2")
+    expect(root.scrollTop).toBe(root.scrollHeight - root.clientHeight)
+    expect(renderer.container.querySelector('[data-event-id="other-event-79"]')).toBeInTheDocument()
+    expect(renderer.container.querySelector('[data-activity-row-key^="bot-1:"]')).toBeNull()
+    expect(renderer.container.querySelector('[data-event-id="event-0"]')).toBeNull()
+  })
+
+  it("keeps a reading event through viewport resize and a cross-day live append", () => {
+    auditState.events = events(120)
+    const { renderer } = renderModal()
+    scrollBody(renderer, 600)
+    const top = eventTop(renderer, "event-15")
+    const date = renderer.container.querySelector("[data-activity-sticky-date]")!.getAttribute("data-activity-sticky-date")
+    resizeBody(240)
+    expect(eventTop(renderer, "event-15")).toBe(top)
+    auditState.events = [...auditState.events, event("next-day", "2026-08-28T12:00:00.000Z")]
+    updateModal(renderer)
+    expect(eventTop(renderer, "event-15")).toBe(top)
+    expect(renderer.container.querySelector("[data-activity-sticky-date]")!.getAttribute("data-activity-sticky-date")).toBe(date)
+    scrollBody(renderer, 10_000)
+    expect(renderer.container.querySelector('[data-event-id="next-day"]')).toBeInTheDocument()
   })
 
   it("does not restore a completed request from before the modal reopened", async () => {
@@ -483,7 +525,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
     act(() => vi.advanceTimersByTime(500))
     expect(fetchNextPage).not.toHaveBeenCalled()
     const root = renderer.getByTestId("activity-body")
-    expect(renderer.container.querySelector('[data-activity-row-key*="date:"]')).toBeInTheDocument()
+    expect(renderer.container.querySelector("[data-activity-sticky-date]")).toBeInTheDocument()
     act(() => root.scrollTo({ top: 340 }))
     expect(root.scrollTop).toBeGreaterThan(160)
     expect(fetchNextPage).toHaveBeenCalledOnce()
@@ -520,18 +562,101 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(renderer.queryByRole("button", { name: "Retry older" })).not.toBeInTheDocument()
   })
 
-  it("keeps the native date row at the top on a same-day prepend and the event anchor after leaving the header", async () => {
-    auditState.events = events(30)
+  it.each([
+    { crossDay: false, offset: 0, measuredHeight: 44 },
+    { crossDay: false, offset: 80, measuredHeight: 44 },
+    { crossDay: true, offset: 0, measuredHeight: 44 },
+    { crossDay: true, offset: 80, measuredHeight: 44 },
+    { crossDay: false, offset: 0, measuredHeight: 33 },
+    { crossDay: false, offset: 80, measuredHeight: 33 },
+    { crossDay: true, offset: 0, measuredHeight: 33 },
+    { crossDay: true, offset: 80, measuredHeight: 33 },
+  ])("keeps actual event content through two older pages at $offset, cross-day $crossDay, measured $measuredHeight", async ({ crossDay, offset, measuredHeight }) => {
+    auditState.events = events(50)
+    for (const item of auditState.events) rowHeights.set(item.id, measuredHeight)
     auditState.hasNextPage = true
     const { renderer } = renderModal()
-    const root = scrollBody(renderer, 0)
-    const header = renderer.container.querySelector<HTMLElement>('[data-activity-row-key*="date:"]')!
-    const key = header.dataset.activityRowKey
-    auditState.events = [...auditState.events, event("earlier", "2026-08-27T11:59:00.000Z")]
-    auditState.hasNextPage = false
-    updateModal(renderer)
-    expect(root.scrollTop).toBe(0)
-    expect(renderer.container.querySelector('[data-activity-row-key*="date:"]')).toHaveAttribute("data-activity-row-key", key)
-    expect(renderer.container.querySelector('[data-activity-event-id="earlier"]')).toBeInTheDocument()
+    for (const [index, target] of [offset, 80].entries()) {
+      const completePage = prepareOlderPage()
+      const root = scrollBody(renderer, target)
+      const anchor = [...renderer.container.querySelectorAll<HTMLElement>("activity-row")].find(row => {
+        const rect = row.getBoundingClientRect()
+        return rect.top >= 33 && rect.bottom <= root.clientHeight
+      })!
+      const id = anchor.closest<HTMLElement>("[data-activity-event-id]")!.dataset.activityEventId!
+      const top = anchor.getBoundingClientRect().top
+      const visibleDate = renderer.container.querySelector("[data-activity-sticky-date]")!.getAttribute("data-activity-sticky-date")
+      expect(fetchNextPage).toHaveBeenCalledTimes(index + 1)
+      auditState.isFetchingNextPage = true
+      updateModal(renderer)
+      const start = Date.parse(crossDay ? `2026-08-${26 - index}T12:00:00.000Z` : `2026-08-27T${11 - index}:00:00.000Z`)
+      const page = Array.from({ length: 50 }, (_, ordinal) => event(`older-${index}-${ordinal}`, new Date(start + ordinal * 60_000).toISOString()))
+      for (const item of page) rowHeights.set(item.id, measuredHeight)
+      auditState.events = [...auditState.events, ...page]
+      auditState.isFetchingNextPage = false
+      updateModal(renderer)
+      await completePage(page)
+      expect(eventTop(renderer, id)).toBe(top)
+      expect(root.scrollTop).toBeGreaterThan(target)
+      expect(fetchNextPage).toHaveBeenCalledTimes(index + 1)
+      expect(renderer.container.querySelector("[data-activity-sticky-date]")).toHaveAttribute("data-activity-sticky-date", visibleDate)
+      for (const row of renderer.container.querySelectorAll<HTMLElement>("[data-activity-row-key]")) {
+        expect(row.dataset.activityEventId).toBeTruthy()
+        expect(row.dataset.activityRowKey).toBe(`bot-1:event:${row.dataset.activityEventId}`)
+      }
+    }
   })
+
+  it.each([
+    { crossDay: false, offset: 0, measuredHeight: 44 },
+    { crossDay: false, offset: 80, measuredHeight: 44 },
+    { crossDay: true, offset: 0, measuredHeight: 44 },
+    { crossDay: true, offset: 80, measuredHeight: 44 },
+    { crossDay: false, offset: 0, measuredHeight: 33 },
+    { crossDay: false, offset: 80, measuredHeight: 33 },
+    { crossDay: true, offset: 0, measuredHeight: 33 },
+    { crossDay: true, offset: 80, measuredHeight: 33 },
+  ])("keeps event Y with deferred scroll events at $offset, cross-day $crossDay, measured $measuredHeight", ({ crossDay, offset, measuredHeight }) => {
+    deferScrollEvents = true
+    auditState.events = events(50)
+    for (const item of auditState.events) rowHeights.set(item.id, measuredHeight)
+    const { renderer } = renderModal()
+    act(() => vi.advanceTimersByTime(500))
+    for (const [index, target] of [offset, 80].entries()) {
+      const root = scrollBody(renderer, target)
+      expect(root.scrollTop).toBe(target)
+      const anchor = [...renderer.container.querySelectorAll<HTMLElement>("activity-row")].find(row => {
+        const rect = row.getBoundingClientRect()
+        return rect.top >= 33 && rect.bottom <= root.clientHeight
+      })!
+      const id = anchor.closest<HTMLElement>("[data-activity-event-id]")!.dataset.activityEventId!
+      const top = anchor.getBoundingClientRect().top
+      const start = Date.parse(crossDay ? `2026-08-${26 - index}T12:00:00.000Z` : `2026-08-27T${11 - index}:00:00.000Z`)
+      const page = Array.from({ length: 50 }, (_, ordinal) => event(`deferred-${index}-${ordinal}`, new Date(start + ordinal * 60_000).toISOString()))
+      for (const item of page) rowHeights.set(item.id, measuredHeight)
+      auditState.events = [...auditState.events, ...page]
+      auditState.loadedPageCount += 1
+      updateModal(renderer)
+      expect(eventTop(renderer, id)).toBe(top)
+      expect(root.scrollTop).toBeGreaterThan(target)
+      expect(fetchNextPage).not.toHaveBeenCalled()
+    }
+  })
+
+
+  it("updates the visible date at a payload boundary before the native range changes", () => {
+    deferScrollEvents = true
+    auditState.events = [...events(10), ...events(40, "2026-08-28").map(item => ({ ...item, id: `next-${item.id}` }))]
+    const { renderer } = renderModal()
+    act(() => vi.advanceTimersByTime(500))
+    const root = renderer.getByTestId("activity-body")
+    fireEvent.wheel(root, { deltaY: 434 })
+    act(() => { root.scrollTo({ top: 434 }); vi.advanceTimersByTime(0) })
+    expect(root.scrollTop).toBe(434)
+    expect(renderer.container.querySelector("[data-activity-sticky-date]")).toHaveAttribute("data-activity-sticky-date", "2026-7-27")
+    act(() => { root.scrollTo({ top: 444 }); vi.advanceTimersByTime(0) })
+    expect(root.scrollTop).toBe(444)
+    expect(renderer.container.querySelector("[data-activity-sticky-date]")).toHaveAttribute("data-activity-sticky-date", "2026-7-28")
+  })
+
 })

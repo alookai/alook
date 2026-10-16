@@ -1,6 +1,6 @@
 import { createRequire } from "module"
 import { resolve } from "path"
-import type { Locator, Page, TestInfo } from "@playwright/test"
+import type { Locator, Page, Route, TestInfo, WebSocket as BrowserSocket } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 
@@ -1118,3 +1118,480 @@ test("CommunitySheet footers keep four consumers horizontal and intrinsic at 390
     await expectFooterGeometry(page, fileName, ["Download"], width)
   }
 })
+
+type ActivityAnchorPage = {
+  events: Array<{ id: string; createdAt: string }>
+  nextCursor: { beforeCreatedAt: string; beforeId: string } | null
+}
+
+async function activityAnchorSnapshot(scroller: Locator) {
+  return scroller.evaluate(element => {
+    const root = element.getBoundingClientRect()
+    return {
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      overflowAnchor: getComputedStyle(element).overflowAnchor,
+      events: [...element.querySelectorAll<HTMLElement>("[data-activity-event-id]")].flatMap(wrapper => {
+        const body = wrapper.firstElementChild
+        if (!(body instanceof HTMLElement)) return []
+        const rect = body.getBoundingClientRect()
+        return [{ id: wrapper.dataset.activityEventId!, top: rect.top - root.top, bottom: rect.bottom - root.top, height: rect.height }]
+      }),
+    }
+  })
+}
+
+async function settleActivityPosition(scroller: Locator, target: number) {
+  return scroller.evaluate(async (element, target) => {
+    const samples: Array<{ scrollTop: number; scrollHeight: number; clientHeight: number; events: Array<{ id: string; top: number; bottom: number }> }> = []
+    let previous = ""
+    let stableFrames = 0
+    for (let frame = 0; frame < 120; frame += 1) {
+      await new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame()))
+      if (!element.isConnected) return { settled: false, samples }
+      const root = element.getBoundingClientRect()
+      const sample = {
+        scrollTop: element.scrollTop,
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+        events: [...element.querySelectorAll<HTMLElement>("[data-activity-event-id]")].flatMap(wrapper => {
+          const body = wrapper.firstElementChild
+          if (!(body instanceof HTMLElement)) return []
+          const rect = body.getBoundingClientRect()
+          return [{ id: wrapper.dataset.activityEventId!, top: rect.top - root.top, bottom: rect.bottom - root.top }]
+        }),
+      }
+      samples.push(sample)
+      const signature = JSON.stringify(sample)
+      stableFrames = Math.abs(sample.scrollTop - target) <= 1 && sample.events.length > 0 && signature === previous ? stableFrames + 1 : 0
+      if (stableFrames === 2) return { settled: true, samples }
+      previous = signature
+    }
+    return { settled: false, samples }
+  }, target)
+}
+
+async function gateOlderActivityPages(page: Page, botId: string, caseResources: CaseResources) {
+  const entries: Array<{ url: string; release: (status?: 503) => void }> = []
+  const running = new Set<Promise<void>>()
+  let closing = false
+  const matches = (url: URL) => url.pathname === `/api/community/bots/${botId}/audit-log`
+  const handler = (route: Route) => {
+    const url = new URL(route.request().url())
+    if (!url.searchParams.has("beforeId")) return route.continue()
+    if (closing) return route.abort("failed")
+    let release!: (status?: 503) => void
+    const ready = new Promise<503 | undefined>(resolveGate => { release = resolveGate })
+    const operation = (async () => {
+      const status = await ready
+      if (page.isClosed()) return
+      if (closing) await route.abort("failed")
+      else if (status) await route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ error: "Injected Activity older-page failure" }) })
+      else await route.continue()
+    })()
+    entries.push({ url: url.toString(), release })
+    running.add(operation)
+    return operation.finally(() => running.delete(operation))
+  }
+  const owned = caseResources.own(entries, async () => {
+    closing = true
+    for (const entry of entries) entry.release()
+    await Promise.all(running)
+    if (!page.isClosed()) await page.unroute(matches, handler)
+  })
+  await page.route(matches, handler)
+  return { entries, close: () => owned.close() }
+}
+
+type ActivityJsonRequest = Awaited<ReturnType<typeof prepareCase>>["jsonRequest"]
+
+async function seedActivityHistory({ machine, botId, suffix, scenario, caseResources, jsonRequest, testInfo }: {
+  machine: ReturnType<typeof connectMachine>
+  botId: string
+  suffix: string
+  scenario: "same-day" | "cross-day"
+  caseResources: CaseResources
+  jsonRequest: ActivityJsonRequest
+  testInfo: TestInfo
+}) {
+  const now = new Date()
+  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 5, 12)
+  const history = Array.from({ length: 200 }, (_, index) => ({
+    id: `bae_anchor_${suffix}_${String(index).padStart(3, "0")}`,
+    createdAt: new Date(start + (scenario === "cross-day" ? Math.floor(index / 60) * 86_400_000 + index % 60 * 1_000 : index * 1_000)).toISOString(),
+  }))
+  const acknowledged = new Set<string>()
+  const acknowledgements: Array<{ type: string; eventId: string }> = []
+  const expectedIds = new Set(history.map(event => event.id))
+  const onMessage = (raw: unknown) => {
+    const frame = JSON.parse(String(raw)) as { type?: string; eventId?: string }
+    if (frame.type === "bot_audit_event_ack" && frame.eventId && expectedIds.has(frame.eventId)) {
+      acknowledged.add(frame.eventId)
+      acknowledgements.push({ type: frame.type, eventId: frame.eventId })
+    }
+  }
+  const listener = caseResources.own(onMessage, async captured => { machine.socket.off("message", captured) })
+  machine.socket.on("message", onMessage)
+  for (const event of history) machine.socket.send(JSON.stringify({
+    type: "bot_audit_event",
+    eventId: event.id,
+    occurredAt: event.createdAt,
+    agentId: botId,
+    sessionId: `anchor-session-${suffix}`,
+    launchId: `anchor-launch-${suffix}`,
+    event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+  }))
+  await expect.poll(() => acknowledged.size, { timeout: 30_000 }).toBe(history.length)
+  await listener.close()
+  const headPath = `/api/community/bots/${botId}/audit-log?limit=50`
+  const head = await jsonRequest<ActivityAnchorPage>("alice", headPath)
+  await testInfo.attach("activity-history-backend", {
+    body: JSON.stringify({ botId, scenario, history, acknowledgements, headPath, head }),
+    contentType: "application/json",
+  })
+  expect(head.events.map(event => ({ id: event.id, createdAt: event.createdAt }))).toEqual(history.slice(-50).reverse())
+  expect(head.nextCursor).toEqual({ beforeCreatedAt: history[150].createdAt, beforeId: history[150].id })
+  return history
+}
+
+function observeActivityFrames(page: Page, caseResources: CaseResources) {
+  const frames: Array<{ id: string; botId: string; createdAt: string }> = []
+  const onSocket = (socket: BrowserSocket) => {
+    const onFrame = ({ payload }: { payload: string | Buffer }) => {
+      let frame: { type?: string; id?: string; botId?: string; createdAt?: string }
+      try { frame = JSON.parse(String(payload)) } catch { return }
+      if (frame.type === "community:bot.audit_event" && frame.id && frame.botId && frame.createdAt) {
+        frames.push({ id: frame.id, botId: frame.botId, createdAt: frame.createdAt })
+      }
+    }
+    socket.on("framereceived", onFrame)
+    caseResources.own(socket, async captured => { captured.off("framereceived", onFrame) })
+  }
+  page.on("websocket", onSocket)
+  caseResources.own(onSocket, async captured => { page.off("websocket", captured) })
+  return frames
+}
+
+async function publishActivityReset({ machine, botId, suffix, id, createdAt, frames, caseResources, jsonRequest, testInfo }: {
+  machine: ReturnType<typeof connectMachine>
+  botId: string
+  suffix: string
+  id: string
+  createdAt: string
+  frames: ReturnType<typeof observeActivityFrames>
+  caseResources: CaseResources
+  jsonRequest: ActivityJsonRequest
+  testInfo: TestInfo
+}) {
+  let acknowledged = false
+  const onMessage = (raw: unknown) => {
+    const frame = JSON.parse(String(raw)) as { type?: string; eventId?: string }
+    if (frame.type === "bot_audit_event_ack" && frame.eventId === id) acknowledged = true
+  }
+  const listener = caseResources.own(onMessage, async captured => { machine.socket.off("message", captured) })
+  machine.socket.on("message", onMessage)
+  machine.socket.send(JSON.stringify({
+    type: "bot_audit_event", eventId: id, occurredAt: createdAt, agentId: botId,
+    sessionId: `anchor-session-${suffix}`, launchId: `anchor-launch-${suffix}`,
+    event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+  }))
+  await expect.poll(() => acknowledged).toBe(true)
+  await listener.close()
+  await expect.poll(() => frames.some(frame => frame.id === id && frame.botId === botId && frame.createdAt === createdAt)).toBe(true)
+  const cursor = new URLSearchParams({ limit: "50", beforeCreatedAt: new Date(Date.parse(createdAt) + 1).toISOString(), beforeId: id })
+  const path = `/api/community/bots/${botId}/audit-log?${cursor}`
+  const persisted = await jsonRequest<ActivityAnchorPage>("alice", path)
+  await testInfo.attach(`activity-live-${id}`, {
+    body: JSON.stringify({ id, botId, createdAt, acknowledged, received: frames.filter(frame => frame.id === id), path, persisted }),
+    contentType: "application/json",
+  })
+  expect(persisted.events[0]).toMatchObject({ id, createdAt })
+}
+
+async function expectActivityPosition(scroller: Locator, anchor: { id: string; top: number }) {
+  await expect.poll(async () => {
+    const snapshot = await activityAnchorSnapshot(scroller)
+    const kept = snapshot.events.find(event => event.id === anchor.id)
+    return kept ? Math.abs(kept.top - anchor.top) : Number.POSITIVE_INFINITY
+  }).toBeLessThanOrEqual(1)
+}
+
+async function visibleActivityAnchor(scroller: Locator) {
+  const snapshot = await activityAnchorSnapshot(scroller)
+  const anchor = snapshot.events.find(event => event.top >= 32 && event.bottom <= snapshot.clientHeight)
+  expect(anchor).toBeDefined()
+  return anchor!
+}
+
+for (const scenario of ["same-day", "cross-day"] as const) {
+  for (const width of [1280, 390] as const) {
+    test(`Activity ${scenario} older pages preserve real event positions at ${width}`, async ({ caseActors, caseResources }, testInfo) => {
+      test.setTimeout(120_000)
+      const actors = await caseActors(["alice"])
+      const { pairMachine, createBot, jsonRequest } = await prepareCase(actors, caseResources)
+      const { credential, machineId } = await pairMachine()
+      const suffix = Date.now().toString(36)
+      const botId = await createBot(machineId, `Anchor ${scenario} ${width} ${suffix}`)
+      const machine = connectMachine(credential, caseResources)
+      await machine.opened
+      let gate: Awaited<ReturnType<typeof gateOlderActivityPages>> | undefined
+      let journeyFailure: unknown
+      let journeyFailurePresent = false
+      const positioning: Array<{ page: number; target: number; deltaY: number; olderRequests: string[] } & Awaited<ReturnType<typeof settleActivityPosition>>> = []
+      try {
+        const history = await seedActivityHistory({ machine, botId, suffix, scenario, caseResources, jsonRequest, testInfo })
+        const { page } = await actors.asUser("alice", { viewport: { width, height: 900 }, colorScheme: width === 390 ? "dark" : "light" })
+        gate = await gateOlderActivityPages(page, botId, caseResources)
+        await gotoAfterUserWsAuth(page, `/c/me/bots?audit=${botId}`)
+        const sheet = page.getByTestId(tid.botActivityModal)
+        await settleSheet(sheet)
+        const scroller = sheet.getByRole("region", { name: "Activity log", exact: true })
+        await expect(scroller).toHaveCount(1)
+        await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
+        for (const [index, target] of [0, 80].entries()) {
+          await scroller.hover()
+          await page.mouse.wheel(0, -1_000_000)
+          const zeroPosition = await settleActivityPosition(scroller, 0)
+          positioning.push({ page: index + 1, target: 0, deltaY: -1_000_000, olderRequests: gate.entries.map(entry => entry.url), ...zeroPosition })
+          expect(zeroPosition.settled, "physical zero and rendered geometry settle before choosing the reading position").toBe(true)
+          if (target > 0) {
+            await page.mouse.wheel(0, target)
+            const nearTopPosition = await settleActivityPosition(scroller, target)
+            positioning.push({ page: index + 1, target, deltaY: target, olderRequests: gate.entries.map(entry => entry.url), ...nearTopPosition })
+            expect(nearTopPosition.settled, "physical near-top target and rendered geometry settle without another wheel").toBe(true)
+          }
+          await expect.poll(async () => Math.abs(await scroller.evaluate(element => element.scrollTop) - target)).toBeLessThanOrEqual(1)
+          await expect.poll(() => gate!.entries.length).toBe(index + 1)
+          const pending = gate.entries[index]
+          const cursor = history[150 - index * 50]
+          const url = new URL(pending.url)
+          expect(url.searchParams.get("limit")).toBe("50")
+          expect(url.searchParams.get("beforeId")).toBe(cursor.id)
+          expect(url.searchParams.get("beforeCreatedAt")).toBe(cursor.createdAt)
+          const before = await activityAnchorSnapshot(scroller)
+          expect(Math.abs(before.scrollTop - target), "physical target at retained snapshot").toBeLessThanOrEqual(1)
+          expect(before.overflowAnchor).toBe("none")
+          const anchor = before.events.find(event => event.top >= 32 && event.bottom <= before.clientHeight)
+          expect(anchor).toBeDefined()
+          await attachPageScreenshot(testInfo, `activity-anchor-${scenario}-${width}-before-page-${index + 1}`, page)
+          const atRelease = await activityAnchorSnapshot(scroller)
+          expect(Math.abs(atRelease.scrollTop - target), "physical target at response release").toBeLessThanOrEqual(1)
+          const releaseAnchor = atRelease.events.find(event => event.id === anchor!.id)
+          expect(releaseAnchor).toBeDefined()
+          expect(Math.abs(releaseAnchor!.top - anchor!.top), "named event at response release").toBeLessThanOrEqual(1)
+          const [response] = await Promise.all([
+            page.waitForResponse(value => value.url() === pending.url && value.request().method() === "GET"),
+            Promise.resolve().then(() => pending.release()),
+          ])
+          expect(response.status()).toBe(200)
+          const body = await response.json() as ActivityAnchorPage
+          expect(body.events.map(event => ({ id: event.id, createdAt: event.createdAt })))
+            .toEqual(history.slice(100 - index * 50, 150 - index * 50).reverse())
+          expect(body.nextCursor).not.toBeNull()
+          await expect.poll(() => scroller.evaluate(element => element.scrollHeight)).toBeGreaterThan(before.scrollHeight + 300)
+          try {
+            await expect.poll(async () => {
+              const after = await activityAnchorSnapshot(scroller)
+              const kept = after.events.find(event => event.id === anchor!.id)
+              return kept ? Math.abs(kept.top - anchor!.top) : Number.POSITIVE_INFINITY
+            }).toBeLessThanOrEqual(1)
+            await scroller.evaluate(() => new Promise<void>(resolveFrame => {
+              requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame())))
+            }))
+            await expectActivityPosition(scroller, anchor!)
+            expect(gate.entries).toHaveLength(index + 1)
+          } finally {
+            await testInfo.attach(`activity-anchor-${scenario}-${width}-page-${index + 1}`, {
+              body: JSON.stringify({ scenario, width, target, anchor, request: pending.url, returnedIds: body.events.map(event => event.id), before, atRelease, after: await activityAnchorSnapshot(scroller), olderRequestCount: gate.entries.length }),
+              contentType: "application/json",
+            })
+            await attachPageScreenshot(testInfo, `activity-anchor-${scenario}-${width}-page-${index + 1}`, page)
+          }
+        }
+      } catch (error) { journeyFailure = error; journeyFailurePresent = true; throw error } finally {
+        const exitErrors: unknown[] = []
+        try { await gate?.close() } catch (error) { exitErrors.push(error) }
+        try { await machine.close() } catch (error) { exitErrors.push(error) }
+        try {
+          await testInfo.attach(`activity-anchor-${scenario}-${width}-positioning`, {
+            body: JSON.stringify({ responseReleaseTargets: [0, 80], requestStartPosition: "not asserted; the gate can hold a request during the zero-position step", positioning }),
+            contentType: "application/json",
+          })
+        } catch (error) { exitErrors.push(error) }
+        if (exitErrors.length) throw new AggregateError(journeyFailurePresent ? [journeyFailure, ...exitErrors] : exitErrors, "Activity journey, cleanup or evidence retention failed")
+      }
+    })
+  }
+}
+
+for (const width of [1280, 390] as const) {
+  test(`Activity recovery, live reading and reopen preserve event ownership at ${width}`, async ({ caseActors, caseResources }, testInfo) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice"])
+    const { pairMachine, createBot, jsonRequest } = await prepareCase(actors, caseResources)
+    const suffix = Date.now().toString(36)
+    const { credential, machineId } = await pairMachine()
+    const botId = await createBot(machineId, `Recovery ${width} ${suffix}`)
+    const machine = connectMachine(credential, caseResources)
+    let gate: Awaited<ReturnType<typeof gateOlderActivityPages>> | undefined
+    let journeyFailure: unknown
+    let journeyFailurePresent = false
+    const steps: Array<Record<string, unknown>> = []
+    try {
+      await machine.opened
+      const history = await seedActivityHistory({ machine, botId, suffix, scenario: "same-day", caseResources, jsonRequest, testInfo })
+      const { page } = await actors.asUser("alice", { viewport: { width, height: 900 }, colorScheme: width === 390 ? "dark" : "light" })
+      const frames = observeActivityFrames(page, caseResources)
+      gate = await gateOlderActivityPages(page, botId, caseResources)
+      await gotoAfterUserWsAuth(page, `/c/me/bots?audit=${botId}`)
+      const sheet = page.getByTestId(tid.botActivityModal)
+      await settleSheet(sheet)
+      const scroller = sheet.getByRole("region", { name: "Activity log", exact: true })
+      await expect(scroller).toHaveCSS("overflow-anchor", "none")
+      const record = async (phase: string) => {
+        steps.push({ phase, snapshot: await activityAnchorSnapshot(scroller), olderRequests: gate!.entries.map(entry => entry.url) })
+        await attachPageScreenshot(testInfo, `activity-recovery-${width}-${phase}`, page)
+      }
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
+      await scroller.hover()
+      await page.mouse.wheel(0, -1_000_000)
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(0)
+      await expect.poll(() => gate!.entries.length).toBe(1)
+      const anchor = await visibleActivityAnchor(scroller)
+      const cursor = history[150]
+      await record("before-error")
+      for (const index of [0, 1]) {
+        await expect.poll(() => gate!.entries.length).toBe(index + 1)
+        const pending = gate.entries[index]
+        const url = new URL(pending.url)
+        expect(url.searchParams.get("beforeId")).toBe(cursor.id)
+        expect(url.searchParams.get("beforeCreatedAt")).toBe(cursor.createdAt)
+        const atRelease = await activityAnchorSnapshot(scroller)
+        steps.push({ phase: `before-error-release-${index + 1}`, snapshot: atRelease })
+        expect(atRelease.scrollTop, "physical target before injected error").toBe(0)
+        const releaseAnchor = atRelease.events.find(event => event.id === anchor.id)
+        expect(releaseAnchor).toBeDefined()
+        expect(Math.abs(releaseAnchor!.top - anchor.top)).toBeLessThanOrEqual(1)
+        const [response] = await Promise.all([
+          page.waitForResponse(value => value.url() === pending.url),
+          Promise.resolve().then(() => pending.release(503)),
+        ])
+        expect(response.status()).toBe(503)
+        steps.push({ phase: `injected-error-${index + 1}`, url: pending.url, status: response.status() })
+      }
+      const retry = sheet.getByRole("button", { name: "Retry older", exact: true })
+      await expect(retry).toBeEnabled()
+      await expectActivityPosition(scroller, anchor)
+      await scroller.evaluate(() => new Promise<void>(resolveFrame => {
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame())))
+      }))
+      expect(gate.entries).toHaveLength(2)
+      await record("failed-and-stopped")
+      await retry.click()
+      await expect.poll(() => gate!.entries.length).toBe(3)
+      expect(gate.entries[2].url).toBe(gate.entries[0].url)
+      const beforeRecovery = await activityAnchorSnapshot(scroller)
+      steps.push({ phase: "before-recovery-release", snapshot: beforeRecovery })
+      expect(beforeRecovery.scrollTop, "physical target before recovery").toBe(0)
+      const recoveryAnchor = beforeRecovery.events.find(event => event.id === anchor.id)
+      expect(recoveryAnchor).toBeDefined()
+      expect(Math.abs(recoveryAnchor!.top - anchor.top)).toBeLessThanOrEqual(1)
+      const [recovered] = await Promise.all([
+        page.waitForResponse(value => value.url() === gate!.entries[2].url && value.status() === 200),
+        Promise.resolve().then(() => gate!.entries[2].release()),
+      ])
+      const recoveredBody = await recovered.json() as ActivityAnchorPage
+      expect(recoveredBody.events.map(event => ({ id: event.id, createdAt: event.createdAt }))).toEqual(history.slice(100, 150).reverse())
+      expect(recoveredBody.nextCursor).toEqual({ beforeCreatedAt: history[100].createdAt, beforeId: history[100].id })
+      steps.push({ phase: "recovery-response", status: recovered.status(), body: recoveredBody })
+      await expect.poll(() => scroller.evaluate(element => element.scrollHeight)).toBeGreaterThan(beforeRecovery.scrollHeight + 300)
+      await expect(retry).toHaveCount(0)
+      await expectActivityPosition(scroller, anchor)
+      expect(gate.entries).toHaveLength(3)
+      await record("recovered")
+      const publish = (label: string, createdAt: string) => publishActivityReset({
+        machine, botId, suffix, id: `bae_${label}_${suffix}`, createdAt, frames, caseResources, jsonRequest, testInfo,
+      })
+      const liveId = `bae_history_${suffix}`
+      const liveTime = Date.parse(history[199].createdAt) + 86_400_000
+      await publish("history", new Date(liveTime).toISOString())
+      await expectActivityPosition(scroller, anchor)
+      await expect(scroller.locator(`[data-activity-event-id="${liveId}"]`)).toHaveCount(0)
+      await record("live-while-reading")
+      await publish("late", new Date(Date.parse(history[140].createdAt) + 500).toISOString())
+      await expectActivityPosition(scroller, anchor)
+      await record("late-interleave")
+      await page.setViewportSize({ width, height: 760 })
+      await expectActivityPosition(scroller, anchor)
+      await record("resized")
+      const beforeTakeover = await scroller.evaluate(element => element.scrollTop)
+      await scroller.hover()
+      await page.mouse.wheel(0, 150)
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(beforeTakeover + 100)
+      const readerAnchor = await visibleActivityAnchor(scroller)
+      expect(readerAnchor.id).not.toBe(anchor.id)
+      await publish("reader", new Date(liveTime + 1_000).toISOString())
+      await expectActivityPosition(scroller, readerAnchor)
+      await record("reader-takeover")
+      await scroller.hover()
+      await page.mouse.wheel(0, 1_000_000)
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
+      const tailId = `bae_tail_${suffix}`
+      await publish("tail", new Date().toISOString())
+      await expect(scroller.locator(`[data-activity-event-id="${tailId}"]`)).toBeVisible()
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
+      await expect(scroller.locator("[data-activity-date]").filter({ hasText: /^Today$/ }).last()).toBeVisible()
+      await record("tail-follow")
+      await gate.close()
+      steps.push({ phase: "older-control-retired-before-navigation", requests: gate.entries.map(entry => entry.url) })
+      await sheet.getByRole("button", { name: "Close", exact: true }).click()
+      await expect(sheet).toHaveCount(0)
+      await expect(page).toHaveURL("/c/me/bots")
+      await gotoAfterUserWsAuth(page, `/c/me/bots?audit=${botId}`)
+      await settleSheet(sheet)
+      await expect(scroller.locator(`[data-activity-event-id="${tailId}"]`)).toBeVisible()
+      await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
+      await record("reopened")
+      const otherBotId = await createBot(machineId, `Other ${width} ${suffix}`)
+      await gotoAfterUserWsAuth(page, `/c/me/bots?audit=${otherBotId}`)
+      await settleSheet(sheet)
+      const otherId = `bae_other_${suffix}`
+      await publishActivityReset({ machine, botId: otherBotId, suffix, id: otherId, createdAt: new Date().toISOString(), frames, caseResources, jsonRequest, testInfo })
+      await expect(scroller.locator(`[data-activity-event-id="${otherId}"]`)).toBeVisible()
+      await expect(scroller.locator(`[data-activity-event-id="${tailId}"]`)).toHaveCount(0)
+      await record("other-bot")
+      gate = await gateOlderActivityPages(page, botId, caseResources)
+      steps.push({ phase: "pending-control-installed-before-return" })
+      await gotoAfterUserWsAuth(page, `/c/me/bots?audit=${botId}`)
+      await settleSheet(sheet)
+      await expect(scroller.locator(`[data-activity-event-id="${tailId}"]`)).toBeVisible()
+      const requestsBeforeWheel = gate.entries.length
+      await scroller.hover()
+      await page.mouse.wheel(0, -1_000_000)
+      await expect.poll(() => gate!.entries.length).toBe(1)
+      const pendingUrl = gate.entries[0].url
+      const pendingSearch = new URL(pendingUrl).searchParams
+      const pendingCursor = history.find(event => event.id === pendingSearch.get("beforeId"))
+      expect(pendingCursor).toBeDefined()
+      expect(pendingSearch.get("beforeCreatedAt")).toBe(pendingCursor!.createdAt)
+      expect(pendingSearch.get("limit")).toBe("50")
+      await expect(sheet).toBeVisible()
+      steps.push({ phase: "owned-pending-route-ready", requestsBeforeWheel, url: pendingUrl, cursor: pendingCursor, snapshot: await activityAnchorSnapshot(scroller) })
+      const failed = page.waitForEvent("requestfailed", { predicate: request => request.url() === pendingUrl })
+      await gate.close()
+      const aborted = await failed
+      expect(aborted.failure()?.errorText).toBeTruthy()
+      steps.push({ phase: "owned-pending-route-exit", url: aborted.url(), failure: aborted.failure() })
+      await sheet.getByRole("button", { name: "Close", exact: true }).click()
+      await expect(sheet).toHaveCount(0)
+      await attachPageScreenshot(testInfo, `activity-recovery-${width}-closed`, page)
+    } catch (error) { journeyFailure = error; journeyFailurePresent = true; throw error } finally {
+      await testInfo.attach(`activity-recovery-${width}-steps`, { body: JSON.stringify({ width, botId, steps }), contentType: "application/json" })
+      try {
+        await gate?.close()
+        await machine.close()
+      } catch (cleanupError) { if (journeyFailurePresent) throw new AggregateError([journeyFailure, cleanupError], "Journey and resource exit both failed"); throw cleanupError }
+    }
+  })
+}

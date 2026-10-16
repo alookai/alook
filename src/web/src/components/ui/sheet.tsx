@@ -6,9 +6,11 @@ import { Dialog as SheetPrimitive } from "@base-ui/react/dialog"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
+import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
-  return <SheetPrimitive.Root data-slot="sheet" {...props} />
+  const back = useNativeBackRoot(props.onOpenChangeComplete)
+  return <NativeBackRoot value={back.owner}><SheetPrimitive.Root data-slot="sheet" {...props} onOpenChangeComplete={back.complete} /></NativeBackRoot>
 }
 
 function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
@@ -42,12 +44,14 @@ function SheetContent({
   side = "right",
   showCloseButton = true,
   showOverlay = true,
+  render,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
   showOverlay?: boolean
 }) {
+  const renderPopup = useNativeBackPopupRender<SheetPrimitive.Popup.State>(render)
   return (
     <SheetPortal>
       {showOverlay && <SheetOverlay forceRender />}
@@ -63,6 +67,7 @@ function SheetContent({
           className
         )}
         {...props}
+        render={renderPopup}
       >
         {children}
         {showCloseButton && (

@@ -3,12 +3,14 @@ package ai.alook.android
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
+import android.net.Uri
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
+import org.json.JSONObject
 import androidx.core.graphics.Insets
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
@@ -21,11 +23,31 @@ import ai.alook.plugin.mobileshareimage.MobileShareImageDocumentOwner
 class MainActivity : TauriActivity() {
     override val handleBackNavigation: Boolean = false
 
+    private val nativeBackProgress = NativeBackProgress()
+    private val progressCallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackStarted(backEvent: BackEventCompat) {
+            sendBackProgress(0f, start = true)
+        }
+        override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+            sendBackProgress(backEvent.progress)
+        }
+        override fun handleOnBackCancelled() {
+            sendBackProgress(null)
+        }
+        override fun handleOnBackPressed() {
+            if (nativeBackProgress.consumeTerminal()) return
+            isEnabled = false
+            try {
+                onBackPressedDispatcher.onBackPressed()
+            } finally {
+                isEnabled = true
+            }
+        }
+    }
+
     private var isReady = false
     private var mainWebView: WebView? = null
     private var startupAttachListener: View.OnAttachStateChangeListener? = null
-    private lateinit var nativeBackCallback: OnBackPressedCallback
-    private lateinit var nativeBackDispatcher: NativeBackDispatcher
     private val mobileShareImageDocumentOwner = MobileShareImageDocumentOwner(this)
 
     companion object {
@@ -54,30 +76,6 @@ class MainActivity : TauriActivity() {
         val splashScreen = installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        nativeBackCallback = object : OnBackPressedCallback(true) {
-            override fun handleOnBackStarted(backEvent: BackEventCompat) {
-                nativeBackDispatcher.progress(0f) { mainWebView?.evaluateJavascript(it, null) }
-            }
-            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
-                nativeBackDispatcher.progress(backEvent.progress) { mainWebView?.evaluateJavascript(it, null) }
-            }
-            override fun handleOnBackCancelled() {
-                nativeBackDispatcher.progress(null) { mainWebView?.evaluateJavascript(it, null) }
-            }
-
-            override fun handleOnBackPressed() {
-                val webView = mainWebView
-                if (webView == null) {
-                    delegateBackToSystem()
-                    return
-                }
-                nativeBackDispatcher.dispatch { script, complete ->
-                    webView.evaluateJavascript(script, complete)
-                }
-            }
-        }
-        nativeBackDispatcher = NativeBackDispatcher(::delegateBackToSystem)
-        onBackPressedDispatcher.addCallback(this, nativeBackCallback)
         mobileShareImageDocumentOwner.attach(savedInstanceState)
 
         splashScreen.setKeepOnScreenCondition { !isReady }
@@ -110,8 +108,40 @@ class MainActivity : TauriActivity() {
         super.onSaveInstanceState(outState)
     }
 
+    override fun onResume() {
+        super.onResume()
+        attachBackProgress()
+    }
+
+    override fun onStop() {
+        nativeBackProgress.invalidate()
+        super.onStop()
+    }
+
+    fun onBackDocumentStarted(webView: WebView) {
+        if (webView === mainWebView) nativeBackProgress.invalidate()
+    }
+
+    private fun attachBackProgress() {
+        if (mainWebView == null || isDestroyed || isFinishing) return
+        progressCallback.remove()
+        onBackPressedDispatcher.addCallback(this, progressCallback)
+    }
+
+    private fun sendBackProgress(value: Float?, start: Boolean = false) {
+        val webView = mainWebView ?: return
+        val href = webView.url ?: return
+        val url = Uri.parse(href)
+        val trusted = url.scheme == "https" && url.host == "alook.ai" && (url.port == -1 || url.port == 443)
+            || BuildConfig.DEBUG && url.scheme == "http" && url.host == "localhost" && url.port == 3000
+        if (!trusted) { nativeBackProgress.invalidate(); return }
+        val script = if (start) nativeBackProgress.start(JSONObject.quote(href)) else nativeBackProgress.progress(value)
+        if (script != null) webView.evaluateJavascript(script, null)
+    }
+
     override fun onDestroy() {
-        nativeBackDispatcher.close()
+        nativeBackProgress.reset()
+        progressCallback.remove()
         clearStartupAttachListener()
         mainWebView = null
         mobileShareImageDocumentOwner.detach()
@@ -122,6 +152,8 @@ class MainActivity : TauriActivity() {
         super.onWebViewCreate(webView)
         clearStartupAttachListener()
         mainWebView = webView
+        nativeBackProgress.reset()
+        webView.post { if (mainWebView === webView) attachBackProgress() }
         if (!isReady && !isDestroyed && !isFinishing) {
             val listener = object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(view: View) {
@@ -145,15 +177,6 @@ class MainActivity : TauriActivity() {
     private fun clearStartupAttachListener() {
         startupAttachListener?.let { mainWebView?.removeOnAttachStateChangeListener(it) }
         startupAttachListener = null
-    }
-
-    private fun delegateBackToSystem() {
-        nativeBackCallback.isEnabled = false
-        try {
-            onBackPressedDispatcher.onBackPressed()
-        } finally {
-            nativeBackCallback.isEnabled = true
-        }
     }
 
     private fun applyWindowTheme(dark: Boolean) {

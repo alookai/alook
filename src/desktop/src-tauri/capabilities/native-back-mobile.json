@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "native-back-mobile",
+  "description": "Android Back listener for the trusted main WebView",
+  "windows": ["main"],
+  "platforms": ["android"],
+  "local": false,
+  "remote": {
+    "urls": ["https://alook.ai"]
+  },
+  "permissions": [
+    "core:app:allow-register-listener",
+    "core:app:allow-remove-listener"
+  ]
+}

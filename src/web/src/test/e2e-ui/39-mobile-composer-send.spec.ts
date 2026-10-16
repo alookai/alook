@@ -293,7 +293,7 @@ test.describe("composer send by input capability", () => {
   test("touch child thread button targets the child", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { serverId, channelId, threadId } = await prepareCase1(actors)
+    const { serverId, threadId } = await prepareCase1(actors)
 
     const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
@@ -312,7 +312,7 @@ test.describe("composer send by input capability", () => {
   test("touch DM button targets the DM channel", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { channelId, dmId } = await prepareCase1(actors)
+    const { dmId } = await prepareCase1(actors)
 
     const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)

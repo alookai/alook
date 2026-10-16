@@ -43,7 +43,13 @@ import type { Member } from "@/lib/community/models/people"
 
 type Options = Omit<Parameters<typeof useComposerSuggestions>[0], "editorRef" | "canSuggest" | "scope">
 type Result = ReturnType<typeof useComposerSuggestions>
-const editor = { isFocused: true, isDestroyed: false } as import("@tiptap/react").Editor
+const editor = {
+  isFocused: true,
+  isDestroyed: false,
+  on: vi.fn(),
+  off: vi.fn(),
+  view: { dom: document.createElement("div"), hasFocus: () => editor.isFocused, composing: false },
+} as import("@tiptap/react").Editor
 const editorRef = { current: editor }
 const canSuggest = (candidate: import("@tiptap/react").Editor) => candidate === editor && candidate.isFocused
 

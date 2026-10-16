@@ -98,7 +98,7 @@ describe("Composer committed send lifecycle", () => {
       state: { tr: {} },
       isFocused: true,
       isDestroyed: false,
-      view: { dispatch: vi.fn() },
+      view: { dispatch: vi.fn(), dom: document.createElement("div"), hasFocus: () => true, composing: false },
       isEmpty: false,
       getText: vi.fn(() => "latest draft"),
       getJSON: vi.fn(() => ({})),
