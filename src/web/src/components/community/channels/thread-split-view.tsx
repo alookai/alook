@@ -3,7 +3,7 @@
  * macrostructure: parallel-conversation-panel · pre-emit: P5 H5 E4 S5 R5 V4 · slop: pass
  */
 
-import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react"
+import { useCallback, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
 import { useDefaultLayout, type GroupImperativeHandle, type Layout, type LayoutChangedMeta } from "react-resizable-panels"
 import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 import {
@@ -14,7 +14,9 @@ import {
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { ConversationResolutionPendingFrame } from "./conversation-resolution-pending-frame"
+import styles from "./thread-split-view.module.css"
 
+const THREAD_SPLIT_PARENT_MIN_WIDTH = 320
 export const THREAD_SPLIT_PANEL_MIN_WIDTH = 360
 export const THREAD_SPLIT_PANEL_MAX_WIDTH = 800
 
@@ -27,6 +29,7 @@ const threadSplitLayoutStorage = {
 
 export function ThreadSplitView({
   split,
+  layoutPending = false,
   mobileBack = false,
   preserveParent = false,
   parent,
@@ -35,6 +38,7 @@ export function ThreadSplitView({
   resolvingParent = false,
 }: {
   split: boolean
+  layoutPending?: boolean
   mobileBack?: boolean
   preserveParent?: boolean
   parent: ReactNode
@@ -68,9 +72,15 @@ export function ThreadSplitView({
     <main
       data-testid={isThread ? tid.threadSplit : undefined}
       data-mobile-back-thread={mobileBack || undefined}
-      data-layout={split ? resolvingParent ? "pending" : "split" : "full"}
+      data-layout={layoutPending || resolvingParent ? "pending" : split ? "split" : "full"}
+      data-layout-pending={layoutPending || undefined}
       data-community-conversation-subtype={conversationSubtype === "unknown" ? undefined : conversationSubtype}
-      className="relative flex min-h-0 min-w-0 flex-1"
+      className={cn("relative flex min-h-0 min-w-0 flex-1", styles.layout)}
+      style={{
+        "--thread-split-parent-min": `${THREAD_SPLIT_PARENT_MIN_WIDTH}px`,
+        "--thread-split-thread-min": `${THREAD_SPLIT_PANEL_MIN_WIDTH}px`,
+        "--thread-split-thread-max": `${THREAD_SPLIT_PANEL_MAX_WIDTH}px`,
+      } as CSSProperties}
     >
       <ResizablePanelGroup
         id="community-thread-split-layout"
@@ -81,7 +91,7 @@ export function ThreadSplitView({
         disabled={!split || resolvingParent}
         aria-hidden={resolvingParent || undefined}
         inert={resolvingParent || undefined}
-        className={cn("min-h-0 flex-1", resolvingParent && "invisible", !split && !mobileBack && [
+        className={cn("min-h-0 flex-1", resolvingParent && "invisible", !split && !mobileBack && !layoutPending && [
           "*:data-[layout-hidden=true]:flex-none!",
           "*:data-[layout-hidden=true]:w-0!",
           "*:data-[layout-hidden=true]:min-w-0!",
@@ -95,12 +105,12 @@ export function ThreadSplitView({
         <ResizablePanel
           id="parent"
           defaultSize="56%"
-          minSize={320}
+          minSize={THREAD_SPLIT_PARENT_MIN_WIDTH}
           disabled={!split || resolvingParent}
-          data-layout-hidden={!split || undefined}
+          data-layout-hidden={!split && !layoutPending || undefined}
           className="flex min-h-0 min-w-0 flex-col"
         >
-          {(split || mobileBack || preserveParent) && <section
+          {(split || layoutPending || mobileBack || preserveParent) && <section
             data-testid={tid.threadSplitParent}
             data-mobile-back-parent
             inert={!split}
@@ -111,8 +121,9 @@ export function ThreadSplitView({
             {parent}
           </section>}
         </ResizablePanel>
-        {split && !resolvingParent && <ResizableHandle
+        {(split && !resolvingParent || layoutPending) && <ResizableHandle
           aria-label="Resize thread panel"
+          disabled={!split || resolvingParent}
           className="bg-border/60"
         />}
         <ResizablePanel
@@ -121,7 +132,7 @@ export function ThreadSplitView({
           minSize={THREAD_SPLIT_PANEL_MIN_WIDTH}
           maxSize={THREAD_SPLIT_PANEL_MAX_WIDTH}
           disabled={!split || resolvingParent}
-          data-layout-active={!split || undefined}
+          data-layout-active={!split && !layoutPending || undefined}
           className="flex min-h-0 min-w-0 flex-col bg-background"
         >
           <section

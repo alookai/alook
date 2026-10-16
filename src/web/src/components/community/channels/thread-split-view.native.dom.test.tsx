@@ -1,9 +1,13 @@
+import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { createElement, createRef } from "react"
 import { renderToString } from "react-dom/server"
 import { Group, Panel, Separator, type GroupImperativeHandle } from "react-resizable-panels"
 import { describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { ThreadSplitView } from "./thread-split-view"
+import styles from "./thread-split-view.module.css"
 
 const storageKey = "react-resizable-panels:community-thread-split-layout"
 const saved = { parent: 57.538, thread: 42.462 }
@@ -59,18 +63,45 @@ function nativeGeometry(initialWidth: number) {
 }
 
 describe("ThreadSplitView actual native persistence", () => {
-  it.each([false, true].flatMap(hydrate => [false, true].flatMap(startFull => [false, true]
-    .map(startZero => ({ hydrate, startFull, startZero })))))(
-    "restores with hydration=$hydrate full=$startFull zero=$startZero",
-    async ({ hydrate, startFull, startZero }) => {
+  it("applies pending stylesheet geometry to the native group flex items", () => {
+    const browser = window
+    let html: string
+    try {
+      vi.stubGlobal("window", undefined)
+      html = renderToString(createElement(ThreadSplitView, {
+        split: false, layoutPending: true, parent: "Parent", thread: "Child",
+      }))
+    } finally { vi.stubGlobal("window", browser) }
+    const ssr = document.createElement("div")
+    ssr.innerHTML = html
+    const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "thread-split-view.module.css"), "utf8")
+    const selectors = [...css.matchAll(/(\.layout\[data-layout-pending\][^{}]+)\{/g)]
+      .map(match => match[1].trim().replace(/\.([\w-]+)/g, (_, name: string) => `.${styles[name]}`))
+    expect(selectors.length).toBeGreaterThan(0)
+    for (const selector of selectors) {
+      const items = ssr.querySelectorAll(selector)
+      expect(items.length, selector).toBeGreaterThan(0)
+      for (const item of items) {
+        expect(item.parentElement, selector).toHaveAttribute("data-group")
+        expect(item.matches("[data-panel], [data-separator]"), selector).toBe(true)
+      }
+    }
+  })
+
+  it.each([false, true].flatMap(hydrate => (["split", "full", "pending"] as const).flatMap(startMode => [false, true]
+    .map(startZero => ({ hydrate, startMode, startZero })))))(
+    "restores with hydration=$hydrate mode=$startMode zero=$startZero",
+    async ({ hydrate, startMode, startZero }) => {
       localStorage.setItem(storageKey, JSON.stringify(saved))
       const read = vi.spyOn(Storage.prototype, "getItem")
+      const write = vi.spyOn(Storage.prototype, "setItem")
       const error = vi.spyOn(console, "error").mockImplementation(() => {})
       const resize = nativeGeometry(startZero ? 0 : 1225)
       const parent = createElement("span", null, "Parent")
       const thread = createElement("input", { defaultValue: "unsent child" })
       const node = createElement(ThreadSplitView, {
-        split: !startFull, conversationSubtype: startFull ? "unknown" : "thread", parent, thread,
+        split: startMode === "split", layoutPending: startMode === "pending",
+        conversationSubtype: startMode === "full" ? "unknown" : "thread", parent, thread,
       })
       const browser = window
       let html = ""
@@ -80,6 +111,15 @@ describe("ThreadSplitView actual native persistence", () => {
           html = renderToString(node)
         } finally { vi.stubGlobal("window", browser) }
         expect(html).toContain("flex-basis:44%")
+        if (startMode === "pending") {
+          const ssr = document.createElement("div")
+          ssr.innerHTML = html
+          expect(ssr.querySelector("main")).toHaveAttribute("data-layout-pending", "true")
+          expect(ssr.querySelectorAll("[data-panel]")).toHaveLength(2)
+          expect(ssr.querySelector("[data-separator]")).toHaveAttribute("aria-disabled", "true")
+          expect(ssr.querySelector("[data-separator]")).not.toHaveAttribute("tabindex")
+          expect(ssr.querySelector("#parent")?.textContent).toBe("Parent")
+        }
       }
       const container = document.createElement("div")
       container.innerHTML = html
@@ -88,7 +128,7 @@ describe("ThreadSplitView actual native persistence", () => {
       try {
         const group = container.querySelector("[data-group]")
         const input = container.querySelector("input")
-        if (startFull) {
+        if (startMode !== "split") {
           view.rerender(createElement(ThreadSplitView, { split: true, conversationSubtype: "thread", parent, thread }))
           expect(container.querySelector("[data-group]")).toBe(group)
           expect(container.querySelector("input")).toBe(input)
@@ -106,6 +146,7 @@ describe("ThreadSplitView actual native persistence", () => {
         expect(panel.style.flexBasis).toBe("0px")
         expect(error.mock.calls.filter(call => call.some(value => /hydrat/i.test(String(value))))).toEqual([])
         expect(localStorage.getItem(storageKey)).toBe(JSON.stringify(saved))
+        expect(write).not.toHaveBeenCalled()
       } finally {
         view.unmount()
         container.remove()

@@ -243,6 +243,7 @@ vi.mock("@/components/community/channels/thread-split-parent-surface", () => ({
 vi.mock("@/components/community/channels/thread-split-view", () => ({
   ThreadSplitView: ({
     split,
+    layoutPending = false,
     mobileBack = false,
     preserveParent = false,
     parent,
@@ -251,6 +252,7 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
     resolvingParent,
   }: {
     split: boolean
+    layoutPending?: boolean
     mobileBack?: boolean
     preserveParent?: boolean
     parent: React.ReactNode
@@ -262,11 +264,12 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
     {
       "data-testid": conversationSubtype === "thread" ? "community-thread-split" : undefined,
       "data-mobile-back-thread": mobileBack || undefined,
-      "data-layout": split ? resolvingParent ? "pending" : "split" : "full",
+      "data-layout": layoutPending || resolvingParent ? "pending" : split ? "split" : "full",
+      "data-layout-pending": layoutPending || undefined,
       "data-community-conversation-subtype": conversationSubtype === "unknown" ? undefined : conversationSubtype,
     },
     resolvingParent && React.createElement("main", { "aria-label": "Resolving conversation", "data-community-conversation-subtype": "unknown" }),
-    (split || mobileBack || preserveParent) && React.createElement(
+    (split || layoutPending || mobileBack || preserveParent) && React.createElement(
       "section",
       { "data-testid": "community-thread-split-parent", "data-mobile-back-parent": "", inert: !split },
       parent,
@@ -999,7 +1002,10 @@ describe("ChannelRoute message surface ownership", () => {
     mockSplitMode.value = "pending"
     const props = { serverParam: "server_1", channelId: "channel_1" }
     const renderer = render(React.createElement(ChannelRoute, props))
-    expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "full")
+    expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "pending")
+    expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout-pending", "true")
+    expect(mockSplitParentSurface).toHaveBeenCalledWith(expect.objectContaining({ channel: expect.objectContaining({ id: "parent_1" }) }), undefined)
+    mockSplitParentSurface.mockClear()
     expect(renderer.container.querySelector('[data-community-conversation-subtype="unknown"]')).toBeNull()
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
     Object.assign(mockRouteModel, {
@@ -1019,7 +1025,7 @@ describe("ChannelRoute message surface ownership", () => {
     Object.assign(mockRouteModel, { channel: null, routeLifecycle: "pending", routeHydrated: false,
       skeletonSubtype: "thread",
       layoutHint: { subtype: "thread", parentChannelId: "parent_1", parentSubtype: "text" } })
-    mockSplitMode.value = "split"
+    mockSplitMode.value = "pending"
     const props = { serverParam: "server_1", channelId: "channel_1" }
     const renderer = render(React.createElement(ChannelRoute, props))
     const outer = renderer.container.firstElementChild

@@ -100,6 +100,7 @@ function ChannelRouteFrame(target: RouteTarget) {
   })
   const uiHandlers = useUiHandlers()
   const split = isThread && mode === "split"
+  const layoutPending = isThread && mode === "pending"
   const [parentIdentity, setParentIdentity] = useAtom(useCreateAtom<{ id: string; confirmed: boolean; keepMounted: boolean } | null>(null))
   const onParentIdentity = useCallback((id: string, confirmed: boolean) => {
     setParentIdentity((current) => {
@@ -129,8 +130,8 @@ function ChannelRouteFrame(target: RouteTarget) {
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
   return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col">
     <ThreadSplitView
-      split={split} mobileBack={breakpoint === "mobile" && isThread && !!parent} preserveParent={preserveParent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
-      parent={(split || breakpoint === "mobile" && isThread || preserveParent) && parent ? <ThreadSplitParentSurface
+      split={split} layoutPending={layoutPending} mobileBack={breakpoint === "mobile" && isThread && !!parent} preserveParent={preserveParent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+      parent={(split || layoutPending || breakpoint === "mobile" && isThread || preserveParent) && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}
         viewer={currentUser} onNavigateParent={navigateServerRoot}
