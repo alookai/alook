@@ -156,7 +156,27 @@ describe("document resource handoff", () => {
       expect(seed.selfProfile).toEqual(selfProfile)
       expect(seed.entries).toEqual([])
       expect(JSON.stringify(seed)).not.toContain("Body")
-      expect(warn).toHaveBeenCalledWith("[community] document resource prefetch unavailable", { kind: "server-conversation" })
+      expect(warn).toHaveBeenCalledWith("[community] document resource prefetch unavailable", { kind: "server-conversation", phase: "read-entry", channelId: "c1", generatedAt: seed.generatedAt })
+    } finally { warn.mockRestore() }
+  })
+
+  it.each(["resolve-target", "read-entry", "read-module"] as const)("correlates %s failures without logging private error material", async phase => {
+    const privateError = new Error("session=private-credential; query=private-body")
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.door.mockResolvedValue({ ok: true, value: { access: { channel: { serverId: null } } } })
+    if (phase === "resolve-target") mocks.door.mockRejectedValue(privateError)
+    if (phase === "read-entry") mocks.entry.mockRejectedValue(privateError)
+    if (phase === "read-module") mocks.machines.mockRejectedValue(privateError)
+    try {
+      const seed = await readCommunityDocumentSeed(db, "viewer", phase === "read-module" ? "/c/me/machines" : "/c/me/dm?msg=private-anchor", selfProfile)
+      expect(seed.selfProfile).toEqual(selfProfile)
+      expect(seed.entries).toEqual([])
+      expect(warn).toHaveBeenCalledExactlyOnceWith("[community] document resource prefetch unavailable", {
+        kind: phase === "read-module" ? "machines" : "dm", phase,
+        channelId: phase === "read-module" ? null : "dm", generatedAt: seed.generatedAt,
+      })
+      expect(JSON.stringify(warn.mock.calls)).not.toMatch(/private-|session=|query=/)
+      if (phase === "resolve-target") expect(mocks.entry).not.toHaveBeenCalled()
     } finally { warn.mockRestore() }
   })
 

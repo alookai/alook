@@ -512,7 +512,8 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
     const checks = new WeakMap<IDBTransaction, { account?: unknown; scope?: unknown; channels?: unknown }>()
     const observedTransactions = new WeakMap<IDBTransaction, { id: number; keys: string[] }>()
     let transactionSequence = 0
-    const state = { held: 0, oldPresent: false, newPresent: false, released: false,
+    type HeldRequest = { id: number; mode: IDBTransactionMode; priorKeys: string[]; callsite: string[]; completedAt: number | null; abortedAt: number | null }
+    const state = { heldRequest: null as HeldRequest | null, held: 0, oldPresent: false, newPresent: false, released: false,
       retirementCheck: null as RetirementCheck | null,
       diagnostics: { beforeRelease: [] as Array<Record<string, unknown>>, afterRelease: [] as Array<Record<string, unknown>> },
       release: () => { state.released = true; record({ event: "release", pending: pending.length }); for (const complete of pending.splice(0)) complete() } }
@@ -522,14 +523,27 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
       if (entries.length >= 32) entries.shift()
       entries.push({ at: performance.now(), ...event })
     }
+    function staticCallsite() {
+      return (new Error().stack ?? "").split("\n").slice(1, 9).flatMap(line => {
+        const match = line.match(/https?:\/\/[^\s)]+/)
+        if (!match) return []
+        try {
+          const location = new URL(match[0])
+          const path = location.pathname.match(/^\/_next\/static\/[A-Za-z0-9_./%+-]+\.js:\d+:\d+$/)?.[0]
+          return path && path.length <= 240 ? [path] : []
+        } catch { return [] }
+      }).slice(0, 4)
+    }
     Reflect.set(window, "__217DiskRead", state)
     IDBObjectStore.prototype.get = function (query) {
       const ownedStore = this.transaction.db.name === "keyval-store" && this.name === "keyval"
       const kind = !ownedStore ? undefined : query === key ? "payload" : query === key + ":epoch" ? "scope"
         : query === accountKey ? "account" : query === channelsKey ? "channels" : query === "alook:qc:device-epoch" ? "device" : undefined
+      const priorKeys = [...(observedTransactions.get(this.transaction)?.keys ?? [])]
+      const callsite = kind ? staticCallsite() : []
       let request: ReturnType<IDBObjectStore["get"]>
       try { request = original.call(this, query) } catch (error) {
-        if (kind) record({ event: "get-throw", kind, mode: this.transaction.mode, name: error instanceof Error ? error.name : "unknown" })
+        if (kind) record({ event: "get-throw", id: observedTransactions.get(this.transaction)?.id ?? null, kind, priorKeys, callsite, mode: this.transaction.mode, name: error instanceof Error ? error.name : "unknown" })
         throw error
       }
       if (kind) {
@@ -539,8 +553,14 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
           receipt = { id: ++transactionSequence, keys: [] }
           observedTransactions.set(transaction, receipt)
           const id = receipt.id
-          transaction.addEventListener("complete", () => record({ event: "transaction-complete", id, mode: transaction.mode }), { once: true })
-          transaction.addEventListener("abort", () => record({ event: "transaction-abort", id, mode: transaction.mode, name: transaction.error?.name ?? null }), { once: true })
+          transaction.addEventListener("complete", () => {
+            if (state.heldRequest?.id === id) state.heldRequest.completedAt = performance.now()
+            record({ event: "transaction-complete", id, mode: transaction.mode })
+          }, { once: true })
+          transaction.addEventListener("abort", () => {
+            if (state.heldRequest?.id === id) state.heldRequest.abortedAt = performance.now()
+            record({ event: "transaction-abort", id, mode: transaction.mode, name: transaction.error?.name ?? null })
+          }, { once: true })
         }
         const id = receipt.id
         record({ event: "get", id, mode: transaction.mode, kind, priorKeys: [...receipt.keys] })
@@ -583,6 +603,8 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
           if (state.released) return
           event.stopImmediatePropagation()
           state.held += 1
+          const receipt = observedTransactions.get(this.transaction)!
+          state.heldRequest = { id: receipt.id, mode: this.transaction.mode, priorKeys, callsite, completedAt: null, abortedAt: null }
           const value = typeof request.result === "string" ? request.result : ""
           state.oldPresent = value.includes(oldId)
           state.newPresent = value.includes(newId)
@@ -605,11 +627,11 @@ async function captureOriginalPersistedReadDiagnostics(page: Page, testInfo: Tes
   const snapshot = page.isClosed() ? { pageClosed: true } : await page.evaluate(() => {
     const state = Reflect.get(window, "__217DiskRead") as {
       held: number; oldPresent: boolean; newPresent: boolean; released: boolean;
-      retirementCheck: unknown; diagnostics: unknown
+      heldRequest: unknown; retirementCheck: unknown; diagnostics: unknown
     } | undefined
     return state ? {
       held: state.held, oldPresent: state.oldPresent, newPresent: state.newPresent,
-      released: state.released, retirementCheck: state.retirementCheck, diagnostics: state.diagnostics,
+      heldRequest: state.heldRequest, released: state.released, retirementCheck: state.retirementCheck, diagnostics: state.diagnostics,
       marks: { start: performance.getEntriesByName("alook:restore:start", "mark").length,
         complete: performance.getEntriesByName("alook:restore:complete", "mark").length },
     } : { stateMissing: true }

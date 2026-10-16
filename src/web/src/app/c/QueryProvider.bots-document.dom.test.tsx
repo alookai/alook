@@ -73,6 +73,6 @@ it.each(["bots", "machines"] as const)("retains the independent successful Bots-
     if (failed === "machines") { expect(seed.bots).toEqual(bots); expect(seed.machines).toBeUndefined() }
     else { expect(seed.bots).toBeUndefined(); expect(seed.machines).toEqual({ machines: [] }) }
     expect(seed.selfProfile).toEqual(profile)
-    expect(warn).toHaveBeenCalledWith("[community] document resource prefetch unavailable", { kind: "bots" })
+    expect(warn).toHaveBeenCalledWith("[community] document resource prefetch unavailable", { kind: "bots", phase: "read-module", channelId: null, generatedAt: seed.generatedAt })
   } finally { warn.mockRestore() }
 })

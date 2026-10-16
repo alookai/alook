@@ -21,6 +21,7 @@ export async function readCommunityDocumentSeed(db: Database, viewerId: string, 
   const main = seed.href ? resolveCommunityModulePlan(seed.href).main : { kind: "none" as const }
   const channelId = main.kind === "dm" ? main.dmId : main.kind === "server-conversation" ? main.leafId : null
   const serverId = main.kind === "server-conversation" ? main.serverId : null
+  let phase: "read-module" | "resolve-target" | "read-entry" = "read-module"
   try {
     if (main.kind === "bots") {
       const [bots, machines] = await Promise.allSettled([
@@ -39,9 +40,11 @@ export async function readCommunityDocumentSeed(db: Database, viewerId: string, 
       const anchorMessageId = url.searchParams.get("msg")
       const tag = url.searchParams.get("tag")?.trim().toLowerCase() || undefined
       const read = async (id: string, anchor?: string | null, filter?: string) => {
+        phase = "resolve-target"
         const resolved = await resolveMessageTarget(db, viewerId, { id }, "human", "read")
         if (!resolved.ok || resolved.value.access.channel.serverId !== serverId) return
         const params = new URLSearchParams(anchor ? { anchor } : undefined)
+        phase = "read-entry"
         const result = await readCommunityConversationEntry(db, { viewerId, target: resolved.value, window: parseCommunityMessageWindow(params), tag: filter, preferTail: false })
         if (result.ok) seed.entries.push({ target: { channelId: id, serverId, anchorMessageId: anchor ?? null, tag: filter ?? null }, data: result.entry })
         return result.ok ? result.entry : undefined
@@ -49,7 +52,7 @@ export async function readCommunityDocumentSeed(db: Database, viewerId: string, 
       await read(channelId, anchorMessageId, tag)
     }
   } catch {
-    console.warn("[community] document resource prefetch unavailable", { kind: main.kind })
+    console.warn("[community] document resource prefetch unavailable", { kind: main.kind, phase, channelId, generatedAt: seed.generatedAt })
   }
   const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
   const registry = createCommunityDbRegistry(client, viewerId)
