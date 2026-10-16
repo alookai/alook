@@ -908,7 +908,7 @@ let caseJourneyFailure2Present = false
     await expect(sticker.locator("time")).toHaveCount(3)
     const markedMessageBody = sticker.locator("p").filter({ hasText: `Long marked task ${suffix}` })
     await expect(markedMessageBody).toHaveText(`Long marked task ${suffix} ${"with enough detail to require a second line ".repeat(5).trim()}`)
-    await expect(markedMessageBody.locator('[data-streamdown="strong"]')).toHaveText(`Long marked task ${suffix}`)
+    await expect(markedMessageBody.locator('span.font-semibold[data-streamdown="strong"]')).toHaveText(`Long marked task ${suffix}`)
     await expect(markedMessageBody).toHaveCSS("-webkit-line-clamp", "none")
     expect(ownerMarkRequests.length).toBeGreaterThan(0)
     machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "running" }))

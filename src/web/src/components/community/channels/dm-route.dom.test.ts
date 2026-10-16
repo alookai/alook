@@ -1,9 +1,11 @@
 import React, { useLayoutEffect, type PropsWithChildren } from "react"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { screen, setupUser } from "@/test/react-dom-harness"
-import { renderCommunity } from "@/test/community-owner-harness"
+import { act, screen, setupUser, waitFor } from "@/test/react-dom-harness"
+import { renderCommunity, renderCommunityHook } from "@/test/community-owner-harness"
 import { DmRoute } from "./dm-route"
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
+import { ingestDms } from "@/lib/community-db/sync"
 
 function RouteUi({ children }: PropsWithChildren) {
   const runtime = useCommunityRuntime()
@@ -54,6 +56,19 @@ beforeEach(() => {
 })
 
 describe("DM target main owns identity, retry and fallback", () => {
+  it.each(["pending", "retryable-error", "denied"])("keeps canonical DM presentation while entry is %s without granting read permission", async status => {
+    const owner = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
+    await act(async () => { ingestDms(owner, { conversations: [{ id: "dm-a", userId: "peer", name: "Peer", discriminator: "0042", avatar: "/avatar", avatarVersion: 1, status: "offline", preview: "" }] }) })
+    mocks.verification.status = status
+    expect(mocks.verification.identityKnown).toBe(false)
+    const route = render(React.createElement(DmRoute, { dmId: "dm-a" }))
+    await waitFor(() => expect(route.container.querySelector("main")).toHaveAttribute("data-channel-id", "dm-a"))
+    expect(screen.queryByTestId("dm-pending")).toBeNull()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(mocks.clear).not.toHaveBeenCalled()
+    expect(mocks.verification.identityKnown).toBe(false)
+  })
+
   it("reserves the target frame on mobile and mounts only the qualified explicit ID", () => {
     mocks.breakpoint = "mobile"
     const route = render(React.createElement(DmRoute, { dmId: "dm-a" }))

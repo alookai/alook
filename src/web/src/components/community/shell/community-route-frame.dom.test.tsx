@@ -1,4 +1,5 @@
 import { createElement, type ReactNode } from "react"
+import { renderToString } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -6,6 +7,8 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityRouteFrame } from "./community-route-frame"
 import { useCommunityRouteFrame } from "./community-route-context"
 import ServerContent from "@/app/c/channels/layout"
+import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
+import { tid } from "@/lib/community/testids"
 
 const mocks = vi.hoisted(() => ({
   segments: ["me", "friends"],
@@ -95,6 +98,18 @@ function tree(serverId: string | null = null) {
 }
 
 describe("common committed community frame", () => {
+  it("lets the neutral root own its only actual SSR frame before destination resolution", () => {
+    mocks.segments = []
+    mocks.pathname = "/c"
+    const html = renderToString(<CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
+      <CommunityRouteFrame sidebar={null}><CommunitySessionPendingFrame pathname="/c" /></CommunityRouteFrame>
+    </CommunityTestProvider>)
+    expect(html.split(`data-testid="${tid.initialFrame}"`)).toHaveLength(2)
+    expect(html).not.toContain('data-slot="community-shell-root"')
+    expect(html).not.toContain('data-testid="rail"')
+    expect(html).not.toContain('data-testid="userbar"')
+  })
+
   it("retains global nodes and state across me/server and preserves same-server sidebar", () => {
     const view = render(tree())
     const rail = view.getByTestId("rail")

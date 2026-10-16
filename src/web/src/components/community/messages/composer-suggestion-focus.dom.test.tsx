@@ -148,6 +148,42 @@ describe("composer suggestion focus with installed TipTap", () => {
     expect(replacePath).not.toHaveBeenCalled()
   })
 
+  it("replays a replaced mention source and lets native Back retire its aborted search", async () => {
+    const probeRef: Probe = { current: null }
+    const replacePath = vi.fn(), oldSearch = vi.fn()
+    const nextSearch = vi.fn((query: string) => {
+      if (!query) throw new DOMException("Retired source", "AbortError")
+    })
+    const listener = <BackListener replacePath={replacePath} />
+    const renderer = render(<>{listener}<Harness {...props} probeRef={probeRef} draftKey="replaced-source" mentionCandidates={{ loading: false, failed: false, search: oldSearch, searchQuery: "ada", searchStatus: "ready" }} /></>)
+    const editor = await editorOf(probeRef)
+    await type(editor, "@ada")
+    await screen.findByTestId("community-mention-popup")
+    const draft = editor.getJSON()
+    await act(async () => {
+      renderer.rerender(<>{listener}<Harness {...props} probeRef={probeRef} draftKey="replaced-source" mentionCandidates={{ loading: false, failed: false, search: nextSearch, searchQuery: "", searchStatus: "idle" }} /></>)
+    })
+    await waitFor(() => expect(nextSearch).toHaveBeenCalledWith("ada"))
+    expect(probeRef.current!.mentionPopup.command).toBeTypeOf("function")
+    const back = new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })
+    act(() => { window.dispatchEvent(back) })
+    expect(back.defaultPrevented).toBe(true)
+    expect(nextSearch).toHaveBeenLastCalledWith("")
+    expect(probeRef.current!.mentionPopup.command).toBeNull()
+    expect(editor.view.hasFocus()).toBe(true)
+    expect(editor.getJSON()).toEqual(draft)
+    expect(readComposerDraft("viewer:replaced-source")).toEqual(draft)
+    expect(replacePath).not.toHaveBeenCalled()
+    await act(async () => {
+      renderer.rerender(<>{listener}<Harness {...props} probeRef={probeRef} draftKey="replaced-source" mentionCandidates={{ loading: false, failed: false, search: nextSearch, searchQuery: "ada", searchStatus: "ready" }} /></>)
+      editor.view.dispatch(editor.state.tr)
+    })
+    expect(probeRef.current!.mentionPopup.command).toBeNull()
+    expect(editor.getJSON()).toEqual(draft)
+    act(() => { window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })) })
+    expect(replacePath).toHaveBeenCalledExactlyOnceWith("/c/me")
+  })
+
   it("native Back remains with a composing editor", async () => {
     const probeRef: Probe = { current: null }
     const replacePath = vi.fn()

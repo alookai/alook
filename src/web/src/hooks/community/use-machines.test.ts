@@ -37,7 +37,7 @@ describe("useMachines / machinesQueryFn", () => {
     const { machinesQueryFn } = await import("./use-machines")
     const { client: qc } = await createCommunityQueryOwner()
     const data = await qc.query({ queryKey: communityKeys.machines(), queryFn: machinesQueryFn })
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/machines", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/machines?view=list", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(data.machines).toEqual([machineFixture])
   })
 
@@ -47,7 +47,7 @@ describe("useMachines / machinesQueryFn", () => {
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.machines()
     await qc.query({ queryKey: key, queryFn: machinesQueryFn })
-    expect(qc.getQueryData(key)).toEqual({ machines: [machineFixture] })
+    expect(qc.getQueryData(key)).toEqual({ machines: [machineFixture], source: "network" })
     // Prefix invalidation from communityKeys.all cascades to this key.
     await qc.invalidateQueries({ queryKey: communityKeys.all })
     const state = qc.getQueryState(key)

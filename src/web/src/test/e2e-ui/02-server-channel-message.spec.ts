@@ -174,16 +174,11 @@ test("server → channel → message", async ({ caseActors, caseResources }) => 
     await messagesGate
     await route.continue()
   })
-  const messagesRequestPromise = page.waitForRequest((request) => {
-    return request.method() === "GET"
-      && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
-  }, { timeout: 45_000 })
   await page.reload({ waitUntil: "commit" })
-  await messagesRequestPromise
-  releaseMessages()
   await expect(composerEditable(page)).toContainText(draft)
   await expect(page.getByTestId(tid.message(firstPayload.message.id))).toHaveCount(1)
   await expect(page.getByTestId(tid.message(imePayload.message.id))).toHaveCount(1)
+  releaseMessages()
   await page.unroute("**/api/community/channels/*/messages*")
 
   const restored = composerEditable(page)

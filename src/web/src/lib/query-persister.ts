@@ -9,6 +9,7 @@ import type {
   Persister,
 } from "@tanstack/react-query-persist-client"
 import { createStore, promisifyRequest } from "idb-keyval"
+import { isCommunityListResourceKey, persistentCommunityListResource } from "@/lib/community/list-persistence"
 import {
   communityCollectionSchemas,
   type CommunityCollectionName,
@@ -23,17 +24,6 @@ const IDB_PREFIX = PERSIST_CACHE_PREFIX
 /** Persister max-age; queries older than this are discarded on restore. */
 export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
-/**
- * Only canonical TanStack DB collection snapshots are persisted. Transport
- * queries are deliberately session-only: restoring both their raw payloads
- * and the canonical collections creates two clocks for the same server facts.
- *
- * Note: read-state snapshots were previously persisted but were removed to
- * kill a self-inflicted staleness bug — a hydrated snapshot with a stale
- * `lastReadMessageId` would anchor the "New" divider to a row that had long
- * since scrolled off. The snapshot hooks now refetch on every mount, so
- * persisting them is a strict downside (bytes on disk + risk of drift).
- */
 export const MAX_PERSISTED_MESSAGE_SCOPES = 20
 export const MAX_PERSISTED_MESSAGES_PER_SCOPE = 50
 const MAX_PERSISTED_ATTENTION_ITEMS = 200
@@ -49,14 +39,57 @@ function isCommunityDbCollectionKey(queryKey: readonly unknown[]): boolean {
 }
 
 export function shouldPersistQueryKey(queryKey: readonly unknown[]): boolean {
-  return isCommunityDbCollectionKey(queryKey)
+  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey)
 }
 
 export function shouldPersistQuery(
   queryKey: readonly unknown[],
-  _data: unknown,
+  data: unknown,
 ): boolean {
-  return shouldPersistQueryKey(queryKey)
+  return isCommunityDbCollectionKey(queryKey) || persistentCommunityListResource(queryKey, data) !== undefined
+}
+
+export type CommunityRestoredCollections = Partial<{
+  [N in CommunityCollectionName]: { rows: CommunityCollectionRows[N][]; updatedAt: number }
+}>
+
+export function readCommunityRestoredCollections(snapshot: PersistedClient | undefined, userId: string | null): CommunityRestoredCollections {
+  const collections: CommunityRestoredCollections = {}
+  if (!userId || !snapshot) return collections
+  for (const query of snapshot.clientState.queries) {
+    if (!isCommunityDbCollectionKey(query.queryKey) || query.queryKey[2] !== userId) continue
+    const name = query.queryKey[3] as CommunityCollectionName
+    const schema = communityCollectionSchemas[name]
+    if (!schema) continue
+    const parsed = schema.array().safeParse(query.state.data)
+    if (!parsed.success) continue
+    const rows = name === "servers" ? parsed.data.map((row, position) => ({ ...row, position: (row as CommunityCollectionRows["servers"]).position ?? position })) : parsed.data
+    Object.assign(collections, { [name]: { rows, updatedAt: query.state.dataUpdatedAt } })
+  }
+  return collections
+}
+
+export function createCommunityRestorePersister(original: Persister, userId: string | null) {
+  let collections: CommunityRestoredCollections = {}
+  const takeCollections = () => {
+    const input = collections
+    collections = {}
+    return input
+  }
+  const persister: Persister = {
+    persistClient: (client) => original.persistClient(client),
+    restoreClient: async () => {
+      collections = {}
+      const restored = await original.restoreClient()
+      collections = readCommunityRestoredCollections(restored, userId)
+      return restored && { ...restored, clientState: {
+        ...restored.clientState,
+        queries: restored.clientState.queries.filter((query) => !isCommunityDbCollectionKey(query.queryKey)),
+      } }
+    },
+    removeClient: () => { collections = {}; return original.removeClient() },
+  }
+  return { persister, takeCollections }
 }
 
 /**
@@ -70,6 +103,10 @@ function scrubDehydratedClient(
   const queries: typeof client.clientState.queries = []
   const canonical = new Map<CommunityCollectionName, unknown[]>()
   for (const q of client.clientState.queries) {
+    if (userId) {
+      const data = persistentCommunityListResource(q.queryKey, q.state.data)
+      if (data) queries.push({ ...q, state: { ...q.state, data } })
+    }
     if (isCommunityDbCollectionKey(q.queryKey)) {
       if (!userId || q.queryKey[2] !== userId) continue
       const collectionName = q.queryKey[3] as CommunityCollectionName
@@ -150,6 +187,9 @@ function scrubDehydratedClient(
       )
   ))
   const referencedProfileIds = new Set<string>(userId ? [userId] : [])
+  for (const query of queries) if (query.queryKey[1] === "bots") {
+    for (const bot of (query.state.data as { bots: Array<{ id: string }> }).bots) referencedProfileIds.add(bot.id)
+  }
   for (const server of rows("servers")) {
     if (server.ownerId) referencedProfileIds.add(server.ownerId)
   }

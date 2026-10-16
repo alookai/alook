@@ -459,10 +459,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           }
         }
         try {
-          dispatchCommunityWsEvents(
+          const publication = dispatchCommunityWsEvents(
             decoded.events,
             context("batch", collectInboxRefresh),
           )
+          if (publication) await publication
         } catch {
           console.warn("[ws] delivery operation projection failed", {
             event: "community_ws_delivery_operation_projection_failed",
@@ -507,7 +508,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         trackCommunityWsFrameDropped(metadata)
         return
       }
-      dispatchCommunityWsEvent(decoded.event, context("single"))
+      await dispatchCommunityWsEvent(decoded.event, context("single"))
       if (hasCommunityFunnelTrigger([decoded.event])) {
         void drainCommunityFunnelEvents()
       }

@@ -1,3 +1,4 @@
+import { conversationEntryFixture, conversationEntryFromChannel, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { createCommunityQueryOwner, seedCommunityMessageWindow } from "@/test/community-query-owner"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { ingestMessages } from "@/lib/community-db/sync"
@@ -26,6 +27,7 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  apiFetchMock.mockImplementation(() => new Promise(() => {}))
 
 })
 
@@ -42,9 +44,10 @@ async function renderChannelMessages(
 ) {
   const queryClient = originalClient ?? (await createCommunityQueryOwner()).client
   if (seedTail) {
+    await seedConversationEntry(queryClient, conversationEntryFromChannel({ id: "ch_new", serverId: "s1", type: "text", name: "Channel", archived: false, createdAt: "2026-10-01T00:00:00Z" }))
     seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_new"), {
       pages: [{
-        messages: seedTail,
+        messages: seedTail.map(row => ({ ...conversationEntryFixture().messages[0], content: row.id, ...getCommunityDbRegistry(queryClient)!.collections.messages.get(row.id), ...row, resourceComplete: true as const, channelId: "ch_new" })),
         hasMore: false,
         latestSeq: seedTail.at(-1)?.seq ?? 0,
       }],
@@ -53,7 +56,7 @@ async function renderChannelMessages(
   }
   let rendered!: ReturnType<typeof renderHook<ReturnType<typeof useMessages>, unknown>>
   await act(async () => { rendered = renderHook(
-    () => useMessages("ch_new", { serverId: "s1", lastReadMessageId }),
+    () => useMessages("ch_new", { serverId: "s1" }),
     { wrapper: wrapperFor(queryClient) },
   ) })
   return rendered
@@ -61,9 +64,10 @@ async function renderChannelMessages(
 
 async function renderDmMessages(seedTail: { id: string; seq: number }[], originalClient?: QueryClient) {
   const queryClient = originalClient ?? (await createCommunityQueryOwner()).client
+  await seedConversationEntry(queryClient, conversationEntryFromChannel({ id: "dm_new", serverId: null, type: "dm", name: null, archived: false, createdAt: "2026-10-01T00:00:00Z" }))
   seedCommunityMessageWindow(queryClient, communityKeys.dmMessages("dm_new"), {
     pages: [{
-      messages: seedTail,
+      messages: seedTail.map(row => ({ ...conversationEntryFixture().messages[0], content: row.id, ...getCommunityDbRegistry(queryClient)!.collections.messages.get(row.id), ...row, resourceComplete: true as const, channelId: "dm_new" })),
       hasMore: false,
       latestSeq: seedTail.at(-1)?.seq ?? 0,
     }],
@@ -71,19 +75,19 @@ async function renderDmMessages(seedTail: { id: string; seq: number }[], origina
   })
   let rendered!: ReturnType<typeof renderHook<ReturnType<typeof useDmMessages>, unknown>>
   await act(async () => { rendered = renderHook(
-    () => useDmMessages("dm_new", { lastReadMessageId: undefined }),
+    () => useDmMessages("dm_new"),
     { wrapper: wrapperFor(queryClient) },
   ) })
   return rendered
 }
 
 describe("useMessages — isLoading while the anchor snapshot is unresolved", () => {
-  it("reports isLoading: true even though the underlying query is disabled", async () => {
+  it("keeps the skeleton until the common entry request qualifies the target", async () => {
     const rendered = await renderChannelMessages(undefined)
 
     expect(rendered.result.current.isLoading).toBe(true)
     expect(rendered.result.current.messages).toEqual([])
-    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(apiFetchMock).toHaveBeenCalledOnce()
   })
 
   it("reports isLoading: true while the now-enabled query's first fetch is in flight", async () => {
@@ -98,19 +102,19 @@ describe("useMessages — instant channel switch", () => {
   it.each(["channel", "dm"] as const)("reads one canonical rich body for the %s window and live IDs", async (kind) => {
     const { client, registry } = await createCommunityQueryOwner()
     const scope: MessageScope = kind === "channel" ? { kind, id: "ch_new", serverId: "s1" } : { kind, id: "dm_new" }
-    const attachments = [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024 }]
-    const presentedAttachments = [{ ...attachments[0], kind: "file", size: "1.0 KB" }]
+    const attachments = [{ id: "attachment", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, thumbnailUrl: null, contentType: "text/plain", width: null, height: null }]
+    const presentedAttachments = [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, contentType: "text/plain", kind: "file", size: "1.0 KB" }]
     const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorName: "Peer", text: "reply" }
     const message: CanonicalMessage = { id: "rich", seq: 3, type: "chat", authorId: "peer", authorName: "Peer", content: "before", clientNonce: "rich-nonce", createdAt: "2026-08-07T10:00:00.000Z" }
     ingestMessages(registry, scope.id, [{ ...message, attachments, embeds, replyTo }])
     const rendered = kind === "channel" ? await renderChannelMessages(undefined, [{ id: message.id, seq: message.seq }], client) : await renderDmMessages([{ id: message.id, seq: message.seq }], client)
-    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, attachments: presentedAttachments, embeds, replyTo })])
+    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, attachments: presentedAttachments, embeds, replyTo })])
     await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, content: "sparse live" } }) })
     expect(registry.collections.messages.get(message.id)).toMatchObject({ content: "sparse live", attachments, embeds, replyTo })
-    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, content: "sparse live", attachments: presentedAttachments, embeds, replyTo })])
-    await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, content: "cleared", attachments: [], embeds: [] } }) })
+    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "sparse live", attachments: presentedAttachments, embeds, replyTo })])
+    await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, resourceComplete: true, channelId: scope.id, replyToId: "reply", content: "cleared", attachments: [], embeds: [] } }) })
     expect(registry.collections.messages.get(message.id)).toMatchObject({ attachments: [], embeds: [] })
-    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, content: "cleared", attachments: [], embeds: [], replyTo })])
+    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "cleared", attachments: [], embeds: [], replyTo })])
     expect(apiFetchMock).not.toHaveBeenCalled()
   })
   it("paints a warm cache without waiting on the anchor", async () => {

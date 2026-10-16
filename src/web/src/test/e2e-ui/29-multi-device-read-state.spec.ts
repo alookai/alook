@@ -1,3 +1,4 @@
+import { COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import type { Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -631,7 +632,7 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   deviceA.page.off("response", trackUnseenReads)
 })
 
-test("forum cards use the ordinary parent cursor while child cursors stay independent", async ({ caseActors }) => {
+test("forum cards use the ordinary parent cursor while child cursors stay independent", async ({ caseActors, caseResources }) => {
   test.setTimeout(180_000)
 
   const actors = await caseActors(["alice", "bob"])
@@ -698,13 +699,31 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
   deviceA.page.on("response", trackForumResponse)
 
   const beforeVisible = await accountSnapshot()
+  let releaseForumRead!: () => void
+  const forumReadGate = new Promise<void>(resolve => { releaseForumRead = resolve })
+  caseResources.own(releaseForumRead, async release => { release() })
+  const forumReadPath = `/api/community/channels/${forumId}/read`
+  const forumReadPattern = (url: URL) => url.pathname === forumReadPath
+  await deviceA.page.route(forumReadPattern, async route => {
+    if (route.request().method() === "PUT") await forumReadGate
+    await route.continue()
+  })
+  const previousConnection = proxyA.connectionCount()
   const frameStarts = [proxyA.frames.length, proxyB.frames.length]
   await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${forumId}`)
+  await expect.poll(() => {
+    const current = proxyA.connectionCount()
+    return current > previousConnection && proxyA.connectionFrames.some(frame =>
+      frame.connectionId === current && frame.direction === "server-to-client"
+      && frame.type === "auth.ok" && frame.communityContract === COMMUNITY_CONTRACT_VERSION)
+  }).toBe(true)
+  releaseForumRead()
   await expect(deviceA.page.getByTestId(tid.forumThreadCard(first.threadId))).toBeVisible()
   await expect(deviceA.page.getByTestId(tid.forumThreadCard(second.threadId))).toBeVisible()
   await expect.poll(() => forumResponses.length, {
     timeout: 20_000,
   }).toBe(1)
+  await deviceA.page.unroute(forumReadPattern)
   await deviceA.page.waitForTimeout(1_200) // duplicate forum-parent read exclusion window
   expect(forumResponses).toEqual([
     { target: secondOpener!, status: 200 },

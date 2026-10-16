@@ -30,6 +30,7 @@ const mockListMessagesSince = vi.fn()
 const mockGetLatestMessageSeq = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
+const mockGetUserPublic = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
@@ -41,6 +42,11 @@ const mockToAgentMessages = vi.fn()
 const mockToAgentMessage = vi.fn()
 const mockGetLatestSeqForScope = vi.fn()
 const mockGetReadState = vi.fn()
+const mockGetChannelReadStateSnapshot = vi.fn()
+const mockListForumThreads = vi.fn()
+const mockForumFirstMessages = vi.fn()
+const mockForumTags = vi.fn()
+const mockForumParticipants = vi.fn()
 const mockHasDeliverableUnreadForAgentScope = vi.fn()
 const mockBumpBotDailyActivityStatement = vi.fn()
 const mockResolveServerByNameForMember = vi.fn()
@@ -95,6 +101,8 @@ vi.mock("@alook/shared", async () => {
         getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
         getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
+        getMessagesByIdsInChannels: vi.fn(async () => []),
+        getFirstMessageResourcesByChannelIds: (...a: unknown[]) => mockForumFirstMessages(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
         listMessagesAround: (...a: unknown[]) => mockListMessagesAround(...a),
         listMessagesSince: (...a: unknown[]) => mockListMessagesSince(...a),
@@ -111,6 +119,8 @@ vi.mock("@alook/shared", async () => {
         createMentions: (...a: unknown[]) => mockCreateMentions(...a),
       },
       communityThread: {
+        listForumThreadsByCreatedAt: (...a: unknown[]) => mockListForumThreads(...a),
+        listParticipantsForChannels: (...a: unknown[]) => mockForumParticipants(...a),
         addThreadParticipants: vi.fn(async () => undefined),
         addThreadParticipant: (...a: unknown[]) => mockAddThreadParticipant(...a),
         listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
@@ -118,10 +128,12 @@ vi.mock("@alook/shared", async () => {
       communityAttachment: {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
       },
+      communityMessageTag: { listTagsForMessages: (...a: unknown[]) => mockForumTags(...a) },
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
       },
       user: {
+        getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
         getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),
       },
@@ -146,6 +158,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityReadState: {
         getReadState: (...a: unknown[]) => mockGetReadState(...a),
+        getChannelReadStateSnapshot: (...a: unknown[]) => mockGetChannelReadStateSnapshot(...a),
       },
       communityBot: {
         bumpBotDailyActivityStatement: (...a: unknown[]) => mockBumpBotDailyActivityStatement(...a),
@@ -1433,5 +1446,191 @@ describe("GET /api/community/channels/[id]/messages", () => {
       // descriptor carries no create-if-missing).
       expect(mockCreateMessage).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe("GET explicit conversation entry", () => {
+  const channel = {
+    id: "c1", type: "text", serverId: "s1", categoryId: null, name: "General", topic: "", position: 0,
+    parentChannelId: null, parentMessageId: null, creatorId: "u1", messageCount: 0, archived: 0,
+    createdAt: "2026-10-15T00:00:00.000Z", lastMessageAt: null,
+  }
+  const message = {
+    id: "read", channelId: "c1", seq: 5, authorId: "u1", authorName: "Alice", authorImage: null, authorAvatarVersion: 0,
+    content: "anchor", type: "default", mentionType: null, replyToId: null, clientNonce: null, embeds: [],
+    createdAt: "2026-10-15T00:00:05.000Z",
+  }
+  const pointer = { lastReadMessageId: "read", lastReadAt: message.createdAt, lastReadSeq: 5 }
+  const request = (search = "entry=1", contract = "3", bot = false) => new NextRequest(`http://localhost/api/community/channels/c1/messages?${search}`, {
+    headers: { "x-alook-community-contract": contract, ...(bot ? { Authorization: "Bearer crk_entry_fixture" } : {}) },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetChannel.mockResolvedValue(channel)
+    mockGetChannelForMember.mockResolvedValue(channel)
+    mockGetChannelReadStateSnapshot.mockResolvedValue({ revision: 0, readState: null })
+    mockListMessages.mockResolvedValue([])
+    mockListMessagesAround.mockResolvedValue({ older: [message], newer: [], hasMoreOlder: false, hasMoreNewer: false })
+    mockListMessagesSince.mockResolvedValue([])
+    mockGetMessageInScope.mockResolvedValue(message)
+    mockListChildChannels.mockResolvedValue([])
+    mockListByMessageIds.mockResolvedValue([])
+    mockListReactionsByMessageIds.mockResolvedValue([])
+    mockGetLatestMessageSeq.mockResolvedValue(0)
+    mockGetDM.mockResolvedValue(null)
+    mockGetDMPeer.mockResolvedValue(null)
+    mockGetUserPublic.mockResolvedValue({ id: "peer", name: "Peer", discriminator: "0042", image: null, avatarVersion: 5, email: "private@example.test" })
+    mockIsBlocked.mockResolvedValue(false)
+    mockAreFriends.mockResolvedValue(false)
+    mockListForumThreads.mockResolvedValue([])
+    mockForumFirstMessages.mockResolvedValue([])
+    mockForumTags.mockResolvedValue([])
+    mockForumParticipants.mockResolvedValue([])
+    mockGetMessagesByIdsInScope.mockResolvedValue([])
+  })
+
+  it("reads the actual forum first page and pointer without also loading the root message window", async () => {
+    const forum = { ...channel, type: "forum" }
+    mockGetChannel.mockResolvedValue(forum)
+    mockGetChannelForMember.mockResolvedValue(forum)
+    mockGetChannelReadStateSnapshot.mockResolvedValue({ revision: 5, readState: pointer })
+    const child = { ...channel, id: "post", type: "thread", parentChannelId: "c1", parentMessageId: "read" }
+    mockListForumThreads.mockResolvedValue([child])
+    mockGetMessagesByIdsInScope.mockResolvedValue([message])
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toMatchObject({ channel: { type: "forum" }, readStateRevision: 5, readState: pointer, messages: [], selection: { reason: "tail" },
+      forumFeed: { channelId: "c1", threads: [{ id: "post" }], included: { messages: [{ id: "read", channelId: "c1", content: "anchor" }] }, page: { hasMore: false } } })
+    expect(mockListForumThreads).toHaveBeenCalledWith(expect.anything(), { parentChannelId: "c1", limit: 51 })
+    expect(mockListMessages).not.toHaveBeenCalled()
+    expect(mockListMessagesAround).not.toHaveBeenCalled()
+    expect(mockGetChannelReadStateSnapshot).toHaveBeenCalledOnce()
+  })
+
+  it("includes the authorized parent identity and scoped opener with its actual sequence", async () => {
+    const child = { ...channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+    const parent = { ...channel, id: "parent", name: "Parent" }
+    mockGetChannel.mockResolvedValue(child)
+    mockGetChannelForMember.mockImplementation((_db, id) => Promise.resolve(id === "parent" ? parent : child))
+    mockGetMessagesByIdsInScope.mockResolvedValue([{ ...message, id: "opener", channelId: "parent" }])
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ channel: { id: "c1", type: "thread" }, parent: { id: "parent", serverId: "s1", name: "Parent" }, opener: { id: "opener", channelId: "parent", seq: 5, content: "anchor" } })
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledWith(expect.anything(), ["opener"], { channelId: "parent" })
+    expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "parent", "u1")
+  })
+
+  it("returns qualified identity, pointer and confirmed empty first window through the existing door", async () => {
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-alook-community-contract")).toBe("3")
+    expect(await response.json()).toMatchObject({
+      contractVersion: 3, readStateRevision: 0, viewerId: "u1", channelId: "c1", channel: { id: "c1", type: "text", archived: false },
+      access: { channelId: "c1", canRead: true, canSend: true, canCreateDiscussion: true },
+      readState: { channelId: "c1", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
+      selection: { reason: "tail", anchorMessageId: null }, messages: [],
+      page: { hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
+    })
+    expect(mockGetChannelReadStateSnapshot).toHaveBeenCalledWith(expect.anything(), { userId: "u1", channelId: "c1" })
+    expect(mockGetChannelForMember).toHaveBeenCalledTimes(1)
+    expect(mockCreateOrGetDM).not.toHaveBeenCalled()
+    expect(mockCreateChannel).not.toHaveBeenCalled()
+  })
+
+  it("chooses the current read window after the server pointer settles, in this single GET", async () => {
+    let release!: (value: { revision: number; readState: typeof pointer }) => void
+    mockGetChannelReadStateSnapshot.mockReturnValue(new Promise(resolve => { release = resolve }))
+    mockGetLatestMessageSeq.mockResolvedValue(5)
+    const reading = GET(request(), ctx)
+    await vi.waitFor(() => expect(mockGetChannelReadStateSnapshot).toHaveBeenCalledOnce())
+    expect(mockListMessages).not.toHaveBeenCalled()
+    expect(mockListMessagesAround).not.toHaveBeenCalled()
+    release({ revision: 5, readState: pointer })
+    const response = await reading
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ readState: pointer,
+      selection: { reason: "read_pointer", anchorMessageId: "read" }, messages: [{ id: "read", seq: 5, channelId: "c1" }] })
+    expect(mockListMessagesAround).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ channelId: "c1", anchor: { id: "read", createdAt: message.createdAt } }))
+    expect(mockListMessages).not.toHaveBeenCalled()
+  })
+
+  it("uses an explicit deep link instead of the entry read pointer", async () => {
+    mockGetChannelReadStateSnapshot.mockResolvedValue({ revision: 5, readState: { ...pointer, lastReadMessageId: "older" } })
+    mockGetLatestMessageSeq.mockResolvedValue(5)
+    const response = await GET(request("entry=1&window=around&anchorMessageId=read"), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ selection: { reason: "explicit_anchor", anchorMessageId: "read" }, messages: [{ id: "read" }] })
+    expect(mockGetMessageInScope).toHaveBeenCalledExactlyOnceWith(expect.anything(), "read", { channelId: "c1" })
+  })
+
+  it("falls back to a tail only for a missing read pointer and keeps that pointer unchanged", async () => {
+    mockGetChannelReadStateSnapshot.mockResolvedValue({ revision: 5, readState: pointer })
+    mockGetMessageInScope.mockResolvedValue(null)
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ readState: pointer, selection: { reason: "read_pointer_missing", anchorMessageId: null }, messages: [] })
+    expect(mockListMessages).toHaveBeenCalledOnce()
+    expect(mockListMessagesAround).not.toHaveBeenCalled()
+  })
+
+  it("returns a missing explicit anchor without silently showing a tail", async () => {
+    mockGetMessageInScope.mockResolvedValue(null)
+    const response = await GET(request("entry=1&window=around&anchorMessageId=gone"), ctx)
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "anchor not found", details: ["conversation_anchor_missing"] })
+    expect(mockListMessages).not.toHaveBeenCalled()
+  })
+
+  it("honors an explicit newest window without discarding the entry pointer", async () => {
+    mockGetChannelReadStateSnapshot.mockResolvedValue({ revision: 5, readState: pointer })
+    const response = await GET(request("entry=1&window=tail"), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ readState: pointer, selection: { reason: "tail", anchorMessageId: null } })
+    expect(mockGetMessageInScope).not.toHaveBeenCalled()
+    expect(mockListMessages).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["entry=0", "3", false], ["entry=1", "2", false], ["entry=1", "3", true],
+    ["entry=1&window=before&cursor=2026-10-15T00%3A00%3A00.000Z%7Cm1", "3", false],
+  ])("rejects an unsupported entry before reading a pointer or messages: %s/%s/%s", async (search, contract, bot) => {
+    const response = await GET(request(String(search), String(contract), Boolean(bot)), ctx)
+    expect(response.status).toBe(400)
+    expect(mockGetChannelReadStateSnapshot).not.toHaveBeenCalled()
+    expect(mockListMessages).not.toHaveBeenCalled()
+    expect(mockListMessagesAround).not.toHaveBeenCalled()
+  })
+
+  it("preserves DM history after unfriend while withholding send permission", async () => {
+    mockGetChannel.mockResolvedValue({ ...channel, type: "dm", serverId: null, name: null })
+    mockGetDM.mockResolvedValue({ id: "c1", lastMessageAt: null, createdAt: channel.createdAt })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer" })
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toMatchObject({ channel: { type: "dm", serverId: null }, access: { canRead: true, canSend: false, canCreateDiscussion: false }, peer: { id: "peer", name: "Peer", avatarVersion: 5 } })
+    expect(body.peer).not.toHaveProperty("email")
+    expect(mockGetUserPublic).toHaveBeenCalledWith(expect.anything(), "peer")
+    expect(mockAreFriends).toHaveBeenCalledWith(expect.anything(), "u1", "peer")
+    expect(mockGetChannelForMember).not.toHaveBeenCalled()
+    expect(mockCreateOrGetDM).not.toHaveBeenCalled()
+  })
+
+  it("does not read a pointer or history after the common gate denies access", async () => {
+    mockGetChannelForMember.mockResolvedValue(null)
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(403)
+    expect(mockGetChannelReadStateSnapshot).not.toHaveBeenCalled()
+    expect(mockListMessages).not.toHaveBeenCalled()
+  })
+
+  it("rejects an archived entry before reading its private payload", async () => {
+    mockGetChannelForMember.mockResolvedValue({ ...channel, archived: 1 })
+    const response = await GET(request(), ctx)
+    expect(response.status).toBe(403)
+    expect(mockGetChannelReadStateSnapshot).not.toHaveBeenCalled()
+    expect(mockListMessages).not.toHaveBeenCalled()
   })
 })

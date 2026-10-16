@@ -1,3 +1,4 @@
+import { createNaturalVisibilityActor } from "./natural-visibility-actor"
 import type { APIResponse, BrowserContext, BrowserContextOptions, Page, Response as PlaywrightResponse, TestInfo } from "@playwright/test"
 import { createHash } from "crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
@@ -13,6 +14,7 @@ import { retrySeedRequest } from "./seed-retry"
 
 export type CaseActors = {
   asUser: (key: UserKey, options?: Omit<BrowserContextOptions, "storageState">) => Promise<{ context: BrowserContext; page: Page }>
+  asNaturalUser: (key: UserKey, viewport: { width: number; height: number }) => Promise<{ context: BrowserContext; page: Page }>
   userId: (key: UserKey) => string
   userName: (key: UserKey) => string
   sessionCookie: (key: UserKey) => string
@@ -333,6 +335,23 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
             const context = await newContext({ ...options, storageState: user(key).storageState }, key)
             const page = await context.newPage()
             return { context, page }
+          },
+          asNaturalUser: async (key, viewport) => {
+            if (exiting) throw new Error("Case owner is exiting")
+            const natural = createNaturalVisibilityActor({
+              browserType: browser.browserType(), profileRoot: directory,
+              storageState: user(key).storageState, viewport,
+              registerContext: (context) => {
+                if (exiting) throw new Error("Natural actor connected after case exit")
+                registerContext(key, "actor", context)
+              },
+              closeContext,
+              receipt: (receipt) => testInfo.attach("case-natural-visibility-driver", {
+                body: JSON.stringify({ identity, role: key, ...receipt }), contentType: "application/json",
+              }),
+            })
+            own(natural, async (captured) => { await captured.close() })
+            return natural.ready
           },
           userId: (key) => user(key).userId,
           userName: (key) => user(key).name,

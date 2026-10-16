@@ -78,6 +78,10 @@ async function holdApplicationScripts(page: Page, caseResources: CaseResources) 
   caseResources.own(releaseGate, async (captured) => { captured() })
   let hits = 0
   let sessionRequests = 0
+  let documentHtml: Promise<string> | undefined
+  page.on("response", response => {
+    if (response.request().resourceType() === "document" && response.request().frame() === page.mainFrame()) documentHtml = response.text()
+  })
   page.on("request", (request) => {
     if (new URL(request.url()).pathname === "/api/auth/get-session") sessionRequests += 1
   })
@@ -95,6 +99,10 @@ async function holdApplicationScripts(page: Page, caseResources: CaseResources) 
   return {
     hits: () => hits,
     sessionRequests: () => sessionRequests,
+    documentHtml: () => {
+      if (!documentHtml) throw new Error("Original document response was not captured")
+      return documentHtml
+    },
     release: () => { releaseGate() },
     abort: () => {
       disposition = "abort"
@@ -142,56 +150,47 @@ function captureCommunityTraffic(page: Page) {
   return { requests, responses, failures, sockets: () => sockets }
 }
 
-async function expectVisibility(locator: ReturnType<Page["getByTestId"]>, visible: boolean) {
-  if (visible) await expect(locator).toBeVisible()
-  else await expect(locator).toBeHidden()
-}
-
-async function expectServerSeededRouteSkeleton(
+async function expectDocumentRouteFallback(
   page: Page,
   expected: ExpectedFrame,
   distinctiveStrings: string[],
+  originalHtml: Promise<string>,
 ) {
-  const frame = page.getByTestId(tid.initialFrame)
-  await expect(frame).toBeVisible()
-  await expect(frame).toHaveAttribute("data-community-route-kind", expected.route)
-  await expect(page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
-  const mobile = (page.viewportSize()?.width ?? 640) < 640
-  const shellVisible = expected.sidebar !== "none"
-  const detailMobile = mobile && expected.surface === "detail"
-  const listMobile = mobile && expected.surface === "list"
-
-  const rail = page.getByTestId(tid.initialRailPending)
-  const userBar = page.getByTestId(tid.initialUserBarPending)
-  if (shellVisible) {
-    await expect(rail).toHaveCount(1)
-    await expect(userBar).toHaveCount(1)
-    await expectVisibility(rail, !detailMobile)
-    await expectVisibility(userBar, !detailMobile)
-  } else {
-    await expect(rail).toHaveCount(0)
-    await expect(userBar).toHaveCount(0)
-  }
-
-  const meSidebar = page.getByTestId(tid.dmSidebarPending)
-  const serverSidebar = expected.serverId
-    ? page.getByTestId(tid.channelSidebarPending(expected.serverId))
-    : page.locator(`[data-testid^="${tid.channelSidebarPending("")}"]`)
-  await expect(meSidebar).toHaveCount(expected.sidebar === "me" ? 1 : 0)
-  await expect(serverSidebar).toHaveCount(expected.sidebar === "server" ? 1 : 0)
-  if (expected.sidebar === "me") await expectVisibility(meSidebar, !detailMobile)
-  if (expected.sidebar === "server") await expectVisibility(serverSidebar, !detailMobile)
-
-  const main = page.getByTestId(tid.pendingMain(expected.main))
-  await expect(main).toHaveCount(1)
-  await expectVisibility(main, !listMobile)
-  const existingPlaceholder = expected.main === "route-resolution"
-    ? frame.locator("[data-community-unresolved-main]")
-    : frame.locator('[data-slot="skeleton"]')
-  await expect(existingPlaceholder).not.toHaveCount(0)
-  await expect(frame.getByRole("button")).toHaveCount(0)
-  await expect(frame.locator("a")).toHaveCount(0)
-  for (const value of distinctiveStrings) await expect(frame).not.toContainText(value)
+  const fallback = await page.evaluate(({ html, initialId, mainId, railId, userBarId, meId, serverId }) => {
+    const document = new DOMParser().parseFromString(html, "text/html")
+    const frames = Array.from(document.querySelectorAll(`[data-testid="${initialId}"]`))
+    const primary = frames.filter(node => !node.parentElement?.closest('[hidden][id^="S:"]'))
+    if (primary.length !== 1) return null
+    const frame = primary[0]
+    const count = (id: string) => frame.querySelectorAll(`[data-testid="${id}"]`).length
+    return {
+      route: frame.getAttribute("data-community-route-kind"),
+      primaryCount: primary.length,
+      unexplainedExtras: frames.filter(node => node !== frame && !node.parentElement?.closest('[hidden][id^="S:"]')).length,
+      rail: count(railId), userBar: count(userBarId), me: count(meId),
+      server: frame.querySelectorAll(`[data-testid^="${serverId}"]`).length,
+      main: count(mainId), placeholders: frame.querySelectorAll('[data-slot="skeleton"], [data-community-unresolved-main]').length,
+      buttons: frame.querySelectorAll("button").length, links: frame.querySelectorAll("a").length,
+      text: frame.textContent ?? "",
+      customBootstrap: document.querySelectorAll('[data-slot="community-restore-bootstrap"]').length,
+    }
+  }, { html: await originalHtml, initialId: tid.initialFrame, mainId: tid.pendingMain(expected.main),
+    railId: tid.initialRailPending, userBarId: tid.initialUserBarPending, meId: tid.dmSidebarPending,
+    serverId: expected.serverId ? tid.channelSidebarPending(expected.serverId) : tid.channelSidebarPending("") })
+  expect(fallback).not.toBeNull()
+  expect(fallback!.route).toBe(expected.route)
+  expect(fallback!.primaryCount).toBe(1)
+  expect(fallback!.unexplainedExtras).toBe(0)
+  expect(fallback!.customBootstrap).toBe(0)
+  expect(fallback!.rail).toBe(expected.sidebar !== "none" ? 1 : 0)
+  expect(fallback!.userBar).toBe(expected.sidebar !== "none" ? 1 : 0)
+  expect(fallback!.me).toBe(expected.sidebar === "me" ? 1 : 0)
+  expect(fallback!.server).toBe(expected.sidebar === "server" ? 1 : 0)
+  expect(fallback!.main).toBe(1)
+  expect(fallback!.placeholders).toBeGreaterThan(0)
+  expect(fallback!.buttons).toBe(0)
+  expect(fallback!.links).toBe(0)
+  for (const value of distinctiveStrings) expect(fallback!.text).not.toContain(value)
 }
 
 test.describe("community initial-load module skeletons", () => {
@@ -211,7 +210,7 @@ test.describe("community initial-load module skeletons", () => {
     return { coldRootStorageKey, installColdRootProbe, closeHeldContext, serverId, channelId, dmId, serverName, channelName, channelMessageId, privateMessage }
   }
 
-  test("cold mobile paths reuse only their URL-owned skeleton modules", async ({ caseActors, caseResources }, testInfo) => {
+  test("cold mobile documents retain URL-owned fallbacks and authorized RSC content", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(240_000)
 
     const actors = await caseActors(["alice", "bob"])
@@ -239,7 +238,11 @@ test.describe("community initial-load module skeletons", () => {
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
-      await expectServerSeededRouteSkeleton(page, expected, [serverName, channelName, privateMessage])
+      await expectDocumentRouteFallback(page, expected, [serverName, channelName, privateMessage], gate.documentHtml())
+      if (expected.main === "dm" || expected.main === "server-conversation") {
+        await expect(page.getByText(privateMessage, { exact: true }).filter({ visible: true })).toHaveCount(1)
+        await expect(page.getByTestId(tid.messageScroller).filter({ visible: true })).toHaveCount(1)
+      }
       if (pathname === "/c") {
         await testInfo.attach("community-root-neutral-390x844", {
           body: await page.screenshot(),
@@ -252,7 +255,7 @@ test.describe("community initial-load module skeletons", () => {
     }
   })
 
-  test("desktop cold frames retain all route-owned shell columns", async ({ caseActors, caseResources }, testInfo) => {
+  test("desktop cold documents retain route-owned fallback columns and RSC content", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(120_000)
 
     const actors = await caseActors(["alice", "bob"])
@@ -272,7 +275,11 @@ test.describe("community initial-load module skeletons", () => {
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
-      await expectServerSeededRouteSkeleton(page, expected, [serverName, channelName, privateMessage])
+      await expectDocumentRouteFallback(page, expected, [serverName, channelName, privateMessage], gate.documentHtml())
+      if (expected.main === "dm" || expected.main === "server-conversation") {
+        await expect(page.getByText(privateMessage, { exact: true }).filter({ visible: true })).toHaveCount(1)
+        await expect(page.getByTestId(tid.messageScroller).filter({ visible: true })).toHaveCount(1)
+      }
       if (pathname === "/c") {
         await testInfo.attach("community-root-neutral-1280x900", {
           body: await page.screenshot(),
@@ -315,12 +322,12 @@ test.describe("community initial-load module skeletons", () => {
       await page.goto("/c", { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
-      await expectServerSeededRouteSkeleton(page, {
+      await expectDocumentRouteFallback(page, {
         route: "community-root-redirect",
         surface: "neutral",
         sidebar: "none",
         main: "route-resolution",
-      }, [serverName, channelName, privateMessage])
+      }, [serverName, channelName, privateMessage], gate.documentHtml())
       const historyLength = await page.evaluate(() => history.length)
 
       gate.release()
@@ -344,12 +351,12 @@ test.describe("community initial-load module skeletons", () => {
     await page.goto("/c", { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)
     expect(gate.sessionRequests()).toBe(0)
-    await expectServerSeededRouteSkeleton(page, {
+    await expectDocumentRouteFallback(page, {
       route: "community-root-redirect",
       surface: "neutral",
       sidebar: "none",
       main: "route-resolution",
-    }, [serverName, channelName, privateMessage])
+    }, [serverName, channelName, privateMessage], gate.documentHtml())
     const historyLength = await page.evaluate(() => history.length)
 
     gate.release()
@@ -371,12 +378,12 @@ test.describe("community initial-load module skeletons", () => {
     await page.goto("/c", { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)
     expect(gate.sessionRequests()).toBe(0)
-    await expectServerSeededRouteSkeleton(page, {
+    await expectDocumentRouteFallback(page, {
       route: "community-root-redirect",
       surface: "neutral",
       sidebar: "none",
       main: "route-resolution",
-    }, [serverName, channelName, privateMessage])
+    }, [serverName, channelName, privateMessage], gate.documentHtml())
     const historyLength = await page.evaluate(() => history.length)
 
     gate.release()
@@ -388,16 +395,16 @@ test.describe("community initial-load module skeletons", () => {
       .toBe("/c/me/machines")
   })
 
-  test("639↔640 preserves one route-owned skeleton main node with zero request or socket delta", async ({ caseActors, caseResources }) => {
+  test("639↔640 preserves one RSC main node with zero request or socket delta", async ({ caseActors, caseResources }) => {
     test.setTimeout(120_000)
 
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { closeHeldContext, serverId, channelId, dmId } = await prepareCase1(actors, caseResources)
+    const { closeHeldContext, serverId, channelId, dmId, privateMessage } = await prepareCase1(actors, caseResources)
 
-    for (const [pathname, mainKind] of [
-      [`/c/me/${dmId}`, "dm"],
-      [`/c/channels/${serverId}/${channelId}`, "server-conversation"],
+    for (const pathname of [
+      `/c/me/${dmId}`,
+      `/c/channels/${serverId}/${channelId}`,
     ] as const) {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 639, height: 844 })
@@ -405,7 +412,8 @@ test.describe("community initial-load module skeletons", () => {
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
-      const main = page.getByTestId(tid.pendingMain(mainKind))
+      await expect(page.getByText(privateMessage, { exact: true }).filter({ visible: true })).toHaveCount(1)
+      const main = page.locator('[data-slot="community-main-panel-content"]').filter({ visible: true })
       await expect(main).toBeVisible()
       await main.evaluate((node) => { Reflect.set(window, "__communityInitialMain", node) })
 
@@ -440,45 +448,32 @@ test.describe("community initial-load module skeletons", () => {
     await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)
     expect(gate.sessionRequests()).toBe(0)
-    await expectServerSeededRouteSkeleton(page, {
+    await expectDocumentRouteFallback(page, {
       route: "server-detail",
       surface: "detail",
       sidebar: "server",
       main: "server-conversation",
       serverId,
-    }, [serverName, channelName, privateMessage])
+    }, [serverName, channelName, privateMessage], gate.documentHtml())
     expect(traffic.requests).toEqual([])
     expect(traffic.sockets()).toBe(0)
 
+    await expect(page.getByTestId(tid.message(channelMessageId)).filter({ visible: true })).toHaveCount(1)
+    await expect(page.getByTestId(tid.message(channelMessageId)).filter({ visible: true }).getByText(privateMessage, { exact: true })).toBeVisible()
     gate.release()
     await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
     await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 30_000 })
     await expect.poll(traffic.sockets).toBe(1)
-    await expect.poll(() => traffic.responses.filter(({ method, pathname, status }) => (
-      method === "GET"
-      && pathname === `/api/community/channels/${channelId}/read-state`
-      && status === 200
-    )).length).toBe(1)
-    const exactMessageSearch = `?anchor=${encodeURIComponent(channelMessageId)}`
-    await expect.poll(() => traffic.responses.filter(({ method, pathname, search, status }) => (
-      method === "GET"
-      && pathname === `/api/community/channels/${channelId}/messages`
-      && search === exactMessageSearch
-      && status === 200
-    )).length).toBe(1)
+    await expect(page.getByTestId(tid.message(channelMessageId))).toBeVisible()
+    await expect(page.getByTestId(tid.message(channelMessageId)).getByText(privateMessage, { exact: true })).toBeVisible()
     await page.waitForTimeout(200)
-    const exactMessageReads = traffic.requests.filter(({ method, pathname, search }) => (
-      method === "GET"
-      && pathname === `/api/community/channels/${channelId}/messages`
-      && search === exactMessageSearch
-    ))
-    const exactMessageFailures = traffic.failures.filter(({ method, pathname, search }) => (
-      method === "GET"
-      && pathname === `/api/community/channels/${channelId}/messages`
-      && search === exactMessageSearch
-    ))
-    expect(exactMessageReads).toHaveLength(1 + exactMessageFailures.length)
-    expect(exactMessageFailures.every(({ error }) => error === "net::ERR_ABORTED")).toBe(true)
+    const targetReadPaths = new Set([
+      `/api/community/channels/${channelId}`,
+      `/api/community/channels/${channelId}/read-state`,
+      `/api/community/channels/${channelId}/messages`,
+    ])
+    expect(traffic.requests.filter(({ method, pathname }) => method === "GET" && targetReadPaths.has(pathname))).toEqual([])
+    expect(traffic.failures.filter(({ pathname }) => targetReadPaths.has(pathname))).toEqual([])
     const readOnlyPostPaths = new Set([
       "/api/community/messages/batch",
       "/api/community/messages/tags/batch",

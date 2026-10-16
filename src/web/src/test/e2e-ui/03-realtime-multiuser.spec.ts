@@ -1,6 +1,7 @@
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { sendMessage, expectMessageVisible, composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 
 import type { CaseActors } from "./_fixtures/case-fixture"
 
@@ -25,21 +26,14 @@ test.describe("multi-user realtime", () => {
 
     const alice = await asUser("alice")
     const bob = await asUser("bob")
+    const bobProxy = await proxyCommunityWebSockets(bob.context)
     await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
     const messagesPath = `/api/community/channels/${channelId}/messages`
-    const bobInitialMessagesPromise = bob.page.waitForResponse((response) => {
-      return response.request().method() === "GET"
-        && new URL(response.url()).pathname === messagesPath
-    })
     await bob.page.goto(`/c/channels/${serverId}/${channelId}`)
     await alice.page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
     await bob.page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
-    // A committed channel URL can still be rendering its initial skeleton.
-    // Wait for Bob's message query and composer surface before Alice sends, so
-    // the final assertion proves realtime delivery rather than initial fetch.
-    const bobInitialMessages = await bobInitialMessagesPromise
-    expect(bobInitialMessages.status()).toBe(200)
+    await expect.poll(() => bobProxy.connectionFrames.some(frame => frame.type === "auth.ok")).toBe(true)
     await expect(composerEditable(bob.page)).toBeVisible()
 
     const body = `live from alice ${Date.now()}`
@@ -50,6 +44,10 @@ test.describe("multi-user realtime", () => {
     await sendMessage(alice.page, body)
     const aliceMessage = await aliceMessagePromise
     expect(aliceMessage.status()).toBe(201)
+    const payload = await aliceMessage.json() as { message: { id: string } }
+    await expect.poll(() => bobProxy.frames.flatMap(communityFrameEvents).filter(frame =>
+      frame.type === "community:message.create" && frame.channelId === channelId && frame.message?.id === payload.message.id,
+    ).length).toBe(1)
     // Bob sees it without reloading.
     await expectMessageVisible(bob.page, body)
   })

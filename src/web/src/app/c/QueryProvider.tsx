@@ -8,6 +8,8 @@ import { createQueryClient } from "@/lib/query-client"
 import { isAbortError } from "@/lib/errors"
 import {
   createIdbPersister,
+  createCommunityRestorePersister,
+  type CommunityRestoredCollections,
   PERSIST_BUSTER,
   PERSIST_MAX_AGE_MS,
   shouldPersistQuery,
@@ -33,12 +35,13 @@ import { useRouter } from "next/navigation"
 import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecycle"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { installCommunityDbSync } from "@/lib/community-db/sync"
+import { discardCommunityRestoreReplacements, installCommunityDbSync, restoreCommunityCollections } from "@/lib/community-db/sync"
 import { profileSchema } from "@/lib/community-db/schema"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
 import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
+import { installCommunityDocumentSeed, type CommunityDocumentSeed } from "@/lib/community/document-seed"
 
 function createRestoreGate() {
   let release!: () => void
@@ -86,9 +89,6 @@ function CommunityDbRuntime({
   useLayoutEffect(() => {
     if (isRestoring) return
     onRestoreComplete()
-    // A collection preload writes the queryFn result into TanStack Query. It
-    // must not run before persisted hydration, otherwise a fresh empty array
-    // outranks the older canonical rows on disk by dataUpdatedAt.
     return installCommunityDbSync(queryClient, registry)
   }, [isRestoring, onRestoreComplete, queryClient, registry])
 
@@ -108,7 +108,7 @@ function CommunityDbRuntime({
  * the previous session's cached message list. Passing `null` (pre-auth) hits
  * an "anon" namespace that never carries real content.
  */
-export function QueryProvider(props: { children: ReactNode; userId: string | null; initialUser?: CurrentUser }) {
+export function QueryProvider(props: { children: ReactNode; userId: string | null; initialUser?: CurrentUser; initialSeed?: CommunityDocumentSeed }) {
   const session = useSession()
   return <ScopedQueryProvider key={props.userId ?? "anon"} {...props} session={session} sessionViewer={currentSessionViewer} />
 }
@@ -117,12 +117,14 @@ function ScopedQueryProvider({
   children,
   userId,
   initialUser,
+  initialSeed,
   session,
   sessionViewer,
 }: {
   children: ReactNode
   userId: string | null
   initialUser?: CurrentUser
+  initialSeed?: CommunityDocumentSeed
   session: ReturnType<typeof useSession>
   sessionViewer: () => string | null | undefined
 }) {
@@ -140,9 +142,12 @@ function ScopedQueryProvider({
     return client
   })
   const [restoreGate] = useState(createRestoreGate)
-  const [communityDb] = useState(() => createCommunityDbRegistry(queryClient, userId, {
-    waitForRestore: restoreGate.ready,
-  }))
+  const [communityDb] = useState(() => {
+    const registry = createCommunityDbRegistry(queryClient, userId, { waitForRestore: restoreGate.ready })
+    const viewer = !session.isPending && !session.error ? session.data?.user.id ?? null : sessionViewer()
+    if (initialSeed) installCommunityDocumentSeed(queryClient, registry, initialSeed, viewer)
+    return registry
+  })
   const unreadProjection = useMemo(
     () => userId ? getAccountUnreadProjection(queryClient, userId) : null,
     [queryClient, userId],
@@ -170,6 +175,7 @@ function ScopedQueryProvider({
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.
   const [persister] = useState(() => createIdbPersister(userId))
+  const [restore] = useState(() => createCommunityRestorePersister(persister, userId))
   const active = useSelector(communityDb.runtime.lifecycle, (state) => state.active)
   const router = useRouter()
   useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount, persister.retireChannels) }, [communityDb, sessionViewer, persister])
@@ -207,68 +213,36 @@ function ScopedQueryProvider({
   }, [communityDb])
   usePersistedAccountLifecycle(persister, onRetired)
   const isDev = process.env.NODE_ENV !== "production"
-  const settleRestoredAccount = () => {
-    restoreGate.release()
-    if (!communityDb.runtime.lifecycle.get().active) { queryClient.clear(); return }
-    communityDb.captureRestoredCollections()
-    const profiles = communityDb.runtime.ws.get()
-    if (profiles.profileViewerId !== userId) {
-      communityDb.runtime.ws.actions.activateProfileAccount(userId)
+  const settleRestoredAccount = async (input: CommunityRestoredCollections) => {
+    try {
+      if (!communityDb.runtime.lifecycle.get().active) { queryClient.clear(); return }
+      await restoreCommunityCollections(communityDb, input)
+      communityDb.captureRestoredCollections(input)
+      const profiles = communityDb.runtime.ws.get()
+      if (profiles.profileViewerId !== userId) communityDb.runtime.ws.actions.activateProfileAccount(userId)
+    } finally {
+      discardCommunityRestoreReplacements(communityDb)
+      restoreGate.release()
     }
   }
 
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      onSuccess={() => {
+      onSuccess={async () => {
+        const input = restore.takeCollections()
+        await settleRestoredAccount(await persister.isCurrent() ? input : {})
         if (communityDb.runtime.lifecycle.get().active) observeHydration(persister)
         else discardHydration(persister)
-        // `onSuccess` runs after hydrate and before `isRestoring` becomes
-        // false. Freeze which canonical collections came from that restore so
-        // later network results can never be misclassified as persisted.
-        settleRestoredAccount()
-        if (!communityDb.runtime.lifecycle.get().active) return
-        void Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: communityKeys.servers(),
-            exact: true,
-            refetchType: "active",
-          }),
-          queryClient.invalidateQueries({
-            queryKey: communityKeys.folders(),
-            exact: true,
-            refetchType: "active",
-          }),
-          queryClient.invalidateQueries({
-            queryKey: communityKeys.dms(),
-            exact: true,
-            refetchType: "active",
-          }),
-          queryClient.invalidateQueries({
-            predicate: ({ queryKey }) => isCommunityServerDetailQueryKey(queryKey),
-            refetchType: "active",
-          }),
-        ])
+
       }}
-      // A failed IndexedDB read still completes the identity handoff. The
-      // account gate remains visible until this atomically clears any previous
-      // viewer state, then the new account mounts against an empty live cache.
-      onError={() => { discardHydration(persister); settleRestoredAccount() }}
+      onError={async () => { restore.takeCollections(); discardHydration(persister); await settleRestoredAccount({}) }}
       persistOptions={{
-        persister,
+        persister: restore.persister,
         maxAge: PERSIST_MAX_AGE_MS,
         buster: PERSIST_BUSTER,
         dehydrateOptions: {
           shouldDehydrateQuery: (query) => {
-            // Two-stage filter:
-            // 1. Key must be in the persisted allowlist (canonical collection
-            //    rows plus the retained raw read closure).
-            // 2. For raw message queries, `pages[0]` must be a trusted
-            //    newest-tail shape. A since-mode or older-only envelope has
-            //    no `hasMore` flag on page 0 → the next mount reads
-            //    `hasMoreOlder ?? hasMore ?? false` as false and silently
-            //    loses history. Filter these out at write time so the
-            //    self-healing invariant holds across sessions.
             if (query.state.status !== "success") return false
             return shouldPersistQuery(query.queryKey, query.state.data)
           },

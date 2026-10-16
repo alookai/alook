@@ -108,9 +108,9 @@ export function finishAction(action: Action | undefined, outcome: Attributes["ou
   try { action.span?.end(observationTime(action.end, action.origin)) } catch {}
   if (action === navigation) notifyObservation()
 }
-export function startRegionObservation(action: Action | undefined, region: Attributes["region"]) {
+export function startRegionObservation(action: Action | undefined, region: Attributes["region"], evidence?: Attributes) {
   if (!action || action.done) return
-  return startPageOperation("region.wait", { region, phase: "commit", source: "unknown" }, action)
+  return startPageOperation("region.wait", { region, phase: "commit", source: "unknown", ...evidence }, action)
 }
 export function finishRegionObservation(operation: PageOperation | undefined, action: Action | undefined, outcome: Attributes["outcome"]) {
   if (!action || operation?.page !== action) return

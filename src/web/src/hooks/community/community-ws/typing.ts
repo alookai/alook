@@ -1,6 +1,6 @@
 import { TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
 import type { QueryClient } from "@tanstack/react-query"
-import { getCommunityRuntime } from "@/stores/community/runtime"
+import { getCommunityRuntime } from "@/stores/community/runtime-owner"
 
 /**
  * The conversation scope key an event belongs to. Every event carries a single

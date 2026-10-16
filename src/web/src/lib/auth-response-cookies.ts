@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { applySetCookies, parseSetCookieHeader } from "better-auth/cookies"
 
-export function authResponseCookies(request: NextRequest, headers: Headers) {
+export function authResponseCookies(request: NextRequest, headers: Headers, requestHeaders?: Headers) {
   const setCookies = headers.getSetCookie()
-  if (!setCookies.length) return NextResponse.next()
-  const forwardedHeaders = new Headers(request.headers)
+  if (!setCookies.length) return requestHeaders ? NextResponse.next({ request: { headers: requestHeaders } }) : NextResponse.next()
+  const forwardedHeaders = new Headers(requestHeaders ?? request.headers)
   applySetCookies(forwardedHeaders, setCookies)
   const forwarded = new NextRequest(request.url, { headers: forwardedHeaders })
   for (const [name, cookie] of parseSetCookieHeader(setCookies.join(", "))) {

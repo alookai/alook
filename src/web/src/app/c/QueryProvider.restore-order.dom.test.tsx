@@ -11,7 +11,8 @@ import {
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { act, render, screen, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import { PERSIST_BUSTER, type QualifiedPersister } from "@/lib/query-persister"
+import { PERSIST_BUSTER, readCommunityRestoredCollections, type QualifiedPersister } from "@/lib/query-persister"
+import { restoreCommunityCollections } from "@/lib/community-db/sync"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import {
   useCanonicalMessagesById,
@@ -74,11 +75,13 @@ describe("QueryProvider persistence ordering", () => {
     const key = communityKeys.communityDbCollection("restore-order-viewer", "servers")
     client.setQueryData(key, [{ id: "legacy-server", name: "Legacy", discriminator: "0001", description: "", ownerId: "restore-order-viewer", icon: null, official: false, isOwner: true, unread: false, mentions: 0 }], { updatedAt })
     const registry = createCommunityDbRegistry(client, "restore-order-viewer")
-    registry.captureRestoredCollections()
+    const input = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client) }, "restore-order-viewer")
+    await restoreCommunityCollections(registry, input)
+    registry.captureRestoredCollections(input)
     expect(client.getQueryState(key)?.dataUpdatedAt).toBe(updatedAt)
     expect(client.getQueryData(key)).toEqual([expect.objectContaining({ id: "legacy-server", position: 0 })])
-    expect(registry.hasRestoredCollection("servers")).toBe(updatedAt > 0)
-    expect(registry.hasRestoredData()).toBe(updatedAt > 0)
+    expect(registry.hasRestoredCollection("servers")).toBe(true)
+    expect(registry.hasRestoredData()).toBe(true)
     await registry.cleanup()
     client.clear()
   })
@@ -117,6 +120,7 @@ describe("QueryProvider persistence ordering", () => {
       id: "persisted-message",
       channelId: "persisted-dm",
       type: "chat" as const,
+      resourceComplete: false as const,
       seq: 1,
       createdAt: "2026-09-25T00:00:00.000Z",
       content: "persisted canonical body",
@@ -132,6 +136,7 @@ describe("QueryProvider persistence ordering", () => {
       communityKeys.communityDbCollection(viewerId, "channels"),
       [{ topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
         id: "persisted-dm",
+        resourceComplete: false,
         serverId: null,
         categoryId: null,
         name: "",
@@ -186,6 +191,10 @@ describe("QueryProvider persistence ordering", () => {
       buster: PERSIST_BUSTER,
       clientState: dehydrate(seedClient),
     }
+    const validated = readCommunityRestoredCollections(persisted, viewerId)
+    expect(validated.messages?.rows).toEqual([message])
+    expect(validated.channels?.rows).toHaveLength(1)
+    expect(validated.channelMemberships?.rows).toHaveLength(2)
     let resolveRestore!: (client: PersistedClient) => void
     persister.restoreClient.mockReturnValue(new Promise((resolve) => {
       resolveRestore = resolve
@@ -229,6 +238,7 @@ describe("QueryProvider persistence ordering", () => {
     })
 
     await act(async () => resolveRestore(persisted))
+    await waitFor(() => expect(mounted.client?.getQueryData(canonicalKey)).toEqual([message]))
     await waitFor(() => {
       expect(screen.getByTestId("canonical-message").textContent)
         .toBe(`${message.content}|Persisted peer`)

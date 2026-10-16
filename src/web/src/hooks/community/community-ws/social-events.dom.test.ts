@@ -1,3 +1,4 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { getCapturedRuntime } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
@@ -332,12 +333,13 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     })) })
     seedCanonicalMessages("dm_u_a", [{ id: "private", content: "private body" }])
     seedCanonicalMessages("dm_u_other", [{ id: "other", content: "other body" }])
-    const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "dm_u_a", serverId: null, name: null, type: "dm", parentChannelId: null,
+    const baseMetadata = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "dm_u_a", serverId: null, name: null, type: "dm", parentChannelId: null,
       parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-08T00:00:00Z",
-      readContractVersion: 2, accessDecision: { channelId: "dm_u_a", canRead: true, canSend: true, canCreateDiscussion: false } }
+      readContractVersion: 2, accessDecision: { channelId: "dm_u_a", canRead: true, canSend: true, canCreateDiscussion: false } }, "u_me")
+    const metadata = { ...baseMetadata, peer: { ...baseMetadata.peer!, id: "u_a" } }
     const api = getCommunityApiFetchMock()
     const original = api.getMockImplementation()!
-    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a" ? Promise.resolve(metadata) : original(...args))
+    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a/messages?entry=1" ? Promise.resolve(metadata) : original(...args))
     await capturedQueryClient.query(channelMetadataOptions(capturedQueryClient, null, "dm_u_a"))
     const proof = captureCommunityLiveSnapshotToken(capturedQueryClient)
     const oldMetadata = captureChannelMetadataToken(capturedQueryClient, "dm_u_a")
@@ -345,9 +347,9 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(canonicalMessage("private")?.content).toBe("private body")
     let release!: (value: typeof metadata) => void
     const held = new Promise<typeof metadata>((resolve) => { release = resolve })
-    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a" ? held : original(...args))
+    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a/messages?entry=1" ? held : original(...args))
     const pending = capturedQueryClient.query({ ...channelMetadataOptions(capturedQueryClient, null, "dm_u_a"), staleTime: 0 }).catch((error: unknown) => error)
-    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/dm_u_a")).toHaveLength(2))
+    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/dm_u_a/messages?entry=1")).toHaveLength(2))
     act(() => {
       getCapturedRuntime().ui.actions.setCurrentChannelId("dm_u_a")
       getCapturedRuntime().ui.setState((state) => ({ ...state, subscription: { dmConversationId: "dm_u_a" } }))

@@ -180,6 +180,8 @@ describe("useBotListController", () => {
     mocks.audit = null
     mocks.bots = [bot("b1", "mac1")]
     mocks.botsDataReady = true
+    mocks.botsLoading = false
+    mocks.machinesLoading = false
     mocks.planSummary = {
       plan: { id: "free", displayName: "Free" },
       limit: 3,

@@ -1,3 +1,4 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
@@ -126,9 +127,8 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
     },
   )
 
-  it("validates the transport receipt before returning a cache-safe page", async () => {
+  it("strips the transport receipt before returning a cache-safe page", async () => {
     const { channelMessagesQueryFn } = await loadHook()
-    const onSurfaceReceipt = vi.fn()
     apiFetchMock.mockResolvedValueOnce({
       messages: [],
       hasMore: false,
@@ -136,15 +136,11 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
     })
 
     const { client } = await createCommunityQueryOwner()
-    const page = await channelMessagesQueryFn("ch_1", null, { onSurfaceReceipt })({
+    const page = await channelMessagesQueryFn("ch_1")({
       client,
       pageParam: { mode: "newest" },
     })
 
-    expect(onSurfaceReceipt).toHaveBeenCalledWith({
-      channelId: "ch_1",
-      surfaceKind: "channel",
-    })
     expect(page).not.toHaveProperty("surfaceReceipt")
   })
 
@@ -280,25 +276,17 @@ describe("dmMessagesQueryFn", () => {
   })
 })
 
-describe("message hooks — canonical receipt forwarding", () => {
-  it("records transport receipts for mounted Channel and DM queries", async () => {
+describe("message hooks — common entry publication", () => {
+  it("qualifies mounted Channel and DM windows with one resource each", async () => {
     const { useDmMessages, useMessages } = await loadHook()
     const { client: queryClient } = await createCommunityQueryOwner()
-    apiFetchMock.mockImplementation(async (url: string) => ({
-      messages: [],
-      hasMore: false,
-      latestSeq: 0,
-      surfaceReceipt: url.includes("ch_receipt")
-        ? { channelId: "ch_receipt", surfaceKind: "channel" }
-        : { channelId: "dm_receipt", surfaceKind: "dm" },
-    }))
+    apiFetchMock.mockImplementation(async (url: string) => conversationEntryFromChannel({ id: url.includes("ch_receipt") ? "ch_receipt" : "dm_receipt", serverId: url.includes("ch_receipt") ? "server" : null, type: url.includes("ch_receipt") ? "text" : "dm", name: null, archived: false, createdAt: "2026-10-01T00:00:00Z" }))
 
     function useReceiptQueries() {
       useMessages("ch_receipt", {
         serverId: "server",
-        lastReadMessageId: null,
       })
-      useDmMessages("dm_receipt", { lastReadMessageId: null })
+      useDmMessages("dm_receipt")
     }
     function QueryWrapper({ children }: PropsWithChildren) {
       return createElement(QueryClientProvider, { client: queryClient }, children)
@@ -407,8 +395,8 @@ describe("bounded messages publication", () => {
     if (lineage === "known") runtime.ws.actions.rememberChannelAccess("server", "child", "parent")
     let resolve!: (value: unknown) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
-    const receipt = vi.fn(), key = communityKeys.channelMessages("child")
-    const request = client.infiniteQuery({ queryKey: key, queryFn: channelMessagesQueryFn("child", null, { onSurfaceReceipt: receipt }), initialPageParam: { mode: "newest" }, getNextPageParam: () => undefined, retry: false })
+    const key = communityKeys.channelMessages("child")
+    const request = client.infiniteQuery({ queryKey: key, queryFn: channelMessagesQueryFn("child"), initialPageParam: { mode: "newest" }, getNextPageParam: () => undefined, retry: false })
     const rejected = lineage === "known" ? expect(request).rejects.toBeInstanceOf(CancelledError) : expect(request).rejects.toMatchObject({ name: "AbortError" })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     retireCommunityChannelReading(registry, "parent", { reason: "read-denied", serverId: "server" })
@@ -418,7 +406,6 @@ describe("bounded messages publication", () => {
     expect(registry.collections.messages.has("late-child-message")).toBe(false)
     expect(registry.collections.profiles.has("late-author")).toBe(false)
     expect(client.getQueryData(key)).toBeUndefined()
-    expect(receipt).not.toHaveBeenCalled()
     expect(() => assertCommunityLiveSnapshotTokenCurrent(client, sibling, undefined)).not.toThrow()
     apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "fresh-child-message", type: "chat", seq: 2, authorId: "fresh-author", authorName: "Fresh", content: "fresh" }], hasMore: false, latestSeq: 2 })
     await client.infiniteQuery({ queryKey: key, queryFn: channelMessagesQueryFn("child"), initialPageParam: { mode: "newest" }, getNextPageParam: () => undefined, retry: false })
@@ -447,9 +434,8 @@ describe("bounded messages publication", () => {
     const { client } = await createCommunityQueryOwner()
     let resolve!: (value: unknown) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
-    const receipt = vi.fn()
     vi.useFakeTimers()
-    const request = channelMessagesQueryFn("ch_deadline", null, { queryClient: client, onSurfaceReceipt: receipt })({ client, signal: new AbortController().signal, pageParam: { mode: "newest" } })
+    const request = channelMessagesQueryFn("ch_deadline", null, { queryClient: client })({ client, signal: new AbortController().signal, pageParam: { mode: "newest" } })
     const rejected = expect(request).rejects.toBeInstanceOf(ConversationReadTimeoutError)
     await act(async () => { await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS) })
     await rejected
@@ -461,6 +447,5 @@ describe("bounded messages publication", () => {
     const registry = getCommunityDbRegistry(client)!
     expect(registry.collections.messages.get("late_message")).toBeUndefined()
     expect(registry.collections.profiles.get("late_author")).toBeUndefined()
-    expect(receipt).not.toHaveBeenCalled()
   })
 })

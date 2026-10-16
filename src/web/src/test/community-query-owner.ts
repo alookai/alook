@@ -31,7 +31,7 @@ export function seedCommunityMessageWindow(client: QueryClient, key: QueryKey, w
   ingestMessages(registry, String(key.at(-2)), window.pages.flatMap((page) => page.messages))
   return client.setQueryData(key, {
     ...window,
-    pages: window.pages.map((page) => ({ ...page, messages: page.messages.map(({ id }) => ({ id })) })),
+    pages: window.pages.map((page) => ({ ...page, hasMoreNewer: page.hasMoreNewer ?? false, messages: page.messages.map(({ id }) => ({ id })) })),
   }, options)
 }
 beforeEach(() => async () => {

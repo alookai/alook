@@ -1,4 +1,5 @@
 "use client"
+import type { MachineSummary } from "@/hooks/community/use-machines"
 
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useQueryClient } from "@tanstack/react-query"
@@ -12,7 +13,6 @@ import { toastApiError } from "@/lib/api/client"
 import {
   isPresenceOnline,
   requiresExplicitModel,
-  type CommunityMachineSummary,
   type ReasoningEffort,
 } from "@alook/shared"
 import { machineName } from "@/lib/community/machine-name"
@@ -44,14 +44,14 @@ type NormalizedRuntime = BotRuntimeOption
 /**
  * Normalize a machine's runtimes into `{ id, unhealthy }`, healthy-first.
  *
- * A legacy CommunityMachineSummary cached client-side may still be missing
+ * A legacy MachineSummary cached client-side may still be missing
  * availableRuntimes, or a runtime entry may still be a bare string
  * (pre-health-status shape). Normalize both instead of hiding unhealthy
  * runtimes outright, so the radio card can show *why* an option is disabled.
  * Available runtimes sort first — the ones you can actually pick should never
  * be buried below ones you can't.
  */
-export function normalizeRuntimes(machine: CommunityMachineSummary | undefined): NormalizedRuntime[] {
+export function normalizeRuntimes(machine: MachineSummary | undefined): NormalizedRuntime[] {
   const rt = machine?.availableRuntimes ?? []
   const normalized = rt.map((r) =>
     typeof r === "string"
@@ -71,7 +71,7 @@ export function firstHealthyRuntimeId(options: NormalizedRuntime[]): string {
 }
 
 /** First online (selectable) machine id, or "" if none. */
-export function firstOnlineMachineId(machines: CommunityMachineSummary[]): string {
+export function firstOnlineMachineId(machines: MachineSummary[]): string {
   return machines.find((m) => isPresenceOnline(m.status))?.id ?? ""
 }
 

@@ -11,6 +11,7 @@ type Input = {
   firstWindowReady: boolean
   authoritativeEmpty: boolean
   positionSettled: boolean
+  documentWindowReady?: boolean
 }
 
 let latest: ReturnType<typeof useInitialPositionTransition>
@@ -35,6 +36,15 @@ describe("useInitialPositionTransition", () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it("shows a qualified document window without claiming position or interaction readiness", () => {
+    const renderer = render(React.createElement(Probe, { ...pending(), documentWindowReady: true }))
+    expect(latest).toMatchObject({ phase: "positioning", showSkeleton: false, contentVisible: true, contentInteractive: false })
+    expect(vi.getTimerCount()).toBe(0)
+    renderer.rerender(React.createElement(Probe, { ...pending(), documentWindowReady: true, firstWindowReady: false }))
+    expect(latest).toMatchObject({ phase: "skeleton", showSkeleton: true, contentVisible: false, contentInteractive: false })
+    renderer.unmount()
   })
 
   it("holds the skeleton until the first window and reveals an authoritative empty window immediately", () => {

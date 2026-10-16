@@ -48,7 +48,7 @@ export function CommunityOnboardingForm() {
   const requiredModel = requiresExplicitModel(state?.harness)
   const totalSteps = requiredModel ? 4 : 3
   const { machines } = useMachines({ enabled: state?.stage === "model" })
-  const selectedRuntime = machines.find((machine) => machine.id === state?.machineId)?.availableRuntimes.find((runtime) => runtime.id === state?.harness)
+  const selectedRuntime = machines.find((machine) => machine.id === state?.machineId)?.availableRuntimes?.find((runtime) => runtime.id === state?.harness)
   useEffect(() => { setModel(null) }, [state?.machineId, state?.harness, setModel])
   const commandKey = ["community", "onboarding-initialization", journeyIdentity] as const
   const pending = useMutationState({ filters: { mutationKey: commandKey, status: "pending" }, select: (mutation) => mutation.mutationId })

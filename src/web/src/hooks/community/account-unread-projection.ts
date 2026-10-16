@@ -1,8 +1,6 @@
-"use client"
-
 import type { queries } from "@alook/shared"
 import type { ReadCoordinatorSnapshot } from "./read-coordinator-snapshot-projection"
-import { batch, createStore } from "@tanstack/react-store"
+import { batch, createStore } from "@tanstack/store"
 import type { QueryClient } from "@tanstack/react-query"
 
 type AccountUnreadPrimarySnapshot = Pick<queries.communityReadState.AccountReadStateSnapshot, "revision"> & ReadCoordinatorSnapshot

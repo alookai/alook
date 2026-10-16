@@ -3,99 +3,35 @@ import { resolveActionName } from "@/lib/observability/actions"
 import { useQuery,useMutation,useQueryClient,type UseQueryResult,type Query,type QueryKey,type MutateOptions } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import {
-apiFetchProfiles,
 beginCommunityProfileSeed,
 writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import type { BotActivityDay,CommunityProfilePatch } from "@/lib/community/models/people"
-import type { DailyUsageMetric,ReasoningEffort } from "@alook/shared"
+import type { CommunityProfilePatch } from "@/lib/community/models/people"
+import type { ReasoningEffort } from "@alook/shared"
 import { useCallback,useMemo } from "react"
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { botProfilePatch, botsOptions, type BotSummary, type BotsResourceResponse } from "@/lib/community/bots"
 
 
 import { useCommunityMutationOrigin as useBotMutationOrigin } from "./community-origin"
 
-export type BotUsageDay = {
-  day: string
-  period: "closed" | "in_progress"
-  metrics: {
-    input: DailyUsageMetric
-    output: DailyUsageMetric
-    cache: DailyUsageMetric
-  }
-}
-
-export type BotTokenUsage = {
-  capability: "supported" | "unsupported" | "unknown"
-  days: BotUsageDay[]
-}
-
-export type BotSummary = {
-  id: string
-  name: string
-  description: string
-  image: string | null
-  avatarVersion: number
-  machineId: string
-  runtime: string
-  modelName: string | null
-  reasoningEffort: ReasoningEffort | null
-  runtimeConfigRevision: number
-  isActive: boolean
-  presence: "online" | "offline"
-  // Context lifecycle (my-bots #516): when the agent last refreshed its context
-  // (nap, session reset, or provider switch), ISO string, null if it never has. Rendered as the
-  // awake-duration "Awake 17h" (Gus #672/#674 — how long the agent has been
-  // awake since that refresh, not "X ago"); null (never refreshed) omits it.
-  lastRefreshContextAt: string | null
-  // Per-day handled/sent activity for the last 30 days (heatmap, Gus #608).
-  // Sparse — only days with activity; oldest→newest; [] for a brand-new bot.
-  // The heatmap builds the full 30-day calendar and fills from this by day-key.
-  dailyActivity: BotActivityDay[]
-  // Owner-only 30-day provider telemetry. Older optimistic mutation payloads
-  // can omit it until the bots query refetches, which renders the unknown-state
-  // placeholder instead of inventing zero usage.
-  usage?: BotTokenUsage
-}
-export type BotPlanSummary = {
-  isFounder: boolean
-  plan: {
-    id: string
-    displayName: string
-  }
-  limit: number
-  ownedCount: number
-  activeCount: number
-}
-type BotsResponse = BotPlanSummary & { bots: BotSummary[] }
-type BotResource = Omit<BotSummary, "name" | "description" | "image" | "avatarVersion" | "presence">
-export type BotsResourceResponse = BotPlanSummary & { bots: BotResource[] }
+export type { BotUsageDay, BotTokenUsage, BotSummary, BotPlanSummary, BotsResourceResponse } from "@/lib/community/bots"
 
 type OriginalBotView = (() => void) & { signal: AbortSignal }
 type BotViewInput = { assertActive?: OriginalBotView }
 
-function botProfilePatch(bot: Pick<BotSummary, "id" | "name" | "image" | "avatarVersion"> & { description?: string }): CommunityProfilePatch {
-  return { id: bot.id, identityAbout: { name: bot.name, kind: "bot", ...("discriminator" in bot && typeof bot.discriminator === "string" ? { discriminator: bot.discriminator } : {}), ...(bot.description === undefined ? {} : { aboutMe: bot.description }) }, avatar: { avatar: bot.image, avatarVersion: bot.avatarVersion } }
-}
-
-export function useBots(): UseQueryResult<BotsResourceResponse> & { bots: BotSummary[] } {
-  const query = useQuery({
-    queryKey: communityKeys.bots(),
-    queryFn: async ({ client, signal }): Promise<BotsResourceResponse> => {
-      const data = await apiFetchProfiles<BotsResponse>("/api/community/bots", (data) => data.bots.map((bot) => ({ ...botProfilePatch(bot), presence: bot.presence })), { signal }, getCommunityDbRegistry(client))
-      return { ...data, bots: data.bots.map(({ name: _name, description: _description, image: _image, avatarVersion: _avatarVersion, presence: _presence, ...resource }) => resource) }
-    },
-  })
+export function useBots(): UseQueryResult<BotsResourceResponse> & { bots: BotSummary[]; profilesPending: boolean } {
+  const query = useQuery(botsOptions())
   const profiles = useCanonicalProfilesByUserId(query.data?.bots.map((bot) => bot.id) ?? [])
   const bots = useMemo(() => (query.data?.bots ?? []).map((bot) => {
     const profile = readCommunityProfile(profiles.get(bot.id), bot.id)
-    return { ...bot, name: profile.name, description: profile.aboutMe, image: profile.avatar, avatarVersion: profile.avatarVersion, presence: profile.presence }
+    return { ...bot, name: profile.name, description: profile.aboutMe, image: profile.avatar, avatarVersion: profile.avatarVersion, presence: profiles.get(bot.id)?.presence }
   }), [profiles, query.data])
-  return { ...query, bots }
+  const missingProfiles = query.data?.bots.some(bot => !profiles.get(bot.id)?.name) === true
+  return { ...query, bots, profilesPending: missingProfiles }
 }
 
 type BotCommandContext = {
@@ -189,7 +125,7 @@ export function useSetBotActive() {
       if (!current) return current
       const previous = current.bots.find((bot) => bot.id === data.bot.id)
       if (!previous || previous.isActive === data.bot.isActive) return current
-      return { ...current, activeCount: Math.max(0, current.activeCount + (data.bot.isActive ? 1 : -1)), bots: current.bots.map((bot) => bot.id === data.bot.id ? { ...bot, isActive: data.bot.isActive } : bot) }
+      return { ...current, ...(current.activeCount !== undefined && previous.isActive !== undefined ? { activeCount: Math.max(0, current.activeCount + (data.bot.isActive ? 1 : -1)) } : {}), bots: current.bots.map((bot) => bot.id === data.bot.id ? { ...bot, isActive: data.bot.isActive } : bot) }
     })
     return data
   }, botIdSurfaceKeys)

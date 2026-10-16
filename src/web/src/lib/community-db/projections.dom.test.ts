@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { dehydrate, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import React, { type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -23,7 +23,8 @@ import {
   useServerTreeProjection,
   useTrustedRestoredPrimary,
 } from "./projections"
-import { ingestMessages, ingestServerDetail, ingestServers } from "./sync"
+import { ingestMessages, ingestServerDetail, ingestServers, restoreCommunityCollections } from "./sync"
+import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
 import { profileSchema } from "./schema"
 
 describe("community DB projections", () => {
@@ -319,7 +320,9 @@ describe("community DB projections", () => {
       })),
     )
     const registry = createCommunityDbRegistry(queryClient, "viewer")
-    registry.captureRestoredCollections()
+    const input = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(queryClient) }, "viewer")
+    await restoreCommunityCollections(registry, input)
+    registry.captureRestoredCollections(input)
     await registry.preload()
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider,
@@ -428,13 +431,14 @@ describe("community DB projections", () => {
       { id: "server:s1", serverId: "s1", level: "all" },
       { id: "channel:c1", channelId: "c1", level: "mentions" },
     ])
+    const input = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(queryClient) }, "viewer")
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
     registry.runtime.ws.setState((state) => ({ ...state, ...{ presenceByUserId: new Map([["peer", "online"]]) } }))
     const restoredListener = vi.fn()
     const restoredSubscription = registry.restoration.subscribe(restoredListener)
-    registry.captureRestoredCollections()
-    registry.captureRestoredCollections()
+    registry.captureRestoredCollections(input)
+    registry.captureRestoredCollections(input)
     expect(restoredListener).toHaveBeenCalledOnce()
     restoredSubscription.unsubscribe()
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(

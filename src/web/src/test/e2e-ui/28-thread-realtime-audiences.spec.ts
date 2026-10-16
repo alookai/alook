@@ -1,3 +1,4 @@
+import { COMMUNITY_CONTRACT_VERSION, WS_EVENTS } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { captureNotificationRequests, gotoAfterNotificationStartup } from "./_fixtures/community-notification-requests"
 
@@ -49,14 +50,21 @@ for (const parentType of ["text", "forum"] as const) {
         expect(trace.events.filter((event) => (event.type === "community:unread.bump" || event.type === "community:mention.create") && event.channelId === childId)).toEqual([])
         expect(trace.requests.filter((path) => path === "/api/community/users/me/attention" || path === "/api/community/users/me/dms" || path === `/api/community/channels/${childId}/read`)).toEqual([])
 
+        const connectionBeforeChild = proxy.connectionCount()
         await bob.page.goto(`/c/channels/${serverId}/${childId}`)
         await expect(bob.page.getByTestId(tid.message(firstId))).toBeVisible()
+        await expect.poll(() => {
+          const current = proxy.connectionCount()
+          return current > connectionBeforeChild && proxy.connectionFrames.some((frame) =>
+            frame.connectionId === current && frame.direction === "server-to-client"
+            && frame.type === "auth.ok" && frame.communityContract === COMMUNITY_CONTRACT_VERSION)
+        }).toBe(true)
         const added = await mutate(`/api/community/channels/${childId}/participants`, "POST", { userId: userId("bob") })
         expect(added.status).toBe(201)
-        await expect.poll(() => trace.events.some((event) => event.type === "community:channel.member_add" && event.channelId === childId && event.userId === userId("bob"))).toBe(true)
+        await expect.poll(() => trace.events.some((event) => event.type === WS_EVENTS.CHANNEL_MEMBER_ADD && event.serverId === serverId && event.channelId === childId && event.userId === userId("bob"))).toBe(true)
         const removed = await bob.page.request.delete(`/api/community/channels/${childId}/participants/${userId("bob")}`)
         expect(removed.status()).toBe(204)
-        await expect.poll(() => trace.events.some((event) => event.type === "community:channel.member_remove" && event.channelId === childId && event.userId === userId("bob"))).toBe(true)
+        await expect.poll(() => trace.events.some((event) => event.type === WS_EVENTS.CHANNEL_MEMBER_REMOVE && event.serverId === serverId && event.channelId === childId && event.userId === userId("bob"))).toBe(true)
         await expect(bob.page.getByTestId(tid.message(firstId))).toBeVisible()
         const secondId = await seedMessage("alice", childId, "Still readable after leaving participation")
         await expect(bob.page.getByTestId(tid.message(secondId))).toBeVisible()

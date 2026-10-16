@@ -124,7 +124,7 @@ describe("useForumOpenerHint", () => {
     })
     expect(queryClient.getQueryData(
       communityKeys.message("opener-1"),
-    )).toEqual({ id: "opener-1" })
+    )).toBe("opener-1")
     const { getCanonicalCommunityMessages } = await import("@/lib/community-db/sync")
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([expect.objectContaining({ id: "opener-1", content: "Seeded", seq: 7, channelId: "forum-1" })])
   })

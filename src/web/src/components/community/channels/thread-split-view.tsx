@@ -3,8 +3,9 @@
  * macrostructure: parallel-conversation-panel · pre-emit: P5 H5 E4 S5 R5 V4 · slop: pass
  */
 
-import type { ReactNode } from "react"
-import { useDefaultLayout } from "react-resizable-panels"
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react"
+import { useDefaultLayout, type GroupImperativeHandle, type Layout, type LayoutChangedMeta } from "react-resizable-panels"
+import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -42,6 +43,21 @@ export function ThreadSplitView({
     onlySaveAfterUserInteractions: true,
     storage: threadSplitLayoutStorage,
   })
+  const hydratedClient = useHydratedClient()
+  const groupRef = useRef<GroupImperativeHandle | null>(null)
+  const hydratedLayoutAppliedRef = useRef(false)
+  const restorePersistedLayout = useCallback(() => {
+    if (!hydratedClient || !split || resolvingParent || hydratedLayoutAppliedRef.current
+      || !defaultLayout || !groupRef.current) return
+    if (Object.keys(groupRef.current.getLayout()).length === 0) return
+    hydratedLayoutAppliedRef.current = true
+    groupRef.current.setLayout(defaultLayout)
+  }, [defaultLayout, hydratedClient, resolvingParent, split])
+  useLayoutEffect(restorePersistedLayout, [restorePersistedLayout])
+  const handleLayoutChanged = useCallback((layout: Layout, meta: LayoutChangedMeta) => {
+    restorePersistedLayout()
+    onLayoutChanged(layout, meta)
+  }, [onLayoutChanged, restorePersistedLayout])
   const isThread = conversationSubtype === "thread"
 
   return (
@@ -54,8 +70,9 @@ export function ThreadSplitView({
       <ResizablePanelGroup
         id="community-thread-split-layout"
         orientation="horizontal"
-        defaultLayout={defaultLayout}
-        onLayoutChanged={split && !resolvingParent ? onLayoutChanged : undefined}
+        groupRef={groupRef}
+        defaultLayout={hydratedClient ? defaultLayout : undefined}
+        onLayoutChanged={split && !resolvingParent ? handleLayoutChanged : undefined}
         disabled={!split || resolvingParent}
         aria-hidden={resolvingParent || undefined}
         inert={resolvingParent || undefined}

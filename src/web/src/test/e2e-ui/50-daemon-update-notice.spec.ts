@@ -37,12 +37,13 @@ async function serveMachines(page: Page, {
   let requestCount = 0
   const updateRequests: string[] = []
   const remainingFailures = new Set(failOnce)
-  await page.route("**/api/community/machines", async (route) => {
-    requestCount += 1
+  await page.route(url => url.pathname === "/api/community/machines", async (route) => {
+    const optional = new URL(route.request().url()).searchParams.get("view") === "observations"
+    if (!optional) requestCount += 1
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ machines }),
+      body: JSON.stringify(optional ? { quotas: machines.map(machine => ({ machineId: machine.id, quota: machine.quota })) } : { machines }),
     })
   })
   await page.route("**/api/community/machines/*/update", async (route) => {

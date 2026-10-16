@@ -68,7 +68,7 @@ vi.mock("@/lib/use-user-ws", () => ({
     capturedOnMessage = (message, assertCurrent) => {
       let result: void | Promise<void>
       act(() => { result = onMessage(message, assertCurrent) })
-      if ((message as { type?: unknown })?.type === "community:events.batch.v2") return result!
+      return result!
     }
     capturedOnReconnect = options?.onReconnect ?? null
     capturedConnectionStateChange = options?.onConnectionStateChange ?? null

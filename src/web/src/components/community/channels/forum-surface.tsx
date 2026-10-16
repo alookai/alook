@@ -1,7 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
 import { useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
@@ -11,7 +9,7 @@ import type { ForumThread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
 import { ForumView } from "./forum-view"
 import { useForumFeed } from "@/hooks/community/use-forum-feed"
-import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
+import { useConversationEntry } from "@/hooks/community/use-conversation-entry"
 import { useTimelineReadObserver } from "@/hooks/community/use-read-observer"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
@@ -30,16 +28,15 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
   canDeletePost?: (post: ForumThread) => boolean
   deletingPost?: string | null
 }) {
-  const queryClient = useQueryClient()
   const feed = useForumFeed(serverId, forumChannelId)
-  const readState = useChannelReadStateSnapshot(forumChannelId)
+  const readState = useConversationEntry({ channelId: forumChannelId, serverId })
   const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   const retryScope = JSON.stringify([forumChannelId, feed.tag])
   const [retryAttempt, setRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))
   const retryRef = useRef<{ scope: string } | null>(null)
   const retrying = retryAttempt?.scope === retryScope
   const accessError = isConversationAccessError(feed.error) || isConversationAccessError(readState.error)
-  const initialLoadError = accessError || (feed.posts.length === 0 && (
+  const initialLoadError = accessError || (feed.data === undefined && (
     feed.isError || !!readState.error || retrying
   ))
   useTimelineReadObserver({
@@ -57,7 +54,7 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
     scrollRootEl,
     snapshotStatus: isConversationAccessError(readState.error)
       ? "error"
-      : readState.isFetching
+      : !readState.snapshot
       ? "pending"
       : readState.snapshot
         ? "ready"
@@ -77,7 +74,7 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
       const attempt = { scope: retryScope }
       retryRef.current = attempt
       setRetryAttempt(attempt)
-      void Promise.all([feed.refetch({ cancelRefetch: false }), queryClient.refetchQueries({ queryKey: communityKeys.channelReadStateSnapshot(forumChannelId), exact: true }, { cancelRefetch: false })]).finally(() => {
+      void Promise.all([feed.refetch({ cancelRefetch: false }), readState.refetch({ cancelRefetch: false })]).finally(() => {
         if (retryRef.current === attempt) retryRef.current = null
         setRetryAttempt((current) => current === attempt ? null : current)
       })
@@ -87,6 +84,7 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
     forumChannelId={forumChannelId}
     {...props}
     posts={feed.posts}
+    observation={feed.observation}
     loading={feed.isLoading}
     tag={feed.tag}
     availableTags={feed.availableTags}

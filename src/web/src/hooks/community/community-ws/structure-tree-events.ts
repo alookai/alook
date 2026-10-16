@@ -104,8 +104,7 @@ export function handleChildChannelUpdate(
   ) {
     if (sidebarServerId) {
       queryClient.removeQueries({
-        queryKey: communityKeys.channelMeta(sidebarServerId, event.channelId),
-        exact: true,
+        queryKey: communityKeys.conversationEntries(event.channelId),
       })
     }
   }

@@ -10,6 +10,7 @@ import {
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
+import { readCommunityServerCategoryRows } from "@/lib/community/server-directory.server"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
@@ -17,10 +18,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-  const categories = await db.query.communityCategory.findMany({
-    where: (t, { eq }) => eq(t.serverId, serverId),
-    orderBy: (t, { asc }) => [asc(t.position)],
-  })
+  const categories = await readCommunityServerCategoryRows(db, serverId)
   return writeJSON({ categories })
 })
 

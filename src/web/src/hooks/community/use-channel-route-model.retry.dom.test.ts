@@ -1,5 +1,6 @@
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { createElement, useEffect } from "react"
 import type { QueryClient } from "@tanstack/react-query"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -63,11 +64,11 @@ function deferred() {
   return { promise, resolve, reject }
 }
 function payload(id = "post-1") {
-  return {
+  return conversationEntryFromChannel({
     categoryId: null, topic: "", position: 0, messageCount: 0, id, serverId: "server-1", name: "post", type: "thread", parentChannelId: "parent-1",
     parentMessageId: "opener-1", creatorId: "viewer-1", archived: false,
     lastMessageAt: "2026-08-09T00:00:00.000Z", createdAt: "2026-08-08T00:00:00.000Z",
-  }
+  }, "viewer-1")
 }
 
 beforeEach(async () => {
@@ -124,6 +125,7 @@ describe("unresolved metadata terminal error and retry", () => {
       mocks.apiFetch.mockReturnValueOnce(retry.promise)
       let pending!: Promise<void>
       await act(async () => { pending = current.retryMetadata(); void current.retryMetadata() })
+      await until(() => current.retryingMetadata)
       expect(current.retryingMetadata).toBe(true)
       expect(current.metadataError).toBe(true)
       await act(async () => { retry.resolve(payload()); await pending })
@@ -133,26 +135,14 @@ describe("unresolved metadata terminal error and retry", () => {
     }
   })
 
-  it("keeps a missing server dependency retryable until its own read settles", async () => {
+  it("keeps a qualified target ready while the independent server directory fails", async () => {
     mocks.apiFetch.mockResolvedValue(payload())
     Object.assign(mocks.server, { server: null, isError: true })
     await mount()
-    await until(() => current.serverError)
-    expect(current.routeLifecycle).toBe("terminal-error")
-    let release!: () => void
-    mocks.server.refetch.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
-    let request!: Promise<void>
-    await act(async () => { request = current.retryServer(); void current.retryServer() })
-    expect(mocks.server.refetch).toHaveBeenCalledOnce()
-    Object.assign(mocks.server, { isError: false, isFetching: true })
-    renderer!.rerender(tree())
-    expect(current.serverError).toBe(true)
-    expect(current.retryingServer).toBe(true)
-    await act(async () => { release(); await request })
-    Object.assign(mocks.server, { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] }, isFetching: false })
-    renderer!.rerender(tree())
     await until(() => current.routeHydrated)
-    expect(current.serverError).toBe(false)
+    expect(current.routeLifecycle).toBe("ready")
+    expect(current.currentChannelMeta?.parentChannelId).toBe("parent-1")
+    expect(mocks.server.refetch).not.toHaveBeenCalled()
   })
 
   it("waits for the original automatic retries before showing a persistent error", async () => {
@@ -190,8 +180,8 @@ describe("unresolved metadata terminal error and retry", () => {
     await until(() => mocks.apiFetch.mock.calls.length === 3)
     expect(current.retryingMetadata).toBe(true)
     expect(current.metadataError).toBe(true)
-    expect(client.getQueryState(communityKeys.channelMeta("server-1", "post-1"))?.status).toBe("pending")
-    await current.retryMetadata()
+    expect(client.getQueryState(channelMetadataOptions(client, "server-1", "post-1").queryKey)?.status).toBe("pending")
+    void current.retryMetadata()
     expect(mocks.apiFetch).toHaveBeenCalledTimes(3)
     await act(async () => { retry.reject(new ApiError("unavailable", 500)); await request })
     await until(() => current.metadataError && !current.retryingMetadata)
@@ -202,8 +192,8 @@ describe("unresolved metadata terminal error and retry", () => {
     await until(() => current.routeLifecycle === "ready")
     expect(current.metadataError).toBe(false)
     expect(current.currentChannelMeta?.id).toBe("post-1")
-    expect(mocks.apiFetch.mock.calls.every(([url]) => url === "/api/community/channels/post-1")).toBe(true)
-    expect(client.getQueryCache().findAll({ queryKey: communityKeys.channelMeta("server-1", "post-1"), exact: true })).toHaveLength(1)
+    expect(mocks.apiFetch.mock.calls.every(([url]) => url === "/api/community/channels/post-1/messages?entry=1")).toBe(true)
+    expect(client.getQueryCache().findAll({ queryKey: channelMetadataOptions(client, "server-1", "post-1").queryKey, exact: true })).toHaveLength(1)
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
@@ -247,7 +237,7 @@ describe("unresolved metadata terminal error and retry", () => {
     const owner = getCommunityDbRegistry(client)!
     owner.runtime.ws.actions.revokeServerAccess("server-1")
     client.getQueryCache().build(client, {
-      queryKey: communityKeys.channelMeta("server-1", "post-1"),
+      queryKey: channelMetadataOptions(client, "server-1", "post-1").queryKey,
     }).setState({ error: new ApiError("denied", 403), status: "error", fetchStatus: "idle" })
     expect(runAuthoritativeServerEject({
       serverId: "server-1", servers: [], isSuccess: true, isFetching: false,
@@ -273,15 +263,15 @@ describe("unresolved metadata terminal error and retry", () => {
       await reconcileCommunityWsReconnect(client, 60_000)
     })
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
-    expect(client.getQueryState(communityKeys.channelMeta("server-1", "post-1"))?.status).toBe("error")
-    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/channels/post-1", expect.anything())
+    expect(client.getQueryState(channelMetadataOptions(client, "server-1", "post-1").queryKey)?.status).toBe("error")
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/channels/post-1/messages?entry=1", expect.anything())
     expect(current.routeLifecycle).toBe("ready")
     expect(current.currentChannelMeta?.id).toBe("post-1")
     expect(current.metadataError).toBe(false)
     mocks.apiFetch.mockResolvedValue(payload())
     await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
     expect(current.routeLifecycle).toBe("ready")
-    expect(client.getQueryState(communityKeys.channelMeta("server-1", "post-1"))?.status).toBe("success")
+    expect(client.getQueryState(channelMetadataOptions(client, "server-1", "post-1").queryKey)?.status).toBe("success")
   })
 
   it.each([401, 403, 404])("does not retain a trusted route after authoritative %s", async (status) => {
@@ -312,7 +302,7 @@ describe("unresolved metadata terminal error and retry", () => {
 
   it("keeps a legacy tag-derived archive bit pending without purging or revoking access", async () => {
     const owner = getCommunityDbRegistry(client)!
-    owner.collections.channels.utils.writeUpsert([{ ...payload(), type: "thread", archived: true, tags: ["archived"], position: 0, muted: false, unread: false, pending: false }])
+    owner.collections.channels.utils.writeUpsert([{ ...payload().channel, type: "thread", archived: true, tags: ["archived"], position: 0, muted: false, unread: false, pending: false }])
     owner.collections.messages.utils.writeUpsert([{ id: "reply-1", channelId: "post-1", type: "chat", content: "kept" }])
     const held = deferred()
     mocks.apiFetch.mockReturnValue(held.promise)
@@ -334,7 +324,7 @@ describe("unresolved metadata terminal error and retry", () => {
     mocks.apiFetch.mockResolvedValue(payload())
     await mount()
     await until(() => current.routeHydrated)
-    mocks.apiFetch.mockResolvedValue({ ...payload(), archived: true })
+    mocks.apiFetch.mockRejectedValue(new ApiError("channel is archived", 403))
     await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
     await until(() => !current.routeHydrated)
     expect(current.routeLifecycle).not.toBe("ready")
@@ -343,7 +333,7 @@ describe("unresolved metadata terminal error and retry", () => {
   })
 
   it("requires fresh metadata after reauthorization and can exit again on a later denial", async () => {
-    const metadataPath = "/api/community/channels/post-1"
+    const metadataPath = "/api/community/channels/post-1/messages?entry=1"
     const metadataCalls = () => mocks.apiFetch.mock.calls.filter(([path]) => path === metadataPath).length
     let readMetadata: () => Promise<unknown> = async () => payload()
     mocks.apiFetch.mockImplementation((path: string) => path === metadataPath ? readMetadata() : Promise.resolve({ id: "viewer-1", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 0 }))
@@ -391,6 +381,7 @@ describe("unresolved metadata terminal error and retry", () => {
     mocks.apiFetch.mockReturnValueOnce(newRetry.promise)
     let newRequest!: Promise<void>
     await act(async () => { newRequest = current.retryMetadata() })
+    await until(() => current.retryingMetadata)
     await act(async () => { oldRetry.resolve(payload()); await oldRequest })
     expect(current.retryingMetadata).toBe(true)
     expect(current.metadataError).toBe(true)
@@ -401,23 +392,29 @@ describe("unresolved metadata terminal error and retry", () => {
     expect(current.retryingMetadata).toBe(false)
   })
 
-  it.each(["account", "epoch"])("does not carry retry feedback across an %s change", async (change) => {
-    mocks.apiFetch.mockRejectedValue(new ApiError("offline", 0))
+  it.each(["account", "epoch"])("does not let an old retry qualify the new %s scope", async change => {
+    mocks.apiFetch.mockRejectedValue(new ApiError("unavailable", 500))
     await mount()
     await until(() => current.metadataError)
-    const retry = deferred()
-    mocks.apiFetch.mockReturnValueOnce(retry.promise)
-    let request!: Promise<void>
+    const old = deferred()
+    mocks.apiFetch.mockReturnValue(old.promise)
+    let request!: Promise<unknown>
     await act(async () => { request = current.retryMetadata() })
-    expect(current.retryingMetadata).toBe(true)
+    await until(() => current.retryingMetadata)
+    const fresh = deferred()
+    mocks.apiFetch.mockReturnValue(fresh.promise)
     await act(async () => {
-      if (change === "account") { getCommunityDbRegistry(client)!.runtime.ws.actions.activateProfileAccount("viewer-2"); renderer!.rerender(tree({ accountId: "viewer-2" })) }
-      else {
-        getCommunityDbRegistry(client)!.runtime.ws.setState((state) => ({ ...state,  accessEpoch: state.accessEpoch + 1 }))
-      }
+      const runtime = getCommunityDbRegistry(client)!.runtime
+      if (change === "account") runtime.ws.actions.activateProfileAccount("viewer-2")
+      else runtime.ws.setState(state => ({ ...state, accessEpoch: state.accessEpoch + 1 }))
     })
-    expect(current.retryingMetadata).toBe(false)
-    await act(async () => { retry.resolve(payload()); await request })
-    expect(current.retryingMetadata).toBe(false)
+    await until(() => !current.metadataError)
+    await act(async () => { old.resolve(payload()); await request })
+    expect(current.routeHydrated).toBe(false)
+    expect(current.metadataError).toBe(false)
+    if (change === "epoch") {
+      await act(async () => fresh.resolve(payload()))
+      await until(() => current.routeHydrated)
+    }
   })
 })

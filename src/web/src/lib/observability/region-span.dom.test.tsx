@@ -18,7 +18,7 @@ it("records only the visible component commit-to-ready wait as a native child wi
   window.history.replaceState(null, "", href)
   const action = beginNavigation(href)!
   const timer = vi.spyOn(globalThis, "setTimeout")
-  function Component({ ready }: { ready: boolean }) { useObservedRegion("bots", ready, 1); return <p>{ready ? "ready" : "pending"}</p> }
+  function Component({ ready }: { ready: boolean }) { useObservedRegion("bots", ready, 1, { snapshot_source: "rsc", target_coverage: ready ? "covered" : "uncovered", wait_reason: ready ? "none" : "identity" }); return <p>{ready ? "ready" : "pending"}</p> }
   const view = render(<Component ready={false} />)
   expect(exporter.getFinishedSpans()).toEqual([])
   expect(timer).not.toHaveBeenCalled()
@@ -26,7 +26,7 @@ it("records only the visible component commit-to-ready wait as a native child wi
   await act(async () => view.rerender(<Component ready />))
   const child = exporter.getFinishedSpans().find(span => span.name === "region.wait")!
   expect(child.parentSpanContext).toEqual(action.span!.spanContext())
-  expect(child.attributes).toMatchObject({ region: "bots", span_role: "region_readiness", phase: "commit", source: "unknown", outcome: "success" })
+  expect(child.attributes).toMatchObject({ region: "bots", span_role: "region_readiness", phase: "commit", source: "unknown", snapshot_source: "rsc", target_coverage: "uncovered", wait_reason: "identity", outcome: "success" })
   expect(child.startTime).toEqual(observationTime(100, action.origin))
   expect(child.endTime).toEqual(observationTime(180, action.origin))
   expect(action.done).toBe(true)
