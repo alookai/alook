@@ -14,6 +14,16 @@ describe("ChannelHeaderSkeleton", () => {
     expect(html).not.toContain("<button")
   })
 
+  it("pre-emits both action slots in one pending thread header without interactive controls", () => {
+    const html = renderToStaticMarkup(createElement(ChannelHeaderSkeleton, { kind: "thread", layoutPending: true }))
+    expect(html.match(/data-slot="message-header-identity"/g)).toHaveLength(1)
+    expect(html.match(/data-slot="message-header-actions"/g)).toHaveLength(1)
+    expect(html.match(/data-thread-panel-actions/g)).toHaveLength(1)
+    expect(html.match(/data-channel-header-full/g)).toHaveLength(2)
+    expect(html.match(/data-slot="skeleton"/g)).toHaveLength(8)
+    expect(html).not.toContain("<button")
+  })
+
   it("renders inert mobile Back geometry without interaction", () => {
     const html = renderToStaticMarkup(createElement(ChannelHeaderSkeleton))
 

@@ -21,6 +21,7 @@ import type { EntityKind } from "@/lib/community/models/navigation"
 import { CreateDialogShell } from "../settings/create-dialog-shell"
 import { tid } from "@/lib/community/testids"
 import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
+import { ThreadPanelActionsFrame } from "./thread-panel-actions"
 
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
@@ -28,9 +29,11 @@ import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 export function ChannelHeaderSkeleton({
   kind = "text",
   compactActions = false,
+  layoutPending = false,
 }: {
   kind?: EntityKind
   compactActions?: boolean
+  layoutPending?: boolean
 } = {}) {
   const actionCount = compactActions || kind === "forum" ? 2 : 3
   return (
@@ -39,6 +42,7 @@ export function ChannelHeaderSkeleton({
         <div
           data-testid={tid.messageHeaderLeadingLoading}
           data-slot="loading-mobile-leading"
+          data-channel-header-full={kind === "thread" || undefined}
           aria-hidden
           className={`grid size-11 shrink-0 place-items-center ${kind === "thread" && !compactActions ? "" : "sm:hidden"}`}
         >
@@ -47,20 +51,26 @@ export function ChannelHeaderSkeleton({
       )}
       identity={(
         <>
-          <Skeleton className="size-6 rounded-md sm:ml-1" />
+          <Skeleton data-channel-header-icon className={`size-6 rounded-md ${kind === "thread" ? compactActions ? "ml-1" : "" : "sm:ml-1"}`} />
           <Skeleton className="h-4 w-32 rounded" />
         </>
       )}
       actions={(
         <>
-          {Array.from({ length: actionCount }).map((_, index) => (
-            <span key={index} className="contents">
-              {!compactActions && index === 1 && (
-                <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
-              )}
-              <Skeleton className={index > 1 ? "ml-1 size-7 rounded-md" : "size-7 rounded-md"} />
-            </span>
-          ))}
+          {(!compactActions || kind !== "thread") && <span data-channel-header-full className="contents">
+            {Array.from({ length: actionCount }).map((_, index) => (
+              <span key={index} className="contents">
+                {!compactActions && index === 1 && (
+                  <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
+                )}
+                <Skeleton className={index > 1 && kind !== "thread" ? "ml-1 size-7 rounded-md" : "size-7 rounded-md"} />
+              </span>
+            ))}
+          </span>}
+          {kind === "thread" && (compactActions || layoutPending) && <ThreadPanelActionsFrame>
+            <Skeleton className="size-7 rounded-md" />
+            <Skeleton className="size-7 rounded-md" />
+          </ThreadPanelActionsFrame>}
         </>
       )}
     />
@@ -106,34 +116,36 @@ export function ChannelHeader({
     </Button>
   )
   const leading = (
-    <>
+    <span data-channel-header-full className="contents">
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
       {mobileBack && <MessageHeaderMobileBack onNavigate={mobileBack} display={mobileBackDisplay} />}
-    </>
+    </span>
   )
   const identity = (
     <>
       {server && <ServerCrumb id={server.id} name={server.name} icon={server.icon} size={6} className="ml-1" />}
-      <div className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${mobileBack ? (mobileBackDisplay === "viewport" ? "sm:ml-1" : "") : server ? "" : "ml-1"}`}>
+      <div data-channel-header-icon className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${mobileBack ? (mobileBackDisplay === "viewport" ? "sm:ml-1" : "") : server ? "" : "ml-1"}`}>
         <EntityIcon kind={kind} className="size-4" />
       </div>
       <span className="min-w-0 truncate text-base font-semibold" title={channel}>{channel}</span>
       {onRename && (
-        <HeaderRename
-          label={channel}
-          onRename={onRename}
-          titleMode={titleRename}
-          className={mobileBack ? "hidden sm:inline-flex" : undefined}
-        />
+        <span data-channel-header-full className="contents">
+          <HeaderRename
+            label={channel}
+            onRename={onRename}
+            titleMode={titleRename}
+            className={mobileBack ? "hidden sm:inline-flex" : undefined}
+          />
+        </span>
       )}
     </>
   )
   const actions = (
     <>
       {!compactActions && (
-        <>
+        <span data-channel-header-full className="contents">
           {tools?.members !== false && tool("members", Users, "Member list")}
           <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
           <ChannelNotifDropdown level={notifLevel ?? USE_SERVER_DEFAULT} onSetLevel={onSetNotifLevel} />
@@ -145,7 +157,7 @@ export function ChannelHeader({
               showPinned={tools?.pinned !== false}
             />
           )}
-        </>
+        </span>
       )}
       {endActions}
     </>

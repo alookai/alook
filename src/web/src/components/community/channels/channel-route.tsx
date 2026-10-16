@@ -126,7 +126,7 @@ function ChannelRouteFrame(target: RouteTarget) {
     uiHandlers.openProfile?.(name, event, discriminator, userId)
   }, [uiHandlers])
   const pane = <ChannelTargetPane key={JSON.stringify([currentUser.id, serverId, channelId])}
-    {...target} split={split} resolvingParent={resolvingParent} onOpenChild={enterThread} />
+    {...target} split={split} layoutPending={layoutPending} resolvingParent={resolvingParent} onOpenChild={enterThread} />
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
   return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col">
     <ThreadSplitView
@@ -155,8 +155,9 @@ function QualifiedThreadSurface({ routeLifecycle, ...props }: ComponentProps<typ
 }
 
 function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, routeCommitted,
-  routeModel, anchorMessageId, currentUser, split, resolvingParent, onOpenChild }: RouteTarget & {
+  routeModel, anchorMessageId, currentUser, split, layoutPending, resolvingParent, onOpenChild }: RouteTarget & {
   split: boolean
+  layoutPending: boolean
   resolvingParent: boolean
   onOpenChild: (id: string) => void
 }) {
@@ -342,14 +343,15 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
               onOpenProfile={openProfile}
               resolveUserName={resolveUserName}
               embedded
-              splitActions={split ? {
+              layoutPending={layoutPending}
+              splitActions={split || layoutPending ? {
                 onFullscreen: openThreadFullscreen,
                 onClose: navigateParent,
               } : undefined}
         />
       ) : (
         <>
-          <ChannelHeaderSkeleton kind="thread" compactActions={split} />
+          <ChannelHeaderSkeleton kind="thread" compactActions={split} layoutPending={layoutPending} />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <ConversationMessageSkeleton />
             <ComposerSkeleton />

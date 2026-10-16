@@ -63,6 +63,7 @@ export function ThreadChannelSurface({
   resolveUserName,
   embedded = false,
   splitActions,
+  layoutPending = false,
 }: {
   channelId: string
   serverId: string
@@ -96,6 +97,7 @@ export function ThreadChannelSurface({
   resolveUserName: (userId: string) => string
   embedded?: boolean
   splitActions?: { onFullscreen: () => void; onClose: () => void }
+  layoutPending?: boolean
 }) {
   const router = useRouter()
   const breakpoint = useBreakpoint()
@@ -129,6 +131,7 @@ export function ThreadChannelSurface({
   })
   const displayName = localName ?? channelName
   const Body = embedded ? "div" : "main"
+  const compactActions = !!splitActions && !layoutPending
 
   useEffect(() => {
     setRightPanel(null)
@@ -222,12 +225,12 @@ export function ThreadChannelSurface({
               onToggle={togglePanel}
               notifLevel={notificationLevel}
               onSetNotifLevel={onSetNotificationLevel}
-              mobileBack={splitActions ? undefined : onNavigateParent}
+              mobileBack={compactActions ? undefined : onNavigateParent}
               mobileBackDisplay="always"
               tools={{ threads: false }}
               titleRename={parentIsForum}
-              onRename={parentChannelId && !splitActions ? rename : undefined}
-              compactActions={!!splitActions}
+              onRename={parentChannelId && !compactActions ? rename : undefined}
+              compactActions={compactActions}
               endActions={splitActions ? (
                 <ThreadPanelActions
                   onFullscreen={splitActions.onFullscreen}

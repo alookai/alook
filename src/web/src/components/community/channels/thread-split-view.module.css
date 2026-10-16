@@ -20,6 +20,10 @@
   display: none;
 }
 
+.layout[data-layout-pending] > [data-group] > [data-panel][id="thread"] [data-thread-panel-actions] {
+  display: none;
+}
+
 @container thread-split (min-width: 880px) {
   .layout[data-layout-pending] > [data-group] > [data-panel][id="parent"] {
     flex: 1 0 0px !important;
@@ -39,5 +43,17 @@
   .layout[data-layout-pending] > [data-group] > [data-separator] {
     display: flex;
     flex: 0 0 1px;
+  }
+
+  .layout[data-layout-pending] > [data-group] > [data-panel][id="thread"] [data-channel-header-full] {
+    display: none;
+  }
+
+  .layout[data-layout-pending] > [data-group] > [data-panel][id="thread"] [data-thread-panel-actions] {
+    display: flex;
+  }
+
+  .layout[data-layout-pending] > [data-group] > [data-panel][id="thread"] [data-channel-header-icon] {
+    margin-left: var(--spacing);
   }
 }

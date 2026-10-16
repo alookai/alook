@@ -997,6 +997,30 @@ describe("ChannelRoute message surface ownership", () => {
     }, false)
   })
 
+  it.each(["unknown", "desktop"] as const)("prepares split actions before geometry resolves with breakpoint %s", (breakpoint) => {
+    configureThreadRoute()
+    mockBreakpoint.value = breakpoint
+    mockSplitMode.value = "pending"
+    const props = { serverParam: "server_1", channelId: "channel_1" }
+    const renderer = render(React.createElement(ChannelRoute, props))
+    const panel = screen.getByTestId("community-thread-split-panel")
+    const fullscreen = screen.getByTestId("community-thread-split-fullscreen")
+    const close = screen.getByTestId("community-thread-split-close")
+    expect(mockHeaderParentNavigate.current).toBeTypeOf("function")
+    mockBreakpoint.value = "desktop"
+    mockSplitMode.value = "split"
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(screen.getByTestId("community-thread-split-panel")).toBe(panel)
+    expect(screen.getByTestId("community-thread-split-fullscreen")).toBe(fullscreen)
+    expect(screen.getByTestId("community-thread-split-close")).toBe(close)
+    expect(mockHeaderParentNavigate.current).toBeUndefined()
+    mockSplitMode.value = "full"
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(screen.queryByTestId("community-thread-split-fullscreen")).not.toBeInTheDocument()
+    expect(mockHeaderParentNavigate.current).toBeTypeOf("function")
+    renderer.unmount()
+  })
+
   it("keeps readable target content independent of unresolved geometry and unknown parent type", () => {
     configureThreadRoute()
     mockSplitMode.value = "pending"
