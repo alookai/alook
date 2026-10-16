@@ -90,6 +90,9 @@ describe("public service worker cache boundary", () => {
   it.each([
     ["/blog-static/_next/static/chunks/blog-abc.js", "application/javascript"],
     ["/blog-static/_next/static/chunks/blog-abc.css", "text/css"],
+    ["/blog-static/_next/static/6IhY41v62o9J7c32DmjH3/_buildManifest.js", "application/javascript"],
+    ["/blog-static/_next/static/6IhY41v62o9J7c32DmjH3/_clientMiddlewareManifest.js", "text/javascript"],
+    ["/blog-static/_next/static/6IhY41v62o9J7c32DmjH3/_ssgManifest.js", "application/javascript"],
     ["/blog-static/_next/static/media/font-abc.woff2", "font/woff2"],
     ["/blog-static/_next/static/media/font-abc.ttf", "font/ttf"],
     ["/blog/example-article/hero.webp", "image/webp"],
@@ -98,6 +101,20 @@ describe("public service worker cache boundary", () => {
     ["/blog/example-article/hero.png", "image/png"],
   ])("admits a public Blog resource while rejecting its query, RSC and private variants: %s", (path, type) => {
     expect(isPublicAssetRequest(request(path), origin)).toBe(true)
+    if (path.endsWith("Manifest.js")) {
+      expect(publicRuntimeAssetKind(path)).toBe("code")
+      for (const headers of [{ Authorization: "fixture" }, { Cookie: "fixture" }, { RSC: "1" }, { "Next-Router-State-Tree": "[]" }, { "Next-Router-Prefetch": "1" }, { Accept: "text/x-component" }] as HeadersInit[]) expect(isPublicAssetRequest(request(path, { headers }), origin)).toBe(false)
+      for (const query of ["?download=one", "?favicon.abc123.ico", "?__WB_REVISION__=one"]) expect(isPublicAssetRequest(request(`${path}${query}`), origin)).toBe(false)
+      for (const method of ["POST", "HEAD"]) expect(isPublicAssetRequest(request(path, { method }), origin)).toBe(false)
+      const navigation = request(path)
+      Object.defineProperty(navigation, "mode", { value: "navigate" })
+      expect(isPublicAssetRequest(navigation, origin)).toBe(false)
+      const document = request(path)
+      Object.defineProperty(document, "destination", { value: "document" })
+      expect(isPublicAssetRequest(document, origin)).toBe(false)
+      expect(isPublicAssetResponse(request(path), response({ "Content-Type": "application/json" }))).toBe(false)
+      expect(isPublicAssetResponse(request(path), response({ "Content-Type": type, "Cache-Control": "public, no-store" }))).toBe(false)
+    }
     expect(isPublicAssetRequest(request(`${path}?_rsc=one`), origin)).toBe(false)
     expect(isPublicAssetRequest(request(path, { headers: { RSC: "1" } }), origin)).toBe(false)
     expect(isPublicAssetRequest(request(`https://another.test${path}`), origin)).toBe(false)
@@ -111,6 +128,9 @@ describe("public service worker cache boundary", () => {
     "/blog/example-article/data.json", "/blog/example-article/source/hero.png", "/blog/private/attachment/file.png",
     "/blog-static/_next/static/chunks/blog.js.map", "/blog-static/_next/static/chunks/private.json",
     "/blog-static/_next/image", "/blog-static/fonts/server-only.ttf", "/blog-static/_next/static/media/unknown.bin",
+    "/blog-static/_next/static/_buildManifest.js", "/blog-static/_next/static/build/unknown.js",
+    "/blog-static/_next/static/build/nested/_buildManifest.js", "/blog-static/_next/static/build/_buildManifest.js.map",
+    "/blog-static/_next/static/build/_buildmanifest.js", "/blog-static/_next/static/build/_ssgManifest.json",
   ])("excludes Blog documents, source-only images and unknown static types: %s", path => {
     expect(isPublicAssetPath(path)).toBe(false)
     expect(isPublicAssetRequest(request(path), origin)).toBe(false)

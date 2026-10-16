@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import * as fakeIndexedDB from "fake-indexeddb"
-import { CacheExpiration, CacheFirst, NetworkFirst, Strategy, type RuntimeCaching } from "serwist"
+import { CacheExpiration, CacheFirst, ExpirationPlugin, NetworkFirst, Strategy, type RuntimeCaching } from "serwist"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { publicWorkerRuntimeCacheNames } from "./cache-identity"
 import { createPublicRuntimeCaching, type PublicRuntimeLimits } from "./public-cache-runtime"
@@ -17,7 +17,9 @@ const artificialLimits: PublicRuntimeLimits = {
 
 class WorkerFetchEvent extends Event {
   readonly pending: Promise<unknown>[] = []
-  constructor(readonly request: Request) { super("fetch") }
+  #request: Request
+  constructor(request: Request) { super("fetch"); this.#request = request }
+  get request() { return this.#request }
   waitUntil(promise: Promise<unknown>) { this.pending.push(promise) }
 }
 
@@ -79,7 +81,7 @@ async function read(strategy: Strategy, path: string) {
   return (results[0] as PromiseFulfilledResult<Response>).value
 }
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
 describe("official public runtime strategies with artificial limits", () => {
   it.each([
@@ -133,6 +135,31 @@ describe("official public runtime strategies with artificial limits", () => {
     expect(await (await read(strategy("images"), image)).text()).toBe("new image")
     expect(network).toHaveBeenCalledTimes(3)
     for (const [, options] of network.mock.calls) expect(options).toMatchObject({ credentials: "omit", redirect: "error", cache: "no-cache" })
+  })
+
+  it.each(["_buildManifest.js", "_clientMiddlewareManifest.js", "_ssgManifest.js"])("persists the actual public Blog helper %s in its CacheFirst code cache", async name => {
+    const { routes, strategy, network, entries } = fixture()
+    const path = `/blog-static/_next/static/6IhY41v62o9J7c32DmjH3/${name}`
+    expect(matches(routes, request(path))).toHaveLength(1)
+    const handler = strategy("code")
+    expect(handler).toBeInstanceOf(CacheFirst)
+    expect(handler.cacheName).toBe(publicWorkerRuntimeCacheNames().code)
+    network.mockImplementationOnce(async () => response(`public ${name}`))
+    expect(await (await read(handler, path)).text()).toBe(`public ${name}`)
+    expect(await entries.get(handler.cacheName)?.get(new URL(path, origin).href)?.clone().text()).toBe(`public ${name}`)
+    network.mockRejectedValueOnce(new TypeError("offline"))
+    expect(await (await read(handler, path)).text()).toBe(`public ${name}`)
+    expect(network).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["_buildManifest.js", "_clientMiddlewareManifest.js", "_ssgManifest.js"])("does not retain an HTML response at the public Blog helper %s URL", async name => {
+    const { strategy, network, entries } = fixture()
+    const path = `/blog-static/_next/static/6IhY41v62o9J7c32DmjH3/${name}`
+    network.mockImplementationOnce(async () => response("HTML", "text/html"))
+    expect(await (await read(strategy("code"), path)).text()).toBe("HTML")
+    expect(entries.get(publicWorkerRuntimeCacheNames().code)?.has(new URL(path, origin).href) ?? false).toBe(false)
+    network.mockRejectedValueOnce(new TypeError("offline"))
+    await expect(read(strategy("code"), path)).rejects.toThrow()
   })
 
   it.each([
@@ -250,5 +277,43 @@ describe("official public runtime strategies with artificial limits", () => {
     expect(network).toHaveBeenCalledTimes(2)
     expect(await entries.get(publicWorkerRuntimeCacheNames().fonts)?.get(req.url)?.clone().text()).toBe("new font")
     expect(lifetime).toContainEqual({ status: "rejected", reason: cleanupFailure })
+  })
+
+  it("preserves the native request getter when the SDK handles a rejected waitUntil registration", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    const { strategy, network, entries } = fixture()
+    let now = Date.now()
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    network.mockImplementationOnce(async () => response("old font", "font/woff2"))
+    await read(strategy("fonts"), font)
+    now += 61_000
+    network.mockImplementationOnce(async () => response("new font", "font/woff2"))
+    const req = request(font)
+    const event = new WorkerFetchEvent(req)
+    const requestGetter = vi.spyOn(event, "request", "get")
+    const originalCachedResponseWillBeUsed = ExpirationPlugin.prototype.cachedResponseWillBeUsed
+    let callbackRequestReads = 0
+    vi.spyOn(ExpirationPlugin.prototype, "cachedResponseWillBeUsed").mockImplementation(function (this: ExpirationPlugin, options) {
+      const before = requestGetter.mock.calls.length
+      const result = originalCachedResponseWillBeUsed.call(this, options)
+      callbackRequestReads += requestGetter.mock.calls.length - before
+      return result
+    })
+    const originalWaitUntil = event.waitUntil.bind(event)
+    let registrations = 0
+    vi.spyOn(event, "waitUntil").mockImplementation(promise => {
+      if (++registrations === 2) {
+        throw new DOMException("event lifetime already closed", "InvalidStateError")
+      }
+      originalWaitUntil(promise)
+    })
+    const results = await Promise.allSettled(strategy("fonts").handleAll({ request: req, event: event as unknown as FetchEvent }))
+    const lifetime = await Promise.allSettled(event.pending)
+    for (const result of [...results, ...lifetime]) if (result.status === "rejected") throw result.reason
+    expect(callbackRequestReads).toBe(1)
+    expect(registrations).toBe(2)
+    expect(await (results[0] as PromiseFulfilledResult<Response>).value.text()).toBe("new font")
+    expect(network).toHaveBeenCalledTimes(2)
+    expect(await entries.get(publicWorkerRuntimeCacheNames().fonts)?.get(req.url)?.clone().text()).toBe("new font")
   })
 })

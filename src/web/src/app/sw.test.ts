@@ -24,6 +24,9 @@ describe("public worker activation", () => {
     for (const [path, kind, StrategyClass] of [
       ["/blog-static/_next/static/chunks/article.js", "code", CacheFirst],
       ["/blog-static/_next/static/chunks/article.css", "code", CacheFirst],
+      ["/blog-static/_next/static/6IhY41v62o9J7c32DmjH3/_buildManifest.js", "code", CacheFirst],
+      ["/blog-static/_next/static/6IhY41v62o9J7c32DmjH3/_clientMiddlewareManifest.js", "code", CacheFirst],
+      ["/blog-static/_next/static/6IhY41v62o9J7c32DmjH3/_ssgManifest.js", "code", CacheFirst],
       ["/blog-static/_next/static/media/font.woff2", "fonts", CacheFirst],
       ["/blog/_generated/0123456789abcdef-480.webp", "images", NetworkFirst],
       ["/blog/example-article/hero.webp", "images", NetworkFirst],

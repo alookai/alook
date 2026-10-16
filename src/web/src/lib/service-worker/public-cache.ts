@@ -30,7 +30,8 @@ export function isPublicAssetPath(pathname: string): boolean {
 }
 
 export function publicRuntimeAssetKind(pathname: string): "code" | "fonts" | "images" | undefined {
-  if (/^\/blog-static\/_next\/static\/chunks\/[a-zA-Z0-9_./-]+\.(?:js|css)$/.test(pathname)) return "code"
+  if (/^\/blog-static\/_next\/static\/chunks\/[a-zA-Z0-9_./-]+\.(?:js|css)$/.test(pathname)
+    || /^\/blog-static\/_next\/static\/[a-zA-Z0-9_-]+\/_(?:buildManifest|clientMiddlewareManifest|ssgManifest)\.js$/.test(pathname)) return "code"
   if (/^\/blog-static\/_next\/static\/media\/[a-zA-Z0-9_./-]+\.(?:woff2?|ttf)$/.test(pathname)) return "fonts"
   if (/^\/blog\/_generated\/[a-f0-9]{16}-(?:480|960)\.webp$/.test(pathname)) return "images"
   if (/^\/blog\/[a-z0-9-]+\/[a-zA-Z0-9_.-]+\.(?:png|jpe?g|webp|svg)$/.test(pathname)) return "images"

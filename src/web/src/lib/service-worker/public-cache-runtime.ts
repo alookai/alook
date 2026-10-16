@@ -14,8 +14,7 @@ function waitForStaleExpiration(expiration: ExpirationPlugin): SerwistPlugin {
             pending.push(promise)
             target.waitUntil(promise)
           }
-          const value = Reflect.get(target, property, target)
-          return typeof value === "function" ? value.bind(target) : value
+          return Reflect.get(target, property, target)
         },
       })
       const response = expiration.cachedResponseWillBeUsed({ ...options, event })
