@@ -33,6 +33,7 @@ class MainActivity : TauriActivity() {
         }
         override fun handleOnBackCancelled() {
             sendBackProgress(null)
+            nativeBackProgress.reset()
         }
         override fun handleOnBackPressed() {
             if (nativeBackProgress.consumeTerminal()) return

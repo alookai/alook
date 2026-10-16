@@ -157,7 +157,8 @@ export function useNativeMobileBack({
       settle(Boolean(parentPath))
     }
     const progress = (event: Event) => {
-      const value = (event as CustomEvent<{ progress: number | null }>).detail?.progress
+      const detail = (event as CustomEvent<{ progress: number | null; started?: boolean }>).detail
+      const value = detail?.progress
       if (value === null) {
         nativeGesture.current = null
         if (nativeProgress) settle(false)
@@ -165,7 +166,7 @@ export function useNativeMobileBack({
       }
       if (!Number.isFinite(value) || timer !== undefined || root?.dataset.mobileBackPhase === "committing") return
       if (!nativeProgress) {
-        if (value !== 0) return
+        if (value !== 0 || detail?.started !== true) return
         reset()
         nativeGesture.current = "active"
         nativeProgress = true

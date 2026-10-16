@@ -31,8 +31,8 @@ function touch(type: string, x: number) {
   Object.defineProperties(event, { touches: { value: type === "touchend" ? [] : points }, changedTouches: { value: points } })
   act(() => { document.dispatchEvent(event) })
 }
-function progress(value: number | null) {
-  act(() => { window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: value } })) })
+function progress(value: number | null, started = value === 0) {
+  act(() => { window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: value, started } })) })
 }
 function back() {
   act(() => { window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })) })
@@ -54,6 +54,23 @@ function setup() {
 afterEach(() => { roots.splice(0).forEach((root) => root.remove()); vi.useRealTimers() })
 
 describe("shared Back ownership during page motion", () => {
+  it.each(["account", "resize", "pagehide"])("ignores old zero progress after %s invalidates the gesture", (reason) => {
+    const { root, props, view } = setup()
+    progress(0); progress(0.6)
+    expect(root.dataset.mobileBackPhase).toBe("dragging")
+    if (reason === "account") view.rerender(<Fixture {...props} scope="bob/detail" />)
+    else act(() => { window.dispatchEvent(new Event(reason)) })
+    progress(0, false); progress(0.7)
+    expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
+    back()
+    act(() => { vi.advanceTimersByTime(300) })
+    expect(props.replace).not.toHaveBeenCalled()
+    progress(0); progress(0.7); back()
+    act(() => { vi.advanceTimersByTime(300) })
+    expect(props.replace).toHaveBeenCalledOnce()
+    view.unmount()
+  })
+
   it.each(["popup", "editor"])("reads %s ownership during progress without requesting dismissal", (kind) => {
     const { root, props, view } = setup()
     view.rerender(<Fixture {...props} owner={kind === "popup"} editor={kind === "editor"} />)

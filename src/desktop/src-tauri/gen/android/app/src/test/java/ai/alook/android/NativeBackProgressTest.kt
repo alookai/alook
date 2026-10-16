@@ -13,7 +13,9 @@ class NativeBackProgressTest {
     @Test fun clampsProgressAndRejectsNonFiniteValues() {
         val bridge = NativeBackProgress()
         bridge.start("\"https://alook.ai/c/me/one\"")
-        assertTrue(bridge.progress(-1f)!!.contains("progress: 0.0"))
+        val zero = bridge.progress(-1f)!!
+        assertTrue(zero.contains("progress: 0.0"))
+        assertTrue(zero.contains("started: false"))
         assertTrue(bridge.progress(2f)!!.contains("progress: 1.0"))
         assertNull(bridge.progress(Float.NaN))
         assertNull(bridge.progress(Float.POSITIVE_INFINITY))
@@ -32,6 +34,7 @@ class NativeBackProgressTest {
         val bridge = NativeBackProgress()
         bridge.start("\"https://alook.ai/c/me/one\"")
         bridge.reset()
+        assertFalse(bridge.consumeTerminal())
         assertNull(bridge.progress(0.8f))
         assertNull(bridge.progress(null))
     }
@@ -48,6 +51,7 @@ class NativeBackProgressTest {
         assertTrue(oldProgress.contains("window.__alookNativeBackGesture === 1"))
         assertFalse(newProgress.contains("window.__alookNativeBackGesture === 1"))
         assertTrue(second.contains("progress: 0"))
+        assertTrue(second.contains("started: true"))
     }
 
     @Test fun documentOrBackgroundChangeConsumesOnlyTheOldTerminal() {

@@ -9,7 +9,7 @@ internal class NativeBackProgress {
         stale = false
         href = quotedHref
         generation += 1
-        return "if (location.href === $quotedHref) { window.__alookNativeBackGesture = $generation; ${event("0")} }"
+        return "if (location.href === $quotedHref) { window.__alookNativeBackGesture = $generation; ${event("0", started = true)} }"
     }
 
     fun progress(value: Float?): String? {
@@ -38,6 +38,6 @@ internal class NativeBackProgress {
         generation += 1
     }
 
-    private fun event(value: String) =
-        "window.dispatchEvent(new CustomEvent('alook:native-back-progress', { detail: { progress: $value } }));"
+    private fun event(value: String, started: Boolean = false) =
+        "window.dispatchEvent(new CustomEvent('alook:native-back-progress', { detail: { progress: $value, started: $started } }));"
 }

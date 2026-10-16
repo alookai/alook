@@ -429,7 +429,7 @@ describe("layered mobile back motion", () => {
   it("tracks native system progress, cancels, then commits once through the shared settle", () => {
     vi.useFakeTimers()
     const { root, props, renderer } = mounted()
-    const progress = (value: number | null) => window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: value } }))
+    const progress = (value: number | null) => window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: value, started: value === 0 } }))
     progress(0)
     progress(0.5)
     expect(root.style.getPropertyValue("--mobile-back-x")).toBe("195px")
@@ -454,7 +454,7 @@ describe("layered mobile back motion", () => {
   it.each(["route", "resize", "background"])("ignores a late native commit after %s interrupts its gesture", (reason) => {
     vi.useFakeTimers()
     const { props, renderer } = mounted()
-    const progress = (value: number) => window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: value } }))
+    const progress = (value: number) => window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: value, started: value === 0 } }))
     progress(0)
     progress(0.5)
     if (reason === "route") renderer.rerender(createElement(Harness, { ...props, gestureKey: "new-route" }))
