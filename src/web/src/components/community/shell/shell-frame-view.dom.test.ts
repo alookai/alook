@@ -114,6 +114,7 @@ vi.mock("@/components/ui/app-surface", () => ({
 vi.mock("./shell", () => ({
   Shell: ({ children, ...props }: Record<string, unknown>) => createElement("div", { ...props, "data-shell-root": "" }, children as ReactNode),
 }))
+vi.mock("./dm-sidebar-slot", () => ({ DmSidebarSlot: () => null }))
 vi.mock("./server-rail", () => ({
   ServerRail: (props: Record<string, unknown>) => {
     mocks.railProps(props)

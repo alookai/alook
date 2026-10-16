@@ -65,7 +65,10 @@ vi.mock("./community-pending-frame", () => ({
   ),
 }))
 vi.mock("@/components/community/channels/channel-sidebar", () => ({ ChannelSidebarSkeleton: () => null }))
-vi.mock("@/components/community/channels/dm-sidebar", () => ({ DmSidebarSkeleton: () => null }))
+vi.mock("@/components/community/channels/dm-sidebar", () => ({
+  DmSidebar: () => null,
+  DmSidebarSkeleton: () => null,
+}))
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "viewer" }) }))
 vi.mock("@/components/community/channels/channel-route", () => ({
   ChannelRoute: ({ channelId, targetHref, routeCommitted }: {

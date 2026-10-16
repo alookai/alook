@@ -45,6 +45,101 @@ describe("remote image state adapters", () => {
     await act(async () => { await Promise.resolve() })
   }
 
+  it.each([false, true])("preserves a ready identity image through Activity (StrictMode: %s)", async (strict) => {
+    const tree = (mode: "visible" | "hidden") => {
+      const activity = React.createElement(React.Activity, { mode }, identityElement("/activity-ready.png"))
+      return strict ? React.createElement(React.StrictMode, null, activity) : activity
+    }
+    const rendered = render(tree("visible"))
+    const image = sourceImage(rendered.container, "/activity-ready.png")
+    await makeReady(image)
+    rendered.rerender(tree("hidden"))
+    expect(image.isConnected).toBe(true)
+    expect(image).not.toBeVisible()
+    rendered.rerender(tree("visible"))
+    expect(sourceImage(rendered.container, "/activity-ready.png")).toBe(image)
+    expect(image).toHaveAttribute("data-remote-image-state", "ready")
+    expect(image).toHaveClass("opacity-100")
+    expect(image).toBeVisible()
+  })
+
+  it.each([false, true])("settles an image that finishes loading while Activity is hidden (StrictMode: %s)", async (strict) => {
+    const tree = (mode: "visible" | "hidden") => {
+      const activity = React.createElement(React.Activity, { mode }, identityElement("/activity-pending.png"))
+      return strict ? React.createElement(React.StrictMode, null, activity) : activity
+    }
+    const rendered = render(tree("visible"))
+    const image = sourceImage(rendered.container, "/activity-pending.png")
+    expect(image).toHaveAttribute("data-remote-image-state", "pending")
+    rendered.rerender(tree("hidden"))
+    Object.defineProperty(image, "complete", { configurable: true, value: true })
+    const decode = vi.fn(() => Promise.resolve())
+    setImageMetrics(image, decode)
+    fireEvent.load(image)
+    await act(async () => { await Promise.resolve() })
+    expect(image).toHaveAttribute("data-remote-image-state", "pending")
+    rendered.rerender(tree("visible"))
+    expect(sourceImage(rendered.container, "/activity-pending.png")).toBe(image)
+    expect(image).toHaveAttribute("data-remote-image-state", "ready")
+    expect(image).toHaveClass("opacity-100")
+    expect(decode).not.toHaveBeenCalled()
+  })
+
+  it("keeps a retired decode from failing the ready image after Activity resumes", async () => {
+    const tree = (mode: "visible" | "hidden") => React.createElement(React.Activity, { mode }, identityElement("/activity-decode.png"))
+    const rendered = render(tree("visible"))
+    const image = sourceImage(rendered.container, "/activity-decode.png")
+    let reject!: (reason: Error) => void
+    const pending = new Promise<void>((_, fail) => { reject = fail })
+    setImageMetrics(image, () => pending)
+    fireEvent.load(image)
+    rendered.rerender(tree("hidden"))
+    Object.defineProperty(image, "complete", { configurable: true, value: true })
+    rendered.rerender(tree("visible"))
+    expect(image).toHaveAttribute("data-remote-image-state", "ready")
+    await act(async () => { reject(new Error("retired decode")); await pending.catch(() => {}) })
+    expect(image).toHaveAttribute("data-remote-image-state", "ready")
+    expect(image).toHaveClass("opacity-100")
+  })
+
+  it("updates the source while hidden and retires a changed identity", async () => {
+    const tree = (mode: "visible" | "hidden", src: string, peer = "peer-a") => React.createElement(React.Activity, { mode }, identityElement(src, peer))
+    const rendered = render(tree("visible", "/peer?v=1"))
+    const image = sourceImage(rendered.container, "/peer?v=1")
+    await makeReady(image)
+    rendered.rerender(tree("hidden", "/peer?v=1"))
+    rendered.rerender(tree("hidden", "/peer?v=2"))
+    rendered.rerender(tree("visible", "/peer?v=2"))
+    expect(sourceImage(rendered.container, "/peer?v=2")).toBe(image)
+    await makeReady(image)
+    expect(image).toHaveAttribute("data-remote-image-state", "ready")
+    rendered.rerender(tree("hidden", "/peer?v=2"))
+    rendered.rerender(tree("hidden", "/other-peer?v=1", "peer-b"))
+    rendered.rerender(tree("visible", "/other-peer?v=1", "peer-b"))
+    expect(image.isConnected).toBe(false)
+    const replacement = sourceImage(rendered.container, "/other-peer?v=1")
+    expect(replacement).not.toBe(image)
+    expect(replacement).toHaveClass("opacity-0")
+    await makeReady(replacement)
+    expect(replacement).toHaveClass("opacity-100")
+  })
+
+  it("recovers a failed image after online occurs while Activity is hidden", async () => {
+    const tree = (mode: "visible" | "hidden") => React.createElement(React.Activity, { mode }, identityElement("/activity-error?v=1"))
+    const rendered = render(tree("visible"))
+    const image = sourceImage(rendered.container, "/activity-error?v=1")
+    fireEvent.error(image)
+    expect(image).toHaveAttribute("data-remote-image-state", "error")
+    rendered.rerender(tree("hidden"))
+    fireEvent(window, new Event("online"))
+    expect(image).toHaveAttribute("data-remote-image-state", "error")
+    rendered.rerender(tree("visible"))
+    expect(sourceImage(rendered.container, "/activity-error?v=1")).toBe(image)
+    expect(image).toHaveAttribute("data-remote-image-state", "pending")
+    await makeReady(image)
+    expect(image).toHaveClass("opacity-100")
+  })
+
   it("shows a complete identity image with natural pixels synchronously without another decode", () => {
     const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode")
     const decode = vi.fn(() => new Promise<void>(() => {}))

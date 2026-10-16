@@ -125,8 +125,11 @@ NODE_ENV=development
 DEV_WS_DO_URL=http://localhost:3000
 ```
 
-`NODE_ENV` here is a local Worker variable, not a build command override.
-The auth URL, browser origin and WS ingress must agree. The browser's token
+`NODE_ENV` here is a local Worker variable used by authentication through
+`env.NODE_ENV`; it is not a build command override or a queue transport
+switch. Next compiles the built Web producer's `process.env.NODE_ENV` as
+`production`, so this entry uses `TASK_QUEUE.sendBatch`. The auth URL,
+browser origin and WS ingress must agree. The browser's token
 response can override its compiled WS port, so changing only a test URL is
 insufficient. The test process also honors `ALOOK_SERVER_URL` and
 `DEV_WS_DO_URL`; both must describe this graph's public ingress. A stale
@@ -146,11 +149,14 @@ Do not set `CI=1` to select the Worker graph: CI also disables the local
 state backup. Formal QA probes must use the same managed setup and teardown.
 
 Verify actual shared D1 reads/writes, browser and machine WS events, and
-task execution rather than health alone. When the development branch is
-selected, Web calls the real queue worker's task handler over binding-first
-HTTP; this is not durable Cloudflare Queue delivery. Record the transport
-that actually ran. Worker count, retries, timeouts and the CI matrix retain
-their existing settings.
+task execution rather than health alone. In this built Worker graph, Web
+publishes to the local `alook-queue` binding and the queue worker's `queue()`
+consumer runs the existing task handler. Verify send, consumption, D1 state
+and the resulting machine wake; health alone is insufficient. This is local
+Queue simulation, not proof of production durability or restart recovery.
+The separate Next development mode retains its HTTP task transport. Record
+the built artifact and transport that actually ran. Worker count, retries,
+timeouts and the CI matrix retain their existing settings.
 
 This entry covers UI Playwright and QA using its lifecycle. The separate
 Vitest API/integration `pnpm test:e2e` job, root `pnpm dev`, Email topology

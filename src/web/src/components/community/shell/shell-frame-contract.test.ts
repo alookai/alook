@@ -23,7 +23,9 @@ describe("ShellFrame public contract", () => {
     for (const path of ["src/app/c/channels/layout.tsx", "src/app/c/me/layout.tsx"]) {
       expect(readWeb(path)).not.toContain("<ShellFrame")
     }
-    expect(readWeb("src/app/c/@sidebar/me/layout.tsx")).toContain("<DmSidebarSlot")
+    const shellView = readWeb("src/components/community/shell/shell-frame-view.tsx")
+    expect(shellView.match(/<DmSidebarSlot\b/g)).toHaveLength(1)
+    expect(readWeb("src/app/c/@sidebar/me/layout.tsx")).not.toContain("DmSidebarSlot")
     expect(readWeb("src/app/c/@sidebar/channels/[serverId]/layout.tsx")).toContain("serverId={serverId}")
   })
 
