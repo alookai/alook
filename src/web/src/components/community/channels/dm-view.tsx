@@ -413,23 +413,23 @@ export function DmView({ dmId }: { dmId: string }) {
   }, routeReady)
 
   if (!dm && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError && metadata.status !== "retryable-error") {
-    return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
+    return <DmLoadingFrame reserveBackSlot />
   }
 
   if (loadingOwnership.fullFramePending) {
-    return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
+    return <DmLoadingFrame reserveBackSlot />
   }
 
   if (loadingOwnership.missingPeer || !dm) {
     return <DmRouteErrorFrame onRetry={() => { void dmsQuery.refetch({ cancelRefetch: false }) }}
-      retrying={dmsQuery.isFetching} reserveBackSlot={bp === "mobile"} />
+      retrying={dmsQuery.isFetching} reserveBackSlot />
   }
 
   return (
     <>
       <DmHeader
         dm={dm}
-        onBack={bp === "mobile" ? goBack : undefined}
+        onBack={goBack}
         notifLevel={(notifications.channel[dmId] ?? notifLevelDisplay("all")) as NotifLevel}
         onSetNotifLevel={(level) => setNotification.mutate({ channelId: dmId, level }, {
           onError: (error) => toastApiError(error, "Failed to update notification level"),

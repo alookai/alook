@@ -1,10 +1,10 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { isMobile } from "@alook/shared"
-import { requestNativeBack } from "@/components/ui/native-back-layer"
+import { hasNativeBackOwner, NATIVE_BACK_OWNER_CHANGE_EVENT, requestNativeBack } from "@/components/ui/native-back-layer"
 
 export const MOBILE_BACK_EDGE_PX = 24
-
 export const NATIVE_MOBILE_BACK_EVENT = "alook:native-back"
+export const NATIVE_MOBILE_BACK_PROGRESS_EVENT = "alook:native-back-progress"
 
 type NativeBackListener = { unregister: () => Promise<void> }
 type TauriBackWindow = Window & {
@@ -14,19 +14,23 @@ type TauriBackWindow = Window & {
 }
 
 export function useNativeMobileBack({
-  mobile = false,
-  gestureKey,
-  dismissShellOverlay,
-  parentPath,
-  replacePath,
+  mobile = false, gestureKey, dismissShellOverlay, parentPath, replacePath, animate = true,
 }: {
   mobile?: boolean
   gestureKey?: string
   dismissShellOverlay: () => boolean
   parentPath: string | null
   replacePath: (href: string) => void
+  animate?: boolean
 }) {
+  const actions = useRef({ dismissShellOverlay, replacePath, animate })
+  const nativeGesture = useRef<"active" | "stale" | null>(null)
   const composing = useRef<EventTarget | null>(null)
+  const interruptMotion = useRef<() => void>(() => {})
+  useLayoutEffect(() => {
+    actions.current = { dismissShellOverlay, replacePath, animate }
+    if (!animate) interruptMotion.current()
+  }, [dismissShellOverlay, replacePath, animate])
   useEffect(() => {
     if (!isMobile() || !/android/i.test(navigator.userAgent)) return
     const app = (window as TauriBackWindow).__TAURI__?.app
@@ -76,23 +80,115 @@ export function useNativeMobileBack({
       document.removeEventListener("focusout", end)
     }
   }, [])
-  useEffect(() => {
+  useLayoutEffect(() => {
+    let root: HTMLElement | null = null
+    let pageBlocked = false
+    let nativeProgress = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let gesture: { id: number; x: number; y: number; horizontal: boolean; lastX: number; at: number; velocity: number } | null = null
+    const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+    const occupied = () => composing.current === document.activeElement || hasNativeBackOwner(document)
+    const clearMotion = () => {
+      clearTimeout(timer)
+      timer = undefined
+      root?.style.removeProperty("--mobile-back-x")
+      root?.style.removeProperty("--mobile-back-progress")
+      root?.removeAttribute("data-mobile-back-phase")
+      root = null
+    }
+    const reset = () => {
+      gesture = null
+      nativeProgress = false
+      clearMotion()
+    }
+    const interrupt = () => {
+      if (gesture || nativeProgress || root) pageBlocked = true
+      clearMotion()
+    }
+    interruptMotion.current = interrupt
+    const ownerChanged = () => { if (occupied()) interrupt() }
+    const invalidate = () => {
+      if (nativeGesture.current === "active") nativeGesture.current = "stale"
+      pageBlocked = true
+      reset()
+    }
+    const findRoot = () => actions.current.animate && parentPath && !occupied()
+      ? document.querySelector<HTMLElement>('[data-mobile-back-surface="detail"]') : null
+    const settle = (commit: boolean) => {
+      gesture = null
+      nativeProgress = false
+      if (commit && (pageBlocked || occupied())) { reset(); return }
+      if (!root || reduced()) {
+        reset()
+        if (commit && parentPath) actions.current.replacePath(parentPath)
+        return
+      }
+      root.dataset.mobileBackPhase = "settling"
+      root.style.setProperty("--mobile-back-x", commit ? `${root.clientWidth}px` : "0px")
+      root.style.setProperty("--mobile-back-progress", commit ? "1" : "0")
+      timer = setTimeout(() => {
+        timer = undefined
+        if (commit && parentPath && !pageBlocked && !occupied() && actions.current.animate) {
+          root?.setAttribute("data-mobile-back-phase", "committing")
+          actions.current.replacePath(parentPath)
+        } else reset()
+      }, 200)
+    }
+    const paint = (x: number) => {
+      if (occupied() || !actions.current.animate) interrupt()
+      if (!root || pageBlocked) return
+      root.dataset.mobileBackPhase = "dragging"
+      root.style.setProperty("--mobile-back-x", `${x}px`)
+      root.style.setProperty("--mobile-back-progress", `${x / Math.max(1, root.clientWidth)}`)
+    }
     const handleBack = (event: Event) => {
       if (!event.cancelable) return
       event.preventDefault()
-      if (composing.current === document.activeElement) return
-      if (requestNativeBack(document) !== "none" || dismissShellOverlay()) return
-      if (parentPath) replacePath(parentPath)
+      const stale = nativeGesture.current === "stale"
+      nativeGesture.current = null
+      if (stale) { pageBlocked = false; return reset() }
+      if (timer !== undefined || root?.dataset.mobileBackPhase === "committing") return
+      const blocked = (gesture !== null || nativeProgress) && pageBlocked
+      pageBlocked = false
+      if (composing.current === document.activeElement) return reset()
+      if (requestNativeBack(document) !== "none" || actions.current.dismissShellOverlay()) return reset()
+      if (blocked) return reset()
+      if (mobile) root ??= findRoot()
+      settle(Boolean(parentPath))
     }
-
-    let gesture: { id: number; x: number; y: number; horizontal: boolean } | null = null
-    const cancel = () => { gesture = null }
+    const progress = (event: Event) => {
+      const detail = (event as CustomEvent<{ progress: number | null; started?: boolean }>).detail
+      const value = detail?.progress
+      if (value === null) {
+        nativeGesture.current = null
+        if (nativeProgress) settle(false)
+        return
+      }
+      if (!Number.isFinite(value) || timer !== undefined || root?.dataset.mobileBackPhase === "committing") return
+      if (!nativeProgress) {
+        if (value !== 0 || detail?.started !== true) return
+        reset()
+        nativeGesture.current = "active"
+        nativeProgress = true
+        pageBlocked = occupied() || !actions.current.animate
+        if (!pageBlocked) root = findRoot()
+      }
+      if (root) paint(Math.max(0, Math.min(1, value!)) * root.clientWidth)
+    }
+    const cancel = () => {
+      if (gesture?.horizontal && root) settle(false)
+      else reset()
+    }
     const start = (event: TouchEvent) => {
-      cancel()
-      if (event.touches.length !== 1) return
+      if (timer !== undefined || root?.dataset.mobileBackPhase === "committing") return
+      reset()
+      if (event.touches.length !== 1 || event.defaultPrevented) return
       const touch = event.touches[0]
       if (touch.clientX < 0 || touch.clientX > MOBILE_BACK_EDGE_PX) return
-      gesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, horizontal: false }
+      pageBlocked = occupied() || !actions.current.animate
+      gesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, horizontal: false,
+        lastX: touch.clientX, at: performance.now(), velocity: 0 }
+      if (!pageBlocked) root = findRoot()
     }
     const move = (event: TouchEvent) => {
       if (!gesture) return
@@ -105,31 +201,55 @@ export function useNativeMobileBack({
         if (dx <= dy) return cancel()
         gesture.horizontal = true
       }
-      if (gesture.horizontal) event.preventDefault()
+      if (!gesture.horizontal) return
+      event.preventDefault()
+      const now = performance.now()
+      gesture.velocity = (touch.clientX - gesture.lastX) / Math.max(1, now - gesture.at)
+      gesture.lastX = touch.clientX
+      gesture.at = now
+      paint(Math.max(0, Math.min(root?.clientWidth ?? 0, dx)))
     }
     const end = (event: TouchEvent) => {
       const current = gesture
-      cancel()
-      if (!current?.horizontal || event.touches.length !== 0) return
+      if (!current) return
+      if (!current.horizontal || event.touches.length !== 0) return cancel()
       const touch = Array.from(event.changedTouches).find((item) => item.identifier === current.id)
-      if (!touch) return
-      event.preventDefault()
-      if (touch.clientX - current.x < 64 || Math.abs(touch.clientY - current.y) >= touch.clientX - current.x) return
-      handleBack(event)
+      if (!touch) return cancel()
+      const dx = touch.clientX - current.x
+      const horizontal = Math.abs(touch.clientY - current.y) < dx
+      const commit = horizontal && (root
+        ? dx >= root.clientWidth * 0.35 || dx >= 32 && current.velocity > 0.5 && performance.now() - current.at < 100
+        : dx >= 64)
+      if (commit) handleBack(event)
+      else { event.preventDefault(); settle(false) }
     }
     window.addEventListener(NATIVE_MOBILE_BACK_EVENT, handleBack)
+    document.addEventListener(NATIVE_BACK_OWNER_CHANGE_EVENT, ownerChanged)
+    document.addEventListener("compositionstart", interrupt)
+    window.addEventListener("pagehide", invalidate)
     if (mobile) {
+      window.addEventListener(NATIVE_MOBILE_BACK_PROGRESS_EVENT, progress)
       document.addEventListener("touchstart", start, { passive: true, capture: true })
       document.addEventListener("touchmove", move, { passive: false, capture: true })
       document.addEventListener("touchend", end, { passive: false, capture: true })
       document.addEventListener("touchcancel", cancel, true)
+      document.addEventListener("visibilitychange", invalidate)
+      window.addEventListener("resize", invalidate)
     }
     return () => {
+      invalidate()
+      interruptMotion.current = () => {}
       window.removeEventListener(NATIVE_MOBILE_BACK_EVENT, handleBack)
+      document.removeEventListener(NATIVE_BACK_OWNER_CHANGE_EVENT, ownerChanged)
+      document.removeEventListener("compositionstart", interrupt)
+      window.removeEventListener("pagehide", invalidate)
+      window.removeEventListener(NATIVE_MOBILE_BACK_PROGRESS_EVENT, progress)
       document.removeEventListener("touchstart", start, true)
       document.removeEventListener("touchmove", move, true)
       document.removeEventListener("touchend", end, true)
       document.removeEventListener("touchcancel", cancel, true)
+      document.removeEventListener("visibilitychange", invalidate)
+      window.removeEventListener("resize", invalidate)
     }
-  }, [mobile, gestureKey, dismissShellOverlay, parentPath, replacePath])
+  }, [mobile, gestureKey, parentPath])
 }

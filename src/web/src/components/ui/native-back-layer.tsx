@@ -13,6 +13,7 @@ type Registration = {
   phase: "open" | "closing"
   order: number
   request: () => BackResult
+  eligible: () => boolean
 }
 
 const NativeBackContext = React.createContext<BackOwner | null>(null)
@@ -20,21 +21,29 @@ const owners = new WeakMap<Document, Set<Registration>>()
 const registrations = new WeakMap<BackOwner, Registration>()
 let order = 0
 
+export const NATIVE_BACK_OWNER_CHANGE_EVENT = "alook:native-back-owner-change"
+
+function changed(document: Document) {
+  document.dispatchEvent(new Event(NATIVE_BACK_OWNER_CHANGE_EVENT))
+}
+
 function release(owner: BackOwner, element?: HTMLElement) {
   const current = registrations.get(owner)
   if (!current || (element && current.element !== element)) return
   owners.get(current.element.ownerDocument)?.delete(current)
   registrations.delete(owner)
+  changed(current.element.ownerDocument)
 }
 
-function activate(owner: BackOwner, element: HTMLElement, request: () => BackResult) {
+function activate(owner: BackOwner, element: HTMLElement, request: () => BackResult, eligible = () => true) {
   const current = registrations.get(owner)
   if (current?.element === element && current.phase === "open") {
     current.request = request
+    current.eligible = eligible
     return
   }
   release(owner)
-  const registration: Registration = { owner, element, phase: "open", order: ++order, request }
+  const registration: Registration = { owner, element, phase: "open", order: ++order, request, eligible }
   registrations.set(owner, registration)
   let active = owners.get(element.ownerDocument)
   if (!active) {
@@ -42,6 +51,7 @@ function activate(owner: BackOwner, element: HTMLElement, request: () => BackRes
     owners.set(element.ownerDocument, active)
   }
   active.add(registration)
+  changed(element.ownerDocument)
 }
 
 function startClosing(owner: BackOwner, element: HTMLElement) {
@@ -58,6 +68,7 @@ function startClosing(owner: BackOwner, element: HTMLElement) {
   }
   current.element = element
   current.phase = "closing"
+  changed(element.ownerDocument)
 }
 
 function isDescendant(owner: BackOwner, parent: BackOwner) {
@@ -67,12 +78,10 @@ function isDescendant(owner: BackOwner, parent: BackOwner) {
   return false
 }
 
-export function requestNativeBack(document: Document): BackResult {
-  const active = Array.from(owners.get(document) ?? []).filter((current) => {
-    if (current.element.isConnected) return true
-    release(current.owner)
-    return false
-  })
+function topNativeBackOwner(document: Document) {
+  const active = Array.from(owners.get(document) ?? []).filter((current) => (
+    current.element.isConnected && current.eligible()
+  ))
   let top: Registration | null = null
   let topOrder = -1
   for (const current of active) {
@@ -86,6 +95,15 @@ export function requestNativeBack(document: Document): BackResult {
       topOrder = branchOrder
     }
   }
+  return top
+}
+
+export function hasNativeBackOwner(document: Document): boolean {
+  return topNativeBackOwner(document) !== null
+}
+
+export function requestNativeBack(document: Document): BackResult {
+  const top = topNativeBackOwner(document)
   if (!top) return "none"
   if (top.phase === "closing") return "blocked"
   const result = top.request()
@@ -153,7 +171,7 @@ export function useNativeBackOwner(getElement: () => HTMLElement | null, request
       release(owner)
       return
     }
-    activate(owner, element, request)
+    activate(owner, element, request, () => getElement() === element)
   }, [getElement, owner, request])
   React.useLayoutEffect(() => { refresh() })
   return refresh

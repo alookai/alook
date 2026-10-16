@@ -92,7 +92,7 @@ test.describe("mobile server header direct hierarchy", () => {
     page.on("response", observeStartupAttention)
     await page.setViewportSize({ width: 639, height: 844 })
     await page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
-    await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toBeVisible({ timeout: 20_000 })
     await expectMobileBack(page)
     // The shell-owned attention query settles once on cold mount. Keep that
     // generation outside the resize measurement window.
@@ -102,12 +102,13 @@ test.describe("mobile server header direct hierarchy", () => {
     page.off("response", observeStartupAttention)
     await page.waitForLoadState("networkidle")
 
-    await page.evaluate(({ composerTestId }) => {
-      const backControl = document.querySelector('button[aria-label="Back"]')
+    await page.evaluate(({ composerTestId, threadPanelId }) => {
+      const backControl = document.querySelector(`[data-testid="${threadPanelId}"]`)?.querySelector('button[aria-label="Back"]')
       Reflect.set(window, "__headerHierarchyBanner", backControl?.closest("header[role=banner]"))
-      Reflect.set(window, "__headerHierarchyComposer", document.querySelector(`[data-testid="${composerTestId}"]`))
+      Reflect.set(window, "__headerHierarchyComposer", document.querySelector(`[data-testid="${threadPanelId}"]`)?.querySelector(`[data-testid="${composerTestId}"]`))
     }, {
       composerTestId: tid.channelComposerShell,
+      threadPanelId: tid.threadSplitPanel,
     })
     let communityRequests = 0
     let newSockets = 0
@@ -119,21 +120,23 @@ test.describe("mobile server header direct hierarchy", () => {
 
     await page.setViewportSize({ width: 640, height: 844 })
     await expect(page.getByRole("button", { name: "Back" })).toBeVisible()
-    await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
-    expect(await page.evaluate(({ composerTestId }) => ({
-      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
-      composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector(`[data-testid="${composerTestId}"]`),
+    await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.channelComposerShell)).toBeVisible()
+    expect(await page.evaluate(({ composerTestId, threadPanelId }) => ({
+      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector(`[data-testid="${threadPanelId}"]`)?.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
+      composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector(`[data-testid="${threadPanelId}"]`)?.querySelector(`[data-testid="${composerTestId}"]`),
     }), {
       composerTestId: tid.channelComposerShell,
+      threadPanelId: tid.threadSplitPanel,
     })).toEqual({ banner: true, composer: true })
 
     await page.setViewportSize({ width: 639, height: 844 })
     await expect(page.getByRole("button", { name: "Back" })).toBeVisible()
-    expect(await page.evaluate(({ composerTestId }) => ({
-      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
-      composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector(`[data-testid="${composerTestId}"]`),
+    expect(await page.evaluate(({ composerTestId, threadPanelId }) => ({
+      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector(`[data-testid="${threadPanelId}"]`)?.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
+      composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector(`[data-testid="${threadPanelId}"]`)?.querySelector(`[data-testid="${composerTestId}"]`),
     }), {
       composerTestId: tid.channelComposerShell,
+      threadPanelId: tid.threadSplitPanel,
     })).toEqual({ banner: true, composer: true })
     expect(new URL(page.url()).pathname).toBe(pathname)
     expect(communityRequests).toBe(0)

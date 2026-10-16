@@ -1,4 +1,4 @@
-import type { Page, TestInfo } from "@playwright/test"
+import type { Locator, Page, TestInfo } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import {
   composerEditable,
@@ -103,6 +103,8 @@ async function expectHoverKeyboardSend({
 
 async function expectExplicitTouchSend({
   page,
+  root = page,
+  backgroundRoot,
   route,
   channelId,
   label,
@@ -111,6 +113,8 @@ async function expectExplicitTouchSend({
   testInfo,
 }: {
   page: Page
+  root?: Page | Locator
+  backgroundRoot?: Locator
   route: string
   channelId: string
   label: string
@@ -128,8 +132,8 @@ async function expectExplicitTouchSend({
   await gotoAfterUserWsAuth(page, route)
   await ignoreNextDevToolsPointerCapture(page)
 
-  const editable = composerEditable(page)
-  const send = page.getByTestId(tid.composerSend)
+  const editable = composerEditable(page, root)
+  const send = root.getByTestId(tid.composerSend)
   await expect(editable).toBeVisible({ timeout: 20_000 })
   await expect(editable).toHaveAttribute("enterkeyhint", "enter")
   await expect(send).toBeVisible()
@@ -140,7 +144,7 @@ async function expectExplicitTouchSend({
     const size = button.getBoundingClientRect()
     return Number.parseFloat(getComputedStyle(button).borderRadius) >= size.width / 2
   })).toBe(true)
-  const composer = page.getByTestId(tid.composerInput).locator("..")
+  const composer = root.getByTestId(tid.composerInput).locator("..")
   await expect(composer).toHaveCSS("border-radius", "24px")
   await expect(composer.getByRole("button", { name: "Emoji picker" })).toHaveCount(0)
   const singleLineHeight = await composer.evaluate((element) => element.getBoundingClientRect().height)
@@ -168,14 +172,21 @@ async function expectExplicitTouchSend({
     await expect(send).toBeVisible()
   }
 
-  await page.getByTestId(tid.composerFileInput).setInputFiles({
+  if (backgroundRoot) {
+    await expect(backgroundRoot).toHaveAttribute("inert", "")
+    await expect(backgroundRoot.getByTestId(tid.composerFileInput)).toHaveCount(1)
+    await expect(root.getByTestId(tid.composerFileInput)).toHaveCount(1)
+    await expect(page.getByTestId(tid.composerFileInput)).toHaveCount(2)
+  }
+
+  await root.getByTestId(tid.composerFileInput).setInputFiles({
     name: `${label}.txt`,
     mimeType: "text/plain",
     buffer: Buffer.from("pending attachment eligibility"),
   })
-  await expect(page.getByRole("button", { name: "Remove file" })).toBeVisible()
+  await expect(root.getByRole("button", { name: "Remove file" })).toBeVisible()
   await expect(send).toBeEnabled()
-  await page.getByRole("button", { name: "Remove file" }).click()
+  await root.getByRole("button", { name: "Remove file" }).click()
   await expect(send).toBeDisabled()
 
   const firstLine = `${label} first ${Date.now()}`
@@ -227,7 +238,7 @@ async function expectExplicitTouchSend({
   await expect.poll(() => hasMessageFrame(frames, channelId, payload.message.id)).toBe(true)
 
   await page.reload({ waitUntil: "commit" })
-  await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
+  await expect(composerEditable(page, root)).toBeVisible({ timeout: 20_000 })
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(firstLine)
   expect(messagePosts).toBe(1)
 }
@@ -282,13 +293,15 @@ test.describe("composer send by input capability", () => {
   test("touch child thread button targets the child", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { serverId, channelId, threadId } = await prepareCase1(actors)
+    const { serverId, threadId } = await prepareCase1(actors)
 
     const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)
     await expectExplicitTouchSend({
       page,
+      root: page.getByTestId(tid.threadSplitPanel),
+      backgroundRoot: page.getByTestId(tid.threadSplitParent),
       route: `/c/channels/${serverId}/${threadId}`,
       channelId: threadId,
       label: "thread",
@@ -299,7 +312,7 @@ test.describe("composer send by input capability", () => {
   test("touch DM button targets the DM channel", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { channelId, dmId } = await prepareCase1(actors)
+    const { dmId } = await prepareCase1(actors)
 
     const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)

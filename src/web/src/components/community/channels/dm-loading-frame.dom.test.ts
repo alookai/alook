@@ -1,4 +1,5 @@
 import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { render, screen } from "@/test/react-dom-harness"
 
@@ -34,4 +35,9 @@ describe("DmLoadingFrame", () => {
     expect(screen.getByLabelText("Loading direct message"))
       .toHaveAttribute("aria-busy", "true")
   })
+})
+
+it("reserves responsive mobile leading space in the route's default server fallback", () => {
+  const markup = renderToStaticMarkup(createElement(DmLoadingFrame))
+  expect(markup).toContain('data-reserves-back="true"')
 })

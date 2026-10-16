@@ -289,7 +289,7 @@ test.describe("community composer text containment", () => {
     await page.waitForURL(new RegExp(threadId), { timeout: 20_000, waitUntil: "commit" })
     await expectChatPlaceholderAtWidths(
       page,
-      page.getByTestId(tid.composerInput),
+      page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput),
       `Message ${LONG_CJK}`,
     )
   })

@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext, BrowserType, Page } from "@playwright/test"
 import { spawn } from "node:child_process"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 
 export type NaturalActorReceipt = {
@@ -66,8 +66,15 @@ export function createNaturalVisibilityActor(input: {
     const existing = contexts[0]!
     input.registerContext(existing)
     context = existing
-    // Only initial Alice setup; never call this for the in-document Bob login.
-    await context.setStorageState(input.storageState)
+    // Only cookie-only initial Alice in this new profile; Bob still signs in in the document.
+    const initialState: unknown = JSON.parse(readFileSync(input.storageState, "utf8"))
+    if (!initialState || typeof initialState !== "object"
+      || !("cookies" in initialState) || !Array.isArray(initialState.cookies)
+      || !("origins" in initialState) || !Array.isArray(initialState.origins) || initialState.origins.length !== 0
+      || Object.keys(initialState).some(key => key !== "cookies" && key !== "origins")) {
+      throw new Error("Natural actor initial state must contain only cookies and an empty origins array")
+    }
+    await context.addCookies(initialState.cookies)
     if (closing) throw new Error("Natural visibility actor retired during initial state")
     const pages = context.pages()
     const page = pages[0] ?? await context.newPage()

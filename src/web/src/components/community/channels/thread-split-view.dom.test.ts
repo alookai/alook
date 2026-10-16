@@ -57,6 +57,28 @@ vi.mock("@/components/ui/resizable", () => ({
 }))
 
 describe("ThreadSplitView", () => {
+  it("keeps the actual parent mounted but inert beneath a mobile thread", () => {
+    const parent = createElement("input", { "data-testid": "back-parent-draft", defaultValue: "keep me" })
+    const renderer = render(createElement(ThreadSplitView, {
+      split: false, mobileBack: true, parent, thread: createElement("span", null, "Child"),
+    }))
+    const draft = screen.getByTestId("back-parent-draft")
+    expect(draft.closest("section")).toHaveAttribute("inert")
+    expect(draft.closest("section")).toHaveAttribute("aria-hidden", "true")
+    expect(screen.getByTestId("panel-group")).toHaveAttribute("data-persists-layout", "false")
+    renderer.rerender(createElement(ThreadSplitView, {
+      split: false, preserveParent: true, parent, thread: createElement("span", null, "Child"),
+    }))
+    expect(screen.getByTestId("back-parent-draft")).toBe(draft)
+    expect(draft.closest("section")).toHaveAttribute("inert")
+    expect(draft.closest("section")).toHaveAttribute("aria-hidden", "true")
+    renderer.rerender(createElement(ThreadSplitView, {
+      split: true, parent, thread: createElement("span", null, "Child"),
+    }))
+    expect(screen.getByTestId("back-parent-draft")).toBe(draft)
+    expect(draft.closest("section")).not.toHaveAttribute("inert")
+  })
+
   it("keeps parent input, scroll node and group when the keyed right child changes", () => {
     const parent = createElement("div", { "data-testid": "parent-scroll" },
       createElement("input", { "data-testid": "parent-draft", defaultValue: "" }))

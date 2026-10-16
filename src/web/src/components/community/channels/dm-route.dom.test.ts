@@ -43,7 +43,7 @@ vi.mock("@/lib/community/last-community-route", () => ({
 }))
 vi.mock("./dm-view", () => ({ DmView: ({ dmId }: { dmId: string }) => React.createElement("main", { "data-channel-id": dmId }, dmId) }))
 vi.mock("./dm-loading-frame", () => ({ DmLoadingFrame: ({ reserveBackSlot }: { reserveBackSlot: boolean }) => React.createElement("div", { "data-testid": "dm-pending", "data-back": String(reserveBackSlot) }) }))
-vi.mock("./dm-route-error-frame", () => ({ DmRouteErrorFrame: ({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) => React.createElement("button", { onClick: onRetry, disabled: retrying }, "Retry") }))
+vi.mock("./dm-route-error-frame", () => ({ DmRouteErrorFrame: ({ onRetry, retrying, reserveBackSlot }: { onRetry: () => void; retrying: boolean; reserveBackSlot?: boolean }) => React.createElement("button", { onClick: onRetry, disabled: retrying, "data-back": String(reserveBackSlot) }, "Retry") }))
 
 beforeEach(() => {
   mocks.verification.status = "pending"
@@ -128,5 +128,16 @@ describe("DM target main owns identity, retry and fallback", () => {
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines")
     expect(mocks.consume).toHaveBeenCalledOnce()
     expect(mocks.purge).not.toHaveBeenCalled()
+  })
+})
+
+describe("DM unknown viewport keeps the same responsive leading footprint", () => {
+  it.each(["pending", "retryable-error"])("reserves mobile leading space before breakpoint detection in %s", status => {
+    mocks.breakpoint = "unknown"
+    mocks.verification.status = status
+    const view = render(React.createElement(DmRoute, { dmId: "dm-a" }))
+    const frame = status === "pending" ? screen.getByTestId("dm-pending") : screen.getByRole("button", { name: "Retry" })
+    expect(frame).toHaveAttribute("data-back", "true")
+    view.unmount()
   })
 })

@@ -7,7 +7,6 @@ import { DmRouteErrorFrame } from "./dm-route-error-frame"
 import { DmLoadingFrame } from "./dm-loading-frame"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { useDmProjection } from "@/lib/community-db/projections"
-import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
@@ -22,7 +21,6 @@ export function DmRoute({ dmId }: { dmId: string }) {
   const runtime = useCommunityRuntime()
   const router = useRouter()
   const currentUser = useCurrentUser()
-  const breakpoint = useBreakpoint()
   const verification = useChannelMetadata(null, dmId)
   const knownDm = useDmProjection()?.some(dm => dm.id === dmId) === true
   const exitedTarget = useRef<string | null>(null)
@@ -42,10 +40,10 @@ export function DmRoute({ dmId }: { dmId: string }) {
 
   if (verification.status === "retryable-error" && !verification.identityKnown && !knownDm) {
     return <DmRouteErrorFrame onRetry={verification.retry} retrying={verification.retrying}
-      reserveBackSlot={breakpoint === "mobile"} />
+      reserveBackSlot />
   }
   if (!verification.identityKnown && !knownDm && verification.status !== "readable") {
-    return <DmLoadingFrame reserveBackSlot={breakpoint === "mobile"} />
+    return <DmLoadingFrame reserveBackSlot />
   }
   return <DmView dmId={dmId} />
 }

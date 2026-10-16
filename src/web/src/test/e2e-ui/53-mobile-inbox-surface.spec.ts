@@ -354,7 +354,9 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       const hiddenId = await seedChannel("alice", serverId, `hidden-${stamp}`)
       await bob.page.getByTestId(tid.channelRow(landingId)).click()
       await expect(bob.page).toHaveURL(`/c/channels/${serverId}/${landingId}`)
-      await expect(overlay).toHaveCSS("display", "none")
+      await expect(overlay).toHaveCSS("visibility", "hidden")
+      await expect(overlay).toHaveAttribute("inert", "")
+      await expect(overlay).toHaveAttribute("aria-hidden", "true")
       await send(hiddenId, `Hidden Inbox digit ${stamp}`)
       await expect(indicator).toHaveAttribute("data-count", String(targetCount))
       await capture("hidden-update", targetCount)
@@ -365,7 +367,9 @@ test.describe("mobile Inbox interactive user-bar base", () => {
 
       for (let cycle = 0; cycle < 2; cycle += 1) {
         await bob.page.getByTestId(tid.channelRow(landingId)).click()
-        await expect(overlay).toHaveCSS("display", "none")
+        await expect(overlay).toHaveCSS("visibility", "hidden")
+        await expect(overlay).toHaveAttribute("inert", "")
+        await expect(overlay).toHaveAttribute("aria-hidden", "true")
         await send(hiddenId, `Repeated hidden Inbox ${stamp} ${cycle}`)
         await expect(indicator).toHaveAttribute("data-count", String(targetCount))
         await capture(`hidden-repeat-${cycle}`, targetCount)

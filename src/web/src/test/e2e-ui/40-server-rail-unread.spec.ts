@@ -301,8 +301,9 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   expect(retained).not.toBeNull()
   await page.getByTestId(tid.channelRow(foregroundChannel)).click()
   await expect(page).toHaveURL(`/c/channels/${foregroundServer}/${foregroundChannel}`)
-  await expect(railContainer).toHaveCSS("display", "none")
+  await expect(railContainer).toHaveCSS("visibility", "hidden")
   await expect(railContainer).toHaveAttribute("inert", "")
+  await expect(railContainer).toHaveAttribute("aria-hidden", "true")
   let lastMessageId = await sendMention(`Hidden Server digit ${stamp}`)
   await expect.poll(async () => (await readDigits()).text).toBe("10")
   await expectPrimaryCount("hidden-update", 10)
@@ -314,7 +315,9 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
 
   for (let cycle = 0; cycle < 2; cycle += 1) {
     await page.getByTestId(tid.channelRow(foregroundChannel)).click()
-    await expect(railContainer).toHaveCSS("display", "none")
+    await expect(railContainer).toHaveCSS("visibility", "hidden")
+    await expect(railContainer).toHaveAttribute("inert", "")
+    await expect(railContainer).toHaveAttribute("aria-hidden", "true")
     lastMessageId = await sendMention(`Repeated hidden Server ${stamp} ${cycle}`)
     const count = 11 + cycle
     await expect.poll(async () => (await readDigits()).text).toBe(String(count))

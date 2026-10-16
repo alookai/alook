@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { BrowserType } from "@playwright/test"
@@ -13,6 +13,7 @@ let alive: boolean
 let killed: (() => void) | undefined
 let calls: string[]
 let receipts: NaturalActorReceipt[]
+const initialCookies = [{ name: "synthetic-session", value: "node-control-only", domain: "localhost", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax", partitionKey: "https://example.test" }]
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "217-natural-actor-node-"))
   child = Object.assign(new EventEmitter(), { pid: 421217, stderr: new EventEmitter() })
@@ -30,16 +31,18 @@ beforeEach(() => {
   })
 })
 afterEach(() => { vi.restoreAllMocks(); rmSync(root, { recursive: true, force: true }) })
-function setup(options: { connect?: Promise<unknown>; state?: Promise<void>; noContext?: boolean; closeError?: Error; registerError?: Error } = {}) {
+function setup(options: { connect?: Promise<unknown>; state?: Promise<void>; noContext?: boolean; closeError?: Error; registerError?: Error; initialState?: unknown; stateText?: string; missingFile?: boolean; cookieError?: Error } = {}) {
   let connected = true
   const page = { setViewportSize: vi.fn(async () => { calls.push("viewport") }) }
-  const context = { setStorageState: vi.fn(async () => { calls.push("initial-state"); await options.state }), pages: () => [page] }
+  const context = { addCookies: vi.fn(async () => { calls.push("initial-state"); await options.state; if (options.cookieError) throw options.cookieError }), pages: vi.fn(() => [page]) }
+  const storageState = join(root, "initial-state.json")
+  if (!options.missingFile) writeFileSync(storageState, options.stateText ?? JSON.stringify(options.initialState ?? { cookies: initialCookies, origins: [] }))
   const connection = { contexts: () => options.noContext ? [] : [context], isConnected: () => connected,
     close: vi.fn(async () => { calls.push("disconnect"); connected = false }) }
   const browserType = { name: () => "chromium", executablePath: () => "/owned/test-chromium",
     connectOverCDP: vi.fn(async () => { calls.push("connect"); if (options.connect) await options.connect; return connection }) }
   const resource = createNaturalVisibilityActor({ browserType: browserType as unknown as BrowserType, profileRoot: root,
-    storageState: "/owned/initial-state.json", viewport: { width: 1280, height: 900 },
+    storageState, viewport: { width: 1280, height: 900 },
     registerContext: () => { if (options.registerError) throw options.registerError; calls.push("register") },
     closeContext: async () => { calls.push("close-context"); if (options.closeError) throw options.closeError },
     receipt: async receipt => { receipts.push(receipt) },
@@ -50,7 +53,8 @@ function setup(options: { connect?: Promise<unknown>; state?: Promise<void>; noC
 it("uses initial state in the default context and retires resources once", async () => {
   const h = setup(); h.endpoint(); await h.resource.ready
   expect(h.browserType.connectOverCDP).toHaveBeenCalledWith("ws://127.0.0.1:42121/devtools/browser/owned", { noDefaults: true })
-  expect(h.context.setStorageState).toHaveBeenCalledExactlyOnceWith("/owned/initial-state.json")
+  expect(h.context.addCookies).toHaveBeenCalledExactlyOnceWith(initialCookies)
+  expect(h.context.addCookies.mock.invocationCallOrder[0]).toBeLessThan(h.context.pages.mock.invocationCallOrder[0]!)
   expect(h.page.setViewportSize).toHaveBeenCalledExactlyOnceWith({ width: 1280, height: 900 })
   await h.resource.close(); await h.resource.close()
   expect(calls).toEqual(["connect", "register", "initial-state", "viewport", "close-context", "disconnect", "SIGTERM"])
@@ -99,4 +103,81 @@ it("does not report an unregistered context as owned when registration rejects",
   await h.resource.close()
   expect(calls).not.toContain("close-context")
   expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+})
+
+it("waits for the single native cookie application before inspecting or publishing the page", async () => {
+  let resolve!: () => void
+  const state = new Promise<void>(yes => { resolve = yes })
+  const h = setup({ state }); h.endpoint()
+  let published = false
+  void h.resource.ready.then(() => { published = true })
+  await vi.waitFor(() => expect(h.context.addCookies).toHaveBeenCalledExactlyOnceWith(initialCookies))
+  expect(h.context.pages).not.toHaveBeenCalled()
+  expect(h.page.setViewportSize).not.toHaveBeenCalled()
+  expect(published).toBe(false)
+  resolve()
+  const actor = await h.resource.ready
+  expect(actor.page).toBe(h.page)
+  expect(h.context.pages).toHaveBeenCalledOnce()
+  expect(h.context.addCookies).toHaveBeenCalledExactlyOnceWith(initialCookies)
+  await h.resource.close()
+  expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+})
+it("passes an empty cookie list unchanged to the native setter once", async () => {
+  const h = setup({ initialState: { cookies: [], origins: [] } }); h.endpoint(); await h.resource.ready
+  expect(h.context.addCookies).toHaveBeenCalledExactlyOnceWith([])
+  await h.resource.close()
+})
+it.each([
+  ["local storage origin", { cookies: initialCookies, origins: [{ origin: "https://example.test", localStorage: [] }] }],
+  ["empty credentials field", { cookies: initialCookies, origins: [], credentials: [] }],
+  ["nonempty credentials field", { cookies: initialCookies, origins: [], credentials: [{ synthetic: true }] }],
+  ["unknown field", { cookies: initialCookies, origins: [], extra: true }],
+  ["missing cookies", { origins: [] }],
+  ["missing origins", { cookies: initialCookies }],
+  ["nonarray cookies", { cookies: {}, origins: [] }],
+  ["nonarray origins", { cookies: initialCookies, origins: {} }],
+  ["array root", []],
+  ["string root", "invalid"],
+])("rejects %s and closes the registered owner, connection, process and actual profile", async (_label, initialState) => {
+  const h = setup({ initialState }); h.endpoint()
+  await expect(h.resource.ready).rejects.toThrow("must contain only cookies and an empty origins array")
+  expect(h.context.addCookies).not.toHaveBeenCalled()
+  expect(h.context.pages).not.toHaveBeenCalled()
+  await h.resource.close()
+  expect(calls).toEqual(["connect", "register", "close-context", "disconnect", "SIGTERM"])
+  expect(h.connection.close).toHaveBeenCalledOnce()
+  expect(receipts).toHaveLength(1)
+  expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+  expect(existsSync(receipts[0]!.profile)).toBe(false)
+})
+it.each(["null", "42", "{invalid-json"])("rejects malformed state text %s and releases all owned resources", async stateText => {
+  const h = setup({ stateText }); h.endpoint()
+  await expect(h.resource.ready).rejects.toThrow()
+  expect(h.context.addCookies).not.toHaveBeenCalled()
+  expect(h.context.pages).not.toHaveBeenCalled()
+  await h.resource.close()
+  expect(calls).toEqual(["connect", "register", "close-context", "disconnect", "SIGTERM"])
+  expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+  expect(existsSync(receipts[0]!.profile)).toBe(false)
+})
+it("preserves a missing state file error and releases the registered owner's actual profile", async () => {
+  const h = setup({ missingFile: true }); h.endpoint()
+  await expect(h.resource.ready).rejects.toMatchObject({ code: "ENOENT" })
+  expect(h.context.addCookies).not.toHaveBeenCalled()
+  await h.resource.close()
+  expect(calls).toEqual(["connect", "register", "close-context", "disconnect", "SIGTERM"])
+  expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+  expect(existsSync(receipts[0]!.profile)).toBe(false)
+})
+it("preserves native cookie validation failure without publishing a page, then releases ownership", async () => {
+  const error = new Error("Native cookie validation rejected input")
+  const h = setup({ cookieError: error }); h.endpoint()
+  await expect(h.resource.ready).rejects.toBe(error)
+  expect(h.context.addCookies).toHaveBeenCalledExactlyOnceWith(initialCookies)
+  expect(h.context.pages).not.toHaveBeenCalled()
+  await h.resource.close()
+  expect(calls).toEqual(["connect", "register", "initial-state", "close-context", "disconnect", "SIGTERM"])
+  expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+  expect(existsSync(receipts[0]!.profile)).toBe(false)
 })

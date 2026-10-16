@@ -357,7 +357,7 @@ test.describe("mobile reaction details", () => {
     await alice.page.emulateMedia({ colorScheme: "light" })
     await installInputCapability(alice.page, false)
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${threadId}`)
-    const chip = alice.page.getByTestId(tid.reactionChip(threadOpenerId, "👍"))
+    const chip = alice.page.getByTestId(tid.threadSplitPanel).getByTestId(tid.reactionChip(threadOpenerId, "👍"))
     await expect(chip).toBeVisible()
     await holdReaction(alice.page, chip)
     await expectDialogInsideViewport(alice.page, threadOpenerId)

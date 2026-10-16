@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { CONTROL_HEARTBEAT_CAPABILITY, DEV_PASSWORD, HostReadyMessageSchema } from "@alook/shared"
 import { HostCommandSchema } from "@alook/shared/community-cli-contract"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
-import type { APIResponse, Page, Request } from "@playwright/test"
+import type { APIResponse, Page, Request, TestInfo } from "@playwright/test"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { expect, test } from "./_fixtures/case-fixture"
@@ -510,13 +510,44 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
     let expectedAccount: unknown
     let expectedScope: unknown
     const checks = new WeakMap<IDBTransaction, { account?: unknown; scope?: unknown; channels?: unknown }>()
+    const observedTransactions = new WeakMap<IDBTransaction, { id: number; keys: string[] }>()
+    let transactionSequence = 0
     const state = { held: 0, oldPresent: false, newPresent: false, released: false,
       retirementCheck: null as RetirementCheck | null,
-      release: () => { state.released = true; for (const complete of pending.splice(0)) complete() } }
+      diagnostics: { beforeRelease: [] as Array<Record<string, unknown>>, afterRelease: [] as Array<Record<string, unknown>> },
+      release: () => { state.released = true; record({ event: "release", pending: pending.length }); for (const complete of pending.splice(0)) complete() } }
+    function record(event: Record<string, unknown>) {
+      const entries = state.released ? state.diagnostics.afterRelease : state.diagnostics.beforeRelease
+      if (state.released && entries.length >= 32) return
+      if (entries.length >= 32) entries.shift()
+      entries.push({ at: performance.now(), ...event })
+    }
     Reflect.set(window, "__217DiskRead", state)
     IDBObjectStore.prototype.get = function (query) {
-      const request = original.call(this, query)
       const ownedStore = this.transaction.db.name === "keyval-store" && this.name === "keyval"
+      const kind = !ownedStore ? undefined : query === key ? "payload" : query === key + ":epoch" ? "scope"
+        : query === accountKey ? "account" : query === channelsKey ? "channels" : query === "alook:qc:device-epoch" ? "device" : undefined
+      let request: ReturnType<IDBObjectStore["get"]>
+      try { request = original.call(this, query) } catch (error) {
+        if (kind) record({ event: "get-throw", kind, mode: this.transaction.mode, name: error instanceof Error ? error.name : "unknown" })
+        throw error
+      }
+      if (kind) {
+        const transaction = this.transaction
+        let receipt = observedTransactions.get(transaction)
+        if (!receipt) {
+          receipt = { id: ++transactionSequence, keys: [] }
+          observedTransactions.set(transaction, receipt)
+          const id = receipt.id
+          transaction.addEventListener("complete", () => record({ event: "transaction-complete", id, mode: transaction.mode }), { once: true })
+          transaction.addEventListener("abort", () => record({ event: "transaction-abort", id, mode: transaction.mode, name: transaction.error?.name ?? null }), { once: true })
+        }
+        const id = receipt.id
+        record({ event: "get", id, mode: transaction.mode, kind, priorKeys: [...receipt.keys] })
+        receipt.keys.push(kind)
+        request.addEventListener("success", event => record({ event: "request-success", id, kind, trusted: event.isTrusted }))
+        request.addEventListener("error", () => record({ event: "request-error", id, kind, name: request.error?.name ?? null }), { once: true })
+      }
       if (ownedStore && (query === accountKey || query === `${key}:epoch` || query === channelsKey)) {
         const transaction = this.transaction
         const afterRelease = state.released && transaction.mode === "readonly"
@@ -555,12 +586,35 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
           const value = typeof request.result === "string" ? request.result : ""
           state.oldPresent = value.includes(oldId)
           state.newPresent = value.includes(newId)
-          pending.push(() => { request.dispatchEvent(event) })
+          record({ event: "payload-held", id: observedTransactions.get(this.transaction)?.id ?? null, payloadRead: reads, mode: this.transaction.mode, trusted: event.isTrusted })
+          pending.push(() => {
+            record({ event: "dispatch-begin" })
+            try { record({ event: "dispatch-return", accepted: request.dispatchEvent(event) }) } catch (error) {
+              record({ event: "dispatch-throw", name: error instanceof Error ? error.name : "unknown" })
+              throw error
+            }
+          })
         }, { once: true })
       }
       return request
     }
   }, { key: `${PERSIST_CACHE_PREFIX}:${viewerId}:client`, accountKey: `${PERSIST_CACHE_PREFIX}:${viewerId}:account-epoch`, channelsKey: `${PERSIST_CACHE_PREFIX}:${viewerId}:account-epoch:channels`, oldId, newId })
+}
+
+async function captureOriginalPersistedReadDiagnostics(page: Page, testInfo: TestInfo, label: string) {
+  const snapshot = page.isClosed() ? { pageClosed: true } : await page.evaluate(() => {
+    const state = Reflect.get(window, "__217DiskRead") as {
+      held: number; oldPresent: boolean; newPresent: boolean; released: boolean;
+      retirementCheck: unknown; diagnostics: unknown
+    } | undefined
+    return state ? {
+      held: state.held, oldPresent: state.oldPresent, newPresent: state.newPresent,
+      released: state.released, retirementCheck: state.retirementCheck, diagnostics: state.diagnostics,
+      marks: { start: performance.getEntriesByName("alook:restore:start", "mark").length,
+        complete: performance.getEntriesByName("alook:restore:complete", "mark").length },
+    } : { stateMissing: true }
+  })
+  await testInfo.attach("original-idb-read-diagnostics-" + label, { body: JSON.stringify(snapshot), contentType: "application/json" })
 }
 
 async function releaseOriginalPersistedRead(page: Page) {
@@ -613,6 +667,7 @@ test("late original IDB cannot replace RSC messages or revive a DM after a real 
   const newId = await seedDmMessage("bob", dmId, newBody)
   await holdOriginalPersistedRead(alice.page, userId("alice"), oldId, newId)
   caseResources.own(alice.page, releaseOriginalPersistedRead)
+  caseResources.own(alice.page, captured => captureOriginalPersistedReadDiagnostics(captured, testInfo, "late-block"))
   const proxy = await proxyCommunityWebSockets(alice.context)
   const targetGets: string[] = []
   const pattern = (url: URL) => url.pathname === `/api/community/channels/${dmId}/messages`
@@ -903,6 +958,7 @@ for (const lateSource of ["query", "idb"] as const) {
     if (lateSource === "idb") {
       await holdOriginalPersistedRead(page, actors.userId("alice"), aliceMessage, bobMessage)
       caseResources.own(page, releaseOriginalPersistedRead)
+      caseResources.own(page, captured => captureOriginalPersistedReadDiagnostics(captured, testInfo, "account-idb"))
     }
     try {
       await page.goto(`${WEB_URL}/c/me/${aliceDm}`, { waitUntil: "commit" })
