@@ -241,6 +241,28 @@ describe("BotMarkSticker", () => {
     expect(renderer.container.textContent).toContain(state === "isLoading" ? "Loading thoughts" : "Thoughts unavailable")
   })
 
+  it.each(["content", "empty", "error"] as const)("replaces the loading skeleton with %s", (state) => {
+    mocks.activity.isLoading = true
+    const { renderer, props } = render()
+    const loading = renderer.container.querySelector('[role="status"][aria-label="Loading thoughts"]')
+    expect(loading).not.toBeNull()
+    expect(loading?.querySelector('[aria-hidden="true"]')).not.toBeNull()
+    expect(loading?.querySelector("button, a")).toBeNull()
+    expect(renderer.container.textContent).not.toContain("No recent thoughts")
+
+    mocks.activity.isLoading = false
+    mocks.activity.isError = state === "error"
+    if (state === "content") mocks.activity.events = [{
+      id: "loaded-thought",
+      kind: "text",
+      payload: { text: "The report is ready", truncated: false, chars: 19 },
+      createdAt: "2026-09-04T00:00:00.000Z",
+    }]
+    renderer.rerender(React.createElement(BotMarkSticker, props))
+    expect(renderer.container.querySelector('[aria-label="Loading thoughts"]')).toBeNull()
+    expect(renderer.container.textContent).toContain(state === "content" ? "The report is ready" : state === "error" ? "Thoughts unavailable" : "No recent thoughts")
+  })
+
   it("anchors initial rows at the tail and only follows live rows when already near it", () => {
     const events = (start: number) => Array.from({ length: 10 }, (_, index) => ({
       id: `event_${start + index}`,

@@ -303,6 +303,7 @@ export function useScrollAnchor({
   const virtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     directDomUpdates: false,
+    useFlushSync: true,
     initialRect: { width: 0, height: items.reduce((size, item) => size + estimateRowHeight(item, !!hasMoreOlder), shortGap + tailPaddingEnd) },
     count: items.length,
     getScrollElement: () => scrollRef.current,

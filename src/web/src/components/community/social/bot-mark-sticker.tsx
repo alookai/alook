@@ -148,8 +148,8 @@ export function BotMarkSticker({
               nearTailRef.current = currentTarget.scrollHeight - (currentTarget.scrollTop + currentTarget.clientHeight) < 80
             }}
             className={`thin-scrollbar ${styles.scrollbar} min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain`}>
-            <div ref={activityBottomAnchorRef} data-testid={tid.botAuditPreviewBottom} className="flex min-h-full flex-col justify-end">
-              {activity.isLoading ? <StickerState label="Loading thoughts" /> : activity.isError ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
+            <div ref={activityBottomAnchorRef} data-testid={tid.botAuditPreviewBottom} className={`flex min-h-full flex-col ${!activity.isLoading && (activity.isError || visibleEvents.length === 0) ? "justify-center" : "justify-end"}`}>
+              {activity.isLoading ? <ThoughtsLoading /> : activity.isError ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
                 const parsed = AuditLogTextPayloadSchema.safeParse(event.payload)
                 return <div key={event.id} data-testid={tid.botAuditPreviewRow(event.id)} className={styles.entry}>
                   <button type="button" onClick={onOpenActivity} title="Open full audit log"
@@ -255,6 +255,24 @@ export function BotMarkSticker({
       </footer>
       </div>
     </section>
+  )
+}
+
+function ThoughtsLoading() {
+  return (
+    <div role="status" aria-label="Loading thoughts" className={styles.loading}>
+      <span className="sr-only">Loading thoughts</span>
+      <div aria-hidden="true" className={styles.loadingEntries}>
+        {[0, 1].map((entry) => (
+          <div key={entry} className={styles.loadingEntry}>
+            <span className={styles.loadingTime} />
+            <span className={styles.loadingLine} />
+            <span className={styles.loadingLine} />
+            <span className={styles.loadingLine} />
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 

@@ -83,3 +83,16 @@
 .scrollbar { scrollbar-color: var(--note-rule) transparent; }
 .scrollbar:hover { scrollbar-color: var(--note-muted) transparent; }
 .notebook ::selection { background: color-mix(in srgb, var(--note-ink) 15%, var(--note-paper)); }
+
+.loading { padding: 16px 8px; }
+.loadingEntries { display: flex; flex-direction: column; gap: 24px; }
+.loadingEntry { display: flex; flex-direction: column; gap: 8px; }
+.loadingTime, .loadingLine { display: block; border-radius: 2px; background: var(--note-rule); }
+.loadingTime { width: 64px; height: 6px; margin-bottom: 4px; }
+.loadingLine { height: 8px; }
+.loadingLine:last-child { width: 64%; }
+.loadingEntry:first-child .loadingLine:nth-child(3) { width: 88%; }
+.loadingEntry:last-child .loadingLine:last-child { width: 46%; }
+@container notebook (max-height: 319px) {
+  .loadingEntry:first-child { display: none; }
+}

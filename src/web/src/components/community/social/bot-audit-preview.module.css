@@ -1,1 +1,1 @@
-.asciiOrbit { width: 54px; height: 21px; flex-shrink: 0; overflow: hidden; margin: 0; color: var(--note-ink, currentColor); font-size: 3px; font-weight: 700; line-height: 3px; letter-spacing: 0; white-space: pre; user-select: none; }
+.asciiOrbit { width: 54px; height: 21px; flex-shrink: 0; overflow: hidden; margin: 0; color: var(--note-ink, currentColor); font-size: 3px; font-weight: 900; -webkit-text-stroke: 0.15px currentColor; line-height: 3px; letter-spacing: 0; white-space: pre; user-select: none; }
