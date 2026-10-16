@@ -1,3 +1,5 @@
+import { renderToString } from "react-dom/server"
+import MeBotsPage from "@/app/c/me/bots/page"
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotListController } from "./bot-list-types"
@@ -6,6 +8,8 @@ import { tid } from "@/lib/community/testids"
 
 const mocks = vi.hoisted(() => ({
   group: vi.fn(),
+  goBackMobile: vi.fn(),
+  loading: false,
   overlays: vi.fn(),
   createSheet: vi.fn(),
 }))
@@ -332,11 +336,39 @@ describe("renderBotListView", () => {
         .not.toHaveLength(0)
       const back = renderer.getByRole("button", { name: "Back" })
       expect(back.parentElement?.className).toBe(
-        "flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6",
+        "flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6 sm:hidden",
       )
       fireEvent.click(back)
       renderer.unmount()
     }
     expect(onBack).toHaveBeenCalledTimes(2)
+  })
+})
+
+vi.mock("@/stores/community", async original => ({ ...await original<typeof import("@/stores/community")>(), useUiHandlers: () => ({ goBackMobile: mocks.goBackMobile }) }))
+vi.mock("@/components/community/bots/bot-list-controller", () => ({ useBotListController: () => controller({ isLoading: mocks.loading }) }))
+
+describe("SSR mobile Back footprint", () => {
+  it.each([false, true])("keeps the bot header through hydrate with loading=%s", async loading => {
+    mocks.loading = loading
+    mocks.goBackMobile.mockClear()
+    const node = React.createElement(MeBotsPage)
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(node)
+    document.body.appendChild(container)
+    let view: ReturnType<typeof render> | undefined
+    try {
+      const header = container.firstElementChild?.querySelector("header")
+      expect(header).not.toBeNull()
+      expect(header?.classList.contains("h-12")).toBe(true)
+      expect(header?.classList.contains("sm:hidden")).toBe(true)
+      expect(header?.querySelectorAll(loading ? '[data-slot="loading-back-placeholder"]' : '[aria-label="Back"]')).toHaveLength(1)
+      view = render(node, { container, hydrate: true })
+      expect(container.firstElementChild?.querySelector("header")).toBe(header)
+      if (!loading) {
+        fireEvent.click(header!.querySelector('[aria-label="Back"]')!)
+        expect(mocks.goBackMobile).toHaveBeenCalledOnce()
+      }
+    } finally { view?.unmount(); container.remove() }
   })
 })

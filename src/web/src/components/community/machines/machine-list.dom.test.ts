@@ -1,10 +1,16 @@
 import React from "react"
+import { renderToString } from "react-dom/server"
+import { render as renderNative } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import MeMachinesPage from "@/app/c/me/machines/page"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  goBackMobile: vi.fn(),
   query: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
@@ -90,6 +96,7 @@ vi.mock("@/hooks/community/use-machines", async (importOriginal) => ({ ...await 
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
   usePendingMachineTokenId: () => null,
+  useUiHandlers: () => ({ goBackMobile: mocks.goBackMobile }),
   useCommunityStore: { getState: () => ({ setPendingMachineTokenId: vi.fn() }) },
 }))
 vi.mock("@/lib/community-onboarding", () => ({
@@ -129,6 +136,37 @@ function withExactClass(container: HTMLElement, className: string): HTMLElement[
   return Array.from(container.querySelectorAll<HTMLElement>("*"))
     .filter((node) => node.className === className)
 }
+
+describe("SSR mobile Back footprint", () => {
+  it.each([false, true])("keeps the existing mobile header through hydrate with loading=%s", async loading => {
+    mocks.machines.current = []
+    mocks.machinesLoading.current = loading
+    mocks.machinesError.current = false
+    mocks.capacityPending.current = false
+    mocks.fetchLatestDaemonVersion.mockResolvedValue(null)
+    mocks.goBackMobile.mockClear()
+    const owner = await createCommunityQueryOwner()
+    const node = React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, React.createElement(MeMachinesPage))
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(node)
+    document.body.appendChild(container)
+    let view: ReturnType<typeof renderNative> | undefined
+    try {
+      const header = container.firstElementChild?.querySelector("header")
+      expect(header).not.toBeNull()
+      expect(header?.classList.contains("h-12")).toBe(true)
+      expect(header?.classList.contains("sm:hidden")).toBe(true)
+      expect(header?.querySelectorAll(loading ? '[data-slot="loading-back-placeholder"]' : '[aria-label="Back"]')).toHaveLength(1)
+      view = renderNative(node, { container, hydrate: true })
+      await act(async () => { await Promise.resolve() })
+      expect(container.firstElementChild?.querySelector("header")).toBe(header)
+      if (!loading) {
+        fireEvent.click(header!.querySelector('[aria-label="Back"]')!)
+        expect(mocks.goBackMobile).toHaveBeenCalledOnce()
+      }
+    } finally { view?.unmount(); container.remove(); owner.client.clear() }
+  })
+})
 
 describe("machine daemon update UI", () => {
   beforeEach(() => {

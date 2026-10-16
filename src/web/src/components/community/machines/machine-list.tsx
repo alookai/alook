@@ -90,7 +90,7 @@ function MachineListContent({ heading, cards }: { heading: ReactNode; cards: Rea
 
 function machineBackBar(onBack?: () => void, reserveBackSlot = false) {
   return onBack || reserveBackSlot ? (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6 sm:hidden">
       {onBack ? (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back">
           <ChevronLeft className="size-5" />

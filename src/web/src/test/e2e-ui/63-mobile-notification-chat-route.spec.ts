@@ -1,5 +1,5 @@
 import { devices, type Page } from "@playwright/test"
-import { DEFAULT_MESSAGE_PAGE_SIZE, type CommunityConversationEntryRead } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityConversationEntryRead } from "@alook/shared"
 import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
 import { readCommunityDocumentSeedFromHtml } from "./_fixtures/community-ssr-frame"
@@ -251,8 +251,8 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
       body: JSON.stringify({ lastReadMessageId: readPointer }),
     })
     expect(checkpoint.ok).toBe(true)
-    const defaultResponse = await fetch(`${WEB_URL}/api/community/channels/${channelId}/messages?entry=1`, { headers: { Cookie: actors.sessionCookie("bob") } })
-    expect(defaultResponse.ok).toBe(true)
+    const defaultResponse = await fetch(`${WEB_URL}/api/community/channels/${channelId}/messages?entry=1`, { headers: { Cookie: actors.sessionCookie("bob"), [COMMUNITY_CONTRACT_HEADER]: "3" } })
+    expect(defaultResponse.ok, `entry precondition status ${defaultResponse.status}`).toBe(true)
     const defaultEntry = await defaultResponse.json() as CommunityConversationEntryRead
     expect(defaultEntry.selection).toEqual({ reason: "read_pointer", anchorMessageId: readPointer })
     expect(defaultEntry.messages.some(message => message.id === channelMessageId)).toBe(false)

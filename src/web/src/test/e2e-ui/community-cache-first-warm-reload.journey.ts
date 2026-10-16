@@ -149,7 +149,7 @@ async function expectCacheFirstReload(
   page: Page,
   assertRscContent: () => Promise<void>,
   assertCachedContent: () => Promise<void>,
-  assertReconciledContent: () => Promise<void>, caseResources: CaseResources
+  assertReconciledContent: () => Promise<void>, caseResources: CaseResources, independentParentEntry?: string
 ): Promise<ReloadCapture> {
   await page.addInitScript((loadingSelectors) => {
     const state = {
@@ -191,13 +191,20 @@ async function expectCacheFirstReload(
   caseResources.own(releaseMessages, async (captured) => { captured() })
   let heldReads = 0
   let forwardedMessages = 0
+  let forwardedParentEntries = 0
   await page.route("**/api/community/**", async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue()
       return
     }
-    const path = new URL(route.request().url()).pathname
-    if (/\/(messages|pins|threads)(\/|$)/.test(path)) {
+    const url = new URL(route.request().url())
+    const path = url.pathname
+    const parentEntry = independentParentEntry && path === `/api/community/channels/${independentParentEntry}/messages` && url.searchParams.get("entry") === "1"
+    if (parentEntry) {
+      heldReads += 1
+      await readsGate
+      forwardedParentEntries += 1
+    } else if (/\/(messages|pins|threads)(\/|$)/.test(path)) {
       await messagesGate
       forwardedMessages += 1
     } else {
@@ -252,6 +259,7 @@ async function expectCacheFirstReload(
     expect(capture.marks.stable).toBeGreaterThanOrEqual(capture.marks.cached)
     releaseReads()
     await assertCachedContent()
+    if (independentParentEntry) expect(forwardedParentEntries).toBe(1)
     expect(forwardedMessages).toBe(0)
     releaseMessages()
     await assertReconciledContent()
@@ -340,7 +348,7 @@ test("a warm DM reload shows qualified RSC identity and history before browser r
   }, caseResources)
 })
 
-test("a warm desktop thread reload keeps RSC child and independently restores its parent", async ({ caseActors, caseResources }) => {
+test("a warm desktop thread reload keeps RSC child and independently reconciles its parent entry", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice"])
@@ -398,7 +406,7 @@ test("a warm desktop thread reload keeps RSC child and independently restores it
       .toBeVisible()
     await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.composerInput)).toBeVisible()
     await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toBeVisible()
-  }, caseResources)
+  }, caseResources, channelId)
 })
 
 test("a true-cold channel load reuses localized skeletons without a custom bootstrap", async ({ caseActors, caseResources }) => {

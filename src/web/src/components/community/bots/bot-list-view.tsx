@@ -31,7 +31,7 @@ function BotCardSkeleton() {
 
 function botBackBar(onBack?: () => void, reserveBackSlot = false) {
   return onBack || reserveBackSlot ? (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6 sm:hidden">
       {onBack ? (
         <Button
           variant="ghost"

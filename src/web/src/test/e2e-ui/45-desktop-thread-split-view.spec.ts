@@ -368,6 +368,7 @@ test.describe("desktop thread split view", () => {
     await resizeThreadPanel(page, 520)
     await parentInput.fill("Parent draft survives")
     await composerEditable(page, thread).fill("Child A draft")
+    await expect(parent.locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
     await parent.getByTestId(tid.threadIndicator(openerB)).scrollIntoViewIfNeeded()
     const scrollTop = await scroller.evaluate((node) => node.scrollTop)
     expect(scrollTop).toBeGreaterThan(0)
