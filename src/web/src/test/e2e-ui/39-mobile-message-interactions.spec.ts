@@ -569,13 +569,14 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(composerEditable(bob.page, bobThread)).toBeVisible()
   const threadTarget = alice.page.getByTestId(tid.message(threadBobMessageId))
   await expect(threadTarget).toBeVisible()
-  const restingThreadGap = await alice.page.evaluate(({ targetId, composerId }) => {
-    const target = document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector(`[data-testid="${targetId}"]`)?.getBoundingClientRect()
-    const composer = document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector(`[data-testid="${composerId}"]`)?.getBoundingClientRect()
+  const restingThreadGap = await alice.page.evaluate(({ targetId, composerId, threadPanelTestId }) => {
+    const target = document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector(`[data-testid="${targetId}"]`)?.getBoundingClientRect()
+    const composer = document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector(`[data-testid="${composerId}"]`)?.getBoundingClientRect()
     return target && composer ? composer.top - target.bottom : null
   }, {
     targetId: tid.message(threadBobMessageId),
     composerId: tid.channelComposerShell,
+    threadPanelTestId: tid.threadSplitPanel,
   })
   expect(restingThreadGap).not.toBeNull()
   expect(restingThreadGap!).toBeGreaterThanOrEqual(39)

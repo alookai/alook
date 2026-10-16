@@ -102,12 +102,13 @@ test.describe("mobile server header direct hierarchy", () => {
     page.off("response", observeStartupAttention)
     await page.waitForLoadState("networkidle")
 
-    await page.evaluate(({ composerTestId }) => {
-      const backControl = document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector('button[aria-label="Back"]')
+    await page.evaluate(({ composerTestId, threadPanelTestId }) => {
+      const backControl = document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector('button[aria-label="Back"]')
       Reflect.set(window, "__headerHierarchyBanner", backControl?.closest("header[role=banner]"))
-      Reflect.set(window, "__headerHierarchyComposer", document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector(`[data-testid="${composerTestId}"]`))
+      Reflect.set(window, "__headerHierarchyComposer", document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector(`[data-testid="${composerTestId}"]`))
     }, {
       composerTestId: tid.channelComposerShell,
+      threadPanelTestId: tid.threadSplitPanel,
     })
     let communityRequests = 0
     let newSockets = 0
@@ -120,20 +121,22 @@ test.describe("mobile server header direct hierarchy", () => {
     await page.setViewportSize({ width: 640, height: 844 })
     await expect(page.getByRole("button", { name: "Back" })).toBeVisible()
     await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.channelComposerShell)).toBeVisible()
-    expect(await page.evaluate(({ composerTestId }) => ({
-      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
-      composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector(`[data-testid="${composerTestId}"]`),
+    expect(await page.evaluate(({ composerTestId, threadPanelTestId }) => ({
+      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
+      composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector(`[data-testid="${composerTestId}"]`),
     }), {
       composerTestId: tid.channelComposerShell,
+      threadPanelTestId: tid.threadSplitPanel,
     })).toEqual({ banner: true, composer: true })
 
     await page.setViewportSize({ width: 639, height: 844 })
     await expect(page.getByRole("button", { name: "Back" })).toBeVisible()
-    expect(await page.evaluate(({ composerTestId }) => ({
-      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
-      composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector(`[data-testid="${composerTestId}"]`),
+    expect(await page.evaluate(({ composerTestId, threadPanelTestId }) => ({
+      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
+      composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector(`[data-testid="${composerTestId}"]`),
     }), {
       composerTestId: tid.channelComposerShell,
+      threadPanelTestId: tid.threadSplitPanel,
     })).toEqual({ banner: true, composer: true })
     expect(new URL(page.url()).pathname).toBe(pathname)
     expect(communityRequests).toBe(0)
