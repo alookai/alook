@@ -89,7 +89,7 @@ describe("shared Back ownership during page motion", () => {
     const { root, props, view } = setup()
     if (kind === "touch") { touch("touchstart", 10); touch("touchmove", 200) }
     else { progress(0); progress(0.5) }
-    expect(root.dataset.mobileBackPhase).toBe("dragging")
+    expect(root.dataset.mobileBackPhase).toBe(kind === "touch" ? undefined : "dragging")
     view.rerender(<Fixture {...props} owner />)
     expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     expect(props.close).not.toHaveBeenCalled()

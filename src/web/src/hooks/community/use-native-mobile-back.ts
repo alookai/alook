@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react"
-import { isMobile } from "@alook/shared"
+import { isMobile, isTauri } from "@alook/shared"
 import { hasNativeBackOwner, NATIVE_BACK_OWNER_CHANGE_EVENT, requestNativeBack } from "@/components/ui/native-back-layer"
 
 export const MOBILE_BACK_EDGE_PX = 24
@@ -134,9 +134,9 @@ export function useNativeMobileBack({
         } else reset()
       }, 200)
     }
-    const paint = (x: number) => {
+    const paint = (x: number, follow = true) => {
       if (occupied() || !actions.current.animate) interrupt()
-      if (!root || pageBlocked) return
+      if (!root || pageBlocked || !follow) return
       root.dataset.mobileBackPhase = "dragging"
       root.style.setProperty("--mobile-back-x", `${x}px`)
       root.style.setProperty("--mobile-back-progress", `${x / Math.max(1, root.clientWidth)}`)
@@ -176,7 +176,7 @@ export function useNativeMobileBack({
       if (root) paint(Math.max(0, Math.min(1, value!)) * root.clientWidth)
     }
     const cancel = () => {
-      if (gesture?.horizontal && root) settle(false)
+      if (gesture?.horizontal && root && isTauri()) settle(false)
       else reset()
     }
     const start = (event: TouchEvent) => {
@@ -207,7 +207,7 @@ export function useNativeMobileBack({
       gesture.velocity = (touch.clientX - gesture.lastX) / Math.max(1, now - gesture.at)
       gesture.lastX = touch.clientX
       gesture.at = now
-      paint(Math.max(0, Math.min(root?.clientWidth ?? 0, dx)))
+      paint(Math.max(0, Math.min(root?.clientWidth ?? 0, dx)), isTauri())
     }
     const end = (event: TouchEvent) => {
       const current = gesture
@@ -221,7 +221,7 @@ export function useNativeMobileBack({
         ? dx >= root.clientWidth * 0.35 || dx >= 32 && current.velocity > 0.5 && performance.now() - current.at < 100
         : dx >= 64)
       if (commit) handleBack(event)
-      else { event.preventDefault(); settle(false) }
+      else { event.preventDefault(); cancel() }
     }
     window.addEventListener(NATIVE_MOBILE_BACK_EVENT, handleBack)
     document.addEventListener(NATIVE_BACK_OWNER_CHANGE_EVENT, ownerChanged)
