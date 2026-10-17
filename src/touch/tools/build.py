@@ -3,6 +3,7 @@ import hashlib
 import csv
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -30,6 +31,13 @@ def prepare_client_configuration(root, client_id='', require_secret=False):
     return header
 
 
+def prepare_lvgl_configuration(root, cache):
+    selected = cache / 'sketchbook/libraries/lv_conf.h'
+    selected.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(root / 'firmware/lv_conf.h', selected)
+    return selected
+
+
 def source_inputs():
     files = [ROOT / 'dependencies.lock.json', ROOT / '.deploy-version', ROOT / 'firmware/lv_conf.h', ROOT / 'tools/build.py', ROOT / 'tools/release.py']
     files += sorted(path for path in (ROOT / 'firmware/touch').rglob('*') if path.is_file() and path.suffix in {'.h', '.cpp', '.c', '.ino', '.csv'})
@@ -41,11 +49,15 @@ def main():
     require_secret = eligible() and os.environ.get('GITHUB_EVENT_NAME') != 'pull_request'
     prepare_client_configuration(ROOT, os.environ.get('TOUCH_CLIENT_ID', ''), require_secret=require_secret)
     command = cli_command(configure())
+    selected_lvgl = prepare_lvgl_configuration(ROOT, CACHE)
     inputs = source_inputs()
+    lvgl_sha256 = hashlib.sha256(selected_lvgl.read_bytes()).hexdigest()
+    if lvgl_sha256 != inputs['firmware/lv_conf.h']:
+        raise SystemExit('Selected LVGL configuration differs from the source input')
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
     options = [
-        'compile', '--fqbn', FQBN, '--jobs', '2',
+        'compile', '--clean', '--fqbn', FQBN, '--jobs', '2',
         '--build-path', str(build / 'objects'), '--output-dir', str(build / 'firmware'),
         str(ROOT / 'firmware/touch'),
     ]
@@ -56,6 +68,8 @@ def main():
         raise SystemExit(result.returncode)
     if inputs != source_inputs() or info != metadata():
         raise SystemExit('Firmware inputs changed during compilation; rebuild the stable candidate')
+    if not selected_lvgl.is_file() or hashlib.sha256(selected_lvgl.read_bytes()).hexdigest() != lvgl_sha256:
+        raise SystemExit('Selected LVGL configuration changed during compilation; rebuild the stable candidate')
     partitions = []
     for row in csv.reader((build / 'objects/partitions.csv').read_text().splitlines()):
         if row and not row[0].lstrip().startswith('#'):
@@ -75,6 +89,7 @@ def main():
         'binary': {'bytes': len(image), 'sha256': hashlib.sha256(image).hexdigest()},
         'dependencies': json.loads((ROOT / 'dependencies.lock.json').read_text()),
         'buildInfo': info,
+        'lvglConfiguration': {'source': 'firmware/lv_conf.h', 'selectedPath': str(selected_lvgl), 'sha256': lvgl_sha256},
     }
     (build / 'compile-input.json').write_text(json.dumps(receipt, indent=2) + '\n')
 

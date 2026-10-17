@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
+import { createRequire } from "node:module"
 import { readSpeechInput, SPEECH_MODEL, SPEECH_MAX_BYTES, speechAudio, synthesizeSpeech } from "./speech"
+const require = createRequire(import.meta.url)
+const { Response: NativeResponse } = createRequire(require.resolve("wrangler"))("miniflare") as { Response: typeof Response }
 const mp3 = new Uint8Array([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0])
 function wav() {
   const audio = new Uint8Array(48)
@@ -12,6 +15,20 @@ function wav() {
 const request = (input: unknown, type = "application/json") => new Request("https://fixture.invalid/api/audio/speech", { method: "POST", headers: { "Content-Type": type }, body: JSON.stringify(input) })
 const bytes = async (response: Response) => new Uint8Array(await response.arrayBuffer())
 describe("generic speech input and native AI output", () => {
+  it.each(["json", "binary"])("accepts the installed native SDK Response constructor: %s", async shape => {
+    const audio = wav()
+    const input = shape === "json" ? NativeResponse.json({ audio: Buffer.from(audio).toString("base64") }) : new NativeResponse(audio, { headers: { "Content-Type": "audio/wav" } })
+    expect(input instanceof Response).toBe(false)
+    const response = await speechAudio(input)
+    expect(response.headers.get("Content-Type")).toBe("audio/wav")
+    expect(await bytes(response)).toEqual(audio)
+  })
+  it.each([200, 503])("rejects and cancels invalid native SDK responses: %s", async status => {
+    const cancel = vi.fn()
+    const input = new NativeResponse(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("bad audio")) }, cancel }), { status, headers: { "Content-Type": "audio/wav" } })
+    await expect(speechAudio(input)).rejects.toMatchObject({ status: 502 })
+    expect(cancel).toHaveBeenCalledTimes(1)
+  })
   it("bounds input and passes the explicit language unchanged to the native model", async () => {
     const input = await readSpeechInput(request({ text: "  你好，世界  ", lang: "zh" }))
     expect(input).toEqual({ text: "你好，世界", lang: "zh" })

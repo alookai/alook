@@ -107,7 +107,7 @@ void Ui::highlight(lv_obj_t* item, uint32_t color) {
   lv_obj_set_style_text_color(lv_obj_get_child(item, 0), lv_color_black(), 0);
   lv_point_t text_size{};
   lv_txt_get_size(&text_size, lv_label_get_text(lv_obj_get_child(item, 0)), &control_font, 0, 0, 276, LV_TEXT_FLAG_NONE);
-  const int width = std::min(300, text_size.x + 40);
+  const lv_coord_t width = std::min<lv_coord_t>(300, text_size.x + 40);
   lv_obj_set_width(item, width);
   lv_obj_set_width(lv_obj_get_child(item, 0), width - 24);
 }

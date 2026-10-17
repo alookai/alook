@@ -20,6 +20,7 @@ export async function readSpeechInput(request: Request): Promise<SpeechInput> {
 }
 
 const invalidAudio = () => new AudioError("Speech service returned invalid audio", 502)
+const isResponse = (result: unknown): result is Response => result instanceof Response || Object.prototype.toString.call(result) === "[object Response]"
 const isMp3 = (bytes: Uint8Array) => bytes.byteLength >= 4 && (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33 || bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)
 const isRiff = (bytes: Uint8Array) => bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
 
@@ -104,7 +105,7 @@ async function streamAudio(response: Response): Promise<Response> {
 
 export async function speechAudio(result: unknown): Promise<Response> {
   try {
-    if (result instanceof Response) {
+    if (isResponse(result)) {
       if (!result.ok) { await result.body?.cancel(); throw invalidAudio() }
       const type = result.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase()
       if (type && ["audio/mpeg", "audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave", "application/octet-stream"].includes(type)) return await streamAudio(result)
@@ -113,7 +114,7 @@ export async function speechAudio(result: unknown): Promise<Response> {
     }
     return decodedAudio(result)
   } catch {
-    if (result instanceof Response && result.body && !result.body.locked) await result.body.cancel().catch(() => undefined)
+    if (isResponse(result) && result.body && !result.body.locked) await result.body.cancel().catch(() => undefined)
     throw invalidAudio()
   }
 }
