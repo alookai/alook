@@ -565,8 +565,7 @@ void Application::friendship_state() {
 }
 
 void Application::tick() {
-  const auto now = millis();
-  if (restart_at_ && static_cast<int32_t>(now - restart_at_) >= 0) esp_restart();
+  if (restart_at_ && static_cast<int32_t>(millis() - restart_at_) >= 0) esp_restart();
   if (portal_) provisioning_.process();
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (connected != online_) {
@@ -575,6 +574,7 @@ void Application::tick() {
     else { data_.bot_online = false; retire_presence(data_.dms); nearby_.stop(); broadcast_handle_.clear(); peer_code_.clear(); peer_id_.clear(); data_.peer_name.clear(); data_.peer_handle.clear(); data_.peer_state.clear(); data_.status = "Offline · reconnecting"; }
   }
   for (unsigned i = 0; i < 12; ++i) { auto result = network_.receive(); if (!result) break; response(std::move(*result)); }
+  const auto now = millis();
   if (state_.page == Page::Startup && now - boot_ >= 1200) {
     state_.page = Page::Network; data_.status = "Connecting to saved Wi-Fi…"; render();
   }
