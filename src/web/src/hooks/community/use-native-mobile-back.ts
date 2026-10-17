@@ -85,12 +85,15 @@ export function useNativeMobileBack({
     let pageBlocked = false
     let nativeProgress = false
     let timer: ReturnType<typeof setTimeout> | undefined
+    let stopSettling: (() => void) | undefined
     let gesture: { id: number; x: number; y: number; horizontal: boolean; lastX: number; at: number; velocity: number } | null = null
     const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
     const occupied = () => composing.current === document.activeElement || hasNativeBackOwner(document)
     const clearMotion = () => {
       clearTimeout(timer)
       timer = undefined
+      stopSettling?.()
+      stopSettling = undefined
       root?.style.removeProperty("--mobile-back-x")
       root?.style.removeProperty("--mobile-back-progress")
       root?.removeAttribute("data-mobile-back-phase")
@@ -115,10 +118,15 @@ export function useNativeMobileBack({
     const findRoot = () => actions.current.animate && parentPath && !occupied()
       ? document.querySelector<HTMLElement>('[data-mobile-back-surface="detail"]') : null
     const settle = (commit: boolean) => {
+      const waitForTransition = commit && !isTauri() && !nativeProgress
       gesture = null
       nativeProgress = false
       if (commit && (pageBlocked || occupied())) { reset(); return }
-      if (!root || reduced()) {
+      const foreground = waitForTransition
+        ? root?.querySelector<HTMLElement>('[data-mobile-back-thread] [data-panel][id="thread"]')
+          ?? root?.querySelector<HTMLElement>('[data-panel][id="main"]')
+        : null
+      if (!root || reduced() || waitForTransition && !foreground) {
         reset()
         if (commit && parentPath) actions.current.replacePath(parentPath)
         return
@@ -126,13 +134,28 @@ export function useNativeMobileBack({
       root.dataset.mobileBackPhase = "settling"
       root.style.setProperty("--mobile-back-x", commit ? `${root.clientWidth}px` : "0px")
       root.style.setProperty("--mobile-back-progress", commit ? "1" : "0")
-      timer = setTimeout(() => {
+      const finish = () => {
         timer = undefined
+        stopSettling?.()
+        stopSettling = undefined
         if (commit && parentPath && !pageBlocked && !occupied() && actions.current.animate) {
           root?.setAttribute("data-mobile-back-phase", "committing")
           actions.current.replacePath(parentPath)
         } else reset()
-      }, 200)
+      }
+      if (foreground) {
+        const complete = (event: TransitionEvent) => {
+          if (event.target !== foreground || event.propertyName !== "transform") return
+          if (event.type === "transitionend") finish()
+          else reset()
+        }
+        foreground.addEventListener("transitionend", complete)
+        foreground.addEventListener("transitioncancel", complete)
+        stopSettling = () => {
+          foreground.removeEventListener("transitionend", complete)
+          foreground.removeEventListener("transitioncancel", complete)
+        }
+      } else timer = setTimeout(finish, 200)
     }
     const paint = (x: number, follow = true) => {
       if (occupied() || !actions.current.animate) interrupt()
@@ -147,7 +170,7 @@ export function useNativeMobileBack({
       const stale = nativeGesture.current === "stale"
       nativeGesture.current = null
       if (stale) { pageBlocked = false; return reset() }
-      if (timer !== undefined || root?.dataset.mobileBackPhase === "committing") return
+      if (timer !== undefined || stopSettling || root?.dataset.mobileBackPhase === "committing") return
       const blocked = (gesture !== null || nativeProgress) && pageBlocked
       pageBlocked = false
       if (composing.current === document.activeElement) return reset()
@@ -164,7 +187,7 @@ export function useNativeMobileBack({
         if (nativeProgress) settle(false)
         return
       }
-      if (!Number.isFinite(value) || timer !== undefined || root?.dataset.mobileBackPhase === "committing") return
+      if (!Number.isFinite(value) || timer !== undefined || stopSettling || root?.dataset.mobileBackPhase === "committing") return
       if (!nativeProgress) {
         if (value !== 0 || detail?.started !== true) return
         reset()
@@ -180,7 +203,7 @@ export function useNativeMobileBack({
       else reset()
     }
     const start = (event: TouchEvent) => {
-      if (timer !== undefined || root?.dataset.mobileBackPhase === "committing") return
+      if (timer !== undefined || stopSettling || root?.dataset.mobileBackPhase === "committing") return
       reset()
       if (event.touches.length !== 1 || event.defaultPrevented) return
       const touch = event.touches[0]
