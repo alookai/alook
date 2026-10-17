@@ -23,6 +23,8 @@ import { tid } from "@/lib/community/testids"
 import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 import { ThreadPanelActionsFrame } from "./thread-panel-actions"
 
+const CHANNEL_OVERFLOW_GAP_CLASS_NAME = "ml-2"
+
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
 // doesn't shift when the real header lands.
@@ -63,7 +65,7 @@ export function ChannelHeaderSkeleton({
                 {!compactActions && index === 1 && (
                   <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
                 )}
-                <span className={`grid size-7 shrink-0 place-items-center ${index > 1 && kind !== "thread" ? "ml-1" : ""}`}>
+                <span className={`grid size-7 shrink-0 place-items-center ${index === 2 ? CHANNEL_OVERFLOW_GAP_CLASS_NAME : ""}`}>
                   <Skeleton className="size-5 rounded-md" />
                 </span>
               </span>
@@ -190,7 +192,7 @@ function ChannelOverflowMenu({
             variant="ghost"
             size="icon-sm"
             aria-label="More channel options"
-            className={`text-muted-foreground hover:text-foreground ${activeInside ? "bg-accent text-foreground" : ""}`}
+            className={`${CHANNEL_OVERFLOW_GAP_CLASS_NAME} text-muted-foreground hover:text-foreground ${activeInside ? "bg-accent text-foreground" : ""}`}
           />
         }
       >
