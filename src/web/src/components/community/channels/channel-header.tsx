@@ -63,13 +63,15 @@ export function ChannelHeaderSkeleton({
                 {!compactActions && index === 1 && (
                   <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
                 )}
-                <Skeleton className={index > 1 && kind !== "thread" ? "ml-1 size-7 rounded-md" : "size-7 rounded-md"} />
+                <span className={`grid size-7 shrink-0 place-items-center ${index > 1 && kind !== "thread" ? "ml-1" : ""}`}>
+                  <Skeleton className="size-5 rounded-md" />
+                </span>
               </span>
             ))}
           </span>}
           {kind === "thread" && (compactActions || layoutPending) && <ThreadPanelActionsFrame>
-            <Skeleton className="size-7 rounded-md" />
-            <Skeleton className="size-7 rounded-md" />
+            <span className="grid size-7 shrink-0 place-items-center"><Skeleton className="size-5 rounded-md" /></span>
+            <span className="grid size-7 shrink-0 place-items-center"><Skeleton className="size-5 rounded-md" /></span>
           </ThreadPanelActionsFrame>}
         </>
       )}

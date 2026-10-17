@@ -139,6 +139,7 @@ export function MediaAttachmentBlock({
     },
   }
 
+  const canStop = mounted && status !== "idle" && status !== "error"
   const playbackLabel = `${isPlaying ? "Pause" : status === "blocked" ? "Try playing" : "Play"} ${attachment.name}`
 
   return (
@@ -163,8 +164,8 @@ export function MediaAttachmentBlock({
               <span className="text-xs font-medium">{status === "error" ? "Retry playback" : "Play video"}</span>
             </button>
           )}
-          {mounted && status !== "error" && (
-            <div className="absolute bottom-2 left-2 flex gap-2">
+          <div className="absolute bottom-2 left-2 flex gap-2">
+            {mounted && status !== "error" ? (
               <Button
                 data-testid={tid.mediaPlay(attachment.name)}
                 type="button"
@@ -176,21 +177,20 @@ export function MediaAttachmentBlock({
               >
                 {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
               </Button>
-              {status !== "idle" && (
-                <Button
-                  data-testid={tid.mediaCollapse(attachment.name)}
-                  type="button"
-                  variant="secondary"
-                  size="icon-sm"
-                  className="size-11 sm:size-8"
-                  onClick={stopPlayer}
-                  aria-label={`Stop playback ${attachment.name}`}
-                >
-                  <Square className="size-4" />
-                </Button>
-              )}
-            </div>
-          )}
+            ) : <span aria-hidden="true" className="size-11 shrink-0 sm:size-8" />}
+            <Button
+              data-testid={tid.mediaCollapse(attachment.name)}
+              type="button"
+              variant="secondary"
+              size="icon-sm"
+              className="size-11 sm:size-8"
+              onClick={stopPlayer}
+              disabled={!canStop}
+              aria-label={`Stop playback ${attachment.name}`}
+            >
+              <Square className="size-4" />
+            </Button>
+          </div>
           {mounted && status === "loading" && (
             <span
               data-testid={tid.mediaStatus(attachment.name)}
@@ -264,14 +264,7 @@ export function MediaAttachmentBlock({
             <RefreshCw className="size-4" />
           </Button>
         )}
-        {mediaKind === "audio" && status === "idle" && (
-          <span
-            data-media-stop-slot
-            aria-hidden="true"
-            className="size-11 shrink-0 sm:size-8"
-          />
-        )}
-        {mediaKind === "audio" && mounted && status !== "idle" && status !== "error" && (
+        {mediaKind === "audio" && (
           <Button
             data-testid={tid.mediaCollapse(attachment.name)}
             type="button"
@@ -279,6 +272,7 @@ export function MediaAttachmentBlock({
             size="icon-sm"
             className="size-11 text-muted-foreground hover:text-foreground focus-visible:text-foreground sm:size-8"
             onClick={stopPlayer}
+            disabled={!canStop}
             aria-label={`Stop playback ${attachment.name}`}
           >
             <Square className="size-4" />
