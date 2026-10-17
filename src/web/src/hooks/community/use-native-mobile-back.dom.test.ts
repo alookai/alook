@@ -398,10 +398,12 @@ describe("layered mobile back motion", () => {
     roots.splice(0).forEach((root) => root.remove())
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
-  it.each(["Web", "Native"])("keeps %s touch painting and completes once after release", (platform) => {
+  it.each(["Web", "Native"])("keeps iOS %s touch painting and completes once after release", (platform) => {
     vi.useFakeTimers()
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)")
     if (platform === "Native") vi.stubGlobal("__TAURI__", {})
     const { root, foreground, props, renderer } = mounted()
     touch("touchstart", 10)
@@ -430,6 +432,39 @@ describe("layered mobile back motion", () => {
     expect(root.dataset.mobileBackPhase).toBe("committing")
     renderer.unmount()
     expect(root.style.getPropertyValue("--mobile-back-x")).toBe("")
+  })
+
+  it.each(["Web", "Native"])("leaves Android %s edge touch to the platform while retaining public Back", (platform) => {
+    vi.useFakeTimers()
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Linux; Android 16)")
+    if (platform === "Native") vi.stubGlobal("__TAURI__", {})
+    const { root, foreground, props } = mounted()
+    touch("touchstart", 10)
+    expect(touch("touchmove", 200).defaultPrevented).toBe(false)
+    expect(touch("touchend", 200).defaultPrevented).toBe(false)
+    touch("touchcancel", 200)
+    expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
+    expect(root.style.getPropertyValue("--mobile-back-x")).toBe("")
+    expect(props.dismissShellOverlay).not.toHaveBeenCalled()
+    expect(props.replacePath).not.toHaveBeenCalled()
+
+    props.dismissShellOverlay.mockReturnValueOnce(true)
+    dispatchBack()
+    expect(props.dismissShellOverlay).toHaveBeenCalledOnce()
+    expect(props.replacePath).not.toHaveBeenCalled()
+    if (platform === "Native") {
+      window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: 0, started: true } }))
+      window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: 0.5 } }))
+      expect(root.style.getPropertyValue("--mobile-back-x")).toBe("195px")
+    }
+    dispatchBack()
+    expect(root.dataset.mobileBackPhase).toBe("settling")
+    vi.advanceTimersByTime(200)
+    if (platform === "Web") {
+      expect(props.replacePath).not.toHaveBeenCalled()
+      transition(foreground)
+    }
+    expect(props.replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
   })
 
   it("keeps settling across callback changes on the same committed route", () => {

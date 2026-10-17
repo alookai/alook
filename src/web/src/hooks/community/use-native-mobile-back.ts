@@ -252,10 +252,12 @@ export function useNativeMobileBack({
     window.addEventListener("pagehide", invalidate)
     if (mobile) {
       window.addEventListener(NATIVE_MOBILE_BACK_PROGRESS_EVENT, progress)
-      document.addEventListener("touchstart", start, { passive: true, capture: true })
-      document.addEventListener("touchmove", move, { passive: false, capture: true })
-      document.addEventListener("touchend", end, { passive: false, capture: true })
-      document.addEventListener("touchcancel", cancel, true)
+      if (!/android/i.test(navigator.userAgent)) {
+        document.addEventListener("touchstart", start, { passive: true, capture: true })
+        document.addEventListener("touchmove", move, { passive: false, capture: true })
+        document.addEventListener("touchend", end, { passive: false, capture: true })
+        document.addEventListener("touchcancel", cancel, true)
+      }
       document.addEventListener("visibilitychange", invalidate)
       window.addEventListener("resize", invalidate)
     }
