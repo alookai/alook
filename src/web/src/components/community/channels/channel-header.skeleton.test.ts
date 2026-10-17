@@ -33,7 +33,7 @@ describe("ChannelHeaderSkeleton", () => {
     expect(html).toContain('data-slot="message-header-actions"')
     expect(html).toMatch(/class="[^"]*size-11[^"]*sm:hidden[^"]*"/)
     expect(html).toMatch(/class="[^"]*size-6[^"]*rounded-md[^"]*"/)
-    expect(html).toMatch(/class="[^"]*ml-1 size-7 rounded-md"/)
+    expect(html).toMatch(/class="grid size-7 [^"]*ml-0\.5"/)
     expect(html).not.toContain("<button")
     expect(html).not.toContain('aria-label="Back"')
   })
