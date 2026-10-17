@@ -164,33 +164,6 @@ export function MediaAttachmentBlock({
               <span className="text-xs font-medium">{status === "error" ? "Retry playback" : "Play video"}</span>
             </button>
           )}
-          <div className="absolute bottom-2 left-2 flex gap-2">
-            {mounted && status !== "error" ? (
-              <Button
-                data-testid={tid.mediaPlay(attachment.name)}
-                type="button"
-                variant="secondary"
-                size="icon-sm"
-                className="size-11 sm:size-8"
-                onClick={togglePlayback}
-                aria-label={playbackLabel}
-              >
-                {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
-              </Button>
-            ) : <span aria-hidden="true" className="size-11 shrink-0 sm:size-8" />}
-            <Button
-              data-testid={tid.mediaCollapse(attachment.name)}
-              type="button"
-              variant="secondary"
-              size="icon-sm"
-              className="size-11 sm:size-8"
-              onClick={stopPlayer}
-              disabled={!canStop}
-              aria-label={`Stop playback ${attachment.name}`}
-            >
-              <Square className="size-4" />
-            </Button>
-          </div>
           {mounted && status === "loading" && (
             <span
               data-testid={tid.mediaStatus(attachment.name)}
@@ -264,20 +237,31 @@ export function MediaAttachmentBlock({
             <RefreshCw className="size-4" />
           </Button>
         )}
-        {mediaKind === "audio" && (
+        {mediaKind === "video" && mounted && status !== "error" && (
           <Button
-            data-testid={tid.mediaCollapse(attachment.name)}
+            data-testid={tid.mediaPlay(attachment.name)}
             type="button"
             variant="ghost"
             size="icon-sm"
             className="size-11 text-muted-foreground hover:text-foreground focus-visible:text-foreground sm:size-8"
-            onClick={stopPlayer}
-            disabled={!canStop}
-            aria-label={`Stop playback ${attachment.name}`}
+            onClick={togglePlayback}
+            aria-label={playbackLabel}
           >
-            <Square className="size-4" />
+            {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
           </Button>
         )}
+        <Button
+          data-testid={tid.mediaCollapse(attachment.name)}
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-11 text-muted-foreground hover:text-foreground focus-visible:text-foreground sm:size-8"
+          onClick={stopPlayer}
+          disabled={!canStop}
+          aria-label={`Stop playback ${attachment.name}`}
+        >
+          <Square className="size-4" />
+        </Button>
         <Button
           data-testid={tid.mediaDownload(attachment.name)}
           type="button"
