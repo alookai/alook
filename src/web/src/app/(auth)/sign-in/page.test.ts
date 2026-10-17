@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   getCloudflareContext: vi.fn(),
+  connection: vi.fn(async () => {}),
 }))
+
+vi.mock("next/server", () => ({ connection: mocks.connection }))
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: mocks.getCloudflareContext,
@@ -14,6 +17,26 @@ vi.mock("./sign-in-client", () => ({
 import SignInPage from "./page"
 
 describe("sign-in server configuration", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("does not read bindings when the request boundary rejects static rendering", async () => {
+    const boundary = new Error("Request required")
+    mocks.connection.mockRejectedValueOnce(boundary)
+    await expect(SignInPage()).rejects.toBe(boundary)
+    expect(mocks.getCloudflareContext).not.toHaveBeenCalled()
+  })
+
+  it("waits for the request before reading runtime configuration", async () => {
+    let resolve!: () => void
+    mocks.connection.mockImplementationOnce(() => new Promise<void>(done => { resolve = done }))
+    mocks.getCloudflareContext.mockResolvedValueOnce({ env: { NODE_ENV: "production" } })
+    const pending = SignInPage()
+    expect(mocks.getCloudflareContext).not.toHaveBeenCalled()
+    resolve()
+    expect((await pending).props).toMatchObject({ isProd: true, appleEnabled: false })
+    expect(mocks.getCloudflareContext).toHaveBeenCalledOnce()
+  })
+
   it("passes a disabled Apple flag when all Apple secrets are absent", async () => {
     mocks.getCloudflareContext.mockResolvedValueOnce({
       env: { NODE_ENV: "production" },

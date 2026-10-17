@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "arduinoCli": {
+    "version": "1.5.1",
+    "assets": {
+      "arduino-cli_1.5.1_Linux_32bit.tar.gz": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Linux_32bit.tar.gz",
+        "sha256": "85ed48978e7553b16f187971f8202d380421b352696ab28327a36cc6d8f11c6a"
+      },
+      "arduino-cli_1.5.1_Linux_64bit.tar.gz": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Linux_64bit.tar.gz",
+        "sha256": "28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b"
+      },
+      "arduino-cli_1.5.1_Linux_ARM64.tar.gz": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Linux_ARM64.tar.gz",
+        "sha256": "1e69e077479f300614d4551334e0a33f08ee40b04315d83b8e7e0e94f0d0ee62"
+      },
+      "arduino-cli_1.5.1_Linux_ARMv6.tar.gz": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Linux_ARMv6.tar.gz",
+        "sha256": "168aa0c632d7079fea0ccd30b3f1e928e89e2f59a339404f1d2f4a07ed6cc566"
+      },
+      "arduino-cli_1.5.1_Linux_ARMv7.tar.gz": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Linux_ARMv7.tar.gz",
+        "sha256": "890af36e9873606e4dfa743534846186621b9f3a339175ea3ec481adecf07143"
+      },
+      "arduino-cli_1.5.1_macOS_64bit.tar.gz": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_macOS_64bit.tar.gz",
+        "sha256": "c982e940027996bea9901050e95fae99c59c1dcfee54beedecaf28141e7bf2e7"
+      },
+      "arduino-cli_1.5.1_macOS_ARM64.tar.gz": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_macOS_ARM64.tar.gz",
+        "sha256": "cb952e8c1621c95ef5f1d17831c945e3d0ec5973f89c557a7ec8feb9c4f7d4c9"
+      },
+      "arduino-cli_1.5.1_proto.zip": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_proto.zip",
+        "sha256": "0ca5cf56b90adbc33d4a01955ac72cc18d86b7e646af0acb1c69069b9873bff6"
+      },
+      "arduino-cli_1.5.1_Windows_32bit.zip": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Windows_32bit.zip",
+        "sha256": "885e491c7c7fb8b396151c09daa5c4c56d8b60697d172a5cfe72c939eed50fe3"
+      },
+      "arduino-cli_1.5.1_Windows_64bit.zip": {
+        "url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Windows_64bit.zip",
+        "sha256": "fabe42e0eb04d00e776a66178299ff95a46c623dbc260f997e58fd514853dd40"
+      }
+    }
+  },
+  "core": {
+    "id": "esp32:esp32",
+    "version": "3.3.11",
+    "index": "https://espressif.github.io/arduino-esp32/package_esp32_index.json"
+  },
+  "waveshare": {
+    "commit": "b1f60c6fa708099bc3f1e9cb9e81d72b2e435c37",
+    "url": "https://codeload.github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C/tar.gz/b1f60c6fa708099bc3f1e9cb9e81d72b2e435c37",
+    "sha256": "c356caa1ce42d787d3e6890ce36e6c52e74ad2ac45acba3962f5f97e71ce2418"
+  },
+  "speaker": {
+    "commit": "c9ed3efaf40a668fe0d3bec3d1aa91f52d58fab4",
+    "url": "https://codeload.github.com/hervestudio/firmware-badge/tar.gz/c9ed3efaf40a668fe0d3bec3d1aa91f52d58fab4",
+    "sha256": "0713362fc6f56c57fb796b17086b9b6a0407b1a0472bb8d8cbd4eb2799a885cd"
+  },
+  "libraries": [
+    {
+      "name": "ArduinoJson",
+      "version": "7.4.3",
+      "url": "https://downloads.arduino.cc/libraries/github.com/bblanchon/ArduinoJson-7.4.3.zip",
+      "sha256": "cd8d2f7e4f06eb7e215beecb0de5326a82d047a994e84246572ad73ddc52746f"
+    },
+    {
+      "name": "WebSockets",
+      "version": "2.7.2",
+      "url": "https://downloads.arduino.cc/libraries/github.com/Links2004/WebSockets-2.7.2.zip",
+      "sha256": "cace4969401d5a015d3558fd501c7449a946beaa90b7313cc5b262014b54ae7e"
+    },
+    {
+      "name": "WiFiManager",
+      "version": "2.0.17",
+      "url": "https://downloads.arduino.cc/libraries/github.com/tzapu/WiFiManager-2.0.17.zip",
+      "sha256": "88b64b7dd123f30b2e7fec0f96f260abd354507dff347c038b2abfd929ba35e1"
+    }
+  ],
+  "font": {
+    "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+    "sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+    "commit": "f8d157532fbfaeda587e826d4cd5b21a49186f7c",
+    "name": "NotoSansCJKsc-Regular.otf",
+    "converter": "lv_font_conv@1.5.3"
+  },
+  "webp": {
+    "url": "https://codeload.github.com/webmproject/libwebp/tar.gz/refs/tags/v1.6.0",
+    "sha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+    "version": "1.6.0"
+  },
+  "stb": {
+    "commit": "2c980bb59875b0d32144a71867fbdebb2f77cd20",
+    "files": {
+      "stb_image.h": {
+        "url": "https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/stb_image.h",
+        "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
+      },
+      "stb_image_resize2.h": {
+        "url": "https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/stb_image_resize2.h",
+        "sha256": "173e654634f6ccaad98f603e686ea212eec1fe8ea6d2a5e5e8056efa10ae3880"
+      },
+      "LICENSE": {
+        "url": "https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/LICENSE",
+        "sha256": "bebfe904b14301657e4e5d655c811d51fd31b97c455b9cc2d8600d6bac6cff63"
+      }
+    }
+  },
+  "uiFont": {
+    "name": "LilitaOne-Regular.ttf",
+    "commit": "b9f4a43f3684f93a02b88133755deb51508c2fcf",
+    "url": "https://raw.githubusercontent.com/google/fonts/b9f4a43f3684f93a02b88133755deb51508c2fcf/ofl/lilitaone/LilitaOne-Regular.ttf",
+    "sha256": "f5b641c45c69d772ee4eda687bc9fda411d5cad6b0b45371491da4580cbc8d59"
+  }
+}

@@ -75,12 +75,14 @@ export function useShellProfileController({
   const searchParams = useSearchParams()
   const billingReturn = readBillingReturn(searchParams.get("billing"))
   const billingRequested = searchParams.get("settings") === "billing" || Boolean(billingReturn)
+  const devicesRequested = searchParams.get("settings") === "devices"
   const closeSettings = () => {
     setEditingProfile(false)
-    if (billingRequested) {
+    if (billingRequested || devicesRequested) {
       const next = new URLSearchParams(searchParams.toString())
       next.delete("settings")
-      next.delete("billing")
+      if (devicesRequested) next.delete("user_code")
+      else next.delete("billing")
       window.history.replaceState(null, "", `${pathname}${next.size ? `?${next}` : ""}${window.location.hash}`)
     }
   }
@@ -350,7 +352,8 @@ export function useShellProfileController({
 
   const userSettingsProps: ComponentProps<typeof UserSettings> = {
     onClose: closeSettings,
-    initialTab: billingRequested ? "billing" : "profile",
+    initialTab: devicesRequested ? "devices" : billingRequested ? "billing" : "profile",
+    deviceUserCode: devicesRequested ? searchParams.get("user_code") ?? "" : "",
     billingReturn,
     userId: currentUser.id,
     userName: currentUser.name,
@@ -411,7 +414,7 @@ export function useShellProfileController({
     onAttachmentPreviewOpenChange: (open: boolean) => {
       if (!open) setAttachmentPreview(null)
     },
-    editingProfile: editingProfile || billingRequested,
+    editingProfile: editingProfile || billingRequested || devicesRequested,
     openUserSettings: () => setEditingProfile(true),
     onUserSettingsOpenChange: (open: boolean) => {
       if (!open) closeSettings()

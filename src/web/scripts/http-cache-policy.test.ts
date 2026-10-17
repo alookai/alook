@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { getImageProps } from "next/image"
+import { normalizeConfig } from "next/dist/server/config-shared"
+import { PHASE_PRODUCTION_BUILD } from "next/constants"
 
 vi.mock("@opennextjs/cloudflare", () => ({ initOpenNextCloudflareForDev: vi.fn() }))
 
-import config from "../next.config"
+import loadConfig from "../next.config"
 
 const root = path.resolve(import.meta.dirname, "..")
 
@@ -53,7 +55,8 @@ describe("HTTP cache configuration", () => {
     expect(matchingPolicies("public/_headers", pathname)).toEqual([])
   })
 
-  it("renders Main raster images directly without the unconfigured optimization endpoint", () => {
+  it("renders Main raster images directly without the unconfigured optimization endpoint", async () => {
+    const config = await normalizeConfig(PHASE_PRODUCTION_BUILD, loadConfig)
     const { props } = getImageProps({
       src: "/landing/people/lin.webp",
       alt: "",
