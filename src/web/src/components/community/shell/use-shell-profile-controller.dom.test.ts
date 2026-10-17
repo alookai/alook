@@ -197,6 +197,20 @@ describe("useShellProfileController", () => {
     expect(hook.current.editingProfile).toBe(false)
   })
 
+  it("opens Devices with its code and preserves Billing and unrelated parameters on close", async () => {
+    mocks.search = "settings=devices&user_code=ABCD-EFGH&billing=portal&audit=bot1"
+    window.history.replaceState(null, "", `/c/me/bots?${mocks.search}#details`)
+    const hook = await renderController()
+    expect(hook.current.editingProfile).toBe(true)
+    expect(hook.current.userSettingsProps.initialTab).toBe("devices")
+    expect(hook.current.userSettingsProps.deviceUserCode).toBe("ABCD-EFGH")
+    await act(async () => hook.current.userSettingsProps.onClose())
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/c/me/bots?billing=portal&audit=bot1#details")
+    mocks.search = window.location.search.slice(1)
+    await hook.rerender()
+    expect(hook.current.userSettingsProps.initialTab).toBe("billing")
+  })
+
   it("ignores arbitrary billing return values", async () => {
     mocks.search = "billing=success"
     const hook = await renderController()

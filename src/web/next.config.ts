@@ -30,4 +30,4 @@ export default withSerwist(nextConfig);
 // Enable calling `getCloudflareContext()` in `next dev`.
 // See https://opennext.js.org/cloudflare/bindings#local-access-to-bindings.
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
-initOpenNextCloudflareForDev();
+initOpenNextCloudflareForDev({ remoteBindings: process.env.ALOOK_DEV_REMOTE_AI === "1" });

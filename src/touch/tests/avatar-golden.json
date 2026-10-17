@@ -1,0 +1,122 @@
+[
+  {
+    "seed": "",
+    "hash": 0,
+    "palette": [
+      "#0b525b",
+      "#06d6a0",
+      "#8ac6d1",
+      "#ffd166",
+      "#ff9f68"
+    ],
+    "face": "#0b525b",
+    "background": "#ffd166",
+    "ink": "#ffffff",
+    "accents": [
+      "#06d6a0",
+      "#8ac6d1",
+      "#ff9f68"
+    ],
+    "darkest": "#0b525b"
+  },
+  {
+    "seed": "Samara",
+    "hash": 1825822159,
+    "palette": [
+      "#24372e",
+      "#55744f",
+      "#90aa62",
+      "#c8d685",
+      "#f0efc0"
+    ],
+    "face": "#f0efc0",
+    "background": "#24372e",
+    "ink": "#000000",
+    "accents": [
+      "#55744f",
+      "#90aa62",
+      "#c8d685"
+    ],
+    "darkest": "#24372e"
+  },
+  {
+    "seed": "你好",
+    "hash": 652829,
+    "palette": [
+      "#3e233d",
+      "#8b4771",
+      "#dc6b9d",
+      "#ff9fb3",
+      "#ffe1dd"
+    ],
+    "face": "#ffe1dd",
+    "background": "#3e233d",
+    "ink": "#000000",
+    "accents": [
+      "#8b4771",
+      "#dc6b9d",
+      "#ff9fb3"
+    ],
+    "darkest": "#3e233d"
+  },
+  {
+    "seed": "🫶",
+    "hash": 1773176,
+    "palette": [
+      "#ffd166",
+      "#f4845f",
+      "#ef476f",
+      "#c86b98",
+      "#6a8caf"
+    ],
+    "face": "#f4845f",
+    "background": "#ffd166",
+    "ink": "#000000",
+    "accents": [
+      "#ef476f",
+      "#c86b98",
+      "#6a8caf"
+    ],
+    "darkest": "#ef476f"
+  },
+  {
+    "seed": "touch-42",
+    "hash": 819588148,
+    "palette": [
+      "#ffd166",
+      "#f4845f",
+      "#ef476f",
+      "#c86b98",
+      "#6a8caf"
+    ],
+    "face": "#c86b98",
+    "background": "#ffd166",
+    "ink": "#000000",
+    "accents": [
+      "#f4845f",
+      "#ef476f",
+      "#6a8caf"
+    ],
+    "darkest": "#ef476f"
+  },
+  {
+    "seed": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "hash": 1231605377,
+    "palette": [
+      "#e94e77",
+      "#d68189",
+      "#c6a49a",
+      "#c6e5d9",
+      "#f4ead5"
+    ],
+    "face": "#c6a49a",
+    "background": "#f4ead5",
+    "ink": "#000000",
+    "accents": [
+      "#e94e77",
+      "#d68189",
+      "#c6e5d9"
+    ],
+    "darkest": "#e94e77"
+  }
+]

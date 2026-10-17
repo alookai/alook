@@ -8,6 +8,9 @@ minify = true
 # "__name is not defined" at runtime in the browser.
 keep_names = false
 
+[ai]
+binding = "AI"
+
 [observability]
 enabled = true
 head_sampling_rate = 0.1

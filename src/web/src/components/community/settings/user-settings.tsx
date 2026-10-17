@@ -7,7 +7,7 @@ import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard } from "lucide-react"
+import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard, Smartphone } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
@@ -28,6 +28,7 @@ import {
 import { SettingsShell, SettingsShellPanel, type SettingsShellTab } from "./settings-shell"
 import { BillingContent } from "../billing/billing-sheet"
 import { useBilling, type BillingReturn } from "@/hooks/community/use-billing"
+import { DeviceSettings } from "./device-settings"
 import { AccountDeletionFlow } from "./account-deletion-flow"
 
 const THEME_OPTIONS = [
@@ -36,10 +37,11 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor },
 ] as const
 
-type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "billing"
+type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "billing" | "devices"
 
 const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "profile", label: "My Profile", icon: User },
+  { value: "devices", label: "Devices", icon: Smartphone },
   { value: "billing", label: "Subscription & billing", icon: CreditCard },
   { value: "appearance", label: "Appearance", icon: Palette },
   { value: "advanced", label: "Advanced", icon: Database },
@@ -178,9 +180,10 @@ export function AdvancedSettings() {
   )
 }
 
-export function UserSettings({ initialTab = "profile", billingReturn = null, onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
+export function UserSettings({ initialTab = "profile", billingReturn = null, deviceUserCode = "", onClose, userId, userName, userEmail, aboutMe, avatar, statusEmoji, statusText, onSave, onLogout, onAccountDeleted, onUploadAvatar }: {
   initialTab?: UserSettingsTab
   billingReturn?: BillingReturn
+  deviceUserCode?: string
   onClose: () => void
   userId: string | null
   userName: string
@@ -244,7 +247,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
       value={tab}
       onValueChange={setTab}
       label="User Settings"
-      title={tab === "billing" ? "Subscription & billing" : deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : "My Profile"}
+      title={tab === "devices" ? "Devices" : tab === "billing" ? "Subscription & billing" : deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : "My Profile"}
       tabs={USER_SETTINGS_TABS}
       onClose={onClose}
       disabled={deletionOpen}
@@ -262,6 +265,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
         />
       ) : (
         <>
+          <SettingsShellPanel value="devices"><DeviceSettings key={userId ?? "anonymous"} userId={userId} userCode={deviceUserCode} active={tab === "devices"} /></SettingsShellPanel>
           <SettingsShellPanel value="billing"><div className="mx-auto w-full max-w-xl"><BillingContent billing={billing} /></div></SettingsShellPanel>
           <SettingsShellPanel value="profile">
             <div className="mx-auto w-full max-w-md space-y-8">

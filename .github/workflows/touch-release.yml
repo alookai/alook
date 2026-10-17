@@ -1,0 +1,130 @@
+name: Touch Firmware
+
+on:
+  pull_request:
+    paths:
+      - "src/touch/**"
+      - "scripts/bump-version.mjs"
+      - ".github/workflows/touch-release.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/touch/.deploy-version"
+
+concurrency:
+  group: touch-firmware-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare pinned Arduino dependencies
+        run: python3 src/touch/tools/setup.py
+      - name: Host contracts and isolated release fixtures
+        run: |
+          python3 src/touch/tools/test.py
+          python3 -m unittest discover -s src/touch/tests -p '*.py'
+      - name: Generate pinned fonts and source assets
+        run: |
+          python3 src/touch/tools/font.py
+          pnpm --filter @alook/web exec tsx ../touch/tools/assets.mts
+      - name: Build and bind complete MCU inputs
+        run: python3 src/touch/tools/build.py
+      - name: Check explicit unified release eligibility
+        id: release
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          publish=false
+          if [[ "$EVENT" == push ]]; then
+            publish=$(python3 src/touch/tools/release.py eligible)
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - name: Stage exact release bytes
+        if: steps.release.outputs.publish == 'true'
+        run: python3 src/touch/tools/release.py stage
+      - name: Retain build evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: touch-build-${{ github.sha }}
+          path: |
+            src/touch/build/compile-input.json
+            src/touch/build/firmware/touch.ino.bin
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain verified release stage
+        if: steps.release.outputs.publish == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: touch-release-${{ github.sha }}
+          path: src/touch/build/release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'alookai/alook' && needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: touch-release-${{ github.sha }}
+          path: src/touch/build/release/
+      - name: Wait for unified release and verify tag, source and bytes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(tr -d '\n' < src/touch/.deploy-version)
+          tag="v$version"
+          found=false
+          for attempt in {1..30}; do
+            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$RUNNER_TEMP/touch-release.json"; then
+              found=true
+              break
+            fi
+            echo "Waiting for unified Touch release ($attempt/30)"
+            sleep 2
+          done
+          [[ "$found" == true ]]
+          git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+          python3 src/touch/tools/release.py verify-stage
+          python3 - "$RUNNER_TEMP/touch-release.json" "$tag" <<'PY'
+          import json, sys
+          release = json.load(open(sys.argv[1]))
+          assert release['tag_name'] == sys.argv[2] and not release['draft'] and not release['prerelease']
+          PY
+      - name: Upload binary before discoverable manifest without overwriting assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(tr -d '\n' < src/touch/.deploy-version)
+          tag="v$version"
+          image="alook-touch-$version.bin"
+          gh release upload "$tag" "src/touch/build/release/$image"
+          gh release download "$tag" --pattern "$image" --dir "$RUNNER_TEMP/touch-published"
+          cmp "src/touch/build/release/$image" "$RUNNER_TEMP/touch-published/$image"
+          gh release upload "$tag" src/touch/build/release/alook-touch-manifest.json

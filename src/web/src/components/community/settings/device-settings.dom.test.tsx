@@ -1,0 +1,106 @@
+import React from "react"
+import { QueryClient } from "@tanstack/react-query"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, fireEvent, render, screen, waitFor } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { DeviceSettings } from "./device-settings"
+
+const api = vi.hoisted(() => ({ list: vi.fn(), verify: vi.fn(), approve: vi.fn(), deny: vi.fn(), revoke: vi.fn() }))
+vi.mock("@/lib/auth-client", async original => ({ ...await original<typeof import("@/lib/auth-client")>(), authClient: { listSessions: api.list, device: Object.assign(api.verify, { approve: api.approve, deny: api.deny }), revokeSession: api.revoke } }))
+function mount(code = "ABCD-EFGH", active = true) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  return { ...render(<DeviceSettings userId="owner" userCode={code} active={active} />, { wrapper: ({ children }) => <CommunityTestProvider userId="owner" client={client}>{children}</CommunityTestProvider> }), client }
+}
+beforeEach(() => {
+  vi.clearAllMocks()
+  api.list.mockResolvedValue({ data: [] })
+  api.verify.mockResolvedValue({ data: { client_id: "alook-touch", status: "pending", user_code: "ABCD-EFGH" } })
+  api.approve.mockResolvedValue({ data: { success: true } })
+  api.deny.mockResolvedValue({ data: { success: true } })
+  api.revoke.mockResolvedValue({ data: { success: true } })
+})
+describe("Devices settings", () => {
+  it("verifies a Touch code before explicit approval and never approves on open", async () => {
+    mount()
+    await screen.findByTestId("device-authorization-review")
+    expect(api.approve).not.toHaveBeenCalled()
+    expect(api.verify).toHaveBeenCalledWith(expect.objectContaining({ query: { user_code: "ABCD-EFGH" } }))
+    fireEvent.click(screen.getByRole("button", { name: "Approve Touch" }))
+    await screen.findByText("Touch authorized. It will continue automatically.")
+    expect(api.approve).toHaveBeenCalledTimes(1)
+    expect(api.approve).toHaveBeenCalledWith(expect.objectContaining({ userCode: "ABCD-EFGH" }))
+  })
+  it("denies explicitly and rejects invalid, expired and other-client codes", async () => {
+    const view = mount()
+    await screen.findByTestId("device-authorization-review")
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }))
+    await screen.findByText("Device access denied.")
+    expect(api.deny).toHaveBeenCalledTimes(1)
+    api.verify.mockResolvedValueOnce({ data: { client_id: "alook-cli", status: "pending" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Device code" }), { target: { value: "OTHER-CODE" } })
+    fireEvent.click(screen.getByRole("button", { name: "Verify code" }))
+    await screen.findByRole("alert")
+    expect(screen.queryByRole("button", { name: "Approve Touch" })).toBeNull()
+    expect(api.approve).not.toHaveBeenCalled()
+    view.unmount()
+    api.verify.mockResolvedValue({ error: { error_description: "Code expired" } })
+    mount("EXPIRED")
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Code expired"))
+  })
+  it("confirms before revoking one canonical session without exposing its token", async () => {
+    api.list.mockResolvedValueOnce({ data: [{ id: "s1", token: "mock-token", userAgent: "AlookTouch/mock firmware/test", createdAt: "2026-10-01T00:00:00Z" }] })
+    mount("")
+    await screen.findByTestId("device-session")
+    expect(screen.queryByText("mock-token")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access" }))
+    expect(api.revoke).not.toHaveBeenCalled()
+    fireEvent.click(screen.getAllByRole("button", { name: "Revoke access" }).at(-1)!)
+    await waitFor(() => expect(api.revoke).toHaveBeenCalledTimes(1))
+    expect(api.revoke).toHaveBeenCalledWith(expect.objectContaining({ token: "mock-token" }))
+    await waitFor(() => expect(screen.queryByTestId("device-session")).toBeNull())
+  })
+  it("retires cached pending approval when verifying the same code fails after expiry", async () => {
+    mount()
+    await screen.findByTestId("device-authorization-review")
+    api.verify.mockResolvedValueOnce({ error: { error: "expired_token", error_description: "Code expired" } })
+    fireEvent.click(screen.getByRole("button", { name: "Verify code" }))
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Code expired"))
+    expect(api.verify).toHaveBeenCalledTimes(2)
+    expect(screen.queryByTestId("device-authorization-review")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Approve Touch" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull()
+    expect(api.approve).not.toHaveBeenCalled()
+    expect(api.deny).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Verify code" }))
+    await screen.findByTestId("device-authorization-review")
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+  it("distinguishes session read failure from confirmed empty and recovers", async () => {
+    api.list.mockResolvedValueOnce({ error: { message: "Could not load devices" } })
+    mount("")
+    await screen.findByRole("alert")
+    expect(screen.queryByText("No active sessions.")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }))
+    await screen.findByText("No active sessions.")
+  })
+  it("retires pending authorization when the tab closes", async () => {
+    let resolve!: (value: unknown) => void
+    api.approve.mockImplementation(() => new Promise(value => { resolve = value }))
+    const view = mount()
+    await screen.findByTestId("device-authorization-review")
+    fireEvent.click(screen.getByRole("button", { name: "Approve Touch" }))
+    await waitFor(() => expect(api.approve).toHaveBeenCalledTimes(1))
+    view.rerender(<DeviceSettings userId="owner" userCode="ABCD-EFGH" active={false} />)
+    await act(async () => resolve({ data: { success: true } }))
+    expect(screen.queryByText("Touch authorized. It will continue automatically.")).toBeNull()
+    expect(screen.queryByTestId("device-settings")).toBeNull()
+  })
+  it("does not request or mutate for another account", async () => {
+    const view = mount("", false)
+    view.rerender(<DeviceSettings userId="replacement" userCode="ABCD-EFGH" active />)
+    await act(async () => undefined)
+    expect(api.list).not.toHaveBeenCalled()
+    expect(api.verify).not.toHaveBeenCalled()
+    expect(api.approve).not.toHaveBeenCalled()
+  })
+})
