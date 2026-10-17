@@ -23,7 +23,7 @@ import { tid } from "@/lib/community/testids"
 import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 import { ThreadPanelActionsFrame } from "./thread-panel-actions"
 
-const CHANNEL_OVERFLOW_GAP_CLASS_NAME = "ml-1"
+const CHANNEL_OVERFLOW_GAP_CLASS_NAME = "ml-0.5"
 
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below

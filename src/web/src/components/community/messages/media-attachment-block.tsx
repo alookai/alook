@@ -141,6 +141,7 @@ export function MediaAttachmentBlock({
 
   const canStop = mounted && status !== "idle" && status !== "error"
   const playbackLabel = `${isPlaying ? "Pause" : status === "blocked" ? "Try playing" : "Play"} ${attachment.name}`
+  const audioLoading = mediaKind === "audio" && status === "loading"
 
   return (
     <article
@@ -154,11 +155,11 @@ export function MediaAttachmentBlock({
             <video key={playerKey} {...playerProps} playsInline className="size-full object-contain" />
           ) : (
             <button
-              data-testid={status === "error" ? tid.mediaRetry(attachment.name) : tid.mediaPlay(attachment.name)}
+              data-testid={status === "error" ? tid.mediaRetry(attachment.name) : undefined}
               type="button"
               onClick={status === "error" ? retryPlayer : togglePlayback}
               className="flex size-full flex-col items-center justify-center gap-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
-              aria-label={`${status === "error" ? "Retry" : "Play"} ${attachment.name}`}
+              aria-label={`${status === "error" ? "Retry" : "Play video"} ${attachment.name}`}
             >
               {status === "error" ? <RefreshCw className="size-7" /> : <Play className="size-8" />}
               <span className="text-xs font-medium">{status === "error" ? "Retry playback" : "Play video"}</span>
@@ -202,7 +203,7 @@ export function MediaAttachmentBlock({
             </p>
           )}
         </div>
-        {mediaKind === "audio" && status !== "error" && (
+        {status !== "error" && (
           <Button
             data-testid={tid.mediaPlay(attachment.name)}
             type="button"
@@ -210,11 +211,11 @@ export function MediaAttachmentBlock({
             size="icon-sm"
             className="size-11 text-muted-foreground hover:text-foreground focus-visible:text-foreground sm:size-8"
             onClick={togglePlayback}
-            aria-label={status === "loading" ? `Loading ${attachment.name}` : playbackLabel}
-            aria-busy={status === "loading"}
-            disabled={status === "loading"}
+            aria-label={audioLoading ? `Loading ${attachment.name}` : playbackLabel}
+            aria-busy={audioLoading}
+            disabled={audioLoading}
           >
-            {status === "loading" ? (
+            {audioLoading ? (
               <>
                 <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
                 <span data-testid={tid.mediaStatus(attachment.name)} role="status" className="sr-only">
@@ -235,19 +236,6 @@ export function MediaAttachmentBlock({
             aria-label={`Retry ${attachment.name}`}
           >
             <RefreshCw className="size-4" />
-          </Button>
-        )}
-        {mediaKind === "video" && mounted && status !== "error" && (
-          <Button
-            data-testid={tid.mediaPlay(attachment.name)}
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="size-11 text-muted-foreground hover:text-foreground focus-visible:text-foreground sm:size-8"
-            onClick={togglePlayback}
-            aria-label={playbackLabel}
-          >
-            {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
           </Button>
         )}
         <Button

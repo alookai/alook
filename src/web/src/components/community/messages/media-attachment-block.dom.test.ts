@@ -88,8 +88,9 @@ describe("MediaAttachmentBlock", () => {
     expect(renderer.container.querySelectorAll("video, audio")).toHaveLength(0)
     const play = byTestId(renderer, tid.mediaPlay(item.name))
     expect(play).toHaveAttribute("aria-label", `Play ${item.name}`)
-    if (mediaKind === "video") expect(play.parentElement).toHaveClass("aspect-video")
     const stop = renderer.getByRole("button", { name: `Stop playback ${item.name}` })
+    expect(play.parentElement).toBe(stop.parentElement)
+    expect(play.nextElementSibling).toBe(stop)
     expect(renderer.getAllByRole("button", { name: `Stop playback ${item.name}` })).toHaveLength(1)
     expect(stop.nextElementSibling).toBe(byTestId(renderer, tid.mediaDownload(item.name)))
     expect(stop.closest(".aspect-video")).toBeNull()
@@ -103,10 +104,14 @@ describe("MediaAttachmentBlock", () => {
     expect(seek).not.toHaveBeenCalled()
   })
 
-  it("plays video on first activation and uses the same custom button for pause and resume", async () => {
+  it.each(["preview", "footer"] as const)("plays video from its %s and uses the footer button for pause and resume", async (entry) => {
     const { renderer, mediaNode } = renderMedia()
 
-    await clickAndFlush(byTestId(renderer, tid.mediaPlay("clip.mp4")))
+    const initialPlay = entry === "preview"
+      ? renderer.getByRole("button", { name: "Play video clip.mp4" })
+      : byTestId(renderer, tid.mediaPlay("clip.mp4"))
+    expect(renderer.queryAllByTestId(tid.mediaPlay("clip.mp4"))).toHaveLength(1)
+    await clickAndFlush(initialPlay)
 
     expect(mediaNode.play).toHaveBeenCalledOnce()
     const player = byTestId<HTMLVideoElement>(renderer, tid.mediaPlayer("clip.mp4"))
