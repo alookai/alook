@@ -2,11 +2,17 @@
 #include "configuration.h"
 #include "firmware_update.h"
 #include "socket_protocol.h"
+#include "usb_mirror.h"
 #include <WiFi.h>
 #include <esp_http_client.h>
 #include <esp_crt_bundle.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
+#if ALOOK_TOUCH_USB_MIRROR
+#include <cerrno>
+#include <http_parser.h>
+#include <lwip/ip4_addr.h>
+#endif
 
 extern const uint8_t certificate_bundle_start[] asm("_binary_x509_crt_bundle_start");
 extern const uint8_t certificate_bundle_end[] asm("_binary_x509_crt_bundle_end");
@@ -54,13 +60,13 @@ void Network::emit(Response response) {
 Response Network::perform(const Request& request) {
   Response result{request.operation, request.owner, 0, "", request.target};
   result.id = request.id;
-  if (WiFi.status() != WL_CONNECTED) return result;
+  if (WiFi.status() != WL_CONNECTED) { usb_mirror_http({static_cast<uint32_t>(request.operation), ESP_FAIL, 0, 0, 0, 0, 0}); return result; }
   if (request.operation == Operation::UpdateCheck) return check_firmware(request, account_);
   if (request.operation == Operation::UpdateInstall) return install_firmware(request, account_, [this, &request](int percent) { emit({Operation::UpdateProgress, request.owner, percent, "", request.target, 0}); });
   const bool avatar = request.operation == Operation::AvatarBot || request.operation == Operation::AvatarHuman || request.operation == Operation::AvatarPeer;
   const bool absolute = request.path.compare(0, 8, "https://") == 0;
   const std::string url = avatar && absolute ? request.path : std::string(origin) + request.path;
-  if (url.compare(0, 8, "https://") != 0 && !(ALOOK_TOUCH_ALLOW_HTTP && url.compare(0, 7, "http://") == 0)) return result;
+  if (url.compare(0, 8, "https://") != 0 && !(ALOOK_TOUCH_ALLOW_HTTP && url.compare(0, 7, "http://") == 0)) { usb_mirror_http({static_cast<uint32_t>(request.operation), ESP_ERR_INVALID_ARG, 0, 0, 0, 0, 1}); return result; }
   HttpBody body;
   esp_http_client_config_t configuration{};
   configuration.url = url.c_str();
@@ -71,7 +77,7 @@ Response Network::perform(const Request& request) {
   configuration.disable_auto_redirect = true;
   configuration.buffer_size = 4096;
   auto client = esp_http_client_init(&configuration);
-  if (!client) return result;
+  if (!client) { usb_mirror_http({static_cast<uint32_t>(request.operation), ESP_ERR_NO_MEM, 0, 0, 0, 0, 2}); return result; }
   esp_http_client_set_header(client, "User-Agent", device_name_.c_str());
   esp_http_client_set_header(client, "Accept", avatar ? "image/*" : "application/json");
   esp_http_client_set_header(client, "X-Alook-Community-Contract", "3");
@@ -87,7 +93,27 @@ Response Network::perform(const Request& request) {
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_post_field(client, request.body.data(), request.body.size());
   }
+#if ALOOK_TOUCH_USB_MIRROR
+  const auto started = esp_timer_get_time();
+#endif
   const auto error = esp_http_client_perform(client);
+#if ALOOK_TOUCH_USB_MIRROR
+  const int system_errno = errno;
+  UsbMirrorHttpDiagnostic diagnostic{static_cast<uint32_t>(request.operation), error, esp_http_client_get_status_code(client), static_cast<uint32_t>(body.text.size()), static_cast<uint32_t>((esp_timer_get_time() - started) / 1000), esp_http_client_get_errno(client), body.oversized ? 4u : 3u};
+  diagnostic.system_errno = system_errno;
+  int tls_error = 0, tls_flags = 0;
+  diagnostic.tls_code = esp_http_client_get_and_clear_last_tls_error(client, &tls_error, &tls_flags);
+  diagnostic.tls_error = tls_error; diagnostic.tls_flags = tls_flags;
+  diagnostic.socket = esp_http_client_get_socket(client);
+  http_parser_url parsed{};
+  if (http_parser_parse_url(url.c_str(), url.size(), 0, &parsed) == 0 && (parsed.field_set & (1 << UF_HOST))) {
+    const auto host = url.substr(parsed.field_data[UF_HOST].off, parsed.field_data[UF_HOST].len);
+    ip4_addr_t address{};
+    if (ip4addr_aton(host.c_str(), &address)) diagnostic.target_address = address.addr;
+    diagnostic.target_port = parsed.field_set & (1 << UF_PORT) ? parsed.port : url.compare(0, 8, "https://") == 0 ? 443 : 80;
+  }
+  usb_mirror_http(diagnostic);
+#endif
   if (error == ESP_OK && !body.oversized) { result.status = esp_http_client_get_status_code(client); result.body = std::move(body.text); }
   esp_http_client_cleanup(client);
   return result;
