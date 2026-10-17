@@ -129,6 +129,9 @@ describe("Community funnel analytics ledger", () => {
       now: "2026-09-14T00:00:04.000Z",
     })
     await recordInvitedHumanJoinedStatement(db, {
+      ownerUserId: "owner", membershipId: "membership", invitedUserId: "joined",
+    })
+    await recordInvitedHumanJoinedStatement(db, {
       ownerUserId: "owner",
       membershipId: "bot-membership",
       invitedUserId: "joined-bot",
@@ -140,7 +143,10 @@ describe("Community funnel analytics ledger", () => {
     expect(sqlite.prepare("SELECT source_id FROM community_funnel_analytics_event WHERE event_name = ?").get("first_agent_reply_persisted"))
       .toEqual({ source_id: "message-first" })
     await expect(claimPendingEvents(db, "other")).resolves.toEqual([])
-    const events = await claimPendingEvents(db, "owner", "2026-09-14T00:01:00.000Z")
+    const events = [
+      ...await claimPendingEvents(db, "owner", "legacy", "2026-09-14T00:01:00.000Z"),
+      ...await claimPendingEvents(db, "owner", "invited_human_joined", "2026-09-14T00:01:00.000Z"),
+    ]
     expect(events.sort((a, b) => a.event.localeCompare(b.event))).toEqual([
       { event: "first_agent_reply_persisted", surface: "community", conversation_type: "thread" },
       { event: "invited_human_joined", surface: "community" },
@@ -148,6 +154,28 @@ describe("Community funnel analytics ledger", () => {
     ])
     expect(JSON.stringify(events)).not.toMatch(/owner|machine|membership|bot|hash/)
     await expect(claimPendingEvents(db, "owner")).resolves.toEqual([])
+  })
+
+
+  it("keeps join facts with their inviter until a narrow claim, without competing claims stealing them", async () => {
+    const insert = sqlite.prepare(`INSERT INTO community_funnel_analytics_event
+      (id, owner_user_id, event_name, source_id, dedupe_key, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+    for (const [id, owner, event] of [["runtime", "owner", "runtime_connected"], ["join", "owner", "invited_human_joined"], ["other-join", "other", "invited_human_joined"]]) {
+      insert.run(id, owner, event, id, id, "2026-09-14T00:00:00.000Z")
+    }
+    await expect(claimPendingEvents(db, "owner")).resolves.toEqual([
+      { event: "runtime_connected", surface: "community", connection_type: "local_daemon" },
+    ])
+    expect(sqlite.prepare("SELECT claimed_at FROM community_funnel_analytics_event WHERE id = 'join'").get()).toEqual({ claimed_at: null })
+    const claimed = await Promise.all([
+      claimPendingEvents(db, "owner", "invited_human_joined"),
+      claimPendingEvents(db, "owner", "invited_human_joined"),
+      claimPendingEvents(db, "owner"),
+    ])
+    expect(claimed.flat()).toEqual([{ event: "invited_human_joined", surface: "community" }])
+    expect(sqlite.prepare("SELECT claimed_at FROM community_funnel_analytics_event WHERE id = 'other-join'").get()).toEqual({ claimed_at: null })
+    await expect(claimPendingEvents(db, "other", "invited_human_joined")).resolves.toEqual([{ event: "invited_human_joined", surface: "community" }])
   })
 
   it("rejects invalid event and conversation combinations at the migration boundary", () => {

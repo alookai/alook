@@ -5,6 +5,7 @@ const analytics = vi.hoisted(() => ({
   stageCompleted: vi.fn(),
   completed: vi.fn(),
   skipped: vi.fn(),
+  product: vi.fn(),
 }));
 
 vi.mock("@/lib/analytics", () => ({
@@ -13,6 +14,8 @@ vi.mock("@/lib/analytics", () => ({
   trackCommunityOnboardingCompleted: analytics.completed,
   trackCommunityOnboardingSkipped: analytics.skipped,
 }));
+
+vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: analytics.product }));
 
 import { QueryClient } from "@tanstack/react-query";
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections";
@@ -27,6 +30,7 @@ import {
   startCommunityOnboarding,
   subscribeCommunityOnboarding,
   updateCommunityOnboardingResources,
+  updateCommunityOnboardingInitialization,
 } from "./community-onboarding";
 
 describe("community onboarding journey", () => {
@@ -129,10 +133,29 @@ describe("community onboarding journey", () => {
     advanceCommunityOnboarding(runtime(), "harness", "machine");
     advanceCommunityOnboarding(runtime(), "machine", "identity");
     advanceCommunityOnboarding(runtime(), "identity", "initializing");
-    completeCommunityOnboarding(runtime());
+    const result = { serverId: "server", publicChannelId: "channel", privateChannelId: "private", leadBotId: "lead", bots: [] };
+    updateCommunityOnboardingInitialization(runtime(), current => ({ ...current, result, pendingDestination: "/c/channels/server/channel" }));
+    completeCommunityOnboarding(runtime(), "/c/channels/server/channel");
+    completeCommunityOnboarding(runtime(), "/c/channels/server/channel");
     expect(readCommunityOnboardingState(runtime())).toBeNull();
+    expect(analytics.product).toHaveBeenCalledOnce();
+    expect(analytics.product).toHaveBeenCalledWith({ event: "community_onboarding_completed" }, expect.any(Function));
     expect(analytics.stageCompleted).toHaveBeenLastCalledWith("initializing");
     expect(analytics.completed).not.toHaveBeenCalled();
+  });
+
+  it("does not clear or emit for a pending initialization or an uncommitted destination", () => {
+    startCommunityOnboarding(runtime());
+    advanceCommunityOnboarding(runtime(), "harness", "initializing");
+    completeCommunityOnboarding(runtime(), "/c/channels/server/channel");
+    expect(readCommunityOnboardingState(runtime())?.stage).toBe("initializing");
+    const result = { serverId: "server", publicChannelId: "channel", privateChannelId: "private", leadBotId: "lead", bots: [] };
+    updateCommunityOnboardingInitialization(runtime(), current => ({ ...current, result, pendingDestination: "/c/channels/server/channel" }));
+    completeCommunityOnboarding(runtime(), "/c/me");
+    expect(readCommunityOnboardingState(runtime())?.stage).toBe("initializing");
+    skipCommunityOnboarding(runtime());
+    completeCommunityOnboarding(runtime(), "/c/channels/server/channel");
+    expect(analytics.product).not.toHaveBeenCalled();
   });
 
   it("does not complete before initialization finishes", () => {

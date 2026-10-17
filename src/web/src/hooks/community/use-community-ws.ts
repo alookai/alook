@@ -50,7 +50,8 @@ import {
   createCommunityWsConnectionStatusController,
   type CommunityWsConnectionStatusController,
 } from "@/hooks/community/community-ws/connection-status"
-import { drainCommunityFunnelEvents } from "@/lib/community/funnel-analytics"
+import { ANALYTICS_CONSENT_CHANGE_EVENT } from "@/lib/analytics-consent"
+import { drainCommunityFunnelEvents, drainInvitedHumanJoined } from "@/lib/community/funnel-analytics"
 
 export type {
   Subscription,
@@ -491,6 +492,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         )
         if (hasCommunityFunnelTrigger(decoded.events)) {
           void drainCommunityFunnelEvents()
+          void drainInvitedHumanJoined(runtime.lifecycle)
         }
         return
       }
@@ -511,6 +513,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       await dispatchCommunityWsEvent(decoded.event, context("single"))
       if (hasCommunityFunnelTrigger([decoded.event])) {
         void drainCommunityFunnelEvents()
+        void drainInvitedHumanJoined(runtime.lifecycle)
       }
     },
     [queryClient, runtime.lifecycle, runtime.ui, runtime.ws, scheduleInboxInvalidate],
@@ -527,6 +530,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     }
   }, [queryClient])
   const handleAuthenticated = useCallback(async () => {
+    void drainInvitedHumanJoined(runtime.lifecycle)
     runtime.ws.actions.markAccessConnected()
     const viewerId = viewerUserIdRef.current
     if (viewerId) {
@@ -538,7 +542,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       scheduleAccountAttentionReconcile(queryClient)
     }
     await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
-  }, [queryClient, runtime.ws.actions])
+  }, [queryClient, runtime.ws.actions, runtime.lifecycle])
   const handleForeground = useCallback(() => {
     if (inboxRefreshOwner.current?.disposed
       || viewerUserIdRef.current !== viewerUserId
@@ -558,6 +562,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   useEffect(() => {
     reconnectTransportRef.current = reconnectNow
   }, [reconnectNow])
+
+  useEffect(() => {
+    const drain = () => { void drainInvitedHumanJoined(runtime.lifecycle) }
+    window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, drain)
+    return () => window.removeEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, drain)
+  }, [runtime.lifecycle])
 
   useEffect(() => {
     if (typeof document === "undefined" || typeof window === "undefined") return

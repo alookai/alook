@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }))
 
-vi.mock("@/lib/product-analytics", () => ({ beginOnboardingAnalytics: (_userId: string, serverId: string) => mocks.capture({ event: "onboarding_enter_clicked", serverId }) }))
+vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: (input: unknown) => mocks.capture(input), beginOnboardingAnalytics: (_userId: string, serverId: string) => mocks.capture({ event: "onboarding_enter_clicked", serverId }) }))
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
 }))
@@ -131,6 +131,9 @@ describe("CommunityOnboardingForm room navigation", () => {
     mocks.pathname = "/c/channels/server-1/channel-1"
     rendered.rerender(createElement(CommunityOnboardingForm))
     expect(mocks.complete).toHaveBeenCalledTimes(1)
+    expect(mocks.capture).toHaveBeenCalledWith({ event: "community_onboarding_completed" })
+    rendered.rerender(createElement(CommunityOnboardingForm))
+    expect(mocks.capture.mock.calls.filter(([input]) => input.event === "community_onboarding_completed")).toHaveLength(1)
   })
 
   it("counts Enter even when the shell cannot navigate to the room", async () => {

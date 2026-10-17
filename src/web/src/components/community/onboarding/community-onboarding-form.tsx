@@ -115,7 +115,7 @@ export function CommunityOnboardingForm() {
   useEffect(() => {
     const pendingDestination = protocol?.pendingDestination
     if (!pendingDestination || pathname !== pendingDestination) return
-    completeCommunityOnboarding(communityRuntime)
+    completeCommunityOnboarding(communityRuntime, pathname)
   }, [pathname, protocol?.pendingDestination, communityRuntime])
 
   const mutateInitialization = initialization.mutateAsync
