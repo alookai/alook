@@ -40,7 +40,8 @@ def prepare_lvgl_configuration(root, cache):
 
 def source_inputs():
     files = [ROOT / 'dependencies.lock.json', ROOT / '.deploy-version', ROOT / 'firmware/lv_conf.h', ROOT / 'tools/build.py', ROOT / 'tools/release.py']
-    files += sorted(path for path in (ROOT / 'firmware/touch').rglob('*') if path.is_file() and path.suffix in {'.h', '.cpp', '.c', '.ino', '.csv'})
+    sketch = ROOT / 'firmware/touch'
+    files += sorted(path for path in sketch.rglob('*') if path.is_file() and path.relative_to(sketch).parts[0] != 'build' and path.suffix in {'.h', '.cpp', '.c', '.ino', '.csv'})
     return {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
 
 
@@ -66,8 +67,16 @@ def main():
     print((build / 'compile.log').read_text()[-10000:])
     if result.returncode:
         raise SystemExit(result.returncode)
-    if inputs != source_inputs() or info != metadata():
-        raise SystemExit('Firmware inputs changed during compilation; rebuild the stable candidate')
+    current_inputs = source_inputs()
+    if inputs != current_inputs:
+        changes = {'added': sorted(current_inputs.keys() - inputs.keys()),
+                   'removed': sorted(inputs.keys() - current_inputs.keys()),
+                   'changed': sorted(path for path in inputs.keys() & current_inputs.keys() if inputs[path] != current_inputs[path])}
+        raise SystemExit('Firmware source inputs changed during compilation: ' + json.dumps(changes) + '; rebuild the stable candidate')
+    current_info = metadata()
+    if info != current_info:
+        fields = sorted(key for key in info.keys() | current_info.keys() if info.get(key) != current_info.get(key))
+        raise SystemExit('Firmware build identity changed during compilation: ' + ', '.join(fields) + '; rebuild the stable candidate')
     if not selected_lvgl.is_file() or hashlib.sha256(selected_lvgl.read_bytes()).hexdigest() != lvgl_sha256:
         raise SystemExit('Selected LVGL configuration changed during compilation; rebuild the stable candidate')
     partitions = []
