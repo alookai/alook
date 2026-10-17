@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent } from "@/test/react-dom-harness"
+import { QueryClient } from "@tanstack/react-query"
+import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
+import { advanceCommunityOnboarding, completeCommunityOnboarding, readCommunityOnboardingState, startCommunityOnboarding, updateCommunityOnboardingInitialization } from "./community-onboarding"
 const mocks = vi.hoisted(() => ({ native: false, consent: null as string | null }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), isTauri: () => mocks.native }))
 vi.mock("@/lib/analytics-consent", async original => ({ ...await original<typeof import("@/lib/analytics-consent")>(), readAnalyticsConsent: () => mocks.consent }))
@@ -142,6 +145,39 @@ it("does not publish a queued event after its original owner retires", async () 
   active = false
   const { send } = loadFrame()
   expect(send).not.toHaveBeenCalled()
+})
+
+it.each(["active", "retired", "reactivated"] as const)("qualifies delayed onboarding completion against its %s original owner", async ownership => {
+  const client = new QueryClient()
+  const registry = createCommunityDbRegistry(client, "onboarding-owner")
+  const retire = registerCommunityDbRegistry(registry)
+  const pathname = "/c/channels/server/channel"
+  window.history.replaceState(null, "", pathname)
+  try {
+    startCommunityOnboarding(registry.runtime)
+    advanceCommunityOnboarding(registry.runtime, "harness", "initializing")
+    const result = { serverId: "server", publicChannelId: "channel", privateChannelId: "private", leadBotId: "lead", bots: [] }
+    updateCommunityOnboardingInitialization(registry.runtime, current => ({ ...current, result, pendingDestination: pathname }))
+
+    expect(completeCommunityOnboarding(registry.runtime, pathname)).toBeNull()
+    expect(readCommunityOnboardingState(registry.runtime)).toBeNull()
+    expect(document.getElementById("alook-product-events")).not.toBeNull()
+    expect(document.getElementById("alook-product-events")?.getAttribute("data-ready")).toBeNull()
+    completeCommunityOnboarding(registry.runtime, pathname)
+
+    if (ownership !== "active") retire()
+    if (ownership === "reactivated") registerCommunityDbRegistry(registry)
+    const { send } = loadFrame()
+    if (ownership === "active") {
+      expect(send).toHaveBeenCalledOnce()
+      expect(send).toHaveBeenCalledWith({ event: "community_onboarding_completed", params: {} })
+    } else {
+      expect(send).not.toHaveBeenCalled()
+    }
+  } finally {
+    await registry.cleanup()
+    client.clear()
+  }
 })
 
 it.each([
