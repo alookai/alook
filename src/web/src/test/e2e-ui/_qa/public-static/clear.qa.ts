@@ -33,7 +33,7 @@ test("real Alice logout and Bob login retain server facts while device Clear rem
   expect(Boolean(aliceUiCookie)).toBe(true)
   expect(aliceUiCookie === actors.sessionCookie("alice")).toBe(false)
   await page.getByTestId(tid.userSettingsOpen).click()
-  await page.getByRole("button", { name: "Log Out", exact: true }).click()
+  await page.getByRole("button", { name: "Log out", exact: true }).click()
   await page.waitForURL(/\/sign-in/, { waitUntil: "commit" })
   await expect.poll(async () => (await context.cookies()).some(cookie => cookie.name.startsWith("better-auth"))).toBe(false)
   const retired = await fetch(`${WEB_URL}/api/ws/token?refresh=1`, { signal: qaDeadlineSignal(caseResources), headers: { Cookie: aliceUiCookie, Origin: WEB_URL } })
