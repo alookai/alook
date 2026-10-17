@@ -136,7 +136,7 @@ void Application::start_network_setup() {
   state_.enter(Page::Network);
   data_.qr = "WIFI:T:WPA;S:" + hotspot_ + ";P:" + hotspot_password_ + ";;";
   data_.short_code = "192.168.4.1";
-  data_.status = "Scan to join Wi-Fi\nThen open 192.168.4.1 on your phone";
+  data_.status = "Scan to join touch Wi-Fi\nOpen the address below";
   render();
 }
 void Application::clear_dm() {

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0
 Modified from Waveshare ESP32-S3-Touch-AMOLED-1.75C examples; see third_party/NOTICE.md. */
 #include "board.h"
+#include "usb_mirror.h"
 #include <Arduino_GFX_Library.h>
 #include <TouchDrvCSTXXX.hpp>
 #include <Wire.h>
@@ -30,12 +31,14 @@ void round_area(lv_disp_drv_t*, lv_area_t* area) {
 }
 
 void flush(lv_disp_drv_t* driver, const lv_area_t* area, lv_color_t* pixels) {
+  usb_mirror_flush(area, pixels);
   display.draw16bitRGBBitmap(area->x1, area->y1, &pixels->full,
     area->x2 - area->x1 + 1, area->y2 - area->y1 + 1);
   lv_disp_flush_ready(driver);
 }
 
 void read_touch(lv_indev_drv_t*, lv_indev_data_t* data) {
+  if (usb_mirror_pointer(data)) return;
   int16_t x = 0, y = 0;
   if (touch_ready && touch.getPoint(&x, &y, 1) > 0 && x >= 0 && y >= 0 && x < LCD_WIDTH && y < LCD_HEIGHT) {
     data->state = LV_INDEV_STATE_PRESSED;
@@ -66,6 +69,7 @@ bool board_begin() {
   if (!display.begin()) return false;
   display.setBrightness(180);
   lv_init();
+  if (!usb_mirror_begin()) return false;
   constexpr size_t pixel_count = LCD_WIDTH * 40;
   auto* pixels = static_cast<lv_color_t*>(heap_caps_malloc(pixel_count * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
   if (!pixels) return false;
@@ -89,6 +93,7 @@ bool board_begin() {
 }
 
 void board_tick() {
+  usb_mirror_tick();
   const auto now = millis();
   lv_tick_inc(now - tick_at);
   tick_at = now;
@@ -98,7 +103,7 @@ void board_tick() {
 ButtonEvents board_buttons() {
   ButtonEvents events{};
   const auto now = millis();
-  const bool pressed = digitalRead(0) == LOW;
+  const bool pressed = digitalRead(0) == LOW || usb_mirror_record();
   if (pressed != sampled_record) { sampled_record = pressed; record_changed = now; }
   if (sampled_record != previous_record && now - record_changed >= 30) {
     previous_record = sampled_record;
@@ -111,6 +116,8 @@ ButtonEvents board_buttons() {
     events.home = power.isPekeyShortPressIrq();
     power.clearIrqStatus();
   }
+  const bool remote_home = usb_mirror_home();
+  events.home = events.home || remote_home;
   return events;
 }
 
