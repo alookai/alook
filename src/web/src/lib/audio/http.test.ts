@@ -39,6 +39,14 @@ describe("audio HTTP ownership and privacy", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: "Invalid input" })
   })
+  it("rejects a failed body after partial bytes and releases its reader", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array([1, 2])) },
+      pull(controller) { controller.error(new Error("private transport detail")) },
+    })
+    await expect(readAudioBytes(new Response(stream), 8)).rejects.toMatchObject({ status: 400, message: "Could not read the request body" })
+    expect(stream.locked).toBe(false)
+  })
   it("bounds actual bytes when the declared length lies and cancels the stream", async () => {
     const cancel = vi.fn()
     const stream = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(8)); controller.enqueue(new Uint8Array(1)) }, cancel })

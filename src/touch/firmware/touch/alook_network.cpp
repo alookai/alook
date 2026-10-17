@@ -1,6 +1,7 @@
 #include "alook_network.h"
 #include "configuration.h"
 #include "firmware_update.h"
+#include "socket_protocol.h"
 #include <WiFi.h>
 #include <esp_http_client.h>
 #include <esp_crt_bundle.h>
@@ -96,7 +97,7 @@ void Network::socket_event(WStype_t type, uint8_t* payload, size_t length) {
   if (socket_owner_.account != account_.load()) return;
   if (type == WStype_CONNECTED) {
     JsonDocument auth;
-    auth["type"] = "auth"; auth["token"] = socket_token_; auth["communityContract"] = 3;
+    auth["type"] = "auth"; auth["token"] = socket_token_; auth["communityContract"] = socket_contract;
     String text; serializeJson(auth, text); socket_.sendTXT(text);
   } else if (type == WStype_DISCONNECTED) {
     socket_authenticated_ = false;
@@ -104,7 +105,7 @@ void Network::socket_event(WStype_t type, uint8_t* payload, size_t length) {
   } else if (type == WStype_TEXT) {
     if (length <= 2048) {
       JsonDocument document;
-      if (!deserializeJson(document, payload, length) && document["type"] == "auth.ok" && document["communityContract"] == 3) {
+      if (!deserializeJson(document, payload, length) && socket_auth_ok(document.as<JsonVariantConst>())) {
         socket_authenticated_ = true;
         emit({Operation::SocketReady, socket_owner_, 200, "", ""});
         return;

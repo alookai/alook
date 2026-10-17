@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 
@@ -27,8 +27,23 @@ beforeEach(() => {
   mocks.read.mockResolvedValue(new Uint8Array([1, 2]))
   mocks.transcribe.mockResolvedValue("完整文本")
 })
+afterEach(() => vi.unstubAllEnvs())
 
 describe("generic human transcription route", () => {
+  it.each(["development", "production"])("uses AI options compatible with the %s transport", async mode => {
+    vi.stubEnv("NODE_ENV", mode)
+    const req = request()
+    expect((await POST(req)).status).toBe(200)
+    expect(mocks.transcribe).toHaveBeenCalledWith(mocks.ai, new Uint8Array([1, 2]), mode === "development" ? undefined : req.signal)
+  })
+  it("does not invoke AI after the caller has already cancelled", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    const controller = new AbortController()
+    const req = new NextRequest(request(), { signal: controller.signal })
+    controller.abort()
+    expect((await POST(req)).status).toBe(503)
+    expect(mocks.transcribe).not.toHaveBeenCalled()
+  })
   it("rejects bot and machine credentials before reading audio or calling the model", async () => {
     for (const user of [{ isBot: true }, undefined]) {
       mocks.user = user

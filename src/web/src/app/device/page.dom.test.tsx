@@ -18,7 +18,7 @@ function mount() {
 beforeEach(() => {
   vi.clearAllMocks()
   api.code = "ABCD-EFGH"
-  api.verify.mockResolvedValue({ data: { client_id: "alook-touch", status: "pending" } })
+  api.verify.mockResolvedValue({ data: { client_type: "touch", client_id: "configured-fixture-id", status: "pending" } })
   api.approve.mockResolvedValue({ data: {} })
 })
 describe("device QR handoff", () => {
@@ -27,6 +27,12 @@ describe("device QR handoff", () => {
     await waitFor(() => expect(api.replace).toHaveBeenCalledWith("/c/me/bots?settings=devices&user_code=ABCD-EFGH"))
     expect(api.approve).not.toHaveBeenCalled()
     expect(api.deny).not.toHaveBeenCalled()
+  })
+  it("does not infer Touch from the former public client ID", async () => {
+    api.verify.mockResolvedValue({ data: { client_id: "alook-touch", status: "pending" } })
+    mount()
+    await screen.findByRole("button", { name: "Approve" })
+    expect(api.replace).not.toHaveBeenCalled()
   })
   it("keeps the existing CLI approval route", async () => {
     api.verify.mockResolvedValue({ data: { client_id: "alook-cli", status: "pending" } })
@@ -54,7 +60,7 @@ describe("device QR handoff", () => {
     const view = mount()
     await waitFor(() => expect(api.verify).toHaveBeenCalledTimes(1))
     act(() => view.owner.lifecycle.setState(state => ({ active: false, generation: state.generation + 1 })))
-    await act(async () => resolve({ data: { client_id: "alook-touch", status: "pending" } }))
+    await act(async () => resolve({ data: { client_type: "touch", client_id: "configured-fixture-id", status: "pending" } }))
     expect(api.replace).not.toHaveBeenCalled()
   })
 })

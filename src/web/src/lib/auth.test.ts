@@ -238,6 +238,16 @@ describe("getAuth lifecycle", () => {
     expect(second).not.toBe(first)
   })
 
+  it("rebuilds when the configured Touch client changes", async () => {
+    const { getAuth } = await loadAuthModule()
+    const absent = getAuth(makeEnv() as never)
+    const first = getAuth(makeEnv({ TOUCH_CLIENT_ID: "fixture-touch-a" }) as never)
+    const second = getAuth(makeEnv({ TOUCH_CLIENT_ID: "fixture-touch-b" }) as never)
+    expect(first).not.toBe(absent)
+    expect(second).not.toBe(first)
+    expect(getAuth(makeEnv({ TOUCH_CLIENT_ID: "fixture-touch-b" }) as never)).toBe(second)
+  })
+
   it("starts a fresh lifecycle after a module reload", async () => {
     const env = makeEnv()
     const firstModule = await loadAuthModule()
@@ -773,6 +783,52 @@ describe("createAuth device authorization plugin", () => {
     const devicePlugin = opts.plugins.find((p: any) => p.__plugin === "deviceAuthorization")
     const { validateClient } = devicePlugin.cfg
     expect(validateClient("")).toBe(false)
+  })
+})
+
+describe("configured Touch authorization", () => {
+  type DeviceConfig = {
+    validateClient: (id: string) => boolean
+    grant: {
+      requestSchemaFields: Record<string, unknown>
+      deviceCodeSchemaFields: Record<string, unknown>
+      authorizeRequest: () => undefined
+      assertSessionRedemption: () => void
+      getVerificationContext: (code: Record<string, unknown>) => unknown
+    }
+  }
+  function configuration(auth: unknown): DeviceConfig {
+    const { __options } = auth as { __options: { plugins: { __plugin: string; cfg: DeviceConfig }[] } }
+    const plugin = __options.plugins.find(item => item.__plugin === "deviceAuthorization")
+    if (!plugin) throw new Error("Missing native device authorization")
+    return plugin.cfg
+  }
+  it.each(["production", "development"])("keeps native client validation and adds only canonical Touch metadata in %s", async NODE_ENV => {
+    const createAuth = await loadCreateAuth()
+    const { validateClient, grant } = configuration(createAuth(makeEnv({ NODE_ENV, DEVICE_CLIENT_IDS: " alook-cli, existing-app ", TOUCH_CLIENT_ID: " fixture-touch-id " }) as never))
+    expect(validateClient("fixture-touch-id")).toBe(true)
+    expect(validateClient("alook-cli")).toBe(true)
+    expect(validateClient("existing-app")).toBe(true)
+    expect(validateClient("alook-touch")).toBe(false)
+    expect(validateClient("unknown")).toBe(false)
+    expect(validateClient("")).toBe(false)
+    expect(grant.getVerificationContext({ clientId: "fixture-touch-id" })).toEqual({ client_type: "touch" })
+    expect(grant.getVerificationContext({ clientId: "alook-cli" })).toBeUndefined()
+    expect(grant.getVerificationContext({ client_id: "fixture-touch-id" })).toBeUndefined()
+    expect(grant.getVerificationContext({})).toBeUndefined()
+    expect(grant.requestSchemaFields).toEqual({})
+    expect(grant.deviceCodeSchemaFields).toEqual({})
+    expect(grant.authorizeRequest()).toBeUndefined()
+    expect(grant.assertSessionRedemption()).toBeUndefined()
+  })
+  it.each([undefined, "", "  "])("does not add a Touch client when its runtime setting is absent: %j", async TOUCH_CLIENT_ID => {
+    const createAuth = await loadCreateAuth()
+    const { validateClient, grant } = configuration(createAuth(makeEnv({ NODE_ENV: "production", DEVICE_CLIENT_IDS: "alook-cli", TOUCH_CLIENT_ID }) as never))
+    expect(validateClient("alook-cli")).toBe(true)
+    expect(validateClient("alook-touch")).toBe(false)
+    expect(validateClient("alook-touch-dev")).toBe(false)
+    expect(validateClient("")).toBe(false)
+    expect(grant.getVerificationContext({ clientId: "alook-touch-dev" })).toBeUndefined()
   })
 })
 

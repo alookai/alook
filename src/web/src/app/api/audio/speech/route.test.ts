@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 const mocks = vi.hoisted(() => ({ anonymous: false, run: vi.fn(), rate: vi.fn() }))
@@ -8,7 +8,24 @@ import { POST } from "./route"
 const request = (body: unknown = { text: "Hello", lang: "en" }) => new NextRequest("https://fixture.invalid/api/audio/speech", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
 const mp3 = new Uint8Array([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0])
 beforeEach(() => { vi.clearAllMocks(); mocks.anonymous = false; mocks.rate.mockResolvedValue({ allowed: true }); mocks.run.mockImplementation(async () => new Response(mp3, { headers: { "Content-Type": "audio/mpeg" } })) })
+afterEach(() => vi.unstubAllEnvs())
 describe("generic speech endpoint", () => {
+  it.each(["development", "production"])("uses AI options compatible with the %s transport", async mode => {
+    vi.stubEnv("NODE_ENV", mode)
+    const req = request()
+    const response = await POST(req)
+    expect(response.status).toBe(200)
+    expect(mocks.run).toHaveBeenCalledWith(expect.anything(), expect.anything(), { returnRawResponse: true, signal: mode === "development" ? undefined : req.signal })
+    await response.body!.cancel()
+  })
+  it("does not invoke AI after the caller has already cancelled", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    const controller = new AbortController()
+    const req = new NextRequest(request(), { signal: controller.signal })
+    controller.abort()
+    expect((await POST(req)).status).toBe(503)
+    expect(mocks.run).not.toHaveBeenCalled()
+  })
   it("returns only native audio with private headers", async () => {
     const response = await POST(request())
     expect(response.status).toBe(200)

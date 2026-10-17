@@ -1,3 +1,3 @@
-const TOUCH_CLIENT_ID = "alook-touch"
-
-export function isTouchClient(clientId: unknown): boolean { return clientId === TOUCH_CLIENT_ID }
+export function isTouchClient(verification: unknown): boolean {
+  return !!verification && typeof verification === "object" && !Array.isArray(verification) && "client_type" in verification && verification.client_type === "touch"
+}

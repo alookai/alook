@@ -24,6 +24,10 @@ describe("generic speech input and native AI output", () => {
   it.each([null, [], {}, { text: "  " }, { text: "x".repeat(4001) }, { text: "hello", lang: 1 }, { text: "hello", lang: "en\nfoo" }, { text: "hello", model: "other" }])("rejects invalid or oversized text without calling AI: %j", async input => {
     await expect(readSpeechInput(request(input))).rejects.toMatchObject({ status: 400 })
   })
+  it.each([new Uint8Array([0xff]), new TextEncoder().encode('{"text":"unfinished')])("rejects invalid UTF-8 or JSON before model work", async body => {
+    const input = new Request("https://fixture.invalid/api/audio/speech", { method: "POST", headers: { "Content-Type": "application/json" }, body })
+    await expect(readSpeechInput(input)).rejects.toMatchObject({ status: 400, message: "Valid UTF-8 JSON is required" })
+  })
   it("rejects a wrong media type and excessive actual bytes", async () => {
     await expect(readSpeechInput(request({ text: "Hi" }, "text/plain"))).rejects.toMatchObject({ status: 415 })
     await expect(readSpeechInput(request({ text: "x".repeat(33000) }))).rejects.toMatchObject({ status: 413 })

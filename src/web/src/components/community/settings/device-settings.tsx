@@ -42,7 +42,7 @@ export function DeviceSettings({ userId, userCode = "", active }: { userId: stri
       const result = await authClient.device({ query: { user_code: code }, fetchOptions: options(original, signal) })
       original()
       if (result.error) throw new Error(result.error.error_description || "Invalid or expired code")
-      if (!isTouchClient(result.data?.client_id)) throw new Error("This code is not for Alook Touch. Open its original authorization page.")
+      if (!isTouchClient(result.data)) throw new Error("This code is not for Alook Touch. Open its original authorization page.")
       return result.data
     },
   })
@@ -53,7 +53,7 @@ export function DeviceSettings({ userId, userCode = "", active }: { userId: stri
     scope: { id: JSON.stringify(["device-decision", userId, code]) },
     mutationFn: async ({ kind, requestCode, original }: { kind: "approve" | "deny"; requestCode: string; original: ReturnType<typeof capture> }) => {
       original()
-      if (!verified || requestCode !== code || !isTouchClient(verification.data?.client_id) || verification.data?.status !== "pending") throw new Error("Verify a pending Touch code first")
+      if (!verified || requestCode !== code || !isTouchClient(verification.data) || verification.data?.status !== "pending") throw new Error("Verify a pending Touch code first")
       const result = kind === "approve" ? await authClient.device.approve({ userCode: requestCode, fetchOptions: options(original) }) : await authClient.device.deny({ userCode: requestCode, fetchOptions: options(original) })
       original()
       if (result.error) throw new Error(result.error.error_description || "Could not authorize device")

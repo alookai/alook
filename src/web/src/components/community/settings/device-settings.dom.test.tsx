@@ -14,7 +14,7 @@ function mount(code = "ABCD-EFGH", active = true) {
 beforeEach(() => {
   vi.clearAllMocks()
   api.list.mockResolvedValue({ data: [] })
-  api.verify.mockResolvedValue({ data: { client_id: "alook-touch", status: "pending", user_code: "ABCD-EFGH" } })
+  api.verify.mockResolvedValue({ data: { client_type: "touch", client_id: "configured-fixture-id", status: "pending", user_code: "ABCD-EFGH" } })
   api.approve.mockResolvedValue({ data: { success: true } })
   api.deny.mockResolvedValue({ data: { success: true } })
   api.revoke.mockResolvedValue({ data: { success: true } })
@@ -46,6 +46,13 @@ describe("Devices settings", () => {
     api.verify.mockResolvedValue({ error: { error_description: "Code expired" } })
     mount("EXPIRED")
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Code expired"))
+  })
+  it("requires verified type metadata rather than a client-ID literal", async () => {
+    api.verify.mockResolvedValueOnce({ data: { client_id: "alook-touch", status: "pending" } })
+    mount()
+    await screen.findByRole("alert")
+    expect(screen.queryByTestId("device-authorization-review")).toBeNull()
+    expect(api.approve).not.toHaveBeenCalled()
   })
   it("confirms before revoking one canonical session without exposing its token", async () => {
     api.list.mockResolvedValueOnce({ data: [{ id: "s1", token: "mock-token", userAgent: "AlookTouch/mock firmware/test", createdAt: "2026-10-01T00:00:00Z" }] })

@@ -118,9 +118,18 @@ export function createAuth(env: Env) {
   const applePlugins = appleAuth.enabled
     ? [appleOauthHardeningPlugin(appleAuth.config.clientId)]
     : []
+  const touchClientId = env.TOUCH_CLIENT_ID?.trim()
   const validateClient = (clientId: string) => {
     const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean)
-    return allowed.includes(clientId)
+    return allowed.includes(clientId) || !!touchClientId && clientId === touchClientId
+  }
+  const deviceGrant = {
+    requestSchemaFields: {},
+    deviceCodeSchemaFields: {},
+    authorizeRequest: () => undefined,
+    assertSessionRedemption: () => {},
+    getVerificationContext: (code: Record<string, unknown>) => touchClientId && code.clientId === touchClientId ? { client_type: "touch" as const } : undefined,
+    verificationOpenAPIProperties: { client_type: { type: "string", enum: ["touch"] } },
   }
 
   return betterAuth({
@@ -332,7 +341,7 @@ export function createAuth(env: Env) {
     plugins: (isProd || (mode === "dev" && env.DEV_AUTH_OTP === "1"))
       ? [
           ...applePlugins,
-          deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
+          deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {}, grant: deviceGrant }),
           bearer(),
           oneTimeToken({
             expiresIn: 2,
@@ -395,7 +404,7 @@ export function createAuth(env: Env) {
         ]
       : [
           ...applePlugins,
-          deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
+          deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {}, grant: deviceGrant }),
           bearer(),
           oneTimeToken({
             expiresIn: 2,
@@ -430,6 +439,7 @@ function authConfiguration(env: Env): readonly (string | undefined)[] {
     env.APPLE_KEY_ID,
     env.APPLE_PRIVATE_KEY,
     env.DEVICE_CLIENT_IDS,
+    env.TOUCH_CLIENT_ID,
     env.APP_REVIEW_EMAIL,
     env.APP_REVIEW_OTP,
     env.DEV_AUTH_OTP,

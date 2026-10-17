@@ -45,7 +45,7 @@ function DeviceAuthPageInner() {
         const res = await authClient.device({ query: { user_code: verificationCode }, fetchOptions: { signal } })
         assertApplicationOwner(token, signal)
         if (res.error) throw new Error(res.error.error_description || "Invalid or expired code")
-        return { touch: isTouchClient(res.data?.client_id) }
+        return { touch: isTouchClient(res.data) }
       } catch (error) { assertApplicationOwner(token, signal); throw error }
     },
   })

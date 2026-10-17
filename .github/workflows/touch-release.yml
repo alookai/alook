@@ -35,16 +35,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Prepare pinned Arduino dependencies
         run: python3 src/touch/tools/setup.py
-      - name: Host contracts and isolated release fixtures
-        run: |
-          python3 src/touch/tools/test.py
-          python3 -m unittest discover -s src/touch/tests -p '*.py'
       - name: Generate pinned fonts and source assets
         run: |
           python3 src/touch/tools/font.py
           pnpm --filter @alook/web exec tsx ../touch/tools/assets.mts
-      - name: Build and bind complete MCU inputs
-        run: python3 src/touch/tools/build.py
+      - name: Host contracts and isolated release fixtures
+        run: |
+          python3 src/touch/tools/test.py
+          python3 -m unittest discover -s src/touch/tests -p '*.py'
       - name: Check explicit unified release eligibility
         id: release
         env:
@@ -55,6 +53,10 @@ jobs:
             publish=$(python3 src/touch/tools/release.py eligible)
           fi
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - name: Build and bind complete MCU inputs
+        env:
+          TOUCH_CLIENT_ID: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'alookai/alook' && steps.release.outputs.publish == 'true' && secrets.TOUCH_CLIENT_ID || '' }}
+        run: python3 src/touch/tools/build.py
       - name: Stage exact release bytes
         if: steps.release.outputs.publish == 'true'
         run: python3 src/touch/tools/release.py stage

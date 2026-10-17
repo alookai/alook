@@ -4,6 +4,7 @@ import { readTranscriptionAudio, transcribeAudio } from "@/lib/audio/transcripti
 
 export const POST = audioPost("audio:transcriptions", async (request, ctx) => {
   const audio = await readTranscriptionAudio(request)
-  const text = await transcribeAudio(ctx.env.AI, audio, request.signal)
+  request.signal.throwIfAborted()
+  const text = await transcribeAudio(ctx.env.AI, audio, process.env.NODE_ENV === "development" ? undefined : request.signal)
   return writeJSON({ text })
 })

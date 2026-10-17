@@ -1,6 +1,7 @@
 import json
 import hashlib
 import csv
+import os
 import pathlib
 import subprocess
 import sys
@@ -9,9 +10,24 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CACHE = ROOT / '.cache'
 sys.path.insert(0, str(ROOT / 'tools'))
 from setup import cli_command, configure
-from release import prepare, metadata
+from release import prepare, metadata, eligible
 
 FQBN = 'esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashSize=32M,PartitionScheme=app13M_data7M_32MB,PSRAM=opi,FlashMode=qio'
+
+
+def prepare_client_configuration(root, client_id='', require_secret=False):
+    if require_secret and not client_id:
+        raise ValueError('Touch release requires the TOUCH_CLIENT_ID secret')
+    value = client_id or 'alook-touch-dev'
+    if len(value) > 128 or any(ord(char) < 33 or ord(char) > 126 for char in value):
+        raise ValueError('TOUCH_CLIENT_ID must contain 1-128 printable non-space ASCII characters')
+    header = root / 'firmware/touch/generated/client_id.h'
+    header.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(header, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, 'w') as output:
+        os.fchmod(output.fileno(), 0o600)
+        output.write('#pragma once\n#define ALOOK_TOUCH_CLIENT_ID ' + json.dumps(value) + '\n')
+    return header
 
 
 def source_inputs():
@@ -21,8 +37,10 @@ def source_inputs():
 
 
 def main():
-    command = cli_command(configure())
     info = prepare()
+    require_secret = eligible() and os.environ.get('GITHUB_EVENT_NAME') != 'pull_request'
+    prepare_client_configuration(ROOT, os.environ.get('TOUCH_CLIENT_ID', ''), require_secret=require_secret)
+    command = cli_command(configure())
     inputs = source_inputs()
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
