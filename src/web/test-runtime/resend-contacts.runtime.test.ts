@@ -1,19 +1,68 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { syncResendSignupContact, unsubscribeResendContact } from "../src/lib/resend-contacts"
 
 const env = { RESEND_API_KEY: "mock-runtime-key" } as Env
 const user = { email: "contact-runtime@example.test", name: "Runtime QA" }
 const segmentId = "6701946e-a7e2-442b-8fa5-aba379a81248"
 
+beforeEach(() => {
+  vi.stubEnv("NODE_ENV", "production")
+})
+
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
 })
 
 describe("official Resend SDK in workerd", () => {
+  it.each(["production", "development", "test", undefined])(
+    "preserves sanitized waitUntil warnings and SDK logging in NODE_ENV=%s", async (mode) => {
+      vi.stubEnv("NODE_ENV", mode)
+      expect(process.env.NODE_ENV).toBe(mode)
+      const privateError = `${user.email} ${user.name} ${env.RESEND_API_KEY}`
+      const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({
+        name: "application_error", statusCode: 500, message: privateError,
+      }, { status: 500 }))
+      vi.stubGlobal("fetch", fetchMock)
+      const log = vi.spyOn(console, "log").mockImplementation(() => {})
+      const error = vi.spyOn(console, "error").mockImplementation(() => {})
+      const context = createExecutionContext()
+      context.waitUntil(syncResendSignupContact(env, user))
+      context.waitUntil(unsubscribeResendContact(env, user.email))
+
+      await expect(waitOnExecutionContext(context)).resolves.toBeUndefined()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(log).toHaveBeenCalledTimes(2)
+      const entries = log.mock.calls.map(([value]) => JSON.parse(value as string))
+      expect(entries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          service: "resend-contacts", msg: "resend_contact_sync_failed", action: "signup",
+          stage: "lookup", errorCategory: "provider_error", statusCode: 500,
+        }),
+        expect.objectContaining({
+          service: "resend-contacts", msg: "resend_contact_sync_failed", action: "account-deletion",
+          stage: "update", errorCategory: "provider_error", statusCode: 500,
+        }),
+      ]))
+      for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
+        expect(JSON.stringify(log.mock.calls)).not.toContain(value)
+      }
+      if (mode === "production") {
+        expect(error).not.toHaveBeenCalled()
+      } else {
+        expect(error).toHaveBeenCalledTimes(2)
+        expect(error).toHaveBeenCalledWith("[Resend API Error]:", expect.objectContaining({
+          status: 500, error: expect.objectContaining({ message: privateError }),
+        }))
+      }
+    },
+  )
+
   it("creates a contact and sends its signup event within the original execution context", async () => {
     const fetchMock = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ name: "not_found", statusCode: 404, message: "Missing contact" }, { status: 404 }))
