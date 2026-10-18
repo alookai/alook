@@ -1,4 +1,4 @@
-import { createElement, StrictMode } from "react"
+import { createElement, StrictMode, useLayoutEffect } from "react"
 import { act, render } from "@/test/react-dom-harness"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { useNativeBackMessages } from "./use-native-back-messages"
@@ -32,6 +32,40 @@ function setup(strict = false) {
 }
 
 describe("document-scoped Android Back messages", () => {
+  it("publishes only document-bound valid system gesture insets and retires them on pagehide", () => {
+    let insets: ReturnType<typeof useNativeBackMessages> = null
+    function InsetsHarness() {
+      const value = useNativeBackMessages(backEvent, progressEvent)
+      useLayoutEffect(() => { insets = value }, [value])
+      return null
+    }
+    const bridge = { postMessage: vi.fn(), onmessage: null as ((event: MessageEvent<string>) => void) | null }
+    vi.stubGlobal("AlookBack", bridge)
+    const renderer = render(createElement(InsetsHarness))
+    const document = JSON.parse(bridge.postMessage.mock.calls[0][0]).document
+    const send = (rest: Record<string, unknown> = {}) => act(() => { bridge.onmessage?.(new MessageEvent("message", {
+      data: JSON.stringify({ type: "insets", document, href: location.href, left: .08, right: .08, ...rest }),
+    })) })
+    expect(insets).toBeNull()
+    send({ document: "retired" })
+    send({ href: `${location.href}#old` })
+    send({ left: -1 })
+    send({ left: .6, right: .5 })
+    send({ left: "0.08" })
+    expect(insets).toBeNull()
+    send()
+    expect(insets).toEqual({ left: .08, right: .08 })
+    const sameInsets = insets
+    send()
+    expect(insets).toBe(sameInsets)
+    send({ left: .12 })
+    expect(insets).toEqual({ left: .12, right: .08 })
+    act(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })))
+    expect(insets).toBeNull()
+    send()
+    expect(insets).toBeNull()
+    renderer.unmount()
+  })
   it("forwards one started gesture and progress to the existing terminal owner once", () => {
     const test = setup()
     test.send("start", 1)

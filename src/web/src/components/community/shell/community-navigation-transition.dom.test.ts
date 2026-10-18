@@ -1,7 +1,7 @@
 import { createContext, createElement, useContext, useState, type ReactNode } from "react"
 import { act, render, screen } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { CommunityNavigationTransition } from "./community-navigation-transition"
+import { CommunityNavigationPage, CommunityNavigationTransition } from "./community-navigation-transition"
 import { COMMUNITY_NAV_BACK, COMMUNITY_NAV_FORWARD } from "@/lib/community/navigation-transition"
 
 const captures = vi.hoisted(() => ({ updates: [] as unknown[] }))
@@ -26,7 +26,7 @@ function StatefulPage() {
 
 function presentation(targetHref: string, transitionTypes?: string[], mobile = true) {
   return createElement(CommunityNavigationTransition, { mobile, targetHref, transitionTypes },
-    createElement(Target, { value: targetHref }, createElement(StatefulPage)),
+    createElement(Target, { value: targetHref }, createElement(CommunityNavigationPage, { list: targetHref === "/c/me" }, createElement(StatefulPage))),
   )
 }
 
@@ -77,7 +77,7 @@ describe("deferred community page presentation", () => {
     const renderer = render(presentation("/c/me/dm1", [COMMUNITY_NAV_FORWARD]))
     await act(async () => { renderer.rerender(createElement(CommunityNavigationTransition, {
       mobile: true, targetHref: "/c/me", backPreview: { id: 1, href: "/c/me", committing: false },
-    }, createElement(StatefulPage))) })
+    }, createElement(CommunityNavigationPage, { list: true }, createElement(StatefulPage)))) })
     captures.updates = []
     await act(async () => { renderer.rerender(presentation("/c/me/dm1", [COMMUNITY_NAV_FORWARD])) })
     expect(captures.updates.at(-2)).toBe("none")
@@ -87,6 +87,30 @@ describe("deferred community page presentation", () => {
     const renderer = render(presentation("/c/me", undefined, false))
     captures.updates = []
     await act(async () => { renderer.rerender(presentation("/c/me/dm1", [COMMUNITY_NAV_FORWARD], false)) })
+    expect(captures.updates.every((value) => value === "none")).toBe(true)
+  })
+
+  it("does not replay automatic Back when a completed preview hands over the same parent target", async () => {
+    const renderer = render(presentation("/c/me/dm1"))
+    await act(async () => { renderer.rerender(createElement(CommunityNavigationTransition, {
+      mobile: true, targetHref: "/c/me", backPreview: { id: 1, href: "/c/me", committing: true },
+    }, createElement(CommunityNavigationPage, { list: true }, createElement(StatefulPage)))) })
+    captures.updates = []
+    await act(async () => { renderer.rerender(presentation("/c/me")) })
+    expect(captures.updates).not.toContain(COMMUNITY_NAV_BACK)
+    expect(renderer.container.querySelector("[data-community-page-animation]")).toHaveAttribute("data-community-page-animation", "none")
+    captures.updates = []
+    await act(async () => { renderer.rerender(presentation("/c/me/dm2")) })
+    expect(captures.updates).toContain(COMMUNITY_NAV_FORWARD)
+  })
+
+  it("keeps direct Home and Server switches outside directional motion", async () => {
+    const renderer = render(presentation("/c/me"))
+    captures.updates = []
+    await act(async () => { renderer.rerender(presentation("/c/channels/s1")) })
+    expect(captures.updates.every((value) => value === "none")).toBe(true)
+    captures.updates = []
+    await act(async () => { renderer.rerender(presentation("/c/me")) })
     expect(captures.updates.every((value) => value === "none")).toBe(true)
   })
 })

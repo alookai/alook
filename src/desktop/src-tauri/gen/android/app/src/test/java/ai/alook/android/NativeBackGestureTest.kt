@@ -7,6 +7,19 @@ class NativeBackGestureTest {
     private val href = "\"https://alook.ai/c/me/one\""
     private val document = "\"document-one\""
 
+    @Test fun publishesActualSystemInsetsAsWebViewWidthFractions() {
+        val bridge = NativeBackGesture()
+        val insets = bridge.insets(href, document, 24, 36, 400)!!
+        assertTrue(insets.contains("\"type\":\"insets\""))
+        assertTrue(insets.contains("\"document\":$document"))
+        assertTrue(insets.contains("\"left\":0.06"))
+        assertTrue(insets.contains("\"right\":0.09"))
+        assertNull(bridge.insets(href, document, 24, 24, 0))
+        assertNull(bridge.insets(href, document, -1, 24, 400))
+        assertNull(bridge.insets(href, document, 24, -1, 400))
+        assertNull(bridge.insets(href, document, 200, 200, 400))
+    }
+
     @Test fun ignoresProgressAndCancellationWithoutStart() {
         val bridge = NativeBackGesture()
         assertFalse(bridge.progress(0.5f))

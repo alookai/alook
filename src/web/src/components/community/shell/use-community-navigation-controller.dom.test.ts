@@ -122,10 +122,10 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBeNull()
   })
 
-  it("uses replace for semantic parent navigation", async () => {
+  it("keeps the top-level Home to Server replace outside directional motion", async () => {
     const hook = await renderController()
     await act(async () => hook.current.replace("/c/channels/s1"))
-    expect(mocks.replace).toHaveBeenCalledWith("/c/channels/s1", { transitionTypes: [COMMUNITY_NAV_FORWARD] })
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
     expect(mocks.push).not.toHaveBeenCalled()
     expect(hook.current.pendingHref).toBe("/c/channels/s1")
   })

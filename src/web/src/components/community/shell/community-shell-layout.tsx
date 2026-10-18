@@ -39,6 +39,7 @@ import {
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import { Shell } from "./shell"
+import { CommunityNavigationPage } from "./community-navigation-transition"
 import { useHydratedClient } from "./use-hydrated-client"
 
 const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
@@ -400,6 +401,7 @@ export function CommunityShellLayout({
           {rail}
         </div>
       )}
+      <CommunityNavigationPage list={sidebarMobileActive}>
       <div
         data-community-retained-body
         className={cn(
@@ -529,6 +531,7 @@ export function CommunityShellLayout({
           </div>
         )}
       </div>
+      </CommunityNavigationPage>
       {overlays}
     </Shell>
   )

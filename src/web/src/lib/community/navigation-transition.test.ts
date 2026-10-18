@@ -20,10 +20,20 @@ describe("community navigation direction", () => {
   it.each([
     ["/c/me/dm1", "/c/me/dm2"],
     ["/c/channels/s1/c1", "/c/channels/s1/c2"],
+    ["/c/me", "/c/channels/s1/c1"],
+  ])("uses entry for same-level changes within the scope: %s → %s", (from, to) => {
+    expect(communityNavigationTransitionTypes(from, to)).toEqual([COMMUNITY_NAV_FORWARD])
+  })
+
+  it.each([
+    ["/c/me", "/c/channels/s1"],
+    ["/c/channels/s1", "/c/me"],
+    ["/c/me/dm1", "/c/channels/s1"],
+    ["/c/channels/s1/c1", "/c/me"],
     ["/c/channels/s1/c1", "/c/channels/s2"],
     ["/c/channels/s1", "/c/channels/s2"],
-  ])("uses entry, never parent exit, for same-level and other-scope changes: %s → %s", (from, to) => {
-    expect(communityNavigationTransitionTypes(from, to)).toEqual([COMMUNITY_NAV_FORWARD])
+  ])("keeps top-level scope switches still: %s → %s", (from, to) => {
+    expect(communityNavigationTransitionTypes(from, to)).toEqual([])
   })
 
   it("does not move a query-only destination or a route outside community", () => {

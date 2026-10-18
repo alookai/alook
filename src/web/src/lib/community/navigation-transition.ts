@@ -17,6 +17,7 @@ export function communityNavigationTransitionTypes(
   const sameScope = from.scope.kind === "me" && to.scope.kind === "me"
     || from.scope.kind === "server" && to.scope.kind === "server"
       && from.scope.serverId === to.scope.serverId
+  if (!sameScope && to.surface === "list") return []
   if (parentHref && to.leafKey === normalizeCommunityHref(parentHref).leafKey
     || sameScope && from.surface === "detail" && to.surface === "list") {
     return [COMMUNITY_NAV_BACK]

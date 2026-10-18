@@ -56,6 +56,9 @@ class MainActivity : TauriActivity() {
     private var backReplyProxy: JavaScriptReplyProxy? = null
     private var backDocumentId: String? = null
     private var backFrame: Runnable? = null
+    private val backLayoutListener = View.OnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+        if (view === mainWebView) publishBackInsets()
+    }
 
     private var isReady = false
     private var mainWebView: WebView? = null
@@ -108,6 +111,7 @@ class MainActivity : TauriActivity() {
             val imeVisible = insets.isVisible(imeType)
             val bottomPadding = if (imeVisible) imeInsets.bottom else chromeInsets.bottom
             v.setPadding(chromeInsets.left, chromeInsets.top, chromeInsets.right, bottomPadding)
+            publishBackInsets()
             WindowInsetsCompat.Builder(insets)
                 .setInsets(chromeTypes, Insets.NONE)
                 .setInsets(imeType, Insets.of(imeInsets.left, imeInsets.top, imeInsets.right, 0))
@@ -155,6 +159,23 @@ class MainActivity : TauriActivity() {
         backFrame = null
     }
 
+    private fun publishBackInsets() {
+        val webView = mainWebView ?: return
+        val reply = backReplyProxy ?: return
+        val document = backDocumentId ?: return
+        val href = webView.url ?: return
+        if (!trustedBackOrigin(Uri.parse(href)) || webView.width <= 0) return
+        val insets = ViewCompat.getRootWindowInsets(webView)
+            ?.getInsets(WindowInsetsCompat.Type.systemGestures()) ?: return
+        val location = IntArray(2)
+        webView.getLocationInWindow(location)
+        val left = (insets.left - location[0]).coerceIn(0, webView.width)
+        val right = (insets.right - (window.decorView.width - location[0] - webView.width))
+            .coerceIn(0, webView.width)
+        nativeBackGesture.insets(JSONObject.quote(href), JSONObject.quote(document), left, right, webView.width)
+            ?.let { reply.postMessage(it) }
+    }
+
     private fun sendBackGesture(start: Boolean) {
         val href = mainWebView?.url ?: return
         if (!trustedBackOrigin(Uri.parse(href))) { nativeBackGesture.invalidate(); return }
@@ -196,6 +217,7 @@ class MainActivity : TauriActivity() {
                     }
                     backReplyProxy = reply
                     backDocumentId = token
+                    publishBackInsets()
                 }
                 "unsubscribe" -> if (backDocumentId == token) {
                     cancelBackFrame()
@@ -214,6 +236,7 @@ class MainActivity : TauriActivity() {
         backDocumentId = null
         gestureCallback.remove()
         clearStartupAttachListener()
+        mainWebView?.removeOnLayoutChangeListener(backLayoutListener)
         mainWebView = null
         mobileShareImageDocumentOwner.detach()
         super.onDestroy()
@@ -223,7 +246,9 @@ class MainActivity : TauriActivity() {
         super.onWebViewCreate(webView)
         clearStartupAttachListener()
         cancelBackFrame()
+        mainWebView?.removeOnLayoutChangeListener(backLayoutListener)
         mainWebView = webView
+        webView.addOnLayoutChangeListener(backLayoutListener)
         backReplyProxy = null
         backDocumentId = null
         nativeBackGesture.reset()

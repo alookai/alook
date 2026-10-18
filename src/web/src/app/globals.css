@@ -3087,7 +3087,20 @@ body {
   content-visibility: visible !important;
 }
 
+.community-navigation-page { display: contents; }
+
 @media (max-width: 639px) {
+  .community-navigation-page {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    pointer-events: none;
+  }
+  .community-navigation-page[data-community-page-list] { padding-left: 56px; }
+  .community-navigation-page > [data-community-retained-body] { pointer-events: auto; }
+  :root:active-view-transition [data-community-retained-layout]:has([data-community-page-animation="community-nav-forward"]) [data-community-retained-rail] {
+    visibility: visible;
+  }
   :root:has([data-slot="community-shell-root"])::view-transition {
     pointer-events: none;
   }

@@ -7,6 +7,11 @@ internal class NativeBackGesture {
     private var stale = false
     private var pendingProgress: Float? = null
 
+    fun insets(quotedHref: String, quotedDocument: String, left: Int, right: Int, width: Int): String? {
+        if (width <= 0 || left < 0 || right < 0 || left.toLong() + right >= width) return null
+        return "{\"type\":\"insets\",\"href\":$quotedHref,\"document\":$quotedDocument,\"left\":${left.toDouble() / width},\"right\":${right.toDouble() / width}}"
+    }
+
     fun start(quotedHref: String, quotedDocument: String): String {
         stale = false
         href = quotedHref

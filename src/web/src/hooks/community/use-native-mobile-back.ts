@@ -29,7 +29,7 @@ export function useNativeMobileBack({
   isBackGestureActive?: () => boolean
   abortBackGesture?: () => void
 }) {
-  useNativeBackMessages(NATIVE_MOBILE_BACK_EVENT, NATIVE_MOBILE_BACK_PROGRESS_EVENT)
+  const nativeInsets = useNativeBackMessages(NATIVE_MOBILE_BACK_EVENT, NATIVE_MOBILE_BACK_PROGRESS_EVENT)
   const actions = useRef({ dismissShellOverlay, replacePath, pageNavigationEnabled, beginBackGesture, isBackGestureActive, abortBackGesture })
   const nativeGesture = useRef<"active" | "stale" | null>(null)
   const composing = useRef<EventTarget | null>(null)
@@ -135,9 +135,14 @@ export function useNativeMobileBack({
         nativeGesture.current = null
         pageBlocked = false
       } else if (detail?.started === true && detail.progress === 0) {
+        const localInteraction = gesture?.interaction
+        gesture = null
         nativeGesture.current = "active"
-        pageBlocked = occupied() || !actions.current.pageNavigationEnabled || Boolean(actions.current.isBackGestureActive?.())
-        nativeInteraction = pageBlocked ? null : actions.current.beginBackGesture?.() ?? null
+        pageBlocked = occupied() || !actions.current.pageNavigationEnabled
+          || !localInteraction && Boolean(actions.current.isBackGestureActive?.())
+        if (pageBlocked) localInteraction?.abort()
+        nativeInteraction = pageBlocked ? null : localInteraction ?? actions.current.beginBackGesture?.() ?? null
+        nativeInteraction?.update(0)
       } else if (nativeGesture.current === "active" && !pageBlocked && Number.isFinite(detail?.progress)) {
         nativeInteraction?.update(detail.progress!)
       }
@@ -152,16 +157,28 @@ export function useNativeMobileBack({
       return false
     }
     const reserveEdgePointer = (event: PointerEvent) => {
-      if (event.pointerType === "touch" && event.clientX >= 0 && event.clientX <= MOBILE_BACK_EDGE_PX
+      if (event.pointerType === "touch" && inGestureRegion(event.clientX)
         && parentPath && actions.current.pageNavigationEnabled && !occupied() && !nestedControl(event.target)) {
         event.stopPropagation()
       }
     }
+    const android = /android/i.test(navigator.userAgent)
+    const inGestureRegion = (x: number) => {
+      if (android && !nativeInsets) return false
+      const width = document.documentElement.clientWidth || window.innerWidth
+      const style = getComputedStyle(document.documentElement)
+      const safeLeft = Math.max(0, Number.parseFloat(style.getPropertyValue("--app-safe-area-left")) || 0)
+      const safeRight = Math.max(0, Number.parseFloat(style.getPropertyValue("--app-safe-area-right")) || 0)
+      const left = Math.max(safeLeft, android ? nativeInsets!.left * width : 0)
+      const right = width - Math.max(safeRight, android ? nativeInsets!.right * width : 0)
+      return x >= left && x <= Math.min(left + MOBILE_BACK_EDGE_PX, right)
+    }
     const start = (event: TouchEvent) => {
       cancel()
-      if (event.touches.length !== 1 || event.defaultPrevented || nestedControl(event.target)) return
+      if (!parentPath || nativeGesture.current === "active" || event.touches.length !== 1
+        || event.defaultPrevented || nestedControl(event.target)) return
       const touch = event.touches[0]
-      if (touch.clientX < 0 || touch.clientX > MOBILE_BACK_EDGE_PX) return
+      if (!inGestureRegion(touch.clientX)) return
       pageBlocked = occupied() || !actions.current.pageNavigationEnabled || Boolean(actions.current.isBackGestureActive?.())
       gesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, width: document.documentElement.clientWidth,
         horizontal: false, interactionStarted: false, interaction: null, lastX: touch.clientX, at: performance.now(), velocity: 0 }
@@ -213,7 +230,7 @@ export function useNativeMobileBack({
     window.addEventListener("pagehide", invalidate)
     if (mobile) {
       window.addEventListener(NATIVE_MOBILE_BACK_PROGRESS_EVENT, nativeLifecycle)
-      if (!/android/i.test(navigator.userAgent)) {
+      if (!android || nativeInsets) {
         document.addEventListener("pointerdown", reserveEdgePointer, true)
         document.addEventListener("touchstart", start, { passive: true, capture: true })
         document.addEventListener("touchmove", move, { passive: false, capture: true })
@@ -239,5 +256,5 @@ export function useNativeMobileBack({
       document.removeEventListener("visibilitychange", invalidate)
       window.removeEventListener("resize", invalidate)
     }
-  }, [mobile, gestureKey, parentPath])
+  }, [mobile, gestureKey, parentPath, nativeInsets])
 }

@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
 type NativeBackMessages = {
   postMessage: (message: string) => void
@@ -6,6 +6,7 @@ type NativeBackMessages = {
 }
 
 export function useNativeBackMessages(backEvent: string, progressEvent: string) {
+  const [insets, setInsets] = useState<{ left: number; right: number } | null>(null)
   useEffect(() => {
     const bridge = (window as Window & { AlookBack?: NativeBackMessages }).AlookBack
     if (!bridge?.postMessage) return
@@ -18,8 +19,15 @@ export function useNativeBackMessages(backEvent: string, progressEvent: string) 
       try { payload = JSON.parse(event.data) } catch { return }
       if (!payload || typeof payload !== "object") return
       const data = payload as Record<string, unknown>
-      if (data.document !== documentId || data.href !== location.href
-        || typeof data.generation !== "number" || !Number.isSafeInteger(data.generation)) return
+      if (data.document !== documentId || data.href !== location.href) return
+      if (data.type === "insets") {
+        const { left, right } = data
+        if (typeof left !== "number" || !Number.isFinite(left) || left < 0
+          || typeof right !== "number" || !Number.isFinite(right) || right < 0 || left + right >= 1) return
+        setInsets((current) => current?.left === left && current.right === right ? current : { left, right })
+        return
+      }
+      if (typeof data.generation !== "number" || !Number.isSafeInteger(data.generation)) return
       const next = data.generation
       if (data.type === "start") {
         if (next <= generation || data.progress !== 0) return
@@ -45,6 +53,7 @@ export function useNativeBackMessages(backEvent: string, progressEvent: string) 
       }
     }
     const subscribe = () => {
+      setInsets(null)
       documentId = crypto.randomUUID()
       generation = 0
       activeGeneration = null
@@ -56,16 +65,18 @@ export function useNativeBackMessages(backEvent: string, progressEvent: string) 
       activeGeneration = null
       if (id) bridge.postMessage(JSON.stringify({ type: "unsubscribe", document: id }))
     }
+    const hide = () => { unsubscribe(); setInsets(null) }
     const show = (event: PageTransitionEvent) => { if (event.persisted) subscribe() }
     bridge.onmessage = receive
     subscribe()
-    window.addEventListener("pagehide", unsubscribe)
+    window.addEventListener("pagehide", hide)
     window.addEventListener("pageshow", show)
     return () => {
-      window.removeEventListener("pagehide", unsubscribe)
+      window.removeEventListener("pagehide", hide)
       window.removeEventListener("pageshow", show)
       unsubscribe()
       if (bridge.onmessage === receive) bridge.onmessage = null
     }
   }, [backEvent, progressEvent])
+  return insets
 }

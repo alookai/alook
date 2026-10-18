@@ -3,6 +3,7 @@ import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
 import type { CaseResources } from "./_fixtures/case-fixture"
+import { hasCompletedCommunityPageTransition, type PageTransitionRecord } from "./_fixtures/community-page-transition-probe"
 
 async function holdRoute(page: Page, pathname: string, caseResources: CaseResources) {
   let releaseGate!: () => void
@@ -30,11 +31,6 @@ function channelHeader(page: Page, name: string) {
   return page.getByRole("banner").getByText(name, { exact: true })
 }
 
-type PageTransitionRecord = {
-  animations: Array<{ name: string; pseudo: string | null; transforms: Array<string | undefined> }>
-  finished: boolean
-}
-
 async function installPageTransitionProbe(page: Page) {
   await page.addInitScript(() => {
     const state = window as typeof window & {
@@ -47,40 +43,44 @@ async function installPageTransitionProbe(page: Page) {
     if (!state.__communityPageTransitionCapable) return
     const original = document.startViewTransition.bind(document)
     document.startViewTransition = (...args: Parameters<typeof original>) => {
-      const record: PageTransitionRecord = { animations: [], finished: false }
+      const record: PageTransitionRecord = { animations: [], ready: false, readyError: null,
+        finished: false, finishedError: null, targetHref: null }
       state.__communityPageTransitions!.push(record)
       const result = original(...args)
       void result.ready.then(() => {
+        record.ready = true
+        record.targetHref = document.querySelector("[data-community-navigation-target]")?.getAttribute("data-community-navigation-target") ?? null
         record.animations = document.getAnimations().flatMap((animation) => {
-          if (!(animation instanceof CSSAnimation) || !(animation.effect instanceof KeyframeEffect)
-            || !["community-page-enter", "community-page-exit"].includes(animation.animationName)) return []
+          if (!(animation instanceof CSSAnimation) || !(animation.effect instanceof KeyframeEffect)) return []
           return [{ name: animation.animationName, pseudo: animation.effect.pseudoElement,
             transforms: animation.effect.getKeyframes().map((frame) => frame.transform as string | undefined) }]
         })
-      }).catch(() => {})
-      void result.finished.then(() => { record.finished = true }).catch(() => {})
+      }).catch((error) => { record.readyError = String(error) })
+      void result.finished.then(() => { record.finished = true }).catch((error) => { record.finishedError = String(error) })
       return result
     }
   })
 }
 
-async function expectPageTransition(page: Page, name: "community-page-enter" | "community-page-exit") {
+async function transitionAction(page: Page, targetHref: string) {
+  const afterIndex = await page.evaluate(() => (window as typeof window & {
+    __communityPageTransitions?: PageTransitionRecord[]
+  }).__communityPageTransitions?.length ?? 0)
+  return { afterIndex, targetHref }
+}
+
+async function expectPageTransition(page: Page, name: "community-page-enter" | "community-page-exit",
+  action: { afterIndex: number; targetHref: string }) {
   const capable = await page.evaluate(() => (window as typeof window & {
     __communityPageTransitionCapable?: boolean
   }).__communityPageTransitionCapable)
   if (!capable) return
-  await expect.poll(() => page.evaluate((name) => {
-    const records = (window as typeof window & {
+  await expect.poll(async () => {
+    const records = await page.evaluate(() => (window as typeof window & {
       __communityPageTransitions?: PageTransitionRecord[]
-    }).__communityPageTransitions ?? []
-    const entering = name === "community-page-enter"
-    return records.some((record) => record.finished && record.animations.some((animation) =>
-      animation.name === name
-      && animation.pseudo?.startsWith(entering ? "::view-transition-new(" : "::view-transition-old(")
-      && animation.transforms[0] === (entering ? "translateX(100%)" : "translateX(0px)")
-      && animation.transforms.at(-1) === (entering ? "translateX(0px)" : "translateX(100%)"),
-    ))
-  }, name)).toBe(true)
+    }).__communityPageTransitions ?? [])
+    return { matched: hasCompletedCommunityPageTransition(records, name, action), action, records }
+  }).toMatchObject({ matched: true })
 }
 
 type SurfaceAnimationRecord = {
@@ -303,11 +303,12 @@ test("mobile snapshot transitions preserve stationary live DOM, sidebar identity
   })
   await clearSurfaceAnimations(page)
 
+  const fastAction = await transitionAction(page, `/c/channels/${serverId}/${fastChannel}`)
   await fastRow.click()
   await expect.poll(() => new URL(page.url()).pathname)
     .toBe(`/c/channels/${serverId}/${fastChannel}`)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  await expectPageTransition(page, "community-page-enter")
+  await expectPageTransition(page, "community-page-enter", fastAction)
   expect(await surfaceAnimations(page)).toEqual([])
   expectStationaryFrames(await surfaceFrames(page))
   expect(await sidebarScroll.evaluate((element) => (
@@ -317,10 +318,11 @@ test("mobile snapshot transitions preserve stationary live DOM, sidebar identity
     element as typeof element & { __e2eDndOwner?: string }
   ).__e2eDndOwner)).toBe("stable")
 
+  const backAction = await transitionAction(page, `/c/channels/${serverId}`)
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await expect(fastRow).toBeVisible()
-  await expectPageTransition(page, "community-page-exit")
+  await expectPageTransition(page, "community-page-exit", backAction)
   expect(await surfaceAnimations(page)).toEqual([])
   expectStationaryFrames(await surfaceFrames(page))
   expect(await sidebarScroll.evaluate((element) => (
@@ -333,6 +335,7 @@ test("mobile snapshot transitions preserve stationary live DOM, sidebar identity
   await clearSurfaceAnimations(page)
   const pendingPath = `/c/channels/${serverId}/${pendingChannel}`
   const pendingGate = await holdRoute(page, pendingPath, caseResources)
+  const pendingAction = await transitionAction(page, pendingPath)
   await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true })
   await expect.poll(pendingGate.held).toBeGreaterThan(0)
   const pendingMain = page.locator(
@@ -351,7 +354,7 @@ test("mobile snapshot transitions preserve stationary live DOM, sidebar identity
   await expect(page.locator(
     `[data-slot="community-conversation-surface"][data-channel-id="${fastChannel}"]`,
   )).toHaveCount(0)
-  await expectPageTransition(page, "community-page-enter")
+  await expectPageTransition(page, "community-page-enter", pendingAction)
   await pendingGate.release()
 
   await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)

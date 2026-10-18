@@ -132,6 +132,63 @@ describe("interactive page snapshot ownership", () => {
     expect(replace).not.toHaveBeenCalled()
   })
 
+  it("restores the retained page when the router rejects the confirmed return", async () => {
+    render(createElement(Harness))
+    const input = screen.getByRole("textbox")
+    replace.mockImplementation(() => { throw new Error("navigation failed") })
+    await act(async () => { api.begin()?.complete() })
+    await act(async () => { finished.resolve(animation) })
+    expect(replace).toHaveBeenCalledOnce()
+    expect(api.preview).toBeNull()
+    expect(api.isActive()).toBe(false)
+    expect(screen.getByRole("textbox")).toBe(input)
+    expect(input).toHaveValue("unfinished")
+  })
+
+  it("retires an unsupported pseudo-element animation without submitting Back", async () => {
+    makeAnimation.mockImplementation(() => { throw new DOMException("unsupported pseudo-element", "NotSupportedError") })
+    render(createElement(Harness))
+    let gesture: MobileBackGesture | null = null
+    await act(async () => { gesture = api.begin() })
+    expect(api.preview).toBeNull()
+    expect(api.isActive()).toBe(false)
+    expect(gesture!.complete()).toBe(false)
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("restores the source after a snapshot animation rejects", async () => {
+    render(createElement(Harness))
+    await act(async () => { api.begin()?.update(.4) })
+    await act(async () => { finished.reject(new DOMException("transition interrupted", "AbortError")) })
+    expect(api.preview).toBeNull()
+    expect(api.isActive()).toBe(false)
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("aborts from the input lease and ignores late progress, finish and repeated abort", async () => {
+    render(createElement(Harness))
+    let gesture: MobileBackGesture | null = null
+    await act(async () => { gesture = api.begin(); gesture?.update(.4) })
+    act(() => { gesture!.abort(); gesture!.abort(); gesture!.update(.8) })
+    await act(async () => { finished.resolve(animation) })
+    expect(animation.cancel).toHaveBeenCalledTimes(2)
+    expect(animation.currentTime).toBe(80)
+    expect(api.preview).toBeNull()
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("retires an unattached preview on unmount before the skipped-snapshot fallback runs", async () => {
+    const renderer = render(createElement(Harness, { attach: false }))
+    let gesture: MobileBackGesture | null = null
+    act(() => { gesture = api.begin() })
+    expect(api.isActive()).toBe(true)
+    renderer.unmount()
+    await act(async () => {})
+    expect(gesture!.complete()).toBe(false)
+    expect(api.isActive()).toBe(false)
+    expect(replace).not.toHaveBeenCalled()
+  })
+
   it.each(["reduced motion", "missing snapshots", "missing classes"])("uses immediate Back with %s", (condition) => {
     if (condition === "reduced motion") vi.stubGlobal("matchMedia", () => ({ matches: true }))
     if (condition === "missing snapshots") delete (document as Partial<Document>).startViewTransition

@@ -526,6 +526,19 @@ describe("shared page gesture input", () => {
     return { interaction, props, renderer }
   }
 
+  it("starts iOS application input inside its actual page safe area", () => {
+    const { interaction, props } = setup()
+    document.documentElement.style.setProperty("--app-safe-area-left", "32px")
+    try {
+      touch("touchstart", 12); touch("touchmove", 240); touch("touchend", 240)
+      expect(props.beginBackGesture).not.toHaveBeenCalled()
+      touch("touchstart", 32); touch("touchmove", 250); touch("touchend", 250)
+      expect(props.beginBackGesture).toHaveBeenCalledOnce()
+      expect(interaction.complete).toHaveBeenCalledOnce()
+      expect(props.replacePath).not.toHaveBeenCalled()
+    } finally { document.documentElement.style.removeProperty("--app-safe-area-left") }
+  })
+
   it.each([false, true])("slow release chooses the nearest endpoint, completed=%s", (complete) => {
     const { interaction, props } = setup()
     touch("touchstart", 10)
@@ -644,5 +657,114 @@ describe("shared page gesture input", () => {
     expect(props.beginBackGesture).not.toHaveBeenCalled()
     expect(props.replacePath).not.toHaveBeenCalled()
     scroller.remove()
+  })
+})
+
+describe("Android system boundary and interior app gesture", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  function setup() {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android")
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(400)
+    const bridge = { postMessage: vi.fn(), onmessage: null as ((event: MessageEvent<string>) => void) | null }
+    vi.stubGlobal("AlookBack", bridge)
+    const interaction = { update: vi.fn(), complete: vi.fn(() => true), cancel: vi.fn(), abort: vi.fn() }
+    const props = { mobile: true, parentPath: "/c/me", replacePath: vi.fn(), dismissShellOverlay: () => false,
+      beginBackGesture: vi.fn(() => interaction), isBackGestureActive: vi.fn(() => false), abortBackGesture: vi.fn() }
+    const renderer = render(createElement(Harness, props))
+    const documentId = JSON.parse(bridge.postMessage.mock.calls[0][0]).document
+    const send = (type: string, rest: Record<string, unknown> = {}) => act(() => bridge.onmessage?.(new MessageEvent("message", {
+      data: JSON.stringify({ type, document: documentId, href: location.href, generation: 1, progress: 0, left: .08, right: .08, ...rest }),
+    })))
+    return { bridge, interaction, props, renderer, send }
+  }
+
+  it("uses the same safe-area rule when the display inset exceeds the system gesture inset", () => {
+    const { send, interaction, props } = setup()
+    send("insets")
+    document.documentElement.style.setProperty("--app-safe-area-left", "48px")
+    try {
+      touch("touchstart", 33); touch("touchmove", 260); touch("touchend", 260)
+      expect(props.beginBackGesture).not.toHaveBeenCalled()
+      touch("touchstart", 48); touch("touchmove", 280); touch("touchend", 280)
+      expect(props.beginBackGesture).toHaveBeenCalledOnce()
+      expect(interaction.complete).toHaveBeenCalledOnce()
+    } finally { document.documentElement.style.removeProperty("--app-safe-area-left") }
+  })
+
+  it("enables only the app strip immediately inside the actual system boundary", () => {
+    const { send, interaction, props } = setup()
+    touch("touchstart", 33); touch("touchmove", 260); touch("touchend", 260)
+    expect(props.beginBackGesture).not.toHaveBeenCalled()
+    send("insets")
+    for (const x of [0, 31, 57, 150, 390]) {
+      touch("touchstart", x)
+      expect(touch("touchmove", x + 240).defaultPrevented).toBe(false)
+      touch("touchend", x + 240)
+    }
+    expect(props.beginBackGesture).not.toHaveBeenCalled()
+    touch("touchstart", 32)
+    expect(touch("touchmove", 260).defaultPrevented).toBe(true)
+    touch("touchend", 260); touch("touchend", 260)
+    expect(props.beginBackGesture).toHaveBeenCalledOnce()
+    expect(interaction.complete).toHaveBeenCalledOnce()
+    expect(props.replacePath).not.toHaveBeenCalled()
+  })
+
+  it("hands the same lease to system input and ignores the old touch terminal", () => {
+    const { send, interaction, props } = setup()
+    send("insets")
+    touch("touchstart", 33); touch("touchmove", 240)
+    props.isBackGestureActive.mockReturnValue(true)
+    send("start")
+    send("progress", { progress: .6 })
+    touch("touchend", 260)
+    expect(interaction.complete).not.toHaveBeenCalled()
+    send("complete"); send("complete")
+    expect(props.beginBackGesture).toHaveBeenCalledOnce()
+    expect(interaction.update).toHaveBeenLastCalledWith(.6)
+    expect(interaction.complete).toHaveBeenCalledOnce()
+    expect(interaction.abort).not.toHaveBeenCalled()
+    expect(props.replacePath).not.toHaveBeenCalled()
+  })
+
+  it("cancels an interior drag when the actual system boundary changes", () => {
+    const { send, interaction, props } = setup()
+    send("insets")
+    touch("touchstart", 33); touch("touchmove", 240)
+    send("insets", { left: .12 })
+    touch("touchend", 260)
+    expect(interaction.abort).toHaveBeenCalledOnce()
+    expect(interaction.complete).not.toHaveBeenCalled()
+    touch("touchstart", 33); touch("touchmove", 260); touch("touchend", 260)
+    expect(props.beginBackGesture).toHaveBeenCalledOnce()
+    touch("touchstart", 49); touch("touchmove", 280); touch("touchend", 280)
+    expect(props.beginBackGesture).toHaveBeenCalledTimes(2)
+    expect(interaction.complete).toHaveBeenCalledOnce()
+    expect(props.replacePath).not.toHaveBeenCalled()
+  })
+
+  it("reserves Reply only in the interior strip and leaves controls and the content center alone", () => {
+    const { send, props } = setup()
+    send("insets")
+    const row = document.createElement("div")
+    const button = document.createElement("button")
+    row.append(button); document.body.append(row)
+    const reply = vi.fn()
+    row.addEventListener("pointerdown", reply)
+    const pointer = (x: number, target: Element = row) => {
+      const event = new Event("pointerdown", { bubbles: true })
+      Object.defineProperties(event, { pointerType: { value: "touch" }, clientX: { value: x } })
+      target.dispatchEvent(event)
+    }
+    pointer(33)
+    expect(reply).not.toHaveBeenCalled()
+    pointer(12); pointer(150); pointer(33, button)
+    expect(reply).toHaveBeenCalledTimes(3)
+    touch("touchstart", 33, 100, 1, true, button)
+    touch("touchmove", 260, 100, 1, true, button)
+    touch("touchend", 260, 100, 1, true, button)
+    expect(props.beginBackGesture).not.toHaveBeenCalled()
+    row.remove()
   })
 })
