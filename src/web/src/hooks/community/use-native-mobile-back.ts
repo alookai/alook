@@ -140,8 +140,8 @@ export function useNativeMobileBack({
         nativeGesture.current = "active"
         pageBlocked = occupied() || !actions.current.pageNavigationEnabled
           || !localInteraction && Boolean(actions.current.isBackGestureActive?.())
-        if (pageBlocked) localInteraction?.abort()
-        nativeInteraction = pageBlocked ? null : localInteraction ?? actions.current.beginBackGesture?.() ?? null
+        if (android || pageBlocked) localInteraction?.abort()
+        nativeInteraction = android || pageBlocked ? null : localInteraction ?? actions.current.beginBackGesture?.() ?? null
         nativeInteraction?.update(0)
       } else if (nativeGesture.current === "active" && !pageBlocked && Number.isFinite(detail?.progress)) {
         nativeInteraction?.update(detail.progress!)
