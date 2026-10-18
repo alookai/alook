@@ -5,7 +5,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
@@ -72,17 +72,10 @@ export function ShellFrame(props: ShellFrameProps) {
     ...normalizeCommunityHref(frameHref),
     revision: 0,
   }
-  const committedFrameRef = useRef(initialCommittedFrame)
-const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommittedFrame))
-  const commitFrame = useCallback((href: string) => {
-    const current = committedFrameRef.current
-    const next = advanceCommunityCommittedFrame(current, href)
-    if (next === current) return
-    committedFrameRef.current = next
-    setCommittedFrame(next)
-  }, [setCommittedFrame])
+  const [committedFrame, setCommittedFrame] = useState(initialCommittedFrame)
+  const nextCommittedFrame = advanceCommunityCommittedFrame(committedFrame, frameHref)
+  if (nextCommittedFrame !== committedFrame) setCommittedFrame(nextCommittedFrame)
   useLayoutEffect(() => {
-    commitFrame(frameHref)
     commitNavigation(frameHref)
     if (ownerDeleteRouteScope) {
       registerOwnerServerDeleteRoute(queryClient,
@@ -91,7 +84,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       )
     }
     observeOwnerServerDeleteRouteCommit(queryClient, frameHref)
-  }, [commitFrame, frameHref, ownerDeleteRouteScope, queryClient])
+  }, [frameHref, ownerDeleteRouteScope, queryClient])
   useEffect(() => {
     flushOwnerServerDeleteRouteCommit(queryClient)
   }, [frameHref, queryClient])

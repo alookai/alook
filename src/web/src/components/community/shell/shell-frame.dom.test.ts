@@ -1,7 +1,7 @@
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import type { QueryClient } from "@tanstack/react-query"
-import { createElement, useCallback, useLayoutEffect, type ReactNode } from "react"
+import { createElement, startTransition, Suspense, use, useCallback, useLayoutEffect, useState, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render as renderDom, screen } from "@/test/react-dom-harness"
 import { ShellFrame } from "./shell-frame"
@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => {
   return {
     nativeNotifications: vi.fn(),
     lifecycle: false,
+    heldFrames: null as Map<string, Promise<void>> | null,
+    routeCommitted: vi.fn(),
     viewerId: "viewer",
     openChanges: vi.fn(),
     outsideAction: vi.fn(),
@@ -161,6 +163,7 @@ vi.mock("./shell-frame-view", () => ({
     mocks.viewProps.current = props
     if (!mocks.lifecycle) return createElement("div", { "data-testid": "shell-frame-view" })
     const view = props as Parameters<typeof ShellFrameView>[0]
+    if (mocks.heldFrames) return createElement(HeldFrameProbe, { checkpoint: view.checkpoint })
     return createElement(CommunityShellLayout, {
       breakpoint: view.breakpoint,
       surface: view.checkpoint.surface,
@@ -183,6 +186,14 @@ vi.mock("./shell-frame-view", () => ({
     })
   },
 }))
+
+function HeldFrameProbe({ checkpoint }: { checkpoint: Parameters<typeof ShellFrameView>[0]["checkpoint"] }) {
+  const route = useCommunityRouteFrame()
+  useLayoutEffect(() => { mocks.routeCommitted(route) }, [route])
+  const resource = mocks.heldFrames?.get(route.frame.href)
+  if (checkpoint.mode === "committed" && resource) use(resource)
+  return createElement("div", { "data-testid": "held-checkpoint" }, checkpoint.targetHref)
+}
 
 let queryClient: QueryClient
 function NativeOwner({ children }: { children: React.ReactNode }) { return createElement(CommunityTestProvider, { client: queryClient }, children) }
@@ -243,6 +254,8 @@ describe("ShellFrame orchestration", () => {
     const register = owner.runtime.ui.actions.registerUiHandlers
     vi.spyOn(owner.runtime.ui.actions, "registerUiHandlers").mockImplementation((handlers) => { mocks.registerUiHandlers(handlers); register(handlers) })
     mocks.lifecycle = false
+    mocks.heldFrames = null
+    mocks.routeCommitted.mockReset()
     mocks.viewerId = "viewer"
     mocks.openChanges.mockReset()
     mocks.outsideAction.mockReset()
@@ -298,6 +311,56 @@ describe("ShellFrame orchestration", () => {
     expect(mocks.observeOwnerDelete.mock.invocationCallOrder.at(-1)).toBeLessThan(
       mocks.flushOwnerDelete.mock.invocationCallOrder.at(-1) ?? 0,
     )
+  })
+
+  it("keeps one checkpoint until the newest transitioned frame can render its outlet", async () => {
+    mocks.lifecycle = true
+    const f = "/c/channels/f"
+    const g = "/c/channels/g"
+    let releaseF!: () => void
+    let releaseG!: () => void
+    mocks.heldFrames = new Map([
+      [f, new Promise<void>((resolve) => { releaseF = resolve })],
+      [g, new Promise<void>((resolve) => { releaseG = resolve })],
+    ])
+    let route!: ReturnType<typeof useCommunityRouteFrame>
+    mocks.routeCommitted.mockImplementation((value) => { route = value })
+    let publish!: (href: string) => void
+    function SelectedFrame() {
+      const [frameHref, setFrameHref] = useState(baseProps.frameHref)
+      useLayoutEffect(() => { publish = setFrameHref }, [setFrameHref])
+      return createElement(ShellFrame, { ...baseProps, frameHref })
+    }
+    render(createElement(Suspense, { fallback: createElement("div", { "data-testid": "root-fallback" }) },
+      createElement(SelectedFrame)))
+    try {
+      await act(async () => { route.navigation.push(f) })
+      expect(screen.getAllByTestId("held-checkpoint")).toHaveLength(1)
+      expect(screen.getByTestId("held-checkpoint")).toHaveTextContent(f)
+      mocks.currentHref.current = f
+      await act(async () => { startTransition(() => publish(f)) })
+      expect(screen.queryByTestId("root-fallback")).toBeNull()
+      expect(route.frame.href).toBe(baseProps.frameHref)
+      expect(route.navigation.pendingHref).toBe(f)
+
+      await act(async () => { route.navigation.push(g) })
+      mocks.currentHref.current = g
+      await act(async () => { startTransition(() => publish(g)) })
+      await act(async () => { releaseF() })
+      expect(screen.queryByTestId("root-fallback")).toBeNull()
+      expect(screen.getAllByTestId("held-checkpoint")).toHaveLength(1)
+      expect(screen.getByTestId("held-checkpoint")).toHaveTextContent(g)
+      expect(route.frame.href).not.toBe(g)
+      expect(route.navigation.pendingHref).toBe(g)
+
+      await act(async () => { releaseG() })
+      expect(screen.queryByTestId("root-fallback")).toBeNull()
+      expect(route.frame.href).toBe(g)
+      expect(route.navigation.pendingHref).toBeNull()
+      expect(mocks.observeOwnerDelete).toHaveBeenLastCalledWith(queryClient, g)
+    } finally {
+      await act(async () => { releaseF(); releaseG() })
+    }
   })
 
   it("registers the route token at the same committed-frame boundary", () => {
