@@ -1,4 +1,4 @@
-import { createElement, useLayoutEffect, useState, type ReactNode } from "react"
+import { createElement, use, useLayoutEffect, useState, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { ShellFrameView } from "./shell-frame-view"
@@ -1239,6 +1239,75 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelectorAll("sidebar-content")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("main-content")).toHaveLength(1)
+  })
+
+  it("keeps sidebar effects and identity active through detail, parent-list preview and cancellation", () => {
+    const signals = { emit: null as ((value: number) => void) | null }
+    function Sidebar() {
+      const [signal, setSignal] = useState(0)
+      useLayoutEffect(() => {
+        signals.emit = setSignal
+        return () => { signals.emit = null }
+      }, [])
+      return createElement("div", { "data-retained-sidebar": "", "data-signal": signal },
+        createElement("input", { defaultValue: "draft" }))
+    }
+    const sidebar = () => createElement(Sidebar)
+    const props = { ...extensionProps, sidebar, rail, profile, inbox, breakpoint: "mobile" as const }
+    const list = committedCheckpoint("/c/channels/s1", "list")
+    const detail = committedCheckpoint("/c/channels/s1/c1", "detail")
+    const renderer = render(createElement(ShellFrameView, { ...props, checkpoint: list }))
+    const node = renderer.container.querySelector<HTMLElement>("[data-retained-sidebar]")!
+    const input = node.querySelector("input")!
+    input.value = "retained draft"
+    node.scrollTop = 75
+
+    renderer.rerender(createElement(ShellFrameView, { ...props, checkpoint: detail }))
+    expect(node.parentElement).not.toHaveStyle({ display: "none" })
+    expect(renderer.container.querySelector("[data-retained-sidebar]")).toBe(node)
+    expect(signals.emit).not.toBeNull()
+    act(() => { signals.emit!(3) })
+    expect(node).toHaveAttribute("data-signal", "3")
+
+    renderer.rerender(createElement(ShellFrameView, { ...props, checkpoint: detail,
+      backPreview: { href: "/c/channels/s1", committing: false } }))
+    expect(node.parentElement).not.toHaveStyle({ display: "none" })
+    expect(node.scrollTop).toBe(75)
+    expect(node.querySelector("input")).toBe(input)
+    expect(input.value).toBe("retained draft")
+
+    renderer.rerender(createElement(ShellFrameView, { ...props, checkpoint: detail }))
+    expect(node.parentElement).not.toHaveStyle({ display: "none" })
+    expect(signals.emit).not.toBeNull()
+    renderer.rerender(createElement(ShellFrameView, { ...props, breakpoint: "desktop", checkpoint: detail }))
+    expect(node.parentElement).not.toHaveStyle({ display: "none" })
+    expect(renderer.container.querySelector("[data-retained-sidebar]")).toBe(node)
+    expect(node.scrollTop).toBe(75)
+  })
+
+  it("commits a cold-scope checkpoint while the replaced sidebar suspends", async () => {
+      let reading: string | Promise<string> = "ready"
+      let release!: (value: string) => void
+      function Sidebar() {
+        return createElement("div", { "data-suspending-sidebar": "" },
+          typeof reading === "string" ? reading : use(reading))
+      }
+      const props = { ...extensionProps, sidebar: () => createElement(Sidebar), rail, profile, inbox,
+        breakpoint: "mobile" as const }
+      const renderer = render(createElement(ShellFrameView, {
+        ...props, checkpoint: committedCheckpoint("/c/channels/s1", "list"),
+      }))
+      const node = renderer.container.querySelector("[data-suspending-sidebar]")
+      reading = new Promise(resolve => { release = resolve })
+      const checkpoint: CommunityCheckpointPlan = {
+        mode: "cold-scope", surface: "list", targetHref: "/c/channels/s2", rail: { kind: "target", view: "server", activeServerId: "s2" },
+        sidebar: { kind: "server-skeleton", serverId: "s2" }, main: { kind: "target-skeleton", href: "/c/channels/s2" },
+      }
+      renderer.rerender(createElement(ShellFrameView, { ...props, checkpoint },
+        createElement("div", { "data-target-ready": "" })))
+      expect(renderer.container.querySelector("[data-channel-sidebar-skeleton]")).not.toBeNull()
+      expect(renderer.container.querySelector("[data-suspending-sidebar]")).toBe(node)
+      await act(async () => { release("resolved") })
   })
 
   it("replaces the committed sidebar with one target-scoped cold server checkpoint", async () => {

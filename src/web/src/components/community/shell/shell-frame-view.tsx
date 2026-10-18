@@ -1,5 +1,6 @@
 "use client"
 
+import { Activity } from "react"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
 import { CommunityPendingFrame } from "./community-pending-frame"
@@ -58,6 +59,7 @@ export function ShellFrameView({
   dismissUserBarExtension,
 }: Props) {
   const { surface } = checkpoint
+  const sidebarVisible = checkpoint.sidebar.kind === "keep"
   const { runningBots } = useRunningOwnedBots()
   const inboxElement = (
     <InboxPopover
@@ -104,15 +106,17 @@ export function ShellFrameView({
       rail={<ServerRail {...rail.railProps} bottomInset={60} />}
       preserveHiddenMobileModules
       sidebar={<>
-        <div
-          hidden={checkpoint.sidebar.kind !== "keep"}
-          inert={checkpoint.sidebar.kind !== "keep"}
-          aria-hidden={checkpoint.sidebar.kind !== "keep" || undefined}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <DmSidebarSlot visible={checkpoint.sidebar.kind === "keep"} />
-          {breakpoint === "desktop" ? sidebar() : sidebar({ noHeader: false })}
-        </div>
+        <Activity mode={sidebarVisible ? "visible" : "hidden"}>
+          <div
+            hidden={checkpoint.sidebar.kind !== "keep"}
+            inert={checkpoint.sidebar.kind !== "keep"}
+            aria-hidden={checkpoint.sidebar.kind !== "keep" || undefined}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DmSidebarSlot visible={sidebarVisible} />
+            {breakpoint === "desktop" ? sidebar() : sidebar({ noHeader: false })}
+          </div>
+        </Activity>
         {checkpoint.sidebar.kind === "server-skeleton"
           ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />
           : checkpoint.sidebar.kind === "me-skeleton" ? <DmSidebarSkeleton /> : null}

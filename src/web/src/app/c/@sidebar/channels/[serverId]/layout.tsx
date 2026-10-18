@@ -1,10 +1,8 @@
-import type { ReactNode } from "react"
 import { ServerSidebarSlot } from "@/components/community/shell/server-sidebar-slot"
 
-export default async function ServerSidebarLayout({ children, params }: {
-  children: ReactNode
+export default async function ServerSidebarLayout({ params }: {
   params: Promise<{ serverId: string }>
 }) {
   const { serverId } = await params
-  return <><ServerSidebarSlot serverId={serverId} />{children}</>
+  return <ServerSidebarSlot serverId={serverId} />
 }

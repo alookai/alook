@@ -3128,6 +3128,11 @@ body {
     mix-blend-mode: normal;
     z-index: 1;
   }
+  ::view-transition-new(.community-nav-forward),
+  ::view-transition-old(.community-nav-back),
+  ::view-transition-old(.community-nav-gesture) {
+    box-shadow: var(--e2);
+  }
 }
 
 @keyframes community-page-enter {
