@@ -141,7 +141,7 @@
     "@alook/test-utils": "workspace:*",
     "@cloudflare/vitest-plugin": "1.4.0",
     "@lhci/cli": "^0.15.1",
-    "@playwright/test": "^1.64.0",
+    "@playwright/test": "^1.64.1",
     "@serwist/turbopack": "9.5.13",
     "@tailwindcss/node": "^4.3.3",
     "@tailwindcss/postcss": "^4",
