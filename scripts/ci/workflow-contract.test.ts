@@ -957,7 +957,8 @@ describe("Turbo CI execution", () => {
   })
 
   it("collects Node and workerd projects in one Istanbul report", () => {
-    expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe("4.1.11")
+    expect(rootPackageJson.devDependencies.vitest).toBeTypeOf("string")
+    expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe(rootPackageJson.devDependencies.vitest)
     expect(rootPackageJson.devDependencies).not.toHaveProperty("@vitest/coverage-v8")
     expect(rootVitestConfig).toContain('provider: "istanbul"')
     expect(rootVitestConfig).toContain('"src/**/*.{ts,tsx,js,jsx}"')
