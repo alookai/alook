@@ -42,7 +42,7 @@
     "commander": "^15.0.0",
     "sharp": "^0.35.5",
     "ws": "^8.22.0",
-    "wrangler": "4.149.0"
+    "wrangler": "4.151.0"
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
@@ -51,6 +51,6 @@
     "knip": "^6.32.2",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.1",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }
