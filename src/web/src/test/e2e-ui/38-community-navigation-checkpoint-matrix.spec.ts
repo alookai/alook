@@ -30,6 +30,59 @@ function channelHeader(page: Page, name: string) {
   return page.getByRole("banner").getByText(name, { exact: true })
 }
 
+type PageTransitionRecord = {
+  animations: Array<{ name: string; pseudo: string | null; transforms: Array<string | undefined> }>
+  finished: boolean
+}
+
+async function installPageTransitionProbe(page: Page) {
+  await page.addInitScript(() => {
+    const state = window as typeof window & {
+      __communityPageTransitions?: PageTransitionRecord[]
+      __communityPageTransitionCapable?: boolean
+    }
+    state.__communityPageTransitions = []
+    state.__communityPageTransitionCapable = typeof document.startViewTransition === "function"
+      && CSS.supports("view-transition-class: community-page")
+    if (!state.__communityPageTransitionCapable) return
+    const original = document.startViewTransition.bind(document)
+    document.startViewTransition = (...args: Parameters<typeof original>) => {
+      const record: PageTransitionRecord = { animations: [], finished: false }
+      state.__communityPageTransitions!.push(record)
+      const result = original(...args)
+      void result.ready.then(() => {
+        record.animations = document.getAnimations().flatMap((animation) => {
+          if (!(animation instanceof CSSAnimation) || !(animation.effect instanceof KeyframeEffect)
+            || !["community-page-enter", "community-page-exit"].includes(animation.animationName)) return []
+          return [{ name: animation.animationName, pseudo: animation.effect.pseudoElement,
+            transforms: animation.effect.getKeyframes().map((frame) => frame.transform as string | undefined) }]
+        })
+      }).catch(() => {})
+      void result.finished.then(() => { record.finished = true }).catch(() => {})
+      return result
+    }
+  })
+}
+
+async function expectPageTransition(page: Page, name: "community-page-enter" | "community-page-exit") {
+  const capable = await page.evaluate(() => (window as typeof window & {
+    __communityPageTransitionCapable?: boolean
+  }).__communityPageTransitionCapable)
+  if (!capable) return
+  await expect.poll(() => page.evaluate((name) => {
+    const records = (window as typeof window & {
+      __communityPageTransitions?: PageTransitionRecord[]
+    }).__communityPageTransitions ?? []
+    const entering = name === "community-page-enter"
+    return records.some((record) => record.finished && record.animations.some((animation) =>
+      animation.name === name
+      && animation.pseudo?.startsWith(entering ? "::view-transition-new(" : "::view-transition-old(")
+      && animation.transforms[0] === (entering ? "translateX(100%)" : "translateX(0px)")
+      && animation.transforms.at(-1) === (entering ? "translateX(0px)" : "translateX(100%)"),
+    ))
+  }, name)).toBe(true)
+}
+
 type SurfaceAnimationRecord = {
   surface: string | null
 }
@@ -107,7 +160,9 @@ async function clearSurfaceAnimations(page: Page): Promise<void> {
     const state = window as typeof window & {
       __communitySurfaceAnimations?: SurfaceAnimationRecord[]
       __communitySurfaceFrames?: SurfaceFrameRecord[]
+      __communityPageTransitions?: PageTransitionRecord[]
     }
+    state.__communityPageTransitions = []
     state.__communitySurfaceAnimations = []
     state.__communitySurfaceFrames = []
   })
@@ -217,7 +272,7 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   expect(mutations).toEqual([])
 })
 
-test("mobile route commits stay stationary while sidebar identity survives same-server history", async ({ caseActors, caseResources }) => {
+test("mobile snapshot transitions preserve stationary live DOM, sidebar identity and pending targets", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice"])
@@ -232,7 +287,9 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   const pendingChannel = await seedChannel("alice", serverId, pendingName)
   const { page } = await asUser("alice")
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ reducedMotion: "no-preference" })
   await installSurfaceAnimationProbe(page)
+  await installPageTransitionProbe(page)
   await page.goto(`/c/channels/${serverId}`)
 
   const fastRow = page.getByTestId(tid.channelRow(fastChannel))
@@ -250,6 +307,7 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   await expect.poll(() => new URL(page.url()).pathname)
     .toBe(`/c/channels/${serverId}/${fastChannel}`)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+  await expectPageTransition(page, "community-page-enter")
   expect(await surfaceAnimations(page)).toEqual([])
   expectStationaryFrames(await surfaceFrames(page))
   expect(await sidebarScroll.evaluate((element) => (
@@ -262,6 +320,7 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await expect(fastRow).toBeVisible()
+  await expectPageTransition(page, "community-page-exit")
   expect(await surfaceAnimations(page)).toEqual([])
   expectStationaryFrames(await surfaceFrames(page))
   expect(await sidebarScroll.evaluate((element) => (
@@ -292,6 +351,7 @@ test("mobile route commits stay stationary while sidebar identity survives same-
   await expect(page.locator(
     `[data-slot="community-conversation-surface"][data-channel-id="${fastChannel}"]`,
   )).toHaveCount(0)
+  await expectPageTransition(page, "community-page-enter")
   await pendingGate.release()
 
   await expect.poll(() => new URL(page.url()).pathname).toBe(pendingPath)

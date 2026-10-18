@@ -26,6 +26,8 @@ import { useCurrentUser } from "@/contexts/community/current-user"
 import { useNativeSystemNotifications } from "@/hooks/community/use-native-system-notifications"
 import { CommunityRouteContext, type NativeNotificationConversationConsumer } from "./community-route-context"
 import { ShellFrameView } from "./shell-frame-view"
+import { CommunityNavigationTransition } from "./community-navigation-transition"
+import { useMobileBackTransition } from "./use-mobile-back-transition"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
@@ -93,8 +95,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   useEffect(() => {
     flushOwnerServerDeleteRouteCommit(queryClient)
   }, [frameHref, queryClient])
-  const navigation = useCommunityNavigationController(committedFrame)
-  const replacePath = navigation.replace
   const route = resolveCommunityRoute(committedFrame.pathname)
   const committedModule = resolveCommunityModulePlan(committedFrame.pathname)
   const committedChannelId = committedModule.main.kind === "server-conversation"
@@ -106,6 +106,8 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     && committedChannel.parentChannelId
     ? channelHref(committedModule.sidebar.serverId, committedChannel.parentChannelId)
     : route.parentPath
+  const navigation = useCommunityNavigationController(committedFrame, { parentPath: mobileParentPath, mobile: breakpoint === "mobile" })
+  const replacePath = navigation.replace
   const target = navigation.pendingHref
     ? normalizeCommunityHref(navigation.pendingHref)
     : null
@@ -311,16 +313,24 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     return true
   }, [breakpoint, checkpoint.surface, committedFrame.href, dismissUserBarExtension, navigation.navigationPending, replacePath, userBarExtension.active])
   const goBackMobile = useCallback(() => {
-    if (route.parentPath) navigation.replace(route.parentPath)
-  }, [navigation, route.parentPath])
+    if (mobileParentPath) navigation.replace(mobileParentPath)
+  }, [navigation, mobileParentPath])
+
+  const backTransition = useMobileBackTransition({
+    mobile: breakpoint === "mobile", parentPath: mobileParentPath,
+    frameHref: committedFrame.href, navigation,
+  })
 
   useNativeMobileBack({
     mobile: breakpoint === "mobile",
-    animate: !navigation.navigationPending && userBarExtension.active === "none",
+    pageNavigationEnabled: !navigation.navigationPending && userBarExtension.active === "none",
     gestureKey: JSON.stringify([currentUser.id, committedFrame.href]),
     dismissShellOverlay: dismissNativeBackShellOverlay,
     parentPath: mobileParentPath,
     replacePath,
+    beginBackGesture: backTransition.begin,
+    isBackGestureActive: backTransition.isActive,
+    abortBackGesture: backTransition.abort,
   })
 
   useEffect(() => {
@@ -360,9 +370,13 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   }, [goBackMobile, profile.openProfile, profile.previewAttachment, profile.previewImage, rail.navigate, navigation.cancelPendingNavigation, navigation.push, navigation.replace, queryClient])
 
   return (
-    <CommunityRouteContext value={{ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }}>
+    <CommunityNavigationTransition mobile={breakpoint === "mobile"} targetHref={backTransition.preview?.href ?? checkpoint.targetHref} parentHref={mobileParentPath}
+      backPreview={backTransition.preview} attachBackSnapshot={backTransition.attach} transitionTypes={navigation.entryIntent && normalizeCommunityHref(navigation.entryIntent.href).leafKey === normalizeCommunityHref(checkpoint.targetHref).leafKey
+      ? navigation.entryIntent.transitionTypes : undefined}>
+    <CommunityRouteContext value={{ breakpoint, mobileBackPreviewHref: backTransition.preview?.href, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }}>
     <ShellFrameView
       breakpoint={breakpoint}
+      backPreview={backTransition.preview}
       checkpoint={checkpoint}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
@@ -380,5 +394,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       {children}
     </ShellFrameView>
     </CommunityRouteContext>
+    </CommunityNavigationTransition>
   )
 }

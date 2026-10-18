@@ -762,8 +762,8 @@ describe("ShellFrameView", () => {
     expect(detailSidebar).not.toHaveAttribute("hidden")
     expect(detailSidebar).toHaveAttribute("inert")
     expect(detailSidebar).toHaveAttribute("aria-hidden", "true")
-    expect(renderer.container.querySelector('[data-mobile-back-surface="detail"]'))
-      .not.toHaveAttribute("data-mobile-back-phase")
+    expect(renderer.container.querySelector("[data-mobile-back-phase]")).toBeNull()
+    expect(renderer.container.querySelector("[data-community-retained-layout]")).not.toBeNull()
   })
 
   it.each([false, true])("keeps every mobile route commit stationary when reduced motion is %s", async (reducedMotion) => {

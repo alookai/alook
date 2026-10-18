@@ -244,7 +244,6 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
   ThreadSplitView: ({
     split,
     layoutPending = false,
-    mobileBack = false,
     preserveParent = false,
     parent,
     thread,
@@ -253,7 +252,6 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
   }: {
     split: boolean
     layoutPending?: boolean
-    mobileBack?: boolean
     preserveParent?: boolean
     parent: React.ReactNode
     thread: React.ReactNode
@@ -263,13 +261,12 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
     "main",
     {
       "data-testid": conversationSubtype === "thread" ? "community-thread-split" : undefined,
-      "data-mobile-back-thread": mobileBack || undefined,
       "data-layout": layoutPending || resolvingParent ? "pending" : split ? "split" : "full",
       "data-layout-pending": layoutPending || undefined,
       "data-community-conversation-subtype": conversationSubtype === "unknown" ? undefined : conversationSubtype,
     },
     resolvingParent && React.createElement("main", { "aria-label": "Resolving conversation", "data-community-conversation-subtype": "unknown" }),
-    (split || layoutPending || mobileBack || preserveParent) && React.createElement(
+    (split || layoutPending || preserveParent) && React.createElement(
       "section",
       { "data-testid": "community-thread-split-parent", "data-mobile-back-parent": "", inert: !split },
       parent,
@@ -827,7 +824,6 @@ describe("ChannelRoute message surface ownership", () => {
     const renderer = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
     expect(mockUseChannelMetadata).toHaveBeenCalled()
     expect(mockClaimSecondary).not.toHaveBeenCalled()
-    expect(renderer.container.querySelector("[data-mobile-back-thread]")).toBeInTheDocument()
     const parent = renderer.container.querySelector("[data-mobile-back-parent]")
     expect(parent).toHaveAttribute("inert")
     mockParentMetadata.canRead = true

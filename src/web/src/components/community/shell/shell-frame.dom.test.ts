@@ -103,8 +103,8 @@ vi.mock("@/components/ui/resizable", () => {
 vi.mock("./use-hydrated-client", () => ({ useHydratedClient: () => true }))
 vi.mock("./use-community-navigation-controller", async (importOriginal) => {
   const { useCommunityNavigationController } = await importOriginal<typeof import("./use-community-navigation-controller")>()
-  return { useCommunityNavigationController: (frame: Parameters<typeof useCommunityNavigationController>[0]) => {
-    const actual = useCommunityNavigationController(frame)
+  return { useCommunityNavigationController: (...args: Parameters<typeof useCommunityNavigationController>) => {
+    const actual = useCommunityNavigationController(...args)
     return mocks.lifecycle ? actual : {
       publishedHref: mocks.currentHref.current,
       navigationPending: mocks.navigationPending.current,
@@ -553,7 +553,7 @@ describe("ShellFrame orchestration", () => {
       fireEvent.click(trigger)
       expect(trigger).toHaveAttribute("aria-busy", "true")
       expect(trigger).toHaveAttribute("aria-expanded", "false")
-      expect(mocks.push).toHaveBeenCalledExactlyOnceWith(destination)
+      expect(mocks.push).toHaveBeenCalledExactlyOnceWith(destination, { transitionTypes: ["community-nav-back"] })
       if (order === "frame-first") shell.update({ frameHref: "/c/channels/s1" })
       else shell.update({ publishedHref: destination })
       expect(mocks.openChanges).not.toHaveBeenCalledWith(true)

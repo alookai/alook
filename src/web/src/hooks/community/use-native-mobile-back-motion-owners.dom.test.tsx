@@ -38,13 +38,6 @@ function back() {
   act(() => { window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })) })
 }
 
-function transition(root: HTMLElement) {
-  const target = root.querySelector<HTMLElement>('[data-panel][id="main"]')!
-  const event = new Event("transitionend", { bubbles: true })
-  Object.defineProperty(event, "propertyName", { value: "transform" })
-  act(() => { target.dispatchEvent(event) })
-}
-
 const roots: HTMLElement[] = []
 function setup() {
   vi.useFakeTimers()
@@ -64,11 +57,11 @@ function setup() {
 
 afterEach(() => { roots.splice(0).forEach((root) => root.remove()); vi.useRealTimers() })
 
-describe("shared Back ownership during page motion", () => {
+describe("shared Back ownership during confirmed navigation", () => {
   it.each(["account", "resize", "pagehide"])("ignores old zero progress after %s invalidates the gesture", (reason) => {
     const { root, props, view } = setup()
     progress(0); progress(0.6)
-    expect(root.dataset.mobileBackPhase).toBe("dragging")
+    expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     if (reason === "account") view.rerender(<Fixture {...props} scope="bob/detail" />)
     else act(() => { window.dispatchEvent(new Event(reason)) })
     progress(0, false); progress(0.7)
@@ -100,7 +93,7 @@ describe("shared Back ownership during page motion", () => {
     const { root, props, view } = setup()
     if (kind === "touch") { touch("touchstart", 10); touch("touchmove", 200) }
     else { progress(0); progress(0.5) }
-    expect(root.dataset.mobileBackPhase).toBe(kind === "touch" ? undefined : "dragging")
+    expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     view.rerender(<Fixture {...props} owner />)
     expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     expect(props.close).not.toHaveBeenCalled()
@@ -112,36 +105,33 @@ describe("shared Back ownership during page motion", () => {
     view.unmount()
   })
 
-  it.each(["touch", "native", "settling"])("never revives %s page commit after a transient owner exits", (kind) => {
+  it.each(["touch", "native"])("never revives %s page commit after a transient owner exits", (kind) => {
     const { root, props, view } = setup()
     if (kind === "native") { progress(0); progress(0.5) }
     else { touch("touchstart", 10); touch("touchmove", 200) }
-    if (kind === "settling") touch("touchend", 200)
     view.rerender(<Fixture {...props} editor />)
     view.rerender(<Fixture {...props} />)
     expect(hasNativeBackOwner(document)).toBe(false)
     if (kind === "touch") touch("touchend", 200)
     if (kind === "native") back()
     act(() => { vi.advanceTimersByTime(300) })
-    transition(root)
     expect(props.request).not.toHaveBeenCalled()
     expect(props.replace).not.toHaveBeenCalled()
     expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     back()
     act(() => { vi.advanceTimersByTime(200) })
-    transition(root)
     expect(props.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
     view.unmount()
   })
 
-  it("does not use the settling timer to close a new real popup", () => {
+  it("submits confirmed Back before a new popup and never schedules a later dismissal", () => {
     const { root, props, view } = setup()
     touch("touchstart", 10); touch("touchmove", 200); touch("touchend", 200)
+    expect(props.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
     view.rerender(<Fixture {...props} owner />)
     act(() => { vi.advanceTimersByTime(300) })
-    transition(root)
     expect(props.close).not.toHaveBeenCalled()
-    expect(props.replace).not.toHaveBeenCalled()
+    expect(props.replace).toHaveBeenCalledOnce()
     back()
     expect(props.close).toHaveBeenCalledOnce()
     view.unmount()
@@ -159,7 +149,7 @@ describe("shared Back ownership during page motion", () => {
     view.unmount()
   })
 
-  it("retires pagehide's settle and ignores old progress after BFCache return", () => {
+  it("retires pagehide's gesture and ignores old progress after BFCache return", () => {
     const { root, props, view } = setup()
     progress(0); progress(0.6)
     act(() => { window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })) })

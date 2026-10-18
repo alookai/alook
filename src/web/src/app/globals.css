@@ -3086,3 +3086,135 @@ body {
 [data-message-list-content] [data-streamdown="code-block"] {
   content-visibility: visible !important;
 }
+
+@media (max-width: 639px) {
+  :root:has([data-slot="community-shell-root"])::view-transition {
+    pointer-events: none;
+  }
+  :root:has([data-slot="community-shell-root"])::view-transition-old(root),
+  :root:has([data-slot="community-shell-root"])::view-transition-new(root) {
+    animation: none;
+  }
+  ::view-transition-group(.community-nav-forward),
+  ::view-transition-group(.community-nav-back) {
+    animation-duration: 200ms;
+  }
+  ::view-transition-old(.community-nav-forward),
+  ::view-transition-new(.community-nav-back) {
+    animation: none;
+    mix-blend-mode: normal;
+    z-index: 0;
+  }
+  ::view-transition-new(.community-nav-forward) {
+    animation: community-page-enter 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    mix-blend-mode: normal;
+    z-index: 1;
+  }
+  ::view-transition-old(.community-nav-back) {
+    animation: community-page-exit 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    mix-blend-mode: normal;
+    z-index: 1;
+  }
+}
+
+@keyframes community-page-enter {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes community-page-exit {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(.community-nav-forward),
+  ::view-transition-group(.community-nav-back),
+  ::view-transition-old(.community-nav-forward),
+  ::view-transition-new(.community-nav-forward),
+  ::view-transition-old(.community-nav-back),
+  ::view-transition-new(.community-nav-back) {
+    animation: none !important;
+  }
+}
+
+@media (max-width: 639px) {
+  ::view-transition-group(.community-nav-gesture),
+  ::view-transition-old(.community-nav-gesture),
+  ::view-transition-new(.community-nav-gesture) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+  ::view-transition-old(.community-nav-gesture) { z-index: 1; }
+  ::view-transition-new(.community-nav-gesture) { z-index: 0; }
+
+  [data-community-retained-layout] {
+    & [data-community-retained-body] { position: static; }
+    & [data-slot="resizable-panel-group"]#community-shell { position: static; }
+    & [data-slot="community-app-surface"] { overflow: visible; }
+    & [data-community-retained-rail] {
+      display: flex;
+      visibility: hidden;
+      position: absolute;
+      inset: 0 auto 0 0;
+      z-index: 1;
+      padding-bottom: calc(60px + var(--app-safe-area-bottom));
+      background: var(--app-bg);
+    }
+    & [data-panel][id="sidebar"] {
+      position: absolute;
+      inset: 8px 0 0 56px;
+      visibility: hidden;
+      width: calc(100% - 56px) !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      padding-bottom: calc(60px + var(--app-safe-area-bottom));
+      border-top: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      border-top-left-radius: 12px;
+      overflow: hidden;
+      z-index: 1;
+    }
+    & [data-slot="community-sidebar-panel-content"] { display: flex; }
+    & [data-slot="community-user-bar-overlay"] {
+      display: block;
+      visibility: hidden;
+      width: 100% !important;
+      margin-left: 0 !important;
+    }
+    & [data-panel][id="main"] {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: none !important;
+    }
+  }
+
+  [data-community-retained-parent] {
+    & [data-panel][id="parent"] {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      visibility: hidden;
+    }
+    & [data-panel][id="thread"] {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: none !important;
+    }
+  }
+
+  :is(:root:active-view-transition [data-mobile-back-preview="list"], [data-mobile-back-preview="list"][data-mobile-back-committing]) {
+    & :is([data-community-retained-rail], [data-panel][id="sidebar"], [data-slot="community-user-bar-overlay"]) { visibility: visible; }
+    & [data-panel][id="main"] { visibility: hidden; }
+  }
+  :is(:root:active-view-transition [data-mobile-back-preview="detail"], [data-mobile-back-preview="detail"][data-mobile-back-committing]) [data-community-parent-preview] {
+    & [data-panel][id="parent"] { visibility: visible; }
+    & [data-panel][id="thread"] { visibility: hidden; }
+  }
+}

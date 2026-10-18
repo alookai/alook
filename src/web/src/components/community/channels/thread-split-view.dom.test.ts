@@ -103,7 +103,7 @@ describe("ThreadSplitView", () => {
   it("keeps the actual parent mounted but inert beneath a mobile thread", () => {
     const parent = createElement("input", { "data-testid": "back-parent-draft", defaultValue: "keep me" })
     const renderer = render(createElement(ThreadSplitView, {
-      split: false, mobileBack: true, parent, thread: createElement("span", null, "Child"),
+      split: false, mobile: true, preserveParent: true, parent, thread: createElement("span", null, "Child"),
     }))
     const draft = screen.getByTestId("back-parent-draft")
     expect(draft.closest("section")).toHaveAttribute("inert")

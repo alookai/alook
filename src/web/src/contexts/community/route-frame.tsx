@@ -8,14 +8,14 @@ import type { CommunityCommittedFrame } from "@/lib/community/community-route"
 import type { OwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
 
 export type CommunityNavigationController = {
-  entryIntent?: { href: string } | null
+  entryIntent?: { href: string; transitionTypes?: string[] } | null
   captureIntent: (options?: { nextCommitHref: string } | { pendingCommitHref: string }) => () => boolean
   publishedHref: string
   navigationPending: boolean
   pendingHref: string | null
   push: ReturnType<typeof useRouter>["push"]
   pushImmediate: (href: string, prepare?: (action?: Action) => void) => void
-  replace: (href: string) => void
+  replace: ReturnType<typeof useRouter>["replace"]
   resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
   cancelPendingNavigation: () => void
 }
@@ -29,6 +29,7 @@ export const CommunityRouteContext = createContext<{
   openInbox?: () => void
   notificationConsumer?: RefObject<NativeNotificationConversationConsumer | null>
   breakpoint: Breakpoint
+  mobileBackPreviewHref?: string | null
   frame: CommunityCommittedFrame
   navigation: CommunityNavigationController
   ownerDeleteRouteScope: { serverId: string; token: OwnerServerDeleteRouteToken } | undefined

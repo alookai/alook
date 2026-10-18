@@ -1,12 +1,14 @@
 import { createElement } from "react"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { COMMUNITY_NAV_BACK, COMMUNITY_NAV_FORWARD } from "@/lib/community/navigation-transition"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import { normalizeCommunityHref, type CommunityCommittedFrame } from "@/lib/community/community-route"
 import { navigationForHref, clearActions } from "@/lib/observability/context"
 import { configureTelemetry, retireTelemetry } from "@/lib/observability/telemetry"
 
 const mocks = vi.hoisted(() => ({
+  parentPath: null as string | null,
   pathname: { current: "/c/me" },
   search: { current: new URLSearchParams() },
   push: vi.fn(),
@@ -35,7 +37,7 @@ vi.mock("next/navigation", () => ({
 type Result = ReturnType<typeof useCommunityNavigationController>
 
 function Capture({ onResult }: { onResult: (result: Result) => void }) {
-  onResult(useCommunityNavigationController(mocks.frame.current!))
+  onResult(useCommunityNavigationController(mocks.frame.current!, { parentPath: mocks.parentPath, mobile: true }))
   return null
 }
 
@@ -59,14 +61,16 @@ async function renderController() {
 
 describe("useCommunityNavigationController", () => {
   beforeEach(() => {
+    mocks.parentPath = null
     mocks.pathname.current = "/c/me"
     mocks.search.current = new URLSearchParams()
     mocks.push.mockReset()
     mocks.replace.mockReset()
     mocks.prefetch.mockReset()
     mocks.frame.current = { ...normalizeCommunityHref("/c/me"), revision: 0 }
-    const windowTarget = new EventTarget() as EventTarget & { navigation: EventTarget }
+    const windowTarget = new EventTarget() as EventTarget & { navigation: EventTarget; location: { pathname: string; search: string } }
     windowTarget.navigation = new EventTarget()
+    windowTarget.location = { pathname: "/c/me", search: "" }
     vi.stubGlobal("window", windowTarget)
   })
 
@@ -78,7 +82,7 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBeNull()
 
     await act(async () => hook.current.push("/c/me/friends"))
-    expect(mocks.push).toHaveBeenCalledWith("/c/me/friends")
+    expect(mocks.push).toHaveBeenCalledWith("/c/me/friends", { transitionTypes: [COMMUNITY_NAV_FORWARD] })
     expect(hook.current.navigationPending).toBe(true)
     expect(hook.current.pendingHref).toBe("/c/me/friends")
 
@@ -121,15 +125,58 @@ describe("useCommunityNavigationController", () => {
   it("uses replace for semantic parent navigation", async () => {
     const hook = await renderController()
     await act(async () => hook.current.replace("/c/channels/s1"))
-    expect(mocks.replace).toHaveBeenCalledWith("/c/channels/s1")
+    expect(mocks.replace).toHaveBeenCalledWith("/c/channels/s1", { transitionTypes: [COMMUNITY_NAV_FORWARD] })
     expect(mocks.push).not.toHaveBeenCalled()
     expect(hook.current.pendingHref).toBe("/c/channels/s1")
+  })
+
+  it("uses the same semantic direction for a push to a parent and a replace into detail", async () => {
+    mocks.pathname.current = "/c/channels/s1/thread1"
+    mocks.frame.current = { ...normalizeCommunityHref(mocks.pathname.current), revision: 2 }
+    mocks.parentPath = "/c/channels/s1/c1"
+    const hook = await renderController()
+    await act(async () => hook.current.push("/c/channels/s1/c1"))
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/channels/s1/c1", { transitionTypes: [COMMUNITY_NAV_BACK] })
+    expect(hook.current.entryIntent).toEqual({ href: "/c/channels/s1/c1", transitionTypes: [COMMUNITY_NAV_BACK] })
+    await act(async () => hook.current.cancelPendingNavigation())
+    mocks.pathname.current = "/c/channels/s1"
+    mocks.frame.current = { ...normalizeCommunityHref(mocks.pathname.current), revision: 3 }
+    mocks.parentPath = null
+    await hook.rerender()
+    await act(async () => hook.current.replace("/c/channels/s1/c2", { scroll: false }))
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/s1/c2", {
+      scroll: false, transitionTypes: [COMMUNITY_NAV_FORWARD],
+    })
+  })
+
+  it("classifies a browser history parent without issuing a second router navigation", async () => {
+    mocks.pathname.current = "/c/me/dm1"
+    mocks.frame.current = { ...normalizeCommunityHref(mocks.pathname.current), revision: 2 }
+    mocks.parentPath = "/c/me"
+    const hook = await renderController()
+    await act(async () => window.dispatchEvent(new Event("popstate")))
+    expect(hook.current.entryIntent).toEqual({ href: "/c/me", transitionTypes: [COMMUNITY_NAV_BACK] })
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(hook.current.pendingHref).toBeNull()
+  })
+
+  it("forwards an explicit thread entry and preserves its scroll option", async () => {
+    mocks.pathname.current = "/c/channels/s1/c1"
+    mocks.frame.current = { ...normalizeCommunityHref(mocks.pathname.current), revision: 2 }
+    const hook = await renderController()
+    await act(async () => hook.current.push("/c/channels/s1/thread1", {
+      scroll: false, transitionTypes: [COMMUNITY_NAV_FORWARD],
+    }))
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/channels/s1/thread1", {
+      scroll: false, transitionTypes: [COMMUNITY_NAV_FORWARD],
+    })
   })
 
   it("forwards scroll:false without changing target publication or cancellation", async () => {
     const hook = await renderController()
     await act(async () => hook.current.push("/c/channels/s1/post2?msg=m2", { scroll: false }))
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/channels/s1/post2?msg=m2", { scroll: false })
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/channels/s1/post2?msg=m2", { scroll: false, transitionTypes: [COMMUNITY_NAV_FORWARD] })
     expect(hook.current.pendingHref).toBe("/c/channels/s1/post2?msg=m2")
     expect(hook.current.navigationPending).toBe(true)
     await act(async () => hook.current.cancelPendingNavigation())
@@ -198,7 +245,7 @@ describe("useCommunityNavigationController", () => {
       await expect(secondResult).resolves.toBe(true)
     })
     expect(mocks.push).toHaveBeenCalledTimes(1)
-    expect(mocks.push).toHaveBeenCalledWith("/c/channels/s2/c2")
+    expect(mocks.push).toHaveBeenCalledWith("/c/channels/s2/c2", { transitionTypes: [COMMUNITY_NAV_FORWARD] })
     expect(hook.current.pendingHref).toBe("/c/channels/s2/c2")
   })
 
@@ -271,7 +318,7 @@ describe("useCommunityNavigationController", () => {
   it("submits the Inbox child target immediately", async () => {
     const hook = await renderController()
     await act(async () => hook.current.pushImmediate("/c/channels/s1/c1"))
-    expect(mocks.push).toHaveBeenCalledWith("/c/channels/s1/c1")
+    expect(mocks.push).toHaveBeenCalledWith("/c/channels/s1/c1", { transitionTypes: [COMMUNITY_NAV_FORWARD] })
   })
 
   it("prepares Inbox transport with its actual navigation before router submission", async () => {
@@ -285,7 +332,7 @@ describe("useCommunityNavigationController", () => {
     })
     await act(async () => hook.current.pushImmediate(href, prepare))
     expect(prepare).toHaveBeenCalledOnce()
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith(href)
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith(href, { transitionTypes: [COMMUNITY_NAV_FORWARD] })
     retireTelemetry(); clearActions()
   })
 })

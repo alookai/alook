@@ -11,7 +11,7 @@ import { CommunityShellLayout } from "./community-shell-layout"
 import { DmSidebarSlot } from "./dm-sidebar-slot"
 import { ProfileCard } from "../social/profile-card"
 import type { Breakpoint } from "@/hooks/use-mobile"
-import type { CommunityCheckpointPlan } from "@/lib/community/community-route"
+import { normalizeCommunityHref, type CommunityCheckpointPlan } from "@/lib/community/community-route"
 import type { ShellFrameProps } from "./shell-frame-types"
 import type { useShellRailController } from "./use-shell-rail-controller"
 import type { useShellProfileController } from "./use-shell-profile-controller"
@@ -25,6 +25,7 @@ import { ProfileRunningBotsCard } from "@/components/community/social/profile-ru
 
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
+  backPreview?: { href: string; committing: boolean } | null
   checkpoint: CommunityCheckpointPlan
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>
@@ -40,6 +41,7 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
 
 export function ShellFrameView({
   breakpoint,
+  backPreview,
   checkpoint,
   sidebar,
   children,
@@ -98,6 +100,7 @@ export function ShellFrameView({
     <CommunityShellLayout
       breakpoint={breakpoint}
       surface={surface}
+      backPreview={backPreview ? { surface: normalizeCommunityHref(backPreview.href).surface, committing: backPreview.committing } : undefined}
       rail={<ServerRail {...rail.railProps} bottomInset={60} />}
       preserveHiddenMobileModules
       sidebar={<>

@@ -28,6 +28,7 @@ import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { channelHref, normalizeCommunityHref, removeCommunityParam, serverRootHref } from "@/lib/community/community-route"
+import { COMMUNITY_NAV_FORWARD } from "@/lib/community/navigation-transition"
 import { useCommunityRouteFrame } from "@/components/community/shell/community-route-context"
 import {
   THREAD_OPENER_HANDOFF_PARAM,
@@ -90,7 +91,7 @@ function ChannelRouteFrame(target: RouteTarget) {
   const parent = parentChannelId ? (routeModel.parent?.id === parentChannelId ? routeModel.parent
     : server?.categories.flatMap(category => category.channels).find(channel => channel.id === parentChannelId && !channel.pending))
     ?? { id: parentChannelId, name: "", active: false, unread: false } : null
-  const { navigation, breakpoint } = useCommunityRouteFrame()
+  const { navigation, breakpoint, mobileBackPreviewHref } = useCommunityRouteFrame()
   const isThread = routeModel.skeletonSubtype === "thread"
     || routeModel.routeLifecycle === "ready" && routeModel.isChild
   const { containerRef, mode } = useThreadSplitMode({
@@ -117,7 +118,7 @@ function ChannelRouteFrame(target: RouteTarget) {
     .map((channel) => toChannelRefCandidate(server, channel)) ?? [], [server])
   const enterThread = useCallback((id: string) => {
     if (split) navigation.push(channelHref(serverParam, id), { scroll: false })
-    else navigation.push(channelHref(serverParam, id))
+    else navigation.push(channelHref(serverParam, id), { transitionTypes: [COMMUNITY_NAV_FORWARD] })
   }, [navigation, serverParam, split])
   const navigateServerRoot = useCallback(() => {
     uiHandlers.replacePath?.(serverRootHref(serverParam))
@@ -130,7 +131,10 @@ function ChannelRouteFrame(target: RouteTarget) {
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
   return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col">
     <ThreadSplitView
-      split={split} layoutPending={layoutPending} mobileBack={breakpoint === "mobile" && isThread && !!parent} preserveParent={preserveParent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+      split={split} layoutPending={layoutPending}
+      mobile={breakpoint === "mobile"}
+      parentPreview={breakpoint === "mobile" && !!parent && mobileBackPreviewHref !== undefined
+        && mobileBackPreviewHref !== null && normalizeCommunityHref(mobileBackPreviewHref).pathname === channelHref(serverParam, parent.id)} preserveParent={preserveParent || breakpoint === "mobile" && isThread && !!parent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
       parent={(split || layoutPending || breakpoint === "mobile" && isThread || preserveParent) && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}
