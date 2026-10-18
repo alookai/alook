@@ -106,17 +106,17 @@ export function ShellFrameView({
       rail={<ServerRail {...rail.railProps} bottomInset={60} />}
       preserveHiddenMobileModules
       sidebar={<>
-        <Activity mode={sidebarVisible ? "visible" : "hidden"}>
-          <div
-            hidden={checkpoint.sidebar.kind !== "keep"}
-            inert={checkpoint.sidebar.kind !== "keep"}
-            aria-hidden={checkpoint.sidebar.kind !== "keep" || undefined}
-            className="flex min-h-0 flex-1 flex-col"
-          >
+        <div
+          hidden={checkpoint.sidebar.kind !== "keep"}
+          inert={checkpoint.sidebar.kind !== "keep"}
+          aria-hidden={checkpoint.sidebar.kind !== "keep" || undefined}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <Activity mode={sidebarVisible ? "visible" : "hidden"}>
             <DmSidebarSlot visible={sidebarVisible} />
             {breakpoint === "desktop" ? sidebar() : sidebar({ noHeader: false })}
-          </div>
-        </Activity>
+          </Activity>
+        </div>
         {checkpoint.sidebar.kind === "server-skeleton"
           ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />
           : checkpoint.sidebar.kind === "me-skeleton" ? <DmSidebarSkeleton /> : null}

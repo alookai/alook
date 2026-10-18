@@ -1307,6 +1307,8 @@ describe("ShellFrameView", () => {
         createElement("div", { "data-target-ready": "" })))
       expect(renderer.container.querySelector("[data-channel-sidebar-skeleton]")).not.toBeNull()
       expect(renderer.container.querySelector("[data-suspending-sidebar]")).toBe(node)
+      expect(node?.parentElement).toHaveAttribute("hidden")
+      expect(node?.parentElement).toHaveAttribute("inert")
       await act(async () => { release("resolved") })
   })
 
