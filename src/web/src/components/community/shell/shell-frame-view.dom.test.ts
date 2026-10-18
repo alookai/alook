@@ -1269,8 +1269,7 @@ describe("ShellFrameView", () => {
     act(() => { signals.emit!(3) })
     expect(node).toHaveAttribute("data-signal", "3")
 
-    renderer.rerender(createElement(ShellFrameView, { ...props, checkpoint: detail,
-      backPreview: { href: "/c/channels/s1", committing: false } }))
+    renderer.rerender(createElement(ShellFrameView, { ...props, checkpoint: detail }))
     expect(node.parentElement).not.toHaveStyle({ display: "none" })
     expect(node.scrollTop).toBe(75)
     expect(node.querySelector("input")).toBe(input)

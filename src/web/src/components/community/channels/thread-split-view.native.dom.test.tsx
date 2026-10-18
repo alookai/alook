@@ -10,6 +10,8 @@ import { ThreadSplitView } from "./thread-split-view"
 import styles from "./thread-split-view.module.css"
 import { ChannelHeader, ChannelHeaderSkeleton } from "./channel-header"
 import { ThreadPanelActions } from "./thread-panel-actions"
+import { CommunityMobileBackContext, CommunityMobileBackDrawer } from "@/components/community/shell/community-mobile-back-drawer"
+import type { CommunityNavigationController } from "@/contexts/community/route-frame"
 
 const storageKey = "react-resizable-panels:community-thread-split-layout"
 const saved = { parent: 57.538, thread: 42.462 }
@@ -65,6 +67,56 @@ function nativeGeometry(initialWidth: number) {
 }
 
 describe("ThreadSplitView actual native persistence", () => {
+  it("retains original SSR parent and child nodes through nested Drawer hydration and breakpoints", () => {
+    nativeGeometry(390)
+    const navigation = { replace: vi.fn(), captureIntent: () => () => true } as unknown as CommunityNavigationController
+    const escape = vi.fn()
+    const node = (mobile: boolean) => <CommunityMobileBackContext value={{
+      mobile, enabled: true, frameKey: "viewer/thread_1", nativeInsets: null, navigation,
+      targetHref: "/c/channels/server_1/thread_1", parentHref: "/c/channels/server_1/parent_1",
+    }}>
+      <div onKeyDown={escape}>
+        <CommunityMobileBackDrawer level="list">
+          <ThreadSplitView split={!mobile} mobile={mobile} preserveParent
+            parent={<input data-testid="drawer-parent-draft" />}
+            thread={<CommunityMobileBackDrawer level="detail"><textarea data-testid="drawer-thread-draft" /></CommunityMobileBackDrawer>} />
+        </CommunityMobileBackDrawer>
+      </div>
+    </CommunityMobileBackContext>
+    const browser = window
+    let html: string
+    try { vi.stubGlobal("window", undefined); html = renderToString(node(true)) }
+    finally { vi.stubGlobal("window", browser) }
+    const container = document.createElement("div")
+    container.innerHTML = html
+    document.body.appendChild(container)
+    const parent = container.querySelector<HTMLInputElement>("input")!
+    const child = container.querySelector<HTMLTextAreaElement>("textarea")!
+    const group = container.querySelector("[data-group]")!
+    parent.value = "early parent"
+    child.value = "early child"
+    child.focus()
+    const view = render(node(true), { container, hydrate: true })
+    try {
+      for (const mobile of [true, false, true]) {
+        view.rerender(node(mobile))
+        expect(container.querySelector("input")).toBe(parent)
+        expect(container.querySelector("textarea")).toBe(child)
+        expect(container.querySelector("[data-group]")).toBe(group)
+        expect(parent.value).toBe("early parent")
+        expect(child.value).toBe("early child")
+        expect(document.activeElement).toBe(child)
+        expect(parent.closest("section")?.hasAttribute("inert")).toBe(mobile)
+        const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+        const before = escape.mock.calls.length
+        fireEvent(child, event)
+        expect(escape).toHaveBeenCalledTimes(before + 1)
+        expect(event.defaultPrevented).toBe(false)
+        expect(container.querySelectorAll(".community-back-drawer-popup")).toHaveLength(2)
+      }
+    } finally { view.unmount(); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+  })
+
   it("applies pending stylesheet geometry to the native group flex items", () => {
     const browser = window
     let html: string

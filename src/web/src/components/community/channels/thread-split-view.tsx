@@ -6,6 +6,7 @@
 import { useCallback, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
 import { useDefaultLayout, type GroupImperativeHandle, type Layout, type LayoutChangedMeta } from "react-resizable-panels"
 import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
+import { useCommunityMobileBackParent } from "@/components/community/shell/community-mobile-back-drawer"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -32,7 +33,6 @@ export function ThreadSplitView({
   layoutPending = false,
   preserveParent = false,
   mobile = false,
-  parentPreview = false,
   parent,
   thread,
   conversationSubtype = "thread",
@@ -42,7 +42,6 @@ export function ThreadSplitView({
   layoutPending?: boolean
   preserveParent?: boolean
   mobile?: boolean
-  parentPreview?: boolean
   parent: ReactNode
   thread: ReactNode
   conversationSubtype?: "unknown" | "text" | "forum" | "thread"
@@ -54,6 +53,7 @@ export function ThreadSplitView({
     storage: threadSplitLayoutStorage,
   })
   const hydratedClient = useHydratedClient()
+  const backParent = useCommunityMobileBackParent()
   const groupRef = useRef<GroupImperativeHandle | null>(null)
   const hydratedLayoutAppliedRef = useRef(false)
   const restorePersistedLayout = useCallback(() => {
@@ -73,7 +73,7 @@ export function ThreadSplitView({
   return (
     <main
       data-testid={isThread ? tid.threadSplit : undefined}
-      data-community-parent-preview={parentPreview || undefined}
+      data-community-back-drawer-parent={mobile && preserveParent ? backParent : undefined}
       data-community-retained-parent={mobile && preserveParent || undefined}
       data-layout={layoutPending || resolvingParent ? "pending" : split ? "split" : "full"}
       data-layout-pending={layoutPending || undefined}

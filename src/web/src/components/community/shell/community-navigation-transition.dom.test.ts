@@ -100,15 +100,6 @@ describe("deferred community page presentation", () => {
     expect(captures.updates.every((value) => value === "none")).toBe(true)
   })
 
-  it("restores a cancelled preview without replaying the source's former entry type", async () => {
-    const renderer = render(presentation("/c/me/dm1", [COMMUNITY_NAV_FORWARD]))
-    await act(async () => { renderer.rerender(createElement(CommunityNavigationTransition, {
-      mobile: true, targetHref: "/c/me", backPreview: { id: 1, href: "/c/me", committing: false },
-    }, createElement(CommunityNavigationPage, { list: true }, createElement(StatefulPage)))) })
-    captures.updates = []
-    await act(async () => { renderer.rerender(presentation("/c/me/dm1", [COMMUNITY_NAV_FORWARD])) })
-    expect(captures.updates.at(-2)).toBe("none")
-  })
 
   it("keeps desktop page changes outside mobile motion", async () => {
     const renderer = render(presentation("/c/me", undefined, false))
@@ -117,19 +108,6 @@ describe("deferred community page presentation", () => {
     expect(captures.updates.every((value) => value === "none")).toBe(true)
   })
 
-  it("does not replay automatic Back when a completed preview hands over the same parent target", async () => {
-    const renderer = render(presentation("/c/me/dm1"))
-    await act(async () => { renderer.rerender(createElement(CommunityNavigationTransition, {
-      mobile: true, targetHref: "/c/me", backPreview: { id: 1, href: "/c/me", committing: true },
-    }, createElement(CommunityNavigationPage, { list: true }, createElement(StatefulPage)))) })
-    captures.updates = []
-    await act(async () => { renderer.rerender(presentation("/c/me")) })
-    expect(captures.updates).not.toContain(COMMUNITY_NAV_BACK)
-    expect(renderer.container.querySelector("[data-community-page-animation]")).toHaveAttribute("data-community-page-animation", "none")
-    captures.updates = []
-    await act(async () => { renderer.rerender(presentation("/c/me/dm2")) })
-    expect(captures.updates).toContain(COMMUNITY_NAV_FORWARD)
-  })
 
   it("keeps direct Home and Server switches outside directional motion", async () => {
     const renderer = render(presentation("/c/me"))

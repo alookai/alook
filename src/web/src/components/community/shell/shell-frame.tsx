@@ -27,7 +27,7 @@ import { useNativeSystemNotifications } from "@/hooks/community/use-native-syste
 import { CommunityRouteContext, type NativeNotificationConversationConsumer } from "./community-route-context"
 import { ShellFrameView } from "./shell-frame-view"
 import { CommunityNavigationTransition } from "./community-navigation-transition"
-import { useMobileBackTransition } from "./use-mobile-back-transition"
+import { CommunityMobileBackContext } from "./community-mobile-back-drawer"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
@@ -309,21 +309,13 @@ export function ShellFrame(props: ShellFrameProps) {
     if (mobileParentPath) navigation.replace(mobileParentPath)
   }, [navigation, mobileParentPath])
 
-  const backTransition = useMobileBackTransition({
-    mobile: breakpoint === "mobile", parentPath: mobileParentPath,
-    frameHref: committedFrame.href, navigation,
-  })
-
-  useNativeMobileBack({
+  const nativeInsets = useNativeMobileBack({
     mobile: breakpoint === "mobile",
     pageNavigationEnabled: !navigation.navigationPending && userBarExtension.active === "none",
     gestureKey: JSON.stringify([currentUser.id, committedFrame.href]),
     dismissShellOverlay: dismissNativeBackShellOverlay,
     parentPath: mobileParentPath,
     replacePath,
-    beginBackGesture: backTransition.begin,
-    isBackGestureActive: backTransition.isActive,
-    abortBackGesture: backTransition.abort,
   })
 
   useEffect(() => {
@@ -363,13 +355,14 @@ export function ShellFrame(props: ShellFrameProps) {
   }, [goBackMobile, profile.openProfile, profile.previewAttachment, profile.previewImage, rail.navigate, navigation.cancelPendingNavigation, navigation.push, navigation.replace, queryClient])
 
   return (
-    <CommunityNavigationTransition mobile={breakpoint === "mobile"} targetHref={backTransition.preview?.href ?? checkpoint.targetHref} parentHref={mobileParentPath}
-      backPreview={backTransition.preview} attachBackSnapshot={backTransition.attach} transitionTypes={navigation.entryIntent && normalizeCommunityHref(navigation.entryIntent.href).leafKey === normalizeCommunityHref(checkpoint.targetHref).leafKey
+    <CommunityNavigationTransition mobile={breakpoint === "mobile"} targetHref={checkpoint.targetHref} parentHref={mobileParentPath}
+      transitionTypes={navigation.entryIntent && normalizeCommunityHref(navigation.entryIntent.href).leafKey === normalizeCommunityHref(checkpoint.targetHref).leafKey
       ? navigation.entryIntent.transitionTypes : undefined}>
-    <CommunityRouteContext value={{ breakpoint, mobileBackPreviewHref: backTransition.preview?.href, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }}>
+    <CommunityMobileBackContext value={{ mobile: breakpoint === "mobile", enabled: !navigation.navigationPending && userBarExtension.active === "none",
+      frameKey: JSON.stringify([currentUser.id, committedFrame.href]), targetHref: checkpoint.targetHref, parentHref: mobileParentPath, navigation, nativeInsets }}>
+    <CommunityRouteContext value={{ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }}>
     <ShellFrameView
       breakpoint={breakpoint}
-      backPreview={backTransition.preview}
       checkpoint={checkpoint}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
@@ -387,6 +380,7 @@ export function ShellFrame(props: ShellFrameProps) {
       {children}
     </ShellFrameView>
     </CommunityRouteContext>
+    </CommunityMobileBackContext>
     </CommunityNavigationTransition>
   )
 }

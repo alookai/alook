@@ -15,6 +15,8 @@ import type { ConversationNavigationTarget } from "@/lib/community/conversation-
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { runAuthoritativeServerEject } from "@/lib/community/eject-server"
 import ServerLayout from "@/app/c/channels/layout"
+import { CommunityMobileBackContext } from "@/components/community/shell/community-mobile-back-drawer"
+import type { CommunityNavigationController } from "@/contexts/community/route-frame"
 
 const {
   mockRouteModel,
@@ -476,6 +478,61 @@ describe("ChannelRoute message surface ownership", () => {
       skeletonSubtype: "unknown",
       layoutHint: { subtype: "unknown", parentChannelId: null, parentSubtype: "unknown" },
     })
+  })
+
+  it.each(["text", "forum"] as const)("leaves the outer page gesture available for a %s target", (kind) => {
+    mockBreakpoint.value = "mobile"
+    mockRouteModel.isForum = kind === "forum"
+    mockRouteModel.channel = { id: "channel_1", name: "general", type: kind }
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const value = {
+      mobile: true, enabled: true, frameKey: "viewer/channel_1",
+      targetHref: "/c/channels/server_1/channel_1", parentHref: "/c/channels/server_1",
+      navigation: mockNavigation as unknown as CommunityNavigationController, nativeInsets: null,
+    }
+    const view = render(React.createElement(CommunityMobileBackContext.Provider, { value },
+      React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" })))
+    expect(view.container.querySelector(".community-back-drawer-popup")).toBeNull()
+    view.unmount()
+  })
+
+  it("keeps the thread boundary through loading, error, ready and breakpoint changes", () => {
+    configureThreadRoute()
+    mockBreakpoint.value = "mobile"
+    Object.assign(mockRouteModel, { routeLifecycle: "pending", routeHydrated: false })
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    mockedMessageList.mockImplementation(() => React.createElement("textarea", { "data-testid": "drawer-target-draft" }))
+    const value = {
+      mobile: true, enabled: true, frameKey: "viewer/channel_1",
+      targetHref: "/c/channels/server_1/channel_1", parentHref: "/c/channels/server_1/parent_1",
+      navigation: mockNavigation as unknown as CommunityNavigationController, nativeInsets: null,
+    }
+    const node = () => React.createElement(CommunityMobileBackContext.Provider, {
+      value: { ...value, mobile: mockBreakpoint.value === "mobile" },
+    }, React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    const view = render(node())
+    const popup = view.container.querySelector(".community-back-drawer-popup")!
+    expect(popup).not.toBeNull()
+    expect(popup.parentElement).toHaveAttribute("data-community-back-drawer")
+    expect(view.container.querySelectorAll(".community-back-drawer-popup")).toHaveLength(1)
+    Object.assign(mockRouteModel, { routeLifecycle: "terminal-error", metadataError: true })
+    view.rerender(node())
+    expect(view.container.querySelector(".community-back-drawer-popup")).toBe(popup)
+    Object.assign(mockRouteModel, { routeLifecycle: "ready", routeHydrated: true, metadataError: false })
+    view.rerender(node())
+    const draft = view.getByTestId("drawer-target-draft") as HTMLTextAreaElement
+    draft.value = "unfinished thread"
+    draft.focus()
+    for (const breakpoint of ["desktop", "mobile"] as const) {
+      mockBreakpoint.value = breakpoint
+      view.rerender(node())
+      expect(view.container.querySelector(".community-back-drawer-popup")).toBe(popup)
+      expect(view.getByTestId("drawer-target-draft")).toBe(draft)
+      expect(draft.value).toBe("unfinished thread")
+      expect(document.activeElement).toBe(draft)
+    }
+    view.unmount()
+    mockedMessageList.mockImplementation(() => null)
   })
 
   it("keeps the operational opener gate outside pending child content", async () => {

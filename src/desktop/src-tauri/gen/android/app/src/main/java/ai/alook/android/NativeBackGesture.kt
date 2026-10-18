@@ -5,38 +5,21 @@ internal class NativeBackGesture {
     private var href: String? = null
     private var document: String? = null
     private var stale = false
-    private var pendingProgress: Float? = null
 
     fun insets(quotedHref: String, quotedDocument: String, left: Int, right: Int, width: Int): String? {
         if (width <= 0 || left < 0 || right < 0 || left.toLong() + right >= width) return null
         return "{\"type\":\"insets\",\"href\":$quotedHref,\"document\":$quotedDocument,\"left\":${left.toDouble() / width},\"right\":${right.toDouble() / width}}"
     }
 
-    fun start(quotedHref: String, quotedDocument: String): String {
+    fun start(quotedHref: String, quotedDocument: String) {
         stale = false
         href = quotedHref
         document = quotedDocument
-        pendingProgress = null
         generation += 1
-        return payload("start", "0")
     }
 
-    fun progress(value: Float): Boolean {
-        if (href == null || stale || !value.isFinite()) return false
-        pendingProgress = value.coerceIn(0f, 1f)
-        return true
-    }
-
-    fun takeProgress(): String? {
-        val progress = pendingProgress ?: return null
-        pendingProgress = null
-        return if (href != null && !stale) payload("progress", progress.toString()) else null
-    }
-
-    fun cancel(): String? {
-        val result = if (href != null && !stale) payload("cancel", "null") else null
+    fun cancel() {
         reset()
-        return result
     }
 
     fun complete(quotedHref: String, quotedDocument: String): String? {
@@ -49,7 +32,7 @@ internal class NativeBackGesture {
             href = quotedHref
             document = quotedDocument
         }
-        val result = payload("complete", "null")
+        val result = "{\"type\":\"complete\",\"href\":$href,\"document\":$document,\"generation\":$generation}"
         reset()
         return result
     }
@@ -58,7 +41,6 @@ internal class NativeBackGesture {
         if (href != null) stale = true
         href = null
         document = null
-        pendingProgress = null
         generation += 1
     }
 
@@ -66,10 +48,7 @@ internal class NativeBackGesture {
         stale = false
         href = null
         document = null
-        pendingProgress = null
         generation += 1
     }
 
-    private fun payload(type: String, progress: String) =
-        "{\"type\":\"$type\",\"href\":$href,\"document\":$document,\"generation\":$generation,\"progress\":$progress}"
 }

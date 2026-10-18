@@ -298,6 +298,13 @@ test.describe("desktop thread split view", () => {
     await resizeThreadPanel(page, 520)
     await list.evaluate((node) => { node.scrollTop = node.scrollHeight })
     await expect(parent.getByTestId(tid.forumThreadCard(forumPostId))).toBeVisible()
+    await expect.poll(() => parent.getByTestId(tid.forumThreadCard(forumPostId)).evaluate((card) => {
+      const row = card.parentElement
+      const rows = row?.parentElement
+      return row && rows
+        ? Math.abs(rows.getBoundingClientRect().bottom - row.getBoundingClientRect().bottom)
+        : Number.POSITIVE_INFINITY
+    })).toBeLessThanOrEqual(1)
     const scrollTop = await list.evaluate((node) => node.scrollTop)
     expect(scrollTop).toBeGreaterThan(0)
     const width = (await thread.boundingBox())?.width ?? 0

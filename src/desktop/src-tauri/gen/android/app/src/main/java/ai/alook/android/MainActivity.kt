@@ -27,16 +27,14 @@ class MainActivity : TauriActivity() {
     private val nativeBackGesture = NativeBackGesture()
     private val gestureCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackStarted(backEvent: BackEventCompat) {
-            sendBackGesture(start = true)
-        }
-        override fun handleOnBackProgressed(backEvent: BackEventCompat) {
-            queueBackProgress(backEvent.progress)
+            val href = mainWebView?.url ?: return
+            if (!trustedBackOrigin(Uri.parse(href))) { nativeBackGesture.invalidate(); return }
+            nativeBackGesture.start(JSONObject.quote(href), JSONObject.quote(backDocumentId.orEmpty()))
         }
         override fun handleOnBackCancelled() {
-            sendBackGesture(start = false)
+            nativeBackGesture.cancel()
         }
         override fun handleOnBackPressed() {
-            cancelBackFrame()
             val href = mainWebView?.url.orEmpty()
             val payload = nativeBackGesture.complete(JSONObject.quote(href), JSONObject.quote(backDocumentId.orEmpty())) ?: return
             val reply = backReplyProxy
@@ -55,7 +53,6 @@ class MainActivity : TauriActivity() {
 
     private var backReplyProxy: JavaScriptReplyProxy? = null
     private var backDocumentId: String? = null
-    private var backFrame: Runnable? = null
     private val backLayoutListener = View.OnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
         if (view === mainWebView) publishBackInsets()
     }
@@ -130,14 +127,12 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onStop() {
-        cancelBackFrame()
         nativeBackGesture.invalidate()
         super.onStop()
     }
 
     fun onBackDocumentStarted(webView: WebView) {
         if (webView === mainWebView) {
-            cancelBackFrame()
             nativeBackGesture.invalidate()
             backReplyProxy = null
             backDocumentId = null
@@ -153,11 +148,6 @@ class MainActivity : TauriActivity() {
     private fun trustedBackOrigin(url: Uri): Boolean =
         url.scheme == "https" && url.host == "alook.ai" && (url.port == -1 || url.port == 443)
             || BuildConfig.DEBUG && url.scheme == "http" && url.host == "localhost" && url.port == 3000
-
-    private fun cancelBackFrame() {
-        backFrame?.let { mainWebView?.removeCallbacks(it) }
-        backFrame = null
-    }
 
     private fun publishBackInsets() {
         val webView = mainWebView ?: return
@@ -176,27 +166,6 @@ class MainActivity : TauriActivity() {
             ?.let { reply.postMessage(it) }
     }
 
-    private fun sendBackGesture(start: Boolean) {
-        val href = mainWebView?.url ?: return
-        if (!trustedBackOrigin(Uri.parse(href))) { nativeBackGesture.invalidate(); return }
-        cancelBackFrame()
-        val payload = if (start) nativeBackGesture.start(JSONObject.quote(href), JSONObject.quote(backDocumentId.orEmpty()))
-            else nativeBackGesture.cancel()
-        if (payload != null) backReplyProxy?.postMessage(payload)
-    }
-
-    private fun queueBackProgress(value: Float) {
-        val webView = mainWebView ?: return
-        if (backReplyProxy == null || !nativeBackGesture.progress(value) || backFrame != null) return
-        val frame = Runnable {
-            backFrame = null
-            if (mainWebView !== webView) return@Runnable
-            nativeBackGesture.takeProgress()?.let { backReplyProxy?.postMessage(it) }
-        }
-        backFrame = frame
-        webView.postOnAnimation(frame)
-    }
-
     private fun installBackMessages(webView: WebView) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
         val origins = mutableSetOf("https://alook.ai")
@@ -212,7 +181,6 @@ class MainActivity : TauriActivity() {
             when (data.optString("type")) {
                 "subscribe" -> {
                     if (backDocumentId != token) {
-                        cancelBackFrame()
                         nativeBackGesture.invalidate()
                     }
                     backReplyProxy = reply
@@ -220,7 +188,6 @@ class MainActivity : TauriActivity() {
                     publishBackInsets()
                 }
                 "unsubscribe" -> if (backDocumentId == token) {
-                    cancelBackFrame()
                     nativeBackGesture.invalidate()
                     backReplyProxy = null
                     backDocumentId = null
@@ -230,7 +197,6 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onDestroy() {
-        cancelBackFrame()
         nativeBackGesture.reset()
         backReplyProxy = null
         backDocumentId = null
@@ -245,7 +211,6 @@ class MainActivity : TauriActivity() {
     override fun onWebViewCreate(webView: WebView) {
         super.onWebViewCreate(webView)
         clearStartupAttachListener()
-        cancelBackFrame()
         mainWebView?.removeOnLayoutChangeListener(backLayoutListener)
         mainWebView = webView
         webView.addOnLayoutChangeListener(backLayoutListener)

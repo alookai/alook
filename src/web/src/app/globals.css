@@ -3129,8 +3129,7 @@ body {
     z-index: 1;
   }
   ::view-transition-new(.community-nav-forward),
-  ::view-transition-old(.community-nav-back),
-  ::view-transition-old(.community-nav-gesture) {
+  ::view-transition-old(.community-nav-back) {
     box-shadow: var(--e2);
   }
 }
@@ -3157,15 +3156,7 @@ body {
 }
 
 @media (max-width: 639px) {
-  ::view-transition-group(.community-nav-gesture),
-  ::view-transition-old(.community-nav-gesture),
-  ::view-transition-new(.community-nav-gesture) {
-    animation: none;
-    mix-blend-mode: normal;
-  }
-  ::view-transition-old(.community-nav-gesture) { z-index: 1; }
-  ::view-transition-new(.community-nav-gesture) { z-index: 0; }
-
+  [data-community-retained-layout] > .community-navigation-page { z-index: 2; }
   [data-community-retained-layout] {
     & [data-community-retained-body] { position: static; }
     & [data-slot="resizable-panel-group"]#community-shell { position: static; }
@@ -3197,6 +3188,7 @@ body {
     & [data-slot="community-user-bar-overlay"] {
       display: block;
       visibility: hidden;
+      z-index: 1;
       width: 100% !important;
       margin-left: 0 !important;
     }
@@ -3227,13 +3219,45 @@ body {
     }
   }
 
-  :is(:root:active-view-transition [data-mobile-back-preview="list"], [data-mobile-back-preview="list"][data-mobile-back-committing]) {
+  [data-community-back-drawer-parent="list"] {
     & [data-slot="community-app-surface"] { background: transparent; }
+    & [data-panel][id="main"] > div { background: transparent; }
     & :is([data-community-retained-rail], [data-panel][id="sidebar"], [data-slot="community-user-bar-overlay"]) { visibility: visible; }
-    & [data-panel][id="main"] { visibility: hidden; }
   }
-  :is(:root:active-view-transition [data-mobile-back-preview="detail"], [data-mobile-back-preview="detail"][data-mobile-back-committing]) [data-community-parent-preview] {
-    & [data-panel][id="parent"] { visibility: visible; }
-    & [data-panel][id="thread"] { visibility: hidden; }
+  [data-community-retained-parent][data-community-back-drawer-parent="detail"] {
+    & > [data-group] > [data-panel][id="parent"] { visibility: visible; }
+    & > [data-group] > [data-panel][id="thread"] > div { background: transparent; }
   }
+}
+
+.community-back-drawer-host,
+.community-back-drawer-viewport,
+.community-back-drawer-popup { display: contents; }
+.community-back-drawer-viewport[hidden],
+.community-back-drawer-popup[hidden] { display: none; }
+
+@media (max-width: 639px) {
+  .community-back-drawer-viewport[data-community-back-drawer] {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    pointer-events: auto;
+  }
+  [data-community-back-drawer] > .community-back-drawer-popup {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    background: var(--background);
+    box-shadow: var(--e2);
+    transform: translateX(var(--drawer-swipe-movement-x, 0px));
+    transition: transform calc(200ms * var(--drawer-swipe-strength, 1)) cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  [data-community-back-drawer] > .community-back-drawer-popup[data-swiping] { transition: none; }
+  [data-community-back-drawer] > .community-back-drawer-popup[data-ending-style] { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-community-back-drawer] > .community-back-drawer-popup { transition: none; }
 }

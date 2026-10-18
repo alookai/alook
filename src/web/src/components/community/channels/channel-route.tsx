@@ -30,6 +30,7 @@ import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { channelHref, normalizeCommunityHref, removeCommunityParam, serverRootHref } from "@/lib/community/community-route"
 import { COMMUNITY_NAV_FORWARD } from "@/lib/community/navigation-transition"
 import { useCommunityRouteFrame } from "@/components/community/shell/community-route-context"
+import { CommunityMobileBackDrawer } from "@/components/community/shell/community-mobile-back-drawer"
 import {
   THREAD_OPENER_HANDOFF_PARAM,
   useThreadOpenerRouteGate,
@@ -91,7 +92,7 @@ function ChannelRouteFrame(target: RouteTarget) {
   const parent = parentChannelId ? (routeModel.parent?.id === parentChannelId ? routeModel.parent
     : server?.categories.flatMap(category => category.channels).find(channel => channel.id === parentChannelId && !channel.pending))
     ?? { id: parentChannelId, name: "", active: false, unread: false } : null
-  const { navigation, breakpoint, mobileBackPreviewHref } = useCommunityRouteFrame()
+  const { navigation, breakpoint } = useCommunityRouteFrame()
   const isThread = routeModel.skeletonSubtype === "thread"
     || routeModel.routeLifecycle === "ready" && routeModel.isChild
   const { containerRef, mode } = useThreadSplitMode({
@@ -133,15 +134,14 @@ function ChannelRouteFrame(target: RouteTarget) {
     <ThreadSplitView
       split={split} layoutPending={layoutPending}
       mobile={breakpoint === "mobile"}
-      parentPreview={breakpoint === "mobile" && !!parent && mobileBackPreviewHref !== undefined
-        && mobileBackPreviewHref !== null && normalizeCommunityHref(mobileBackPreviewHref).pathname === channelHref(serverParam, parent.id)} preserveParent={preserveParent || breakpoint === "mobile" && isThread && !!parent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+      preserveParent={preserveParent || breakpoint === "mobile" && isThread && !!parent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
       parent={(split || layoutPending || breakpoint === "mobile" && isThread || preserveParent) && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}
         viewer={currentUser} onNavigateParent={navigateServerRoot}
         channelRefCandidates={channelRefCandidates} uiHandlers={uiHandlers}
         onOpenChild={enterThread} onOpenProfile={openProfile} onIdentity={onParentIdentity} /> : null}
-      thread={pane} />
+      thread={isThread ? <CommunityMobileBackDrawer level="detail">{pane}</CommunityMobileBackDrawer> : pane} />
   </div>
 }
 

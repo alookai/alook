@@ -29,7 +29,6 @@ export const CommunityRouteContext = createContext<{
   openInbox?: () => void
   notificationConsumer?: RefObject<NativeNotificationConversationConsumer | null>
   breakpoint: Breakpoint
-  mobileBackPreviewHref?: string | null
   frame: CommunityCommittedFrame
   navigation: CommunityNavigationController
   ownerDeleteRouteScope: { serverId: string; token: OwnerServerDeleteRouteToken } | undefined

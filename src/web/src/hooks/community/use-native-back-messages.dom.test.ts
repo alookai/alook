@@ -4,170 +4,99 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { useNativeBackMessages } from "./use-native-back-messages"
 
 const backEvent = "test-native-back-message"
-const progressEvent = "test-native-progress-message"
-function Harness() { useNativeBackMessages(backEvent, progressEvent); return null }
-
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 function setup(strict = false) {
   const bridge = { postMessage: vi.fn(), onmessage: null as ((event: MessageEvent<string>) => void) | null }
   vi.stubGlobal("AlookBack", bridge)
-  const progress = vi.fn()
-  const back = vi.fn()
-  window.addEventListener(progressEvent, progress)
-  window.addEventListener(backEvent, back)
-  const renderer = render(strict ? createElement(StrictMode, null, createElement(Harness)) : createElement(Harness))
-  const token = () => JSON.parse(bridge.postMessage.mock.calls.filter(([message]) =>
-    JSON.parse(message).type === "subscribe").at(-1)![0]).document as string
-  const send = (type: string, generation: number, rest: Record<string, unknown> = {}) => {
-    act(() => { bridge.onmessage?.(new MessageEvent("message", { data: JSON.stringify({
-      type, generation, href: location.href, document: token(), progress: type === "start" ? 0 : null, ...rest,
-    }) })) })
+  let insets: ReturnType<typeof useNativeBackMessages> = null
+  function Harness({ scope = "one" }: { scope?: string }) {
+    const value = useNativeBackMessages(backEvent, scope)
+    useLayoutEffect(() => { insets = value }, [value])
+    return null
   }
-  return { bridge, progress, back, renderer, token, send, dispose: () => {
-    renderer.unmount()
-    window.removeEventListener(progressEvent, progress)
-    window.removeEventListener(backEvent, back)
-  } }
+  const back = vi.fn()
+  window.addEventListener(backEvent, back)
+  const view = render(strict ? createElement(StrictMode, null, createElement(Harness)) : createElement(Harness))
+  const token = () => JSON.parse(bridge.postMessage.mock.calls.filter(([body]) => JSON.parse(body).type === "subscribe").at(-1)![0]).document as string
+  const send = (fields: Record<string, unknown> = {}) => act(() => {
+    bridge.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ type: "complete", generation: 1, document: token(), href: location.href, ...fields }) }))
+  })
+  return { bridge, back, view, token, send, insets: () => insets, changeScope: () => view.rerender(createElement(Harness, { scope: "two" })),
+    dispose: () => { view.unmount(); window.removeEventListener(backEvent, back) } }
 }
 
-describe("document-scoped Android Back messages", () => {
-  it("publishes only document-bound valid system gesture insets and retires them on pagehide", () => {
-    let insets: ReturnType<typeof useNativeBackMessages> = null
-    function InsetsHarness() {
-      const value = useNativeBackMessages(backEvent, progressEvent)
-      useLayoutEffect(() => { insets = value }, [value])
-      return null
-    }
-    const bridge = { postMessage: vi.fn(), onmessage: null as ((event: MessageEvent<string>) => void) | null }
-    vi.stubGlobal("AlookBack", bridge)
-    const renderer = render(createElement(InsetsHarness))
-    const document = JSON.parse(bridge.postMessage.mock.calls[0][0]).document
-    const send = (rest: Record<string, unknown> = {}) => act(() => { bridge.onmessage?.(new MessageEvent("message", {
-      data: JSON.stringify({ type: "insets", document, href: location.href, left: .08, right: .08, ...rest }),
-    })) })
-    expect(insets).toBeNull()
-    send({ document: "retired" })
-    send({ href: `${location.href}#old` })
-    send({ left: -1 })
-    send({ left: .6, right: .5 })
-    send({ left: "0.08" })
-    expect(insets).toBeNull()
-    send()
-    expect(insets).toEqual({ left: .08, right: .08 })
-    const sameInsets = insets
-    send()
-    expect(insets).toBe(sameInsets)
-    send({ left: .12 })
-    expect(insets).toEqual({ left: .12, right: .08 })
-    act(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })))
-    expect(insets).toBeNull()
-    send()
-    expect(insets).toBeNull()
-    renderer.unmount()
-  })
-  it("forwards one started gesture and progress to the existing terminal owner once", () => {
+describe("document-scoped confirmed Android Back", () => {
+  it("forwards each fresh completion once without progress events", () => {
     const test = setup()
-    test.send("start", 1)
-    test.send("progress", 1, { progress: 0.4 })
-    expect(test.progress.mock.calls.map(([event]) => event.detail)).toEqual([
-      { progress: 0, started: true }, { progress: 0.4 },
-    ])
-    expect(test.back).not.toHaveBeenCalled()
-    test.send("complete", 1)
-    test.send("complete", 1)
-    test.send("progress", 1, { progress: 0.9 })
-    expect(test.back).toHaveBeenCalledOnce()
-    expect(test.back.mock.calls[0][0].cancelable).toBe(true)
-    expect(test.progress).toHaveBeenCalledTimes(2)
-    test.dispose()
-  })
-
-  it("keeps direct button Back without a progress gesture", () => {
-    const test = setup()
-    test.send("complete", 1)
-    test.send("complete", 3)
+    const progress = vi.fn()
+    window.addEventListener("alook:native-back-progress", progress)
+    test.send(); test.send(); test.send({ generation: 3 }); test.send({ generation: 2 })
     expect(test.back).toHaveBeenCalledTimes(2)
-    expect(test.progress.mock.calls.map(([event]) => event.detail.progress)).toEqual([null, null])
+    expect(test.back.mock.calls[0][0].cancelable).toBe(true)
+    expect(progress).not.toHaveBeenCalled()
+    window.removeEventListener("alook:native-back-progress", progress)
     test.dispose()
   })
 
-  it("cancels without a navigation and rejects the cancelled or older completion", () => {
+  it("does not drive page motion from obsolete start,progress orcancel payloads", () => {
     const test = setup()
-    test.send("start", 3)
-    test.send("cancel", 3)
-    test.send("complete", 3)
-    test.send("start", 1)
-    test.send("complete", 1)
+    for (const type of ["start", "progress", "cancel"]) test.send({ type, progress: .5 })
     expect(test.back).not.toHaveBeenCalled()
-    expect(test.progress.mock.calls.map(([event]) => event.detail.progress)).toEqual([0, null])
-    test.send("start", 5)
-    test.send("complete", 5)
+    test.send()
     expect(test.back).toHaveBeenCalledOnce()
     test.dispose()
   })
 
-  it("retires a native-consumed stale gesture before forwarding a fresh button completion", () => {
+  it("rejects other documents,hrefs and invalid generation values", () => {
     const test = setup()
-    test.send("start", 3)
-    test.send("progress", 3, { progress: .5 })
-    act(() => window.dispatchEvent(new Event("resize")))
-    test.send("complete", 5)
-    expect(test.progress.mock.calls.map(([event]) => event.detail.progress)).toEqual([0, .5, null])
-    expect(test.back).toHaveBeenCalledOnce()
-    test.send("complete", 3)
-    expect(test.back).toHaveBeenCalledOnce()
-    test.dispose()
-  })
-
-  it("rejects foreign documents, other URLs, malformed and out-of-session progress", () => {
-    const test = setup()
-    test.send("start", 1, { document: "old" })
-    test.send("complete", 1, { href: `${location.href}#other` })
-    act(() => { test.bridge.onmessage?.(new MessageEvent("message", { data: "not json" })) })
-    test.send("progress", 1, { progress: 0.5 })
-    test.send("start", 1)
-    test.send("progress", 1, { progress: 2 })
-    test.send("progress", 1, { progress: -1 })
-    test.send("progress", 2, { progress: 0.5 })
+    for (const fields of [{ document: "retired" }, { href: `${location.href}#old` }, { generation: 0 }, { generation: -1 }, { generation: .5 }, { generation: "1" }, { generation: Number.MAX_SAFE_INTEGER + 1 }]) test.send(fields)
+    act(() => { test.bridge.onmessage?.(new MessageEvent("message", { data: "invalid-json" })) })
     expect(test.back).not.toHaveBeenCalled()
-    expect(test.progress).toHaveBeenCalledOnce()
+    test.send()
+    expect(test.back).toHaveBeenCalledOnce()
     test.dispose()
   })
 
-  it("retires pagehide and creates a fresh document token for BFCache restoration", () => {
+  it("publishes only valid actual inset fractions and preserves equal identity", () => {
     const test = setup()
-    const first = test.token()
-    test.send("start", 1)
+    const fields = { type: "insets", left: .08, right: .09 }
+    for (const invalid of [{ left: -1 }, { right: -1 }, { left: .6, right: .5 }, { left: "0.08" }, { document: "retired" }]) test.send({ ...fields, ...invalid })
+    expect(test.insets()).toBeNull()
+    test.send(fields)
+    expect(test.insets()).toEqual({ left: .08, right: .09 })
+    const original = test.insets()
+    test.send(fields)
+    expect(test.insets()).toBe(original)
+    test.dispose()
+  })
+
+  it("retires account/route scope and does not accept an old completion", () => {
+    const test = setup()
+    const old = test.token()
+    test.send({ type: "insets", left: .1, right: .1 })
+    test.changeScope()
+    expect(test.token()).not.toBe(old)
+    expect(test.insets()).toBeNull()
+    test.send({ document: old })
+    expect(test.back).not.toHaveBeenCalled()
+    test.send()
+    expect(test.back).toHaveBeenCalledOnce()
+    test.dispose()
+  })
+
+  it.each([false, true])("rebinds after BFCache restoration in StrictMode=%s", (strict) => {
+    const test = setup(strict)
+    const old = test.token()
     act(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })))
-    test.send("complete", 1)
+    test.send()
     expect(test.back).not.toHaveBeenCalled()
     act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })))
-    expect(test.token()).not.toBe(first)
-    test.send("complete", 1, { document: first })
-    expect(test.back).not.toHaveBeenCalled()
-    test.send("complete", 1)
+    expect(test.token()).not.toBe(old)
+    test.send({ document: old }); test.send(); test.send()
     expect(test.back).toHaveBeenCalledOnce()
     test.dispose()
-  })
-
-  it("keeps retired StrictMode subscriptions inert and unsubscribes the current document", () => {
-    const test = setup(true)
-    const subscriptions = test.bridge.postMessage.mock.calls.map(([message]) => JSON.parse(message))
-    expect(subscriptions.map((entry) => entry.type)).toEqual(["subscribe", "unsubscribe", "subscribe"])
-    test.send("complete", 1, { document: subscriptions[0].document })
-    expect(test.back).not.toHaveBeenCalled()
-    const receive = test.bridge.onmessage!
-    test.dispose()
     expect(test.bridge.onmessage).toBeNull()
-    receive(new MessageEvent("message", { data: JSON.stringify({
-      type: "complete", generation: 3, document: test.token(), href: location.href,
-    }) }))
-    expect(test.back).not.toHaveBeenCalled()
-  })
-
-  it("leaves existing Back inputs available without a native message object", () => {
-    render(createElement(Harness))
-    expect(window).not.toHaveProperty("AlookBack")
+    expect(JSON.parse(test.bridge.postMessage.mock.calls.at(-1)![0]).type).toBe("unsubscribe")
   })
 })
