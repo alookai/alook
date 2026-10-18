@@ -6,7 +6,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { DmView } from "./dm-view"
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), failed: true, breakpoint: "mobile" }))
+const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), composer: vi.fn(), failed: true, breakpoint: "mobile" }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api, toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "u_me", name: "Me", avatar: "M" }) }))
@@ -27,12 +27,22 @@ vi.mock("./dm-header", () => ({ DmHeader: ({ onBack }: { onBack?: () => void }) 
 vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/conversation-footer-shell", () => ({ ConversationFooterSlotProvider: ({ children }: PropsWithChildren) => children, ConversationFooterShell: ({ children }: PropsWithChildren) => children }))
-vi.mock("@/components/community/messages/composer", () => ({ ComposerSkeleton: () => null, Composer: ({ onAcceptSend }: { onAcceptSend: (text: string) => boolean }) => React.createElement("button", { onClick: () => onAcceptSend("hello") }, "Send") }))
+vi.mock("@/components/community/messages/composer", () => ({ ComposerSkeleton: () => null, Composer: (props: { onAcceptSend: (text: string) => boolean }) => {
+  mocks.composer(props)
+  return React.createElement("button", { onClick: () => props.onAcceptSend("hello") }, "Send")
+} }))
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ onRetry }: { onRetry: (id: string) => void }) => React.createElement("button", { onClick: () => onRetry("failed") }, "Retry") }))
 
-beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.failed = true; mocks.breakpoint = "mobile" })
+beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.composer.mockReset(); mocks.failed = true; mocks.breakpoint = "mobile" })
 
 describe("real DmView accepted send UI lifecycle", () => {
+  it("keeps the known DM reply type when a readable resource has no full metadata yet", async () => {
+    const owner = await createCommunityQueryOwner("u_me")
+    const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
+    render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument()
+    expect(mocks.composer).toHaveBeenLastCalledWith(expect.objectContaining({ channelType: "dm", context: "dm" }))
+  })
   it.each(["send", "retry"] as const)("continues %s after target view retires without advancing old onboarding", async action => {
     const owner = await createCommunityQueryOwner("u_me")
     owner.runtime.messageStream.actions.accept({ kind: "dm", id: "dm_1" }, { nonce: "retry_nonce", tempId: "temp_retry", message: { type: "chat", authorId: "u_me", content: "retry" }, localUploads: [] })

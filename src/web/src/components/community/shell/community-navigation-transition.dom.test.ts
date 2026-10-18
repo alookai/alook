@@ -4,11 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { CommunityNavigationPage, CommunityNavigationTransition } from "./community-navigation-transition"
 import { COMMUNITY_NAV_BACK, COMMUNITY_NAV_FORWARD } from "@/lib/community/navigation-transition"
 
-const captures = vi.hoisted(() => ({ updates: [] as unknown[] }))
+const captures = vi.hoisted(() => ({ updates: [] as unknown[], snapshots: [] as (() => void)[] }))
 vi.mock("react", async (importOriginal) => ({
   ...await importOriginal<typeof import("react")>(),
-  ViewTransition: ({ update, children }: { update: unknown; children: ReactNode }) => {
+  ViewTransition: ({ update, onUpdate, children }: { update: unknown; onUpdate?: () => void; children: ReactNode }) => {
     captures.updates.push(update)
+    if (update !== "none" && onUpdate) captures.snapshots.push(onUpdate)
     return children
   },
 }))
@@ -31,7 +32,7 @@ function presentation(targetHref: string, transitionTypes?: string[], mobile = t
 }
 
 describe("deferred community page presentation", () => {
-  beforeEach(() => { captures.updates = [] })
+  beforeEach(() => { captures.updates = []; captures.snapshots = [] })
 
   it("passes a synchronous target/context change through a deferred transition without remounting page state", async () => {
     const renderer = render(presentation("/c/me"))
@@ -54,6 +55,31 @@ describe("deferred community page presentation", () => {
     await act(async () => { renderer.rerender(presentation("/c/me", [COMMUNITY_NAV_BACK])) })
     expect(captures.updates).toContain(COMMUNITY_NAV_BACK)
     expect(screen.getByText("/c/me")).toBeInTheDocument()
+  })
+
+  it("consumes an actual automatic snapshot before same-target route publication and rearms a fresh target", async () => {
+    const renderer = render(presentation("/c/me/dm1"))
+    await act(async () => { renderer.rerender(presentation("/c/me", [COMMUNITY_NAV_BACK])) })
+    expect(captures.snapshots.length).toBeGreaterThan(0)
+    await act(async () => { captures.snapshots.at(-1)!() })
+    captures.updates = []
+    await act(async () => { renderer.rerender(presentation("/c/me", [COMMUNITY_NAV_BACK])) })
+    expect(captures.updates).not.toContain(COMMUNITY_NAV_BACK)
+    expect(renderer.container.querySelector("[data-community-page-animation]")).toHaveAttribute("data-community-page-animation", "none")
+    captures.updates = []
+    await act(async () => { renderer.rerender(presentation("/c/me/dm2", [COMMUNITY_NAV_FORWARD])) })
+    expect(captures.updates).toContain(COMMUNITY_NAV_FORWARD)
+  })
+
+  it("does not let an older snapshot consume a later navigation generation", async () => {
+    const renderer = render(presentation("/c/me/dm1"))
+    await act(async () => { renderer.rerender(presentation("/c/me", [COMMUNITY_NAV_BACK])) })
+    const older = captures.snapshots.at(-1)!
+    await act(async () => { renderer.rerender(presentation("/c/me/dm2", [COMMUNITY_NAV_FORWARD])) })
+    captures.updates = []
+    await act(async () => { older() })
+    await act(async () => { renderer.rerender(presentation("/c/me/dm2", [COMMUNITY_NAV_FORWARD])) })
+    expect(captures.updates).toContain(COMMUNITY_NAV_FORWARD)
   })
 
   it("uses the semantic fallback for actual routes that bypass the shell controller", async () => {
