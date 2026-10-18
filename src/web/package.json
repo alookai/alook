@@ -115,7 +115,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-easy-crop": "^6.2.4",
-    "react-resizable-panels": "4.14.3",
+    "react-resizable-panels": "4.14.5",
     "rehype-autolink-headings": "^7.1.0",
     "rehype-external-links": "^3.0.0",
     "rehype-harden": "^1.1.8",
