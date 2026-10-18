@@ -40,7 +40,11 @@ export function CommunityNavigationPage({ list, children }: { list: boolean; chi
 
 export function CommunityNavigationTransition(props: Props) {
   const deferred = useDeferredValue(props)
-  const deferPresentation = props.mobile && (
+  const nextTypes = props.transitionTypes ?? communityNavigationTransitionTypes(
+    deferred.targetHref, props.targetHref, deferred.parentHref)
+  const capture = Boolean(props.backPreview || deferred.backPreview)
+    || nextTypes.includes(COMMUNITY_NAV_BACK) || nextTypes.includes(COMMUNITY_NAV_FORWARD)
+  const deferPresentation = props.mobile && capture && (
     props.mobile !== deferred.mobile
     || normalizeCommunityHref(props.targetHref).leafKey !== normalizeCommunityHref(deferred.targetHref).leafKey
     || props.backPreview?.id !== deferred.backPreview?.id

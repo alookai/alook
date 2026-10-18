@@ -1,5 +1,6 @@
 import { createContext, createElement, useContext, useState, type ReactNode } from "react"
-import { act, render, screen } from "@/test/react-dom-harness"
+import { flushSync } from "react-dom"
+import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { CommunityNavigationPage, CommunityNavigationTransition } from "./community-navigation-transition"
 import { COMMUNITY_NAV_BACK, COMMUNITY_NAV_FORWARD } from "@/lib/community/navigation-transition"
@@ -138,5 +139,31 @@ describe("deferred community page presentation", () => {
     captures.updates = []
     await act(async () => { renderer.rerender(presentation("/c/me")) })
     expect(captures.updates.every((value) => value === "none")).toBe(true)
+  })
+
+  it.each([
+    { name: "cross-server list", from: "/c/channels/a", to: "/c/channels/d", types: undefined, deferred: false },
+    { name: "explicit motion opt-out", from: "/c/me", to: "/c/me/dm1", types: [], deferred: false },
+    { name: "forward entry", from: "/c/me", to: "/c/me/dm1", types: [COMMUNITY_NAV_FORWARD], deferred: true },
+    { name: "parent Back", from: "/c/me/dm1", to: "/c/me", types: [COMMUNITY_NAV_BACK], deferred: true },
+  ])("commits the $name presentation at its required submit boundary", ({ from, to, types, deferred }) => {
+    const submitted = vi.fn()
+    function SubmitBoundary() {
+      const [target, setTarget] = useState(from)
+      return createElement("div", null,
+        createElement("button", { onClick: () => {
+          flushSync(() => setTarget(to))
+          submitted(document.querySelector("[data-community-navigation-target]")?.getAttribute("data-community-navigation-target"))
+        } }, "Navigate"),
+        presentation(target, types),
+      )
+    }
+    const renderer = render(createElement(SubmitBoundary))
+    const input = screen.getByRole("textbox", { name: "Draft" })
+    fireEvent.click(screen.getByRole("button", { name: "Navigate" }))
+    expect(submitted).toHaveBeenCalledExactlyOnceWith(deferred ? from : to)
+    expect(renderer.container.querySelector("[data-community-navigation-target]"))
+      .toHaveAttribute("data-community-navigation-target", to)
+    expect(screen.getByRole("textbox", { name: "Draft" })).toBe(input)
   })
 })
