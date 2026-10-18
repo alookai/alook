@@ -160,6 +160,7 @@ export function CommunityShellLayout({
   const syncDesktopUserBarWidth = useCallback((size: PanelSize) => {
     if (
       renderedBreakpointRef.current !== "desktop"
+      || !window.matchMedia(DESKTOP_PREPAINT_MEDIA_QUERY).matches
       || pendingDesktopRestoreRef.current !== null
     ) return
     const measuredSidebarWidth = sidebarPanelRef.current?.getBoundingClientRect().width

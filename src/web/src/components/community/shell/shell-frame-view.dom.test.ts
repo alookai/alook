@@ -469,6 +469,7 @@ describe("ShellFrameView", () => {
       "375px",
     )
     await act(async () => {
+      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })))
       const onResize = latestProps(mocks.panelProps, "sidebar").onResize as (
         size: { asPercentage: number; inPixels: number },
       ) => void
@@ -494,6 +495,32 @@ describe("ShellFrameView", () => {
       .toBe("357.25px")
 
     renderer.unmount()
+  })
+
+  it("ignores mobile CSS measurements before React publishes its mobile breakpoint", async () => {
+    let desktopMedia = true
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: desktopMedia })))
+    const renderer = render(createElement(ShellFrameView, {
+      ...extensionProps,
+      breakpoint: "desktop",
+      checkpoint: committedCheckpoint("/c/me/dm_1", "detail"),
+      sidebar: () => createElement("sidebar-content"),
+      rail,
+      profile,
+      inbox,
+    }, createElement("main-content")))
+    const onResize = latestProps(mocks.panelProps, "sidebar").onResize as (
+      size: { asPercentage: number; inPixels: number },
+    ) => void
+    await act(async () => { onResize({ asPercentage: 25, inPixels: 317 }) })
+    const overlay = renderer.container.querySelector<HTMLElement>('[data-slot="community-user-bar-overlay"]')!
+    const before = overlay.style.getPropertyValue("--community-desktop-user-bar-width")
+    desktopMedia = false
+    await act(async () => { onResize({ asPercentage: 100, inPixels: 316 }) })
+    expect(overlay.style.getPropertyValue("--community-desktop-user-bar-width")).toBe(before)
+    desktopMedia = true
+    await act(async () => { onResize({ asPercentage: 25, inPixels: 318 }) })
+    expect(overlay.style.getPropertyValue("--community-desktop-user-bar-width")).toBe("376px")
   })
 
   it("seeds the User bar from the persisted panel percentage before pixel sizing", () => {
