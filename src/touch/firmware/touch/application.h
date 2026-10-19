@@ -30,6 +30,7 @@ private:
   std::string device_name_, hotspot_, hotspot_password_, device_code_;
   std::string older_cursor_, newer_cursor_, peer_code_, peer_id_, friendship_;
   std::string human_avatar_, peer_avatar_, broadcast_handle_;
+  std::string cached_bot_recipient_, cached_bot_source_;
   std::string update_manifest_, update_tag_;
   uint32_t boot_ = 0, auth_start_ = 0, auth_lifetime_ = 0, auth_next_ = 0, auth_interval_ = 5000;
   uint32_t dms_at_ = 0, metadata_at_ = 0, requests_at_ = 0;
@@ -38,11 +39,12 @@ private:
   uint32_t restart_at_ = 0;
   bool friends_known_ = false, pending_known_ = false, friends_ = false;
   std::string pending_state_;
-  bool online_ = false, portal_ = false, checking_session_ = false, history_dirty_ = false, preserve_history_ = false;
+  bool online_ = false, portal_ = false, network_attempted_ = false, checking_session_ = false, history_dirty_ = false, preserve_history_ = false;
   void render();
   void action(Action action, int argument);
   void authorize();
   void start_network_setup();
+  void finish_network_setup();
   void validate_session();
   void retire_session(bool revoke);
   void select_dm(size_t index);
@@ -50,6 +52,7 @@ private:
   void refresh_dm();
   void refresh_requests();
   void clear_dm();
+  void clear_dm_access();
   void request_history(const std::string& window = "tail", const std::string& cursor = "");
   void recording_start();
   void recording_finish();
@@ -58,6 +61,6 @@ private:
   void enter(Page page);
   void friendship_state();
   void response(Response result);
-  bool request(Operation operation, const std::string& method, const std::string& path, const std::string& body = "", const std::string& target = "", std::shared_ptr<AudioClip> audio = nullptr);
+  bool request(Operation operation, const std::string& method, const std::string& path, const std::string& body = "", const std::string& target = "", std::shared_ptr<AudioClip> audio = nullptr, bool show_failure = false);
 };
 }

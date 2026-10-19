@@ -39,7 +39,7 @@ bool Network::begin(const std::string& device_name) {
   requests_ = xQueueCreate(8, sizeof(Request*));
   responses_ = xQueueCreate(12, sizeof(Response*));
   if (!requests_ || !responses_) return false;
-  return xTaskCreatePinnedToCore([](void* self) { static_cast<Network*>(self)->run(); }, "touch-network", 16384, this, 1, nullptr, 0) == pdPASS;
+  return xTaskCreatePinnedToCore([](void* self) { static_cast<Network*>(self)->run(); }, "touch-network", 64 * 1024, this, 1, nullptr, 0) == pdPASS;
 }
 bool Network::submit(Request request) {
   auto* value = new Request(std::move(request));
@@ -116,6 +116,11 @@ Response Network::perform(const Request& request) {
 #endif
   if (error == ESP_OK && !body.oversized) { result.status = esp_http_client_get_status_code(client); result.body = std::move(body.text); }
   esp_http_client_cleanup(client);
+  if (avatar) {
+    result.image_source = request.path;
+    if (result.status >= 200 && result.status < 300 && request.owner.account == account_.load()) result.avatar = decode_image(result.body, request.operation == Operation::AvatarBot);
+    result.body.clear(); result.body.shrink_to_fit();
+  }
   return result;
 }
 

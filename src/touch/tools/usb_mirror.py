@@ -14,7 +14,7 @@ import tty
 import zlib
 from collections import deque
 
-HEADER = struct.Struct('<4sIIIHH4sIIIiiIIiI4s4s4s4s4siIiIiiiii')
+HEADER = struct.Struct('<4sIIIHH4sIIIiiIIiI4s4s4s4s4siIiIiiiii35I')
 WIDTH = HEIGHT = 466
 FRAME_BYTES = WIDTH * HEIGHT * 2
 
@@ -28,7 +28,7 @@ class FrameParser:
         self.buffer.extend(data)
         frames = []
         while True:
-            start = self.buffer.find(b'ALM3')
+            start = self.buffer.find(b'ALM9')
             if start < 0:
                 self.buffer[:] = self.buffer[-3:]
                 break
@@ -113,6 +113,7 @@ class Board:
                 'error': self.error,
                 'httpDiagnostic': diagnostic,
                 'network': network,
+                'display': dict(zip(['uptimeMs', 'refreshes', 'totalRefreshMs', 'maxRefreshMs', 'lastRefreshMs', 'resetReason', 'loopStackFreeBytes'], values[30:37])) | dict(zip(['totalRefreshCoreMs', 'totalPanelMs', 'totalMirrorMs', 'lastRefreshCoreMs', 'lastPanelMs', 'lastMirrorMs', 'totalPreparationMs', 'lastPreparationMs', 'maxPreparationMs', 'totalDecodeMs', 'lastDecodeMs', 'maxDecodeMs', 'decodeStackFreeBytes', 'totalRenderMs', 'lastRenderMs', 'maxRenderMs', 'lastBodyMs', 'lastFaceMs'], values[37:55])) | dict(zip(['temporalUs', 'photoUs', 'haloUs', 'upscaleUs', 'maskUs', 'imageDrawUs', 'psramCopyUs', 'imageDrawCalls', 'imageFastCalls', 'psramFillUs'], values[55:65])) if self.frame is not None else None,
             }
 
     def run(self):

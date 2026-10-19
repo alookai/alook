@@ -1,4 +1,5 @@
 #include "application.h"
+#include "usb_mirror.h"
 #include "board.h"
 #include "configuration.h"
 #include "dm_protocol.h"
@@ -44,6 +45,7 @@ bool Application::begin() {
   hotspot_ = std::string("Alook-touch-") + std::string(identity).substr(11);
   hotspot_password_ = random_id().substr(0, 10);
   if (!network_.begin(device_name_)) return false;
+  ui_.enable_direct_character(true);
   ui_.begin([this](Action a, int i) { action(a, i); });
   ui_.set_seed("alook-touch");
   ui_.show(state_, data_);
@@ -64,7 +66,7 @@ void Application::render() {
   else ui_.show(state_, data_);
   preserve_history_ = false;
 }
-bool Application::request(Operation operation, const std::string& method, const std::string& path, const std::string& body, const std::string& target, std::shared_ptr<AudioClip> audio) {
+bool Application::request(Operation operation, const std::string& method, const std::string& path, const std::string& body, const std::string& target, std::shared_ptr<AudioClip> audio, bool show_failure) {
   const auto index = static_cast<size_t>(operation);
   const bool socket = operation == Operation::SocketStart || operation == Operation::SocketStop;
   const auto id = socket ? 0 : pending_.start(index, state_.owner(), target);
@@ -73,7 +75,13 @@ bool Application::request(Operation operation, const std::string& method, const 
   command.token = operation == Operation::Authorize || operation == Operation::PollAuthorization ? "" : session_.token;
   command.target = target; command.audio = std::move(audio);
   command.id = id;
-  if (!network_.submit(std::move(command))) { if (id) pending_.complete(index, id); data_.error = "Connection busy. Try again."; return false; }
+  if (!network_.submit(std::move(command))) {
+    if (id) pending_.complete(index, id);
+    if (operation == Operation::Dms) data_.dm_error = "Connection busy. Refresh to try again.";
+    else data_.error = "Connection busy. Try again.";
+    if (show_failure) render();
+    return false;
+  }
   return true;
 }
 void Application::leave_profile() {
@@ -100,6 +108,8 @@ void Application::refresh_requests() {
   if (request(Operation::RequestList, "GET", "/api/community/friends/pending")) requests_at_ = millis();
 }
 void Application::retire_session(bool revoke) {
+  ui_.retire_session();
+  if (portal_) { provisioning_.stopConfigPortal(); portal_ = false; }
   leave_profile(); audio_.cancel();
   const auto old = session_.token;
   state_.sign_out(); network_.retire(state_.owner().account); pending_.retire();
@@ -111,7 +121,7 @@ void Application::retire_session(bool revoke) {
   storage_.clear(); session_ = {}; data_ = {}; data_.dm_enabled = true; data_.dm_can_read = data_.dm_can_send = false; state_.channel_id.clear(); older_cursor_.clear(); newer_cursor_.clear();
   data_.firmware_version = firmware_version; update_manifest_.clear(); update_tag_.clear(); restart_at_ = 0;
   ui_.set_character(nullptr); ui_.set_human_image(nullptr); ui_.set_peer_image(nullptr);
-  bot_image_.clear(); human_image_.clear(); peer_image_.clear(); human_avatar_.clear(); peer_avatar_.clear();
+  bot_image_.clear(); cached_bot_recipient_.clear(); cached_bot_source_.clear(); human_image_.clear(); peer_image_.clear(); human_avatar_.clear(); peer_avatar_.clear();
   device_code_.clear(); auth_lifetime_ = 0; checking_session_ = false; read_seq_ = requested_read_seq_ = 0;
   ui_.set_seed("alook-touch");
   data_.status = "Authorize this touch on your phone";
@@ -131,13 +141,31 @@ void Application::validate_session() {
 void Application::start_network_setup() {
   if (state_.voice != VoicePhase::Empty) { audio_.cancel(); state_.cancel_draft(); }
   leave_profile();
+  device_code_.clear(); auth_lifetime_ = 0;
+  network_attempted_ = true;
+  if (portal_) provisioning_.stopConfigPortal();
   provisioning_.startConfigPortal(hotspot_.c_str(), hotspot_password_.c_str());
-  portal_ = true;
+  portal_ = provisioning_.getConfigPortalActive();
   state_.enter(Page::Network);
+  data_.error.clear();
+  if (!portal_) { finish_network_setup(); data_.error = "Could not open Wi-Fi setup. Try again."; render(); return; }
   data_.qr = "WIFI:T:WPA;S:" + hotspot_ + ";P:" + hotspot_password_ + ";;";
   data_.short_code = "192.168.4.1";
   data_.status = "Scan to join touch Wi-Fi\nOpen the address below";
   render();
+}
+void Application::finish_network_setup() {
+  if (portal_) provisioning_.stopConfigPortal();
+  portal_ = false;
+  if (state_.page != Page::Network) return;
+  data_.qr.clear(); data_.short_code.clear(); data_.error.clear();
+  if (state_.authenticated) {
+    data_.status = std::string("Wi-Fi: ") + (online_ ? "connected" : "offline");
+    enter(Page::Settings);
+  } else {
+    data_.status = online_ ? "Wi-Fi connected. Checking the clock…" : "Wi-Fi setup closed. Tap Wi-Fi setup to retry.";
+    render();
+  }
 }
 void Application::clear_dm() {
   state_.invalidate_recipient(true);
@@ -145,10 +173,18 @@ void Application::clear_dm() {
   data_.messages.clear(); data_.has_older = data_.has_newer = data_.new_messages = false;
   data_.dm_can_read = data_.dm_can_send = data_.bot_online = false;
   older_cursor_.clear(); newer_cursor_.clear(); read_seq_ = requested_read_seq_ = 0;
-  ui_.set_character(nullptr); bot_image_.clear();
+  ui_.set_character(nullptr); bot_image_.clear(); cached_bot_recipient_.clear(); cached_bot_source_.clear();
+}
+void Application::clear_dm_access() {
+  const bool interrupted = state_.voice != VoicePhase::Empty;
+  state_.invalidate_recipient(); audio_.cancel();
+  data_.dm_can_read = data_.dm_can_send = false; data_.messages.clear();
+  data_.has_older = data_.has_newer = data_.new_messages = false;
+  older_cursor_.clear(); newer_cursor_.clear();
+  if (interrupted) state_.enter(Page::Conversation);
 }
 void Application::refresh_dms() {
-  if (request(Operation::Dms, "GET", "/api/community/users/me/dms")) { dms_at_ = millis(); data_.dm_error.clear(); }
+  if (request(Operation::Dms, "GET", "/api/community/users/me/dms", "", "", nullptr, state_.page == Page::DmList)) { dms_at_ = millis(); data_.dm_error.clear(); }
 }
 void Application::refresh_dm() {
   if (state_.channel_id.empty()) return;
@@ -158,25 +194,38 @@ void Application::refresh_dm() {
 }
 void Application::select_dm(size_t index) {
   if (index >= data_.dms.size()) return;
+#if ALOOK_TOUCH_USB_MIRROR
+  const auto preparation_started = millis();
+#endif
   const auto dm = data_.dms[index];
   const bool changed = state_.channel_id != dm.id || state_.recipient_id != dm.user_id;
   if (!state_.select_recipient(dm.user_id, dm.id)) return;
   leave_profile();
   if (changed) {
+    ui_.prepare_transition();
     data_.messages.clear(); data_.has_older = data_.has_newer = data_.new_messages = false;
     data_.dm_can_read = data_.dm_can_send = false;
     older_cursor_.clear(); newer_cursor_.clear(); read_seq_ = requested_read_seq_ = 0;
-    ui_.set_character(nullptr); bot_image_.clear();
+    ui_.set_character(nullptr);
   }
   data_.dm_id = dm.id; data_.dm_handle = dm.handle; data_.dm_human = !dm.identity_known || dm.human;
   data_.bot_name = dm.handle; data_.bot_online = online_ && dm.online;
   session_.channel = dm.id; storage_.save(session_);
   const bool generated = dm.image.compare(0, 12, "avatar:beam:") == 0;
   data_.bot_custom = !dm.image.empty() && !generated && (dm.image.front() == '/' || dm.image.compare(0, 8, "https://") == 0);
-  ui_.set_seed(generated ? dm.image.substr(12) : dm.user_id, data_.dm_human);
-  if (data_.bot_custom) request(Operation::AvatarBot, "GET", dm.image, "", dm.user_id);
+  if (data_.bot_custom) {
+    const bool cached = bot_image_.image() && cached_bot_recipient_ == dm.user_id && cached_bot_source_ == dm.image;
+    ui_.set_character(cached ? bot_image_.image() : nullptr, cached ? bot_image_.texture() : nullptr);
+    if (!cached) {
+      bot_image_.clear(); cached_bot_recipient_.clear(); cached_bot_source_.clear();
+      request(Operation::AvatarBot, "GET", dm.image, "", dm.user_id);
+    }
+  } else { ui_.set_character(nullptr); ui_.set_seed(generated ? dm.image.substr(12) : dm.user_id); }
   data_.error.clear(); data_.status = online_ ? "" : "Offline";
   refresh_dm(); render();
+#if ALOOK_TOUCH_USB_MIRROR
+  usb_mirror_work(false, millis() - preparation_started);
+#endif
 }
 void Application::request_history(const std::string& window, const std::string& cursor) {
   if (state_.channel_id.empty() || !state_.authenticated || !data_.dm_can_read) return;
@@ -186,7 +235,7 @@ void Application::request_history(const std::string& window, const std::string& 
 }
 void Application::recording_start() {
   if (data_.update_phase == UpdatePhase::Installing || data_.update_phase == UpdatePhase::Restarting) return;
-  const std::string blocker = !state_.authenticated ? "Sign in before recording." : !online_ ? "Connect Wi-Fi to record." : state_.recipient_id.empty() ? "Choose a DM to record." : !data_.dm_can_send ? "Sending is unavailable in this DM." : state_.channel_id.empty() ? "Open Chat before recording." : "";
+  const std::string blocker = !state_.authenticated ? "Sign in before recording." : portal_ || state_.page == Page::Network ? "Finish Wi-Fi setup before recording." : !online_ ? "Connect Wi-Fi to record." : state_.recipient_id.empty() ? "Choose a DM to record." : !data_.dm_can_send ? "Sending is unavailable in this DM." : state_.channel_id.empty() ? "Open Chat before recording." : "";
   if (!blocker.empty()) {
     data_.error.clear(); ui_.notify(blocker); return;
   }
@@ -231,10 +280,14 @@ void Application::action(Action command, int argument) {
       if (state_.show_requests()) { leave_profile(); data_.error.clear(); refresh_requests(); render(); }
       break;
     case Action::AcceptRequest:
-      if (state_.page == Page::Profile && argument >= 0 && static_cast<size_t>(argument) < data_.requests.size() && data_.request_busy.empty() && online_) {
+      if (state_.page == Page::Profile && argument >= 0 && static_cast<size_t>(argument) < data_.requests.size() && data_.request_busy.empty()) {
+        if (!online_) { data_.requests_error = "Offline. Reconnect to accept this request."; render(); break; }
         const auto& row = data_.requests[argument];
-        if (row.kind == "incoming" && !row.needs_owner_approval && request(Operation::AcceptRequest, "POST", "/api/community/friends/" + encode(row.id) + "/accept", "{}", row.id)) {
-          data_.request_busy = row.id; data_.requests_error.clear(); render();
+        if (row.kind == "incoming" && !row.needs_owner_approval) {
+          data_.requests_error.clear();
+          if (request(Operation::AcceptRequest, "POST", "/api/community/friends/" + encode(row.id) + "/accept", "{}", row.id, nullptr, true)) {
+            data_.request_busy = row.id; render();
+          }
         }
       }
       break;
@@ -285,13 +338,16 @@ void Application::action(Action command, int argument) {
     case Action::AddFriend: {
       if (state_.page != Page::Profile || peer_id_.empty() || nearby_.peer() != peer_code_) break;
       JsonDocument body; body["userId"] = peer_id_;
-      request(Operation::Friend, "POST", "/api/community/friends/request", json(body), peer_code_); break;
+      request(Operation::Friend, "POST", "/api/community/friends/request", json(body), peer_code_, nullptr, true); break;
     }
     case Action::AcceptFriend:
-      if (state_.page == Page::Profile && !friendship_.empty() && nearby_.peer() == peer_code_) request(Operation::AcceptFriend, "POST", "/api/community/friends/" + encode(friendship_) + "/accept", "{}", peer_code_);
+      if (state_.page == Page::Profile && !friendship_.empty() && nearby_.peer() == peer_code_) request(Operation::AcceptFriend, "POST", "/api/community/friends/" + encode(friendship_) + "/accept", "{}", peer_code_, nullptr, true);
       break;
     case Action::Brightness: { const uint8_t value = storage_.brightness() >= 220 ? 80 : storage_.brightness() + 40; storage_.brightness(value); board_brightness(value); break; }
-    case Action::Back: enter(state_.recipient_id.empty() ? Page::Home : Page::Character); break;
+    case Action::Back:
+      if (state_.page == Page::Network) finish_network_setup();
+      else if (state_.back()) { data_.error.clear(); render(); }
+      break;
     default: break;
   }
 }
@@ -299,6 +355,8 @@ void Application::action(Action command, int argument) {
 void Application::response(Response result) {
   if (result.owner.account != state_.owner().account) return;
   if (result.id && !pending_.complete(static_cast<size_t>(result.operation), result.id)) return;
+  if ((result.operation == Operation::Authorize || result.operation == Operation::PollAuthorization) && state_.page != Page::Authorization) return;
+  if (result.operation == Operation::Profile && !state_.authenticated && state_.page == Page::Network) return;
   if (result.operation == Operation::UpdateProgress) {
     if (state_.page == Page::FirmwareUpdate && data_.update_phase == UpdatePhase::Installing && result.target == update_tag_) { data_.update_progress = std::max(0, std::min(100, result.status)); render(); }
     return;
@@ -346,14 +404,23 @@ void Application::response(Response result) {
   if (profile_operation
     && (result.target != peer_code_ || nearby_.peer() != peer_code_)) return;
   if (avatar_operation) {
-    bool decoded = false;
-    if (success(result.status) && state_.voice == VoicePhase::Empty) {
-      if (result.operation == Operation::AvatarBot && result.target == state_.recipient_id) { decoded = bot_image_.decode(result.body); if (decoded) ui_.set_character(bot_image_.image()); }
-      if (result.operation == Operation::AvatarHuman && result.target == state_.user_id) { decoded = human_image_.decode(result.body); if (decoded) ui_.set_human_image(human_image_.image()); }
-      if (result.operation == Operation::AvatarPeer) { decoded = peer_image_.decode(result.body); if (decoded) ui_.set_peer_image(peer_image_.image()); }
-    }
-    if (!decoded) data_.error = "Avatar unavailable. Supported images: PNG, JPEG, WebP, GIF up to 1024px / 512 KiB.";
-    if (state_.page == Page::Character || state_.page == Page::Profile) render();
+    std::string expected;
+    if (result.operation == Operation::AvatarBot) {
+      for (const auto& dm : data_.dms) if (dm.id == state_.channel_id && dm.user_id == result.target) expected = dm.image;
+    } else expected = result.operation == Operation::AvatarHuman ? human_avatar_ : peer_avatar_;
+    if (result.image_source != expected) return;
+    const bool decoded = success(result.status) && result.avatar;
+    if (decoded) {
+      if (result.operation == Operation::AvatarBot && result.target == state_.recipient_id) {
+        if (state_.page == Page::Character && state_.voice == VoicePhase::Empty) ui_.prepare_transition();
+        ui_.set_character(nullptr); bot_image_.set(std::move(result.avatar));
+        cached_bot_recipient_ = result.target; cached_bot_source_ = result.image_source;
+        ui_.set_character(bot_image_.image(), bot_image_.texture());
+      }
+      if (result.operation == Operation::AvatarHuman && result.target == state_.user_id) { ui_.set_human_image(nullptr); human_image_.set(std::move(result.avatar)); ui_.set_human_image(human_image_.image()); }
+      if (result.operation == Operation::AvatarPeer) { ui_.set_peer_image(nullptr); peer_image_.set(std::move(result.avatar)); ui_.set_peer_image(peer_image_.image()); }
+    } else data_.error = "Avatar unavailable. Supported images: PNG, JPEG, WebP, GIF up to 1024px / 512 KiB.";
+    if (state_.voice == VoicePhase::Empty && (state_.page == Page::Character || state_.page == Page::Profile)) render();
     return;
   }
   JsonDocument document(&json_allocator_);
@@ -368,9 +435,7 @@ void Application::response(Response result) {
     if (result.operation == Operation::Dms) { data_.dm_error = "Could not load DMs. Refresh to try again."; if (!background_dms) render(); return; }
     if (result.operation == Operation::Presence) { retire_presence(data_.dms); data_.bot_online = false; if (state_.page == Page::Character && state_.voice == VoicePhase::Empty) render(); return; }
     if (result.operation == Operation::OpenDm || (result.operation == Operation::History && result.status == 403)) {
-      state_.invalidate_recipient(); audio_.cancel();
-      data_.dm_can_read = data_.dm_can_send = false; data_.messages.clear();
-      data_.has_older = data_.has_newer = data_.new_messages = false;
+      clear_dm_access();
     }
     if (result.operation == Operation::PollAuthorization && parsed) {
       const std::string error = document["error"] | "";
@@ -446,7 +511,7 @@ void Application::response(Response result) {
         if (selected == data_.dms.end()) { audio_.cancel(); clear_dm(); session_.channel.clear(); storage_.save(session_); enter(Page::DmList); return; }
         data_.dm_handle = selected->handle;
         if (state_.voice == VoicePhase::Empty) refresh_dm();
-      } else if (!session_.channel.empty()) {
+      } else if (!session_.channel.empty() && state_.page == Page::DmList) {
         const auto selected = std::find_if(data_.dms.begin(), data_.dms.end(), [&](const auto& dm) { return dm.id == session_.channel; });
         if (selected != data_.dms.end()) { select_dm(selected - data_.dms.begin()); return; }
         session_.channel.clear(); storage_.save(session_);
@@ -466,20 +531,26 @@ void Application::response(Response result) {
         dm.human = document["kind"] == "human"; dm.identity_known = true;
         dm.handle = std::string(document["name"] | "") + "#" + (document["discriminator"] | "0000");
         dm.image = document["image"] | "";
+        if (dm.image != old_image && state_.page == Page::Character && state_.voice == VoicePhase::Empty) ui_.prepare_transition();
         data_.dm_human = dm.human; data_.dm_handle = dm.handle;
         const bool generated = dm.image.compare(0, 12, "avatar:beam:") == 0;
-        ui_.set_seed(generated ? dm.image.substr(12) : dm.user_id, dm.human);
         data_.bot_custom = !dm.image.empty() && !generated && (dm.image.front() == '/' || dm.image.compare(0, 8, "https://") == 0);
-        if (dm.image != old_image) { ui_.set_character(nullptr); bot_image_.clear(); }
-        if (data_.bot_custom) request(Operation::AvatarBot, "GET", dm.image, "", dm.user_id);
+        if (data_.bot_custom) {
+          const bool cached = bot_image_.image() && cached_bot_recipient_ == dm.user_id && cached_bot_source_ == dm.image;
+          ui_.set_character(cached ? bot_image_.image() : nullptr, cached ? bot_image_.texture() : nullptr);
+          if (!cached) {
+            bot_image_.clear(); cached_bot_recipient_.clear(); cached_bot_source_.clear();
+            request(Operation::AvatarBot, "GET", dm.image, "", dm.user_id);
+          }
+        } else { ui_.set_character(nullptr); ui_.set_seed(generated ? dm.image.substr(12) : dm.user_id); }
       }
       break;
     }
     case Operation::OpenDm: {
       bool can_read = false, can_send = false;
-      if (result.target != state_.channel_id || !read_dm_access(document.as<JsonVariantConst>(), state_.channel_id, can_read, can_send)) { data_.dm_can_read = data_.dm_can_send = false; data_.messages.clear(); data_.error = "Unsupported DM response. Refresh to try again."; break; }
+      if (result.target != state_.channel_id || !read_dm_access(document.as<JsonVariantConst>(), state_.channel_id, can_read, can_send)) { clear_dm_access(); data_.error = "Unsupported DM response. Refresh to try again."; break; }
       data_.dm_can_read = can_read; data_.dm_can_send = can_send;
-      if (!can_read) { state_.invalidate_recipient(); audio_.cancel(); data_.messages.clear(); data_.has_older = data_.has_newer = data_.new_messages = false; }
+      if (!can_read) clear_dm_access();
       else if (data_.messages.empty()) request_history();
       break;
     }
@@ -501,7 +572,7 @@ void Application::response(Response result) {
     }
     case Operation::Transcribe: {
       const std::string text = document["text"] | "";
-      if (text.size() > 16000 || !state_.transcript(result.owner, text)) data_.error = "No usable transcript. Record again.";
+      if (!state_.transcript(result.owner, text.size() > 16000 ? "" : text)) data_.error = "No usable transcript. Record again.";
       break;
     }
     case Operation::Send: {
@@ -572,18 +643,20 @@ void Application::tick() {
     online_ = connected;
     if (online_) configTime(0, 0, "time.cloudflare.com", "pool.ntp.org");
     else { data_.bot_online = false; retire_presence(data_.dms); nearby_.stop(); broadcast_handle_.clear(); peer_code_.clear(); peer_id_.clear(); data_.peer_name.clear(); data_.peer_handle.clear(); data_.peer_state.clear(); data_.status = "Offline · reconnecting"; }
+    if (state_.page == Page::Settings) data_.status = std::string("Wi-Fi: ") + (online_ ? "connected" : "offline");
+    if (state_.page != Page::Startup) render();
   }
+  if (portal_ && !provisioning_.getConfigPortalActive()) finish_network_setup();
   for (unsigned i = 0; i < 12; ++i) { auto result = network_.receive(); if (!result) break; response(std::move(*result)); }
   const auto now = millis();
   if (state_.page == Page::Startup && now - boot_ >= 1200) {
     state_.page = Page::Network; data_.status = "Connecting to saved Wi-Fi…"; render();
   }
   if (state_.page == Page::Network) {
-    if (online_ && time(nullptr) > 1700000000) {
-      if (portal_) { provisioning_.stopConfigPortal(); portal_ = false; }
+    if (!portal_ && online_ && time(nullptr) > 1700000000) {
       data_.qr.clear(); data_.short_code.clear(); state_.page = Page::Authorization;
       if (session_.token.empty()) authorize(); else { data_.status = "Checking your session…"; validate_session(); render(); }
-    } else if (!online_ && !portal_ && now - boot_ >= 12000) start_network_setup();
+    } else if (!online_ && !portal_ && !network_attempted_ && now - boot_ >= 12000) start_network_setup();
   }
   if (state_.page == Page::Authorization && !device_code_.empty() && auth_lifetime_) {
     if (now - auth_start_ >= auth_lifetime_) { device_code_.clear(); data_.qr.clear(); data_.short_code.clear(); data_.error = "Code expired. Get a new code."; render(); }
@@ -628,7 +701,8 @@ void Application::tick() {
   if (buttons.record_released || audio_.full()) recording_finish();
   if (buttons.home && data_.update_phase != UpdatePhase::Installing && data_.update_phase != UpdatePhase::Restarting) {
     const bool was_profile = state_.page == Page::Profile;
-    if (state_.home()) {
+    if (state_.page == Page::Network && portal_) finish_network_setup();
+    else if (state_.home()) {
       audio_.cancel();
       if (was_profile) leave_profile();
       data_.error.clear(); render();
@@ -636,5 +710,6 @@ void Application::tick() {
     else if (!state_.authenticated && state_.page == Page::Authorization) start_network_setup();
   }
   ui_.tick(now);
+  if (const auto* frame = ui_.direct_frame()) board_present(frame);
 }
 }

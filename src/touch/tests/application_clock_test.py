@@ -38,19 +38,22 @@ struct Network {
     return std::make_unique<Response>();
   }
 };
-struct Portal { uint32_t step = 0; void process() { current_time += step; } };
+struct Portal { uint32_t step = 0; void process() { current_time += step; } bool getConfigPortalActive() { return true; } };
 struct Nearby { void stop() {} };
 struct Data {
   bool bot_online = false;
   std::vector<int> dms;
   std::string peer_name, peer_handle, peer_state, status;
 };
+enum class Page { Startup, Settings };
+struct State { Page page = Page::Startup; };
 class Application {
 public:
   Network network_;
   Portal provisioning_;
   Nearby nearby_;
   Data data_;
+  State state_;
   bool portal_ = false, online_ = true;
   uint32_t restart_at_ = 0, observed_time = 0, response_step = 0;
   uint32_t auth_start_ = 0, validated_at_ = 0, dms_at_ = 0, metadata_at_ = 0, history_at_ = 0;
@@ -62,6 +65,8 @@ public:
     auth_start_ = validated_at_ = dms_at_ = metadata_at_ = history_at_ = current_time;
   }
   void tick();
+  void finish_network_setup() { assert(false); }
+  void render() {}
 };
 '''
         harness += prefix + r'''

@@ -79,6 +79,10 @@ public:
     return true;
   }
 
+  bool back() {
+    return enter(page == Page::LogoutConfirmation || page == Page::Network ? Page::Settings : recipient_id.empty() ? Page::Home : Page::Character);
+  }
+
   bool prepare_recording() {
     if (!authenticated || recipient_id.empty() || voice == VoicePhase::Sending) return false;
     if (!cancel_draft()) return false;

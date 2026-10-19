@@ -1,7 +1,9 @@
 #include "ui.h"
+#include "usb_mirror.h"
 #include "generated/face_assets.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 extern "C" { LV_FONT_DECLARE(alook_font_cjk); LV_FONT_DECLARE(alook_font_ui_24); LV_FONT_DECLARE(alook_font_ui_32); }
 
 namespace alook_touch {
@@ -23,7 +25,7 @@ void Ui::begin(std::function<void(Action, int)> handler) {
   text_font.fallback = &alook_font_cjk;
   control_font = alook_font_ui_24; control_font.fallback = &alook_font_cjk;
   heading_font = alook_font_ui_32; heading_font.fallback = &alook_font_cjk;
-  glow_art_.make_halo();
+  glow_art_.make_halo(); speaker_.set_halo(glow_art_.image());
   lv_obj_add_event_cb(lv_scr_act(), [](lv_event_t* event) {
     auto* ui = static_cast<Ui*>(lv_event_get_user_data(event));
     auto* input = lv_indev_get_act();
@@ -118,7 +120,8 @@ void Ui::base(const std::string& heading) {
   history_ = latest_ = character_ = title_ = nullptr;
   notice_ = nullptr; notice_until_ = 0;
   user_scrolling_ = false; history_edge_ = 0;
-  eyes_ = eye_clip_ = mouth_ = nullptr;
+  eyes_ = eye_clip_ = mouth_ = character_body_ = character_fallback_ = character_glow_ = nullptr;
+  shown_character_ = nullptr; shown_seed_.clear(); eye_pixels_ = mouth_pixels_ = 0;
   bindings_.clear();
   bubbles_.fill(nullptr);
   lv_obj_set_style_bg_color(screen_, lv_color_hex(background), 0);
@@ -155,7 +158,7 @@ lv_obj_t* Ui::avatar(lv_obj_t* parent, AvatarArt& art, const lv_img_dsc_t* image
     auto* item = lv_img_create(group);
     lv_img_set_src(item, sprite);
     lv_img_set_pivot(item, 0, 0);
-    lv_img_set_zoom(item, diameter * 256 / 288);
+    lv_img_set_zoom(item, diameter * 256 / sprite->header.w);
     lv_obj_set_pos(item, x * diameter / 288, y * diameter / 288);
   };
   put(source, 0, 0);
@@ -163,6 +166,9 @@ lv_obj_t* Ui::avatar(lv_obj_t* parent, AvatarArt& art, const lv_img_dsc_t* image
 }
 
 void Ui::show(const Interaction& state, const UiData& data) {
+  if (page_ != state.page && !transition_image_ && !suppress_transition_) prepare_transition();
+  suppress_transition_ = false;
+  const bool reuse_character = page_ == Page::Character && state.page == Page::Character && character_;
   page_ = state.page;
   if (data.dm_enabled && show_dm_page(state, data)) return;
   switch (page_) {
@@ -192,43 +198,61 @@ void Ui::show(const Interaction& state, const UiData& data) {
         : icon_button(screen_, LV_SYMBOL_REFRESH, retry_action);
       if (data.qr.empty()) lv_obj_set_size(retry, 220, 44);
       lv_obj_align(retry, LV_ALIGN_TOP_MID, 0, 392);
+      if (page_ == Page::Network && !data.qr.empty()) {
+        auto* cancel = icon_button(screen_, LV_SYMBOL_CLOSE, Action::Back);
+        lv_obj_align(cancel, LV_ALIGN_BOTTOM_MID, 72, -30);
+      }
       break;
     }
     case Page::Character: {
-      base("");
-      character_ = lv_obj_create(screen_);
-      lv_obj_remove_style_all(character_);
-      lv_obj_set_size(character_, 466, 466);
-      lv_obj_clear_flag(character_, LV_OBJ_FLAG_SCROLLABLE);
-      lv_obj_center(character_);
-      auto* body = lv_img_create(character_);
-      if (image_ || !data.bot_custom) lv_img_set_src(body, image_ ? image_ : art_.image());
-      lv_img_set_pivot(body, 0, 0);
-      lv_img_set_zoom(body, 466 * 256 / 288);
-      lv_obj_set_pos(body, 0, 0);
-      if (!image_ && !data.bot_custom && !(data.dm_enabled && data.dm_human) && art_.image()->data) {
-        const auto& eyes = assets::eyes[art_.identity.eyes];
-        const auto& mouth = assets::mouth[art_.identity.mouth];
-        eye_x_ = eyes.x * 466 / 288; eye_y_ = (eyes.y - 44) * 466 / 288;
-        eye_width_ = (eyes.image->header.w * 466 + 287) / 288;
-        eye_height_ = (eyes.image->header.h * 466 + 287) / 288;
-        mouth_x_ = mouth.x * 466 / 288; mouth_y_ = (mouth.y - 44) * 466 / 288;
-        eye_clip_ = lv_obj_create(character_);
-        lv_obj_remove_style_all(eye_clip_);
-        lv_obj_set_size(eye_clip_, eye_width_, eye_height_);
+      if (!reuse_character) {
+        base("");
+        character_ = lv_obj_create(screen_); lv_obj_remove_style_all(character_); lv_obj_set_size(character_, 466, 466);
+        lv_obj_set_style_radius(character_, LV_RADIUS_CIRCLE, 0); lv_obj_set_style_clip_corner(character_, false, 0);
+        lv_obj_clear_flag(character_, LV_OBJ_FLAG_SCROLLABLE); lv_obj_center(character_);
+        character_body_ = lv_img_create(character_);
+        character_fallback_ = label(character_, "", 320);
+        lv_obj_set_style_text_align(character_fallback_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_font(character_fallback_, &heading_font, 0);
+        eye_clip_ = lv_obj_create(character_); lv_obj_remove_style_all(eye_clip_);
         lv_obj_clear_flag(eye_clip_, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_pos(eye_clip_, eye_x_, eye_y_);
-        eyes_ = lv_img_create(eye_clip_); lv_img_set_src(eyes_, eyes_art_.image());
-        lv_img_set_pivot(eyes_, 0, 0); lv_img_set_zoom(eyes_, 466 * 256 / 288); lv_obj_set_pos(eyes_, 0, 0);
-        mouth_ = lv_img_create(character_); lv_img_set_src(mouth_, mouth_art_.image());
-        lv_img_set_pivot(mouth_, 0, 0); lv_img_set_zoom(mouth_, 466 * 256 / 288); lv_obj_set_pos(mouth_, mouth_x_, mouth_y_);
+        eyes_ = lv_img_create(eye_clip_); mouth_ = lv_img_create(character_);
+        character_glow_ = lv_img_create(character_); lv_img_set_src(character_glow_, glow_art_.image());
+        lv_obj_clear_flag(character_glow_, LV_OBJ_FLAG_CLICKABLE); lv_obj_center(character_glow_);
       }
-      if (data.bot_online) {
-        auto* glow = lv_img_create(screen_);
-        lv_img_set_src(glow, glow_art_.image());
-        lv_obj_clear_flag(glow, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_center(glow);
+      const auto visible = [](lv_obj_t* object, bool show) {
+        const bool hidden = lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN);
+        if (show && hidden) lv_obj_clear_flag(object, LV_OBJ_FLAG_HIDDEN);
+        else if (!show && !hidden) lv_obj_add_flag(object, LV_OBJ_FLAG_HIDDEN);
+      };
+      generated_character_ = !image_ && !data.bot_custom;
+      const bool available = generated_character_ ? speaker_.set_seed(seed_) : texture_ ? speaker_.set_texture(texture_) : false;
+      speaker_.set_online(data.bot_online);
+      const auto* source = available ? speaker_.image() : image_;
+      const bool source_changed = source != shown_character_ || (generated_character_ && seed_ != shown_seed_);
+      if (source && source_changed) {
+        if (available) {
+          const auto pose = idle_.at(lv_tick_get() / 1000.0f);
+          speaker_.render(pose);
+          if (generated_character_) {
+            const auto& eyes = assets::eyes[art_.identity.eyes]; const auto& mouth = assets::mouth[art_.identity.mouth];
+            speaker_.draw_face(eyes_art_.image(), eyes.x, eyes.y - 44, mouth_art_.image(), mouth.x, mouth.y - 44, pose, lv_tick_get() / 1000.0f);
+          }
+        }
+        if (available) speaker_.finish_frame();
+        lv_img_set_src(character_body_, source); lv_img_set_pivot(character_body_, 0, 0);
+        lv_img_set_zoom(character_body_, 466 * 256 / source->header.w); lv_obj_set_pos(character_body_, 0, 0);
       }
+      visible(character_body_, source && source->data);
+      visible(eye_clip_, false); visible(mouth_, false);
+      visible(character_fallback_, !source || !source->data);
+      if (!source || !source->data) {
+        const auto text = data.dm_enabled ? data.dm_handle : data.bot_name;
+        if (text != lv_label_get_text(character_fallback_)) lv_label_set_text(character_fallback_, text.c_str());
+        lv_obj_center(character_fallback_);
+      }
+      visible(character_glow_, data.bot_online && !available);
+      shown_character_ = source; shown_seed_ = seed_;
       break;
     }
     case Page::Home: {
@@ -244,14 +268,24 @@ void Ui::show(const Interaction& state, const UiData& data) {
       lv_obj_set_width(name, 130);
       lv_obj_align(name, LV_ALIGN_RIGHT_MID, 0, 0);
       auto* battery = lv_obj_create(screen_);
-      lv_obj_remove_style_all(battery); lv_obj_set_size(battery, 28, 15);
-      lv_obj_set_pos(battery, 300, 61);
-      lv_obj_set_style_border_width(battery, 1, 0); lv_obj_set_style_border_color(battery, lv_color_hex(0xaaaaaa), 0);
-      auto* fill = lv_obj_create(battery); lv_obj_remove_style_all(fill);
-      lv_obj_set_size(fill, data.battery < 0 ? 0 : std::clamp(data.battery, 0, 100) * 24 / 100, 11);
-      lv_obj_set_pos(fill, 2, 2); lv_obj_set_style_bg_color(fill, lv_color_hex(0x55d888), 0); lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
-      auto* percent = label(screen_, data.battery < 0 ? "--" : std::to_string(data.battery) + "%", 60);
-      lv_obj_set_style_text_font(percent, &lv_font_montserrat_14, 0); lv_obj_set_pos(percent, 336, 60);
+      lv_obj_remove_style_all(battery); lv_obj_set_size(battery, 40, 22); lv_obj_set_pos(battery, 296, 59);
+      lv_obj_set_style_radius(battery, 4, 0); lv_obj_set_style_border_width(battery, 1, 0);
+      lv_obj_set_style_border_color(battery, lv_color_hex(0xd2d2d2), 0);
+      auto* nub = lv_obj_create(screen_); lv_obj_remove_style_all(nub);
+      lv_obj_set_size(nub, 4, 10); lv_obj_set_pos(nub, 336, 65);
+      lv_obj_set_style_bg_color(nub, lv_color_hex(0xd2d2d2), 0); lv_obj_set_style_bg_opa(nub, LV_OPA_COVER, 0);
+      if (data.battery > 0) {
+        auto* fill = lv_obj_create(battery); lv_obj_remove_style_all(fill);
+        lv_obj_set_size(fill, std::clamp(data.battery, 0, 100) * 34 / 100, 16); lv_obj_set_pos(fill, 3, 3);
+        lv_obj_set_style_bg_color(fill, lv_color_hex(data.battery > 50 ? 0x50dc78 : data.battery > 20 ? 0xffbe3c : 0xf05046), 0);
+        lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
+      }
+      auto* percent = label(screen_, data.battery < 0 ? "--%" : std::to_string(std::clamp(data.battery, 0, 100)) + "%", 52);
+      lv_obj_set_style_text_font(percent, &lv_font_montserrat_14, 0); lv_obj_set_pos(percent, 350, 62);
+      if (data.charging) {
+        auto* charge = label(screen_, LV_SYMBOL_CHARGE, 18); lv_obj_set_pos(charge, 277, 60);
+        lv_obj_set_style_text_font(charge, &lv_font_montserrat_14, 0); lv_obj_set_style_text_color(charge, lv_color_hex(0xffd530), 0);
+      }
       menu_.reset();
       const std::array<std::string, 3> names = {data.dm_enabled ? "DMs" : "Bots", "Profile", "More"};
       const std::array<Action, 3> actions = {data.dm_enabled ? Action::Dms : Action::Bots, Action::Profile, Action::Settings};
@@ -443,6 +477,18 @@ void Ui::show(const Interaction& state, const UiData& data) {
         lv_obj_set_height(title_, 40);
         lv_label_set_long_mode(title_, LV_LABEL_LONG_SCROLL_CIRCULAR);
       }
+      lv_obj_set_size(title_, 320, 88);
+      lv_obj_align(title_, LV_ALIGN_TOP_MID, 0, 0);
+      lv_obj_set_style_pad_top(title_, 42, 0);
+      lv_obj_add_flag(title_, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
+      lv_obj_clear_flag(title_, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+      lv_obj_add_event_cb(title_, [](lv_event_t* event) {
+        auto* ui = static_cast<Ui*>(lv_event_get_user_data(event));
+        auto* input = lv_indev_get_act();
+        if (!input || lv_indev_get_gesture_dir(input) != LV_DIR_BOTTOM || !ui->handler_) return;
+        lv_indev_wait_release(input); lv_event_stop_bubbling(event);
+        ui->handler_(Action::Back, 0);
+      }, LV_EVENT_GESTURE, this);
       const bool cannot_read = data.dm_enabled && !data.dm_can_read;
       const bool cannot_send = data.dm_enabled && !data.dm_can_send;
       history_ = lv_obj_create(screen_);
@@ -553,9 +599,18 @@ void Ui::show(const Interaction& state, const UiData& data) {
 }
 
 void Ui::tick(uint32_t now) {
-  if (now - last_frame_ < 40) return;
+  if (now == last_frame_) return;
   const float dt = (now - last_frame_) / 1000.0f;
   last_frame_ = now;
+  if (transition_image_ && !transition_started_) {
+    lv_anim_refr_now();
+    transition_started_ = true;
+    lv_obj_fade_out(transition_image_, 300, 0);
+    if (auto* animation = lv_anim_get(transition_image_, nullptr)) {
+      lv_anim_set_user_data(animation, this);
+      lv_anim_set_ready_cb(animation, [](lv_anim_t* value) { static_cast<Ui*>(value->user_data)->clear_transition(); });
+    } else clear_transition();
+  }
   if (notice_ && static_cast<int32_t>(lv_tick_get() - notice_until_) >= 0) { lv_obj_del(notice_); notice_ = nullptr; }
   if (page_ == Page::Conversation) {
     update_history_arrow();
@@ -576,23 +631,83 @@ void Ui::tick(uint32_t now) {
       lv_obj_center(text);
     }
   } else if (page_ == Page::Character && character_) {
-    const auto pose = idle_.at(now / 1000.0f);
-    if (eye_clip_) {
-      const int height = std::max(2, static_cast<int>(eye_height_ * pose.eyes));
-      lv_obj_set_size(eye_clip_, eye_width_, height);
-      lv_obj_set_pos(eye_clip_, eye_x_ + pose.x * 10, eye_y_ + pose.y * 7 + (eye_height_ - height) / 2);
-      lv_obj_set_pos(eyes_, 0, -(eye_height_ - height) / 2);
-      lv_obj_set_pos(mouth_, mouth_x_ + pose.x * 5, mouth_y_ + pose.y * 4);
+    if (generated_character_ || texture_) {
+      const auto render_started = lv_tick_get();
+      const auto pose = idle_.at(now / 1000.0f);
+      if (speaker_.render(pose)) {
+        const auto body_elapsed = lv_tick_get() - render_started;
+        if (generated_character_) {
+          const auto& eyes = assets::eyes[art_.identity.eyes]; const auto& mouth = assets::mouth[art_.identity.mouth];
+          speaker_.draw_face(eyes_art_.image(), eyes.x, eyes.y - 44, mouth_art_.image(), mouth.x, mouth.y - 44, pose, now / 1000.0f);
+        }
+        speaker_.finish_frame();
+        if (!direct_frame()) lv_obj_invalidate(character_body_);
+        usb_mirror_render(lv_tick_get() - render_started, body_elapsed);
+      }
     }
   }
 }
 
-void Ui::set_character(const lv_img_dsc_t* image) { image_ = image; }
-void Ui::set_seed(const std::string& seed, bool human) {
-  image_ = nullptr;
-  art_.set_seed(seed, human);
-  eyes_art_.load(assets::eyes[art_.identity.eyes].image);
-  mouth_art_.load(assets::mouth[art_.identity.mouth].image);
+const lv_img_dsc_t* Ui::direct_frame() const {
+  const auto* image = speaker_.image();
+  return direct_character_enabled_ && page_ == Page::Character && !transition_image_ && !notice_ && (generated_character_ || texture_) && shown_character_ == image && image->data ? image : nullptr;
+}
+
+void Ui::set_character(const lv_img_dsc_t* image, const uint8_t* texture) {
+  if ((image_ != image || texture_ != texture) && image_ && character_body_) {
+    lv_img_set_src(character_body_, nullptr); shown_character_ = nullptr;
+  }
+  if (image_ != image || texture_ != texture) speaker_.reset_source();
+  image_ = image; texture_ = texture;
+}
+void Ui::clear_transition() {
+  if (transition_image_) { lv_obj_del(transition_image_); transition_image_ = nullptr; }
+  if (transition_snapshot_) {
+    lv_img_cache_invalidate_src(transition_snapshot_);
+    lv_snapshot_free(transition_snapshot_); transition_snapshot_ = nullptr;
+  }
+}
+void Ui::retire_session() {
+  clear_transition();
+  suppress_transition_ = true;
+}
+void Ui::prepare_transition() {
+  const auto* current = direct_frame();
+  clear_transition();
+  if (!screen_) return;
+  auto* display = lv_obj_get_disp(screen_);
+  auto* buffer = lv_disp_get_draw_buf(display);
+  const auto width = lv_disp_get_hor_res(display), height = lv_disp_get_ver_res(display);
+  if (display->driver->direct_mode && !buffer->buf2 && buffer->size == static_cast<uint32_t>(width * height)) {
+    auto* image = static_cast<lv_img_dsc_t*>(lv_mem_alloc(sizeof(lv_img_dsc_t)));
+    auto* pixels = static_cast<uint8_t*>(lv_mem_alloc(buffer->size * sizeof(lv_color_t)));
+    if (image && pixels) {
+      *image = {};
+      image->header.cf = LV_IMG_CF_TRUE_COLOR; image->header.w = width; image->header.h = height;
+      image->data_size = buffer->size * sizeof(lv_color_t); image->data = pixels;
+      std::memcpy(pixels, current ? current->data : buffer->buf_act, image->data_size);
+      transition_snapshot_ = image;
+    } else { lv_mem_free(image); lv_mem_free(pixels); }
+  } else transition_snapshot_ = lv_snapshot_take(screen_, LV_IMG_CF_TRUE_COLOR);
+  if (notice_) { lv_obj_del(notice_); notice_ = nullptr; notice_until_ = 0; }
+  if (!transition_snapshot_) return;
+  transition_image_ = lv_img_create(lv_layer_top());
+  lv_img_set_src(transition_image_, transition_snapshot_);
+  lv_obj_add_flag(transition_image_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_pos(transition_image_, 0, 0);
+  lv_obj_set_style_opa(transition_image_, LV_OPA_COVER, 0);
+  transition_started_ = false;
+}
+void Ui::set_seed(const std::string& seed) {
+  if (seed == seed_ && eyes_art_.image()->data) return;
+  image_ = nullptr; texture_ = nullptr;
+  std::swap(art_.identity, cached_art_.identity); eyes_art_.swap(cached_eyes_art_); mouth_art_.swap(cached_mouth_art_);
+  std::swap(seed_, cached_seed_);
+  if (seed != seed_ || !eyes_art_.image()->data) {
+    seed_ = seed; art_.identity = avatar_identity(seed);
+    eyes_art_.load(assets::eyes[art_.identity.eyes].image);
+    mouth_art_.load(assets::mouth[art_.identity.mouth].image);
+  }
 }
 void Ui::set_human_seed(const std::string& seed) { human_image_ = nullptr; human_art_.set_seed(seed, true); }
 void Ui::set_peer_seed(const std::string& seed) { peer_image_ = nullptr; peer_art_.set_seed(seed, true); }

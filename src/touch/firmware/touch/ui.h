@@ -2,6 +2,7 @@
 #include "ownership.h"
 #include "speaker_motion.h"
 #include "avatar.h"
+#include "speaker_renderer.h"
 #include "history.h"
 #include "dm.h"
 #include "requests.h"
@@ -60,8 +61,12 @@ public:
   void begin(std::function<void(Action, int)> handler);
   void show(const Interaction& state, const UiData& data);
   void tick(uint32_t now);
-  void set_character(const lv_img_dsc_t* image);
-  void set_seed(const std::string& seed, bool human = false);
+  void enable_direct_character(bool enabled) { direct_character_enabled_ = enabled; }
+  const lv_img_dsc_t* direct_frame() const;
+  void set_character(const lv_img_dsc_t* image, const uint8_t* texture = nullptr);
+  void set_seed(const std::string& seed);
+  void prepare_transition();
+  void retire_session();
   void set_human_seed(const std::string& seed);
   void set_peer_seed(const std::string& seed);
   void set_human_image(const lv_img_dsc_t* image);
@@ -88,6 +93,16 @@ private:
   int scroll_direction_ = 0;
   int history_edge_ = 0;
   lv_obj_t* character_ = nullptr;
+  lv_obj_t* character_body_ = nullptr;
+  lv_obj_t* character_fallback_ = nullptr;
+  lv_obj_t* character_glow_ = nullptr;
+  const lv_img_dsc_t* shown_character_ = nullptr;
+  std::string shown_seed_;
+  const uint8_t* texture_ = nullptr;
+  SpeakerRenderer speaker_;
+  bool generated_character_ = false;
+  bool direct_character_enabled_ = false;
+  int turn_frame_ = 3;
   lv_obj_t* eyes_ = nullptr;
   lv_obj_t* eye_clip_ = nullptr;
   lv_obj_t* mouth_ = nullptr;
@@ -97,10 +112,15 @@ private:
   int eye_width_ = 0;
   int mouth_x_ = 0;
   int mouth_y_ = 0;
+  int mouth_width_ = 0, mouth_height_ = 0;
+  int eye_pixels_ = 0, mouth_pixels_ = 0;
   AvatarArt art_;
   FeatureArt eyes_art_;
   FeatureArt mouth_art_;
   FeatureArt glow_art_;
+  AvatarArt cached_art_;
+  FeatureArt cached_eyes_art_, cached_mouth_art_;
+  std::string cached_seed_;
   AvatarArt human_art_;
   AvatarArt peer_art_;
   const lv_img_dsc_t* human_image_ = nullptr;
@@ -112,6 +132,12 @@ private:
   SpeakerMenu menu_;
   SpeakerIdle idle_;
   uint32_t last_frame_ = 0;
+  std::string seed_;
+  lv_img_dsc_t* transition_snapshot_ = nullptr;
+  lv_obj_t* transition_image_ = nullptr;
+  bool transition_started_ = false;
+  bool suppress_transition_ = false;
+  void clear_transition();
   lv_obj_t* label(lv_obj_t* parent, const std::string& text, int width);
   lv_obj_t* button(lv_obj_t* parent, const std::string& text, Action action, int argument = 0);
   lv_obj_t* icon_button(lv_obj_t* parent, const char* symbol, Action action);

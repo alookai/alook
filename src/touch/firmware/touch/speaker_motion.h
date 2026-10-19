@@ -47,6 +47,17 @@ private:
   float random(float lo, float hi) { noise_ ^= noise_ << 13; noise_ ^= noise_ >> 17; noise_ ^= noise_ << 5; return lo + (hi - lo) * (noise_ / 4294967296.0f); }
 };
 
+struct SphereFeature { float x; float y; float width; };
+inline SphereFeature sphere_feature(float x, float y, float look_x, float look_y, float time, float radius) {
+  const float nx = (x - radius) / radius, ny = (y - radius) / radius;
+  const float nz = std::sqrt(std::max(0.0f, 1 - nx * nx - ny * ny));
+  const float theta = look_x * 3.14159265358979323846f / 6;
+  const float cosine = std::cos(theta), sine = std::sin(theta);
+  const float breathe = std::sin(time * 1.8f) * .5f;
+  return {radius + (nx * cosine + nz * sine) * radius + breathe * .6f,
+    y + breathe * .4f + look_y * radius * .18f, std::max(.3f, -nx * sine + nz * cosine)};
+}
+
 struct SpeakerBubble { float x, y, vx, vy, radius; };
 class SpeakerMenu {
 public:

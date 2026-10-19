@@ -1,6 +1,7 @@
 #pragma once
 #include "ownership.h"
 #include "audio.h"
+#include "image_art.h"
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 #include <atomic>
@@ -29,6 +30,8 @@ struct Response {
   std::string body;
   std::string target;
   uint32_t id = 0;
+  std::shared_ptr<DecodedImage> avatar;
+  std::string image_source;
 };
 class Network {
 public:

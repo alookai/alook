@@ -32,6 +32,7 @@ struct AvatarIdentity {
   int eyes;
   int mouth;
   bool white;
+  int palette;
 };
 
 inline AvatarIdentity avatar_identity(const std::string& seed) {
@@ -43,6 +44,6 @@ inline AvatarIdentity avatar_identity(const std::string& seed) {
   const uint32_t color = avatar_palettes[palette][hash % 5];
   const bool white = ((color >> 16) * 299 + ((color >> 8) & 255) * 587 + (color & 255) * 114) < 128000;
   return {color, hash, static_cast<int>(((hash / 11) % 21) * 4 + (hash % 2) * 2 + white),
-    static_cast<int>(((hash / 231) % 22) * 4 + (hash % 2) * 2 + white), white};
+    static_cast<int>(((hash / 231) % 22) * 4 + (hash % 2) * 2 + white), white, static_cast<int>(palette)};
 }
 }

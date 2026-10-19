@@ -5,6 +5,18 @@
 using namespace alook_touch;
 
 int main() {
+  {
+    Interaction navigation;
+    navigation.sign_in("human"); navigation.select_recipient("peer", "dm");
+    navigation.enter(Page::Settings); navigation.enter(Page::LogoutConfirmation);
+    assert(navigation.back() && navigation.page == Page::Settings);
+    navigation.enter(Page::Conversation);
+    assert(navigation.back() && navigation.page == Page::Character);
+    navigation.enter(Page::Network);
+    assert(navigation.back() && navigation.page == Page::Settings);
+    navigation.sign_out();
+    assert(!navigation.back() && navigation.page == Page::Authorization);
+  }
   Interaction app;
   assert(!app.enter(Page::Profile));
   assert(!app.start_recording());

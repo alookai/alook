@@ -7,6 +7,7 @@ const html = fs.readFileSync(path.resolve(__dirname, '../tools/usb_mirror.html')
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 async function run(failure) {
+  let shownImage = null;
   let now = 100, frameSequence = 1, connected = true;
   const commands = [], intervals = [], timeouts = [], elements = new Map();
   const element = name => {
@@ -15,7 +16,7 @@ async function run(failure) {
       addEventListener(type, handler) { this.listeners.set(type, handler); },
       getBoundingClientRect() { return {left: 0, top: 0, width: 466, height: 466}; },
       setPointerCapture() {},
-      getContext() { return {createImageData() { return {data: new Uint8ClampedArray(466*466*4)}; }, putImageData() {}}; },
+      getContext() { return {createImageData() { return {data: new Uint8ClampedArray(466*466*4)}; }, putImageData(image) { shownImage = image.data; }}; },
     });
     return elements.get(name);
   };
@@ -30,14 +31,16 @@ async function run(failure) {
         commands.push(JSON.parse(options.body)); return {ok: true};
       }
       if (!connected) return {ok: false};
-      const data = new ArrayBuffer(434428), view = new DataView(data);
-      view.setUint32(0, 0x334d4c41, true); view.setUint32(8, frameSequence, true);
+      const data = new ArrayBuffer(434568), view = new DataView(data);
+      view.setUint32(0, 0x394d4c41, true); view.setUint32(8, frameSequence, true);
+      view.setUint16(256,0xf800,true); view.setUint16(258,0x07e0,true); view.setUint16(260,0x001f,true);
       view.setUint16(16,466,true); view.setUint16(18,466,true);
       return {ok:true,arrayBuffer:async()=>data};
     },
   });
   const settle = () => new Promise(resolve => setImmediate(resolve));
   vm.runInContext(script, context); await settle();
+  assert.deepEqual(Array.from(shownImage.slice(0,12)),[255,0,0,255,0,255,0,255,0,0,255,255]);
   const event = {pointerId:1,clientX:20,clientY:30,preventDefault(){}};
   element('#screen').listeners.get('pointerdown')(event);
   element('#record').listeners.get('pointerdown')(event); await settle();

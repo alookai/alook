@@ -114,5 +114,24 @@
     "commit": "b9f4a43f3684f93a02b88133755deb51508c2fcf",
     "url": "https://raw.githubusercontent.com/google/fonts/b9f4a43f3684f93a02b88133755deb51508c2fcf/ofl/lilitaone/LilitaOne-Regular.ttf",
     "sha256": "f5b641c45c69d772ee4eda687bc9fda411d5cad6b0b45371491da4580cbc8d59"
+  },
+  "co5300": {
+    "version": "2.2.0",
+    "commit": "2d289eb1f14431e345b345c3fd6fc299a555d770",
+    "url": "https://components.espressif.com/api/downloads/?object_id=b1a25d8d-58dc-46fe-a3d8-7217bc32b3dd&object_type=component",
+    "sha256": "a4e26b2a4df51323973029037a8bd554be1af133036ca32f4845bb8431bffc0c",
+    "files": {
+      "esp_lcd_co5300_interface.h": "e341959b5e50bdc1bdf468274c4bd6689ec3f06c38756cab4ae12a76125c993d",
+      "esp_lcd_co5300_spi.c": "823bda75000ebe4236ef06911cf26fc873e6507c8cc5de17a5104d89d19a9c34",
+      "esp_lcd_co5300.h": "2566021c1d1b327f9b53667d64c596a97049150c78ff6aec84f6e6cf0b31ce1a",
+      "esp_lcd_co5300.c": "db5c9331ca11428c896ea247a78acc1495486f842fc9644e059fcf62762f1893",
+      "license.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  },
+  "waveshareBsp": {
+    "version": "3.0.0",
+    "commit": "23a6012d5e87d27399cf90fb851cab3689e29159",
+    "url": "https://raw.githubusercontent.com/waveshareteam/Waveshare-ESP32-components/23a6012d5e87d27399cf90fb851cab3689e29159/bsp/esp32_s3_touch_amoled_1_75c/esp32_s3_touch_amoled_1_75c.c",
+    "sha256": "a2bc2256ffd18beddf6b651cdfc1a9f82350f9c24073feea641e253179bff4c8"
   }
 }

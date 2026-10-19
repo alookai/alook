@@ -22,7 +22,7 @@ spec.loader.exec_module(mirror)
 
 def frame(sequence=1, pixels=None):
     pixels = pixels if pixels is not None else b'\x00\xf8' * (466 * 466)
-    return mirror.HEADER.pack(b'ALM3', len(pixels), sequence, zlib.crc32(pixels), 466, 466, bytes([10, 0, 0, 2]), 1, 1, 0, -1, 0, 0, 12000, 113, 3, bytes([255, 255, 248, 0]), bytes([10, 0, 0, 1]), bytes([1, 1, 1, 1]), bytes(4), bytes([10, 0, 0, 9]), -57, 6, 3, 3000, 118, -7, 0, 32774, -1) + pixels
+    return mirror.HEADER.pack(b'ALM9', len(pixels), sequence, zlib.crc32(pixels), 466, 466, bytes([10, 0, 0, 2]), 1, 1, 0, -1, 0, 0, 12000, 113, 3, bytes([255, 255, 248, 0]), bytes([10, 0, 0, 1]), bytes([1, 1, 1, 1]), bytes(4), bytes([10, 0, 0, 9]), -57, 6, 3, 3000, 118, -7, 0, 32774, -1, 2000, 80, 640, 12, 8, 3, 49152, 600, 240, 16, 11, 4, 1, 900, 300, 450, 1200, 600, 700, 53000, 345, 9, 26, 7, 2, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110) + pixels
 
 
 class Frames(unittest.TestCase):
@@ -34,12 +34,12 @@ class Frames(unittest.TestCase):
             frames.extend(parser.feed(data[index:index + 97]))
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0], (data[17:], 73, '10.0.0.2', True))
-        self.assertEqual(mirror.HEADER.size, 116)
+        self.assertEqual(mirror.HEADER.size, 256)
 
     def test_corrupt_and_impossible_frames_recover_to_next_full_frame(self):
         parser = mirror.FrameParser()
         bad = bytearray(frame(1)); bad[-1] ^= 1
-        oversized = mirror.HEADER.pack(b'ALM3', 0xffffffff, 2, 0, 466, 466, bytes(4), 0, *([0] * 8), *([bytes(4)] * 5), *([0] * 9))
+        oversized = mirror.HEADER.pack(b'ALM9', 0xffffffff, 2, 0, 466, 466, bytes(4), 0, *([0] * 8), *([bytes(4)] * 5), *([0] * 44))
         self.assertEqual([item[1] for item in parser.feed(bad + oversized + frame(3))], [3])
         self.assertGreaterEqual(parser.rejected, 2)
         self.assertLessEqual(len(parser.buffer), 3)
@@ -106,12 +106,14 @@ class NativeBridge(unittest.TestCase):
             self.assertEqual(board.snapshot()[1]['sequence'], 9)
             self.assertEqual(board.snapshot()[1]['httpDiagnostic'], {'attempt':1, 'operation':0, 'nativeError':-1, 'httpStatus':0, 'bodyBytes':0, 'elapsedMs':12000, 'socketErrno':113, 'stage':3, 'targetAddress':'10.0.0.9', 'targetPort':3000, 'systemErrno':118, 'tlsError':-7, 'tlsFlags':0, 'tlsCode':32774, 'socket':-1})
             self.assertEqual(board.snapshot()[1]['network'], {'address':'10.0.0.2', 'subnetMask':'255.255.248.0', 'gateway':'10.0.0.1', 'dns1':'1.1.1.1', 'dns2':'0.0.0.0', 'rssi':-57, 'channel':6, 'wifiStatus':3})
+            self.assertEqual(board.snapshot()[1]['display'], {'uptimeMs':2000, 'refreshes':80, 'totalRefreshMs':640, 'maxRefreshMs':12, 'lastRefreshMs':8, 'resetReason':3, 'loopStackFreeBytes':49152, 'totalRefreshCoreMs':600, 'totalPanelMs':240, 'totalMirrorMs':16, 'lastRefreshCoreMs':11, 'lastPanelMs':4, 'lastMirrorMs':1, 'totalPreparationMs':900, 'lastPreparationMs':300, 'maxPreparationMs':450, 'totalDecodeMs':1200, 'lastDecodeMs':600, 'maxDecodeMs':700, 'decodeStackFreeBytes':53000, 'totalRenderMs':345, 'lastRenderMs':9, 'maxRenderMs':26, 'lastBodyMs':7, 'lastFaceMs':2, 'temporalUs':101, 'photoUs':102, 'haloUs':103, 'upscaleUs':104, 'maskUs':105, 'imageDrawUs':106, 'psramCopyUs':107, 'imageDrawCalls':108, 'imageFastCalls':109, 'psramFillUs':110})
             connection.request('GET', '/status')
             response = connection.getresponse()
             status = json.loads(response.read())
             self.assertEqual(response.status, 200)
             self.assertEqual(status['network'], board.snapshot()[1]['network'])
             self.assertEqual(status['httpDiagnostic'], board.snapshot()[1]['httpDiagnostic'])
+            self.assertEqual(status['display'], board.snapshot()[1]['display'])
             connection.request('GET', '/frame')
             response = connection.getresponse()
             self.assertEqual(response.status, 200)

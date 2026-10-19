@@ -1,5 +1,6 @@
 #include "board.h"
 #include "application.h"
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 alook_touch::Application application;
 bool display_ready = false;
