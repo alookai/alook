@@ -408,10 +408,6 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     try { assertActive = source.capture(); assertActive() } catch { return }
     toastApiError(search.error, "Search failed", assertActive)
   }, [searchReady, search.error, search.isFetching, source])
-  const fetchNextSearchPage = search.fetchNextPage
-  useEffect(() => {
-    if (searchReady && search.hasNextPage && !search.isFetching && !search.isError) void fetchNextSearchPage({ cancelRefetch: false })
-  }, [searchReady, search.hasNextPage, search.isFetching, search.isError, search.data, fetchNextSearchPage])
   const data = searching ? searchReady ? search.data : undefined : infinite.data
   const identities = useMemo(() => {
     const seen = new Set<string>()
@@ -446,9 +442,9 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     loadingMore: active.isFetchingNextPage, hasMore: active.hasNextPage,
     total: Math.max(0, (infinite.data?.pages.at(-1)?.total ?? 0) - pendingKicks.reduce<number>((sum, value) => sum + value, 0)), isSearching: searching,
     searchQuery: searching ? searchIntent.query : "",
-    searchStatus: !searching ? "idle" : readState.failed ? "error" : readState.loading ? "loading" : search.isFetchingNextPage || search.hasNextPage ? "loading-more" : members.length ? "ready" : "empty",
+    searchStatus: !searching ? "idle" : readState.failed ? "error" : readState.loading ? "loading" : search.isFetchingNextPage ? "loading-more" : members.length ? "ready" : "empty",
     failed: readState.failed,
-    loadMore: () => { assertView(); if (active.hasNextPage && !active.isFetchingNextPage) void active.fetchNextPage({ cancelRefetch: false }) },
+    loadMore: () => { assertView(); if ((!searching || searchReady) && active.hasNextPage && !active.isFetching) void active.fetchNextPage({ cancelRefetch: false }) },
     reset: () => { assertView(); intent.setState((state) => ({ ...state, query: "", debounced: "" })) },
     refresh: () => { assertView(); void queryClient.invalidateQueries({ queryKey: key }, { cancelRefetch: false }) },
     searchMembers: (query) => { assertView(); intent.setState((state) => { const trimmed = query.trim(); return state.query === trimmed ? state : { ...state, query: trimmed, debounced: trimmed ? state.debounced : "" } }) },

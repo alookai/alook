@@ -29,7 +29,6 @@ export function useMessageListController({
   unreadCount,
   onScrollRoot,
   onScrollTargetConsumed,
-  observation,
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
@@ -94,9 +93,7 @@ export function useMessageListController({
     readPositionReady,
     paginationEnabled,
     captureOlderPageAnchor,
-    isOlderPageAnchorSettling,
     captureNewerPageAnchor,
-    isNewerPageAnchorSettling,
   } = useScrollAnchor({
     items,
     newDividerBefore,
@@ -115,7 +112,6 @@ export function useMessageListController({
   const initialPosition = useInitialPositionTransition({
     firstWindowReady: !isLoading && (messages.length > 0 || !initialLoadError),
     authoritativeEmpty,
-    documentWindowReady: observation?.snapshot_source === "rsc",
     positionSettled: anchorPositionSettled,
   })
 
@@ -131,7 +127,6 @@ export function useMessageListController({
     enabled: paginationEnabled,
     hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
-    isSettling: isOlderPageAnchorSettling || isNewerPageAnchorSettling,
     isError: !!initialLoadError,
     onBeforeLoad: captureOlderPageAnchor,
     onLoad: onLoadOlder,
@@ -144,7 +139,6 @@ export function useMessageListController({
     hasMore: hasMoreNewer,
     hasMoreAtStart: hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
-    isSettling: isOlderPageAnchorSettling || isNewerPageAnchorSettling,
     isError: !!initialLoadError,
     onBeforeLoad: captureNewerPageAnchor,
     onLoad: onLoadNewer,

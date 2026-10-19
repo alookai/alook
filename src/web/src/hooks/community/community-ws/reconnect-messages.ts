@@ -1,4 +1,4 @@
-import { CancelledError, queryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
+import { CancelledError, hashKey, queryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages, retireCommunityChannelReading } from "@/lib/community-db/sync"
@@ -33,7 +33,7 @@ function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: Mess
   return { ...cache, pages }
 }
 
-export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey) {
+export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, landing?: { page: MessagesPage; param: MessagesPageParam }) {
   const scopeId = scope.scopeId
   const token = captureCommunityLiveSnapshotToken(queryClient, scopeId), registry = getCommunityDbRegistry(queryClient)
   const channel = registry?.collections.channels.get(scopeId)
@@ -54,6 +54,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
       assert()
       const tag = messageWindowIdentity(key)?.tag ?? null
       const load = async (param: MessagesPageParam) => { assert(); const page = await apiFetchCommunity<MessagesPage>(url(scopeId, param, tag), { signal, assertActive: assert }, token); assert(); return page }
+      let landingPage = landing
       let highWater = latest(data)
       let paginationReplayed = false
       try {
@@ -61,7 +62,10 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
           const target = () => queryClient.getQueryData<number>(targetKey(key)) ?? 0
           const current = originalQuery?.state.data
           if (!isMessageCache(current) || !current.pageParams[0]) return { latestSeq: highWater }
-          const refreshed = await load(current.pageParams[0]), catchUp: MessagesPage[] = []
+          const refreshed = landingPage && hashKey([landingPage.param]) === hashKey([current.pageParams[0]])
+            ? landingPage.page : await load(current.pageParams[0])
+          landingPage = undefined
+          const catchUp: MessagesPage[] = []
           if (!isMessageCache(originalQuery?.state.data)) return { latestSeq: highWater }
           let nextCursor = cursor(current)
           highWater = Math.max(highWater, refreshed.latestSeq ?? 0)
@@ -100,23 +104,34 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
   })
 }
 
+function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, target = 0, landing?: { page: MessagesPage; param: MessagesPageParam }) {
+  const query = queryClient.getQueryCache().find({ queryKey: key, exact: true })
+  if (!query) return Promise.resolve()
+  queryClient.setQueryData<number>(targetKey(key), (current) => Math.max(current ?? 0, target))
+  if (!isMessageCache(query.state.data)) return query.fetch().then(() => undefined)
+  const repairKey = [...key, "reconcile"]
+  const repair = queryClient.getQueryCache().find({ queryKey: repairKey, exact: true })
+  const receipt = repair?.meta?.communityMessageRepair as { token: ReturnType<typeof captureCommunityLiveSnapshotToken>; window: typeof query } | undefined
+  if (receipt) {
+    let current = receipt.window === query
+    try { assertCommunityLiveSnapshotTokenCurrent(queryClient, receipt.token, undefined) } catch { current = false }
+    if (!current) queryClient.removeQueries({ queryKey: repairKey, exact: true })
+  }
+  return queryClient.query({ ...messageReconcileOptions(queryClient, scope, key, landing), select: undefined }).then(() => undefined).catch((error: unknown) => {
+    if (!isAbortError(error) && !(error instanceof CancelledError)) throw error
+  })
+}
+
+export function reconcileConversationLanding(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, page: MessagesPage, param: MessagesPageParam) {
+  const data = queryClient.getQueryData(key)
+  const highWater = page.latestSeq ?? 0
+  if (!isMessageCache(data) || highWater <= latest(data)) return Promise.resolve()
+  return reconcileWindow(queryClient, scope, key, highWater, { page, param })
+}
+
 function reconcile(queryClient: QueryClient, scope: GapRepairScope, target = 0) {
   const queries = queryClient.getQueryCache().findAll({ queryKey: messagesKey(scope), type: "active" }).filter((query) => isWindowKey(query.queryKey))
-  return Promise.all(queries.map((query) => {
-    queryClient.setQueryData<number>(targetKey(query.queryKey), (current) => Math.max(current ?? 0, target))
-    if (!isMessageCache(query.state.data)) return query.fetch()
-    const repairKey = [...query.queryKey, "reconcile"]
-    const repair = queryClient.getQueryCache().find({ queryKey: repairKey, exact: true })
-    const receipt = repair?.meta?.communityMessageRepair as { token: ReturnType<typeof captureCommunityLiveSnapshotToken>; window: typeof query } | undefined
-    if (receipt) {
-      let current = receipt.window === query
-      try { assertCommunityLiveSnapshotTokenCurrent(queryClient, receipt.token, undefined) } catch { current = false }
-      if (!current) queryClient.removeQueries({ queryKey: repairKey, exact: true })
-    }
-    return queryClient.query({ ...messageReconcileOptions(queryClient, scope, query.queryKey), select: undefined }).catch((error: unknown) => {
-      if (!isAbortError(error) && !(error instanceof CancelledError)) throw error
-    })
-  })).then(() => undefined)
+  return Promise.all(queries.map(query => reconcileWindow(queryClient, scope, query.queryKey, target))).then(() => undefined)
 }
 
 export function scheduleFocusedMessageGapRepair(queryClient: QueryClient, scope: GapRepairScope, incomingSeq: number): Promise<void> | null {

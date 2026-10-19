@@ -292,16 +292,6 @@ export function useComposerSuggestions({
     })
   }, [context, members, mentionCandidates, isOpenEditor, publishMention])
 
-  useEffect(() => {
-    const current = mentionPopupRef.current
-    if (!isOpenEditor()) return
-    if (!current.command || current.query.trim()) return
-    if (!mentionCandidates?.hasMore) return
-    if (mentionCandidates.loading || mentionCandidates.loadingMore) return
-    if (mentionCandidates.failed) return
-    mentionCandidates.loadMore?.()
-  }, [mentionCandidates, mentionPopup.command, mentionPopup.query, isOpenEditor])
-
   const mentionPresentation: MentionCandidatePresentation = (() => {
     if (!mentionCandidates) {
       return { status: mentionPopup.items.length > 0 ? "ready" : "empty" }
@@ -313,7 +303,7 @@ export function useComposerSuggestions({
     const searchStatus = query && mentionCandidates.search ? mentionCandidates.searchStatus : undefined
     if (mentionCandidates.failed || searchStatus === "error") return { status: "error" }
     if (mentionCandidates.loading || searchStatus === "loading" || searchStatus === "idle") return { status: "loading" }
-    if (mentionCandidates.loadingMore || mentionCandidates.hasMore || searchStatus === "loading-more") {
+    if (mentionCandidates.loadingMore || searchStatus === "loading-more") {
       return { status: "loading-more" }
     }
     return { status: mentionPopup.items.length > 0 ? "ready" : "empty" }
@@ -322,6 +312,7 @@ export function useComposerSuggestions({
   return {
     mentionPopup,
     mentionPresentation,
+    mentionPagination: mentionCandidates,
     mentionPopupRef,
     mentionExtension,
     channelRefPopup,

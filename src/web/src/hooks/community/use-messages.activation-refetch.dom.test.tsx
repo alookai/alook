@@ -6,6 +6,8 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture as fixture, dmConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
+import { communityKeys } from "@/lib/query-keys"
+import type { MessageWindowData } from "@/lib/community/message-window"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { useMessages, useDmMessages } from "./use-messages"
 
@@ -41,6 +43,54 @@ describe("entry-owned message activation", () => {
     await waitFor(() => expect(returned.result.current.messages?.map(row => row.id)).toEqual(["m1"]))
     expect(load).toHaveBeenCalledOnce()
     returned.unmount()
+  })
+
+  it("revalidates a stale landing once without replaying its three cached pages", async () => {
+    const { wrapper, client } = await setup()
+    load.mockResolvedValue(fixture())
+    const first = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
+    await waitFor(() => expect(first.result.current.initialPositionKnown).toBe(true))
+    const key = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
+    const cached = client.getQueryData<MessageWindowData>(key)!
+    const pages = [cached.pages[0], { ...cached.pages[0], messages: [], olderCursor: "old-2" }, { ...cached.pages[0], messages: [], hasMoreOlder: false }]
+    await act(async () => client.setQueryData(key, { pages, pageParams: [{ mode: "anchor", anchor: "m1" }, { mode: "older", cursor: "old-1" }, { mode: "older", cursor: "old-2" }] }))
+    first.unmount()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000)
+    try {
+      const returned = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(returned.result.current.isFetching).toBe(false))
+      expect(load.mock.calls.every(([url]) => String(url).includes("entry=1"))).toBe(true)
+      expect(client.getQueryData<MessageWindowData>(key)?.pages).toEqual(pages)
+      expect(returned.result.current.messages.map(row => row.id)).toEqual(["m1"])
+      returned.unmount()
+    } finally { clock.mockRestore() }
+  })
+
+  it("feeds a new landing tail into the existing gap repair without reloading the anchor page", async () => {
+    const { wrapper, client } = await setup()
+    const packet = fixture()
+    load.mockResolvedValueOnce(packet)
+    const first = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
+    await waitFor(() => expect(first.result.current.initialPositionKnown).toBe(true))
+    first.unmount()
+    const m2 = { ...packet.messages[0], id: "m2", seq: 2, content: "Missed message", createdAt: "2026-10-01T00:00:02.000Z" }
+    const m3 = { ...m2, id: "m3", seq: 3, content: "New landing", createdAt: "2026-10-01T00:00:03.000Z" }
+    load.mockImplementation((url: string) => url.includes("entry=1")
+      ? Promise.resolve({ ...packet, messages: [packet.messages[0], m3], page: { ...packet.page, latestSeq: 3 } })
+      : Promise.resolve({ messages: [m2, m3], latestSeq: 3, hasMoreNewer: false, hasMoreOlder: true }))
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000)
+    try {
+      const returned = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
+      await waitFor(() => expect(returned.result.current.messages.map(row => row.id)).toEqual(["m1", "m2", "m3"]))
+      const urls = load.mock.calls.map(([url]) => String(url))
+      expect(urls).toHaveLength(3)
+      expect(urls.filter(url => url.includes("entry=1"))).toHaveLength(2)
+      expect(urls[2]).toContain("since=")
+      expect(urls.filter(url => url.includes("anchor="))).toHaveLength(0)
+      expect(client.getQueryData<MessageWindowData>(communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" }))?.pages).toHaveLength(1)
+      returned.unmount()
+    } finally { clock.mockRestore() }
   })
 
   it("freezes a confirmed never-visited pointer through a later canonical advance", async () => {

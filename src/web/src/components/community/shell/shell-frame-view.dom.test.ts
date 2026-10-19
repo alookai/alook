@@ -11,6 +11,8 @@ import {
 
 const mocks = vi.hoisted(() => ({
   onLayoutChanged: vi.fn(),
+  dmMount: vi.fn(),
+  dmUnmount: vi.fn(),
   defaultLayout: {
     current: undefined as { sidebar: number; main: number } | undefined,
   },
@@ -40,6 +42,12 @@ const mocks = vi.hoisted(() => ({
   runningBots: [] as Array<{ id: string }>,
 }))
 
+vi.mock("@/components/community/channels/dm-route", () => ({
+  DmRoute: ({ dmId, routeCommitted }: { dmId: string; routeCommitted: boolean }) => {
+    useLayoutEffect(() => { mocks.dmMount(dmId); return () => { mocks.dmUnmount(dmId) } }, [dmId])
+    return createElement("main", { "data-dm-target": dmId, "data-committed": String(routeCommitted) }, "Cached DM")
+  },
+}))
 vi.mock("react-resizable-panels", () => ({
   useDefaultLayout: (options: Record<string, unknown>) => {
     mocks.defaultLayoutOptions(options)
@@ -223,6 +231,8 @@ describe("ShellFrameView", () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     mocks.onLayoutChanged.mockClear()
+    mocks.dmMount.mockClear()
+    mocks.dmUnmount.mockClear()
     mocks.groupProps.mockClear()
     mocks.handleProps.mockClear()
     mocks.panelProps.mockClear()
@@ -254,6 +264,30 @@ describe("ShellFrameView", () => {
     else delete (HTMLElement.prototype as unknown as Record<string, unknown>).animate
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it("mounts the selected DM before Next publication and retains the same body at commit", () => {
+    const props = (dmId: string, routeCommitted = false) => ({
+      ...extensionProps, breakpoint: "desktop" as const, routeCommitted, rail, profile, inbox,
+      sidebar: () => createElement("sidebar-content"),
+      checkpoint: { ...committedCheckpoint(`/c/me/${dmId}`, "detail"),
+        main: { kind: "dm-route" as const, dmId, href: `/c/me/${dmId}` } },
+    })
+    const view = render(createElement(ShellFrameView, props("a"), createElement("old-next-page")))
+    const body = view.container.querySelector('[data-dm-target="a"]')!
+    expect(body).toHaveAttribute("data-committed", "false")
+    expect(view.container.querySelector("old-next-page")).toBeNull()
+    view.rerender(createElement(ShellFrameView, props("a", true), createElement("new-next-page")))
+    expect(view.container.querySelector('[data-dm-target="a"]')).toBe(body)
+    expect(body).toHaveAttribute("data-committed", "true")
+    expect(mocks.dmMount).toHaveBeenCalledExactlyOnceWith("a")
+    view.rerender(createElement(ShellFrameView, props("b")))
+    view.rerender(createElement(ShellFrameView, props("c")))
+    expect(view.container.querySelectorAll("[data-dm-target]")).toHaveLength(1)
+    expect(view.container.querySelector('[data-dm-target="c"]')).toHaveAttribute("data-committed", "false")
+    expect(mocks.dmUnmount.mock.calls.map(([id]) => id)).toEqual(["a", "b"])
+    view.rerender(createElement(ShellFrameView, props("a", true)))
+    expect(view.container.querySelector('[data-dm-target="a"]')).toHaveAttribute("data-committed", "true")
   })
 
   it("keeps responsive detail shell zones while the breakpoint is unknown", async () => {

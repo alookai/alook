@@ -155,41 +155,28 @@ describe("renderMessageListView", () => {
     expect(renderer.container.querySelectorAll(".mb-6")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
-    expect(content).toHaveClass("opacity-100")
+    expect(content).not.toHaveClass("opacity-0")
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
     expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveClass("shrink-0")
     expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveStyle({ height: "40px" })
   })
 
-  it("keeps positioned rows measurable but inert and hidden until reveal starts", () => {
+  it("shows real rows during positioning while retaining separate read eligibility", () => {
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
     const renderer = render(renderMessageListView(
       props({ loading: false }),
-      controller({
-        initialPosition: initialPosition({
-          phase: "positioning",
-          contentVisible: false,
-          contentInteractive: false,
-        }),
-      }),
+      controller({ readPositionReady: false, initialPosition: initialPosition({ phase: "positioning" }) }),
       renderRows,
     ))
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     expect(renderRows).toHaveBeenCalledOnce()
     expect(renderer.container.querySelector("virtual-rows")).toBeInTheDocument()
     expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
-    expect(content).toHaveAttribute("aria-hidden", "true")
-    expect(content).toHaveAttribute("inert")
-    expect(content).toHaveClass("pointer-events-none", "opacity-0")
-    expect(content).not.toHaveClass("transition-opacity", "duration-300")
-    expect(mockedRail).not.toHaveBeenCalled()
-    const skeleton = renderer.container.querySelector("[data-message-positioning-skeleton]")!
-    expect(skeleton).toHaveClass(
-      "absolute", "inset-0", "z-20", "pointer-events-none", "opacity-100",
-    )
-    expect(skeleton.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
-    expect(skeleton.querySelector("[data-message-list-skeleton-tail]")).toHaveClass("shrink-0")
-    expect(skeleton.querySelector("[data-message-list-skeleton-tail]")).toHaveStyle({ height: "40px" })
+    expect(content).toHaveAttribute("data-read-position-ready", "false")
+    expect(content).toHaveAttribute("aria-hidden", "false")
+    expect(content).not.toHaveAttribute("inert")
+    expect(content).not.toHaveClass("opacity-0", "transition-opacity", "duration-300")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
   })
 
   it("reserves the shared 40px rail tail in the standalone skeleton", () => {
@@ -204,54 +191,21 @@ describe("renderMessageListView", () => {
     expect(content).toHaveClass("pl-(--community-composer-inline-start)", "pr-(--community-composer-inline-end)")
   })
 
-  it("keeps the typed positioning skeleton through a timeout until settlement", () => {
+  it("updates read readiness without an opacity overlay or fade", () => {
     const renderer = render(renderMessageListView(
       props({ loading: false }),
-      controller({
-        initialPosition: initialPosition({
-          phase: "positioning",
-          contentVisible: false,
-          contentInteractive: false,
-        }),
-      }),
+      controller({ readPositionReady: false, initialPosition: initialPosition({ phase: "positioning" }) }),
       () => React.createElement("virtual-rows"),
     ))
-    const content = () => renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
-    expect(content()).toHaveClass("opacity-0")
-    expect(content()).not.toHaveClass("transition-opacity", "duration-300")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-100")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]"))
-      .toBeInTheDocument()
-
+    const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
+    expect(content).toHaveAttribute("data-read-position-ready", "false")
     renderer.rerender(renderMessageListView(
-      props({ loading: false }),
-      controller({
-        initialPosition: initialPosition({
-          phase: "revealing",
-          contentVisible: false,
-          contentInteractive: false,
-        }),
-      }),
-      () => React.createElement("virtual-rows"),
+      props({ loading: false }), controller(), () => React.createElement("virtual-rows"),
     ))
-    expect(content()).toHaveClass("opacity-0")
-    expect(content()).not.toHaveClass("transition-opacity", "duration-300")
-    const boundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
-    expect(boundary).toHaveClass("isolate")
-    expect(renderer.getByTestId("community-message-scroller")).toHaveClass("relative", "z-10")
-    expect(boundary.querySelector("accessory-rail")).not.toBeInTheDocument()
-    expect(content()).toHaveAttribute("aria-hidden", "true")
-    expect(content()).toHaveAttribute("inert")
-
-    renderer.rerender(renderMessageListView(
-      props({ loading: false }),
-      controller({ initialPosition: initialPosition({ phase: "revealing" }) }),
-      () => React.createElement("virtual-rows"),
-    ))
-    expect(content()).toHaveClass("opacity-100", "transition-opacity", "duration-300")
-    expect(content()).toHaveAttribute("aria-hidden", "false")
-    expect(content()).not.toHaveAttribute("inert")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toHaveClass("opacity-0")
+    expect(content).toHaveAttribute("data-read-position-ready", "true")
+    expect(content).not.toHaveClass("opacity-0", "transition-opacity", "duration-300")
+    expect(content).not.toHaveAttribute("inert")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
   })
 
   it("routes typing through the rail without adding a dynamic flex sibling", () => {

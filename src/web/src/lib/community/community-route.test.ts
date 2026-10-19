@@ -213,11 +213,11 @@ describe("community route", () => {
     })
   })
 
-  it("retains the DM target skeleton inside the same me scope", () => {
+  it("selects the DM route host before publication inside the same me scope", () => {
     expect(resolveCommunityCheckpointPlan({
       committedFrame: { ...normalizeCommunityHref("/c/me/dm1"), revision: 2 },
       targetHref: "/c/me/dm2", pending: true, targetReady: true,
-    }).main).toEqual({ kind: "target-skeleton", href: "/c/me/dm2" })
+    }).main).toEqual({ kind: "dm-route", href: "/c/me/dm2", dmId: "dm2" })
   })
 
   it("keeps committed A as the source after the router publishes B", () => {

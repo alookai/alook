@@ -147,7 +147,6 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize()
     h.update({ items: [message("older"), ...h.input.items], isFetchingOlder: false })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
   })
   it("does not restore the old origin after a reader scroll with a rejected pending row position", () => {
     const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)) })
@@ -537,7 +536,6 @@ describe("locked native adapter and existing message scroll owner", () => {
     const before = bodyTop(h.root, "m0")
     h.update({ items: [message("older-0"), message("older-1"), message("older-2"), ...h.input.items], isFetchingOlder: false })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
     expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "start", followOnAppend: false })
@@ -561,7 +559,6 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(bodyTop(h.root, id)).toBeCloseTo(before, 0)
     expect(index).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
     expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "start", followOnAppend: false })
     const settledOffset = h.root.scrollTop
     h.update({ items: [...h.input.items, message("late-peer")] })
@@ -591,7 +588,6 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(bodyTop(h.root, "m5")).toBeCloseTo(top, 0)
     expect(index).not.toHaveBeenCalled()
     expect(offset).not.toHaveBeenCalled()
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
   })
   it("keeps quote smooth on the native index command without a per-frame offset rewrite", () => {
     const h = mount()
@@ -629,31 +625,29 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
     expect(bodyTop(h.root, "m0")).toBe(currentTop)
   })
-  it("keeps the page settlement gate after the fetch ends until native geometry settles", () => {
+  it("leaves semantic pagination enabled while native prepend geometry converges", () => {
     const h = mount()
     h.move(0)
     act(() => scrollFixture.latest.captureOlderPageAnchor())
     h.update({ isFetchingOlder: true })
     const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
     h.stage({ items: [...older, ...h.input.items], isFetchingOlder: false })
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
     resize(2)
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
     runFrames()
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
   })
   it.each(["wheel", "target"])("retires a pending header page when %s takes ownership before the response", input => {
     const h = mount()
     h.move(0)
     act(() => scrollFixture.latest.captureOlderPageAnchor())
     h.update({ isFetchingOlder: true })
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
     if (input === "wheel") h.move(350)
     else {
       act(() => scrollFixture.latest.jumpTo("m8", "auto"))
       runFrames()
     }
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
     const before = bodyTop(h.root, input === "wheel" ? "m3" : "m8")
     const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
     const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
@@ -979,7 +973,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize()
     expect(h.root.scrollTop).toBe(before)
   })
-  it.each(["commit", "discard"])("retires a width request after a rendered tail suspends before %s", async outcome => {
+  it.each(["commit", "discard"])("keeps native width positioning across a suspended tail before %s", async outcome => {
     let suspend = false
     let resume!: () => void
     const pending = new Promise<void>(resolve => { resume = resolve })
@@ -1001,7 +995,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     const offset = vi.spyOn(native, "scrollToOffset")
     scrollFixture.width = 266
     resize(0)
-    expect(end).not.toHaveBeenCalled()
+    expect(end).toHaveBeenCalledOnce()
     const committedLayouts = layouts
     suspend = true
     await act(async () => {
@@ -1019,7 +1013,7 @@ describe("locked native adapter and existing message scroll owner", () => {
       expect(layouts).toBe(committedLayouts)
       expect(h.root.querySelector('[data-msg-id="pending-tail"]')).toBeNull()
       expect(h.view.queryByTestId("pending-tail")).toBeNull()
-      expect(end).not.toHaveBeenCalled()
+      expect(end).toHaveBeenCalledOnce()
       expect(offset).not.toHaveBeenCalled()
       suspend = false
       if (outcome === "discard") h.stage({ items: originalItems })
@@ -1029,10 +1023,11 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.querySelector('[data-msg-id="pending-tail"]') !== null).toBe(outcome === "commit")
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    if (outcome === "discard") expect(end).not.toHaveBeenCalled()
-    else expect(end).toHaveBeenCalledOnce()
+    const commands = end.mock.calls.length
+    runFrames()
+    expect(end).toHaveBeenCalledTimes(commands)
   })
-  it("does not revive a committed width request from late public frame callbacks", () => {
+  it("leaves a changed tail to native positioning without an application width wait", () => {
     scrollFixture.width = 639
     const h = mount({ tailPaddingEnd: 40 })
     const native = scrollFixture.latest.virtualizer
@@ -1040,13 +1035,13 @@ describe("locked native adapter and existing message scroll owner", () => {
     const offset = vi.spyOn(native, "scrollToOffset")
     const cancel = vi.spyOn(native, "cancelScroll")
     scrollFixture.width = 266
-    resize(2)
+    resize(0)
     expect(end).toHaveBeenCalledOnce()
     cancel.mockClear()
     const pending = [...scrollFixture.frames.values()]
     expect(pending.length).toBeGreaterThan(0)
     h.stage({ items: [...h.input.items.slice(0, -1), message("replacement")] })
-    expect(cancel).toHaveBeenCalledOnce()
+    expect(cancel).not.toHaveBeenCalled()
     expect(offset).not.toHaveBeenCalled()
     expect(h.root.querySelector('[data-msg-id="replacement"]')).not.toBeNull()
     resize()
@@ -1058,54 +1053,39 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.querySelector('[data-msg-id="replacement"]')).not.toBeNull()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
-  it.each(["timer", "frame"])("ends a width request at its original deadline through repeated appends and %s delivery", async delivery => {
+  it("keeps native tail follow through repeated appends without an application width deadline", async () => {
     let pending: Promise<void> | null = null
-    function Gate() {
-      if (pending) use(pending)
-      return null
-    }
+    function Gate() { if (pending) use(pending); return null }
     function Wrapper({ children }: PropsWithChildren) {
-      return createElement(Suspense, { fallback: createElement("div", { "data-testid": "pending-width" }) },
-        children, createElement(Gate))
+      return createElement(Suspense, { fallback: createElement("div", { "data-testid": "pending-width" }) }, children, createElement(Gate))
     }
     scrollFixture.width = 639
     const h = mount({ tailPaddingEnd: 40 }, false, undefined, Wrapper)
-    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
     scrollFixture.width = 266
-    resize(0)
-    const startedAt = Date.now()
+    resize()
+    expect(end).toHaveBeenCalledOnce()
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
     for (let i = 0; i < 5; i++) {
       let resume!: () => void
       pending = new Promise<void>(resolve => { resume = resolve })
-      await act(async () => {
-        startTransition(() => h.stage({ items: [...h.input.items, message(`deadline-tail-${i}`)] }))
-      })
+      await act(async () => { startTransition(() => h.stage({ items: [...h.input.items, message(`tail-${i}`)] })) })
+      const beforeCommit = end.mock.calls.length
       runFrames(1)
-      expect(end).not.toHaveBeenCalled()
-      await act(async () => {
-        pending = null
-        resume()
-      })
-      expect(h.root.querySelector(`[data-msg-id="deadline-tail-${i}"]`)).not.toBeNull()
-      expect(scrollFixture.latest.paginationEnabled).toBe(false)
+      expect(end).toHaveBeenCalledTimes(beforeCommit)
+      await act(async () => { pending = null; resume() })
+      resize()
+      expect(h.root.querySelector(`[data-msg-id="tail-${i}"]`)).not.toBeNull()
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+      expect(scrollFixture.latest.paginationEnabled).toBe(true)
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
       act(() => vi.advanceTimersByTime(350))
     }
-    act(() => vi.advanceTimersByTime(1_999 - (Date.now() - startedAt)))
-    expect(scrollFixture.latest.paginationEnabled).toBe(false)
-    expect(scrollFixture.latest.readPositionReady).toBe(false)
-    act(() => {
-      if (delivery === "timer") vi.advanceTimersByTime(1)
-      else {
-        const callbacks = [...scrollFixture.frames.values()]
-        expect(callbacks.length).toBeGreaterThan(0)
-        vi.setSystemTime(startedAt + 2_000)
-        for (const callback of callbacks) callback(performance.now())
-      }
-    })
-    expect(scrollFixture.latest.paginationEnabled).toBe(true)
-    expect(scrollFixture.latest.readPositionReady).toBe(true)
-    h.update({ items: [...h.input.items, message("after-width-deadline")] })
-    expect(end).not.toHaveBeenCalled()
+    const commands = end.mock.calls.length
+    act(() => vi.advanceTimersByTime(2000))
+    runFrames()
+    expect(end).toHaveBeenCalledTimes(commands)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
   })
   it("preserves a two-pixel DM tail distance through consecutive composer resizes", () => {
@@ -1484,7 +1464,6 @@ describe("current composer intent and native passive ownership", () => {
     h.stage({ isFetchingOlder: true })
     h.update({ isFetchingOlder: false, items: [message("older-after-supersession"), ...h.input.items] })
     expect(bodyTop(h.root, "received-after-supersession")).toBeCloseTo(top, 0)
-    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
   })
   it("does not complete a local history submission from tail attachment without its newest-window receipt", () => {

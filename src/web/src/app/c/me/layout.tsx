@@ -2,7 +2,6 @@
 
 import { useEffect, type ReactNode } from "react"
 import { useSelectedLayoutSegments, usePathname } from "next/navigation"
-import { DmRoute } from "@/components/community/channels/dm-route"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { isRememberableMeLocation, setLastMeLocation } from "@/lib/community/last-me-location"
 import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
@@ -20,7 +19,5 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     setLastMeLocation(pathname)
     commitLastCommunityRoute(currentUser.id, pathname)
   }, [currentUser.id, dmId, pathname])
-  return dmId
-    ? <DmRoute key={`${currentUser.id}/${dmId}`} dmId={dmId} />
-    : children
+  return children
 }

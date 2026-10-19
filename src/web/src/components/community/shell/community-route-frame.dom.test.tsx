@@ -62,6 +62,7 @@ vi.mock("./server-rail", () => ({ ServerRail: () => <div data-testid="rail"><but
 vi.mock("./user-bar", () => ({ UserBar: () => <div data-testid="userbar">{mocks.userId}</div> }))
 vi.mock("./community-inbox-popover", () => ({ InboxPopover: () => null }))
 vi.mock("./shell-frame-overlays", () => ({ ShellFrameOverlays: () => null }))
+vi.mock("@/components/community/channels/dm-route", () => ({ DmRoute: ({ dmId, routeCommitted }: { dmId: string; routeCommitted: boolean }) => createElement("main", { "data-dm-target": dmId, "data-committed": String(routeCommitted) }) }))
 vi.mock("@/components/community/channels/channel-route", () => ({
   ChannelRoute: (props: { serverParam: string; channelId: string }) => {
     mocks.channel(props)
@@ -143,6 +144,28 @@ describe("common committed community frame", () => {
     mocks.segments = ["channels", "b", "two"]
     view.rerender(tree("b"))
     expect(view.getByTestId("sidebar")).toHaveAttribute("data-server-id", "b")
+  })
+
+  it.each(["url-first", "segments-first"])("gates DM query effects on exact publication in %s order", order => {
+    mocks.segments = ["me", "dm-a"]
+    mocks.pathname = "/c/me/dm-a"
+    const view = render(tree())
+    expect(view.container.querySelector('[data-dm-target="dm-a"]')).toHaveAttribute("data-committed", "true")
+    act(() => owner.runtime.ui.get().uiHandlers.navigatePath?.("/c/me/dm-b?seq=7"))
+    const body = view.container.querySelector('[data-dm-target="dm-b"]')!
+    expect(body).toHaveAttribute("data-committed", "false")
+    if (order === "url-first") { mocks.pathname = "/c/me/dm-b"; mocks.search = "seq=7" }
+    else mocks.segments = ["me", "dm-b"]
+    view.rerender(tree())
+    expect(view.container.querySelector('[data-dm-target="dm-b"]')).toBe(body)
+    expect(body).toHaveAttribute("data-committed", "false")
+    mocks.segments = ["me", "dm-b"]
+    mocks.pathname = "/c/me/dm-b"
+    mocks.search = "seq=7"
+    view.rerender(tree())
+    expect(view.container.querySelector('[data-dm-target="dm-b"]')).toBe(body)
+    expect(body).toHaveAttribute("data-committed", "true")
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/me/dm-b?seq=7")
   })
 
   it("preserves hidden global mobile nodes and rebuilds them for a new account", async () => {

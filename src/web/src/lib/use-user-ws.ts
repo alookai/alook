@@ -1077,7 +1077,7 @@ export function useUserWs(
     const recoveryNeeded = forceValidation || connectionValidationNeededRef.current
     if (!recoveryNeeded) return
 
-    runLifecycleCallback("foreground", onForegroundRef.current)
+    if (trigger !== "focus" || connectionValidationNeededRef.current) runLifecycleCallback("foreground", onForegroundRef.current)
     if (isOffline() || isPageHidden()) return
     if (pendingTokenRef.current) return
 

@@ -487,7 +487,7 @@ describe("useComposerSuggestions", () => {
     expect(resultRef.current!.mentionPopup.selectedIndex).toBe(0)
   })
 
-  it("loads bare-@ pages serially and exposes first search pages while loading more", async () => {
+  it("leaves bare-@ continuation to the popup edge and exposes first search pages while loading more", async () => {
     const resultRef: { current: Result | null } = { current: null }
     const search = vi.fn()
     const loadMore = vi.fn()
@@ -512,8 +512,9 @@ describe("useComposerSuggestions", () => {
         getRect: null,
       })
     })
-    expect(loadMore).toHaveBeenCalledOnce()
-    expect(resultRef.current!.mentionPresentation.status).toBe("loading-more")
+    expect(loadMore).not.toHaveBeenCalled()
+    expect(resultRef.current!.mentionPresentation.status).toBe("ready")
+    expect(resultRef.current!.mentionPagination).toMatchObject({ hasMore: true, loadMore })
 
     const firstSearchItem = {
       kind: "member" as const,

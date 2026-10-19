@@ -103,6 +103,17 @@ describe("DM target main owns identity, retry and fallback", () => {
     expect(mocks.clear).not.toHaveBeenCalled()
   })
 
+  it("does not replace or clear memory for a denied pending target before route publication", () => {
+    mocks.verification.status = "denied"
+    const view = render(React.createElement(DmRoute, { dmId: "dm-a", routeCommitted: false }))
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(mocks.clear).not.toHaveBeenCalled()
+    expect(mocks.cancel).not.toHaveBeenCalled()
+    view.rerender(React.createElement(DmRoute, { dmId: "dm-a", routeCommitted: true }))
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
+    expect(mocks.clear).toHaveBeenCalledOnce()
+  })
+
   it.each([false, true])("exits an unknown denied target and retires only matching last memory, cold=%s", (cold) => {
     mocks.verification.status = "denied"
     mocks.cold = cold

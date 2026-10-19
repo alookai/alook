@@ -31,6 +31,7 @@ export type MentionCandidateSource = {
     | "empty"
     | "error"
   loadMore?: () => void
+  retry?: () => void
   search?: (query: string) => void
 }
 

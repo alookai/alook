@@ -1,3 +1,4 @@
+import { reconcileConversationLanding } from "@/hooks/community/community-ws/reconnect-messages"
 import { channelHref } from "./community-route"
 import { currentPageObservation, navigationForHref } from "@/lib/observability/context"
 import { hashKey, notifyManager, queryOptions, type QueryClient, type QueryKey } from "@tanstack/react-query"
@@ -182,13 +183,25 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
         throw error
       }
       assert()
-      return publishConversationEntry(client, target, entry, { token, signal })
+      const initial: InitialMessageWindow = entry.selection.anchorMessageId
+        ? { mode: "anchor", anchor: entry.selection.anchorMessageId } : { mode: "newest" }
+      const windowKey = communityKeys.channelMessagesWindow(target.channelId, initial, target.tag)
+      const hadWindow = !!client.getQueryData<MessageWindowData>(windowKey)?.pages.length
+      const resource = publishConversationEntry(client, target, entry, { token, signal })
+      if (hadWindow && !entry.forumFeed) {
+        await reconcileConversationLanding(client, {
+          kind: target.serverId === null ? "dm" : "channel", scopeId: target.channelId,
+          serverId: target.serverId ?? undefined,
+        }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages }, initial)
+        assert()
+      }
+      return resource
     },
     staleTime: (query) => {
       const resource = query.state.data
       if (!resource) return 0
       const pointer = knownPointer && resource.readStateRevision <= (knownPointer.observedRevision ?? -1) ? knownPointer : resource.readStateAtEntry
-      return findConversationEntryWindow(client, target, resource, pointer) ? Infinity : 0
+      return findConversationEntryWindow(client, target, resource, pointer) ? 5_000 : 0
     },
     gcTime: typeof window === "undefined" ? Infinity : 5 * 60 * 1000,
     retry: target.serverId === null ? false : retryConversationRead,

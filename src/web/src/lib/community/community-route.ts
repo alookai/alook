@@ -71,7 +71,7 @@ export type CommunityCheckpointPlan = {
     | { kind: "keep" }
     | { kind: "server-skeleton"; serverId: string }
     | { kind: "me-skeleton" }
-  main: { kind: "keep" } | { kind: "server-route"; href: string } | {
+  main: { kind: "keep" } | { kind: "server-route"; href: string } | { kind: "dm-route"; href: string; dmId: string } | {
     kind: "target-skeleton"
     href: string
     conversationSubtype?: "text" | "forum" | "thread"
@@ -312,8 +312,19 @@ export function resolveCommunityCheckpointPlan({
       rail: { kind: "keep" }, sidebar: { kind: "keep" },
       main: { kind: "target-skeleton", href: target.href } }
   }
+  if (targetModule.main.kind === "dm") {
+    const plan = committedPlan(committedFrame, target.href)
+    return {
+      ...plan,
+      mode: communityScopeEqual(committedFrame.scope, target.scope) ? "same-scope-leaf" : targetReady ? "warm-scope" : "cold-scope",
+      surface: target.surface,
+      rail: target.scope.kind === "me" && committedFrame.scope.kind !== "me" ? { kind: "target", view: "dm" } : plan.rail,
+      sidebar: committedFrame.scope.kind !== "me" ? { kind: "me-skeleton" } : plan.sidebar,
+      main: { kind: "dm-route", href: target.href, dmId: targetModule.main.dmId },
+    }
+  }
   const targetMainKind = targetModule.main.kind
-  const isConversationTarget = targetMainKind === "server-conversation" || targetMainKind === "dm"
+  const isConversationTarget = targetMainKind === "server-conversation"
   if (target.scope.kind === "unknown" || target.leafKey === committedFrame.leafKey) {
     return committedPlan(committedFrame, target.href)
   }
@@ -376,13 +387,14 @@ function committedPlan(
   frame: CommunityCommittedFrame,
   targetHref = frame.href,
 ): CommunityCheckpointPlan {
+  const main = resolveCommunityModulePlan(frame.href).main
   return {
     mode: "committed",
     surface: frame.surface,
     targetHref,
     rail: { kind: "keep" },
     sidebar: { kind: "keep" },
-    main: { kind: "keep" },
+    main: main.kind === "dm" ? { kind: "dm-route", href: targetHref, dmId: main.dmId } : { kind: "keep" },
   }
 }
 

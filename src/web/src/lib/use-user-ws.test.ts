@@ -2156,7 +2156,7 @@ describe("useUserWs", () => {
     expect(ws.closed).toBe(false)
   })
 
-  it("notifies foreground data work before validation and again for changed targets during a pending probe", async () => {
+  it("repairs on actual recovery while ordinary focus only shares connection validation", async () => {
     setupTokenFetch()
     let finish!: () => void
     const dataWork = new Promise<void>((resolve) => { finish = resolve })
@@ -2174,7 +2174,7 @@ describe("useUserWs", () => {
     dispatchWindowFocus()
     mockDocument.dispatch("resume")
     dispatchPageShow(true)
-    expect(onForeground).toHaveBeenCalledTimes(4)
+    expect(onForeground).toHaveBeenCalledTimes(3)
     expect(connectionPings(ws)).toHaveLength(1)
 
     const [{ nonce }] = connectionPings(ws)
@@ -2186,22 +2186,28 @@ describe("useUserWs", () => {
     await flushPromises()
   })
 
-  it("notifies foreground data work while token or authentication is still pending", async () => {
+  it("skips ordinary focus data work and retains resume work while token or authentication is pending", async () => {
     const token = deferred<Response>()
     mockFetch.mockReturnValueOnce(token.promise)
     const onForeground = vi.fn()
     await mountHook(vi.fn(), { onForeground, requestDaemonStatusOnAuth: false })
     dispatchWindowFocus()
+    expect(onForeground).not.toHaveBeenCalled()
+    mockDocument.dispatch("resume")
     expect(onForeground).toHaveBeenCalledOnce()
     expect(MockWebSocket.instances).toHaveLength(0)
     token.resolve({ ok: true, json: async () => ({ userId: "user-1", token: "test-token" }) } as Response)
     await flushPromises()
     const ws = MockWebSocket.instances[0]!
     dispatchWindowFocus()
+    expect(onForeground).toHaveBeenCalledOnce()
+    mockDocument.dispatch("resume")
     expect(onForeground).toHaveBeenCalledTimes(2)
     expect(ws.readyState).toBe(MockWebSocket.CONNECTING)
     ws.simulateOpen()
     dispatchWindowFocus()
+    expect(onForeground).toHaveBeenCalledTimes(2)
+    mockDocument.dispatch("resume")
     expect(onForeground).toHaveBeenCalledTimes(3)
     expect(connectionPings(ws)).toHaveLength(0)
   })

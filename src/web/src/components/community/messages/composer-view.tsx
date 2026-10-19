@@ -28,7 +28,7 @@ import {
   ChannelRefList,
   CommunityMentionList,
 } from "./composer-suggestion-popups"
-import type { ComposerReplyTarget } from "./composer-types"
+import type { ComposerReplyTarget, MentionCandidateSource } from "./composer-types"
 import { SendStrokeRoundedIcon } from "./send-stroke-rounded-icon"
 
 const COMPOSER_OUTER_CLASS =
@@ -43,6 +43,7 @@ export type ComposerViewProps = {
   onDrop: DragEventHandler<HTMLDivElement>
   mentionPopup: MentionPopupState
   mentionPresentation: MentionCandidatePresentation
+  mentionPagination?: MentionCandidateSource
   channelRefPopup: ChannelRefPopupState
   channelRefPresentation?: ChannelRefCandidatePresentation
   replyingTo?: ComposerReplyTarget
@@ -70,6 +71,7 @@ export function ComposerView({
   onDrop,
   mentionPopup,
   mentionPresentation,
+  mentionPagination,
   channelRefPopup,
   channelRefPresentation,
   replyingTo,
@@ -110,6 +112,7 @@ export function ComposerView({
       <CommunityMentionList
         state={mentionPopup}
         presentation={mentionPresentation}
+        pagination={mentionPagination}
       />
       <ChannelRefList
         state={channelRefPopup}

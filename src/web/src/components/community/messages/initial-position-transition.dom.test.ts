@@ -1,142 +1,43 @@
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
-import {
-  INITIAL_POSITION_CROSSFADE_MS,
-  useInitialPositionTransition,
-} from "./initial-position-transition"
-import { INITIAL_POSITION_TIMEOUT_MS } from "@/hooks/community/use-scroll-anchor"
+import { render } from "@/test/react-dom-harness"
+import { useInitialPositionTransition } from "./initial-position-transition"
 
-type Input = {
-  firstWindowReady: boolean
-  authoritativeEmpty: boolean
-  positionSettled: boolean
-  documentWindowReady?: boolean
-}
-
+type Input = Parameters<typeof useInitialPositionTransition>[0]
 let latest: ReturnType<typeof useInitialPositionTransition>
-
 function Probe(input: Input) {
-  const transition = useInitialPositionTransition(input)
-  React.useLayoutEffect(() => { latest = transition }, [transition])
-  return React.createElement("div", { "data-phase": transition.phase })
+  const presentation = useInitialPositionTransition(input)
+  React.useLayoutEffect(() => { latest = presentation }, [presentation])
+  return React.createElement("div", { "data-phase": presentation.phase })
 }
+const pending: Input = { firstWindowReady: true, authoritativeEmpty: false, positionSettled: false }
 
-const pending = (): Input => ({
-  firstWindowReady: true,
-  authoritativeEmpty: false,
-  positionSettled: false,
-})
-
-describe("useInitialPositionTransition", () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(0))
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it("shows a qualified document window without claiming position or interaction readiness", () => {
-    const renderer = render(React.createElement(Probe, { ...pending(), documentWindowReady: true }))
-    expect(latest).toMatchObject({ phase: "positioning", showSkeleton: false, contentVisible: true, contentInteractive: false })
-    expect(vi.getTimerCount()).toBe(0)
-    renderer.rerender(React.createElement(Probe, { ...pending(), documentWindowReady: true, firstWindowReady: false }))
-    expect(latest).toMatchObject({ phase: "skeleton", showSkeleton: true, contentVisible: false, contentInteractive: false })
-    renderer.unmount()
-  })
-
-  it("holds the skeleton until the first window and reveals an authoritative empty window immediately", () => {
-    const renderer = render(React.createElement(Probe, {
-      firstWindowReady: false,
-      authoritativeEmpty: false,
-      positionSettled: false,
-    }))
-    expect(latest).toMatchObject({ phase: "skeleton", showSkeleton: true })
-
-    renderer.rerender(React.createElement(Probe, {
-      firstWindowReady: true,
-      authoritativeEmpty: true,
-      positionSettled: false,
-    }))
-    expect(latest).toMatchObject({
-      phase: "revealed",
-      showSkeleton: false,
-      contentVisible: true,
-    })
+describe("immediate initial message presentation", () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+  it("shows a qualified first window and accepts user takeover before position settles", () => {
+    render(React.createElement(Probe, pending))
+    expect(latest).toEqual({ phase: "positioning", showSkeleton: false, contentVisible: true, contentInteractive: true })
     expect(vi.getTimerCount()).toBe(0)
   })
-
-  it("crossfades as soon as position settles", () => {
-    const renderer = render(React.createElement(Probe, pending()))
-    expect(latest.phase).toBe("positioning")
-
-    act(() => vi.advanceTimersByTime(799))
-    expect(latest.phase).toBe("positioning")
-    renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
-    expect(latest).toMatchObject({
-      phase: "revealing",
-      contentVisible: true,
-      contentInteractive: true,
-    })
-
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
-    expect(latest.phase).toBe("revealed")
-  })
-
-  it("does not let the timeout expose content before position settlement", () => {
-    const renderer = render(React.createElement(Probe, pending()))
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_TIMEOUT_MS))
-    expect(latest).toMatchObject({
-      phase: "positioning",
-      contentVisible: false,
-      contentInteractive: false,
-    })
-
-    renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
-    act(() => vi.advanceTimersByTime(0))
-    expect(latest).toMatchObject({
-      phase: "revealing",
-      contentVisible: true,
-      contentInteractive: true,
-    })
-
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
-    expect(latest).toMatchObject({ phase: "revealed", showSkeleton: false })
-  })
-
-  it("preserves the crossfade when settlement arrives after the timeout window", () => {
-    const renderer = render(React.createElement(Probe, pending()))
-    act(() => vi.advanceTimersByTime(
-      INITIAL_POSITION_TIMEOUT_MS + INITIAL_POSITION_CROSSFADE_MS,
-    ))
-    expect(latest).toMatchObject({
-      phase: "positioning",
-      contentVisible: false,
-      contentInteractive: false,
-    })
-
-    renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
-    act(() => vi.advanceTimersByTime(0))
-    expect(latest).toMatchObject({
-      phase: "revealing",
-      contentVisible: true,
-      contentInteractive: true,
-    })
-
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS - 1))
-    expect(latest.phase).toBe("revealing")
-    act(() => vi.advanceTimersByTime(1))
-    expect(latest).toMatchObject({ phase: "revealed" })
-  })
-
-  it("has no independent position timer and cleans the crossfade when a keyed mount leaves", () => {
-    const renderer = render(React.createElement(Probe, pending()))
+  it("holds the skeleton until the first window is qualified and reveals an empty window immediately", () => {
+    const view = render(React.createElement(Probe, { ...pending, firstWindowReady: false }))
+    expect(latest).toEqual({ phase: "skeleton", showSkeleton: true, contentVisible: false, contentInteractive: false })
+    view.rerender(React.createElement(Probe, { ...pending, authoritativeEmpty: true }))
+    expect(latest).toMatchObject({ phase: "revealed", showSkeleton: false, contentVisible: true })
     expect(vi.getTimerCount()).toBe(0)
-    renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
-    expect(vi.getTimerCount()).toBe(1)
-    renderer.unmount()
+  })
+  it("records actual position settlement without a timed revealing phase", () => {
+    const view = render(React.createElement(Probe, pending))
+    view.rerender(React.createElement(Probe, { ...pending, positionSettled: true }))
+    expect(latest).toMatchObject({ phase: "revealed", contentVisible: true, contentInteractive: true })
     expect(vi.getTimerCount()).toBe(0)
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it("hides content again if its first-window qualification is lost", () => {
+    const view = render(React.createElement(Probe, { ...pending, positionSettled: true }))
+    view.rerender(React.createElement(Probe, { ...pending, firstWindowReady: false }))
+    expect(latest).toMatchObject({ showSkeleton: true, contentVisible: false, contentInteractive: false })
   })
 })

@@ -6,7 +6,6 @@ import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
-import { INITIAL_POSITION_CROSSFADE_MS } from "./initial-position-transition"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -49,9 +48,7 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       readPositionReady: false,
       paginationEnabled: false,
       captureOlderPageAnchor: mocks.captureOlderPageAnchor,
-      isOlderPageAnchorSettling: false,
       captureNewerPageAnchor: mocks.captureNewerPageAnchor,
-      isNewerPageAnchorSettling: false,
     }
   },
 }))
@@ -227,7 +224,6 @@ describe("useMessageListController", () => {
         enabled: false,
         hasMore: undefined,
         isFetching: undefined,
-        isSettling: false,
         isError: false,
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: undefined,
@@ -239,7 +235,6 @@ describe("useMessageListController", () => {
         enabled: false,
         hasMore: undefined,
         isFetching: undefined,
-        isSettling: false,
         isError: false,
         hasMoreAtStart: undefined,
         onBeforeLoad: mocks.captureNewerPageAnchor,
@@ -314,17 +309,16 @@ describe("useMessageListController", () => {
     })
     expect(latest.initialPosition).toMatchObject({
       phase: "positioning",
-      contentVisible: false,
+      contentVisible: true,
     })
     const settle = (mocks.scrollInputs.at(-1) as {
       onInitialPositionSettled: () => void
     }).onInitialPositionSettled
     act(() => settle())
     expect(latest.initialPosition).toMatchObject({
-      phase: "revealing",
+      phase: "revealed",
       contentVisible: true,
     })
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
     expect(latest.initialPosition.phase).toBe("revealed")
   })
 
@@ -373,7 +367,6 @@ describe("useMessageListController", () => {
         enabled: false,
         hasMore: true,
         isFetching: true,
-        isSettling: false,
         isError: false,
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: loadOlder,
@@ -385,7 +378,6 @@ describe("useMessageListController", () => {
         enabled: false,
         hasMore: true,
         isFetching: true,
-        isSettling: false,
         isError: false,
         hasMoreAtStart: true,
         onBeforeLoad: mocks.captureNewerPageAnchor,
@@ -439,11 +431,10 @@ describe("useMessageListController", () => {
       onInitialPositionSettled: () => void
     }).onInitialPositionSettled
     act(() => settleAnchor())
-    expect(latest.initialPosition.phase).toBe("revealing")
+    expect(latest.initialPosition.phase).toBe("revealed")
     visibleMessageIds = ["m2"]
     runNextFrame()
-    expect(latest.initialPosition.phase).toBe("revealing")
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
+    expect(latest.initialPosition.phase).toBe("revealed")
     expect(latest.initialPosition.phase).toBe("revealed")
     act(() => {
       latest.onEnterSelectId("m2")
@@ -667,8 +658,7 @@ describe("useMessageListController", () => {
     act(() => (mocks.scrollInputs.at(-1) as {
       onInitialPositionSettled: () => void
     }).onInitialPositionSettled())
-    expect(latest.initialPosition.phase).toBe("revealing")
-    act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
+    expect(latest.initialPosition.phase).toBe("revealed")
     expect(latest.initialPosition.phase).toBe("revealed")
     act(() => latest.jumpTo("m1", "auto"))
     for (let index = 0; index < 120; index += 1) runNextFrame()

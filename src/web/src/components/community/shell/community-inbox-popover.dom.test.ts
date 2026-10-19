@@ -5,6 +5,8 @@ import { InboxPopover } from "./community-inbox-popover"
 import type { UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { tid } from "@/lib/community/testids"
 
+vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))
+
 const mocks = vi.hoisted(() => ({ tabs: vi.fn() }))
 
 vi.mock("@/components/ui/tabs", () => ({
@@ -361,7 +363,13 @@ describe("InboxPopover DM rows", () => {
       onOpenDm,
     }))
 
-    fireEvent.click(renderer.getByTestId(tid.inboxUnreadDm(dm.channelId)))
+    const row = renderer.getByTestId(tid.inboxUnreadDm(dm.channelId))
+    expect(row).toHaveAttribute("href", "/c/me/dm-new")
+    expect(row).toHaveAttribute("data-prefetch", "false")
+    fireEvent.pointerEnter(row)
+    expect(row).toHaveAttribute("data-prefetch", "true")
+    expect(onOpenDm).not.toHaveBeenCalled()
+    fireEvent.click(row)
 
     expect(onOpenDm).toHaveBeenCalledWith(dm)
   })

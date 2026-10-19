@@ -365,6 +365,7 @@ export function useComposerController(
     onDrop: handleDrop,
     mentionPopup: suggestions.mentionPopup,
     mentionPresentation: suggestions.mentionPresentation,
+    mentionPagination: suggestions.mentionPagination,
     channelRefPopup: suggestions.channelRefPopup,
     channelRefPresentation: suggestions.channelRefPresentation,
     replyingTo,

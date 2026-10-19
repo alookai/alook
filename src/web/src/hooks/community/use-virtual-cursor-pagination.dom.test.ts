@@ -59,12 +59,12 @@ describe.each(["start", "end"] as const)("native virtual cursor pagination (%s)"
     expect(f.onLoad).toHaveBeenCalledTimes(2)
   })
 
-  it("waits for anchor settlement and then rechecks the current range", () => {
-    const f = fixture({ isSettling: true })
+  it("retains semantic eligibility and rechecks the native range when the target becomes ready", () => {
+    const f = fixture({ enabled: false })
     f.setRange(...boundary)
     f.rerender()
     expect(f.onLoad).not.toHaveBeenCalled()
-    f.rerender({ isSettling: false })
+    f.rerender({ enabled: true })
     expect(f.onLoad).toHaveBeenCalledOnce()
   })
 

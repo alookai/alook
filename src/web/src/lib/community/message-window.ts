@@ -127,6 +127,7 @@ export function messageWindowOptions(
     getPreviousPageParam: (first) => first.hasMoreNewer && first.newerCursor ? { mode: "newer", cursor: first.newerCursor } : undefined,
     staleTime: 5_000,
     refetchOnReconnect: false,
+    refetchOnMount: false,
     retry: conversationReadRetryPolicy(client.defaultQueryOptions({ queryKey }).retry),
     networkMode: "always",
   })

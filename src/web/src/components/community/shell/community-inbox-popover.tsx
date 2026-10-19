@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
+import { CommunityNavigationLink } from "./community-navigation-link"
 import { Avatar } from "../avatar"
 import { ChannelIcon } from "../channels/channel-icon"
 import { EmptyState } from "../empty-state"
@@ -251,16 +252,17 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
               d.otherUserId,
             )
             return (
-            <button
+            <CommunityNavigationLink
               key={d.channelId}
               data-testid={tid.inboxUnreadDm(d.channelId)}
-              onClick={() => onOpenDm?.(d)}
+              href={`/c/me/${encodeURIComponent(d.channelId)}`}
+              onActivate={() => onOpenDm?.(d)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
             >
               <Avatar label={profile.avatar} seed={d.otherUserId} size={24} />
               <span className="min-w-0 flex-1 truncate">{profile.name}</span>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-            </button>
+            </CommunityNavigationLink>
             )
           })}
         </div>

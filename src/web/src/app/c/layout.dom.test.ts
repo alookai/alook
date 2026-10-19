@@ -121,7 +121,10 @@ describe("CommunityLayout session boundary", () => {
       "src/app/c/me/layout.tsx",
     ), "utf8")
     expect(source).not.toContain("useDmRouteVerification")
-    expect(source).toContain('<DmRoute key={`${currentUser.id}/${dmId}`} dmId={dmId} />')
+    expect(source).not.toContain("<DmRoute")
+    const host = readFileSync(resolve(process.cwd(), process.cwd().endsWith("/src/web") ? "" : "src/web", "src/components/community/shell/shell-frame-view.tsx"), "utf8")
+    expect(host).toContain('checkpoint.main.kind === "dm-route"')
+    expect(host).toContain("routeCommitted={routeCommitted}")
     expect(source).not.toMatch(/isFetching:\s*dmsFetching/)
   })
 

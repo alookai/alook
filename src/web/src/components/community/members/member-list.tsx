@@ -167,14 +167,9 @@ export function MemberList({
     if (manageConfirm && !manageTarget) setManageConfirm(null)
   }, [kickTargetId, kickTarget, manageConfirm, manageTarget, command.status, pending, setKickTargetId, setManageConfirm])
 
-  // Debounced search — 200ms mirrors the hook's own debounce for consistency
-  // (the hook debounces the network call; this debounces the callback fire
-  // so we don't spam the hook on every keystroke).
   useEffect(() => {
     if (!onSearch) return
-    const assert = source.capture()
-    const t = setTimeout(() => { try { assert(); onSearch(query) } catch {} }, 200)
-    return () => clearTimeout(t)
+    try { source.capture()(); onSearch(query) } catch {}
   }, [query, onSearch, source.signal, source])
 
   const items = useMemo(() => flattenGroups(members), [members])

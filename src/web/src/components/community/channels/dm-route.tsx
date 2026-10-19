@@ -17,7 +17,7 @@ import {
   consumeCommunityColdEntryFailure,
 } from "@/lib/community/last-community-route"
 
-export function DmRoute({ dmId }: { dmId: string }) {
+export function DmRoute({ dmId, routeCommitted = true }: { dmId: string; routeCommitted?: boolean }) {
   const runtime = useCommunityRuntime()
   const router = useRouter()
   const currentUser = useCurrentUser()
@@ -25,7 +25,7 @@ export function DmRoute({ dmId }: { dmId: string }) {
   const knownDm = useDmProjection()?.some(dm => dm.id === dmId) === true
   const exitedTarget = useRef<string | null>(null)
   useEffect(() => {
-    if (verification.status !== "denied" || verification.identityKnown || knownDm) return
+    if (!routeCommitted || verification.status !== "denied" || verification.identityKnown || knownDm) return
     const target = JSON.stringify([currentUser.id, dmId])
     if (exitedTarget.current === target) return
     exitedTarget.current = target
@@ -36,7 +36,7 @@ export function DmRoute({ dmId }: { dmId: string }) {
     if (getLastMeLeaf() === dmId) clearLastMeLocation()
     runtime.ui.get().uiHandlers.cancelPendingNavigation?.()
     router.replace(destination)
-  }, [currentUser.id, dmId, router, runtime, verification.status, verification.identityKnown, knownDm])
+  }, [currentUser.id, dmId, routeCommitted, router, runtime, verification.status, verification.identityKnown, knownDm])
 
   if (verification.status === "retryable-error" && !verification.identityKnown && !knownDm) {
     return <DmRouteErrorFrame onRetry={verification.retry} retrying={verification.retrying}
@@ -45,5 +45,5 @@ export function DmRoute({ dmId }: { dmId: string }) {
   if (!verification.identityKnown && !knownDm && verification.status !== "readable") {
     return <DmLoadingFrame reserveBackSlot />
   }
-  return <DmView dmId={dmId} />
+  return <DmView dmId={dmId} routeCommitted={routeCommitted} />
 }

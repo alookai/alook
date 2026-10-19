@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   createPortal: vi.fn(),
@@ -103,6 +103,36 @@ describe("Composer suggestion popups", () => {
       else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[property]
     }
     descriptors.clear()
+  })
+
+  it("loads mention continuations only at the popup edge and retires queued callbacks", () => {
+    const observers: Array<{ callback: IntersectionObserverCallback; options?: IntersectionObserverInit; observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = []
+    class Observer {
+      observe = vi.fn()
+      disconnect = vi.fn()
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) { observers.push({ callback, options, observe: this.observe, disconnect: this.disconnect }) }
+    }
+    vi.stubGlobal("IntersectionObserver", Observer)
+    const loadMore = vi.fn()
+    const retry = vi.fn()
+    const state: MentionPopupState = { items: [{ kind: "everyone", id: "everyone", label: "everyone" }], query: "", selectedIndex: 0, command: vi.fn(), getRect: () => rect(120) }
+    const pagination = { loading: false, failed: false, hasMore: true, loadMore, retry }
+    const view = render(createElement(CommunityMentionList, { state, presentation: { status: "ready" }, pagination }))
+    const edge = observers.at(-1)!
+    expect(loadMore).not.toHaveBeenCalled()
+    expect(edge.options?.root).toBe(view.container.querySelector(".overflow-y-auto"))
+    expect(edge.observe).toHaveBeenCalledOnce()
+    act(() => edge.callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver))
+    expect(loadMore).toHaveBeenCalledOnce()
+    view.rerender(createElement(CommunityMentionList, { state, presentation: { status: "loading-more" }, pagination: { ...pagination, loadingMore: true } }))
+    expect(edge.disconnect).toHaveBeenCalled()
+    act(() => edge.callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver))
+    expect(loadMore).toHaveBeenCalledOnce()
+    view.rerender(createElement(CommunityMentionList, { state, presentation: { status: "error" }, pagination: { ...pagination, failed: true } }))
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    expect(retry).toHaveBeenCalledOnce()
+    view.unmount()
+    vi.unstubAllGlobals()
   })
 
   it("self-nulls while closed and preserves viewport placement", async () => {

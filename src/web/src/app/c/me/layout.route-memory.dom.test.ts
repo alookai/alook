@@ -173,12 +173,13 @@ describe("MeLayout route memory", () => {
     expect(mocks.setLastMeLocation).toHaveBeenCalledWith(`/c/me/${leaf}`)
   })
 
-  it("uses its own committed DM child instead of another slot's DM param", () => {
+  it("leaves the DM body to the shared checkpoint instead of mounting another slot's DM", () => {
     mocks.pathname = "/c/me/own-dm"
     mocks.childSegments = ["own-dm"]
     mocks.dmId = "foreign-slot-dm"
     const rendered = renderLayout()
-    expect(rendered.getByTestId("target-dm")).toHaveAttribute("data-channel-id", "own-dm")
+    expect(rendered.queryByTestId("target-dm")).toBeNull()
+    expect(rendered.getByTestId("static-content")).toBeVisible()
     expect(mocks.setLastMeLocation).not.toHaveBeenCalled()
   })
 
@@ -201,21 +202,21 @@ describe("MeLayout route memory", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
-  it("mounts each target DM while Next children stay on the neutral root, without saving last in layout", () => {
+  it("keeps neutral Next children while the shared checkpoint owns changing DM bodies", () => {
     mocks.pathname = "/c/me/dm-a"
     mocks.dmId = "dm-a"
     const client = layoutClient
     const tree = () => createElement(QueryClientProvider, { client, userId: "viewer-1" },
       createElement(MeLayout, null, createElement("div", { "data-testid": "neutral-leaf" }, "Loading your space")))
     const rendered = render(tree())
-    expect(rendered.getByTestId("target-dm").getAttribute("data-channel-id")).toBe("dm-a")
-    expect(rendered.queryByTestId("neutral-leaf")).toBeNull()
+    expect(rendered.queryByTestId("target-dm")).toBeNull()
+    expect(rendered.getByTestId("neutral-leaf")).toBeVisible()
     mocks.pathname = "/c/me/dm-b"
     mocks.dmId = "dm-b"
     rendered.rerender(tree())
-    expect(rendered.getByTestId("target-dm").getAttribute("data-channel-id")).toBe("dm-b")
+    expect(rendered.queryByTestId("target-dm")).toBeNull()
     expect(rendered.queryByText("dm-a")).toBeNull()
-    expect(rendered.queryByTestId("neutral-leaf")).toBeNull()
+    expect(rendered.getByTestId("neutral-leaf")).toBeVisible()
     expect(mocks.setLastMeLocation).not.toHaveBeenCalled()
     expect(mocks.commitLastCommunityRoute).not.toHaveBeenCalled()
     rendered.unmount()

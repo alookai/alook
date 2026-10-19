@@ -235,8 +235,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
 
   useEffect(() => {
     if (!onSearch) return
-    const t = setTimeout(() => onSearch(query), 200)
-    return () => clearTimeout(t)
+    onSearch(query)
   }, [query, onSearch])
 
   // TanStack Virtual returns unstable function refs — React Compiler skips memoization.

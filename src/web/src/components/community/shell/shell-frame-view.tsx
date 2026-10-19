@@ -1,5 +1,6 @@
 "use client"
 
+import { DmRoute } from "@/components/community/channels/dm-route"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
 import { CommunityPendingFrame } from "./community-pending-frame"
@@ -25,6 +26,7 @@ import { ProfileRunningBotsCard } from "@/components/community/social/profile-ru
 
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
+  routeCommitted?: boolean
   checkpoint: CommunityCheckpointPlan
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>
@@ -40,6 +42,7 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
 
 export function ShellFrameView({
   breakpoint,
+  routeCommitted = true,
   checkpoint,
   sidebar,
   children,
@@ -114,7 +117,10 @@ export function ShellFrameView({
           ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />
           : checkpoint.sidebar.kind === "me-skeleton" ? <DmSidebarSkeleton /> : null}
       </>}
-      main={checkpoint.main.kind === "keep" || checkpoint.main.kind === "server-route" ? children : (
+      main={checkpoint.main.kind === "dm-route" ? (
+        <DmRoute key={`${profile.currentUser.id}/${checkpoint.main.dmId}`} dmId={checkpoint.main.dmId}
+          routeCommitted={routeCommitted} />
+      ) : checkpoint.main.kind === "keep" || checkpoint.main.kind === "server-route" ? children : (
         <CommunityPendingFrame
           href={checkpoint.targetHref}
           reserveBackSlot={surface === "detail"}

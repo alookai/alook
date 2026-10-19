@@ -80,7 +80,7 @@ function resolveDmLoadingOwnership({
   }
 }
 
-export function DmView({ dmId }: { dmId: string }) {
+export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCommitted?: boolean }) {
   const communityRuntime = useCommunityRuntime()
   const sendView = useCommunityViewSource(`dm-send:${dmId}`)
   const bp = useBreakpoint()
@@ -90,9 +90,6 @@ export function DmView({ dmId }: { dmId: string }) {
   const notifications = useNotificationSettings()
   const setNotification = useSetChannelNotif()
 
-  // MeLayout owns the canonical cold DMs fetch. This second observer consumes
-  // that result without treating it as stale on mount; explicit WS/query
-  // invalidation still refetches the active canonical key.
   const dmsQuery = useDms()
   const dms = dmsQuery.dms
   const dmsLoading = dmsQuery.isLoading
@@ -153,7 +150,7 @@ export function DmView({ dmId }: { dmId: string }) {
 
   const [contextSheetSeq, setContextSheetSeq] = useAtom(useCreateAtom<number | null>(null))
   useDmSeqContext({ dmId, historyAllowed,
-    navigationAllowed: !navigationBlocked,
+    navigationAllowed: routeCommitted && !navigationBlocked,
     setContextSeq: setContextSheetSeq,
   })
   // DM composer has no "current server" — flatten every member server's
@@ -404,13 +401,13 @@ export function DmView({ dmId }: { dmId: string }) {
   const routeReady = historyAllowed && !navigationBlocked && !loadingOwnership.fullFramePending
     && !loadingOwnership.missingPeer && !!dm
   useEffect(() => {
-    if (!routeReady) return
+    if (!routeCommitted || !routeReady) return
     commitCommunityChannelRoute(currentUser.id, null, dmId)
-  }, [currentUser.id, dmId, routeReady])
+  }, [currentUser.id, dmId, routeCommitted, routeReady])
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "dm",
     channelId: dmId,
-  }, routeReady)
+  }, routeCommitted && routeReady)
 
   if (!dm && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError && metadata.status !== "retryable-error") {
     return <DmLoadingFrame reserveBackSlot />

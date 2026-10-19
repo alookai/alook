@@ -56,13 +56,7 @@ export function renderMessageListView(
             data-read-position-ready={controller.readPositionReady ? "true" : "false"}
             aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
             inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
-            className={`${props.messages.length === 0 ? "flex min-h-full flex-col justify-end pt-8" : ""} pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) ${
-              controller.initialPosition.phase === "revealing" && controller.initialPosition.contentVisible
-                ? "opacity-100 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
-                : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-0"
-            }`}
+            className={`${props.messages.length === 0 ? "flex min-h-full flex-col justify-end pt-8" : ""} pl-(--community-composer-inline-start) pr-(--community-composer-inline-end)`}
           >
           {props.messages.length === 0 && props.initialLoadError ? (
             <ConversationResolutionErrorFrame as="div" retrying={!!props.retryingInitialLoad}
@@ -81,23 +75,7 @@ export function renderMessageListView(
           )}
           </div>
         </div>
-        {!controller.initialPosition.showSkeleton && (
-          !controller.initialPosition.contentVisible || controller.initialPosition.phase === "revealing"
-        ) && (
-          <div
-            aria-hidden="true"
-            data-message-positioning-skeleton
-            className={`pointer-events-none absolute inset-0 z-20 flex flex-col overflow-hidden bg-(--app-bg) ${
-              controller.initialPosition.contentVisible
-                ? "opacity-0 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
-                : "opacity-100"
-            }`}
-          >
-            <div className="flex min-h-full flex-col justify-end pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) pt-8">
-              <MessageListSkeletonContent variant={props.variant} />
-            </div>
-          </div>
-        )}
+
       </div>
     </div>
   )

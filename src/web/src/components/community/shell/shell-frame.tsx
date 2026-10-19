@@ -364,6 +364,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     <ShellFrameView
       breakpoint={breakpoint}
       checkpoint={checkpoint}
+      routeCommitted={isPublishedNonStructuralCommit(committedFrame, navigation.publishedHref, navigation.pendingHref ?? navigation.publishedHref)}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
       rail={rail}

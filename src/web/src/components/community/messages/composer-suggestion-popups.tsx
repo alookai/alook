@@ -21,6 +21,8 @@ import type {
   MentionPopupState,
 } from "@/lib/community/mention-extension"
 
+import type { MentionCandidateSource } from "./composer-types"
+
 const POPUP_WIDTH = 256
 const POPUP_MAX_HEIGHT = 240
 
@@ -39,11 +41,14 @@ function scrollSelectedRowIntoView(list: HTMLDivElement | null): void {
 export function CommunityMentionList({
   state,
   presentation,
+  pagination,
 }: {
   state: MentionPopupState
   presentation: MentionCandidatePresentation
+  pagination?: MentionCandidateSource
 }) {
   const listRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
   const { items, selectedIndex, command, getRect } = state
   const geometry = useAnchoredPopover(
     getRect,
@@ -52,6 +57,19 @@ export function CommunityMentionList({
   useEffect(() => {
     scrollSelectedRowIntoView(listRef.current)
   }, [selectedIndex, geometry])
+  useEffect(() => {
+    const root = listRef.current
+    const sentinel = sentinelRef.current
+    if (!geometry || !command || !root || !sentinel || !pagination?.hasMore
+      || pagination.loading || pagination.loadingMore || pagination.failed
+      || presentation.status === "loading" || !pagination.loadMore) return
+    let active = true
+    const observer = new IntersectionObserver((entries) => {
+      if (active && entries.some(entry => entry.isIntersecting)) pagination.loadMore?.()
+    }, { root, rootMargin: "100px" })
+    observer.observe(sentinel)
+    return () => { active = false; observer.disconnect() }
+  }, [geometry, command, pagination, presentation.status])
   if (!geometry || !command) return null
 
   const firstMemberIndex = items.findIndex((item) => item.kind === "member")
@@ -84,6 +102,11 @@ export function CommunityMentionList({
             onSelect={() => command({ id: item.id, label: item.label })}
           />
         ))}
+        {pagination?.hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
+        {pagination?.failed && pagination.retry && (
+          <button type="button" className="h-11 w-full text-sm sm:h-9"
+            onMouseDown={event => event.preventDefault()} onClick={pagination.retry}>Retry</button>
+        )}
         {presentation.status !== "ready" && (
           <MentionStatus status={presentation.status} hasItems={items.length > 0} />
         )}

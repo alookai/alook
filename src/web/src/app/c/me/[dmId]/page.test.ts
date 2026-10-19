@@ -40,7 +40,7 @@ describe("DM page loading ownership", () => {
 
   it("owns lazy channel-directory state and retry inside the keyed DM view", () => {
     const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
-    expect(source).toContain("export function DmView({ dmId }")
+    expect(source).toContain("export function DmView({ dmId, routeCommitted")
     expect(source).toContain("useChannelRefDirectory(channelRefDirectoryEnabled)")
     expect(source).toContain("loading: !channelRefDirectoryResolved")
     expect(source).toContain("failed: channelRefDirectoryError")

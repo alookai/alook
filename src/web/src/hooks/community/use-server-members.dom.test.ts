@@ -466,7 +466,7 @@ describe("useServerMembers search lifecycle", () => {
       expect(apiFetchMock).not.toHaveBeenCalled()
     } finally { restore.resolve(); renderer.unmount(); await registry.cleanup(); queryClient.clear() }
   })
-  it("debounces the first page, serially appends continuation pages, and ignores duplicate search calls", async () => {
+  it("debounces once, leaves the first page ready, and appends only requested continuation pages", async () => {
     vi.useFakeTimers()
     const first = deferred<{ members: Member[]; hasMore: boolean; cursor?: string; limit: number }>()
     const second = deferred<{ members: Member[]; hasMore: boolean; cursor?: string; limit: number }>()
@@ -501,8 +501,13 @@ describe("useServerMembers search lifecycle", () => {
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       members: [m("a"), m("b")],
-      searchStatus: "loading-more",
+      searchStatus: "ready",
+      hasMore: true,
+      loadingMore: false,
     })
+    expect(apiFetchMock.mock.calls.filter(([url]) => isSearchUrl(url))).toHaveLength(1)
+    await act(async () => { harness.resultRef.current!.loadMore(); await vi.advanceTimersByTimeAsync(1) })
+    expect(harness.resultRef.current!.loadingMore).toBe(true)
     expect(apiFetchMock.mock.calls.filter(([url]) => isSearchUrl(url))).toEqual([
       ["/api/community/servers/srv_1/members/search?q=ad", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) })],
       ["/api/community/servers/srv_1/members/search?cursor=cur_2&q=ad", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) })],
@@ -611,6 +616,8 @@ describe("useServerMembers search lifecycle", () => {
     first.resolve({ members: [m("a")], hasMore: true, cursor: "next", limit: 50 })
     await flushEffects()
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(searchCall).toBe(1)
+    await act(async () => harness.resultRef.current!.loadMore())
     expect(searchCall).toBe(2)
     continuation.reject(new Error("current failure"))
     await flushEffects()

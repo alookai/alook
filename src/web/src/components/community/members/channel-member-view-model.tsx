@@ -292,6 +292,7 @@ export function useChannelMemberViewModel({
           searchQuery: membersHook.searchQuery,
           searchStatus: membersHook.searchStatus,
           loadMore: membersHook.loadMore,
+          retry: membersHook.refresh,
           search: membersHook.searchMembers,
         },
     [
@@ -301,6 +302,7 @@ export function useChannelMemberViewModel({
       membersHook.failed,
       membersHook.hasMore,
       membersHook.loadMore,
+      membersHook.refresh,
       membersHook.loading,
       membersHook.loadingMore,
       membersHook.searchMembers,
@@ -325,6 +327,11 @@ export function useChannelMemberViewModel({
       }
     : undefined
 
+  const searchLocalMembers = useCallback((query: string) => {
+    setMemberUi(current => current.channelId === channelId && current.query === query ? current
+      : { channelId, query, dialogOpen: current.channelId === channelId && current.dialogOpen })
+  }, [channelId, setMemberUi])
+
   const memberPanelProps: ChannelMemberPanelProps = {
     memberScopeId: `${serverId}:${channelId}`,
     members: panelMembers,
@@ -333,7 +340,7 @@ export function useChannelMemberViewModel({
     membersHasMore: scopedDrawer ? false : membersHook.hasMore,
     onLoadMoreMembers: scopedDrawer ? undefined : membersHook.loadMore,
     onSearchMembers: scopedDrawer
-      ? (query) => setMemberUi({ channelId, query, dialogOpen: manageMembersOpen })
+      ? searchLocalMembers
       : membersHook.searchMembers,
     onAddMember: scopedDrawer
       ? () => setMemberUi({ channelId, query: memberQuery, dialogOpen: true })
