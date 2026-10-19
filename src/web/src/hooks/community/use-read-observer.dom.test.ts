@@ -446,7 +446,7 @@ describe("useTimelineReadObserver", () => {
     const row = makeRow("message-4")
     const root = makeRoot([row])
     const parent = document.createElement("section")
-    parent.setAttribute("data-mobile-back-parent", "")
+    parent.setAttribute("data-thread-parent", "")
     parent.setAttribute("inert", "")
     parent.append(root)
     useTestRender({ scrollRootEl: root })

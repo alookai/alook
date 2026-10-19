@@ -21,18 +21,11 @@ const owners = new WeakMap<Document, Set<Registration>>()
 const registrations = new WeakMap<BackOwner, Registration>()
 let order = 0
 
-export const NATIVE_BACK_OWNER_CHANGE_EVENT = "alook:native-back-owner-change"
-
-function changed(document: Document) {
-  document.dispatchEvent(new Event(NATIVE_BACK_OWNER_CHANGE_EVENT))
-}
-
 function release(owner: BackOwner, element?: HTMLElement) {
   const current = registrations.get(owner)
   if (!current || (element && current.element !== element)) return
   owners.get(current.element.ownerDocument)?.delete(current)
   registrations.delete(owner)
-  changed(current.element.ownerDocument)
 }
 
 function activate(owner: BackOwner, element: HTMLElement, request: () => BackResult, eligible = () => true) {
@@ -51,7 +44,6 @@ function activate(owner: BackOwner, element: HTMLElement, request: () => BackRes
     owners.set(element.ownerDocument, active)
   }
   active.add(registration)
-  changed(element.ownerDocument)
 }
 
 function startClosing(owner: BackOwner, element: HTMLElement) {
@@ -68,7 +60,6 @@ function startClosing(owner: BackOwner, element: HTMLElement) {
   }
   current.element = element
   current.phase = "closing"
-  changed(element.ownerDocument)
 }
 
 function isDescendant(owner: BackOwner, parent: BackOwner) {
@@ -96,10 +87,6 @@ function topNativeBackOwner(document: Document) {
     }
   }
   return top
-}
-
-export function hasNativeBackOwner(document: Document): boolean {
-  return topNativeBackOwner(document) !== null
 }
 
 export function requestNativeBack(document: Document): BackResult {

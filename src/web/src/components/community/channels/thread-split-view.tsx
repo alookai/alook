@@ -30,8 +30,6 @@ const threadSplitLayoutStorage = {
 export function ThreadSplitView({
   split,
   layoutPending = false,
-  mobileBack = false,
-  preserveParent = false,
   parent,
   thread,
   conversationSubtype = "thread",
@@ -39,8 +37,6 @@ export function ThreadSplitView({
 }: {
   split: boolean
   layoutPending?: boolean
-  mobileBack?: boolean
-  preserveParent?: boolean
   parent: ReactNode
   thread: ReactNode
   conversationSubtype?: "unknown" | "text" | "forum" | "thread"
@@ -71,7 +67,6 @@ export function ThreadSplitView({
   return (
     <main
       data-testid={isThread ? tid.threadSplit : undefined}
-      data-mobile-back-thread={mobileBack || undefined}
       data-layout={layoutPending || resolvingParent ? "pending" : split ? "split" : "full"}
       data-layout-pending={layoutPending || undefined}
       data-community-conversation-subtype={conversationSubtype === "unknown" ? undefined : conversationSubtype}
@@ -91,7 +86,7 @@ export function ThreadSplitView({
         disabled={!split || resolvingParent}
         aria-hidden={resolvingParent || undefined}
         inert={resolvingParent || undefined}
-        className={cn("min-h-0 flex-1", resolvingParent && "invisible", !split && !mobileBack && !layoutPending && [
+        className={cn("min-h-0 flex-1", resolvingParent && "invisible", !split && !layoutPending && [
           "*:data-[layout-hidden=true]:flex-none!",
           "*:data-[layout-hidden=true]:w-0!",
           "*:data-[layout-hidden=true]:min-w-0!",
@@ -110,9 +105,9 @@ export function ThreadSplitView({
           data-layout-hidden={!split && !layoutPending || undefined}
           className="flex min-h-0 min-w-0 flex-col"
         >
-          {(split || layoutPending || mobileBack || preserveParent) && <section
+          {(split || layoutPending) && <section
             data-testid={tid.threadSplitParent}
-            data-mobile-back-parent
+            data-thread-parent
             inert={!split}
             aria-hidden={!split || undefined}
             aria-label="Parent conversation"

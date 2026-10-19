@@ -45,10 +45,6 @@ val exclusivePageStartedCallback = originalPageStartedCallback.replace(
     "if (interceptedState[url] == false)",
     "if (interceptedState[url] == false && !(view as RustWebView).isDocumentStartScriptEnabled)",
 )
-val scopedPageStartedCallback = exclusivePageStartedCallback.replace(
-    "        currentUrl = url",
-    "        (view.context as? ai.alook.android.MainActivity)?.onBackDocumentStarted(view)\n        currentUrl = url",
-)
 val pageLoadedCall = "        Rust.onPageLoaded((view as RustWebView).id, url)"
 val legacyAndSslRecoveryDispatch = "\n\n" + """
     @Suppress("DEPRECATION")
@@ -80,11 +76,10 @@ fun wireGeneratedWebViewRecovery(sourceFile: File) {
     if (listOf("handlePageCommitVisible", "handlePageStarted", "handlePageFinished").any(source::contains)) {
         throw GradleException("Stale Wry page-ready callback; regenerate RustWebViewClient")
     }
-    if (source.occurrencesOf(originalPageStartedCallback) + source.occurrencesOf(exclusivePageStartedCallback) + source.occurrencesOf(scopedPageStartedCallback) != 1) {
+    if (source.occurrencesOf(originalPageStartedCallback) + source.occurrencesOf(exclusivePageStartedCallback) != 1) {
         throw GradleException("Wry RustWebViewClient initialization callback changed")
     }
     source = source.replace(originalPageStartedCallback, exclusivePageStartedCallback)
-        .replace(exclusivePageStartedCallback, scopedPageStartedCallback)
     if (!source.contains(modernRecoveryDispatch)) {
         if (source.occurrencesOf(modernErrorMethod) != 1) {
             throw GradleException("Wry RustWebViewClient modern error callback changed")
@@ -104,7 +99,7 @@ fun wireGeneratedWebViewRecovery(sourceFile: File) {
 fun verifyGeneratedWebViewRecovery(sourceFile: File) {
     val source = sourceFile.readText()
     val required = listOf(
-        "exclusive remote initialization callback" to scopedPageStartedCallback,
+        "exclusive remote initialization callback" to exclusivePageStartedCallback,
         "modern main-frame recovery dispatch" to
             (modernErrorMethod + "\n" + modernRecoveryDispatch),
         "legacy recovery dispatch" to

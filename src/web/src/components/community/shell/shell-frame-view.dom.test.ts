@@ -793,10 +793,10 @@ describe("ShellFrameView", () => {
     const detailSidebar = renderer.container.querySelector(
       '[data-slot="community-sidebar-panel-content"]',
     )!
-    expect(detailSidebar).not.toHaveAttribute("hidden")
+    expect(detailSidebar).toHaveAttribute("hidden")
     expect(detailSidebar).toHaveAttribute("inert")
     expect(detailSidebar).toHaveAttribute("aria-hidden", "true")
-    expect(renderer.container.querySelector('[data-mobile-back-surface="detail"]'))
+    expect(renderer.container.querySelector('[data-slot="community-shell-root"]'))
       .not.toHaveAttribute("data-mobile-back-phase")
   })
 

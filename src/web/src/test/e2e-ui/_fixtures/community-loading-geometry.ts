@@ -317,7 +317,7 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
         }).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null))
         const retainedBackground = expectedSurface === "detail"
           ? Object.entries({
-              rail: ['[data-mobile-back-rail]', '[data-mobile-back-rail]'],
+              rail: ['[data-community-rail]', '[data-community-rail]'],
               sidebar: [hiddenPanel, '[data-slot="community-sidebar-panel-content"]'],
               userBar: ['[data-slot="community-user-bar-overlay"]', '[data-slot="community-user-bar-overlay"]'],
             }).flatMap(([module, [selector, guardSelector]]) => {
