@@ -7,7 +7,6 @@ import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import { useCommunityStore } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
 import { normalizeCommunityHref } from "@/lib/community/community-route"
-import { beginConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 import { useBotListController } from "../bots/bot-list-controller"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import { CommunityInviteCard } from "../social/community-invite-card"
@@ -128,16 +127,12 @@ describe("real navigation entry actions", () => {
       const old = deferred<string>()
       let oldResult!: Promise<boolean>
       act(() => { oldResult = view.navigation.resolveAndPush(() => old.promise) })
-      const proof = beginConversationNavigationProof(view.queryClient, {
-        href: "/c/me/old", viewerId: "viewer", channelId: "old", scopeKind: "dm",
-      }, 0)
       act(() => {
         if (entry === "bot DM") void view.bots.chatWithBot(bot)
         else if (entry === "guided DM") view.bots.openGuidedCreate()
         else if (entry === "created bot DM") void view.bots.onBotCreated(bot)
         else fireEvent.click(screen.getByRole("button", { name: entry === "invite Join" ? "Join" : "Friends DM" }))
       })
-      expect(proof.signal.aborted).toBe(true)
       expect(mocks.push).not.toHaveBeenCalled()
       await act(async () => {
         old.resolve("/c/me/old")
@@ -169,16 +164,12 @@ describe("real navigation entry actions", () => {
     },
   )
 
-  it("opening the bot creation dialog preserves the pending intent and proof", () => {
+  it("opening the bot creation dialog preserves the pending intent", () => {
     const view = renderEntries()
     act(() => view.navigation.push("/c/me/old"))
-    const proof = beginConversationNavigationProof(view.queryClient, {
-      href: "/c/me/old", viewerId: "viewer", channelId: "old", scopeKind: "dm",
-    }, 0)
     act(() => view.bots.openGuidedCreate())
     expect(view.bots.createOpen).toBe(true)
     expect(view.navigation.pendingHref).toBe("/c/me/old")
-    expect(proof.signal.aborted).toBe(false)
     expect(mocks.push).toHaveBeenCalledOnce()
   })
 })

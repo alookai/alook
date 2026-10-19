@@ -1,3 +1,6 @@
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { ANALYTICS_CONSENT_CHANGE_EVENT } from "@/lib/analytics-consent"
+import * as funnel from "@/lib/community/funnel-analytics"
 import { getCapturedRuntime } from "./community-ws/test-harness"
 /**
  * Root Community WebSocket boundary and transport-ownership tests.
@@ -272,4 +275,15 @@ describe("useCommunityWs — double-mount detection", () => {
       warnSpy.mockRestore()
     }
   })
+})
+
+it("requests inviter joins on current-account authentication and consent changes", async () => {
+  const joined = vi.spyOn(funnel, "drainInvitedHumanJoined").mockResolvedValue(undefined)
+  await mountHook({ viewerUserId: "u_me" })
+  await act(async () => { await capturedUseUserWsOptions?.onAuthenticated?.() })
+  expect(joined).toHaveBeenCalledWith(getCapturedRuntime().lifecycle)
+  const before = joined.mock.calls.length
+  fireEvent(window, new Event(ANALYTICS_CONSENT_CHANGE_EVENT))
+  expect(joined).toHaveBeenCalledTimes(before + 1)
+  expect(joined).toHaveBeenLastCalledWith(getCapturedRuntime().lifecycle)
 })

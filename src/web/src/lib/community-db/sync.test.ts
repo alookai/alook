@@ -21,6 +21,7 @@ import {
   ingestAttentionSnapshot,
   ingestMessages,
   ingestReadStateSnapshot,
+  publishCommunityConversationReadState,
   ingestServerDetail,
   ingestServers,
   installCommunityDbSync,
@@ -1435,6 +1436,27 @@ describe("community DB sync", () => {
       readStates: [],
     })
     expect(db.collections.readStateClock.get("account")?.revision).toBe(5)
+    expect(db.collections.readStates.get("c1")).toBeUndefined()
+  })
+
+  it("orders an entry pointer and full account snapshots by server revision while permitting deletion rollback", async () => {
+    const db = await registry()
+    const point = (seq: number) => ({ channelId: "c1", lastReadMessageId: seq ? `m${seq}` : null, lastReadAt: seq ? `at${seq}` : null, lastReadSeq: seq })
+    const publish = (seq: number, revision: number) => publishCommunityConversationReadState(db.queryClient, point(seq), revision, { token: captureCommunityLiveSnapshotToken(db.queryClient) })
+    expect(publish(10, 5)).toBe("published")
+    expect(db.collections.readStateClock.get("account")).toBeUndefined()
+    ingestReadStateSnapshot(db, { revision: 4, readStates: [{ ...point(20), lastReadAt: "at20" }] })
+    expect(db.collections.readStateClock.get("account")?.revision).toBe(4)
+    expect(db.collections.readStates.get("c1")).toMatchObject({ lastReadSeq: 10, observedRevision: 5 })
+    ingestReadStateSnapshot(db, { revision: 6, readStates: [{ ...point(8), lastReadAt: "at8" }] })
+    expect(db.collections.readStates.get("c1")).toMatchObject({ lastReadSeq: 8, observedRevision: 6 })
+    expect(publish(10, 5)).toBe("superseded")
+    expect(publish(0, 7)).toBe("published")
+    ingestReadStateSnapshot(db, { revision: 6, readStates: [] })
+    expect(db.collections.readStates.get("c1")).toMatchObject({ lastReadMessageId: null, lastReadSeq: 0, observedRevision: 7 })
+    ingestReadStateSnapshot(db, { revision: 8, readStates: [] })
+    expect(db.collections.readStates.get("c1")).toBeUndefined()
+    expect(publish(20, 7)).toBe("superseded")
     expect(db.collections.readStates.get("c1")).toBeUndefined()
   })
 

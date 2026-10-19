@@ -1,6 +1,11 @@
+import type { ReactNode } from "react"
 import { Maximize2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
+
+export function ThreadPanelActionsFrame({ children }: { children: ReactNode }) {
+  return <div data-thread-panel-actions className="flex shrink-0 items-center gap-1 border-l border-border/60 pl-1">{children}</div>
+}
 
 export function ThreadPanelActions({
   onFullscreen,
@@ -10,7 +15,7 @@ export function ThreadPanelActions({
   onClose: () => void
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-1 border-l border-border/60 pl-1">
+    <ThreadPanelActionsFrame>
       <Button
         type="button"
         variant="ghost"
@@ -35,6 +40,6 @@ export function ThreadPanelActions({
       >
         <X className="size-4" />
       </Button>
-    </div>
+    </ThreadPanelActionsFrame>
   )
 }

@@ -41,6 +41,27 @@ describe("GET /api/community/machines — provider quota", () => {
     vi.clearAllMocks()
   })
 
+  it("returns the list without requesting entitlement or quota observations", async () => {
+    const machines = [{ id: "machine", status: "online", availableRuntimes: [] }]
+    mockListMachinesForUser.mockResolvedValue(machines)
+    mockListMachineBackendQuotasForUser.mockImplementation(() => new Promise(() => {}))
+    const response = await GET(new NextRequest("http://localhost/api/community/machines?view=list"))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ machines })
+    expect(queries.productPlan.resolveMachinesMaxForUser).not.toHaveBeenCalled()
+    expect(mockListMachineBackendQuotasForUser).not.toHaveBeenCalled()
+    expect(mockListMachinesForUser).toHaveBeenCalledWith(expect.anything(), "u1")
+  })
+
+  it("keeps optional observations separate from the machine entity list", async () => {
+    mockListMachinesForUser.mockResolvedValue([{ id: "machine", status: "online", availableRuntimes: [] }])
+    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map())
+    const response = await GET(new NextRequest("http://localhost/api/community/machines?view=observations"))
+    const body = await response.json()
+    expect(body).not.toHaveProperty("machines")
+    expect(body).toMatchObject({ machineCapacity: { ownedCount: 1, onlineCount: 1 }, quotas: [{ machineId: "machine", quota: [] }] })
+  })
+
   it.each(["available", "error", "pending"] as const)("reports supported Antigravity quota with a %s snapshot", async (status) => {
     const observedAt = new Date().toISOString()
     const limits = [{

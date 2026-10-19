@@ -19,6 +19,15 @@
   animation: avatar-travel var(--avatar-duration) var(--avatar-delay) linear forwards;
 }
 
+.runner:has(img[data-remote-image-state]:not([data-remote-image-state="ready"])) {
+  visibility: hidden;
+  animation-play-state: paused;
+}
+
+.runner:has(img[data-remote-image-state]:not([data-remote-image-state="ready"])) :is(.face, .shadow) {
+  animation-play-state: paused;
+}
+
 .face,
 .shadow {
   position: absolute;

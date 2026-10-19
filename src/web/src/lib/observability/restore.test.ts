@@ -17,6 +17,7 @@ describe("restore observation admission", () => {
     const decoded = observeRestoreDecode(persister, () => data, "current", 10000)
     hydrate(client, decoded.clientState); observeHydration(persister)
     expect(events.filter(event => event.name === "cache.restore.finish").map(event => event.attributes.outcome)).toEqual(["hit", "hit", "success"])
+    expect(events.filter(event => event.name === "cache.restore.finish").map(event => event.attributes.phase)).toEqual(["idb_read", "deserialize", "restore_apply"])
     expect(JSON.stringify(events)).not.toContain("private")
   })
   it("does not emit a late read, decode or hydrate into a regranted account session", async () => {

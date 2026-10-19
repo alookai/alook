@@ -98,7 +98,7 @@ export const messageSchema = z.discriminatedUnion("resourceComplete", [
   }),
 ])
 
-export const readStateSchema = CommunityReadStateResourceSchema.strip()
+export const readStateSchema = CommunityReadStateResourceSchema.strip().extend({ observedRevision: z.number().int().nonnegative().optional() })
 
 export const friendshipSchema = z.object({
   id: z.string().min(1),

@@ -1,3 +1,4 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { seedCanonicalFocusedChannel } from "./test-harness"
 import { act } from "@/test/react-dom-harness"
 import { getCapturedRuntime, seedCanonicalStream, seedCanonicalMessages, canonicalMessage } from "./test-harness"
@@ -159,8 +160,8 @@ describe("useCommunityWs — message.create", () => {
     seedCanonicalForumSidebar("srv_1")
     expect(hasCanonicalChannel("post_live")).toBe(false)
     getCommunityApiFetchMock().mockImplementation(async (url: string) => {
-      if (url === "/api/community/channels/post_live") {
-        return { categoryId: null, topic: "", position: 0, messageCount: 0,
+      if (url === "/api/community/channels/post_live/messages?entry=1") {
+        return conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
           id: "post_live",
           serverId: "srv_1",
           name: "Live post",
@@ -171,7 +172,7 @@ describe("useCommunityWs — message.create", () => {
           archived: false,
           lastMessageAt: "2026-07-01T00:00:00.000Z",
           createdAt: "2026-07-02T00:00:00.000Z",
-        }
+        }, "u_me")
       }
       if (url === "/api/community/users/me/read-state") {
         return { revision: 0, readStates: [] }
@@ -190,7 +191,7 @@ describe("useCommunityWs — message.create", () => {
       .find((channel) => channel.id === "post_live")?.lastMessageAt)
       .toBe("2026-07-03T00:00:00.000Z")
     expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
-      "/api/community/channels/post_live",
+      "/api/community/channels/post_live/messages?entry=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function), authenticationAccount: "u_me" }),
     )
 
@@ -201,7 +202,7 @@ describe("useCommunityWs — message.create", () => {
       parentChannelId: "forum_1",
     } satisfies CommunityMessageCreate)
     await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
-      "/api/community/channels/post_unavailable",
+      "/api/community/channels/post_unavailable/messages?entry=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function), authenticationAccount: "u_me" }),
     ))
     expect(hasCanonicalChannel("post_unavailable")).toBe(false)

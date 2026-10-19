@@ -3,6 +3,7 @@ import { resolveTargetForMember, type TargetResolution } from "./resolve-ref"
 import {
   requireMessageSurfaceAccess,
   requireMessageSurfaceCommunicationAccess,
+  type MessageSurfaceAccess,
 } from "./permissions"
 import { requireMessageBearingSurface } from "./channel-write-guard"
 import { type MessageTarget } from "./message-handler"
@@ -48,6 +49,7 @@ export type DoorTarget = {
   target: MessageTarget
   /** True when the resolved surface is a DM — callers pass this to enrichMessages. */
   isDm: boolean
+  access: MessageSurfaceAccess
 }
 
 /**
@@ -140,6 +142,7 @@ export async function resolveMessageTarget(
     return ok({
       target: { kind: "dm", channelId, otherUserId: access.value.dm.otherUserId },
       isDm: true,
+      access: access.value,
     })
   }
 
@@ -162,5 +165,5 @@ export async function resolveMessageTarget(
       ? { kind: "forum", channelId, serverId: channel.serverId }
       : { kind: "channel", channelId, serverId: channel.serverId }
 
-  return ok({ target, isDm: false })
+  return ok({ target, isDm: false, access: access.value })
 }

@@ -361,6 +361,19 @@ export async function getAccountReadStateSnapshot(db: Database, userId: string) 
   return { revision: revisionRows[0]?.revision ?? 0, readStates };
 }
 
+export async function getChannelReadStateSnapshot(db: Database, target: { userId: string; channelId: string }) {
+  const [revisionRows, readStates] = await db.batch([
+    accountReadStateRevisionBuilder(db, target.userId),
+    db.select({
+      channelId: communityReadState.channelId,
+      lastReadMessageId: communityReadState.lastReadMessageId,
+      lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
+    }).from(communityReadState).where(buildTargetFilter(target)).limit(1),
+  ]) as unknown as [Array<{ revision: number }>, AccountReadState[]];
+  return { revision: revisionRows[0]?.revision ?? 0, readState: readStates[0] ?? null };
+}
+
 export type ReadStateAdvance = {
   channelId: string;
   lastReadMessageId: string;

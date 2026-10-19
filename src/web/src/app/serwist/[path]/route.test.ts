@@ -33,13 +33,13 @@ describe("public service worker route", () => {
     expect(options.useNativeEsbuild).toBe(true)
     expect(options.globPatterns).toEqual([
       ".next/static/chunks/**/*.{js,css}",
-      ".next/static/media/*.{woff,woff2}",
-      "public/alook.svg",
-      "public/official-server-badge-flat.svg",
-      "public/apple-touch-icon.png",
-      "public/icon-192.png",
-      "public/icon-512.png",
+      ".next/static/media/**/*.{woff,woff2,ttf,png,jpg,jpeg,webp,svg,ico}",
+      ".next/static/media/pdf.worker.min.*.mjs",
+      ".next/static/*/_{buildManifest,clientMiddlewareManifest,ssgManifest}.js",
+      "public/**/*.{svg,png,jpg,jpeg,webp,ttf,json}",
+      "src/app/favicon.ico",
     ])
+    expect(options.modifyURLPrefix).toEqual({ "src/app/favicon.ico": "/favicon.ico" })
     expect(options.maximumFileSizeToCacheInBytes).toBe(10 * 1024 * 1024)
     expect(options.esbuildOptions).toEqual({
       format: "iife", sourcemap: false,
@@ -53,13 +53,21 @@ describe("public service worker route", () => {
       ".next/static/chunks/app-a.js",
       ".next/static/chunks/styles-a.css",
       ".next/static/media/font-a.woff2",
+      ".next/static/media/pdf.worker.min.35m0adryw15hm.mjs",
+      ".next/static/PGQscKRC0WsRFC5mS4zSH/_buildManifest.js",
+      ".next/static/PGQscKRC0WsRFC5mS4zSH/_clientMiddlewareManifest.js",
+      ".next/static/PGQscKRC0WsRFC5mS4zSH/_ssgManifest.js",
+      "/favicon.ico",
+      "public/manifest.json",
+      "public/fonts/jgs5/jgs5.ttf",
+      "public/contact/gus-photo.jpeg",
       "public/alook.svg",
       "public/official-server-badge-flat.svg",
       "public/apple-touch-icon.png",
       "public/icon-192.png",
       "public/icon-512.png",
     ]
-    const publicEntries = urls.map((url, i) => ({ url, revision: `public-${i}` }))
+    const publicEntries = urls.map((url, i) => ({ url, revision: `public-${i}`, size: i + 1 }))
     const excluded = [
       "public/sw.js", "public/unknown.png", "public/avatar.png",
       ".next/server/app/c.html", ".next/server/app/c.rsc",
@@ -67,7 +75,11 @@ describe("public service worker route", () => {
       "/api/community/servers/server-a/avatar?v=1", "/api/files/private-a",
       "https://other.test/_next/static/chunks/app-a.js",
       ".next/static/chunks/app-a.js?account=a",
-    ].map((url, i) => ({ url, revision: `excluded-${i}` }))
+      ".next/static/media/other-worker.mjs",
+      ".next/static/media/pdf.worker.min.mjs",
+      ".next/static/PGQscKRC0WsRFC5mS4zSH/unknown.js",
+      ".next/static/private/nested/_buildManifest.js",
+    ].map((url, i) => ({ url, revision: `excluded-${i}`, size: i + 1 }))
     const transform = options.manifestTransforms![0]
     const result = await transform([...publicEntries, ...excluded])
     expect(result).toEqual({ manifest: publicEntries, warnings: [] })

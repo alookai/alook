@@ -122,7 +122,7 @@ export function useShellDaemonUpdateController({
 
   useEffect(() => {
     if (!latestDaemonVersion || !parseReleaseVersion(latestDaemonVersion)) return
-    if (!machines.isSuccess) return
+    if (!machines.isSuccess || machines.data?.complete === false || machines.data?.observed === false) return
     if (eligibleMachineIds.length === 0) {
       writeCollapsed(userId, latestDaemonVersion, false)
       dispatch({ type: "update.clear" })
@@ -137,7 +137,7 @@ export function useShellDaemonUpdateController({
       return
     }
     dispatch({ type: "update.eligibility", eligibleMachineIds })
-  }, [dispatch, eligibleMachineIds, latestDaemonVersion, machines.isSuccess, update, userId])
+  }, [dispatch, eligibleMachineIds, latestDaemonVersion, machines.data?.complete, machines.data?.observed, machines.isSuccess, update, userId])
 
   const collapse = useCallback(() => {
     if (!latestDaemonVersion || !extensionState.update) return

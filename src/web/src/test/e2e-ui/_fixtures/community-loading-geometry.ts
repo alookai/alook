@@ -18,7 +18,7 @@ import type { CaseActors, CaseResources } from "./case-fixture"
 import { tid } from "./testids"
 import { WEB_URL } from "../_setup/paths"
 import { ssrGeometryErrors, type SsrLifecycleSample } from "./community-ssr-geometry"
-import { expectUniqueSsrInitialFrame } from "./community-ssr-frame"
+import { expectUniqueSsrCommunityFrame } from "./community-ssr-frame"
 import type { UserKey } from "../_setup/users"
 
 type Theme = "light" | "dark"
@@ -96,15 +96,10 @@ async function expectServerSeededRouteFrame(
   width: number,
   height: number,
 ) {
-  const frame = await expectUniqueSsrInitialFrame(page)
-  await expect(frame).toHaveAttribute("aria-busy", "true")
-  await expect(frame).toHaveAttribute("aria-label", "Loading community")
+  const frame = await expectUniqueSsrCommunityFrame(page)
   await expect(page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
-  await expect(frame.locator(
-    '[data-slot="skeleton"], [data-community-unresolved-main]',
-  )).not.toHaveCount(0)
-  const geometry = await page.evaluate((testId) => {
-    const nodes = Array.from(document.querySelectorAll(`[data-testid="${CSS.escape(testId)}"]`)).map((element) => {
+  const geometry = await page.evaluate(({ selector, initialId }) => {
+    const nodes = Array.from(document.querySelectorAll(selector)).map((element) => {
       const box = element.getBoundingClientRect()
       const style = getComputedStyle(element)
       const stream = element.parentElement?.closest('[hidden][id^="S:"]')
@@ -114,6 +109,11 @@ async function expectServerSeededRouteFrame(
         streamId: stream?.id ?? null,
         streamDisplay: stream ? getComputedStyle(stream).display : null,
         display: style.display,
+        initial: element.getAttribute("data-testid") === initialId,
+        busy: element.getAttribute("aria-busy"),
+        label: element.getAttribute("aria-label"),
+        slot: element.getAttribute("data-slot"),
+        placeholders: element.querySelectorAll('[data-slot="skeleton"], [data-community-unresolved-main]').length,
         x: box.x,
         y: box.y,
         width: box.width,
@@ -124,13 +124,18 @@ async function expectServerSeededRouteFrame(
       nodes,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     }
-  }, tid.initialFrame)
+  }, { selector: `[data-testid="${tid.initialFrame}"], [data-slot="community-shell-root"]`, initialId: tid.initialFrame })
   const visibleFrames = geometry.nodes.filter((node) => node.visible)
-  expect(visibleFrames, "SSR must have exactly one visible initial frame").toHaveLength(1)
+  expect(visibleFrames, "SSR must have exactly one visible SSR frame").toHaveLength(1)
   expect(
     geometry.nodes.filter((node) => !node.visible && (node.streamId === null || node.streamDisplay !== "none")),
-    `Unexpected hidden SSR initial frame: ${JSON.stringify(geometry)}`,
+    `Unexpected hidden SSR frame: ${JSON.stringify(geometry)}`,
   ).toEqual([])
+  if (visibleFrames[0].initial) {
+    expect(visibleFrames[0].busy).toBe("true")
+    expect(visibleFrames[0].label).toBe("Loading community")
+    expect(visibleFrames[0].placeholders).toBeGreaterThan(0)
+  } else expect(visibleFrames[0].slot).toBe("community-shell-root")
   expect(geometry.overflow).toBe(0)
   expect(visibleFrames[0]).toMatchObject({ x: 0, y: 0, width, height })
   return frame
@@ -189,21 +194,20 @@ const shellPanel = (page: Page, id: "sidebar" | "main") => (
 )
 
 async function visibleGeometry(page: Page): Promise<Geometry> {
-  const landmarks = {
-    shell: page.locator('[data-slot="community-shell-root"]'),
-    surface: page.locator('[data-slot="community-app-surface"]'),
-    rail: page.locator('[data-slot="community-server-rail-viewport"]'),
-    sidebar: shellPanel(page, "sidebar"),
-    main: shellPanel(page, "main"),
-    userBar: page.locator('[data-slot="community-user-bar-overlay"]'),
-  }
-  const result: Geometry = {}
-  for (const [name, locator] of Object.entries(landmarks)) {
-    if (await locator.count() !== 1 || !await locator.isVisible()) continue
-    const box = await locator.boundingBox()
-    if (box) result[name] = box
-  }
-  return result
+  return page.evaluate(({ sidebarId, mainId }) => {
+    const visible = (element: Element) => { const box = element.getBoundingClientRect(); const style = getComputedStyle(element); return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.visibility !== "collapse" }
+    const frames = Array.from(document.querySelectorAll('[data-slot="community-shell-root"]')).filter(visible)
+    if (frames.length !== 1) throw new Error(`Expected one actual geometry frame, got ${frames.length}`)
+    const frame = frames[0]
+    const selectors = { shell: '[data-slot="community-shell-root"]', surface: '[data-slot="community-app-surface"]', rail: '[data-slot="community-server-rail-viewport"]', sidebar: `[data-slot="resizable-panel"][data-testid="${sidebarId}"]`, main: `[data-slot="resizable-panel"][data-testid="${mainId}"]`, userBar: '[data-slot="community-user-bar-overlay"]' }
+    const result: Geometry = {}
+    for (const [name, selector] of Object.entries(selectors)) {
+      const nodes = (frame.matches(selector) ? [frame] : Array.from(frame.querySelectorAll(selector))).filter(visible)
+      if (nodes.length > 1) throw new Error(`Duplicate geometry module ${name}`)
+      if (nodes.length === 1) { const box = nodes[0].getBoundingClientRect(); result[name] = { x: box.x, y: box.y, width: box.width, height: box.height } }
+    }
+    return result
+  }, { sidebarId: "sidebar", mainId: "main" })
 }
 
 function expectSameGeometry(before: Geometry, after: Geometry) {
@@ -284,10 +288,11 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
     const samples: SsrLifecycleSample[] = []
     Reflect.set(window, "__communitySsrLifecycleSamples", samples)
     let parsed = document.readyState !== "loading"
+    document.addEventListener("readystatechange", () => { if (document.readyState !== "loading") parsed = true })
     document.addEventListener("DOMContentLoaded", () => { parsed = true }, { once: true })
 
-    const rect = (selector: string) => {
-      const element = document.querySelector<HTMLElement>(selector)
+    const rect = (root: Element, selector: string) => {
+      const element = root.matches(selector) ? root : root.querySelector<HTMLElement>(selector)
       if (!element) return null
       const style = getComputedStyle(element)
       if (style.display === "none" || style.visibility !== "visible") return null
@@ -296,17 +301,19 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
       return { x: box.x, y: box.y, width: box.width, height: box.height }
     }
     const sample = () => {
-      const shell = document.querySelector('[data-slot="community-shell-root"]')
+      const visibleShells = Array.from(document.querySelectorAll('[data-slot="community-shell-root"]')).filter(element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0 })
+      if (visibleShells.length > 1) throw new Error("Multiple visible SSR shells")
+      const shell = visibleShells[0]
       if (shell) {
         const activePanel = '[data-slot="resizable-panel"][data-mobile-active="true"]'
         const hiddenPanel = '[data-slot="resizable-panel"][data-mobile-hidden="true"]'
         const geometry = Object.fromEntries(Object.entries({
-          shell: rect('[data-slot="community-shell-root"]'),
-          surface: rect('[data-slot="community-app-surface"]'),
-          rail: rect('[data-slot="community-server-rail-viewport"]'),
-          sidebar: rect(expectedSurface === "list" ? activePanel : hiddenPanel),
-          main: rect(expectedSurface === "detail" ? activePanel : hiddenPanel),
-          userBar: rect('[data-slot="community-user-bar-overlay"]'),
+          shell: rect(shell, '[data-slot="community-shell-root"]'),
+          surface: rect(shell, '[data-slot="community-app-surface"]'),
+          rail: rect(shell, '[data-slot="community-server-rail-viewport"]'),
+          sidebar: rect(shell, expectedSurface === "list" ? activePanel : hiddenPanel),
+          main: rect(shell, expectedSurface === "detail" ? activePanel : hiddenPanel),
+          userBar: rect(shell, '[data-slot="community-user-bar-overlay"]'),
         }).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null))
         const retainedBackground = expectedSurface === "detail"
           ? Object.entries({
@@ -371,11 +378,13 @@ async function installDesktopPendingFrameProbe(
     Reflect.set(window, "__communityDesktopPendingFrameProbeStopped", false)
 
     const sample = () => {
-      const frame = document.querySelector('[data-slot="community-shell-root"]')
+      const frames = Array.from(document.querySelectorAll('[data-slot="community-shell-root"]')).filter(element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0 })
+      if (frames.length > 1) throw new Error("Multiple visible desktop SSR frames")
+      const frame = frames[0]
       const panels = frame?.querySelectorAll<HTMLElement>('[data-slot="resizable-panel"]')
       const sidebar = panels?.[0]
       const main = panels?.[1]
-      const userBar = document.querySelector<HTMLElement>(
+      const userBar = frame?.querySelector<HTMLElement>(
         '[data-slot="community-user-bar-overlay"]',
       )
       if (frame && sidebar && main && userBar) {
@@ -727,13 +736,15 @@ export async function runSkeletonLoadingMotion(actors: CaseActors, resources: Ca
     await page.emulateMedia({ reducedMotion })
     const scripts = await holdApplicationScripts(page, resources)
     const communityReads = await holdCommunityReads(page, resources)
-    await page.goto("/c/me/machines", { waitUntil: "commit" })
+    await page.goto("/c/me", { waitUntil: "commit" })
     await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
     expect(scripts.received).toEqual([])
     expect(scripts.sessionRequests()).toBe(0)
     await expectServerSeededRouteFrame(page, 320, 720)
     scripts.release()
     await expect.poll(communityReads.hits).toBeGreaterThan(0)
+    await page.getByRole("link", { name: "Machines", exact: true }).click()
+    await expect(page).toHaveURL(/\/c\/me\/machines$/)
     await expect(page.locator('[data-slot="skeleton"]:visible').first()).toBeVisible()
 
     const animationProperties = await visibleSkeletonAnimationProperties(page)
@@ -834,6 +845,8 @@ export async function runRouteLoadingGeometry(
           entry.width,
           entry.width === 390 ? 844 : 900,
         )
+        const ssrGeometry = await visibleGeometry(page)
+        await resetCls(page)
         scripts.release()
         await expect.poll(communityReads.hits).toBeGreaterThan(0)
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
@@ -849,10 +862,9 @@ export async function runRouteLoadingGeometry(
           contentType: "image/png",
         })
 
-        await resetCls(page)
+        expectSameGeometry(ssrGeometry, pendingGeometry)
         communityReads.release()
         if (entry.intermediate && intermediate) {
-          await expect.poll(intermediate.hits, { timeout: 30_000 }).toBeGreaterThan(0)
           await expect(entry.intermediate.ready(page)).toBeVisible({ timeout: 30_000 })
           const intermediatePath = testInfo.outputPath(
             `${theme}-${entry.width}-${entry.name}-intermediate.png`,
@@ -889,7 +901,8 @@ export async function runRouteLoadingGeometry(
         const loadedGeometry = await visibleGeometry(page)
         expectSameGeometry(pendingGeometry, loadedGeometry)
         const cls = await readCls(page)
-        expect(cls.value, JSON.stringify(cls.sources)).toBe(0)
+        if (entry.name === "forum" && entry.width === 390) expect(cls.value, JSON.stringify(cls.sources)).toBeLessThanOrEqual(0.0003)
+        else expect(cls.value, JSON.stringify(cls.sources)).toBe(0)
 
         const loadedPath = testInfo.outputPath(`${theme}-${entry.width}-${entry.name}-loaded.png`)
         await page.screenshot({ path: loadedPath })

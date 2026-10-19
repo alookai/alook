@@ -1,4 +1,4 @@
-import { isPublicWorkerCacheName, publicWorkerCacheNames } from "./cache-identity"
+import { isPublicWorkerCacheName, isPublicWorkerRuntimeCacheName, publicWorkerCacheNames, publicWorkerRuntimeCacheNames } from "./cache-identity"
 
 function assertRead(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException("Cancelled public cache read", "AbortError")
@@ -25,7 +25,15 @@ export async function getPublicWorkerCacheSizeBytes(signal?: AbortSignal): Promi
 async function deletePublicWorkerCaches(keep: (name: string) => boolean): Promise<void> {
   if (typeof caches === "undefined") return
   const names = await caches.keys()
-  const results = await Promise.allSettled(names.filter(name => isPublicWorkerCacheName(name) && !keep(name)).map(name => caches.delete(name)))
+  const deletedNames = names.filter(name => isPublicWorkerCacheName(name) && !keep(name))
+  const metadataNames = new Set([...deletedNames.filter(isPublicWorkerRuntimeCacheName), ...Object.values(publicWorkerRuntimeCacheNames()).filter(name => !keep(name))])
+  const results = await Promise.allSettled([
+    ...deletedNames.map(name => caches.delete(name)),
+    ...[...metadataNames].map(async name => {
+      const { CacheExpiration } = await import("serwist")
+      return new CacheExpiration(name, { maxEntries: Number.POSITIVE_INFINITY }).delete()
+    }),
+  ])
   for (const result of results) if (result.status === "rejected") throw result.reason
 }
 

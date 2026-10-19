@@ -107,129 +107,72 @@ test.describe("direct messages", () => {
       }
     })
 
-    let releaseMetadata!: () => void
-    let metadataStarted!: () => void
-    let metadataFinished!: () => void
-    const metadataGate = new Promise<void>(resolve => { releaseMetadata = resolve })
-    caseResources.own(releaseMetadata, async (captured) => { captured() })
-    const metadataRequest = new Promise<void>(resolve => { metadataStarted = resolve })
-    caseResources.own(metadataStarted, async (captured) => { captured() })
-    const metadataSettled = new Promise<void>(resolve => { metadataFinished = resolve })
-    caseResources.own(metadataFinished, async (captured) => { captured() })
-    const metadataPattern = (url: URL) => url.pathname === `/api/community/channels/${dmId}`
-    await alice.page.route(metadataPattern, async route => {
+    await alice.page.goto("/c/me/friends")
+    await expect(alice.page.getByTestId(tid.dmRow(dmId))).toBeVisible()
+    let releaseEntry!: () => void
+    let entryFinished!: () => void
+    const entryGate = new Promise<void>(resolve => { releaseEntry = resolve })
+    caseResources.own(releaseEntry, async (captured) => { captured() })
+    const entrySettled = new Promise<void>(resolve => { entryFinished = resolve })
+    caseResources.own(entryFinished, async (captured) => { captured() })
+    const entryPattern = (url: URL) => url.pathname === `/api/community/channels/${dmId}/messages`
+      && url.searchParams.get("entry") === "1"
+    const targetGets: string[] = []
+    alice.page.on("request", request => {
+      if (request.method() === "GET" && new URL(request.url()).pathname.startsWith(`/api/community/channels/${dmId}`)) targetGets.push(request.url())
+    })
+    await alice.page.route(entryPattern, async route => {
       if (route.request().method() !== "GET") { await route.continue(); return }
-      metadataStarted()
       try {
-        await metadataGate
+        await entryGate
         await route.continue()
       } catch (error) {
         if (!(error instanceof Error && error.message.includes("already handled"))) throw error
-      } finally { metadataFinished() }
-    })
-
-    let releaseRead!: () => void
-    let readStarted!: () => void
-    let readFinished!: () => void
-    const readGate = new Promise<void>((resolve) => { releaseRead = resolve })
-    caseResources.own(releaseRead, async (captured) => { captured() })
-    const readRequest = new Promise<void>((resolve) => { readStarted = resolve })
-    caseResources.own(readStarted, async (captured) => { captured() })
-    const readSettled = new Promise<void>((resolve) => { readFinished = resolve })
-    caseResources.own(readFinished, async (captured) => { captured() })
-    const readPattern = `**/api/community/channels/${dmId}/read-state`
-    await alice.page.route(readPattern, async (route) => {
-      readStarted()
-      try {
-        await readGate
-        await route.continue()
-      } catch (error) {
-        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
-      } finally {
-        readFinished()
-      }
-    })
-
-    let releaseMessages!: () => void
-    let messagesStarted!: () => void
-    let messagesFinished!: () => void
-    const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
-    caseResources.own(releaseMessages, async (captured) => { captured() })
-    const messagesRequest = new Promise<void>((resolve) => { messagesStarted = resolve })
-    caseResources.own(messagesStarted, async (captured) => { captured() })
-    const messagesSettled = new Promise<void>((resolve) => { messagesFinished = resolve })
-    caseResources.own(messagesFinished, async (captured) => { captured() })
-    let heldMessages = false
-    const messagesPattern = `**/api/community/channels/${dmId}/messages*`
-    await alice.page.route(messagesPattern, async (route) => {
-      if (route.request().method() !== "GET" || heldMessages) {
-        await route.continue()
-        return
-      }
-      heldMessages = true
-      messagesStarted()
-      try {
-        await messagesGate
-        await route.continue()
-      } catch (error) {
-        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
-      } finally {
-        messagesFinished()
-      }
+      } finally { entryFinished() }
     })
 
     try {
-      await alice.page.goto(`/c/me/${dmId}`)
+      const requested = alice.page.waitForRequest(request => request.method() === "GET" && entryPattern(new URL(request.url())))
+      const entryResponse = alice.page.waitForResponse(response => response.request().method() === "GET" && entryPattern(new URL(response.url())))
+      await alice.page.getByTestId(tid.dmRow(dmId)).click()
+      await requested
       const dmHeader = alice.page.getByTestId(tid.dmHeader)
       const dmTitle = alice.page.getByTestId(tid.dmHeaderTitle)
       await expect(dmHeader).toHaveCount(1, { timeout: 20_000 })
       await expect(dmTitle).toContainText(userName("bob"))
-      await metadataRequest
-      await readRequest
       await expect(alice.page.locator('[data-onboarding-target="dm-composer"] [data-slot="skeleton"]').first()).toBeVisible()
       await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
       await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(0)
-      await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
-
-      const metadataResponse = alice.page.waitForResponse(response => response.request().method() === "GET" && metadataPattern(new URL(response.url())))
-      releaseMetadata()
-      await metadataSettled
-      const permission = await metadataResponse
-      expect(permission.status()).toBe(200)
-      expect(permission.headers()["x-alook-community-contract"]).toBe("2")
-      const resource = await permission.json()
-      expect(resource.channel.id).toBe(dmId)
-      expect(resource.access).toMatchObject({ channelId: dmId, canRead: true })
-      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
-      await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(0)
-      await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
-
-      releaseRead()
-      await readSettled
-      await messagesRequest
-      await expect(dmHeader).toHaveCount(1)
-      await expect(dmTitle).toContainText(userName("bob"))
-      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
       await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
       await expect.poll(() => wsProxy.heldConnectionCount()).toBe(1)
       expect(dmsGets).toBe(1)
       expect(interactiveMutations).toEqual([])
 
-      releaseMessages()
-      await messagesSettled
+      releaseEntry()
+      await entrySettled
+      const permission = await entryResponse
+      expect(permission.status()).toBe(200)
+      expect(permission.headers()["x-alook-community-contract"]).toBe("3")
+      const resource = await permission.json()
+      expect(resource.channel.id).toBe(dmId)
+      expect(resource.access).toMatchObject({ channelId: dmId, canRead: true, canSend: true })
+      expect(resource.messages.map((message: { id: string }) => message.id)).toContain(messageId)
+      await expect(dmHeader).toHaveCount(1)
+      await expect(dmTitle).toContainText(userName("bob"))
       await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
       await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(1)
       await expect(alice.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
+      expect(targetGets.filter(url => entryPattern(new URL(url)))).toHaveLength(1)
+      expect(targetGets.filter(url => {
+        const path = new URL(url).pathname
+        return path === `/api/community/channels/${dmId}` || path === `/api/community/channels/${dmId}/read-state`
+          || path === `/api/community/channels/${dmId}/messages` && !entryPattern(new URL(url))
+      })).toEqual([])
+      expect(interactiveMutations).toEqual([])
     } finally {
-      releaseMetadata()
-      releaseRead()
-      releaseMessages()
-      await metadataSettled
-      await readSettled
-      await messagesSettled
-      await alice.page.unroute(metadataPattern)
-      await alice.page.unroute(readPattern)
-      await alice.page.unroute(messagesPattern)
+      releaseEntry()
+      await entrySettled
+      await alice.page.unroute(entryPattern)
     }
   })
 
@@ -244,17 +187,17 @@ test.describe("direct messages", () => {
     await alice.page.addInitScript((storageKey) => localStorage.removeItem(storageKey), lastMeLocationKey())
     const missingDmId = `dm-missing-${Date.now()}`
     let canonicalDmsGets = 0
-    let metadataGets = 0
+    let entryGets = 0
     const dmsPattern = "**/api/community/users/me/dms"
-    const metadataPattern = `**/api/community/channels/${missingDmId}`
+    const entryPattern = (url: URL) => url.pathname === `/api/community/channels/${missingDmId}/messages` && url.searchParams.get("entry") === "1"
     await alice.page.route(dmsPattern, async (route) => {
       canonicalDmsGets += 1
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
     })
-    await alice.page.route(metadataPattern, async (route) => {
-      metadataGets += 1
-      await route.fulfill({ status: metadataGets === 1 ? 503 : 404,
-        contentType: "application/json", body: JSON.stringify({ error: metadataGets === 1 ? "temporary" : "missing" }) })
+    await alice.page.route(entryPattern, async (route) => {
+      entryGets += 1
+      await route.fulfill({ status: entryGets === 1 ? 503 : 404,
+        contentType: "application/json", body: JSON.stringify({ error: entryGets === 1 ? "temporary" : "missing" }) })
     })
 
     try {
@@ -271,16 +214,16 @@ test.describe("direct messages", () => {
       await expect.poll(() => canonicalDmsGets).toBe(1)
       await expect(verificationAlert).toBeVisible()
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
-      expect(metadataGets).toBe(1)
+      expect(entryGets).toBe(1)
 
       await verificationAlert.getByRole("button", { name: "Retry" }).click()
-      await expect.poll(() => metadataGets).toBe(2)
+      await expect.poll(() => entryGets).toBe(2)
       expect(canonicalDmsGets).toBe(1)
       await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")
     } finally {
       wsProxy.releaseHeldConnections()
       await alice.page.unroute(dmsPattern)
-      await alice.page.unroute(metadataPattern)
+      await alice.page.unroute(entryPattern)
     }
   })
 

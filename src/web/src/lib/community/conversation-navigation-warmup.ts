@@ -1,139 +1,22 @@
 "use client"
+
+import { noop, type QueryClient } from "@tanstack/react-query"
 import type { Action } from "@/lib/observability/context"
-import { getCommunityRuntime } from "@/stores/community/runtime"
+import { conversationEntryOptions } from "./conversation-entry"
 
-
-import { InfiniteQueryObserver, QueryObserver, type InfiniteData, type QueryClient } from "@tanstack/react-query"
-import { conversationReadRetryPolicy } from "./conversation-read"
-import { ApiError } from "@/lib/errors"
-import { communityKeys } from "@/lib/query-keys"
-import type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
-import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
-import { channelReadStateSnapshotQueryFn } from "@/hooks/community/use-channel-read-state"
-import { serverProjectedQueryFn } from "@/hooks/community/use-servers"
-import { startChannelRouteVerification } from "@/hooks/community/channel-route-verification"
-import {
-  beginConversationNavigationProof,
-  commitConversationNavigationProof,
-  failConversationNavigationProof,
-  getConversationNavigationProof,
-  isCurrentConversationNavigation,
-  recordConversationNavigationReceipt,
-  registerConversationNavigationRecovery,
-  type ConversationNavigationTarget,
-} from "./conversation-navigation-proof"
-
-function clearDeniedTarget(queryClient: QueryClient, target: ConversationNavigationTarget) {
-  const messagesKey = communityKeys.channelMessages(target.channelId)
-  const readKey = communityKeys.channelReadStateSnapshot(target.channelId)
-  queryClient.removeQueries({ queryKey: messagesKey })
-  queryClient.removeQueries({ queryKey: readKey })
-  queryClient.removeQueries({ queryKey: communityKeys.channelMeta(target.serverId ?? null, target.channelId) })
-  getCommunityRuntime(queryClient).messageStream.actions.removeScope(
-    target.scopeKind === "dm"
-      ? { kind: "dm", id: target.channelId }
-      : { kind: "channel", id: target.channelId, serverId: target.serverId! },
-  )
+export type ConversationNavigationTarget = {
+  href: string
+  viewerId: string
+  channelId: string
+  serverId?: string
+  scopeKind: "channel" | "dm"
+  expectedSurfaceKind?: "channel" | "forum" | "thread" | "dm"
+  anchorMessageId?: string
 }
 
-export function startConversationNavigationWarmup(
-  queryClient: QueryClient,
-  target: ConversationNavigationTarget,
-  accessEpoch: number,
-  recoveryAttempt = 0,
-  action?: Action,
-) {
-  if (getCommunityRuntime(queryClient).ws.actions.isChannelAccessRevoked(target.channelId, target.serverId ?? null)) {
-    void startChannelRouteVerification(queryClient, target.serverId ?? null, target.channelId).catch(() => undefined)
-  }
-  const { epoch, signal } = beginConversationNavigationProof(
-    queryClient,
-    target,
-    accessEpoch,
-    recoveryAttempt,
-  )
-  registerConversationNavigationRecovery(queryClient, epoch, (nextAccessEpoch, nextAttempt) => {
-    startConversationNavigationWarmup(queryClient, target, nextAccessEpoch, nextAttempt)
-  })
-  const pageParam: MessagesPageParam = target.anchorMessageId
-    ? { mode: "anchor", anchor: target.anchorMessageId }
-    : { mode: "newest" }
-  const messagesKey = communityKeys.channelMessages(target.channelId)
-  const queryFn = target.scopeKind === "dm"
-    ? dmMessagesQueryFn(target.channelId, {
-        queryClient,
-        observation: { action: recoveryAttempt === 0 ? action : undefined, reason: recoveryAttempt === 0 ? "foreground" : "background" },
-        onSurfaceReceipt: (receipt) => {
-          recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
-        },
-      })
-    : channelMessagesQueryFn(target.channelId, null, {
-        queryClient,
-        observation: { action: recoveryAttempt === 0 ? action : undefined, reason: recoveryAttempt === 0 ? "foreground" : "background" },
-        onSurfaceReceipt: (receipt) => {
-          recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
-        },
-      })
-
-  void queryClient.cancelQueries({ queryKey: messagesKey, exact: true })
-  queryClient.setQueryData<InfiniteData<MessagesPage, MessagesPageParam>>(messagesKey, (current) => current
-    ? { ...current, pageParams: [pageParam, ...current.pageParams.slice(1)] }
-    : current)
-  const messagesOptions = {
-    queryKey: messagesKey,
-    queryFn,
-    initialPageParam: pageParam,
-    pages: 1,
-    getNextPageParam: () => undefined,
-    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: messagesKey }).retry),
-    networkMode: "always" as const,
-    // A persisted/memory-warm page is only a hint. Force this click-owned
-    // query through the canonical door so a fresh receipt is always emitted.
-    staleTime: 0,
-  }
-  const messagesObserver = new InfiniteQueryObserver(queryClient, {
-    ...messagesOptions, enabled: false,
-  })
-  const releaseMessages = messagesObserver.subscribe(() => undefined)
-  void queryClient.infiniteQuery({ ...messagesOptions, select: undefined })
-    .then(() => {
-      if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
-      commitConversationNavigationProof(queryClient, target.channelId, accessEpoch)
-      if (getConversationNavigationProof(queryClient)?.status === "warming") {
-        failConversationNavigationProof(queryClient, epoch, accessEpoch, false, true)
-      }
-    })
-    .catch((error) => {
-      if (signal.aborted || !isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
-      const definitive = error instanceof ApiError && (error.status === 403 || error.status === 404)
-      if (definitive) clearDeniedTarget(queryClient, target)
-      failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive, true)
-    })
-    .finally(releaseMessages)
-
-  const readKey = communityKeys.channelReadStateSnapshot(target.channelId)
-  void queryClient.query({
-    queryKey: readKey,
-    staleTime: 0,
-    retry: false,
-    networkMode: "always",
-    queryFn: channelReadStateSnapshotQueryFn(target.channelId, target.scopeKind, {
-      waitForRegistryReady: true,
-      assertNavigationCurrent: () => {
-        if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) throw new DOMException("Retired conversation warmup", "AbortError")
-      },
-    }),
-    select: undefined,
-  }).catch(() => undefined)
-
-  if (target.serverId) {
-    const serverId = target.serverId
-    const queryKey = communityKeys.server(serverId)
-    const options = { queryKey, queryFn: ({ signal }: { signal: AbortSignal }) => serverProjectedQueryFn(queryClient, serverId, signal)(), staleTime: Infinity, networkMode: "always" as const, retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry) }
-    const observer = new QueryObserver(queryClient, { ...options, enabled: false })
-    const release = observer.subscribe(() => undefined)
-    void queryClient.query({ ...options, select: undefined }).finally(release).catch(() => undefined)
-  }
-
-  return epoch
+export function startConversationNavigationWarmup(client: QueryClient, target: ConversationNavigationTarget, action?: Action) {
+  const options = conversationEntryOptions(client, {
+    channelId: target.channelId, serverId: target.serverId ?? null, anchorMessageId: target.anchorMessageId,
+  }, { action, reason: "foreground" })
+  return client.query({ ...options, select: undefined }).catch(noop)
 }

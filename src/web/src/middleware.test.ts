@@ -22,6 +22,12 @@ function makeReq(url: string, headers: Record<string, string> = {}) {
 describe("middleware", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("strips a supplied internal document route from a public request", async () => {
+    const res = await middleware(makeReq("https://app.com/about", { "x-alook-community-document-route": "/c/me/bots" }))
+    expect(res.headers.get("x-middleware-request-x-alook-community-document-route")).toBeNull()
+    expect(res.headers.get("x-middleware-override-headers") ?? "").not.toContain("x-alook-community-document-route")
+  })
+
   describe("HTTPS enforcement", () => {
     it("301-redirects http → https for non-local hosts", async () => {
       const req = makeReq("http://example.com/c/me", { "x-forwarded-proto": "http" });
@@ -79,6 +85,7 @@ describe("middleware", () => {
       expect(res.headers.get("location")).toBeNull();
       expect(res.headers.get("set-cookie")).toContain("session=abc");
       expect(res.headers.get("x-middleware-request-cookie")).toBe("session=abc");
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
     });
 
     it("does not require auth for unlisted public paths", async () => {

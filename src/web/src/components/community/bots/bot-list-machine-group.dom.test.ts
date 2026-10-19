@@ -83,7 +83,7 @@ const bot = (overrides: Partial<BotSummary> = {}): BotSummary => ({
 function controller(overrides: Partial<BotListController> = {}): BotListController {
   const noop = vi.fn()
   return {
-    profilesByUserId: new Map(),
+    profilesByUserId: new Map([["b1", { id: "b1", presence: "offline" }]]),
     pendingActiveBotIds: new Set(),
     setBotActive: noop,
     collapsedMachines: new Set(),
@@ -169,7 +169,7 @@ describe("renderBotMachineGroup", () => {
     const setConfirmResetMachine = vi.fn()
     const renderer = render(renderBotMachineGroup(
       group({ machine: { id: "mac1", displayName: "My Mac", status: "online" } as BotMachineGroup["machine"] }),
-      controller({ profilesByUserId: new Map(), setConfirmResetMachine }),
+      controller({ profilesByUserId: new Map([["b1", { id: "b1", presence: "offline" }]]), setConfirmResetMachine }),
     ))
     expect(withExactClass(renderer.container,
       "inline-block size-1.5 shrink-0 rounded-full bg-status-online"))
@@ -180,7 +180,7 @@ describe("renderBotMachineGroup", () => {
 
     renderer.rerender(renderBotMachineGroup(
       group({ machine: { id: "mac1", displayName: "My Mac", status: "offline" } as BotMachineGroup["machine"] }),
-      controller({ profilesByUserId: new Map(), setConfirmResetMachine }),
+      controller({ profilesByUserId: new Map([["b1", { id: "b1", presence: "offline" }]]), setConfirmResetMachine }),
     ))
     expect(withExactClass(renderer.container,
       "inline-block size-1.5 shrink-0 rounded-full bg-muted-foreground"))

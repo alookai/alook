@@ -78,6 +78,7 @@ export function useFolders(): UseQueryResult<string[]> & {
   const query = useQuery({
     queryKey: communityKeys.folders(),
     queryFn: foldersProjectedQueryFn(queryClient),
+    staleTime: 30_000,
   })
   return {
     ...query,

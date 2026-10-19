@@ -51,11 +51,6 @@ export function useRemoteImageAttempt({ source, retainImage = false }: { source?
     const next = reduceAttempt(current, action, retainImage)
     return next === current ? current : { ...next, active: current.active, generation: current.generation }
   }), [retainImage, store])
-  useLayoutEffect(() => {
-    store.setState((current) => ({ ...current, active: true }))
-    return () => store.setState((current) => ({ ...current, active: false, generation: current.generation + 1 }))
-  }, [store])
-  useLayoutEffect(() => { dispatch({ type: "source", source }) }, [dispatch, source])
   const matchesSource = useCallback((image: HTMLImageElement) => source !== undefined && (
     image === node.current
     && image.getAttribute("src") === source
@@ -90,14 +85,6 @@ export function useRemoteImageAttempt({ source, retainImage = false }: { source?
     dispatch({ type: "ready", attempt: state.attempt, image, source })
   }, [dispatch, matchesSource, source, state.attempt, store])
 
-  const onLoad = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
-    void decode(event.currentTarget, state.attempt)
-  }, [decode, state.attempt])
-
-  const onImageError = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
-    if (matchesSource(event.currentTarget)) dispatch({ type: "error", attempt: state.attempt, source })
-  }, [dispatch, matchesSource, source, state.attempt])
-
   const retry = useCallback(() => {
     const current = store.get()
     if (source === undefined || current.source !== source || !current.active) return
@@ -105,6 +92,26 @@ export function useRemoteImageAttempt({ source, retainImage = false }: { source?
     const image = node.current
     if (source !== undefined && image?.getAttribute("src") === source) image.src = source
   }, [dispatch, source, store])
+
+  const recheckImage = useEffectEvent((resuming: boolean) => {
+    if (node.current) imageRef(node.current)
+    if (resuming && store.get().status === "error") retry()
+  })
+  useLayoutEffect(() => {
+    const resuming = !store.get().active
+    store.setState((current) => ({ ...current, active: true }))
+    recheckImage(resuming)
+    return () => store.setState((current) => ({ ...current, active: false, generation: current.generation + 1 }))
+  }, [store])
+  useLayoutEffect(() => { dispatch({ type: "source", source }) }, [dispatch, source])
+
+  const onLoad = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
+    void decode(event.currentTarget, state.attempt)
+  }, [decode, state.attempt])
+
+  const onImageError = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
+    if (matchesSource(event.currentTarget)) dispatch({ type: "error", attempt: state.attempt, source })
+  }, [dispatch, matchesSource, source, state.attempt])
 
   const retryAfterReconnect = useEffectEvent(() => {
     if (store.get().status !== "ready") retry()

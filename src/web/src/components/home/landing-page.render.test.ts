@@ -2,6 +2,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { LandingPage } from "./landing-page"
+import LandingProfileContent from "./landing-profile-content"
 
 vi.mock("./landing-page.module.css", () => ({
   default: new Proxy({}, { get: (_target, key) => String(key) }),
@@ -26,10 +27,12 @@ describe("landing identity profile preview", () => {
     )?.[0]
 
     expect(identityCard).toBeDefined()
-    expect(identityCard).toContain("Maya")
-    expect(identityCard).toContain("Free for dinner")
-    expect(identityCard).toContain(LANDING_PROFILE_ABOUT)
-    expect(identityCard).not.toContain("Unknown")
+    expect(identityCard).toContain("/landing/posters/profile.webp")
+    const profile = renderToStaticMarkup(createElement(LandingProfileContent))
+    expect(profile).toContain("Maya")
+    expect(profile).toContain("Free for dinner")
+    expect(profile).toContain(LANDING_PROFILE_ABOUT)
+    expect(profile).not.toContain("Unknown")
   })
 
   it("renders logo, slogan, and social links before second-row navigation", () => {

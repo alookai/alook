@@ -1,3 +1,4 @@
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { ChevronLeft, HelpCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -30,7 +31,7 @@ function BotCardSkeleton() {
 
 function botBackBar(onBack?: () => void, reserveBackSlot = false) {
   return onBack || reserveBackSlot ? (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6 sm:hidden">
       {onBack ? (
         <Button
           variant="ghost"
@@ -97,12 +98,14 @@ export function renderBotListView(
 ) {
   const backBar = botBackBar(onBack)
 
-  if ((controller.isLoading || controller.machinesLoading) && controller.bots.length === 0) {
+  if (controller.isLoading && controller.bots.length === 0) {
     return <BotListSkeleton onBack={onBack} />
   }
 
+  if (controller.initialError) return <ConversationResolutionErrorFrame as="div" retrying={controller.retryingInitialLoad} onRetry={controller.retryInitialLoad} />
+
   if (controller.bots.length === 0) {
-    const needsMachine = controller.machines.length === 0
+    const needsMachine = !controller.machinesLoading && !controller.machinesUnknown && controller.machines.length === 0
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
@@ -125,10 +128,10 @@ export function renderBotListView(
           <div data-onboarding-target="create-bot" className="w-fit">
             <Button
               onClick={needsMachine ? controller.openMachines : controller.openGuidedCreate}
-              disabled={!needsMachine && controller.isCreateDisabled && !controller.canShowLimit}
+              disabled={controller.machinesLoading || controller.machinesUnknown || !needsMachine && controller.isCreateDisabled && !controller.canShowLimit}
               data-testid={!needsMachine ? tid.createBot : undefined}
             >
-              {needsMachine ? "Connect a machine" : controller.guidedCreateLabel}
+              {controller.machinesLoading ? "Checking machines…" : controller.machinesUnknown ? "Machine status unknown" : needsMachine ? "Connect a machine" : controller.guidedCreateLabel}
             </Button>
           </div>
           {controller.planSummary?.isFounder && <p className="text-sm text-muted-foreground">Founder plan</p>}

@@ -1,6 +1,5 @@
 "use client"
 
-import { useBreakpoint } from "@/hooks/use-mobile"
 import { FriendsPage } from "@/components/community/social/friends-page"
 import { useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -22,7 +21,6 @@ import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 
 export default function MeFriendsPage() {
-  const bp = useBreakpoint()
   const router = useRouter()
   const searchParams = useSearchParams()
   const activeTab = searchParams.get("tab") === "new" ? "new" : "all"
@@ -73,7 +71,7 @@ export default function MeFriendsPage() {
       onOpenProfile={(name, event, discriminator, userId) => {
         uiHandlers.openProfile?.(name, event, discriminator, userId)
       }}
-      onBack={bp === "mobile" ? () => uiHandlers.goBackMobile?.() : undefined}
+      onBack={() => uiHandlers.goBackMobile?.()}
       onAccept={async (id) => {
         try {
           await acceptFriendRequest.mutateAsync({ friendshipId: id })

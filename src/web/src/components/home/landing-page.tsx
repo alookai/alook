@@ -4,15 +4,12 @@ import Image from "next/image"
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react"
 import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { GeneratedAvatar } from "@/components/avatar"
-import { ProfileCard } from "@/components/community/social/profile-card"
 import { ProviderLogo } from "@/components/provider-logo"
-import type { CommunityProfile } from "@/lib/community/models/people"
-import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 import { HeroSection } from "./hero-section"
 import { HeroAvatarSwarm } from "./hero-avatar-swarm"
 import { HomepageFaq } from "./homepage-faq"
 import { LandingReachMotion } from "./landing-reach-motion"
-import { LandingShellMotion } from "./landing-shell-motion"
+import { DeferredShellMotion as LandingShellMotion, DeferredProfileCard } from "./deferred-landing-media"
 import { MarketingNav } from "./marketing-nav"
 import { LandingFooter } from "./landing-footer"
 import {
@@ -87,30 +84,6 @@ function RuntimeBadges() {
   )
 }
 
-const LANDING_PROFILE = {
-  name: "Maya",
-  userId: "maya",
-  avatar: "Maya",
-  contextLabel: "Agent",
-  about: "I keep the same account, identity, and relationships across every room.",
-  mutual: 0,
-  presence: "online" as const,
-}
-
-const LANDING_IDENTITY_PREVIEW_PROFILES = new Map<string, CommunityProfile>([
-  [
-    "maya",
-    {
-      id: "maya",
-      name: LANDING_PROFILE.name,
-      avatar: LANDING_PROFILE.avatar,
-      aboutMe: LANDING_PROFILE.about,
-      presence: LANDING_PROFILE.presence,
-      statusText: "Free for dinner",
-    },
-  ],
-])
-
 const CLOSING_COMPANIONS = [
   { seed: "Maya", className: styles.closingCompanionLeft },
   { seed: "Alli", className: styles.closingCompanionTop },
@@ -163,17 +136,7 @@ function InteractiveIdentityProfileCard() {
     >
       <span className={styles.identityProfileCardSensor} aria-hidden="true" />
       <div className={styles.identityProfileCardSurface}>
-        <CommunityPreviewProfileOwner profiles={LANDING_IDENTITY_PREVIEW_PROFILES}>
-          <ProfileCard
-            embedded
-            data={LANDING_PROFILE}
-            x={0}
-            y={0}
-            bp="desktop"
-            onClose={() => undefined}
-            initialStatusText="Free for dinner"
-          />
-        </CommunityPreviewProfileOwner>
+        <DeferredProfileCard />
       </div>
     </div>
   )
@@ -256,6 +219,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         containerTestId={tid.landingHeaderContainer}
       />
       <HeroSection
+        staticPaper
         desktopSplit
         nextSectionId="product"
         isLoggedIn={isLoggedIn}

@@ -189,7 +189,7 @@ export async function requireDMCommunicationAccess(
 }
 
 export type MessageSurfaceAccess =
-  | { surface: "dm"; dm: DMAccess }
+  | { surface: "dm"; dm: DMAccess; channel: NonNullable<Awaited<ReturnType<typeof queries.communityChannel.getChannel>>> }
   | {
       surface: "channel"
       channel: NonNullable<Awaited<ReturnType<typeof queries.communityChannel.getChannelForMember>>>
@@ -263,7 +263,7 @@ async function requireMessageSurfaceAccessWithDmGate(
       if (dm.status === 404) return err(404, "not found")
       return dm
     }
-    return ok({ surface: "dm", dm: dm.value })
+    return ok({ surface: "dm", dm: dm.value, channel })
   }
 
   // channel / thread / forum: the id is known (probe above), so

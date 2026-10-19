@@ -1,55 +1,9 @@
 "use client"
-import { useQuery, type QueryFunctionContext, type UseQueryResult, type UseQueryOptions } from "@tanstack/react-query"
+import { useMemo } from "react"
+import { useQuery, type UseQueryResult, type UseQueryOptions } from "@tanstack/react-query"
 import { isPresenceOnline } from "@alook/shared"
-import { communityRequestOptions } from "@/lib/community-db/sync"
-import { apiFetch } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
-import type {
-  CommunityMachineSummary,
-  MachineCapacitySummary,
-  ProviderQuotaObservation,
-  QuotaLimit,
-} from "@alook/shared"
-
-type MachineQuotaSnapshot =
-  | { status: "pending" }
-  | {
-      status: "error"
-      code: Extract<ProviderQuotaObservation, { status: "error" }>["code"]
-    }
-  | {
-      status: "available" | "stale"
-      observedAt: string
-      planName?: string
-      limits: QuotaLimit[]
-    }
-
-export type MachineBackendQuota = {
-  scope: {
-    kind: "machine_backend"
-    machineId: string
-    agentBackendId: string
-  }
-  capability: "supported" | "unsupported" | "unknown"
-  runtimeState: "healthy" | "unhealthy" | "offline"
-  snapshot: MachineQuotaSnapshot
-}
-
-// Machine WS events intentionally carry the base summary without owner-only
-// quota. Keep quota optional so live status updates can replace a machine safely;
-// the next owner API fetch restores its complete replace-all quota snapshot.
-export type MachineSummary = CommunityMachineSummary & {
-  quota?: MachineBackendQuota[]
-}
-
-/**
- * Fetches the current user's community-daemon machines.
- *
- * Replaces the `loadMachines` flow from the community God-context. Step 3 will
- * live-patch `communityKeys.machines()` via `queryClient.setQueryData` on
- * `community:machine.*` WS events, so this list stays fresh without a refetch.
- */
-export type MachinesResponse = { machines: MachineSummary[]; machineCapacity?: MachineCapacitySummary }
+import { machinesOptions, machineObservationsOptions, type MachinesResponse, type MachineSummary } from "@/lib/community/machines"
+export type { MachineBackendQuota, MachineSummary, MachinesResponse } from "@/lib/community/machines"
 
 export function replaceMachines(data: MachinesResponse, machines: MachineSummary[]): MachinesResponse {
   return {
@@ -66,17 +20,24 @@ export function replaceMachines(data: MachinesResponse, machines: MachineSummary
 // Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_MACHINES: readonly MachineSummary[] = Object.freeze([])
 
-export const machinesQueryFn = (context: QueryFunctionContext) =>
-  apiFetch<MachinesResponse>("/api/community/machines", communityRequestOptions(context.client, context.signal))
+export const machinesQueryFn = machinesOptions().queryFn!
 
-export function useMachines(options?: Pick<UseQueryOptions<MachinesResponse>, "enabled" | "subscribed" | "refetchInterval">): UseQueryResult<MachinesResponse> & {
+export function useMachines(options?: Pick<UseQueryOptions<MachinesResponse>, "subscribed" | "refetchInterval"> & { enabled?: boolean }): UseQueryResult<MachinesResponse> & {
   machines: MachineSummary[]
+  capacityPending: boolean
 } {
   const query = useQuery({
-    queryKey: communityKeys.machines(),
-    queryFn: machinesQueryFn,
+    ...machinesOptions(),
     ...options,
   })
-  const machines = query.data?.machines ?? (EMPTY_MACHINES as MachineSummary[])
-  return { ...query, machines }
+  const observations = useQuery({ ...machineObservationsOptions(), enabled: options?.enabled, subscribed: options?.subscribed })
+  const machines = useMemo(() => !observations.data?.quotas?.length ? query.data?.machines ?? (EMPTY_MACHINES as MachineSummary[]) : query.data?.machines.map(machine => {
+    const quota = observations.data?.quotas?.find(row => row.machineId === machine.id)?.quota
+    return quota ? { ...machine, quota } : machine
+  }) ?? (EMPTY_MACHINES as MachineSummary[]), [query.data?.machines, observations.data])
+  const capacity = query.data?.complete !== false && query.data?.observed !== false && machines.every(machine => machine.status !== undefined)
+    ? observations.data?.machineCapacity
+    : undefined
+  const data = useMemo(() => query.data ? { ...query.data, machines, ...(capacity ? { machineCapacity: { ...capacity, ownedCount: machines.length, onlineCount: machines.filter(machine => isPresenceOnline(machine.status)).length } } : {}) } : undefined, [query.data, machines, capacity])
+  return { ...query, data, machines, capacityPending: !capacity && observations.isPending && !observations.isError } as UseQueryResult<MachinesResponse> & { machines: MachineSummary[]; capacityPending: boolean }
 }

@@ -30,7 +30,6 @@ import { makeUserNameResolver } from "@/lib/community/display-name"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
-import { useDmReadStateSnapshot } from "@/hooks/community/use-dm-read-state"
 import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
 import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
@@ -61,12 +60,8 @@ import {
 } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 import { commitCommunityChannelRoute } from "@/lib/community/last-community-route"
-import { useQueryClient } from "@tanstack/react-query"
-import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
-import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useDmSeqContext } from "./use-dm-seq-context"
 
 function resolveDmLoadingOwnership({
@@ -90,9 +85,6 @@ export function DmView({ dmId }: { dmId: string }) {
   const sendView = useCommunityViewSource(`dm-send:${dmId}`)
   const bp = useBreakpoint()
   const currentUser = useCurrentUser()
-  const queryClient = useQueryClient()
-  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
-  const navigationGate = useConversationNavigationGate(queryClient, currentUser.id, dmId, accessEpoch)
   const metadata = useChannelMetadata(null, dmId)
   const uiHandlers = useUiHandlers()
   const notifications = useNotificationSettings()
@@ -132,16 +124,6 @@ export function DmView({ dmId }: { dmId: string }) {
       }),
     [profilesByUserId, rawFriends],
   )
-  // Frozen-once snapshot of the viewer's DM read pointer — the anchor for
-  // the "New" divider AND the initial-page mode. Mirrors the channel-view
-  // wiring so both surfaces open with the same anchor-window UX.
-  const { snapshot: readSnapshot, isFetching: readSnapshotFetching, error: readError, retry: retryRead, retrying: retryingRead } =
-    useDmReadStateSnapshot(metadata.revoked || metadata.denied || dmBlocked ? null : dmId)
-
-  // Anchor the initial page on the viewer's read pointer. Pass `undefined`
-  // (not `null`) while the snapshot resolves — the hook's initialPageParam
-  // gate treats `undefined` as "not-yet-decided" and stays disabled, so we
-  // don't fire a newest-mode fetch that would immediately be superseded.
   const {
     messages: fetchedMessages,
     isLoading: messagesLoading,
@@ -156,31 +138,22 @@ export function DmView({ dmId }: { dmId: string }) {
     latestSeq,
     isPending: messagesPending,
     isError: messagesError,
-    error: messagesLoadError,
     isFetching: messagesFetching,
     refetch: refetchMessages,
     navigationBlocked,
     anchorReconciled,
+    readSnapshot, readSnapshotFetching, initialPositionKnown,
+    initialLoadError, retryInitialLoad, retryingInitialLoad, observation,
   } = useDmMessages(dmId, {
-    lastReadMessageId: readSnapshotFetching
-      ? undefined
-      : (readSnapshot?.lastReadMessageId ?? null),
-    // Inbox clicks already start the canonical messages/read requests in
-    // parallel before routing. Keep the mounted DM route anchor-first so
-    // direct, sidebar, Back, and Forward navigation retain their frozen read
-    // pointer instead of briefly owning a newest request.
-    waitForAnchor: true,
-    reconcileLateAnchor: true,
-    revalidateOnMount: true,
+    enabled: !dmBlocked && !metadata.revoked && !metadata.denied,
     viewerUserId: currentUser.id,
   })
   const messages = useMemo(() => historyAllowed ? fetchedMessages : [], [fetchedMessages, historyAllowed])
-  const initialLoadError = isConversationAccessError(messagesLoadError)
-    ? messagesLoadError : readError ?? messagesLoadError
+
 
   const [contextSheetSeq, setContextSheetSeq] = useAtom(useCreateAtom<number | null>(null))
   useDmSeqContext({ dmId, historyAllowed,
-    navigationAllowed: navigationGate.allowed && !navigationBlocked,
+    navigationAllowed: !navigationBlocked,
     setContextSeq: setContextSheetSeq,
   })
   // DM composer has no "current server" — flatten every member server's
@@ -439,27 +412,24 @@ export function DmView({ dmId }: { dmId: string }) {
     channelId: dmId,
   }, routeReady)
 
-  if (!metadata.revoked && !metadata.denied && !dmBlocked && navigationGate.failed) {
-    return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
-  }
-  if (!metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked) {
-    return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
+  if (!dm && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError && metadata.status !== "retryable-error") {
+    return <DmLoadingFrame reserveBackSlot />
   }
 
   if (loadingOwnership.fullFramePending) {
-    return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
+    return <DmLoadingFrame reserveBackSlot />
   }
 
   if (loadingOwnership.missingPeer || !dm) {
     return <DmRouteErrorFrame onRetry={() => { void dmsQuery.refetch({ cancelRefetch: false }) }}
-      retrying={dmsQuery.isFetching} reserveBackSlot={bp === "mobile"} />
+      retrying={dmsQuery.isFetching} reserveBackSlot />
   }
 
   return (
     <>
       <DmHeader
         dm={dm}
-        onBack={bp === "mobile" ? goBack : undefined}
+        onBack={goBack}
         notifLevel={(notifications.channel[dmId] ?? notifLevelDisplay("all")) as NotifLevel}
         onSetNotifLevel={(level) => setNotification.mutate({ channelId: dmId, level }, {
           onError: (error) => toastApiError(error, "Failed to update notification level"),
@@ -471,15 +441,16 @@ export function DmView({ dmId }: { dmId: string }) {
         className="flex min-h-0 flex-1 flex-col"
       >
         <ConversationFooterSlotProvider>
-          {dmBlocked ? null : metadata.denied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
+          {dmBlocked ? null : metadata.denied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
             key={dmId}
             variant="dm"
             channel={dm.name}
             messages={messages}
             loading={!historyAllowed || loadingOwnership.messageBodyLoading}
             initialLoadError={initialLoadError}
-            retryingInitialLoad={retryingRead || messagesFetching}
-            onRetryInitialLoad={() => { if (initialLoadError && initialLoadError === messagesLoadError) void refetchMessages({ cancelRefetch: false }); else retryRead() }}
+            observation={observation}
+            retryingInitialLoad={retryingInitialLoad || messagesFetching}
+            onRetryInitialLoad={retryInitialLoad}
             newDividerBefore={newDividerBefore}
             onOpenThread={() => { }}
             onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
@@ -498,7 +469,7 @@ export function DmView({ dmId }: { dmId: string }) {
             // Delay initial scroll until the read-state snapshot resolves AND
             // the anchor it names is actually present in `messages` — see
             // `anchorInCache`'s doc comment above.
-            initialScrollReady={!readSnapshotFetching && anchorInCache}
+            initialScrollReady={!readSnapshotFetching && (anchorInCache || initialPositionKnown)}
             hasMore={hasMoreMessages}
             isFetching={messagesFetching}
             isFetchingOlder={isFetchingOlderMessages}

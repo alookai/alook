@@ -1,3 +1,4 @@
+import { act } from "react"
 import { getCapturedRuntime } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
@@ -128,6 +129,7 @@ describe("useCommunityWs — bot audit events", () => {
 })
 
 describe("useCommunityWs — machines", () => {
+  const dispatchMachine = async (event: unknown) => { await act(async () => { await capturedOnMessage!(event) }) }
   const machine = (id: string, status: "online" | "offline" = "offline"): CommunityMachineSummary => ({
     id, hostname: id, displayName: id, platform: "darwin", arch: "arm64",
     osRelease: "24", daemonVersion: "0.1", lastSeenAt: null, status,
@@ -150,7 +152,7 @@ describe("useCommunityWs — machines", () => {
     const key = communityKeys.runtimeModels("m1", "codex")
     capturedQueryClient.setQueryData(key, { requestId: "current", status: "pending" })
     const catalog = { updateMode: "live_next_turn", models: [{ id: "native-model", supportedReasoningEfforts: [] }] }
-    capturedOnMessage!({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: "current", result: { status: "complete", catalog } })
+    await dispatchMachine({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: "current", result: { status: "complete", catalog } })
     expect(capturedQueryClient.getQueryData(key)).toEqual({ requestId: "current", status: "complete", catalog })
     expect(readCache()).toEqual({
       machines: [{ ...original, availableRuntimes: ["legacy", { id: "agy", status: "healthy" }, { id: "codex", status: "healthy", reasoning: catalog }] }, other],
@@ -162,7 +164,7 @@ describe("useCommunityWs — machines", () => {
     await mountHook()
     const key = communityKeys.runtimeModels("m1", "codex")
     capturedQueryClient.setQueryData(key, { requestId: "current", status: "pending" })
-    capturedOnMessage!({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: "current", result: { status: "complete", catalog: null } })
+    await dispatchMachine({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: "current", result: { status: "complete", catalog: null } })
     expect(capturedQueryClient.getQueryData(key)).toEqual({ requestId: "current", status: "complete", catalog: null })
     expect(readCache()).toBeUndefined()
   })
@@ -172,17 +174,17 @@ describe("useCommunityWs — machines", () => {
     const original = machine("existing")
     capturedQueryClient.setQueryData(communityKeys.machines(), { machines: [original], machineCapacity: capacity })
     const inserted = machine("new", "online")
-    const dispatch = (value: CommunityMachineSummary) => {
-      capturedOnMessage!(kind === "created"
+    const dispatch = async (value: CommunityMachineSummary) => {
+      await dispatchMachine(kind === "created"
         ? { type: "community:machine.created", tokenId: "cmt_live", machine: value } satisfies CommunityMachineCreated
         : { type: "community:machine.updated", machine: value } satisfies CommunityMachineUpdated)
     }
-    dispatch(inserted)
+    await dispatch(inserted)
     expect(readCache()).toEqual({ machines: [inserted, original], machineCapacity: { ...capacity, ownedCount: 2, onlineCount: 1 } })
-    dispatch(inserted)
+    await dispatch(inserted)
     expect(readCache()?.machines).toHaveLength(2)
     const replacement = { ...inserted, status: "offline" as const, displayName: "Renamed" }
-    dispatch(replacement)
+    await dispatch(replacement)
     expect(readCache()).toEqual({ machines: [replacement, original], machineCapacity: { ...capacity, ownedCount: 2 } })
     if (kind === "created") {
       const { useCommunityStore } = await import("@/stores/community")
@@ -200,27 +202,27 @@ describe("useCommunityWs — machines", () => {
     const status: CommunityMachineStatus = {
       type: "community:machine.status", machineId: "online", status: "offline", lastSeenAt: "2026-07-03T01:00:00.000Z",
     }
-    capturedOnMessage!(status)
+    await dispatchMachine(status)
     expect(readCache()).toEqual({
       machines: [offline, { ...online, status: "offline", lastSeenAt: status.lastSeenAt }],
       machineCapacity: { ...capacity, ownedCount: 2 },
     })
-    capturedOnMessage!({ ...status, machineId: "unknown", status: "online" })
+    await dispatchMachine({ ...status, machineId: "unknown", status: "online" })
     expect(readCache()?.machineCapacity).toEqual({ ...capacity, ownedCount: 2 })
     const removed: CommunityMachineRemoved = { type: "community:machine.removed", machineId: "online" }
-    capturedOnMessage!(removed)
-    capturedOnMessage!(removed)
+    await dispatchMachine(removed)
+    await dispatchMachine(removed)
     expect(readCache()).toEqual({ machines: [offline], machineCapacity: capacity })
   })
 
   it("ignores status/removal without a snapshot and bootstraps update without inventing allowance", async () => {
     await mountHook()
-    capturedOnMessage!({ type: "community:machine.status", machineId: "new", status: "online", lastSeenAt: "2026-07-03T01:00:00.000Z" } satisfies CommunityMachineStatus)
-    capturedOnMessage!({ type: "community:machine.removed", machineId: "new" } satisfies CommunityMachineRemoved)
+    await dispatchMachine({ type: "community:machine.status", machineId: "new", status: "online", lastSeenAt: "2026-07-03T01:00:00.000Z" } satisfies CommunityMachineStatus)
+    await dispatchMachine({ type: "community:machine.removed", machineId: "new" } satisfies CommunityMachineRemoved)
     expect(readCache()).toBeUndefined()
     const event: CommunityMachineUpdated = { type: "community:machine.updated", machine: machine("new") }
-    capturedOnMessage!(event)
-    expect(readCache()).toEqual({ machines: [event.machine] })
+    await dispatchMachine(event)
+    expect(readCache()).toEqual({ machines: [event.machine], complete: false })
   })
 
   it("machine.created upserts and stashes pending token", async () => {
@@ -243,7 +245,7 @@ describe("useCommunityWs — machines", () => {
         updatedAt: "2026-07-03T00:00:00.000Z",
       },
     }
-    capturedOnMessage!(created)
+    await dispatchMachine(created)
     expect(
       capturedQueryClient.getQueryData<{ machines: { id: string }[] }>(communityKeys.machines())?.machines,
     ).toHaveLength(1)
@@ -277,7 +279,7 @@ describe("useCommunityWs — machines", () => {
       status: "offline",
       lastSeenAt: "2026-07-03T00:00:00.000Z",
     }
-    capturedOnMessage!(status)
+    await dispatchMachine(status)
     const cache = capturedQueryClient.getQueryData<{ machines: { status: string; lastSeenAt: string | null }[] }>(
       communityKeys.machines(),
     )

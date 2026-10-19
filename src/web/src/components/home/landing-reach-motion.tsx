@@ -3,9 +3,9 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect } from "react"
 import {
-  LandingMobileChatMotion,
-  LandingShellMotion,
-} from "./landing-shell-motion"
+  DeferredMobileChatMotion as LandingMobileChatMotion,
+  DeferredShellMotion as LandingShellMotion,
+} from "./deferred-landing-media"
 import {
   SCENE_BEAT_DURATION_MS,
   SCENE_FINAL_HOLD_MS,

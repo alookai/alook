@@ -2,7 +2,7 @@
 
 import { useMemo, type ReactNode } from "react"
 import { Monitor, MoreVertical } from "lucide-react"
-import type { CommunityMachineSummary } from "@alook/shared"
+import type { MachineSummary } from "@/hooks/community/use-machines"
 import { isPresenceOnline } from "@alook/shared"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -28,14 +28,14 @@ export function MachineCard({
   onReconnect,
   onUpdate,
 }: {
-  machine: CommunityMachineSummary
+  machine: MachineSummary
   onDelete: () => void
   onReconnect: () => void
   onUpdate?: () => void
 }) {
   const isOnline = isPresenceOnline(machine.status)
   const lastSeenLabel = useMemo(
-    () => (machine.lastSeenAt ? `Last seen · ${timeAgo(machine.lastSeenAt)}` : "Never seen"),
+    () => machine.lastSeenAt === undefined ? "Last seen unknown" : machine.lastSeenAt ? `Last seen · ${timeAgo(machine.lastSeenAt)}` : "Never seen",
     [machine.lastSeenAt]
   )
   return (
@@ -64,7 +64,7 @@ export function MachineCard({
                     isOnline ? "bg-status-online" : "bg-muted-foreground",
                   ].join(" ")}
                 />
-                {isOnline ? "Online" : "Offline"}
+                {machine.status === undefined ? "Status unknown" : isOnline ? "Online" : "Offline"}
               </span>
             </div>
             <span className="truncate text-xs text-muted-foreground">

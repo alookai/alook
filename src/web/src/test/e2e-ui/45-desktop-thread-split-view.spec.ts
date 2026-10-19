@@ -181,18 +181,18 @@ test.describe("desktop thread split view", () => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(`/c/channels/${serverId}/${forumId}`)
     await expect(page.getByTestId(tid.forumThreadCard(forumPostId))).toBeVisible()
-    let releaseMetadata!: () => void
-    const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
-    caseResources.own(releaseMetadata, async (captured) => { captured() })
-    const metadataPath = `/api/community/channels/${forumPostId}`
-    const metadataUrl = (url: URL) => url.pathname === metadataPath
-    const holdMetadata = async (route: import("@playwright/test").Route) => {
-      await metadataGate
+    let releaseEntry!: () => void
+    const entryGate = new Promise<void>((resolve) => { releaseEntry = resolve })
+    caseResources.own(releaseEntry, async (captured) => { captured() })
+    const entryPath = `/api/community/channels/${forumPostId}/messages`
+    const entryUrl = (url: URL) => url.pathname === entryPath && url.searchParams.get("entry") === "1"
+    const holdEntry = async (route: import("@playwright/test").Route) => {
+      await entryGate
       await route.continue()
     }
-    await page.route(metadataUrl, holdMetadata)
+    await page.route(entryUrl, holdEntry)
     try {
-      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === metadataPath)
+      const requested = page.waitForRequest((request) => request.method() === "GET" && entryUrl(new URL(request.url())))
       await page.getByTestId(tid.forumThreadCard(forumPostId)).click()
       await requested
       const pendingShell = page.getByTestId(tid.threadSplit)
@@ -207,14 +207,14 @@ test.describe("desktop thread split view", () => {
       if (!group) throw new Error("Pending split group is unavailable")
       const pendingWidth = (await pendingPost.boundingBox())?.width
       if (pendingWidth === undefined) throw new Error("Pending post geometry is unavailable")
-      releaseMetadata()
+      releaseEntry()
       await expect(pendingParent.getByTestId(tid.forumPostList)).toBeVisible()
       await expect(pendingPost.getByText("Forum reply", { exact: false })).toBeVisible()
       expect(await group.evaluate((node) => node.isConnected)).toBe(true)
       expect(Math.abs(((await pendingPost.boundingBox())?.width ?? 0) - pendingWidth)).toBeLessThanOrEqual(1)
       await group.dispose()
     } finally {
-      releaseMetadata()
+      releaseEntry()
       await page.unrouteAll({ behavior: "wait" })
     }
     await page.goto(`/c/channels/${serverId}/${forumPostId}`)
@@ -240,36 +240,36 @@ test.describe("desktop thread split view", () => {
     await testInfo.attach("1280-light-forum-split", { path: forumSplit, contentType: "image/png" })
   })
 
-  test("keeps a cold parent placeholder until its own metadata is readable", async ({ caseActors, caseResources }) => {
+  test("keeps a cold parent placeholder until its own entry is readable", async ({ caseActors, caseResources }) => {
     const actors = await caseActors(["alice"])
     const { asUser } = actors
     const { serverId, forumId, forumPostId } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
-    let releaseMetadata!: () => void
-    const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
-    caseResources.own(releaseMetadata, async (captured) => { captured() })
-    const metadataPath = `/api/community/channels/${forumId}`
-    const metadataUrl = (url: URL) => url.pathname === metadataPath
-    await page.route(metadataUrl, async (route) => {
-      await metadataGate
+    let releaseEntry!: () => void
+    const entryGate = new Promise<void>((resolve) => { releaseEntry = resolve })
+    caseResources.own(releaseEntry, async (captured) => { captured() })
+    const entryPath = `/api/community/channels/${forumId}/messages`
+    const entryUrl = (url: URL) => url.pathname === entryPath && url.searchParams.get("entry") === "1"
+    await page.route(entryUrl, async (route) => {
+      await entryGate
       await route.continue()
     })
     try {
-      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === metadataPath)
+      const requested = page.waitForRequest((request) => request.method() === "GET" && entryUrl(new URL(request.url())))
       await page.goto(`/c/channels/${serverId}/${forumPostId}`)
       await requested
       const parent = page.getByTestId(tid.threadSplitParent)
       await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split")
       await expect(parent.getByTestId(tid.forumPostList)).toHaveCount(0)
       await expect(parent.getByRole("main").locator('[data-slot="skeleton"]').first()).toBeVisible()
-      releaseMetadata()
+      releaseEntry()
       await expect(parent.getByTestId(tid.forumPostList)).toBeVisible()
       await expect(page.getByTestId(tid.threadSplitPanel).getByText("Forum reply", { exact: false }))
         .toBeVisible()
     } finally {
-      releaseMetadata()
+      releaseEntry()
       await page.unrouteAll({ behavior: "wait" })
     }
   })
@@ -304,24 +304,24 @@ test.describe("desktop thread split view", () => {
     const group = await shell.locator('[data-slot="resizable-panel-group"]').elementHandle()
     const listNode = await list.elementHandle()
     if (!group || !listNode) throw new Error("Forum split nodes are unavailable")
-    let releaseMetadata!: () => void
-    const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
-    caseResources.own(releaseMetadata, async (captured) => { captured() })
-    const metadataPath = `/api/community/channels/${forumPostId}`
-    const metadataUrl = (url: URL) => url.pathname === metadataPath
-    await page.route(metadataUrl, async (route) => {
-      await metadataGate
+    let releaseEntry!: () => void
+    const entryGate = new Promise<void>((resolve) => { releaseEntry = resolve })
+    caseResources.own(releaseEntry, async (captured) => { captured() })
+    const entryPath = `/api/community/channels/${forumPostId}/messages`
+    const entryUrl = (url: URL) => url.pathname === entryPath && url.searchParams.get("entry") === "1"
+    await page.route(entryUrl, async (route) => {
+      await entryGate
       await route.continue()
     })
     try {
-      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === metadataPath)
+      const requested = page.waitForRequest((request) => request.method() === "GET" && entryUrl(new URL(request.url())))
       await parent.getByTestId(tid.forumThreadCard(forumPostId)).click()
       await requested
       await expect(thread.locator("[data-message-list-skeleton]")).toBeVisible()
       await expect(thread.getByText("Switch reply A", { exact: false })).toHaveCount(0)
       for (const phase of ["pending", "ready"] as const) {
         if (phase === "ready") {
-          releaseMetadata()
+          releaseEntry()
           await expect(thread.getByText("Forum reply", { exact: false })).toBeVisible()
         }
         expect(await list.evaluate((node, original) => node === original, listNode)).toBe(true)
@@ -331,7 +331,7 @@ test.describe("desktop thread split view", () => {
         expect(Math.abs(((await thread.boundingBox())?.width ?? 0) - width)).toBeLessThanOrEqual(1)
       }
     } finally {
-      releaseMetadata()
+      releaseEntry()
       await page.unrouteAll({ behavior: "wait" })
       await Promise.all([group.dispose(), listNode.dispose()])
     }
@@ -368,6 +368,10 @@ test.describe("desktop thread split view", () => {
     await resizeThreadPanel(page, 520)
     await parentInput.fill("Parent draft survives")
     await composerEditable(page, thread).fill("Child A draft")
+    await expect(parent.locator('[data-message-list-content][data-initial-position-phase="revealed"]')).toBeVisible()
+    await scroller.hover()
+    await page.mouse.wheel(0, -120)
+    await expect(parent.locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
     await parent.getByTestId(tid.threadIndicator(openerB)).scrollIntoViewIfNeeded()
     const scrollTop = await scroller.evaluate((node) => node.scrollTop)
     expect(scrollTop).toBeGreaterThan(0)
@@ -376,24 +380,24 @@ test.describe("desktop thread split view", () => {
     const scrollNode = await scroller.elementHandle()
     const inputNode = await parentInput.elementHandle()
     if (!group || !scrollNode || !inputNode) throw new Error("Text split nodes are unavailable")
-    let releaseMetadata!: () => void
-    const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
-    caseResources.own(releaseMetadata, async (captured) => { captured() })
-    const metadataPath = `/api/community/channels/${childB}`
-    const metadataUrl = (url: URL) => url.pathname === metadataPath
-    await page.route(metadataUrl, async (route) => {
-      await metadataGate
+    let releaseEntry!: () => void
+    const entryGate = new Promise<void>((resolve) => { releaseEntry = resolve })
+    caseResources.own(releaseEntry, async (captured) => { captured() })
+    const entryPath = `/api/community/channels/${childB}/messages`
+    const entryUrl = (url: URL) => url.pathname === entryPath && url.searchParams.get("entry") === "1"
+    await page.route(entryUrl, async (route) => {
+      await entryGate
       await route.continue()
     })
     try {
-      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === metadataPath)
+      const requested = page.waitForRequest((request) => request.method() === "GET" && entryUrl(new URL(request.url())))
       await parent.getByTestId(tid.threadIndicator(openerB)).click()
       await requested
       await expect(thread.locator("[data-message-list-skeleton]")).toBeVisible()
       await expect(thread.getByText("Draft reply A", { exact: false })).toHaveCount(0)
       for (const phase of ["pending", "ready"] as const) {
         if (phase === "ready") {
-          releaseMetadata()
+          releaseEntry()
           await expect(thread.getByText("Draft reply B", { exact: false })).toBeVisible()
         }
         expect(await scroller.evaluate((node, original) => node === original, scrollNode)).toBe(true)
@@ -419,7 +423,7 @@ test.describe("desktop thread split view", () => {
       await expect(parent.getByText(parentLive, { exact: false })).toBeVisible({ timeout: 20_000 })
       await expect(thread.getByText(childLive, { exact: false })).toBeVisible({ timeout: 20_000 })
     } finally {
-      releaseMetadata()
+      releaseEntry()
       await page.unrouteAll({ behavior: "wait" })
       await Promise.all([group.dispose(), scrollNode.dispose(), inputNode.dispose()])
     }

@@ -22,6 +22,7 @@ const TW_VARS: React.CSSProperties = {
 interface TypewriterVisualProps {
   className?: string;
   entranceDelay?: number;
+  animateEntrance?: boolean;
   paper?: React.ReactNode;
   blobScale?: number;
   blobBottom?: string;
@@ -30,6 +31,7 @@ interface TypewriterVisualProps {
 export function TypewriterVisual({
   className,
   entranceDelay = 0.3,
+  animateEntrance = true,
   paper,
   blobScale = 1,
   blobBottom,
@@ -60,6 +62,7 @@ export function TypewriterVisual({
   }, []);
 
   useGSAP(() => {
+    if (!animateEntrance) return;
     const paperEl = containerRef.current?.querySelector<HTMLElement>(".tw-paper");
     if (!paperEl) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -93,7 +96,7 @@ export function TypewriterVisual({
 
             <div className="tw-body-front">
               <div className="tw-paper-track">
-                <div className={`tw-paper${paper == null ? " tw-paper-city" : ""}`}>
+                <div className={`tw-paper${paper == null ? " tw-paper-city" : ""}`} style={animateEntrance ? undefined : { opacity: 1 }}>
                   {paper ?? <TypewriterCityArt />}
                 </div>
               </div>

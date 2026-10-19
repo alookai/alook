@@ -1,3 +1,4 @@
+import { COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import type { Locator, Page, Request, Route } from "@playwright/test"
 import type { TiptapEditorHTMLElement } from "@tiptap/react"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -12,8 +13,18 @@ import {
   communityFrameEvents,
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
+  type CommunityWsProxy,
 } from "./_fixtures/community-ws-proxy"
 import { tid } from "./_fixtures/testids"
+
+async function waitForCurrentCommunityAuth(proxy: CommunityWsProxy, previousConnection: number) {
+  await expect.poll(() => {
+    const current = proxy.connectionCount()
+    return current > previousConnection && proxy.connectionFrames.some(frame =>
+      frame.connectionId === current && frame.direction === "server-to-client"
+      && frame.type === "auth.ok" && frame.communityContract === COMMUNITY_CONTRACT_VERSION)
+  }).toBe(true)
+}
 
 function frameHasMessage(
   frame: CapturedCommunityFrame,
@@ -351,37 +362,19 @@ async function expectRetainedMountGets(
   departureReadState: ReadState,
   tracker: SurfaceGetTracker,
 ) {
-  await expect.poll(() => tracker.readStateUrls.length).toBe(1)
   await page.waitForTimeout(300)
   await expect.poll(() => tracker.inFlight()).toBe(0)
   const settledMessageCount = tracker.messageUrls.length
   await page.waitForTimeout(300)
   expect(tracker.inFlight()).toBe(0)
   expect(tracker.messageUrls).toHaveLength(settledMessageCount)
-
-  expect(tracker.messageUrls.length).toBeGreaterThanOrEqual(1)
   expect(tracker.messageUrls.length).toBeLessThanOrEqual(2)
-  const anchors = tracker.messageUrls.map((url) => new URL(url).searchParams.get("anchor"))
-  expect(anchors[0]).toBe(departureReadState.lastReadMessageId)
-  const counts = new Map<string, number>()
-  for (const anchor of anchors) {
-    const identity = anchor ?? "<newest>"
-    counts.set(identity, (counts.get(identity) ?? 0) + 1)
-  }
-  for (const count of counts.values()) expect(count).toBe(1)
-
-  if (anchors.length === 2) {
-    const newerAnchor = anchors[1]
-    expect(newerAnchor).not.toBeNull()
-    expect(newerAnchor).not.toBe(anchors[0])
-    await expect(page.getByTestId(tid.message(newerAnchor!))).toBeVisible()
-    const advancedReadState = await settledReadState(page, channelId)
-    expect(advancedReadState.lastReadSeq).toBeGreaterThan(departureReadState.lastReadSeq)
-    expect(newerAnchor).toBe(advancedReadState.lastReadMessageId)
-  }
-
-  expect(tracker.readStateUrls).toHaveLength(1)
-  expect(tracker.abortedReadStateGets).toBeLessThanOrEqual(1)
+  expect(tracker.readStateUrls).toEqual([])
+  expect(tracker.messageUrls.filter(url => new URL(url).searchParams.get("entry") === "1").length).toBeLessThanOrEqual(1)
+  expect(new Set(tracker.messageUrls).size).toBe(tracker.messageUrls.length)
+  const currentReadState = await settledReadState(page, channelId)
+  expect(currentReadState.lastReadSeq).toBeGreaterThanOrEqual(departureReadState.lastReadSeq)
+  expect(tracker.abortedReadStateGets).toBe(0)
   expect(tracker.abortedMessageGets).toBeLessThanOrEqual(1)
   expect(tracker.failures).toEqual([])
 }
@@ -559,8 +552,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expectMessageVisible(bob.page, replyBody)
   await expect(bob.page.getByTestId(tid.message(replyPayload.message.id))).toContainText(`@${bobInfo.name}`)
 
+  const aliceBeforeThread = aliceProxy.connectionCount()
+  const bobBeforeThread = bobProxy.connectionCount()
   await alice.page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
   await bob.page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
+  await Promise.all([waitForCurrentCommunityAuth(aliceProxy, aliceBeforeThread), waitForCurrentCommunityAuth(bobProxy, bobBeforeThread)])
   await ignoreNextDevToolsPointerCapture(alice.page)
   await ignoreNextDevToolsPointerCapture(bob.page)
   const aliceThread = alice.page.getByTestId(tid.threadSplitPanel)
@@ -663,8 +659,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(receivedThreadReply).toContainText(threadReplyBody)
   await expect(receivedThreadReply).toContainText(`@${bobInfo.name}`)
 
+  const aliceBeforeReturn = aliceProxy.connectionCount()
+  const bobBeforeReturn = bobProxy.connectionCount()
   await alice.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
   await bob.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
+  await Promise.all([waitForCurrentCommunityAuth(aliceProxy, aliceBeforeReturn), waitForCurrentCommunityAuth(bobProxy, bobBeforeReturn)])
   await ignoreNextDevToolsPointerCapture(alice.page)
   await ignoreNextDevToolsPointerCapture(bob.page)
   await expect(composerEditable(alice.page)).toBeVisible()
@@ -836,7 +835,9 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect.poll(() => bobProxy.frames.filter((frame) => (
     frameHasMessage(frame, dmId, directPayload!.message.id)
   )).length).toBe(1)
+  const bobBeforeDm = bobProxy.connectionCount()
   await bob.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
+  await waitForCurrentCommunityAuth(bobProxy, bobBeforeDm)
   await ignoreNextDevToolsPointerCapture(alice.page)
   await ignoreNextDevToolsPointerCapture(bob.page)
   await expect(composerEditable(alice.page)).toBeVisible()

@@ -205,7 +205,7 @@ export function FriendsPage({
     >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
         {onBack && (
-          <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
+          <Button variant="ghost" size="icon-sm" onClick={onBack} className="shrink-0 text-muted-foreground hover:text-foreground sm:hidden" aria-label="Back"><ChevronLeft className="size-5" /></Button>
         )}
         <TabsList variant="line">
           <TabsTrigger value="all">All</TabsTrigger>

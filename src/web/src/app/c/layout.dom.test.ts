@@ -110,7 +110,7 @@ describe("CommunityLayout session boundary", () => {
       "src/app/c/layout.tsx",
     ), "utf8")
     expect(source).toContain("await getSession()")
-    expect(source).toContain("<CommunityLayoutClient currentUser={currentUser} sidebar={sidebar}>")
+    expect(source).toContain("<CommunityLayoutClient currentUser={currentUser} initialSeed={authenticated?.seed} sidebar={sidebar}>")
     expect(source).not.toContain("useSession")
   })
 

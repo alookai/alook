@@ -1,3 +1,5 @@
+import { renderToString } from "react-dom/server"
+import MeBotsPage from "@/app/c/me/bots/page"
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotListController } from "./bot-list-types"
@@ -6,6 +8,8 @@ import { tid } from "@/lib/community/testids"
 
 const mocks = vi.hoisted(() => ({
   group: vi.fn(),
+  goBackMobile: vi.fn(),
+  loading: false,
   overlays: vi.fn(),
   createSheet: vi.fn(),
 }))
@@ -53,6 +57,9 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     isCreateDisabled: false,
     pendingActiveBotIds: new Set(),
     setBotActive: noop,
+    initialError: false,
+    retryInitialLoad: noop,
+    retryingInitialLoad: false,
     isLoading: false,
     machines: [],
     machinesLoading: false,
@@ -113,8 +120,16 @@ function withClassFragment(container: HTMLElement, className: string): HTMLEleme
 describe("renderBotListView", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("keeps the loaded header, group, and scroll geometry for either loading source", () => {
-    for (const loading of [{ isLoading: true }, { machinesLoading: true }]) {
+  it("shows Retry for an unconfirmed cold failure without claiming an empty bots list", () => {
+    const retry = vi.fn()
+    const view = render(renderBotListView({}, controller({ initialError: true, retryInitialLoad: retry })))
+    expect(view.container.textContent).not.toContain("No bots yet")
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the loaded header, group, and scroll geometry while the bots list is unknown", () => {
+    for (const loading of [{ isLoading: true }, { isLoading: true, machinesLoading: true }]) {
       const renderer = render(renderBotListView({}, controller(loading)))
       const cards = withClassFragment(renderer.container, "flex flex-col gap-3 p-4")
       expect(cards).toHaveLength(3)
@@ -141,6 +156,14 @@ describe("renderBotListView", () => {
       expect(mocks.createSheet).not.toHaveBeenCalled()
       renderer.unmount()
     }
+  })
+
+  it("renders confirmed empty bots while only the machine action waits", () => {
+    const renderer = render(renderBotListView({}, controller({ bots: [], isLoading: false, machinesLoading: true, machines: [] })))
+    expect(renderer.getByText("No bots yet")).toBeTruthy()
+    expect(renderer.queryByText("Connect a machine first")).toBeNull()
+    expect(renderer.getByRole("button", { name: "Checking machines…" })).toBeDisabled()
+    expect(withClassFragment(renderer.container, "h-6 w-40 max-w-full rounded")).toHaveLength(0)
   })
 
   it("bypasses loading for warm bots and renders the populated branch", () => {
@@ -313,11 +336,39 @@ describe("renderBotListView", () => {
         .not.toHaveLength(0)
       const back = renderer.getByRole("button", { name: "Back" })
       expect(back.parentElement?.className).toBe(
-        "flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6",
+        "flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6 sm:hidden",
       )
       fireEvent.click(back)
       renderer.unmount()
     }
     expect(onBack).toHaveBeenCalledTimes(2)
+  })
+})
+
+vi.mock("@/stores/community", async original => ({ ...await original<typeof import("@/stores/community")>(), useUiHandlers: () => ({ goBackMobile: mocks.goBackMobile }) }))
+vi.mock("@/components/community/bots/bot-list-controller", () => ({ useBotListController: () => controller({ isLoading: mocks.loading }) }))
+
+describe("SSR mobile Back footprint", () => {
+  it.each([false, true])("keeps the bot header through hydrate with loading=%s", async loading => {
+    mocks.loading = loading
+    mocks.goBackMobile.mockClear()
+    const node = React.createElement(MeBotsPage)
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(node)
+    document.body.appendChild(container)
+    let view: ReturnType<typeof render> | undefined
+    try {
+      const header = container.firstElementChild?.querySelector("header")
+      expect(header).not.toBeNull()
+      expect(header?.classList.contains("h-12")).toBe(true)
+      expect(header?.classList.contains("sm:hidden")).toBe(true)
+      expect(header?.querySelectorAll(loading ? '[data-slot="loading-back-placeholder"]' : '[aria-label="Back"]')).toHaveLength(1)
+      view = render(node, { container, hydrate: true })
+      expect(container.firstElementChild?.querySelector("header")).toBe(header)
+      if (!loading) {
+        fireEvent.click(header!.querySelector('[aria-label="Back"]')!)
+        expect(mocks.goBackMobile).toHaveBeenCalledOnce()
+      }
+    } finally { view?.unmount(); container.remove() }
   })
 })

@@ -98,7 +98,7 @@ describe("invite membership funnel boundary", () => {
       invite: { id: "invite-human", createdBy: "owner" },
       member: { userId: "human", userName: "Human" },
     })
-    await expect(claimPendingEvents(db, "owner")).resolves.toEqual([
+    await expect(claimPendingEvents(db, "owner", "invited_human_joined")).resolves.toEqual([
       { event: "invited_human_joined", surface: "community" },
     ])
     expect(sqlite.prepare("SELECT uses FROM community_server_invite WHERE id = ?").get("invite-human"))
@@ -111,6 +111,6 @@ describe("invite membership funnel boundary", () => {
     await expect(useInvite(db, "token-bot", "bot")).resolves.toMatchObject({
       member: { userId: "bot" },
     })
-    await expect(claimPendingEvents(db, "owner")).resolves.toEqual([])
+    await expect(claimPendingEvents(db, "owner", "invited_human_joined")).resolves.toEqual([])
   })
 })

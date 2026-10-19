@@ -1,3 +1,4 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { ROOT_CONTEXT, SpanKind, context, trace } from "@opentelemetry/api"
 import { InMemorySpanExporter, SimpleSpanProcessor, WebTracerProvider } from "@opentelemetry/sdk-trace-web"
@@ -34,17 +35,15 @@ it.each(["channel", "dm"] as const)("keeps real %s API events and native spans o
   const events: Array<{ name: string; attributes: Record<string, string> }> = []
   installTelemetrySink(event => events.push(event))
   installActionSpans((name, attributes, startTime, links, parent) => tracer.startSpan(name, { attributes, startTime, links }, parent ? trace.setSpan(ROOT_CONTEXT, parent) : ROOT_CONTEXT))
-  vi.stubGlobal("fetch", vi.fn(async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     const span = tracer.startSpan("GET messages", { kind: SpanKind.CLIENT })
     observeTransportSpan(span)
     span.end()
-    return Response.json({
-      contractVersion: COMMUNITY_CONTRACT_VERSION,
-      channelId: "channel-a",
-      messages: [],
-      page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
-      surfaceReceipt: { channelId: "channel-a", surfaceKind: kind },
-    }, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) } })
+    const entry = conversationEntryFromChannel({ id: "channel-a", serverId: kind === "channel" ? "server-a" : null, type: kind === "channel" ? "text" : "dm", name: null, archived: false, createdAt: "2026-10-01T00:00:00Z" })
+    return Response.json(new URL(url, "https://example.test").searchParams.has("entry") ? entry : {
+      contractVersion: COMMUNITY_CONTRACT_VERSION, channelId: entry.channelId, messages: entry.messages, page: entry.page, surfaceReceipt: entry.surfaceReceipt,
+    }, { headers: { [COMMUNITY_CONTRACT_HEADER]: new URL(url, "https://example.test").searchParams.has("entry") ? "3" : String(COMMUNITY_CONTRACT_VERSION) } })
+
   }))
   const href = kind === "channel" ? "/c/channels/server-a/channel-a" : "/c/me/channel-a"
   window.history.replaceState(null, "", href)
@@ -57,14 +56,14 @@ it.each(["channel", "dm"] as const)("keeps real %s API events and native spans o
   }
   let rendered!: ReturnType<typeof renderHook<ReturnType<typeof useMessages>, unknown>>
   await act(async () => {
-    rendered = renderHook(() => useSurface("channel-a", { serverId: "server-a", lastReadMessageId: null }), { wrapper })
+    rendered = renderHook(() => useSurface("channel-a", { serverId: "server-a" }), { wrapper })
   })
   await waitFor(() => expect(rendered.result.current.isSuccess).toBe(true))
-  expect(events.find(event => event.name === "request.finish")?.attributes).toMatchObject({ action_id: owner.id, request_reason: "foreground", outcome: "success" })
+  expect(events.find(event => event.name === "request.finish")?.attributes, JSON.stringify(events.find(event => event.name === "request.finish")?.attributes)).toMatchObject({ action_id: owner.id, request_reason: "foreground", outcome: "success" })
   finishAction(owner, "success", { phase: "primary", region: "messages" })
   events.length = 0
   await act(async () => { await rendered.result.current.refetch() })
-  expect(events.find(event => event.name === "request.finish")?.attributes).toMatchObject({ action_id: owner.id, request_reason: "background", outcome: "success" })
+  expect(events.find(event => event.name === "request.finish")?.attributes, JSON.stringify(events.find(event => event.name === "request.finish")?.attributes)).toMatchObject({ action_id: owner.id, request_reason: "background", outcome: "success" })
   const owned = exporter.getFinishedSpans().filter(span => span.name === "GET messages")
   expect(owned).toHaveLength(2)
   expect(owned.every(span => span.parentSpanContext?.spanId === owner.span!.spanContext().spanId)).toBe(true)

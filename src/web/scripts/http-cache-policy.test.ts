@@ -37,9 +37,15 @@ describe("HTTP cache configuration", () => {
   it.each([
     ["public/_headers", "/landing/people/lin.webp"],
     ["public/_headers", "/alook.svg"],
+    ["public/_headers", "/contact/gus-photo.jpeg"],
+    ["public/_headers", "/fonts/jgs5/jgs5.ttf"],
+    ["public/_headers", "/manifest.json"],
+    ["public/_headers", "/favicon.ico"],
+    ["public/_headers", "/social/readme-card-58c75311e5ba.png"],
     ["blog/public/_headers", "/blog/article/hero.webp"],
     ["blog/public/_headers", "/alook.svg"],
-  ])("keeps non-versioned images on a short policy: %s %s", (filename, pathname) => {
+    ["blog/public/_headers", "/manifest.json"],
+  ])("keeps non-versioned public resources on a short policy: %s %s", (filename, pathname) => {
     expect(matchingPolicies(filename, pathname)).toEqual(["public, max-age=300, must-revalidate"])
   })
 

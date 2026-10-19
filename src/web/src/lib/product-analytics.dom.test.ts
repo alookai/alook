@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent } from "@/test/react-dom-harness"
+import { QueryClient } from "@tanstack/react-query"
+import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
+import { advanceCommunityOnboarding, completeCommunityOnboarding, readCommunityOnboardingState, startCommunityOnboarding, updateCommunityOnboardingInitialization } from "./community-onboarding"
 const mocks = vi.hoisted(() => ({ native: false, consent: null as string | null }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), isTauri: () => mocks.native }))
 vi.mock("@/lib/analytics-consent", async original => ({ ...await original<typeof import("@/lib/analytics-consent")>(), readAnalyticsConsent: () => mocks.consent }))
-import { beginOnboardingAnalytics, captureOnboardingFirstMessage, captureProductAnalytics } from "./product-analytics"
+import { beginOnboardingAnalytics, captureOnboardingFirstMessage, captureProductAnalytics, type ProductAnalyticsInput } from "./product-analytics"
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/sign-in")
@@ -109,4 +112,91 @@ describe("frontend product analytics", () => {
     captureOnboardingFirstMessage("owner", "server")
     expect(send.mock.calls.map(([input]) => input.event)).toEqual(["onboarding_enter_clicked", "onboarding_first_message", "onboarding_enter_clicked", "onboarding_first_message"])
   })
+})
+
+const addedEvents = ["community_onboarding_completed", "human_invitation_sent", "human_invitation_copied", "invited_human_joined"] as const
+it.each(addedEvents)("sends only the finite %s name, without private or unrelated business fields", async (event) => {
+  await captureProductAnalytics({ event, method: "email", serverId: "private-id", token: "private-token" } as ProductAnalyticsInput)
+  const { send } = loadFrame()
+  expect(send).toHaveBeenCalledOnce()
+  expect(send).toHaveBeenCalledWith({ event, params: {} })
+})
+
+it.each(addedEvents)("does not send or attach %s for Native or explicit denial", async event => {
+  mocks.native = true
+  await captureProductAnalytics({ event })
+  mocks.native = false; mocks.consent = "denied"
+  await captureProductAnalytics({ event })
+  expect(document.getElementById("alook-product-events")).toBeNull()
+})
+
+it("rejects unknown event names before either public or isolated transport", async () => {
+  const input: ProductAnalyticsInput = JSON.parse('{"event":"private-arbitrary-event"}')
+  await captureProductAnalytics(input)
+  window.history.replaceState(null, "", "/")
+  await captureProductAnalytics(input)
+  expect(document.getElementById("alook-product-events")).toBeNull()
+  expect(window.dataLayer).toEqual([])
+})
+
+it("does not publish a queued event after its original owner retires", async () => {
+  let active = true
+  await captureProductAnalytics({ event: "invited_human_joined" }, () => { if (!active) throw new Error("retired") })
+  active = false
+  const { send } = loadFrame()
+  expect(send).not.toHaveBeenCalled()
+})
+
+it.each(["active", "retired", "reactivated"] as const)("qualifies delayed onboarding completion against its %s original owner", async ownership => {
+  const client = new QueryClient()
+  const registry = createCommunityDbRegistry(client, "onboarding-owner")
+  const retire = registerCommunityDbRegistry(registry)
+  const pathname = "/c/channels/server/channel"
+  window.history.replaceState(null, "", pathname)
+  try {
+    startCommunityOnboarding(registry.runtime)
+    advanceCommunityOnboarding(registry.runtime, "harness", "initializing")
+    const result = { serverId: "server", publicChannelId: "channel", privateChannelId: "private", leadBotId: "lead", bots: [] }
+    updateCommunityOnboardingInitialization(registry.runtime, current => ({ ...current, result, pendingDestination: pathname }))
+
+    expect(completeCommunityOnboarding(registry.runtime, pathname)).toBeNull()
+    expect(readCommunityOnboardingState(registry.runtime)).toBeNull()
+    expect(document.getElementById("alook-product-events")).not.toBeNull()
+    expect(document.getElementById("alook-product-events")?.getAttribute("data-ready")).toBeNull()
+    completeCommunityOnboarding(registry.runtime, pathname)
+
+    if (ownership !== "active") retire()
+    if (ownership === "reactivated") registerCommunityDbRegistry(registry)
+    const { send } = loadFrame()
+    if (ownership === "active") {
+      expect(send).toHaveBeenCalledOnce()
+      expect(send).toHaveBeenCalledWith({ event: "community_onboarding_completed", params: {} })
+    } else {
+      expect(send).not.toHaveBeenCalled()
+    }
+  } finally {
+    await registry.cleanup()
+    client.clear()
+  }
+})
+
+it.each([
+  { event: "sign_up", method: "email" },
+  { event: "sign_in_success", method: "google" },
+  { event: "sign_in_failed", method: "github", failureStage: "social_start" },
+] as const)("retains the existing $event dimensions", async input => {
+  await captureProductAnalytics(input)
+  const { send } = loadFrame()
+  expect(send).toHaveBeenCalledWith({ event: input.event, params: { method: input.method, ...("failureStage" in input ? { failure_stage: input.failureStage } : {}) } })
+})
+
+it("does not send a detached event frame after consent is granted again", async () => {
+  await captureProductAnalytics({ event: "invited_human_joined" })
+  const frame = document.getElementById("alook-product-events") as HTMLIFrameElement
+  const send = vi.fn()
+  Object.defineProperty(frame.contentWindow, "sendProductEvent", { value: send, configurable: true })
+  frame.remove()
+  mocks.consent = "granted"
+  fireEvent.load(frame)
+  expect(send).not.toHaveBeenCalled()
 })

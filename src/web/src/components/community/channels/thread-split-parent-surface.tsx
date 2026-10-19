@@ -25,7 +25,7 @@ export function ThreadSplitParentSurface({
   serverId,
   serverParam,
   server,
-  channel,
+  channel: hint,
   viewer,
   onNavigateParent,
   channelRefCandidates,
@@ -36,7 +36,7 @@ export function ThreadSplitParentSurface({
 }: {
   serverId: string
   serverParam: string
-  server: ServerDetail
+  server: ServerDetail | null | undefined
   channel: Channel
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
   onNavigateParent?: () => void
@@ -46,7 +46,8 @@ export function ThreadSplitParentSurface({
   onOpenProfile: OpenProfile
   onIdentity: (parentId: string, confirmed: boolean) => void
 }) {
-  const metadata = useChannelMetadata(serverId, channel.id)
+  const metadata = useChannelMetadata(serverId, hint.id)
+  const channel = metadata.data ? { ...hint, ...metadata.data } : hint
   const runtime = useCommunityRuntime()
   const [subscriptionOwner] = useState(() => Symbol("thread-split-secondary"))
   useLayoutEffect(() => {

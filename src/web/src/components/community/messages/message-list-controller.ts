@@ -29,6 +29,7 @@ export function useMessageListController({
   unreadCount,
   onScrollRoot,
   onScrollTargetConsumed,
+  observation,
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
@@ -114,6 +115,7 @@ export function useMessageListController({
   const initialPosition = useInitialPositionTransition({
     firstWindowReady: !isLoading && (messages.length > 0 || !initialLoadError),
     authoritativeEmpty,
+    documentWindowReady: observation?.snapshot_source === "rsc",
     positionSettled: anchorPositionSettled,
   })
 
@@ -233,6 +235,7 @@ export function useMessageListController({
     scrollRef,
     virtualizer,
     readPositionReady,
+    paginationEnabled,
     jumpTo,
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,

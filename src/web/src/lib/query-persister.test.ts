@@ -61,9 +61,13 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.members("srv_1"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.server("__none__"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.server("__pending__"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.machines())).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.friends())).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.inbox())).toBe(false)
+  })
+
+  it("allows stable bots and machine resource branches for scoped persistence", () => {
+    expect(shouldPersistQueryKey(communityKeys.machines())).toBe(true)
+    expect(shouldPersistQueryKey(communityKeys.bots())).toBe(true)
   })
 
   it("does not restore transient transport state on reload", () => {

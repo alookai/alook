@@ -47,6 +47,7 @@ export function renderMessageListView(
         <div
           ref={controller.scrollRef}
           data-testid={tid.messageScroller}
+          data-pagination-enabled={controller.paginationEnabled ? "true" : "false"}
           className="relative z-10 h-full overflow-x-clip overflow-y-auto thin-scrollbar"
         >
           <div
@@ -112,6 +113,7 @@ export function MessageListSkeleton({ variant = "channel" }: { variant?: "channe
       <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
         <div
           data-testid={tid.messageScroller}
+          data-pagination-enabled="false"
           className="relative z-10 h-full overflow-x-clip overflow-y-auto thin-scrollbar"
         >
           <div

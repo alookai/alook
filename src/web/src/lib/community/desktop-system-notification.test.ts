@@ -1,3 +1,4 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityMessageCreate, CommunityWsEvent } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
@@ -237,7 +238,7 @@ describe("desktop system notification candidates", () => {
   it("resolves a cold channel name before formatting the desktop copy", async () => {
     const queryClient = await createClient()
     seedCanonicalDirectory(queryClient, { channels: false })
-    channelMetadataMocks.fetch.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0,
+    channelMetadataMocks.fetch.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "channel_1",
       serverId: "server_1",
       name: "general",
@@ -248,7 +249,7 @@ describe("desktop system notification candidates", () => {
       archived: false,
       lastMessageAt: null,
       createdAt: "2026-09-12T00:00:00.000Z",
-    })
+    }, "viewer_1"))
     await expect(resolveDesktopSystemNotificationCandidate(
       create,
       bump,
@@ -258,12 +259,12 @@ describe("desktop system notification candidates", () => {
       title: "Studio · #general",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1/messages?entry=1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
   })
 
   it("uses the default empty snapshot while resolving cold channel metadata", async () => {
     const queryClient = await createClient()
-    channelMetadataMocks.fetch.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0,
+    channelMetadataMocks.fetch.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "channel_1",
       serverId: "server_1",
       name: "general",
@@ -274,7 +275,7 @@ describe("desktop system notification candidates", () => {
       archived: false,
       lastMessageAt: null,
       createdAt: "2026-09-12T00:00:00.000Z",
-    })
+    }, "viewer_1"))
 
     await expect(resolveDesktopSystemNotificationCandidate(
       create,
@@ -285,13 +286,13 @@ describe("desktop system notification candidates", () => {
       title: "Server · #general",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1/messages?entry=1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
   })
 
   it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
     const queryClient = await createClient()
     seedCanonicalDirectory(queryClient, { channels: false })
-    channelMetadataMocks.fetch.mockResolvedValueOnce({ categoryId: null, topic: "", position: 0, messageCount: 0,
+    channelMetadataMocks.fetch.mockResolvedValueOnce(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "thread_1",
       serverId: "server_1",
       name: "Release notes",
@@ -302,7 +303,7 @@ describe("desktop system notification candidates", () => {
       archived: false,
       lastMessageAt: null,
       createdAt: "2026-09-12T00:00:00.000Z",
-    }).mockResolvedValueOnce({ categoryId: null, topic: "", position: 0, messageCount: 0,
+    }, "viewer_1")).mockResolvedValueOnce(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "channel_1",
       serverId: "server_1",
       name: "general",
@@ -313,7 +314,7 @@ describe("desktop system notification candidates", () => {
       archived: false,
       lastMessageAt: null,
       createdAt: "2026-09-12T00:00:00.000Z",
-    })
+    }, "viewer_1"))
     await expect(resolveDesktopSystemNotificationCandidate(
       { ...create, channelId: "thread_1" },
       { ...bump, channelId: "thread_1" },
@@ -323,7 +324,7 @@ describe("desktop system notification candidates", () => {
       title: "Studio · #general · Release notes",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/thread_1", "/api/community/channels/channel_1"])
+    expect(channelMetadataMocks.fetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/thread_1/messages?entry=1", "/api/community/channels/channel_1/messages?entry=1"])
   })
 
   it("uses complete current-account collections without metadata I/O", async () => {

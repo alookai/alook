@@ -6,13 +6,13 @@ const serviceWorkerRoute = createSerwistRoute({
   useNativeEsbuild: true,
   globPatterns: [
     ".next/static/chunks/**/*.{js,css}",
-    ".next/static/media/*.{woff,woff2}",
-    "public/alook.svg",
-    "public/official-server-badge-flat.svg",
-    "public/apple-touch-icon.png",
-    "public/icon-192.png",
-    "public/icon-512.png",
+    ".next/static/media/**/*.{woff,woff2,ttf,png,jpg,jpeg,webp,svg,ico}",
+    ".next/static/media/pdf.worker.min.*.mjs",
+    ".next/static/*/_{buildManifest,clientMiddlewareManifest,ssgManifest}.js",
+    "public/**/*.{svg,png,jpg,jpeg,webp,ttf,json}",
+    "src/app/favicon.ico",
   ],
+  modifyURLPrefix: { "src/app/favicon.ico": "/favicon.ico" },
   maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
   manifestTransforms: [async entries => ({
     manifest: entries.filter(entry => isPublicAssetPath(

@@ -7,11 +7,13 @@ import {
   prepareServices,
   startServices,
   stopServicesAndRestore,
+  publicStaticQaManifest,
 } from "./services"
 import { createLifecycleState, writeLifecycleState } from "./service-lifecycle"
 import { USER_KEYS, type RunManifest, type SeededUser, type UserKey } from "./users"
 
 export default async function globalSetup(): Promise<void> {
+  publicStaticQaManifest()
   rmSync(AUTH_DIR, { recursive: true, force: true })
   mkdirSync(AUTH_DIR, { recursive: true })
   writeLifecycleState(SERVICE_STATE_PATH, createLifecycleState())

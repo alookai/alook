@@ -34,12 +34,12 @@ describe("Native WS-live query options", () => {
     ["server detail", () => useServer("srv_1"), communityKeys.server("srv_1")],
     ["member roster", () => useServerMembers("srv_1"), communityKeys.members("srv_1")],
     ["server rail", () => useServers(), communityKeys.servers()],
-  ] as const)("pairs infinite freshness with reconnect refresh for %s", async (_name, hook, key) => {
+  ] as const)("pairs bounded freshness with reconnect refresh for %s", async (_name, hook, key) => {
     const owner = await setup(hook)
     await waitFor(() => {
       const resource = owner.client.getQueryCache().find({ queryKey: key })
       expect(resource?.state.status).toBe("success")
-      expect(resource?.options).toMatchObject({ staleTime: Infinity, refetchOnReconnect: true })
+      expect(resource?.options).toMatchObject({ staleTime: _name === "server detail" || _name === "server rail" ? 30_000 : Infinity, refetchOnReconnect: true })
     })
   })
 

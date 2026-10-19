@@ -1,6 +1,6 @@
 {
   "name": "@alook/daemon",
-  "version": "0.1.53",
+  "version": "0.1.54",
   "description": "Alook agent daemon — host-side runtime backend, process manager, credential proxy, and control plane.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
@@ -61,7 +61,7 @@
     "eslint": "^9.39.5",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.1",
-    "vitest": "4.1.11"
+    "typescript-eslint": "^8.71.2",
+    "vitest": "4.1.12"
   }
 }

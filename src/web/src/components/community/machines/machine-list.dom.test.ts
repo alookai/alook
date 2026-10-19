@@ -1,15 +1,24 @@
 import React from "react"
+import { renderToString } from "react-dom/server"
+import { render as renderNative } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import MeMachinesPage from "@/app/c/me/machines/page"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  goBackMobile: vi.fn(),
   query: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
   machinesLoading: { current: false },
+  capacityPending: { current: false },
+  machinesError: { current: false },
+  retryMachines: vi.fn(),
   capacity: { current: { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 } },
   machines: { current: [] as unknown[] },
   onboardingState: { current: "done" as unknown },
@@ -82,11 +91,12 @@ vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: ({ open, onLimitReach
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
 vi.mock("@/hooks/community/use-machines", async (importOriginal) => ({ ...await importOriginal<typeof import("@/hooks/community/use-machines")>(),
   machinesQueryFn: mocks.query,
-  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, data: { machineCapacity: mocks.capacity.current } }),
+  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, isError: mocks.machinesError.current, isFetching: false, capacityPending: mocks.capacityPending.current, refetch: mocks.retryMachines, data: mocks.machinesError.current ? undefined : { machineCapacity: mocks.capacityPending.current ? undefined : mocks.capacity.current } }),
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
   usePendingMachineTokenId: () => null,
+  useUiHandlers: () => ({ goBackMobile: mocks.goBackMobile }),
   useCommunityStore: { getState: () => ({ setPendingMachineTokenId: vi.fn() }) },
 }))
 vi.mock("@/lib/community-onboarding", () => ({
@@ -127,6 +137,37 @@ function withExactClass(container: HTMLElement, className: string): HTMLElement[
     .filter((node) => node.className === className)
 }
 
+describe("SSR mobile Back footprint", () => {
+  it.each([false, true])("keeps the existing mobile header through hydrate with loading=%s", async loading => {
+    mocks.machines.current = []
+    mocks.machinesLoading.current = loading
+    mocks.machinesError.current = false
+    mocks.capacityPending.current = false
+    mocks.fetchLatestDaemonVersion.mockResolvedValue(null)
+    mocks.goBackMobile.mockClear()
+    const owner = await createCommunityQueryOwner()
+    const node = React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, React.createElement(MeMachinesPage))
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(node)
+    document.body.appendChild(container)
+    let view: ReturnType<typeof renderNative> | undefined
+    try {
+      const header = container.firstElementChild?.querySelector("header")
+      expect(header).not.toBeNull()
+      expect(header?.classList.contains("h-12")).toBe(true)
+      expect(header?.classList.contains("sm:hidden")).toBe(true)
+      expect(header?.querySelectorAll(loading ? '[data-slot="loading-back-placeholder"]' : '[aria-label="Back"]')).toHaveLength(1)
+      view = renderNative(node, { container, hydrate: true })
+      await act(async () => { await Promise.resolve() })
+      expect(container.firstElementChild?.querySelector("header")).toBe(header)
+      if (!loading) {
+        fireEvent.click(header!.querySelector('[aria-label="Back"]')!)
+        expect(mocks.goBackMobile).toHaveBeenCalledOnce()
+      }
+    } finally { view?.unmount(); container.remove(); owner.client.clear() }
+  })
+})
+
 describe("machine daemon update UI", () => {
   beforeEach(() => {
     mocks.capacity.current = { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 }
@@ -140,9 +181,19 @@ describe("machine daemon update UI", () => {
       version: "0.1.8",
       package: "@alook/daemon",
     })
+    mocks.capacityPending.current = false
     mocks.machinesLoading.current = false
+    mocks.machinesError.current = false
     mocks.machines.current = []
     mocks.onboardingState.current = "done"
+  })
+
+  it("shows Retry when the list is unknown rather than claiming no machines exist", () => {
+    mocks.machinesError.current = true
+    const view = render(React.createElement(MachineList))
+    expect(view.container.textContent).not.toContain("No machines yet")
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    expect(mocks.retryMachines).toHaveBeenCalledOnce()
   })
 
   it("blocks adding at the owned cap even when every machine is offline", async () => {
@@ -156,6 +207,21 @@ describe("machine daemon update UI", () => {
     window.history.replaceState(null, "", "/c/me/machines?keep=1")
     fireEvent.click(view.getByRole("button", { name: "View plan" }))
     expect(window.location.search).toBe("?keep=1&settings=billing")
+  })
+
+  it("waits for the initial allowance before the Connect action becomes available", () => {
+    mocks.capacityPending.current = true
+    const view = render(React.createElement(MachineList))
+    const action = view.getByRole("button", { name: "Connect a machine" })
+    expect(action).toBeDisabled()
+    fireEvent.click(action)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+    expect(view.queryByTestId("test-pair-sheet")).not.toBeInTheDocument()
+    mocks.capacityPending.current = false
+    view.rerender(React.createElement(MachineList))
+    expect(action).toBeEnabled()
+    fireEvent.click(action)
+    expect(view.getByTestId("test-pair-sheet")).toBeInTheDocument()
   })
 
   it("opens pairing when there is room", () => {

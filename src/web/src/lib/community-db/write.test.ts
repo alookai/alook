@@ -22,6 +22,20 @@ function owner() {
   return registry
 }
 
+function observeProfilePublications(registry: CommunityDbRegistry) {
+  const cache = registry.queryClient.getQueryCache()
+  const query = cache.find({
+    queryKey: communityKeys.communityDbCollection(registry.scopeId, "profiles"),
+    exact: true,
+  })
+  expect(query).toBeDefined()
+  const publish = vi.fn()
+  const unsubscribe = cache.subscribe((event) => {
+    if (event.type === "updated" && event.query === query) publish(event.query.state.data)
+  })
+  return { publish, unsubscribe }
+}
+
 describe("canonical collection publication", () => {
   it.each([false, true])("preserves sparse same-identity WS fields before ready=%s and honors explicit empty", async (ready) => {
     const registry = owner()
@@ -102,17 +116,21 @@ describe("canonical collection publication", () => {
     ], registry)
     const bob = registry.collections.profiles.get("bob")
     const upsert = vi.spyOn(registry.collections.profiles.utils, "writeUpsert")
-    const publish = vi.spyOn(registry.queryClient, "setQueryData")
+    const { publish, unsubscribe } = observeProfilePublications(registry)
+    try {
+      writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alicia" } }], registry)
 
-    writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alicia" } }], registry)
-
-    expect(upsert).toHaveBeenCalledOnce()
-    expect(upsert.mock.calls[0]?.[0]).toMatchObject([{ id: "alice", name: "Alicia" }])
-    expect(publish).toHaveBeenCalledOnce()
-    expect(registry.collections.profiles.get("bob")).toBe(bob)
-    expect(registry.queryClient.getQueryData(
-      communityKeys.communityDbCollection("viewer", "profiles"),
-    )).toMatchObject([{ id: "alice", name: "Alicia" }, { id: "bob", name: "Bob" }])
+      expect(upsert).toHaveBeenCalledOnce()
+      expect(upsert.mock.calls[0]?.[0]).toMatchObject([{ id: "alice", name: "Alicia" }])
+      expect(publish).toHaveBeenCalledOnce()
+      expect(publish.mock.calls[0]?.[0]).toMatchObject([{ id: "alice", name: "Alicia" }, { id: "bob", name: "Bob" }])
+      expect(registry.collections.profiles.get("bob")).toBe(bob)
+      expect(registry.queryClient.getQueryData(
+        communityKeys.communityDbCollection("viewer", "profiles"),
+      )).toMatchObject([{ id: "alice", name: "Alicia" }, { id: "bob", name: "Bob" }])
+    } finally {
+      unsubscribe()
+    }
   })
 
   it("keeps equal rows silent and synchronizes deleting the final row", async () => {
@@ -120,17 +138,21 @@ describe("canonical collection publication", () => {
     await registry.preload()
     writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alice" } }], registry)
     const current = Array.from(registry.collections.profiles.values())
-    const publish = vi.spyOn(registry.queryClient, "setQueryData")
+    const key = communityKeys.communityDbCollection("viewer", "profiles")
+    const previous = registry.queryClient.getQueryData(key)
+    const { publish, unsubscribe } = observeProfilePublications(registry)
+    try {
+      await writeCommunityCollectionRows(registry, "profiles", current.map((row) => ({ ...row })), (row) => row.id)
+      expect(publish).not.toHaveBeenCalled()
+      expect(registry.queryClient.getQueryData(key)).toBe(previous)
 
-    writeCommunityCollectionRows(registry, "profiles", current.map((row) => ({ ...row })), (row) => row.id)
-    expect(publish).not.toHaveBeenCalled()
-
-    writeCommunityCollectionRows(registry, "profiles", [], (row) => row.id)
-    expect(publish).toHaveBeenCalledOnce()
-    expect(registry.collections.profiles.size).toBe(0)
-    expect(registry.queryClient.getQueryData(
-      communityKeys.communityDbCollection("viewer", "profiles"),
-    )).toEqual([])
+      await writeCommunityCollectionRows(registry, "profiles", [], (row) => row.id)
+      expect(publish).toHaveBeenCalledExactlyOnceWith([])
+      expect(registry.collections.profiles.size).toBe(0)
+      expect(registry.queryClient.getQueryData(key)).toEqual([])
+    } finally {
+      unsubscribe()
+    }
   })
 
   it("commits a confirmed value equal to the visible optimistic overlay before the native transaction drops it", async () => {

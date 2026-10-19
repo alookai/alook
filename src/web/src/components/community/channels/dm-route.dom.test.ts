@@ -1,9 +1,11 @@
 import React, { useLayoutEffect, type PropsWithChildren } from "react"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { screen, setupUser } from "@/test/react-dom-harness"
-import { renderCommunity } from "@/test/community-owner-harness"
+import { act, screen, setupUser, waitFor } from "@/test/react-dom-harness"
+import { renderCommunity, renderCommunityHook } from "@/test/community-owner-harness"
 import { DmRoute } from "./dm-route"
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
+import { ingestDms } from "@/lib/community-db/sync"
 
 function RouteUi({ children }: PropsWithChildren) {
   const runtime = useCommunityRuntime()
@@ -41,7 +43,7 @@ vi.mock("@/lib/community/last-community-route", () => ({
 }))
 vi.mock("./dm-view", () => ({ DmView: ({ dmId }: { dmId: string }) => React.createElement("main", { "data-channel-id": dmId }, dmId) }))
 vi.mock("./dm-loading-frame", () => ({ DmLoadingFrame: ({ reserveBackSlot }: { reserveBackSlot: boolean }) => React.createElement("div", { "data-testid": "dm-pending", "data-back": String(reserveBackSlot) }) }))
-vi.mock("./dm-route-error-frame", () => ({ DmRouteErrorFrame: ({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) => React.createElement("button", { onClick: onRetry, disabled: retrying }, "Retry") }))
+vi.mock("./dm-route-error-frame", () => ({ DmRouteErrorFrame: ({ onRetry, retrying, reserveBackSlot }: { onRetry: () => void; retrying: boolean; reserveBackSlot?: boolean }) => React.createElement("button", { onClick: onRetry, disabled: retrying, "data-back": String(reserveBackSlot) }, "Retry") }))
 
 beforeEach(() => {
   mocks.verification.status = "pending"
@@ -54,6 +56,19 @@ beforeEach(() => {
 })
 
 describe("DM target main owns identity, retry and fallback", () => {
+  it.each(["pending", "retryable-error", "denied"])("keeps canonical DM presentation while entry is %s without granting read permission", async status => {
+    const owner = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
+    await act(async () => { ingestDms(owner, { conversations: [{ id: "dm-a", userId: "peer", name: "Peer", discriminator: "0042", avatar: "/avatar", avatarVersion: 1, status: "offline", preview: "" }] }) })
+    mocks.verification.status = status
+    expect(mocks.verification.identityKnown).toBe(false)
+    const route = render(React.createElement(DmRoute, { dmId: "dm-a" }))
+    await waitFor(() => expect(route.container.querySelector("main")).toHaveAttribute("data-channel-id", "dm-a"))
+    expect(screen.queryByTestId("dm-pending")).toBeNull()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(mocks.clear).not.toHaveBeenCalled()
+    expect(mocks.verification.identityKnown).toBe(false)
+  })
+
   it("reserves the target frame on mobile and mounts only the qualified explicit ID", () => {
     mocks.breakpoint = "mobile"
     const route = render(React.createElement(DmRoute, { dmId: "dm-a" }))
@@ -113,5 +128,16 @@ describe("DM target main owns identity, retry and fallback", () => {
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines")
     expect(mocks.consume).toHaveBeenCalledOnce()
     expect(mocks.purge).not.toHaveBeenCalled()
+  })
+})
+
+describe("DM unknown viewport keeps the same responsive leading footprint", () => {
+  it.each(["pending", "retryable-error"])("reserves mobile leading space before breakpoint detection in %s", status => {
+    mocks.breakpoint = "unknown"
+    mocks.verification.status = status
+    const view = render(React.createElement(DmRoute, { dmId: "dm-a" }))
+    const frame = status === "pending" ? screen.getByTestId("dm-pending") : screen.getByRole("button", { name: "Retry" })
+    expect(frame).toHaveAttribute("data-back", "true")
+    view.unmount()
   })
 })

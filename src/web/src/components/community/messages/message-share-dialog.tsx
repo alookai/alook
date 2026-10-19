@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
 import { ShareImagePreparationContext } from "@/components/remote-image/share-image-context"
 import { MessageBody } from "./message-body"
+import { MessageAuthorLine } from "./message-author-line"
 import { attachmentAspectRatio } from "./attachment-layout"
 import { tid } from "@/lib/community/testids"
 import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
@@ -348,23 +349,13 @@ export function MessageShareDialog({ m, open, onClose }: {
                       )}
                   <div className="min-w-0 flex-1">
                     {!msg.grouped && (
-                      <div
-                        className="mb-0.5 flex items-baseline gap-2"
-                      >
-                        <span
-                          className="min-w-0 max-w-full truncate text-[15px] font-semibold"
-                          style={{ color: msg.color ?? "var(--foreground)" }}
-                        >
-                          {author?.name ?? msg.authorName}
-                        </span>
-                        <span
-                          data-share-timestamp
-                          className="shrink-0 text-xs text-muted-foreground"
-                          suppressHydrationWarning
-                        >
-                          {formatMessageTime(msg.createdAt)}
-                        </span>
-                      </div>
+                      <MessageAuthorLine
+                        className="mb-0.5"
+                        authorName={author?.name ?? msg.authorName ?? ""}
+                        color={msg.color ?? "var(--foreground)"}
+                        timestamp={formatMessageTime(msg.createdAt)}
+                        timestampProps={{ dateTime: msg.createdAt, "data-share-timestamp": true }}
+                      />
                     )}
                     {visibleContent && (
                       <div

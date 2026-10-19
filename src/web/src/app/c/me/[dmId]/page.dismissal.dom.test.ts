@@ -63,14 +63,10 @@ vi.mock("@/hooks/community/use-channel-metadata", () => ({
     status: mockHistory.status, revoked: mockHistory.revoked, retry: mockHistory.retryMetadata, retrying: mockHistory.retryingMetadata,
     data: { readProof: mockHistory.allowed ? {} : undefined } }),
 }))
-vi.mock("@/lib/community/conversation-navigation-proof", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/community/conversation-navigation-proof")>(),
-  useConversationNavigationGate: () => mockNavigationGate,
-}))
 vi.mock("@/hooks/community/channel-metadata", () => ({ isChannelMetadataTokenCurrent: () => true }))
 vi.mock("@/lib/community/last-community-route", () => ({ commitCommunityChannelRoute: mockCommitRoute }))
 vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
-vi.mock("@/components/community/messages/message-list", () => ({ MessageList: () => React.createElement("div", { "data-testid": "history-body" }) }))
+vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ loading }: { loading: boolean }) => React.createElement("div", { "data-testid": loading ? "history-pending" : "history-body" }) }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: () => null,
 }))
@@ -115,11 +111,11 @@ vi.mock("@/hooks/community/use-messages", () => ({
     refetch: vi.fn(),
     navigationBlocked: mockDmMessages.navigationBlocked,
     anchorReconciled: false,
+    readSnapshot: null, readSnapshotFetching: false, initialPositionKnown: false,
+    initialLoadError: mockHistory.error, retryInitialLoad: mockHistory.retry, retryingInitialLoad: false,
   }),
 }))
-vi.mock("@/hooks/community/use-dm-read-state", () => ({
-  useDmReadStateSnapshot: () => ({ snapshot: null, isFetching: false, error: mockHistory.error, retry: mockHistory.retry, retrying: false }),
-}))
+
 vi.mock("@/lib/community/message-read-projection", () => ({
   resolveMessageReadProjection: () => ({ newDividerBefore: undefined, anchorFound: false }),
 }))
@@ -250,7 +246,7 @@ describe("DM notification dismissal readiness", () => {
   it("withholds history/composer and last while read access fails, then permits the same target after retry", () => {
     mockDms.dms = [{ id: "dm_1", userId: "peer_1", name: "Peer", avatar: "P" }]
     mockHistory.allowed = false
-    mockHistory.error = Object.assign(new Error("denied"), { status: 403 })
+    mockHistory.error = new Error("entry temporarily unavailable")
     const view = render(React.createElement(DmView, { dmId: "dm_1" }))
     expect(view.container.querySelector('[data-testid="history-error"]')).not.toBeNull()
     expect(view.container.querySelector('[data-testid="history-body"]')).toBeNull()
@@ -301,27 +297,24 @@ describe("DM notification dismissal readiness", () => {
     expect(mockNavigationGate.retry).not.toHaveBeenCalled()
   })
 
-  it.each(["pending", "failed"] as const)("retains the %s navigation gate for a readable DM", (navigation) => {
+  it.each(["pending", "failed"] as const)("keeps an unresolved %s entry from committing or dismissing the DM", state => {
     mockDms.dms = [{ id: "dm_1", userId: "peer_1", name: "Peer", avatar: "P" }]
     mockDmMessages.navigationBlocked = true
-    mockNavigationGate.allowed = false
-    mockNavigationGate.failed = navigation === "failed"
-
+    mockHistory.allowed = false
+    mockHistory.status = state === "failed" ? "retryable-error" : "pending"
+    mockHistory.error = state === "failed" ? new Error("entry timeout") : null
     const view = render(React.createElement(DmView, { dmId: "dm_1" }))
-
-    expect(view.container.querySelector('[data-testid="dm-header"]')).toBeNull()
     expect(view.container.querySelector('[data-testid="history-body"]')).toBeNull()
     expect(view.container.querySelector('[data-testid="composer"]')).toBeNull()
-    expect(view.container.querySelector('[data-testid="dm-blocked"]')).toBeNull()
-    expect(view.container.querySelector('[role="alert"]')).toBeNull()
-    if (navigation === "pending") {
-      expect(view.container.querySelector('[data-testid="dm-loading"]')).not.toBeNull()
-      expect(view.container.querySelector('[data-testid="history-error"]')).toBeNull()
+    expect(view.container.querySelector('[data-testid="dm-header"]')?.textContent).toBe("Peer")
+    expect(view.container.querySelector('[data-testid="dm-loading"]')).toBeNull()
+    if (state === "pending") {
+      expect(view.container.querySelector('[data-testid="history-pending"]')).not.toBeNull()
+      expect(view.container.querySelector('[data-testid="composer-pending"]')).not.toBeNull()
     } else {
-      expect(view.container.querySelector('[data-testid="dm-loading"]')).toBeNull()
+      expect(view.container.querySelector('[data-testid="dm-header"]')?.textContent).toBe("Peer")
       view.container.querySelector<HTMLButtonElement>('[data-testid="history-error"]')!.click()
-      expect(mockNavigationGate.retry).toHaveBeenCalledOnce()
-      expect(mockHistory.retry).not.toHaveBeenCalled()
+      expect(mockHistory.retryMetadata).toHaveBeenCalledOnce()
     }
     expect(mockCommitRoute).not.toHaveBeenCalled()
     expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith("viewer_1", { kind: "dm", channelId: "dm_1" }, false)

@@ -281,12 +281,14 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await page.route("**/api/community/bots", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(botsResponse) })
   })
-  await page.route("**/api/community/machines", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ machines: [machine] }) })
+  await page.route(url => url.pathname === "/api/community/machines", async (route) => {
+    const optional = new URL(route.request().url()).searchParams.get("view") === "observations"
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(optional ? { quotas: [] } : { machines: [machine] }) })
   })
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" })
   await page.setViewportSize({ width: 1280, height: 900 })
-  await gotoAfterUserWsAuth(page, "/c/me/bots")
+  await gotoAfterUserWsAuth(page, "/c/me/friends")
+  await page.getByRole("link", { name: "My Bots", exact: true }).click()
   await expectDarkTheme(page, false)
   const writeRequests: string[] = []
   page.on("request", (request) => {
@@ -333,6 +335,8 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   const quota = page.getByTestId(tid.machineQuota(machine.id))
   const updateExtension = page.getByTestId(tid.userBarExtension)
   await expect(quota).toHaveCount(1)
+  await page.keyboard.press("Escape")
+  await page.getByTestId(tid.daemonUpdateBadge).click()
   await expect(updateExtension).toHaveAttribute("data-extension", "update")
   await expect(quota).toHaveAttribute(
     "aria-label",
@@ -626,14 +630,16 @@ let caseJourneyFailure1Present = false
 
     const { page } = await asUser("alice", { hasTouch: true })
     await page.setViewportSize({ width: 639, height: 844 })
-    const browserApiResponse = page.waitForResponse((response) =>
-      response.request().method() === "GET" && new URL(response.url()).pathname === "/api/community/bots",
-    )
+    const browserApiResponses: number[] = []
+    page.on("response", response => {
+      if (response.request().method() === "GET" && new URL(response.url()).pathname === "/api/community/bots") browserApiResponses.push(response.status())
+    })
     await gotoAfterUserWsAuth(page, "/c/me/bots")
-    expect((await browserApiResponse).ok()).toBe(true)
+
 
     const usage = page.getByTestId(tid.botUsage(botId))
     await expect(usage).toBeVisible()
+    expect(browserApiResponses.every(status => status === 200)).toBe(true)
     const visibleDayTargets = page.locator(
       `[data-testid^="${tid.botUsageDay(botId, "")}"]:visible`,
     )

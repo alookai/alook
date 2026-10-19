@@ -45,18 +45,20 @@ export function useBotListController(): BotListController {
   const uiHandlers = useUiHandlers()
   const searchParams = useSearchParams()
   const botsQuery = useBots()
-  const { bots, isLoading } = botsQuery
-  const botsResolved = botsQuery.data !== undefined
+  const { bots } = botsQuery
+  const isLoading = botsQuery.isLoading || botsQuery.profilesPending === true
+  const botsResolved = botsQuery.data !== undefined && botsQuery.profilesPending !== true
   const [billingOpen, setBillingOpen] = useAtom(useCreateAtom(false))
-  const canShowLimit = botsResolved
   const viewPlan = () => {
     const next = new URL(window.location.href)
     next.searchParams.delete("billing")
     next.searchParams.set("settings", "billing")
     window.history.pushState(null, "", `${next.pathname}${next.search}${next.hash}`)
   }
-  const { machines, isLoading: machinesLoading } = useMachines()
-  useObservedRegion("bots", botsResolved && (!(isLoading || machinesLoading) || bots.length > 0), bots.length)
+  const machinesQuery = useMachines()
+  const { machines, isLoading: machinesLoading } = machinesQuery
+  const machinesUnknown = machinesQuery.data?.observed === false
+  useObservedRegion("bots", botsResolved, bots.length, { snapshot_source: botsQuery.data?.source ?? "unknown", target_coverage: botsResolved ? "covered" : "uncovered", wait_reason: botsQuery.profilesPending ? "identity" : botsResolved ? "none" : "entry" })
   const profilesByUserId = useCanonicalProfilesByUserId(bots.map((bot) => bot.id))
   const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false))
   const [editingBotId, setEditingBotId] = useAtom(useCreateAtom<string | null>(null))
@@ -94,13 +96,13 @@ export function useBotListController(): BotListController {
   const guidedActive = onboardingState?.status === "active" && onboardingState.stage === "bot"
   const guidedPendingBotId = guidedActive ? onboardingState.botId : undefined
   const guidedNeedsMachine =
-    guidedActive && !machines.some((machine) => isPresenceOnline(machine.status))
+    guidedActive && !machinesLoading && !machinesUnknown && !machines.some((machine) => isPresenceOnline(machine.status))
   const guidedCreateLabel = guidedNeedsMachine
     ? "Connect a machine"
     : guidedPendingBotId
       ? "Open bot chat"
       : "Create a bot"
-  const planSummary = botsQuery.data
+  const planSummary = botsQuery.data?.plan && botsQuery.data.limit !== undefined && botsQuery.data.ownedCount !== undefined && botsQuery.data.activeCount !== undefined && botsQuery.data.isFounder !== undefined
     ? {
         plan: botsQuery.data.plan,
         limit: botsQuery.data.limit,
@@ -109,6 +111,7 @@ export function useBotListController(): BotListController {
         isFounder: botsQuery.data.isFounder,
       }
     : null
+  const canShowLimit = planSummary !== null
   const isAtCapacity = Boolean(
     planSummary && planSummary.ownedCount >= planSummary.limit,
   )
@@ -385,8 +388,12 @@ export function useBotListController(): BotListController {
     pendingActiveBotIds,
     setBotActive,
     isLoading,
+    initialError: botsQuery.data === undefined && botsQuery.isError,
+    retryInitialLoad: () => { void botsQuery.refetch() },
+    retryingInitialLoad: botsQuery.isFetching,
     machines,
     machinesLoading,
+    machinesUnknown,
     profilesByUserId,
     createOpen,
     setCreateOpen,

@@ -37,18 +37,46 @@ describe("Resend contact lifecycle with the official SDK", () => {
     fetchMock.mockReset()
     logs.warn.mockReset()
     vi.stubGlobal("fetch", fetchMock)
-    vi.stubEnv("NODE_ENV", "development")
-    vi.spyOn(console, "error")
+    vi.stubEnv("NODE_ENV", "production")
+    vi.spyOn(console, "error").mockImplementation(() => {})
   })
   afterEach(() => {
-    expect(console.error).not.toHaveBeenCalled()
-    for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
-      expect(JSON.stringify(logs.warn.mock.calls)).not.toContain(value)
+    try {
+      if (process.env.NODE_ENV === "production") expect(console.error).not.toHaveBeenCalled()
+      for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
+        expect(JSON.stringify(logs.warn.mock.calls)).not.toContain(value)
+      }
+    } finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
     }
-    vi.unstubAllGlobals()
-    vi.unstubAllEnvs()
-    vi.restoreAllMocks()
   })
+
+  it.each(["production", "development", "test", undefined])(
+    "keeps application warnings sanitized while honoring SDK raw logging in NODE_ENV=%s", async (mode) => {
+      vi.stubEnv("NODE_ENV", mode)
+      expect(process.env.NODE_ENV).toBe(mode)
+      fetchMock.mockImplementation(async () => providerError(500))
+
+      await expect(syncResendSignupContact(env, user)).resolves.toBeUndefined()
+      await expect(unsubscribeResendContact(env, user.email)).resolves.toBeUndefined()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(logs.warn.mock.calls).toEqual([
+        ["resend_contact_sync_failed", { action: "signup", stage: "lookup", errorCategory: "provider_error", statusCode: 500 }],
+        ["resend_contact_sync_failed", { action: "account-deletion", stage: "update", errorCategory: "provider_error", statusCode: 500 }],
+      ])
+      if (mode === "production") {
+        expect(console.error).not.toHaveBeenCalled()
+      } else {
+        expect(console.error).toHaveBeenCalledTimes(2)
+        expect(console.error).toHaveBeenCalledWith("[Resend API Error]:", expect.objectContaining({
+          status: 500, error: expect.objectContaining({ message: privateError }),
+        }))
+      }
+    },
+  )
 
   it.each([undefined, ""])("skips all SDK network work without a Key (%s)", async (key) => {
     const noKey = { RESEND_API_KEY: key } as Env

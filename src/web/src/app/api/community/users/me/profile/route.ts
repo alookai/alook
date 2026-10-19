@@ -6,7 +6,6 @@ import {
   MAX_EMOJI_BYTES,
   BANNER_COLOR_REGEX,
   validateCommunityName,
-  withD1Retry,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
@@ -15,34 +14,12 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { fanOutProfileUpdate, fanOutStatusUpdate } from "@/lib/community/fanout"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { avatarInitial } from "@/lib/community/avatar"
+import { readCommunitySelfProfile } from "@/lib/community/self-profile.server"
 
 export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId
-  const [profile, viewer] = await Promise.all([
-    withD1Retry(
-      () => queries.communityUserProfile.getProfile(db, userId),
-      { route: "community/profile:self-profile" }
-    ),
-    withD1Retry(
-      () => queries.user.getUserSelf(db, userId),
-      { route: "community/profile:self-user" }
-    ),
-  ])
-  const name = viewer?.name ?? ""
-  return writeJSON({
-    id: userId,
-    aboutMe: profile?.aboutMe ?? "",
-    avatar: viewer
-      ? canonicalUserImage(viewer.id, viewer.image, viewer.avatarVersion) ?? avatarInitial(name)
-      : avatarInitial(name),
-    avatarVersion: viewer?.avatarVersion ?? 0,
-    bannerColor: profile?.bannerColor ?? null,
-    discriminator: viewer?.discriminator ?? "0000",
-    name,
-    statusEmoji: profile?.statusEmoji ?? null,
-    statusText: profile?.statusText ?? "",
-  })
+  return writeJSON((await readCommunitySelfProfile(db, userId)).profile)
 })
 
 export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {

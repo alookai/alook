@@ -9,14 +9,12 @@ import {
   parseAnchor,
   parsePageSize,
   parseCommunityMessageWindow,
-  buildPaginatedResponse,
-  buildAnchorResponse,
-  buildSinceResponse,
 } from "@/lib/community/messages"
 import { mapPostedMessageForApi } from "@/lib/community/message-payload"
-import { enrichMessages } from "@/lib/community/enrich-messages"
+import { readCommunityMessageWindow } from "@/lib/community/message-window.server"
+import { readCommunityConversationEntry } from "@/lib/community/conversation-entry.server"
 import { requestsCommunityContract, requestedCommunityContract, COMMUNITY_CONTRACT_HEADER, CommunityMessagePostedSchema, type CommunityContract } from "@alook/shared"
-import { writeCommunityMessagesRead } from "@/lib/community/read-contract"
+import { writeCommunityMessagesRead, writeCommunityConversationEntryRead } from "@/lib/community/read-contract"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage, getCommunityMessageReplay } from "@/lib/community/message-handler"
 import { createMessageWithThread } from "@/lib/community/create-channels"
@@ -81,21 +79,9 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     )
   }
   const channelId = resolved.value.target.channelId
-  // The surface trait drives enrichment: a DM (type=dm) skips thread indicators
-  // and hydrates friend-approval cards; a channel does the opposite. Derived
-  // from the resolved surface (not re-tested) so the human read is byte-
-  // identical whether the caller addressed a DM by its channelId here or via the
-  // old dm/[id]/messages route (which passed isDm:true explicitly).
-  const isDm = resolved.value.isDm
-  const isForum = resolved.value.target.kind === "forum"
-  // Transport-only proof for inbox navigation. The client validates this
-  // receipt against the requested target before any page reaches TanStack's
-  // cache; it must never be persisted as part of MessagesPage.
-  const surfaceReceipt = {
-    channelId,
-    surfaceKind: resolved.value.target.kind,
+  if (params.has("entry") && (params.get("entry") !== "1" || ctx.actor.kind !== "human" || requestedCommunityContract(req.headers) !== 3)) {
+    return writeError("entry requires human resource contract 3", 400)
   }
-
   // TODO(route-disc): unify the two response projections.
   // Auth/pagination-scope already single-source (one mask, one channel-scoped set);
   // the remaining fork is PROJECTION ONLY — human: enrichMessages→{messages},
@@ -129,55 +115,24 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     anchorId: parseAnchor(params.get("anchor")), since: parseCursor(params.get("since")),
     cursor: parseCursor(params.get("cursor")), pageSize: parsePageSize(params.get("limit")),
   } } catch (error) { return writeError(error instanceof Error ? error.message : "invalid message window", 400) }
-  const { anchorId, since, cursor, pageSize } = window
   const rawTag = params.get("tag")
   const tag = rawTag?.trim().toLowerCase()
   if (rawTag !== null && !tag) return writeError("tag must not be empty", 400)
   if (tag && tag.length > MAX_FORUM_TAG_LENGTH) return writeError(`tag must be ≤ ${MAX_FORUM_TAG_LENGTH} characters`, 400)
 
-  if (anchorId) {
-    const anchor = await queries.communityMessage.getMessageInScope(db, anchorId, { channelId })
-    if (!anchor) return writeError("anchor not found", 404)
-
-    const around = await queries.communityMessage.listMessagesAround(db, {
-      channelId,
-      anchor: { createdAt: anchor.createdAt, id: anchor.id },
-      limit: pageSize,
-      tag,
+  if (params.get("entry") === "1") {
+    const result = await readCommunityConversationEntry(db, {
+      viewerId: userId, target: resolved.value, window, tag, preferTail: params.get("window") === "tail",
     })
-
-    const { items, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor } = buildAnchorResponse(
-      around.older,
-      around.newer,
-      { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
-    )
-
-    const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum, contract: requestedCommunityContract(req.headers) ?? 1 }, items)
-    return writeCommunityMessagesRead(req, channelId, { messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq, surfaceReceipt })
+    if (!result.ok) return NextResponse.json({ error: result.error, ...(result.details ? { details: result.details } : {}) }, { status: result.status })
+    return writeCommunityConversationEntryRead(result.entry)
   }
 
-  if (since) {
-    const rows = await queries.communityMessage.listMessagesSince(db, {
-      channelId,
-      since,
-      limit: pageSize,
-      tag,
-    })
-    const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
-    const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum, contract: requestedCommunityContract(req.headers) ?? 1 }, items)
-    return writeCommunityMessagesRead(req, channelId, { messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq, surfaceReceipt })
-  }
-
-  const rows = await queries.communityMessage.listMessages(db, {
-    channelId,
-    cursor,
-    limit: pageSize + 1,
-    tag,
+  const result = await readCommunityMessageWindow(db, {
+    viewerId: userId, target: resolved.value, window, tag, contract: requestedCommunityContract(req.headers) ?? 1,
   })
-
-  const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
-  const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum, contract: requestedCommunityContract(req.headers) ?? 1 }, items.slice().reverse())
-  return writeCommunityMessagesRead(req, channelId, { messages, hasMore, cursor: nextCursor, latestSeq, surfaceReceipt })
+  if (!result.ok) return writeError(result.error, result.status)
+  return writeCommunityMessagesRead(req, channelId, result.page)
 })
 
 /**

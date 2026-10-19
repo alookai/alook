@@ -1122,3 +1122,129 @@ test("light and dark desktop and narrow previews match their frozen full PNG", a
   expect(observations.find((value) => value.scheme === "light")!.background)
     .not.toBe(observations.find((value) => value.scheme === "dark")!.background)
 })
+
+test("a statistics table message generates a complete share PNG", async ({ caseActors }, testInfo) => {
+  test.setTimeout(120_000)
+  const actors = await caseActors(["alice"])
+  const serverId = await actors.seed.seedServer("alice", `Share table ${Date.now()}`)
+  const channelId = await actors.seed.seedChannel("alice", serverId, "share-table")
+  const { page } = await actors.asUser("alice")
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+  const text = [
+    "本次示例包含多列统计，部分条目仅作展示：所有名称与数值均为测试数据。中文说明应当正常换行，表格中的多位数字保持完整。详细内容如下。",
+    "",
+    "示例累计1215；首月为0，其余测试分类如下：",
+    "|类别|第一期|第二期|第三期|第四期|第五期|合计|",
+    "|---|---:|---:|---:|---:|---:|---:|",
+    "|Sample Alpha|11|22|33|44|55|165|",
+    "|Beta|12|23|34|45|56|170|",
+    "|Gamma|13|24|35|46|57|175|",
+    "|Delta Group|14|25|36|47|58|180|",
+    "|Epsilon|15|26|37|48|59|185|",
+    "|Sample Zeta|16|27|38|49|60|190|",
+    "|Eta Group|—|—|39|50|61|150|",
+    "|合计|81|147|252|329|406|1215|",
+    "",
+    "示例末段包含127、248与375等多位数字。继续检查导出结果，确保所有行列和中文说明完整可见。",
+  ].join("\n")
+  const seeded = await seedMessage(page, channelId, text)
+  await testInfo.attach("statistics-table-source", { body: JSON.stringify({ serverId, channelId, messageId: seeded.id }), contentType: "application/json" })
+  await expect(page.getByTestId(tid.message(seeded.id)).getByRole("table")).toBeVisible()
+  for (const scheme of ["light", "dark"] as const) {
+    for (const viewport of ["desktop", "narrow"] as const) {
+      await page.setViewportSize(viewport === "desktop" ? { width: 1280, height: 900 } : { width: 390, height: 844 })
+      await page.evaluate((scheme) => {
+        document.documentElement.classList.toggle("dark", scheme === "dark")
+        document.documentElement.style.colorScheme = scheme
+      }, scheme)
+      const started = Date.now()
+      let dialog: Locator | undefined
+      try {
+        dialog = await openShareDialog(page, seeded.id)
+        const card = await waitForReady(dialog)
+        await expect(card.getByRole("table").locator("tr")).toHaveCount(9)
+        expect(await card.getByRole("table").locator("tr").evaluateAll(rows => rows.map(row => row.querySelectorAll("th, td").length))).toEqual(Array(9).fill(7))
+        await expect(card.getByRole("table").locator("tr").last()).toHaveText("合计811472523294061215")
+        const downloaded = page.waitForEvent("download")
+        await dialog.getByRole("button", { name: "Download" }).click()
+        const download = await downloaded
+        const path = testInfo.outputPath(`statistics-table-${scheme}-${viewport}.png`)
+        await download.saveAs(path)
+        const { readFile } = await import("node:fs/promises")
+        const bytes = await readFile(path)
+        expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+        expect(bytes.readUInt32BE(16)).toBeGreaterThan(100)
+        expect(bytes.readUInt32BE(20)).toBeGreaterThan(100)
+        const bounds = await card.boundingBox()
+        expect(Math.abs(bytes.readUInt32BE(16) - bounds!.width * 2)).toBeLessThanOrEqual(2)
+        expect(Math.abs(bytes.readUInt32BE(20) - bounds!.height * 2)).toBeLessThanOrEqual(2)
+        await testInfo.attach(`statistics-table-${scheme}-${viewport}`, { path, contentType: "image/png" })
+        const clipping = await card.getByRole("table").evaluate((table) => {
+          const bounds = table.getBoundingClientRect()
+          const body = table.closest<HTMLElement>("[data-share-body-id]")!
+          const visible = [table.parentElement!, body].map(element => element.getBoundingClientRect())
+          return {
+            below: Math.max(...visible.map(rect => bounds.bottom - rect.bottom)),
+            right: Math.max(...visible.map(rect => bounds.right - rect.right)),
+            overlappingCells: [...table.querySelectorAll("th, td")].filter(cell => {
+              const range = document.createRange()
+              range.selectNodeContents(cell)
+              const style = getComputedStyle(cell)
+              return range.getBoundingClientRect().width > cell.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) + 1
+            }).length,
+            scrollHeight: table.parentElement!.scrollHeight,
+            clientHeight: table.parentElement!.clientHeight,
+          }
+        })
+        await testInfo.attach(`table-capture-bounds-${scheme}-${viewport}`, { body: JSON.stringify(clipping), contentType: "application/json" })
+        expect(clipping.below).toBeLessThanOrEqual(1)
+        expect(clipping.right).toBeLessThanOrEqual(1)
+        expect(clipping.overlappingCells).toBe(0)
+        await page.keyboard.press("Escape")
+        await expect(dialog).toBeHidden()
+      } finally {
+        await testInfo.attach(`share-table-stage-${scheme}-${viewport}`, {
+          body: JSON.stringify({ elapsedMs: Date.now() - started, ...await page.evaluate(() => ({
+            state: document.querySelector("[data-share-session-state]")?.getAttribute("data-share-session-state"),
+            source: [...document.querySelectorAll("[data-share-card-source]")].map(node => ({ skeletons: node.querySelectorAll('[data-slot="skeleton"]').length, tables: node.querySelectorAll("table").length, elements: node.querySelectorAll("*").length })),
+          })).catch(() => ({ state: "page-closed" })) }),
+          contentType: "application/json",
+        })
+      }
+    }
+  }
+})
+
+test("long table cells wrap within the export instead of scaling the image down", async ({ caseActors }, testInfo) => {
+  const actors = await caseActors(["alice"])
+  const serverId = await actors.seed.seedServer("alice", `Share prose ${Date.now()}`)
+  const channelId = await actors.seed.seedChannel("alice", serverId, "share-prose")
+  const { page } = await actors.asUser("alice")
+  await page.setViewportSize({ width: 390, height: 844 })
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+  for (const [kind, content] of [
+    ["prose", Array.from({ length: 390 }, () => "sample").join(" ")],
+    ["code", `\`${"x".repeat(720)}\``],
+  ] as const) {
+    const seeded = await seedMessage(page, channelId, `|Description|Count|\n|---|---:|\n|${content}|1234|`)
+    const dialog = await openShareDialog(page, seeded.id)
+    const card = await waitForReady(dialog)
+    const table = card.getByRole("table")
+    await expect(table.locator("tr")).toHaveCount(2)
+    await expect(table.getByRole("cell").first()).toHaveText(content.replaceAll("`", ""))
+    const bounds = await card.boundingBox()
+    expect(bounds!.width).toBeLessThanOrEqual(640)
+    const downloaded = page.waitForEvent("download")
+    await dialog.getByRole("button", { name: "Download" }).click()
+    const path = testInfo.outputPath(`wrapped-table-${kind}.png`)
+    await (await downloaded).saveAs(path)
+    const { readFile } = await import("node:fs/promises")
+    const bytes = await readFile(path)
+    expect(Math.abs(bytes.readUInt32BE(16) - bounds!.width * 2)).toBeLessThanOrEqual(2)
+    expect(Math.abs(bytes.readUInt32BE(20) - bounds!.height * 2)).toBeLessThanOrEqual(2)
+    await testInfo.attach(`wrapped-table-${kind}`, { path, contentType: "image/png" })
+    await testInfo.attach(`wrapped-table-source-${kind}`, { body: JSON.stringify({ serverId, channelId, messageId: seeded.id, ...bounds }), contentType: "application/json" })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+  }
+})

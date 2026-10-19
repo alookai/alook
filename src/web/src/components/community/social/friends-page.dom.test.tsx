@@ -1,4 +1,5 @@
 import React from "react"
+import { renderToString } from "react-dom/server"
 import { QueryClient, useMutation } from "@tanstack/react-query"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -39,6 +40,19 @@ function renderPage(page: React.ReactElement) {
 }
 
 describe("FriendsPage actionable requests", () => {
+  it("keeps the pending and ready Back slots on the same viewport CSS and width", () => {
+    const props = { friends: [], pending: [], blocked: [], onBack: vi.fn() }
+    const html = renderToString(<QueryClientProvider client={pageClient}><FriendsPage {...props} loading /></QueryClientProvider>)
+    const template = document.createElement("template")
+    template.innerHTML = html
+    const pendingSlot = template.content.querySelector('[data-slot="loading-back-placeholder"]')!
+    expect(pendingSlot.classList.contains("size-7")).toBe(true)
+    expect(pendingSlot.classList.contains("sm:hidden")).toBe(true)
+    const view = renderPage(<FriendsPage {...props} />)
+    expect(view.getByRole("button", { name: "Back" })).toHaveClass("sm:hidden")
+    expect(view.getByRole("button", { name: "Back" })).toHaveClass("size-7")
+  })
+
   it("keeps the real Back control during a warm-data refresh", () => {
     const renderer = renderPage(<FriendsPage
       friends={[{

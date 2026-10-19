@@ -14,6 +14,7 @@ import {
   retireCommunityColdEntryAttempt,
 } from "@/lib/community/last-community-route"
 import type { CurrentUser } from "@/contexts/community/current-user"
+import type { CommunityDocumentSeed } from "@/lib/community/document-seed"
 
 function isPublicCommunityPath(pathname: string): boolean {
   return resolveCommunityModulePlan(pathname).route === "public-invite"
@@ -23,10 +24,12 @@ export function CommunityLayoutClient({
   children,
   sidebar,
   currentUser,
+  initialSeed,
 }: {
   children: ReactNode
   sidebar: ReactNode
   currentUser: CurrentUser | null
+  initialSeed?: CommunityDocumentSeed
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -50,7 +53,7 @@ export function CommunityLayoutClient({
   return (
     <AuthenticatedContextMenuBoundary>
       <AuthenticatedNativeOauthCleanup />
-      <CommunityShell currentUser={currentUser}>
+      <CommunityShell currentUser={currentUser} initialSeed={initialSeed}>
         <SignupTracker redirectTo="/c/me/machines" />
         <CommunityRouteFrame sidebar={sidebar}>{children}</CommunityRouteFrame>
       </CommunityShell>

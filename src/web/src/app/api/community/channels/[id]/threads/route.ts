@@ -6,7 +6,8 @@ import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH, requestsComm
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { writeCommunityThreadsRead } from "@/lib/community/thread-read"
 import { parseBoundedInt } from "@/lib/community/messages"
-import { encodeForumCreatedAtCursor, parseForumCreatedAtCursor } from "@/lib/community/forum-feed-cursor"
+import { parseForumCreatedAtCursor } from "@/lib/community/forum-feed-cursor"
+import { readCommunityForumRows } from "@/lib/community/forum-feed.server"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -47,7 +48,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   }
 
   let threads: Awaited<ReturnType<typeof queries.communityChannel.listChildChannels>> | Awaited<ReturnType<typeof queries.communityThread.listForumThreadsByCreatedAt>>
-  let hasMore = false
+  const hasMore = false
   let nextCursor: string | undefined
   if (order === "createdAt") {
     if (!isForum(channel.type)) return writeError("not a forum", 400)
@@ -59,23 +60,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     })
     if (cursor === null) return writeError("invalid cursor", 400)
 
-    const rows = await queries.communityThread.listForumThreadsByCreatedAt(db, {
-      parentChannelId: channelId,
-      ...(tag ? { tag } : {}),
-      ...(cursor ? { cursor } : {}),
-      limit: pageSize + 1,
-    })
-    hasMore = rows.length > pageSize
-    threads = hasMore ? rows.slice(0, pageSize) : rows
-    const last = threads.at(-1)
-    nextCursor = hasMore && last
-      ? encodeForumCreatedAtCursor({
-        parentChannelId: channelId,
-        createdAt: last.createdAt,
-        id: last.id,
-        tag: tag ?? null,
-      })
-      : undefined
+    const page = await readCommunityForumRows(db, channelId, { tag, cursor: cursor ?? undefined, pageSize, includes })
+    if (currentContract) return writeCommunityThreadsRead(db, ctx.userId, channel, page.threads, { messages: [...page.parentMessages, ...page.firstMessages], tags: page.tags, participants: page.participants }, { hasMore: page.hasMore, nextCursor: page.nextCursor ?? null }, contract)
+    return writeJSON({ serverId: channel.serverId, parentType: channel.type, threads: page.threads,
+      included: { parentMessages: page.parentMessages, firstMessages: page.firstMessages.map(({ channelId, content }) => ({ channelId, content })), tags: page.tags, participants: page.participants }, hasMore: page.hasMore, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) })
 
   } else {
     threads = await queries.communityChannel.listChildChannels(db, channelId, {

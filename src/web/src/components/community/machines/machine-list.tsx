@@ -1,4 +1,5 @@
 "use client"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/runtime"
 
@@ -10,7 +11,8 @@ import { ChevronLeft } from "lucide-react"
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query"
 import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
-import type { AlookMode, CommunityMachineSummary } from "@alook/shared"
+import type { AlookMode } from "@alook/shared"
+import type { MachineSummary } from "@/hooks/community/use-machines"
 import {
   isPresenceOnline,
   releaseVersionGte,
@@ -36,7 +38,8 @@ import { MachineCard, MachineCardFrame } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
 import { useObservedRegion } from "@/lib/observability/regions"
-import { useMachines, machinesQueryFn, replaceMachines, type MachinesResponse } from "@/hooks/community/use-machines"
+import { useMachines, machinesQueryFn, replaceMachines } from "@/hooks/community/use-machines"
+import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
 import { useBots } from "@/hooks/community/use-bots"
 import { usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
@@ -87,7 +90,7 @@ function MachineListContent({ heading, cards }: { heading: ReactNode; cards: Rea
 
 function machineBackBar(onBack?: () => void, reserveBackSlot = false) {
   return onBack || reserveBackSlot ? (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6 sm:hidden">
       {onBack ? (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back">
           <ChevronLeft className="size-5" />
@@ -144,7 +147,7 @@ export function MachineListSkeleton({
 }
 
 export function canUpdateMachine(
-  machine: Pick<CommunityMachineSummary, "status" | "daemonVersion">,
+  machine: Pick<MachineSummary, "status" | "daemonVersion">,
   latestVersion: string | null,
   controllerMode: AlookMode,
 ): boolean {
@@ -177,9 +180,9 @@ export function MachineUpdateDialog({
   onOpenChange,
   onConfirm,
 }: {
-  machine: CommunityMachineSummary | null
+  machine: MachineSummary | null
   onOpenChange: (open: boolean) => void
-  onConfirm: (machine: CommunityMachineSummary) => void
+  onConfirm: (machine: MachineSummary) => void
 }) {
   return (
     <AlertDialog open={!!machine} onOpenChange={onOpenChange}>
@@ -214,8 +217,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const queryClient = useQueryClient()
   const origin = useCommunityMutationOrigin()
   const source = useCommunityViewSource("machine-list")
-  const { machines, data: machinesData, isLoading: machinesLoading } = useMachines()
-  useObservedRegion("machines", machinesData !== undefined && !machinesLoading, machines.length)
+  const { machines, capacityPending, data: machinesData, isLoading: queryLoading, isError: queryError, isFetching: retryingMachines, refetch: retryMachines } = useMachines()
+  const machinesLoading = queryLoading || machinesData?.complete === false && machines.length === 0
+  useObservedRegion("machines", machinesData !== undefined && machinesData.complete !== false, machines.length, { snapshot_source: machinesData?.source ?? "unknown", target_coverage: machinesData ? "covered" : "uncovered", wait_reason: machinesLoading ? "entry" : "none" })
   const capacity = machinesData?.machineCapacity ?? null
   const [limitOpen, setLimitOpen] = useAtom(useCreateAtom(false))
   const viewPlan = useCallback(() => {
@@ -234,8 +238,8 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const [updateMachineId, setUpdateMachineId] = useAtom(useCreateAtom<string | null>(null))
   const confirmDelete = machines.find((machine) => machine.id === deleteMachineId) ?? null
   const confirmUpdate = machines.find((machine) => machine.id === updateMachineId) ?? null
-  const setConfirmDelete = (machine: CommunityMachineSummary | null) => setDeleteMachineId(machine?.id ?? null)
-  const setConfirmUpdate = (machine: CommunityMachineSummary | null) => setUpdateMachineId(machine?.id ?? null)
+  const setConfirmDelete = (machine: MachineSummary | null) => setDeleteMachineId(machine?.id ?? null)
+  const setConfirmUpdate = (machine: MachineSummary | null) => setUpdateMachineId(machine?.id ?? null)
   const [guideAvatarSeed, setGuideAvatarSeed] = useAtom(useCreateAtom("alook-guide"))
   const [guideIntroActive, setGuideIntroActive] = useAtom(useCreateAtom(true))
   const emptyStageRef = useRef<HTMLDivElement>(null)
@@ -249,10 +253,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       origin.assert(token)
       const key = communityKeys.machines()
-      const original = queryClient.getQueryCache().find({ queryKey: key, exact: true })
+      const original = captureMachinesPublication(queryClient)
       await origin.request(token, `/api/community/machines/${id}${kind === "update" ? "/update" : ""}`, { method: kind === "delete" ? "DELETE" : "POST", assertActive: assert })
       origin.assert(token)
-      if (kind === "delete" && original && queryClient.getQueryCache().find({ queryKey: key, exact: true }) === original) queryClient.setQueryData<MachinesResponse>(key, (current) => current ? replaceMachines(current, current.machines.filter((row) => row.id !== id)) : current)
+      if (kind === "delete" && !await publishMachines(queryClient, original, (current) => current ? replaceMachines(current, current.machines.filter((row) => row.id !== id)) : current)) return
+      if (queryClient.getQueryCache().get(original.query.queryHash) !== original.query) return
       await queryClient.invalidateQueries({ queryKey: key, exact: true })
       origin.assert(token)
     },
@@ -294,7 +299,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     setPairOpen(true)
   }, [capacity, queryClient, setConnectedHostname, setLimitOpen, setPairMode, setPairOpen, setPendingTokenId])
 
-  const openReconnect = useCallback((machine: CommunityMachineSummary) => {
+  const openReconnect = useCallback((machine: MachineSummary) => {
     setPairMode({
       kind: "reconnect",
       machineId: machine.id,
@@ -351,7 +356,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(tokenId)
   }, [queryClient, setPendingTokenId])
 
-  const onConfirmUpdate = async (machine: CommunityMachineSummary) => {
+  const onConfirmUpdate = async (machine: MachineSummary) => {
     const assert = source.capture(), token = origin.begin().token
     assert()
     setConfirmUpdate(null)
@@ -394,6 +399,8 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     return <MachineListSkeleton onBack={onBack} />
   }
 
+  if (queryError && machinesData === undefined) return <ConversationResolutionErrorFrame as="div" retrying={retryingMachines} onRetry={() => { void retryMachines() }} />
+
   if (machines.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -416,6 +423,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               data-onboarding-target="connect-machine"
               data-testid={tid.machinePairOpen}
               onClick={openPair}
+              disabled={capacityPending}
             >
               Connect a machine
             </Button>
@@ -475,6 +483,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
                 data-testid={tid.machinePairOpen}
                 className="min-h-11 w-full sm:min-h-9 sm:w-auto"
                 onClick={openPair}
+              disabled={capacityPending}
               >
                 Connect a machine
               </Button>

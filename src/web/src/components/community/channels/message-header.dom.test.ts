@@ -1,4 +1,5 @@
 import { createElement } from "react"
+import { renderToString } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, setupUser } from "@/test/react-dom-harness"
 import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
@@ -27,6 +28,27 @@ describe("MessageHeader", () => {
 
     const back = screen.getByRole("button", { name: "Back" })
     expect(back).toHaveClass("size-11", "sm:hidden")
+    await user.click(back)
+    expect(onNavigate).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the server Back disabled until the same control is hydrated", async () => {
+    const onNavigate = vi.fn()
+    const element = createElement(MessageHeaderMobileBack, { onNavigate })
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(element)
+    document.body.appendChild(container)
+    const back = container.querySelector("button")!
+    expect(back).toBeDisabled()
+    expect(back).toHaveAttribute("aria-label", "Back")
+
+    const user = setupUser()
+    await user.click(back)
+    expect(onNavigate).not.toHaveBeenCalled()
+
+    render(element, { container, hydrate: true })
+    expect(screen.getByRole("button", { name: "Back" })).toBe(back)
+    expect(back).toBeEnabled()
     await user.click(back)
     expect(onNavigate).toHaveBeenCalledOnce()
   })

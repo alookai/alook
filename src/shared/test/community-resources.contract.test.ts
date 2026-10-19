@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { communityMessagePreviewFromLegacy, CommunityLegacyMessageResourceSchema, communityChannelResourceFromStorage, CommunityMessageAttachmentSchema, CommunityMessagePreviewSchema, CommunityResourceProfileSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, normalizeCommunityChannelIdentity, normalizeCommunityChannelResource, normalizeCommunityChannelResourcePreview, normalizeCommunityMessageResource } from "../src"
 import { communityResourceChannelFixture, communityResourceMessageFixture } from "./community-ws-events.fixtures"
 import { COMMUNITY_CONTRACT_HEADER, requestsCommunityContract } from "../src/community-contract"
-import { communityReadSchemas } from "../src/community-resources"
+import { CommunityConversationEntryReadSchema, communityReadSchemas, type CommunityChannelResource } from "../src/community-resources"
 
 describe("common community resources", () => {
   it.each([2, 3] as const)("selects read contract %s without accepting the other version", (contractVersion) => {
@@ -82,6 +82,104 @@ describe("common community resources", () => {
     for (const fields of [{ messageCount: -1 }, { messageCount: 0.5 }, { position: Infinity }, { archived: 2 }, { name: undefined }, { serverId: undefined }]) {
       expect(() => normalizeCommunityChannelResource({ id: "channel", type: "text", serverId: "server", name: "Channel", archived: 0, createdAt: "now", ...fields })).toThrow()
     }
+  })
+})
+
+describe("conversation entry resource", () => {
+  const entry = () => ({
+    contractVersion: 3,
+    channelId: communityResourceChannelFixture.id,
+    viewerId: "viewer", peer: null,
+    channel: communityResourceChannelFixture,
+    access: { channelId: communityResourceChannelFixture.id, canRead: true, canSend: true, canCreateDiscussion: false },
+    readState: { channelId: communityResourceChannelFixture.id, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
+    messages: [],
+    page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
+    surfaceReceipt: { channelId: communityResourceChannelFixture.id, surfaceKind: "channel" },
+    readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null },
+  })
+
+
+  const forumEntry = () => {
+    const value = entry()
+    const channel: CommunityChannelResource = { ...value.channel, type: "forum" }
+    const child = { ...channel, id: "child", type: "thread" as const, parentChannelId: channel.id, parentMessageId: "opener" }
+    const opener = { ...communityResourceMessageFixture.message, id: "opener", channelId: channel.id }
+    const message = { ...opener, id: "reply", channelId: child.id }
+    return { ...value, channel, surfaceReceipt: { ...value.surfaceReceipt, surfaceKind: "forum" }, forumFeed: {
+      contractVersion: 3, channelId: channel.id, channel, threads: [child],
+      included: { messages: [opener, message], tags: [{ messageId: "opener", tag: "tag" }], participantCounts: [{ channelId: child.id, count: 1 }],
+        profiles: [{ id: "peer", name: "Peer", discriminator: "1234", avatar: null, avatarVersion: 0 }],
+        members: [{ channelId: child.id, userId: "peer", relation: "notify", source: "added", isCreator: false, role: null, memberId: null }] },
+      page: { nextCursor: null, hasMore: false },
+    } }
+  }
+
+  it("accepts a complete forum entry with opener, child messages and matching notification profiles", () => {
+    const value = forumEntry()
+    expect(CommunityConversationEntryReadSchema.parse(value)).toEqual(value)
+  })
+
+  it.each(["feed-server", "thread-parent", "thread-server", "message", "tag", "count", "member-channel", "member-relation", "member-profile"] as const)("rejects foreign forum included scope: %s", kind => {
+    const value = forumEntry()
+    const feed = value.forumFeed
+    if (kind === "feed-server") feed.channel = { ...feed.channel, serverId: "foreign" }
+    if (kind === "thread-parent") feed.threads[0].parentChannelId = "foreign"
+    if (kind === "thread-server") feed.threads[0].serverId = "foreign"
+    if (kind === "message") feed.included.messages[1].channelId = "foreign"
+    if (kind === "tag") feed.included.tags[0].messageId = "foreign"
+    if (kind === "count") feed.included.participantCounts[0].channelId = "foreign"
+    if (kind === "member-channel") feed.included.members[0].channelId = "foreign"
+    if (kind === "member-relation") feed.included.members[0].relation = "access"
+    if (kind === "member-profile") feed.included.profiles = []
+    const result = CommunityConversationEntryReadSchema.safeParse(value)
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some(issue => issue.code === "custom" && issue.path[0] === "forumFeed")).toBe(true)
+  })
+
+  it("preserves a confirmed empty entry without inventing a read pointer", () => {
+    const value = entry()
+    expect(CommunityConversationEntryReadSchema.parse(value)).toEqual(value)
+    expect(communityReadSchemas(3).messages.safeParse(value).success).toBe(false)
+  })
+
+  it.each(["channel", "access", "readState", "surfaceReceipt"] as const)("rejects a foreign %s in the entry", (field) => {
+    const value = entry()
+    const input = { ...value, [field]: { ...value[field], [field === "channel" ? "id" : "channelId"]: "foreign" } }
+    expect(() => CommunityConversationEntryReadSchema.parse(input)).toThrow("scope mismatch")
+  })
+
+  it("rejects foreign message rows and a mismatching surface before publication", () => {
+    const value = entry()
+    const message = { ...communityResourceMessageFixture.message, channelId: "foreign" }
+    expect(() => CommunityConversationEntryReadSchema.parse({ ...value, messages: [message] })).toThrow("scope mismatch")
+    expect(() => CommunityConversationEntryReadSchema.parse({ ...value, surfaceReceipt: { ...value.surfaceReceipt, surfaceKind: "dm" } })).toThrow("surface mismatch")
+  })
+
+  it("requires current readable identity and the explicit entry contract", () => {
+    const value = entry()
+    for (const input of [
+      { ...value, contractVersion: 2 }, { ...value, viewerId: "" },
+      { ...value, channel: { ...value.channel, archived: true } },
+      { ...value, access: { ...value.access, canRead: false } },
+      { ...value, readProof: { restored: true } },
+    ]) expect(CommunityConversationEntryReadSchema.safeParse(input).success).toBe(false)
+  })
+
+  it("distinguishes an explicit anchor, a current read anchor and a missing read anchor", () => {
+    const value = entry()
+    const readState = { ...value.readState, lastReadMessageId: "read", lastReadAt: "read-at", lastReadSeq: 4 }
+    for (const selection of [
+      { reason: "explicit_anchor", anchorMessageId: "deep-link" },
+      { reason: "read_pointer", anchorMessageId: "read" },
+      { reason: "read_pointer_missing", anchorMessageId: null },
+    ]) expect(CommunityConversationEntryReadSchema.parse({ ...value, readState, selection }).selection).toEqual(selection)
+    for (const selection of [
+      { reason: "explicit_anchor", anchorMessageId: null },
+      { reason: "read_pointer", anchorMessageId: "other" },
+      { reason: "tail", anchorMessageId: "read" },
+    ]) expect(CommunityConversationEntryReadSchema.safeParse({ ...value, readState, selection }).success).toBe(false)
+    expect(CommunityConversationEntryReadSchema.safeParse({ ...value, selection: { reason: "read_pointer_missing", anchorMessageId: null } }).success).toBe(false)
   })
 })
 

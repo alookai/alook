@@ -54,7 +54,7 @@ export function OnboardingMachineDialog({
   const source = useCommunityViewSource(`onboarding-machine:${harness}`, open)
   const { machines, isSuccess, refetch } = useMachines({
     enabled: open, subscribed: open,
-    refetchInterval: (query) => open && !previewConnectedMachine && !previewCommand && !query.state.data?.machines.some((machine) => isPresenceOnline(machine.status) && machine.availableRuntimes.some((runtime) => runtime.id === harness && runtime.status !== "unhealthy")) ? 2000 : false,
+    refetchInterval: (query) => open && !previewConnectedMachine && !previewCommand && !query.state.data?.machines.some((machine) => isPresenceOnline(machine.status) && machine.availableRuntimes?.some((runtime) => runtime.id === harness && runtime.status !== "unhealthy")) ? 2000 : false,
   })
   const connectedMachine = useMemo(
     () => machines.find((machine) => isPresenceOnline(machine.status)),
@@ -63,12 +63,12 @@ export function OnboardingMachineDialog({
   const onlineMachine = useMemo(
     () => machines.find((machine) =>
       isPresenceOnline(machine.status) &&
-      machine.availableRuntimes.some((runtime) => runtime.id === harness && runtime.status !== "unhealthy")
+      machine.availableRuntimes?.some((runtime) => runtime.id === harness && runtime.status !== "unhealthy")
     ),
     [harness, machines],
   )
   const unavailableMachine = !previewConnectedMachine && !onlineMachine ? connectedMachine : null
-  const runtimeError = unavailableMachine?.availableRuntimes.find((runtime) => runtime.id === harness)?.lastError
+  const runtimeError = unavailableMachine?.availableRuntimes?.find((runtime) => runtime.id === harness)?.lastError
   const autoMint = useCreateAtom<AbortSignal | null>(null)
   const autoAdvance = useCreateAtom<AbortSignal | null>(null)
   const readyMachineId = previewConnectedMachine?.id ?? onlineMachine?.id

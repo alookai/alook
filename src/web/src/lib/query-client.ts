@@ -21,7 +21,7 @@ export function createQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         staleTime: 5_000,
-        gcTime: PERSIST_MAX_AGE_MS,
+        gcTime: typeof window === "undefined" ? Infinity : PERSIST_MAX_AGE_MS,
         refetchOnWindowFocus: false,
         retry: 1,
       },

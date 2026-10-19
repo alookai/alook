@@ -10,6 +10,11 @@ type Included = { messages: Array<Parameters<typeof mapMessageForApi>[0] & { cha
 
 export async function writeCommunityThreadsRead(db: Database, userId: string, channel: unknown, threads: unknown[], included?: Included,
   page = { nextCursor: null as string | null, hasMore: false }, contract: 2 | 3 = 2) {
+  return writeCommunityContractJSON(await readCommunityThreadsResource(db, userId, channel, threads, included, page, contract), contract)
+}
+
+export async function readCommunityThreadsResource(db: Database, userId: string, channel: unknown, threads: unknown[], included?: Included,
+  page = { nextCursor: null as string | null, hasMore: false }, contract: 2 | 3 = 2) {
   const normalizeChannel = contract === 3 ? (value: unknown) => communityChannelResourceFromStorage(value) : normalizeCommunityChannelResource
   const parent = normalizeChannel(channel)
   const children = threads.map(normalizeChannel)
@@ -30,6 +35,6 @@ export async function writeCommunityThreadsRead(db: Database, userId: string, ch
     participantCount: "participantCount" in row ? Number(row.participantCount) : undefined,
     profile: resourceProfile({ id: row.userId, name: contract === 3 ? CommunityResourceProfileSchema.shape.name.parse(row.userName) : row.userName ?? "", discriminator: row.discriminator, avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion), avatarVersion: row.userAvatarVersion }),
   })))
-  return writeCommunityContractJSON(communityReadSchemas(contract).threads.parse({ contractVersion: contract, channelId: parent.id, channel: parent, threads: children,
-    included: { messages, ...participants, profiles: contract === 2 ? participants.profiles.map((profile) => ({ id: profile.id, name: profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "" })) : participants.profiles, tags: included?.tags ?? [] }, page }), contract)
+  return communityReadSchemas(contract).threads.parse({ contractVersion: contract, channelId: parent.id, channel: parent, threads: children,
+    included: { messages, ...participants, profiles: contract === 2 ? participants.profiles.map((profile) => ({ id: profile.id, name: profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "" })) : participants.profiles, tags: included?.tags ?? [] }, page })
 }

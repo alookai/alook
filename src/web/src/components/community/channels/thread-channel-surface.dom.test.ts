@@ -227,6 +227,26 @@ describe("ThreadChannelSurface ownership", () => {
     mocks.editMessage.mockResolvedValue({})
   })
 
+  it("keeps full header fallback while split actions await layout measurement", () => {
+    const splitActions = { onFullscreen: vi.fn(), onClose: vi.fn() }
+    const props = surfaceProps({ splitActions, layoutPending: true, parentIsForum: true })
+    const renderer = render(React.createElement(ThreadChannelSurface, props))
+    expect(mockedChannelHeader).toHaveBeenLastCalledWith(expect.objectContaining({
+      mobileBack: props.onNavigateParent, compactActions: false, onRename: expect.any(Function),
+      endActions: expect.anything(),
+    }), undefined)
+    renderer.rerender(React.createElement(ThreadChannelSurface, { ...props, layoutPending: false }))
+    expect(mockedChannelHeader).toHaveBeenLastCalledWith(expect.objectContaining({
+      mobileBack: undefined, compactActions: true, onRename: undefined, endActions: expect.anything(),
+    }), undefined)
+    renderer.rerender(React.createElement(ThreadChannelSurface, { ...props, layoutPending: false, splitActions: undefined }))
+    expect(mockedChannelHeader).toHaveBeenLastCalledWith(expect.objectContaining({
+      mobileBack: props.onNavigateParent, compactActions: false, onRename: expect.any(Function),
+      endActions: undefined,
+    }), undefined)
+    renderer.unmount()
+  })
+
   it("installs the parent-opener claim hook before initializing the child feed", () => {
     const order: string[] = []
     const handoff = { nonce: "nonce-1" } as never

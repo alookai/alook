@@ -4,7 +4,8 @@ import { communityKeys } from "@/lib/query-keys"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { act } from "@/test/react-dom-harness"
+import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
+import { renderBotListView } from "./bot-list-view"
 import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotSummary } from "@/hooks/community/use-bots"
@@ -19,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   audit: null as string | null,
   bots: [] as BotSummary[],
   botsDataReady: true,
+  useActualBots: false,
+  botsLoad: vi.fn(),
   isFounder: true,
   billingReturn: null as string | null,
   planSummary: {
@@ -67,10 +70,13 @@ vi.mock("next/navigation", () => ({
     }
   },
 }))
-vi.mock("@/hooks/community/use-bots", async () => {
+vi.mock("@/hooks/community/use-bots", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/community/use-bots")>()
   const { useMutation } = await import("@tanstack/react-query")
   return ({
+  ...actual,
   useBots: () => {
+    if (mocks.useActualBots) return actual.useBots()
     mocks.hookOrder.push("bots")
     return {
       bots: mocks.bots,
@@ -127,7 +133,7 @@ vi.mock("@/lib/community-onboarding", () => ({
 vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess, error: mocks.toastError },
 }))
-vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
+vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError, apiFetch: (...args: unknown[]) => mocks.botsLoad(...args) }))
 
 vi.mock("@/hooks/community/use-billing", () => ({
   readBillingReturn: (value: string | null) => ["checkout", "cancel", "portal"].includes(value ?? "") ? value : null,
@@ -143,7 +149,7 @@ function Probe() {
   const client = useQueryClient()
   React.useLayoutEffect(() => {
     client.setQueryDefaults(communityKeys.bots(), { gcTime: Infinity })
-    client.setQueryData(communityKeys.bots(), { bots: mocks.bots, ...mocks.planSummary, isFounder: mocks.isFounder })
+    if (!mocks.useActualBots) client.setQueryData(communityKeys.bots(), { bots: mocks.bots, ...mocks.planSummary, isFounder: mocks.isFounder })
     latest = controller
     mocks.onProbeLayout?.(controller)
   }, [client, controller])
@@ -161,6 +167,9 @@ const bot = (id: string, machineId: string): BotSummary => ({
   name: id,
   description: "",
   image: null,
+  avatarVersion: 0,
+  reasoningEffort: null,
+  runtimeConfigRevision: 0,
   machineId,
   runtime: "claude",
   modelName: null,
@@ -180,6 +189,10 @@ describe("useBotListController", () => {
     mocks.audit = null
     mocks.bots = [bot("b1", "mac1")]
     mocks.botsDataReady = true
+    mocks.useActualBots = false
+    mocks.botsLoad.mockReset()
+    mocks.botsLoading = false
+    mocks.machinesLoading = false
     mocks.planSummary = {
       plan: { id: "free", displayName: "Free" },
       limit: 3,
@@ -906,4 +919,28 @@ describe("useBotListController", () => {
     expect(mocks.toastApiError).not.toHaveBeenCalled()
     expect(latest.confirmResetMachine).toBeNull()
   })
+  it("recovers the real failed bots Query through the normal Retry button", async () => {
+    vi.useRealTimers()
+    mocks.useActualBots = true
+    mocks.target = null
+    mocks.machines = []
+    mocks.botsLoad.mockRejectedValueOnce(new Error("temporarily unavailable")).mockResolvedValueOnce({ bots: [], ...mocks.planSummary, isFounder: true })
+    function RetryProbe() {
+      const controller = useBotListController()
+      React.useLayoutEffect(() => { latest = controller }, [controller])
+      return renderBotListView({}, controller)
+    }
+    const view = rtlRender(React.createElement(RetryProbe))
+    await waitFor(() => expect(view.getByRole("button", { name: "Retry" })).toBeInTheDocument())
+    expect(latest.initialError).toBe(true)
+    expect(mocks.botsLoad).toHaveBeenCalledOnce()
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(view.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument())
+    await waitFor(() => expect(latest.isLoading).toBe(false))
+    expect(latest.initialError).toBe(false)
+    expect(mocks.botsLoad).toHaveBeenCalledTimes(2)
+    expect(mocks.botsLoad.mock.calls.map(([url]) => url)).toEqual(["/api/community/bots", "/api/community/bots"])
+    view.unmount()
+  })
+
 })
