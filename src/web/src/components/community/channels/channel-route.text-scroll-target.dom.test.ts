@@ -56,7 +56,7 @@ const {
   mockSearchParams: { value: "msg=m_target&keep=1" },
   mockSplitMode: { value: "full" as "pending" | "split" | "full" },
   mockSplitContainerRef: vi.fn(),
-  mockUseThreadSplitMode: vi.fn(),
+  mockUseThreadSplitMode: vi.fn<typeof import("@/hooks/community/use-thread-split-mode").useThreadSplitMode>(),
   mockSplitParentSurface: vi.fn((_props: Record<string, unknown>): React.ReactNode => null),
   mockCommitLastCommunityRoute: vi.fn(),
   mockSetLastChannel: vi.fn(),
@@ -154,7 +154,7 @@ vi.mock("@/components/community/channels/channel-header", () => ({
   }) => {
     mockHeaderServerNavigate.current = kind === "thread" ? undefined : mobileBack
     mockHeaderParentNavigate.current = kind === "thread" ? mobileBack : undefined
-    return React.createElement(React.Fragment, null, endActions)
+    return React.createElement("header", { "data-header-kind": kind }, endActions)
   },
   ChannelHeaderSkeleton: ({ kind = "text" }: { kind?: string }) =>
     React.createElement("div", { "data-testid": "channel-header-skeleton", "data-kind": kind }),
@@ -164,7 +164,7 @@ vi.mock("@/components/community/channels/conversation-message-skeleton", () => (
   ConversationMessageSkeleton: () => React.createElement("div", { "data-message-list-skeleton": true }),
 }))
 vi.mock("@/components/community/messages/composer", () => ({
-  Composer: () => null,
+  Composer: ({ draftKey }: { draftKey: string }) => React.createElement("textarea", { "data-draft-key": draftKey }),
   ComposerSkeleton: () => null,
 }))
 vi.mock("@/components/community/channels/forum-view", () => ({
@@ -232,10 +232,8 @@ vi.mock("@/hooks/community/use-native-system-notifications", () => ({
     mockDismissConversation(...args),
 }))
 vi.mock("@/hooks/community/use-thread-split-mode", () => ({
-  useThreadSplitMode: (options: unknown) => {
-    mockUseThreadSplitMode(options)
-    return { containerRef: mockSplitContainerRef, mode: mockSplitMode.value }
-  },
+  useThreadSplitMode: (options: Parameters<typeof mockUseThreadSplitMode>[0]) =>
+    mockUseThreadSplitMode(options) ?? { containerRef: mockSplitContainerRef, mode: mockSplitMode.value },
 }))
 vi.mock("@/components/community/channels/thread-split-parent-surface", () => ({
   ThreadSplitParentSurface: mockSplitParentSurface,
@@ -433,7 +431,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockSearchParams.value = "msg=m_target&keep=1"
     mockSplitMode.value = "full"
     mockSplitContainerRef.mockClear()
-    mockUseThreadSplitMode.mockClear()
+    mockUseThreadSplitMode.mockReset()
     mockClaimSecondary.mockClear()
     mockReleaseSecondary.mockClear()
     mockUseChannelMetadata.mockClear()
@@ -839,6 +837,71 @@ describe("ChannelRoute message surface ownership", () => {
     renderer.unmount()
   })
 
+  it("starts no transient parent resources through measured mobile639 to desktop640 transitions", async () => {
+    await observeSecondary()
+    const { ThreadSplitParentSurface } = await vi.importActual<typeof import("./thread-split-parent-surface")>("./thread-split-parent-surface")
+    const { useThreadSplitMode } = await vi.importActual<typeof import("@/hooks/community/use-thread-split-mode")>("@/hooks/community/use-thread-split-mode")
+    const modes: string[] = []
+    mockUseThreadSplitMode.mockImplementation(function useMeasuredMode(options) {
+      const result = useThreadSplitMode(options)
+      modes.push(result.mode)
+      return result
+    })
+    let width = 639
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+      width, height: 800, top: 0, right: width, bottom: 800, left: 0, x: 0, y: 0, toJSON: () => ({}),
+    }))
+    vi.stubGlobal("ResizeObserver", undefined)
+    mockSplitParentSurface.mockImplementation((props) => React.createElement(ThreadSplitParentSurface, props as never))
+    configureThreadRoute()
+    mockBreakpoint.value = "mobile"
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const node = () => React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" })
+    const renderer = render(node())
+    const outer = renderer.container.firstElementChild
+    const panel = screen.getByTestId("community-thread-split-panel")
+    const header = panel.querySelector('[data-header-kind="thread"]')
+    const composer = panel.querySelector<HTMLTextAreaElement>('[data-draft-key="server_1/channel_1"]')!
+    expect(header).not.toBeNull()
+    expect(composer).not.toBeNull()
+    fireEvent.change(composer, { target: { value: "Keep this draft" } })
+    for (const breakpoint of ["desktop", "mobile", "desktop"] as const) {
+      mockBreakpoint.value = breakpoint
+      width = breakpoint === "desktop" ? 640 : 639
+      renderer.rerender(node())
+      expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "full")
+      expect(screen.queryByTestId("community-thread-split-parent")).not.toBeInTheDocument()
+      expect({
+        parentRenders: mockSplitParentSurface.mock.calls.length,
+        metadataReads: mockUseChannelMetadata.mock.calls.length,
+        secondaryClaims: mockClaimSecondary.mock.calls.length,
+        parentFeeds: mockedUseChannelMessageFeed.mock.calls.filter(([options]) => options.channelId === "parent_1").length,
+      }).toEqual({ parentRenders: 0, metadataReads: 0, secondaryClaims: 0, parentFeeds: 0 })
+      expect(renderer.container.firstElementChild).toBe(outer)
+      expect(screen.getByTestId("community-thread-split-panel")).toBe(panel)
+      expect(panel.querySelector('[data-header-kind="thread"]')).toBe(header)
+      expect(panel.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+      expect(composer).toHaveValue("Keep this draft")
+    }
+    expect(modes).toContain("pending")
+    width = 880
+    act(() => window.dispatchEvent(new Event("resize")))
+    expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "split")
+    expect(mockUseChannelMetadata).toHaveBeenCalled()
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "parent_1" }))
+    const [runtime, owner] = mockClaimSecondary.mock.calls.at(-1)!
+    expect(owner).toBeDefined()
+    mockBreakpoint.value = "mobile"
+    width = 639
+    renderer.rerender(node())
+    expect(screen.queryByTestId("community-thread-split-parent")).not.toBeInTheDocument()
+    expect(mockReleaseSecondary).toHaveBeenCalledWith(runtime, owner)
+    expect(panel.querySelector('[data-header-kind="thread"]')).toBe(header)
+    expect(panel.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+    expect(composer).toHaveValue("Keep this draft")
+    renderer.unmount()
+  })
+
   it.each(["full", "non-thread"] as const)("starts no parent resources for a ready %s target", (kind) => {
     configureThreadRoute()
     mockSplitMode.value = "full"
@@ -1004,8 +1067,10 @@ describe("ChannelRoute message surface ownership", () => {
     const renderer = render(React.createElement(ChannelRoute, props))
     expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "pending")
     expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout-pending", "true")
-    expect(mockSplitParentSurface).toHaveBeenCalledWith(expect.objectContaining({ channel: expect.objectContaining({ id: "parent_1" }) }), undefined)
-    mockSplitParentSurface.mockClear()
+    const reservation = screen.getByTestId("community-thread-split-parent")
+    expect(reservation).toBeEmptyDOMElement()
+    expect(reservation).toHaveAttribute("inert")
+    expect(mockSplitParentSurface).not.toHaveBeenCalled()
     expect(renderer.container.querySelector('[data-community-conversation-subtype="unknown"]')).toBeNull()
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
     Object.assign(mockRouteModel, {
@@ -1445,6 +1510,7 @@ describe("ChannelRoute message surface ownership", () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllGlobals()
     vi.clearAllMocks()
     vi.restoreAllMocks()
   })

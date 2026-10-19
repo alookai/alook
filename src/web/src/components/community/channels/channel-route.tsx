@@ -126,7 +126,7 @@ function ChannelRouteFrame(target: RouteTarget) {
   return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col">
     <ThreadSplitView
       split={split} layoutPending={layoutPending} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
-      parent={(split || layoutPending) && parent ? <ThreadSplitParentSurface
+      parent={split && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}
         viewer={currentUser} onNavigateParent={navigateServerRoot}

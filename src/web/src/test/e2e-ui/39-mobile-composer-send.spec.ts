@@ -104,7 +104,7 @@ async function expectHoverKeyboardSend({
 async function expectExplicitTouchSend({
   page,
   root = page,
-  backgroundRoot,
+  parentRoot,
   route,
   channelId,
   label,
@@ -114,7 +114,7 @@ async function expectExplicitTouchSend({
 }: {
   page: Page
   root?: Page | Locator
-  backgroundRoot?: Locator
+  parentRoot?: Locator
   route: string
   channelId: string
   label: string
@@ -172,11 +172,10 @@ async function expectExplicitTouchSend({
     await expect(send).toBeVisible()
   }
 
-  if (backgroundRoot) {
-    await expect(backgroundRoot).toHaveAttribute("inert", "")
-    await expect(backgroundRoot.getByTestId(tid.composerFileInput)).toHaveCount(1)
+  if (parentRoot) {
+    await expect(parentRoot).toHaveCount(0)
     await expect(root.getByTestId(tid.composerFileInput)).toHaveCount(1)
-    await expect(page.getByTestId(tid.composerFileInput)).toHaveCount(2)
+    await expect(page.getByTestId(tid.composerFileInput)).toHaveCount(1)
   }
 
   await root.getByTestId(tid.composerFileInput).setInputFiles({
@@ -301,7 +300,7 @@ test.describe("composer send by input capability", () => {
     await expectExplicitTouchSend({
       page,
       root: page.getByTestId(tid.threadSplitPanel),
-      backgroundRoot: page.getByTestId(tid.threadSplitParent),
+      parentRoot: page.getByTestId(tid.threadSplitParent),
       route: `/c/channels/${serverId}/${threadId}`,
       channelId: threadId,
       label: "thread",
