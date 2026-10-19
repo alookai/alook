@@ -28,6 +28,8 @@ export const pageRoutes = [
 ] as const
 
 export const apiRoutes = [
+  "/api/audio/speech",
+  "/api/audio/transcriptions",
   "/api/auth/[...all]",
   "/api/auth/native/attempt",
   "/api/auth/native/cancel",
@@ -210,6 +212,8 @@ export const actionNames = [
   "device.authorization.approve",
   "device.authorization.command",
   "device.authorization.deny",
+  "device.session.revoke",
+  "device.setup.command",
   "dm.message.send",
   "dm.open",
   "forum.tags.update",

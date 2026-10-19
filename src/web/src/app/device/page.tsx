@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { GradientBackground } from "@/components/gradient-background"
+import { isTouchClient } from "@/lib/touch/client"
 
 type Step = "loading" | "code" | "approve" | "done" | "denied"
 
@@ -44,7 +45,7 @@ function DeviceAuthPageInner() {
         const res = await authClient.device({ query: { user_code: verificationCode }, fetchOptions: { signal } })
         assertApplicationOwner(token, signal)
         if (res.error) throw new Error(res.error.error_description || "Invalid or expired code")
-        return true
+        return { touch: isTouchClient(res.data) }
       } catch (error) { assertApplicationOwner(token, signal); throw error }
     },
   })
@@ -68,6 +69,7 @@ function DeviceAuthPageInner() {
   const error = failure instanceof DOMException && failure.name === "AbortError" ? "" : failure instanceof Error ? failure.message : ""
   const step: Step = currentDecision?.isSuccess ? currentDecision.data === "approve" ? "done" : "denied"
     : verification.isFetching ? "loading" : verification.isSuccess ? "approve" : "code"
+  const touch = verification.data?.touch === true
 
   useObservedRegion("page", !isPending && !!session && step !== "loading", 1)
   useEffect(() => {
@@ -79,6 +81,10 @@ function DeviceAuthPageInner() {
     }
   }, [isPending, session, router, userCode, source])
 
+  useEffect(() => {
+    if (touch && verification.isSuccess) router.replace(`/c/me/bots?settings=devices&user_code=${encodeURIComponent(verificationCode)}`)
+  }, [touch, verification.isSuccess, verificationCode, router])
+
   const handleVerifyCode = (e: React.SubmitEvent) => {
     e.preventDefault()
     const code = userCode.trim()
@@ -89,7 +95,7 @@ function DeviceAuthPageInner() {
   const handleApprove = () => command.mutate({ kind: "approve", code: verificationCode, original: source.capture() })
   const handleDeny = () => command.mutate({ kind: "deny", code: verificationCode, original: source.capture() })
 
-  if (isPending || !session) {
+  if (isPending || !session || touch) {
     return null
   }
 
@@ -109,7 +115,7 @@ function DeviceAuthPageInner() {
                 )}
                 {step === "code" && (
                   <p className="text-sm text-muted-foreground">
-                    Enter the code shown on your terminal
+                    Enter the code shown on your device
                   </p>
                 )}
                 {step === "approve" && (
@@ -155,7 +161,7 @@ function DeviceAuthPageInner() {
               {step === "approve" && (
                 <FieldGroup>
                   <p className="text-sm text-center text-muted-foreground">
-                    Code: <strong className="font-mono">{userCode}</strong>
+                    Code: <strong className="font-mono">{verificationCode}</strong>
                   </p>
                   <Field className="grid grid-cols-2 gap-4">
                     <Button variant="outline" onClick={handleDeny} disabled={loading}>

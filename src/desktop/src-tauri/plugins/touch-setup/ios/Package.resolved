@@ -1,0 +1,34 @@
+{
+  "object": {
+    "pins": [
+      {
+        "package": "ESPProvision",
+        "repositoryURL": "https://github.com/espressif/esp-idf-provisioning-ios.git",
+        "state": {
+          "branch": null,
+          "revision": "b38391a7ca16d846af1700c902c8e87b9c35c33d",
+          "version": null
+        }
+      },
+      {
+        "package": "SwiftProtobuf",
+        "repositoryURL": "https://github.com/apple/swift-protobuf.git",
+        "state": {
+          "branch": null,
+          "revision": "3d537cb81aef272a03cb3be815439e9bf0eb3bd3",
+          "version": "1.39.0"
+        }
+      },
+      {
+        "package": "SwiftRs",
+        "repositoryURL": "https://github.com/Brendonovich/swift-rs",
+        "state": {
+          "branch": null,
+          "revision": "207e4bfe5d36fdd0cc08f28d1849ff94ac7e24b8",
+          "version": "1.0.9"
+        }
+      }
+    ]
+  },
+  "version": 1
+}

@@ -10,6 +10,9 @@ const files = (root: string) => readdirSync(root, { recursive: true }).filter((f
 it("normalizes the ordinary message route without retaining a message ID or query", () => {
   expect(routeTemplate("/c/messages/private_message_188?seq=123")).toBe("/c/messages/[messageId]")
 })
+it.each(["/api/audio/speech", "/api/audio/transcriptions"])("normalizes %s without retaining its query", (route) => {
+  expect(routeTemplate(`${route}?name=private-audio&token=fixture`)).toBe(route)
+})
 it("keeps the route whitelist aligned with both builds and parallel route slots", () => {
   const routes = new Set(["src/app", "blog/src/app"].flatMap(root => files(resolve(web, root)).filter(file => file.endsWith("/page.tsx")).map(file => "/" + relative(resolve(web, root), file).split("/").slice(0, -1).filter(segment => !segment.startsWith("(") && !segment.startsWith("@")).join("/"))))
   expect([...routes].sort()).toEqual([...pageRoutes].sort())
@@ -37,6 +40,11 @@ it("keeps existing mutation owners inventoried and semantic variants on the whit
 
 const mutationCoverage = [
   {
+    "file": "src/web/src/components/community/settings/touch-setup.tsx",
+    "owner": "TouchSetup",
+    "action": "device.setup.command"
+  },
+  {
     "file": "src/web/src/app/c/invite/[token]/invite-accept-client.tsx",
     "owner": "InviteAcceptInner",
     "action": "server.invite.accept"
@@ -45,6 +53,16 @@ const mutationCoverage = [
     "file": "src/web/src/app/device/page.tsx",
     "owner": "DeviceAuthPageInner",
     "action": "device.authorization.command"
+  },
+  {
+    "file": "src/web/src/components/community/settings/device-settings.tsx",
+    "owner": "DeviceSettings",
+    "action": "device.authorization.command"
+  },
+  {
+    "file": "src/web/src/components/community/settings/device-settings.tsx",
+    "owner": "DeviceSettings",
+    "action": "device.session.revoke"
   },
   {
     "file": "src/web/src/components/community/machines/machine-list.tsx",

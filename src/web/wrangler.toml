@@ -9,6 +9,9 @@ upload_source_maps = false
 # "__name is not defined" at runtime in the browser.
 keep_names = false
 
+[ai]
+binding = "AI"
+
 [observability]
 enabled = true
 head_sampling_rate = 0.1

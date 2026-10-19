@@ -1323,7 +1323,30 @@ describe("Desktop image clipboard", () => {
         remote: { urls: ["http://localhost:3000"] },
         permissions: ["allow-file-save-begin", "allow-file-save-write-chunk", "allow-file-save-commit", "allow-file-save-cancel"],
       }),
+      "touch-setup-mobile",
+      expect.objectContaining({
+        identifier: "touch-setup-dev",
+        local: true,
+        windows: ["main"],
+        platforms: ["android", "iOS"],
+        remote: { urls: ["http://localhost:3000"] },
+        permissions: ["touch-setup"],
+      }),
     ])
+  })
+  it("limits Touch provisioning to the trusted mobile main window and five commands", () => {
+    const read = (path: string) => readFileSync(resolve(repositoryRoot, "src/desktop/src-tauri", path), "utf8")
+    const capability = JSON.parse(read("capabilities/touch-setup-mobile.json"))
+    expect(capability).toMatchObject({
+      identifier: "touch-setup-mobile", windows: ["main"], platforms: ["android", "iOS"],
+      local: false, remote: { urls: ["https://alook.ai"] }, permissions: ["touch-setup"],
+    })
+    const commands = ["touch_setup_connect", "touch_setup_scan", "touch_setup_provision", "touch_setup_exchange", "touch_setup_cancel"]
+    const allowed = read("permissions/touch-setup.toml").match(/commands\.allow\s*=\s*\[([^\]]*)\]/)?.[1] ?? ""
+    expect([...allowed.matchAll(/"([^"]+)"/g)].map(match => match[1])).toEqual(commands)
+    expect([...read("build.rs").matchAll(/"(touch_setup_[^"]+)"/g)].map(match => match[1])).toEqual(commands)
+    expect(desktopConfig.app.security.capabilities).toContain("touch-setup-mobile")
+    expect(desktopCapability.permissions).not.toContain("touch-setup")
   })
 })
 

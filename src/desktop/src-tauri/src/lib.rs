@@ -14,6 +14,10 @@ mod mobile_share_image_runtime;
 mod mobile_system_notification;
 #[cfg(mobile)]
 mod mobile_system_notification_runtime;
+#[cfg(any(mobile, test))]
+mod touch_setup;
+#[cfg(mobile)]
+mod touch_setup_runtime;
 mod native_command_guard;
 mod native_oauth;
 mod native_oauth_runtime;
@@ -79,6 +83,8 @@ pub fn run() {
 #[cfg(not(desktop))]
 fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     builder = builder
+        .manage(touch_setup::TouchSetupState::default())
+        .plugin(tauri_plugin_touch_setup::init())
         .manage(mobile_share_image::MobileShareImageState::default())
         .plugin(tauri_plugin_mobile_share_image::init())
         .plugin(tauri_plugin_file_save::init())
@@ -88,6 +94,11 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         file_save_runtime::file_save_write_chunk,
         file_save_runtime::file_save_commit,
         file_save_runtime::file_save_cancel,
+        touch_setup_runtime::touch_setup_connect,
+        touch_setup_runtime::touch_setup_scan,
+        touch_setup_runtime::touch_setup_provision,
+        touch_setup_runtime::touch_setup_exchange,
+        touch_setup_runtime::touch_setup_cancel,
         mobile_share_image_runtime::mobile_share_image_copy,
         mobile_share_image_runtime::mobile_share_image_save,
         mobile_system_notification_runtime::mobile_system_notification_check_permission,
@@ -132,9 +143,15 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         {
             native_oauth_runtime::retire_listener(webview.app_handle());
             file_save_runtime::retire(webview.app_handle());
+            touch_setup_runtime::retire(webview.app_handle());
         }
     });
 
+    builder = builder.on_window_event(|window, event| {
+        if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+            touch_setup_runtime::retire(window.app_handle());
+        }
+    });
     run_app(builder);
 }
 

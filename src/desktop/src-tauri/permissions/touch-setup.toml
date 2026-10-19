@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "touch-setup"
+description = "Secure Touch provisioning for the trusted mobile main WebView"
+commands.allow = ["touch_setup_connect", "touch_setup_scan", "touch_setup_provision", "touch_setup_exchange", "touch_setup_cancel"]

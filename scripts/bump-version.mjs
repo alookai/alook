@@ -28,10 +28,11 @@ const args = process.argv.slice(2);
 const updateMinCli = args.includes("--min-cli");
 const includeDesktop = args.includes("--desktop");
 const includeMobile = args.includes("--mobile");
+const includeTouch = args.includes("--touch");
 const unsupportedFlag = args.find(
   (arg) =>
     arg.startsWith("--") &&
-    !["--min-cli", "--desktop", "--mobile"].includes(arg),
+    !["--min-cli", "--desktop", "--mobile", "--touch"].includes(arg),
 );
 if (unsupportedFlag) {
   console.error(`Unsupported flag: ${unsupportedFlag}`);
@@ -45,6 +46,7 @@ if (!arg) {
   console.error("  pnpm bump patch");
   console.error("  pnpm bump patch --desktop        # trigger desktop build");
   console.error("  pnpm bump patch --mobile         # publish this version to TestFlight");
+  console.error("  pnpm bump patch --touch          # trigger Touch firmware build");
   console.error("  pnpm bump patch --min-cli        # also update MIN_CLI_VERSION");
   process.exit(1);
 }
@@ -145,6 +147,13 @@ if (includeMobile) {
   console.log(`  TestFlight deploy trigger written`);
 }
 
+if (includeTouch) {
+  const triggerPath = join(ROOT, "src/touch/.deploy-version");
+  writeFileSync(triggerPath, version + "\n");
+  files.push(triggerPath);
+  console.log(`  Touch firmware deploy trigger written`);
+}
+
 if (updateMinCli) {
   const tomlPath = join(ROOT, "src/web/wrangler.toml");
   let toml = readFileSync(tomlPath, "utf8");
@@ -169,4 +178,6 @@ if (includeDesktop) console.log(`   #   - Desktop build (macOS/Linux/Windows)`);
 if (!includeDesktop) console.log(`   #   - No desktop build (add --desktop to include)`);
 if (includeMobile) console.log(`   #   - Signed iOS build and automatic TestFlight upload`);
 if (!includeMobile) console.log(`   #   - No TestFlight upload (add --mobile to include)`);
+if (includeTouch) console.log(`   #   - Touch firmware build`);
+if (!includeTouch) console.log(`   #   - No Touch firmware build (add --touch to include)`);
 console.log();

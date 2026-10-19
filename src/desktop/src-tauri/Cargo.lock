@@ -63,6 +63,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-store",
+ "tauri-plugin-touch-setup",
  "tauri-plugin-updater",
  "tokio",
  "unicode-normalization",
@@ -4288,6 +4289,15 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "tauri-plugin-touch-setup"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

@@ -1,5 +1,17 @@
-import { describe, it, expect } from "vitest"
-import { mapMessageForApi, mapMessageForWs, type MessageRow } from "./message-payload"
+import { beforeEach, describe, it, expect, vi } from "vitest"
+import type { Database } from "@alook/shared"
+import { mapMessageForApi, mapMessageForWs, mapPostedMessageForApi, type MessageRow } from "./message-payload"
+
+const posted = vi.hoisted(() => ({ nonce: vi.fn(), attachments: vi.fn() }))
+vi.mock("@alook/shared", async importOriginal => {
+  const actual = await importOriginal<typeof import("@alook/shared")>()
+  return { ...actual, queries: { ...actual.queries,
+    communityMessage: { ...actual.queries.communityMessage, getMessageClientNonceForDelivery: posted.nonce },
+    communityAttachment: { ...actual.queries.communityAttachment, listByMessageIds: posted.attachments },
+  } }
+})
+
+beforeEach(() => { vi.clearAllMocks(); posted.nonce.mockResolvedValue(null); posted.attachments.mockResolvedValue([]) })
 
 const baseRow: MessageRow = {
   id: "m1",
@@ -22,6 +34,34 @@ const emptyApiCtx = {
 }
 
 const emptyWsCtx = { replyMap: new Map(), attachments: [] }
+
+describe("sender POST v3 canonical nonce confirmation", () => {
+  const db = {} as Database
+  it("reads the committed nonce when the ordinary row projection omitted it", async () => {
+    posted.nonce.mockResolvedValueOnce("stored-nonce")
+    const response = await mapPostedMessageForApi(db, "c1", { ...baseRow, authorAvatarVersion: 0 }, 3)
+    expect(response).toMatchObject({ id: "m1", channelId: "c1", seq: 42, clientNonce: "stored-nonce", attachments: [] })
+    expect(posted.nonce).toHaveBeenCalledExactlyOnceWith(db, "m1")
+  })
+  it("uses persisted correlation rather than a caller-provided row value", async () => {
+    posted.nonce.mockResolvedValueOnce("stored-nonce")
+    expect((await mapPostedMessageForApi(db, "c1", { ...baseRow, authorAvatarVersion: 0, clientNonce: "unconfirmed-value" }, 3)).clientNonce).toBe("stored-nonce")
+  })
+  it.each([null, "srv:internal-content-fingerprint"])("keeps non-client correlation private: %s", async nonce => {
+    posted.nonce.mockResolvedValueOnce(nonce)
+    expect((await mapPostedMessageForApi(db, "c1", { ...baseRow, authorAvatarVersion: 0 }, 3)).clientNonce).toBeNull()
+  })
+  it.each([1, 2] as const)("preserves contract %s without extra delivery or attachment reads", async contract => {
+    const row = { ...baseRow, clientNonce: "legacy-row" }
+    expect(await mapPostedMessageForApi(db, "c1", row, contract)).toMatchObject({ id: "m1", clientNonce: "legacy-row" })
+    expect(posted.nonce).not.toHaveBeenCalled()
+    expect(posted.attachments).not.toHaveBeenCalled()
+  })
+  it("does not turn a failed canonical nonce read into a successful confirmation", async () => {
+    posted.nonce.mockRejectedValueOnce(new Error("read failed"))
+    await expect(mapPostedMessageForApi(db, "c1", { ...baseRow, authorAvatarVersion: 0 }, 3)).rejects.toThrow("read failed")
+  })
+})
 
 describe("mapMessageForApi", () => {
   it("returns the core author/content/timestamp fields with avatar fallback", () => {

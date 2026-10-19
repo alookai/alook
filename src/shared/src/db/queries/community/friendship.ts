@@ -1040,7 +1040,11 @@ export async function listPending(db: Database, userId: string) {
     seen.add(r.id);
     merged.push({ ...r, kind: "outgoing" });
   }
-  return merged;
+  return merged.sort((left, right) => {
+    const a = left.createdAt === right.createdAt ? left.id : left.createdAt;
+    const b = left.createdAt === right.createdAt ? right.id : right.createdAt;
+    return a === b ? 0 : a < b ? 1 : -1;
+  });
 }
 
 /**

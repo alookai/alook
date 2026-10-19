@@ -30,6 +30,8 @@ export const RATE_LIMITS = {
    */
   "auth:otpSend": { windowMs: 60_000, max: 5 },
   "auth:nativeAttempt": { windowMs: 60_000, max: 10 },
+  "audio:transcriptions": { windowMs: 60_000, max: 6 },
+  "audio:speech": { windowMs: 60_000, max: 6 },
 } as const
 
 export type RateLimitName = keyof typeof RATE_LIMITS

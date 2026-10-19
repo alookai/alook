@@ -7,5 +7,9 @@
     <string>localhost</string>
     <string>alook.ai</string>
   </array>
+  <key>NSCameraUsageDescription</key>
+  <string>Scan the setup code on your Touch.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>Connect your Touch to Wi-Fi.</string>
 </dict>
 </plist>

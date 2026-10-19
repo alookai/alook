@@ -1,0 +1,15 @@
+{
+  "provenance": "Node OpenSSL X25519/AES-256-CTR with RFC7748 section6.1 public test keys; Espressif Androidlib-2.4.4 commit b83b78543fcd7ae24c9acbefdc17cad3ed4a3607 session.proto/sec1.proto wire schema. Independent of the browser SDK cipher.",
+  "clientPrivate": "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
+  "clientPublic": "hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo=",
+  "pop": "0123456789abcdef0123456789abcdef",
+  "request0": "EAFaJwgAogEiCiCFIPAJiTCnVHSLfdy0PvdaDb86DSY4GvTrpKmOqptOag==",
+  "response0": "EAFaOwgBqgE2CAASIN6e2317fcG001thwuzkNTc/g0PIW3hnTa38fhRviCtPGhAAAQIDBAUGBwgJCgsMDQ4P",
+  "request1": "EAFaJwgCsgEiEiBPVOBRAa1W+ZdsHx1P3eNIm+cWOJ93qKufG2keY35vOA==",
+  "response1": "EAFaKQgDugEkCAAaILiy+Z5vtzqphRl4U2L2PBSkdxpDAYGjOk+iZlB28XPK",
+  "payload": "{\"action\":\"code\"}",
+  "response": "{\"state\":\"pending\"}",
+  "encryptedPayload": "ZpNDPMruBPgYKMef7Y9GOV4=",
+  "encryptedResponse": "V/INxjy6FW8mpmQeZylq4S+pWg==",
+  "security0": "EABSBwgBqgECCAA="
+}

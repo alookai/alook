@@ -76,11 +76,17 @@
           "$schema": "../gen/schemas/desktop-schema.json",
           "identifier": "native-back-dev",
           "description": "Android Back listener for the trusted development WebView",
-          "windows": ["main"],
-          "platforms": ["android"],
+          "windows": [
+            "main"
+          ],
+          "platforms": [
+            "android"
+          ],
           "local": true,
           "remote": {
-            "urls": ["http://localhost:3000"]
+            "urls": [
+              "http://localhost:3000"
+            ]
           },
           "permissions": [
             "core:app:allow-register-listener",
@@ -105,6 +111,28 @@
             "allow-file-save-write-chunk",
             "allow-file-save-commit",
             "allow-file-save-cancel"
+          ]
+        },
+        "touch-setup-mobile",
+        {
+          "$schema": "../gen/schemas/mobile-schema.json",
+          "identifier": "touch-setup-dev",
+          "description": "Touch setup for the trusted mobile main WebView",
+          "windows": [
+            "main"
+          ],
+          "platforms": [
+            "android",
+            "iOS"
+          ],
+          "local": true,
+          "remote": {
+            "urls": [
+              "http://localhost:3000"
+            ]
+          },
+          "permissions": [
+            "touch-setup"
           ]
         }
       ]
