@@ -6,6 +6,9 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { dispatchCommunityWsEvent } from "./community-ws/registry"
 import { captureCommunityLiveSnapshotToken, publishCommunityForumFeed, publishCommunityMessages } from "@/lib/community-db/sync"
 import { normalizeThreadResources } from "./forum-feed-window"
+import { forumConversationEntryFixture } from "@/test/conversation-entry-fixtures"
+import { conversationEntryOptions, publishConversationEntry } from "@/lib/community/conversation-entry"
+import { communityKeys } from "@/lib/query-keys"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch }))
@@ -43,6 +46,10 @@ async function mount(contractVersion: 2 | 3 = 2, firstSeq = 1) {
   const owner = await createCommunityQueryOwner()
   apiFetch.mockReset()
   apiFetch.mockResolvedValue(page(contractVersion, firstSeq))
+  const entry = forumConversationEntryFixture("forum", "server", true)
+  const target = { channelId: "forum", serverId: "server" }
+  owner.client.setQueryData(conversationEntryOptions(owner.client, target).queryKey, publishConversationEntry(owner.client, target, entry, { token: captureCommunityLiveSnapshotToken(owner.client, "forum") }))
+  owner.client.setQueryData(communityKeys.forumFeed("forum", null), data => data, { updatedAt: 1 })
   function Wrapper({ children }: PropsWithChildren) {
     return createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry }, children)
   }

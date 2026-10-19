@@ -4,7 +4,7 @@ import { DmHeaderSkeleton } from "./dm-header"
 import { MessageList } from "@/components/community/messages/message-list"
 import { ComposerSkeleton } from "@/components/community/messages/composer"
 
-export function DmLoadingFrame({ reserveBackSlot = false }: { reserveBackSlot?: boolean }) {
+export function DmLoadingFrame({ reserveBackSlot = true }: { reserveBackSlot?: boolean }) {
   return (
     <>
       <DmHeaderSkeleton onBack={reserveBackSlot ? () => {} : undefined} />

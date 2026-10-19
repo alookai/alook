@@ -3,6 +3,7 @@ import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/m
 import type { OpenProfile } from "@/components/community/social/profile-types"
 
 export type MessageListProps = {
+  observation?: import("@/lib/observability/regions").ResourceObservation
   channel: string
   messages: Msg[]
   loading?: boolean

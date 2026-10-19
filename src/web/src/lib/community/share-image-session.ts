@@ -655,6 +655,33 @@ function installImageBytes(image: HTMLImageElement, dataUrl: string): void {
 }
 
 function freezeTree(root: HTMLElement): { width: number; height: number; backgroundColor: string } {
+  const tables = [...root.querySelectorAll<HTMLTableElement>("table")]
+  for (const table of tables) {
+    const body = table.closest<HTMLElement>("[data-share-body-id]")
+    const maxCellWidth = (body ?? root).clientWidth
+    table.style.tableLayout = "auto"
+    if (body) {
+      body.style.maxHeight = "none"
+      body.style.webkitLineClamp = "unset"
+      body.style.display = "block"
+      body.style.overflow = "visible"
+    }
+    const viewport = table.parentElement
+    if (viewport) {
+      viewport.style.maxHeight = "none"
+      viewport.style.overflow = "visible"
+    }
+    for (const cell of table.querySelectorAll<HTMLElement>("th, td")) {
+      const content = document.createElement("div")
+      content.style.cssText = `width:max-content;max-width:${maxCellWidth}px;white-space:normal;overflow-wrap:anywhere;word-break:normal`
+      while (cell.firstChild) content.appendChild(cell.firstChild)
+      cell.appendChild(content)
+    }
+  }
+  const extraWidth = Math.max(0, ...tables.map((table) => (
+    table.getBoundingClientRect().right - (table.closest<HTMLElement>("[data-share-body-id]") ?? table.parentElement)!.getBoundingClientRect().right
+  )))
+  if (extraWidth > 0) root.style.width = `${Math.ceil(root.getBoundingClientRect().width + extraWidth)}px`
   const rect = root.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) throw new Error("Share card has no layout")
   const rootStyle = getComputedStyle(root)

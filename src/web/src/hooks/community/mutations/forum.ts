@@ -185,13 +185,13 @@ function isForumPostUnitQuery(query: Query, unit: ForumPostUnitIdentity) {
   const exactKeys: QueryKey[] = [
     communityKeys.server(unit.serverId),
     communityKeys.forumSidebarThreads(unit.serverId),
-    communityKeys.channelMeta(unit.serverId, unit.childChannelId),
     communityKeys.message(unit.openerMessageId),
   ]
   return exactKeys.some((candidate) => hashKey(candidate) === hashKey(key)) || [
     communityKeys.channelMessages(unit.forumChannelId),
     communityKeys.forumFeeds(unit.forumChannelId),
     communityKeys.channelMessages(unit.childChannelId),
+    communityKeys.conversationEntries(unit.childChannelId),
     communityKeys.pins(unit.childChannelId),
     communityKeys.threads(unit.childChannelId),
   ].some((prefix) => startsWithQueryKey(key, prefix))

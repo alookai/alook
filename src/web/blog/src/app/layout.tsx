@@ -1,6 +1,7 @@
 import { ObservedRouteCommit } from "@/lib/observability/regions";
 import type { Metadata, Viewport } from "next";
 import { AnalyticsConsent } from "@/components/analytics-consent";
+import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "@/app/fonts";
 import { ThemeColorSync } from "@/components/theme-color-sync";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -37,6 +38,7 @@ export default function BlogRootLayout({
 					<ObservedRouteCommit />
         <AnalyticsConsent />
 				</ThemeProvider>
+				<ServiceWorkerRegistration />
 			</body>
 		</html>
 	);

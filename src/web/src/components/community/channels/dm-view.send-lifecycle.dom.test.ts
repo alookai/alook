@@ -1,37 +1,36 @@
 import React, { type PropsWithChildren } from "react"
+import { renderToString } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, screen, waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { DmView } from "./dm-view"
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), failed: true }))
+const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), failed: true, breakpoint: "mobile" }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api, toastApiError: vi.fn() }))
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "mobile" }))
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "u_me", name: "Me", avatar: "M" }) }))
 vi.mock("@/hooks/community/use-dms", () => ({ useDms: () => ({ dms: ["dm_1", "dm_2"].map(id => ({ id, userId: "peer", name: "Peer", avatar: "P" })), isLoading: false, isFetching: false }) }))
 vi.mock("@/hooks/community/use-friends", () => ({ useFriends: () => ({ friends: [], blocked: [] }) }))
 vi.mock("@/hooks/community/use-messages", () => ({ useDmMessages: () => ({ messages: mocks.failed ? [{ id: "failed", clientNonce: "retry_nonce", authorId: "u_me", type: "chat", content: "retry" }] : [], isLoading: false, isPending: false, isError: false, latestSeq: 0 }) }))
 vi.mock("@/hooks/community/use-channel-metadata", () => ({ useChannelMetadata: () => ({ canRead: true, status: "readable" }) }))
-vi.mock("@/hooks/community/use-dm-read-state", () => ({ useDmReadStateSnapshot: () => ({ snapshot: { lastReadMessageId: null, lastReadSeq: 0 }, isFetching: false }) }))
 vi.mock("@/hooks/community/use-dm-watermark", () => ({ useDmWatermark: vi.fn() }))
 vi.mock("@/hooks/community/use-channel-ref-directory", () => ({ useChannelRefDirectory: () => ({ directory: [], isResolved: true }) }))
 vi.mock("@/hooks/community/use-native-system-notifications", () => ({ useNativeSystemNotificationConversationDismissal: vi.fn() }))
 vi.mock("./use-dm-seq-context", () => ({ useDmSeqContext: vi.fn() }))
-vi.mock("@/lib/community/conversation-navigation-proof", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/community/conversation-navigation-proof")>(), useConversationNavigationGate: () => ({ allowed: true, failed: false }) }))
 vi.mock("@/lib/community/last-community-route", () => ({ commitCommunityChannelRoute: vi.fn() }))
 vi.mock("@/hooks/community/use-notification-settings", () => ({ useNotificationSettings: () => ({ channel: {} }) }))
 vi.mock("@/hooks/community/use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn(), communityWsSendTyping: vi.fn(), communityWsEndTyping: vi.fn() }))
 vi.mock("@/lib/community-onboarding", () => ({ readCommunityOnboardingState: () => ({ status: "active", stage: "dm", dmId: "dm_1" }), advanceCommunityOnboarding: mocks.advance }))
 vi.mock("@/hooks/community/mutations", async importOriginal => ({ ...await importOriginal<typeof import("@/hooks/community/mutations")>(), useAddReactionApi: () => vi.fn(), useToggleReactionApi: () => vi.fn(), useToggleMark: () => vi.fn(), useSetChannelNotif: () => ({ mutate: vi.fn() }) }))
-vi.mock("./dm-header", () => ({ DmHeader: () => null }))
+vi.mock("./dm-header", () => ({ DmHeader: ({ onBack }: { onBack?: () => void }) => React.createElement("header", null, onBack ? React.createElement("button", { onClick: onBack, "aria-label": "Back" }) : null) }))
 vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/conversation-footer-shell", () => ({ ConversationFooterSlotProvider: ({ children }: PropsWithChildren) => children, ConversationFooterShell: ({ children }: PropsWithChildren) => children }))
 vi.mock("@/components/community/messages/composer", () => ({ ComposerSkeleton: () => null, Composer: ({ onAcceptSend }: { onAcceptSend: (text: string) => boolean }) => React.createElement("button", { onClick: () => onAcceptSend("hello") }, "Send") }))
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ onRetry }: { onRetry: (id: string) => void }) => React.createElement("button", { onClick: () => onRetry("failed") }, "Retry") }))
 
-beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.failed = true })
+beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.failed = true; mocks.breakpoint = "mobile" })
 
 describe("real DmView accepted send UI lifecycle", () => {
   it.each(["send", "retry"] as const)("continues %s after target view retires without advancing old onboarding", async action => {
@@ -64,6 +63,24 @@ describe("real DmView accepted send UI lifecycle", () => {
     const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
     await act(async () => screen.getByRole("button", { name: action === "send" ? "Send" : "Retry" }).click())
     await waitFor(() => expect(mocks.advance).toHaveBeenCalledOnce())
+    view.unmount()
+  })
+})
+
+describe("DM initial responsive Back admission", () => {
+  it("includes the mobile Back control in server markup before breakpoint effects", async () => {
+    mocks.breakpoint = "unknown"
+    const owner = await createCommunityQueryOwner("u_me")
+    const markup = renderToString(React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true },
+      React.createElement(DmView, { dmId: "dm_1" })))
+    expect(markup).toContain('aria-label="Back"')
+  })
+  it.each(["unknown", "mobile", "desktop"])("leaves Back display to its native responsive component while breakpoint is %s", async breakpoint => {
+    mocks.breakpoint = breakpoint
+    const owner = await createCommunityQueryOwner("u_me")
+    const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument()
     view.unmount()
   })
 })

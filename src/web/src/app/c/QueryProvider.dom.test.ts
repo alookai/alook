@@ -20,14 +20,13 @@ vi.mock("@tanstack/react-query-persist-client", async () => {
   const { useEffect, useRef, useState } = await import("react")
   const { QueryClientProvider, IsRestoringProvider } = await import("@tanstack/react-query")
   return { PersistQueryClientProvider: ({ children, client, onSuccess, onError }: {
-    children: React.ReactNode; client: QueryClient; onSuccess: () => void; onError: () => void
+    children: React.ReactNode; client: QueryClient; onSuccess: () => void | Promise<void>; onError: () => void | Promise<void>
   }) => {
     const done = useRef(false), [restored, setRestored] = useState(false)
     useEffect(() => {
       if (done.current) return
       done.current = true
-      if (restoreResult.current === "success") onSuccess(); else onError()
-      setRestored(true)
+      void Promise.resolve(restoreResult.current === "success" ? onSuccess() : onError()).then(() => setRestored(true))
     }, [onSuccess, onError])
     return React.createElement(QueryClientProvider, { client }, React.createElement(IsRestoringProvider, { value: !restored }, children))
   } }
@@ -128,11 +127,11 @@ describe("QueryProvider profile account lifecycle", () => {
     expect(getCommunityDbRegistry(queryClient)?.accountId).toBe("viewer-b")
     act(() => renderer.unmount())
   })
-  it("revalidates durable projections after restore", async () => {
+  it("releases restore without invalidating current native resources", async () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")
     const renderer = mount("viewer-b")
-    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.folders(), exact: true, refetchType: "active" }))
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.dms(), exact: true, refetchType: "active" })
+    await getCommunityDbRegistry(queryClient)!.ready
+    expect(invalidate).not.toHaveBeenCalled()
     act(() => renderer.unmount())
   })
   it("confirms the new viewer and empty canonical baseline after restore failure", async () => {

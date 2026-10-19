@@ -1,4 +1,4 @@
-import { and, eq, exists, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
 import {
@@ -144,10 +144,16 @@ export function recordInvitedHumanJoinedStatement(db: Database, input: {
   ))).onConflictDoNothing();
 }
 
-export async function claimPendingEvents(db: Database, ownerUserId: string, now = new Date().toISOString()) {
+export async function claimPendingEvents(db: Database, ownerUserId: string, scope: "legacy" | "invited_human_joined" = "legacy", now = new Date().toISOString()) {
   const rows = await db.update(communityFunnelAnalyticsEvent).set({ claimedAt: now }).where(and(
     eq(communityFunnelAnalyticsEvent.ownerUserId, ownerUserId),
     isNull(communityFunnelAnalyticsEvent.claimedAt),
+    scope === "invited_human_joined"
+      ? eq(communityFunnelAnalyticsEvent.eventName, "invited_human_joined")
+      : or(
+        eq(communityFunnelAnalyticsEvent.eventName, "runtime_connected"),
+        eq(communityFunnelAnalyticsEvent.eventName, "first_agent_reply_persisted"),
+      ),
   )).returning({
     eventName: communityFunnelAnalyticsEvent.eventName,
     conversationType: communityFunnelAnalyticsEvent.conversationType,

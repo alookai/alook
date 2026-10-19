@@ -38,12 +38,23 @@ function back() {
   act(() => { window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })) })
 }
 
+function transition(root: HTMLElement) {
+  const target = root.querySelector<HTMLElement>('[data-panel][id="main"]')!
+  const event = new Event("transitionend", { bubbles: true })
+  Object.defineProperty(event, "propertyName", { value: "transform" })
+  act(() => { target.dispatchEvent(event) })
+}
+
 const roots: HTMLElement[] = []
 function setup() {
   vi.useFakeTimers()
   const root = document.createElement("div")
   root.dataset.mobileBackSurface = "detail"
   Object.defineProperty(root, "clientWidth", { value: 390 })
+  const foreground = document.createElement("div")
+  foreground.dataset.panel = "true"
+  foreground.id = "main"
+  root.appendChild(foreground)
   document.body.appendChild(root)
   roots.push(root)
   const props = { replace: vi.fn(), close: vi.fn(), request: vi.fn(() => "blocked" as const) }
@@ -89,7 +100,7 @@ describe("shared Back ownership during page motion", () => {
     const { root, props, view } = setup()
     if (kind === "touch") { touch("touchstart", 10); touch("touchmove", 200) }
     else { progress(0); progress(0.5) }
-    expect(root.dataset.mobileBackPhase).toBe("dragging")
+    expect(root.dataset.mobileBackPhase).toBe(kind === "touch" ? undefined : "dragging")
     view.rerender(<Fixture {...props} owner />)
     expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     expect(props.close).not.toHaveBeenCalled()
@@ -112,20 +123,23 @@ describe("shared Back ownership during page motion", () => {
     if (kind === "touch") touch("touchend", 200)
     if (kind === "native") back()
     act(() => { vi.advanceTimersByTime(300) })
+    transition(root)
     expect(props.request).not.toHaveBeenCalled()
     expect(props.replace).not.toHaveBeenCalled()
     expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     back()
     act(() => { vi.advanceTimersByTime(200) })
+    transition(root)
     expect(props.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
     view.unmount()
   })
 
   it("does not use the settling timer to close a new real popup", () => {
-    const { props, view } = setup()
+    const { root, props, view } = setup()
     touch("touchstart", 10); touch("touchmove", 200); touch("touchend", 200)
     view.rerender(<Fixture {...props} owner />)
     act(() => { vi.advanceTimersByTime(300) })
+    transition(root)
     expect(props.close).not.toHaveBeenCalled()
     expect(props.replace).not.toHaveBeenCalled()
     back()

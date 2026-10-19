@@ -11,8 +11,8 @@ type LoginContextOwner = {
   closed: (context: BrowserContext) => void
 }
 
-async function signIn(page: Page, email: string): Promise<void> {
-  const attempts = [`${WEB_URL}/c`, `${WEB_URL}/sign-in?redirect=/c`]
+export async function signIn(page: Page, email: string, options: { singleAttempt?: boolean; onSubmission?: () => void } = {}): Promise<void> {
+  const attempts = options.singleAttempt ? [`${WEB_URL}/sign-in?redirect=/c`] : [`${WEB_URL}/c`, `${WEB_URL}/sign-in?redirect=/c`]
   let lastError: unknown
 
   for (const url of attempts) {
@@ -21,6 +21,7 @@ async function signIn(page: Page, email: string): Promise<void> {
       const emailInput = page.getByRole("textbox", { name: "Email" })
       await emailInput.waitFor({ state: "visible", timeout: 15_000 })
       await emailInput.fill(email)
+      options.onSubmission?.()
       await page.getByRole("button", { name: "Sign in", exact: true }).click()
       await page.waitForURL((current) => !current.pathname.startsWith("/sign-in"), {
         timeout: 15_000,

@@ -18,7 +18,7 @@ import {
   fanOutToChannel,
   fanOutToServerMembers,
 } from "@/lib/community/fanout"
-import { loadApiMessageContext, mapMessageForApi } from "@/lib/community/message-payload"
+import { readCommunityMessageResource } from "@/lib/community/message-payload"
 import { scheduleForumPostMediaCleanup } from "@/lib/community/forum-post-media-cleanup"
 import { CommunityMessageReadSchema, requestedCommunityContract, type CommunityContract } from "@alook/shared"
 import { writeCommunityContractJSON } from "@/lib/community/read-contract"
@@ -244,11 +244,7 @@ async function handleHumanGet(
     if (!auth.ok) return writeError(auth.error, auth.status)
   }
 
-  const contextForChannel = await loadApiMessageContext(db, userId, [messageId], () => message.replyToId
-      ? queries.communityMessage.getMessagesByIdsInScope(db, [message.replyToId], { channelId: message.channelId })
-      : Promise.resolve([]),
-  )
-  const payload = mapMessageForApi(message, contextForChannel(message.channelId), contract === 3 ? 3 : 1, message.channelId)
+  const payload = await readCommunityMessageResource(db, userId, message, contract === 3 ? 3 : 1)
   if (contract === 3) return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: 3, channelId: message.channelId, message: payload }), 3)
   return writeJSON({ ...payload, channelId: message.channelId })
 }

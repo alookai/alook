@@ -156,7 +156,7 @@ export function useScrollAnchor({
   const semanticIntentRef = useRef<Intent | null>(null)
   const targetIntentRef = useRef<string | null>(null)
   const positionedTargetRef = useRef<string | null>(null)
-  const presentIntentRef = useRef<{ epoch: number; allowAttachedTail: boolean } | null>(null)
+  const presentIntentRef = useRef<{ epoch: number; allowAttachedTail: boolean; fetching: boolean } | null>(null)
   const consumedPresentVersionRef = useRef(presentVersion ?? 0)
   const consumedLocalSubmitVersionRef = useRef(localSubmitVersion ?? 0)
   const currentItemsRef = useRef(items)
@@ -302,6 +302,9 @@ export function useScrollAnchor({
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const virtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    directDomUpdates: false,
+    useFlushSync: true,
+    initialRect: { width: 0, height: items.reduce((size, item) => size + estimateRowHeight(item, !!hasMoreOlder), shortGap + tailPaddingEnd) },
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize,
@@ -324,6 +327,7 @@ export function useScrollAnchor({
     onChange: () => { refreshPendingPageAnchor(); reconcileViewportRef.current(); scheduleGeometryRef.current() },
   })
   virtualizerRef.current = virtualizer
+  useLayoutEffect(() => { refreshPendingPageAnchor() })
   useLayoutEffect(() => { hadMessagesRef.current = hasMessages }, [hasMessages])
   useLayoutEffect(() => {
     const anchor = olderMeasurementAnchorRef.current
@@ -868,24 +872,35 @@ export function useScrollAnchor({
     setFollowSuspended(false)
     if (hasMessages && !hasMoreNewer && !isFetchingNewer) startIntent("end", null)
     else {
-      presentIntentRef.current = { epoch, allowAttachedTail: !hasMoreNewer && !isFetchingNewer }
+      presentIntentRef.current = { epoch, allowAttachedTail: !hasMoreNewer && !isFetchingNewer, fetching: isFetchingNewer === true }
       armBudget()
     }
   }, [armBudget, claimPosition, hasMessages, hasMoreNewer, isFetchingNewer, localSubmitVersion, positionKind, releasePosition, retireInitialPosition, setFollowSuspended, startIntent])
 
   useLayoutEffect(() => {
-    if (!hasMessages || hasMoreNewer || isFetchingNewer) return
-    const completedWindow = !!presentVersion && consumedPresentVersionRef.current !== presentVersion
+    const completedWindow = hasMessages && !hasMoreNewer && !isFetchingNewer
+      && !!presentVersion && consumedPresentVersionRef.current !== presentVersion
     if (completedWindow) consumedPresentVersionRef.current = presentVersion
     const owner = positionOwnerRef.current
     const intent = presentIntentRef.current
-    if (!owner.active || positionKind.get() !== "present" || intent?.epoch !== owner.epoch
-      || (!completedWindow && !intent.allowAttachedTail)) return
+    if (!owner.active || positionKind.get() !== "present" || intent?.epoch !== owner.epoch) return
+    if (isFetchingNewer) {
+      intent.fetching = true
+      clearBudget()
+      return
+    }
+    if (intent.fetching) armBudget()
+    if (intent.fetching && hasMoreNewer) {
+      releasePosition()
+      return
+    }
+    if (!hasMessages || hasMoreNewer) return
+    if (!completedWindow && !intent.allowAttachedTail) return
     presentIntentRef.current = null
     retireInitialPosition()
     setFollowSuspended(false)
     startIntent("end", null)
-  }, [hasMessages, hasMoreNewer, isFetchingNewer, positionKind, presentVersion, retireInitialPosition, setFollowSuspended, startIntent])
+  }, [armBudget, clearBudget, hasMessages, hasMoreNewer, isFetchingNewer, positionKind, presentVersion, releasePosition, retireInitialPosition, setFollowSuspended, startIntent])
 
   const virtualItems = virtualizer.getVirtualItems()
   useLayoutEffect(() => {
@@ -918,7 +933,7 @@ export function useScrollAnchor({
   }, [cancelFrame, hasMessages, hasMoreNewer, initialScrollReady, items, newDividerBefore, positionKind, releasePosition, scheduleInitialPositionSettled, startIntent, virtualItems])
 
   const requestPresentPosition = useCallback(() => {
-    presentIntentRef.current = { epoch: claimPosition("present"), allowAttachedTail: false }
+    presentIntentRef.current = { epoch: claimPosition("present"), allowAttachedTail: false, fetching: false }
     retireInitialPosition()
     armBudget()
   }, [armBudget, claimPosition, retireInitialPosition])

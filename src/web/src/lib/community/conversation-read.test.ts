@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError, retryConversationRead, withConversationReadDeadline } from "./conversation-read"
+import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError, isConversationAccessError, isConversationAnchorMissingError, retryConversationRead, withConversationReadDeadline } from "./conversation-read"
+import { COMMUNITY_CONVERSATION_ANCHOR_MISSING } from "@alook/shared"
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -53,6 +54,13 @@ describe("conversation read deadline", () => {
     expect(retryConversationRead(1, new Error("transient"))).toBe(false)
     for (const status of [401, 403, 404]) expect(retryConversationRead(0, Object.assign(new Error("denied"), { status }))).toBe(false)
     expect(retryConversationRead(0, new ConversationReadTimeoutError())).toBe(false)
+  })
+  it("distinguishes a missing selected anchor from target access denial without retrying the missing anchor", () => {
+    const missing = Object.assign(new Error("anchor not found"), { status: 404, details: [COMMUNITY_CONVERSATION_ANCHOR_MISSING] })
+    expect(isConversationAnchorMissingError(missing)).toBe(true)
+    expect(isConversationAccessError(missing)).toBe(false)
+    expect(retryConversationRead(0, missing)).toBe(false)
+    expect(isConversationAccessError(Object.assign(new Error("not found"), { status: 404 }))).toBe(true)
   })
   it("keeps cancellation and deadline behavior when AbortSignal.any is unavailable", async () => {
     const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, "any")

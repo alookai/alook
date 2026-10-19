@@ -4,6 +4,7 @@ import { compareAsciiSqliteBinary, isForum, parseNameAndTag, queries } from "@al
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
 import { requireServerMember } from "@/lib/community/permissions"
+import { readCommunityServerChannelRows } from "@/lib/community/server-directory.server"
 
 /**
  * GET /api/community/servers/[id]/channels — single-server channel list. Human
@@ -28,7 +29,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     if (!serverId) return NextResponse.json({ error: "missing server id" }, { status: 400 })
     const auth = await requireServerMember(db, serverId, ctx.actor.userId)
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
-    const visibleChannels = await queries.communityChannel.listServerChannelsForViewer(db, serverId, ctx.actor.userId)
+    const visibleChannels = await readCommunityServerChannelRows(db, serverId, ctx.actor.userId)
     const search = req.nextUrl.searchParams
     const sidebarKeys = ["type", "parentType", "participating", "activeWithin", "limitPerParent", "retainId", "include"]
     const wantsSidebarThreads = sidebarKeys.some((key) => search.has(key))

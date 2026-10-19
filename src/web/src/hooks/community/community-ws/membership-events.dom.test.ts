@@ -1,3 +1,5 @@
+import { conversationEntryFixture, conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
+import type { MessageWindowData } from "@/lib/community/message-window"
 import { canonicalMessage } from "./test-harness"
 import { readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
 import { act } from "@/test/react-dom-harness"
@@ -35,6 +37,8 @@ import {
   seedCanonicalForumSidebar,
   seedCanonicalThread,
 } from "./test-harness"
+
+const entryKey = (serverId: string | null, channelId: string) => channelMetadataOptions(capturedQueryClient, serverId, channelId).queryKey
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
@@ -557,7 +561,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("srv_1")
     const retainedKey = communityKeys.forumSidebarRetained("srv_1", "forum_post")
-    const metaKey = communityKeys.channelMeta("srv_1", "text_thread")
+    const metaKey = entryKey("srv_1", "text_thread")
     const hintKey = communityKeys.forumOpenerHint("srv_1", "forum_opener")
     seedCanonicalThread("srv_1", "text_parent", "text", "text_thread")
     capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
@@ -621,13 +625,13 @@ describe("membership metadata and access lifetime", () => {
     const content = { pages: [{ messages: [{ id: "private" }] }] }
     capturedQueryClient.setQueryData(key, content)
     const api = getCommunityApiFetchMock()
-    api.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false })
+    api.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false }, "u_me"))
     capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present })
     if (!present) expect(capturedQueryClient.getQueryData(key)).toBeUndefined()
     else expect(capturedQueryClient.getQueryData(key)).toEqual(content)
-    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ id: "child", identityProof: expect.any(Object) }))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
-    expect(api).toHaveBeenCalledWith("/api/community/channels/child", expect.anything())
+    expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything())
   })
 
   it("retires a DM access denial including only its subscription and content", async () => {
@@ -648,7 +652,7 @@ describe("membership metadata and access lifetime", () => {
     expect(getCapturedRuntime().ui.get()).toMatchObject({ currentChannelId: null, subscription: { channelId: "other-channel" } })
     expect(getCapturedRuntime().ui.get().subscription.dmConversationId).toBeUndefined()
     expect(unread.projectUnread("inbox-unreads", "dm-private", true, 2)).toBe(false)
-    await vi.waitFor(() => expect(capturedQueryClient.getQueryState(communityKeys.channelMeta(null, "dm-private"))?.status).toBe("error"))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryState(entryKey(null, "dm-private"))?.status).toBe("error"))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm-private", null)).toBe(true)
   })
 
@@ -662,10 +666,10 @@ describe("membership metadata and access lifetime", () => {
     const api = getCommunityApiFetchMock()
     const fallback = api.getMockImplementation()!
     const error = new ApiError("metadata lookup failed", status)
-    api.mockImplementation((...args) => args[0] === "/api/community/channels/child" ? Promise.reject(error) : fallback(...args))
+    api.mockImplementation((...args) => args[0] === "/api/community/channels/child/messages?entry=1" ? Promise.reject(error) : fallback(...args))
     const query = vi.spyOn(capturedQueryClient, "query")
     capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present: true })
-    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child", expect.anything()))
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
     await expect(query.mock.results[0]!.value).rejects.toBe(error)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(status !== 500)
     expect(getCapturedRuntime().ws.get().accessEpoch).toBe(before)
@@ -679,15 +683,15 @@ describe("membership metadata and access lifetime", () => {
     seedCanonicalThread("server", "parent", "forum", "child")
     const api = getCommunityApiFetchMock()
     const fallback = api.getMockImplementation()!
-    api.mockImplementation((...args) => args[0] === "/api/community/channels/child"
-      ? Promise.resolve({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", creatorId: "u_me", name: "Child", archived: true, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z" }) : fallback(...args))
+    const archived = new ApiError("archived", 403)
+    api.mockImplementation((...args) => args[0] === "/api/community/channels/child/messages?entry=1" ? Promise.reject(archived) : fallback(...args))
     const key = communityKeys.channelMessages("child")
     capturedQueryClient.setQueryData(key, { pages: [{ messages: [{ id: "private" }] }] })
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
     const query = vi.spyOn(capturedQueryClient, "query")
     capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present: true })
-    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child", expect.anything()))
-    await expect(query.mock.results[0]!.value).resolves.toMatchObject({ id: "child", identityProof: expect.any(Object) })
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
+    await expect(query.mock.results[0]!.value).rejects.toBe(archived)
     await vi.waitFor(() => expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(true))
     expect(capturedQueryClient.getQueryData(key)).toBeUndefined()
     expect(hasCanonicalChannel("child")).toBe(false)
@@ -696,9 +700,9 @@ describe("membership metadata and access lifetime", () => {
   it("publishes the current notify roster and rejects the retired response without replacing the body", async () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "forum", "child")
-    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
+    const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
-      readContractVersion: 2, accessDecision: { channelId: "child", canRead: true, canSend: true, canCreateDiscussion: false } }
+      readContractVersion: 2, accessDecision: { channelId: "child", canRead: true, canSend: true, canCreateDiscussion: false } }, "u_me")
     const member = { id: "member", userId: "u_me", role: "member", name: "Viewer", discriminator: "0001",
       avatar: "", avatarVersion: 0, source: "explicit", isCreator: true }
     const api = getCommunityApiFetchMock()
@@ -724,7 +728,7 @@ describe("membership metadata and access lifetime", () => {
     let pending!: ReturnType<typeof roster.result.current.refetch>
     act(() => { pending = roster.result.current.refetch() })
     await vi.waitFor(() => expect(reads).toHaveLength(1))
-    act(() => capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "notify", present: false }))
+    await act(async () => capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "notify", present: false }))
     await vi.waitFor(() => expect(reads).toHaveLength(2))
     expect(reads[0]!.signal.aborted).toBe(true)
     await act(async () => reads[1]!.resolve({ members: [] }))
@@ -739,13 +743,13 @@ describe("membership metadata and access lifetime", () => {
     expect(metadata.result.current.isVerified).toBe(true)
     expect(getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation).toBe(generation)
     expect(capturedQueryClient.getQueryCache().find({ queryKey: key, exact: true })).toBe(bodyQuery)
-    expect(capturedQueryClient.getQueryData(key)).toBe(content)
+    expect(capturedQueryClient.getQueryData(key)).toEqual(content)
   })
   it.each([true, false])("keeps the verified body and access generation for explicit notify present=%s", async (present) => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "forum", "child")
-    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
-      creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z" }
+    const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
+      creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z" }, "u_me")
     getCommunityApiFetchMock().mockResolvedValue(payload)
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
@@ -754,31 +758,44 @@ describe("membership metadata and access lifetime", () => {
     capturedQueryClient.setQueryData(communityKeys.channelMessages("child"), content)
     const bodyQuery = capturedQueryClient.getQueryCache().find({ queryKey: communityKeys.channelMessages("child"), exact: true })
     const generation = getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation
-    act(() => capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "notify", present }))
+    await act(async () => capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "notify", present }))
     expect(metadata.result.current.isVerified).toBe(true)
     expect(metadata.result.current.data!.identityProof).toBe(proof)
     expect(getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation).toBe(generation)
     expect(capturedQueryClient.getQueryCache().find({ queryKey: communityKeys.channelMessages("child"), exact: true })).toBe(bodyQuery)
-    expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("child"))).toBe(content)
+    expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("child"))).toEqual(content)
   })
   it.each(["text", "forum"] as const)("replaces an in-flight %s child metadata read when participation changes again", async (parentType) => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", parentType, "child")
-    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0,
+    const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent",
       parentMessageId: "opener", creatorId: "u_me", name: "Current child", archived: false,
       lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
-    }
+    }, "u_me")
+    const currentBody = { ...conversationEntryFixture().messages[0]!, id: "m_current", channelId: "child", seq: 2, content: "Current body" }
+    const historyBody = { ...currentBody, id: "m_history", seq: 1, content: "History body", createdAt: "2026-09-30T00:00:01.000Z" }
+    payload.messages = [historyBody, currentBody]
+    payload.page = { olderCursor: `${historyBody.createdAt}|${historyBody.id}`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 2 }
     const api = getCommunityApiFetchMock()
     api.mockResolvedValue(payload)
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     const key = communityKeys.channelMessages("child")
-    const content = { pages: [{ messages: [{ id: "m1" }] }] }
+    const cursor = `${currentBody.createdAt}|${currentBody.id}`
+    const content: MessageWindowData = {
+      pages: [
+        { messages: [{ id: currentBody.id, seq: 2 }], olderCursor: cursor, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 2, newestCursor: cursor },
+        { messages: [{ id: historyBody.id, seq: 1 }], olderCursor: payload.page.olderCursor!, newerCursor: cursor, hasMoreOlder: true, hasMoreNewer: true, latestSeq: 2, newestCursor: payload.page.olderCursor! },
+      ],
+      pageParams: [{ mode: "newest" }, { mode: "older", cursor }],
+    }
     act(() => capturedQueryClient.setQueryData(key, content))
+    const retainedWindow = capturedQueryClient.getQueryData<MessageWindowData>(key)!
+    await vi.waitFor(() => expect(canonicalMessage(currentBody.id)?.content).toBe("Current body"))
     const reads: Array<{ signal: AbortSignal; resolve: (value: unknown) => void; reject: (error: unknown) => void }> = []
     api.mockImplementation(async (...args: unknown[]) => {
-      if (args[0] !== "/api/community/channels/child") return payload
+      if (args[0] !== "/api/community/channels/child/messages?entry=1") return payload
       return await new Promise((resolve, reject) => {
         reads.push({ signal: (args[1] as { signal: AbortSignal }).signal, resolve, reject })
       })
@@ -789,17 +806,29 @@ describe("membership metadata and access lifetime", () => {
     await vi.waitFor(() => expect(reads).toHaveLength(2))
     expect(reads[0]!.signal.aborted).toBe(true)
     expect(reads[1]!.signal.aborted).toBe(false)
+    const generation = getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation
     await act(async () => {
-      if (parentType === "text") reads[0]!.resolve({ ...payload, name: "Old archived child", archived: true })
+      if (parentType === "text") reads[0]!.resolve({ ...payload, channel: { ...payload.channel, name: "Old archived child", archived: true }, messages: [{ ...currentBody, content: "Old body" }, { ...historyBody, id: "m_late_only", content: "Late private body" }] })
       else reads[0]!.reject(new ApiError("Old denial", 403))
     })
     expect(metadata.result.current.data?.name).not.toBe("Old archived child")
     expect(metadata.result.current.isVerified).toBe(true)
+    expect(getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation).toBe(generation)
+    expect(canonicalMessage(currentBody.id)?.content).toBe("Current body")
+    expect(canonicalMessage("m_late_only")).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(key)).toBe(retainedWindow)
     await act(async () => reads[1]!.resolve(payload))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     expect(isChannelMetadataTokenCurrent(metadata.result.current.data!.identityProof!)).toBe(true)
     expect(metadata.result.current.data).toMatchObject({ name: "Current child", archived: false })
     expect(capturedQueryClient.getQueryData(key)).toEqual(content)
+    expect(capturedQueryClient.getQueryData(key)).toBe(retainedWindow)
+    expect(capturedQueryClient.getQueryData<MessageWindowData>(key)?.pages).toBe(retainedWindow.pages)
+    expect(capturedQueryClient.getQueryData<MessageWindowData>(key)?.pageParams).toBe(retainedWindow.pageParams)
+    expect(canonicalMessage(currentBody.id)?.content).toBe("Current body")
+    expect(canonicalMessage(historyBody.id)?.content).toBe("History body")
+    expect(canonicalMessage("m_late_only")).toBeUndefined()
+    expect(getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation).toBe(generation)
     expect(hasCanonicalChannelAccess("child", "u_me")).toBe(true)
     expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(false)
@@ -808,15 +837,15 @@ describe("membership metadata and access lifetime", () => {
   it("hands one batched add/remove to the latest participation generation", async () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "text", "child")
-    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0,
+    const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
-    }
+    }, "u_me")
     const api = getCommunityApiFetchMock()
     api.mockResolvedValue(payload)
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
-    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child").length
+    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
     const events = [
       { type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" },
       { type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" },
@@ -829,8 +858,8 @@ describe("membership metadata and access lifetime", () => {
       events,
     })
     if (!encoded.ok) throw new Error("Participant events must encode")
-    act(() => capturedOnMessage!(encoded.batch))
-    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child")).toHaveLength(before + 1))
+    await act(async () => capturedOnMessage!(encoded.batch))
+    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 1))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     expect(isChannelMetadataTokenCurrent(metadata.result.current.data!.identityProof!)).toBe(true)
     expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
@@ -839,41 +868,41 @@ describe("membership metadata and access lifetime", () => {
   it("settles a failed current-generation read without rebuilding it and recovers on explicit Retry", async () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "forum", "child")
-    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0,
+    const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
-    }
+    }, "u_me")
     const api = getCommunityApiFetchMock()
     api.mockResolvedValue(payload)
-    const metaKey = communityKeys.channelMeta("server", "child")
+    const metaKey = entryKey("server", "child")
     capturedQueryClient.setQueryDefaults(metaKey, { retryDelay: 0 })
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
-    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child").length
+    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
     api.mockRejectedValue(new ApiError("temporary", 503))
     capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
     await vi.waitFor(() => expect(metadata.result.current).toMatchObject({ isError: true, fetchStatus: "idle", isVerified: true }))
-    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child")).toHaveLength(before + 2)
+    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 2)
     await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 20)) })
-    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child")).toHaveLength(before + 2)
+    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 2)
     api.mockResolvedValue(payload)
     await act(async () => { await metadata.result.current.refetch({ cancelRefetch: false }) })
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
-    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child")).toHaveLength(before + 3)
+    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 3)
   })
 
   it.each(["parent", "server", "account", "unmount"] as const)("does not restart participation metadata after %s retirement before handoff", async (race) => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "forum", "child")
-    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0,
+    const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
-    }
+    }, "u_me")
     const api = getCommunityApiFetchMock()
     api.mockResolvedValue(payload)
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
-    const metaKey = communityKeys.channelMeta("server", "child")
+    const metaKey = entryKey("server", "child")
     const original = capturedQueryClient.getQueryCache().find({ queryKey: metaKey, exact: true })
     const observer = race === "account"
       ? new QueryObserver(capturedQueryClient, channelMetadataOptions(capturedQueryClient, "server", "child")) : null
@@ -883,7 +912,7 @@ describe("membership metadata and access lifetime", () => {
     const gate = new Promise<void>((resolve) => { release = resolve })
     const cancel = capturedQueryClient.cancelQueries.bind(capturedQueryClient)
     vi.spyOn(capturedQueryClient, "cancelQueries").mockImplementation(async (...args) => { await cancel(...args); await gate })
-    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child").length
+    const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
     await act(async () => {
       capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
       if (race === "parent") capturedOnMessage!({ type: "community:channel.member_remove", channelId: "parent", serverId: "server", userId: "u_me" })
@@ -892,7 +921,7 @@ describe("membership metadata and access lifetime", () => {
       else metadata.unmount()
     })
     await act(async () => { release(); await Promise.resolve(); await Promise.resolve() })
-    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child")).toHaveLength(before)
+    expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before)
     if (race === "parent" || race === "server") {
       const current = capturedQueryClient.getQueryCache().find({ queryKey: metaKey, exact: true })
       expect(current).not.toBe(original)
@@ -907,15 +936,15 @@ describe("membership metadata and access lifetime", () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", parentType, "child")
     act(() => { setCanonicalCommunityChannelMember(capturedQueryClient, "child", "u_me", "notify", true) })
-    getCommunityApiFetchMock().mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0,
+    getCommunityApiFetchMock().mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent",
       parentMessageId: "opener", creatorId: "u_me", name: "Child", archived: false,
       lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
-    })
+    }, "u_me"))
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     const key = communityKeys.channelMessages("child")
-    const metaKey = communityKeys.channelMeta("server", "child")
+    const metaKey = entryKey("server", "child")
     expect(capturedQueryClient.getQueryData(metaKey)).not.toHaveProperty("type")
     const content = { pages: [{ messages: [{ id: "m1" }] }] }
     act(() => { capturedQueryClient.setQueryData(key, content) })
@@ -932,16 +961,17 @@ describe("membership metadata and access lifetime", () => {
   it("retires unqualified legacy content before a cold relationship recheck", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const api = getCommunityApiFetchMock()
-    api.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false })
+    api.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false }, "u_me"))
     const key = communityKeys.channelMessages("child")
     const content = { pages: [{ messages: [{ id: "m1", content: "readable" }] }] }
     capturedQueryClient.setQueryData(key, content)
     capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
-    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ id: "child", identityProof: expect.any(Object) }))
-    expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).not.toHaveProperty("type")
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
+    expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).not.toHaveProperty("type")
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
-    expect(capturedQueryClient.getQueryData(key)).toBeUndefined()
+    expect(JSON.stringify(capturedQueryClient.getQueryData(key))).not.toContain("readable")
+    expect(capturedQueryClient.getQueryData(key)).toMatchObject({ pages: [{ messages: [] }] })
   })
 
   it.each([403, 404, 500])("keeps unknown legacy content retired when the access recheck returns %s", async (status) => {
@@ -952,8 +982,8 @@ describe("membership metadata and access lifetime", () => {
     const key = communityKeys.channelMessages("child")
     capturedQueryClient.setQueryData(key, { pages: [] })
     capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
-    await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith("/api/community/channels/child", expect.anything()))
-    await vi.waitFor(() => expect(capturedQueryClient.getQueryState(communityKeys.channelMeta("server", "child"))?.fetchStatus ?? "idle").toBe("idle"))
+    await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryState(entryKey("server", "child"))?.fetchStatus ?? "idle").toBe("idle"))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(true)
     expect(capturedQueryClient.getQueryData(key) === undefined).toBe(true)
   })
@@ -966,15 +996,15 @@ describe("membership metadata and access lifetime", () => {
     api.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
     capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
     await vi.waitFor(() => expect(release).toBeTypeOf("function"))
-    const meta = { categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
+    const meta = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
       id: "child", serverId: "server", name: "Child", type: "thread",
       parentChannelId: "parent", parentMessageId: "opener", creatorId: null,
       archived: false, lastMessageAt: null,
-    }
+    }, "u_me")
     api.mockResolvedValue(meta)
     capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
-    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ id: "child", identityProof: expect.any(Object) }))
-    release({ ...meta, type: "text", parentChannelId: null })
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
+    release({ ...meta, channel: { ...meta.channel, type: "text", parentChannelId: null, parentMessageId: null } })
     await Promise.resolve()
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(false)
     expect(getCanonicalCommunityChannels(capturedQueryClient).find(({ id }) => id === "child")).toMatchObject({ type: "thread" })
@@ -984,10 +1014,10 @@ describe("membership metadata and access lifetime", () => {
     capturedOnMessage!({ type: "community:channel.member_add", channelId: "other", serverId: "server", userId: "u_me" })
     await vi.waitFor(() => expect(releaseAfterLeave).toBeTypeOf("function"))
     capturedOnMessage!({ type: "community:member.leave", serverId: "server", userId: "u_me" })
-    releaseAfterLeave({ ...meta, id: "other" })
+    releaseAfterLeave(conversationEntryFromChannel({ ...meta.channel, id: "other" }, "u_me"))
     await Promise.resolve()
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("other", "server")).toBe(true)
-    expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "other"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(entryKey("server", "other"))).toBeUndefined()
   })
 
   it("evicts private descendants and ignores late content after parent removal", async () => {

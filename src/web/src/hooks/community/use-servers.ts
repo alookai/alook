@@ -176,7 +176,7 @@ function serversQueryOptions(queryClient: QueryClient) {
   return {
     queryKey: communityKeys.servers(),
     queryFn: serversProjectedQueryFn(getActiveAccountUnreadProjection(queryClient), queryClient),
-    staleTime: Infinity,
+    staleTime: 30_000,
   } as const
 }
 
@@ -393,7 +393,7 @@ export function useServer(
     queryKey: enabled ? communityKeys.server(serverId!) : communityKeys.server("__none__"),
     queryFn,
     enabled,
-    staleTime: Infinity,
+    staleTime: 30_000,
     refetchOnReconnect: true,
     retryOnMount: false,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.server(serverId ?? "__none__") }).retry),

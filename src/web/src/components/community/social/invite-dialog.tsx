@@ -21,7 +21,7 @@ import { useCommunityViewSource } from "@/hooks/community/use-community-view-sou
 import { useInvites } from "@/hooks/community/use-server-panels"
 import { isAbortError } from "@/lib/errors"
 import type { Friend } from "@/lib/community/models/people"
-import { trackHumanInvitationCopied, trackHumanInvitationSent } from "@/lib/analytics"
+import { captureProductAnalytics } from "@/lib/product-analytics"
 
 const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""
@@ -110,7 +110,7 @@ export async function runInviteFriend(
 
 export async function awaitCommittedInvite(
   receipt: DmSendReceipt,
-  onCommitted: () => void = trackHumanInvitationSent,
+  onCommitted: () => void = () => { void captureProductAnalytics({ event: "human_invitation_sent" }) },
 ) {
   if (!receipt.accepted) throw new Error("Couldn't send invite")
   const committed = await receipt.committed
@@ -121,7 +121,7 @@ export async function awaitCommittedInvite(
 export async function copyInviteLink(
   url: string,
   writeText: (value: string) => Promise<void>,
-  onCopied: () => void = trackHumanInvitationCopied,
+  onCopied: () => void = () => { void captureProductAnalytics({ event: "human_invitation_copied" }) },
 ) {
   await writeText(url)
   onCopied()
@@ -183,7 +183,7 @@ export function InviteDialog({
       const { conversation } = await createOrGetDm.mutateAsync({ userId, assertActive: assert })
       assert()
       const receipt = acceptDmMessage({ dmId: conversation.id, content: inviteUrl(token), author, assertActive: assert })
-      await awaitCommittedInvite(receipt, () => { assert(); trackHumanInvitationSent() })
+      await awaitCommittedInvite(receipt, () => { assert(); void captureProductAnalytics({ event: "human_invitation_sent" }, assert) })
       assert()
       ui.setState((state) => ({ ...state, invitedUserIds: new Set(state.invitedUserIds).add(userId) }))
     },
@@ -198,7 +198,7 @@ export function InviteDialog({
     gcTime: 0,
     mutationFn: async ({ token, assert }: { token: string; assert: ReturnType<typeof view.capture> }) => {
       assert()
-      await copyInviteLink(inviteUrl(token), (value) => { assert(); return navigator.clipboard.writeText(value) }, () => { assert(); trackHumanInvitationCopied() })
+      await copyInviteLink(inviteUrl(token), (value) => { assert(); return navigator.clipboard.writeText(value) }, () => { assert(); void captureProductAnalytics({ event: "human_invitation_copied" }, assert) })
       assert()
       toast("Invite link copied")
     },

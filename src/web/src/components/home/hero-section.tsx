@@ -27,6 +27,7 @@ export function HeroSection({
   headlineClassName,
   headlineStyle,
   typewriterClassName,
+  staticPaper = false,
   largeCtas = false,
   highlightPrimaryCta = false,
   showMobileDesktopHint = true,
@@ -46,6 +47,7 @@ export function HeroSection({
   headlineClassName?: string;
   headlineStyle?: CSSProperties;
   typewriterClassName?: string;
+  staticPaper?: boolean;
   largeCtas?: boolean;
   highlightPrimaryCta?: boolean;
   showMobileDesktopHint?: boolean;
@@ -141,8 +143,9 @@ export function HeroSection({
           </div>
 
           {/* Full Typewriter */}
-          <div className={`hero-artwork absolute inset-0 ${typewriterClassName ?? ""}`}>
+          <div data-static-paper={staticPaper || undefined} className={`hero-artwork absolute inset-0 ${typewriterClassName ?? ""}`}>
             <TypewriterVisual
+              animateEntrance={!staticPaper}
               entranceDelay={1.2}
               className="absolute! inset-0"
             />

@@ -1,3 +1,5 @@
+import type { MessagesPageParam } from "./community/models/message"
+
 /**
  * TanStack Query key factory for the community feature.
  *
@@ -67,6 +69,14 @@ export const communityKeys = {
   // that want to invalidate every page of a channel use `channelMessages`.
   channelMessages: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "messages"] as const,
+  channelMessagesWindow: (channelId: string, initial: Extract<MessagesPageParam, { mode: "newest" | "anchor" | "since" }>, tag?: string | null) =>
+    initial.mode === "newest" && !tag ? communityKeys.channelMessages(channelId)
+      : [...communityKeys.channelMessages(channelId), "window", { ...initial, tag: tag ?? null }] as const,
+  conversationEntries: (channelId: string) => [...communityKeys.all, "channel", channelId, "entry"] as const,
+  conversationEntry: (channelId: string, intent: { serverId?: string | null; anchorMessageId?: string | null; tag?: string | null; preferTail?: boolean } = {}, qualification?: { accountEpoch: number; accessEpoch: number; channelGeneration: number }) =>
+    [...communityKeys.conversationEntries(channelId), {
+      serverId: intent.serverId ?? null, anchorMessageId: intent.anchorMessageId ?? null, tag: intent.tag ?? null, preferTail: intent.preferTail === true,
+    }, ...(qualification ? [qualification] : [])] as const,
   channelMessagesPage: (channelId: string, cursor?: string | null) =>
     [...communityKeys.channelMessages(channelId), cursor ?? null] as const,
 

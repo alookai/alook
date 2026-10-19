@@ -4,6 +4,7 @@ import { FriendApprovalPayloadSchema } from "./community-friend-approval"
 
 const id = z.string().min(1)
 const nullableId = id.nullable()
+export const COMMUNITY_CONVERSATION_ANCHOR_MISSING = "conversation_anchor_missing"
 const legacyArchivedSchema = z.union([z.boolean(), z.literal(0), z.literal(1)]).transform((value) => value === true || value === 1)
 
 export const CommunityChannelResourceSchema = z.strictObject({
@@ -179,6 +180,50 @@ const envelope = { contractVersion: z.literal(COMMUNITY_RESOURCE_CONTRACT_VERSIO
 export const CommunityChannelReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema, access: CommunityAccessDecisionSchema })
 export const CommunityMessagesReadSchema = z.strictObject({ ...envelope, messages: z.array(CommunityMessageResourceSchema), page: CommunityPageSchema,
   surfaceReceipt: z.strictObject({ channelId: id, surfaceKind: z.enum(["channel", "forum", "thread", "dm"]) }) })
+export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.extend({
+  viewerId: id,
+  peer: CommunityResourceProfileSchema.nullable(),
+  channel: CommunityChannelResourceSchema,
+  access: CommunityAccessDecisionSchema.extend({ canRead: z.literal(true) }),
+  readState: CommunityReadStateResourceSchema,
+  readStateRevision: z.number().int().nonnegative(),
+  forumFeed: z.lazy(() => CommunityThreadsReadSchema).optional(),
+  opener: CommunityMessageResourceSchema.optional(),
+  parent: CommunityChannelResourceSchema.optional(),
+  selection: z.strictObject({
+    reason: z.enum(["explicit_anchor", "read_pointer", "tail", "read_pointer_missing"]),
+    anchorMessageId: nullableId,
+  }),
+}).superRefine((entry, ctx) => {
+  for (const [path, channelId] of [
+    [["channel", "id"], entry.channel.id],
+    [["access", "channelId"], entry.access.channelId],
+    [["readState", "channelId"], entry.readState.channelId],
+    [["surfaceReceipt", "channelId"], entry.surfaceReceipt.channelId],
+    ...entry.messages.map((message, index) => [["messages", index, "channelId"], message.channelId] as const),
+  ] as const) {
+    if (channelId !== entry.channelId) ctx.addIssue({ code: "custom", path: [...path], message: "Conversation entry scope mismatch" })
+  }
+  if ((entry.channel.type === "dm") !== (entry.peer !== null) || entry.peer?.id === entry.viewerId) ctx.addIssue({ code: "custom", path: ["peer"], message: "Conversation entry peer mismatch" })
+  if (entry.opener && (entry.channel.type !== "thread" || entry.opener.id !== entry.channel.parentMessageId || entry.opener.channelId !== entry.channel.parentChannelId)) ctx.addIssue({ code: "custom", path: ["opener"], message: "Conversation entry opener scope mismatch" })
+  if (entry.parent && (entry.channel.type !== "thread" || entry.parent.id !== entry.channel.parentChannelId || entry.parent.serverId !== entry.channel.serverId || entry.parent.type !== "text" && entry.parent.type !== "forum")) ctx.addIssue({ code: "custom", path: ["parent"], message: "Conversation entry parent scope mismatch" })
+  if (entry.forumFeed && (entry.channel.type !== "forum" || entry.forumFeed.channelId !== entry.channelId || entry.forumFeed.channel.id !== entry.channelId
+    || entry.forumFeed.channel.serverId !== entry.channel.serverId || entry.forumFeed.threads.some(thread => thread.parentChannelId !== entry.channelId || thread.serverId !== entry.channel.serverId))) ctx.addIssue({ code: "custom", path: ["forumFeed"], message: "Conversation entry forum scope mismatch" })
+  if (entry.forumFeed) {
+    const feed = entry.forumFeed, children = new Set(feed.threads.map(thread => thread.id)), profiles = new Set(feed.included.profiles.map(profile => profile.id))
+    const openers = new Set(feed.threads.flatMap(thread => thread.parentMessageId ? [thread.parentMessageId] : []))
+    if (feed.included.messages.some(message => message.channelId !== entry.channelId && !children.has(message.channelId))
+      || feed.included.tags.some(row => !openers.has(row.messageId)) || feed.included.participantCounts.some(row => !children.has(row.channelId))
+      || feed.included.members.some(member => !children.has(member.channelId) || member.relation !== "notify" || !profiles.has(member.userId))) ctx.addIssue({ code: "custom", path: ["forumFeed", "included"], message: "Conversation entry forum included scope mismatch" })
+  }
+  const surfaceKind = entry.channel.type === "text" ? "channel" : entry.channel.type
+  if (entry.surfaceReceipt.surfaceKind !== surfaceKind) ctx.addIssue({ code: "custom", path: ["surfaceReceipt", "surfaceKind"], message: "Conversation entry surface mismatch" })
+  if (entry.channel.archived) ctx.addIssue({ code: "custom", path: ["channel", "archived"], message: "Conversation entry is archived" })
+  const anchored = entry.selection.reason === "explicit_anchor" || entry.selection.reason === "read_pointer"
+  if (anchored !== (entry.selection.anchorMessageId !== null)) ctx.addIssue({ code: "custom", path: ["selection"], message: "Conversation entry selection mismatch" })
+  if (entry.selection.reason === "read_pointer" && entry.selection.anchorMessageId !== entry.readState.lastReadMessageId) ctx.addIssue({ code: "custom", path: ["selection", "anchorMessageId"], message: "Conversation entry read pointer mismatch" })
+  if (entry.selection.reason === "read_pointer_missing" && entry.readState.lastReadMessageId === null) ctx.addIssue({ code: "custom", path: ["selection", "reason"], message: "Conversation entry missing read pointer" })
+})
 export const CommunityMessagePostedSchema = CommunityMessagesReadSchema.pick({ contractVersion: true, channelId: true }).extend({
   message: CommunityMessageResourceSchema, deduped: z.boolean(), threadId: id.optional(),
 })
@@ -237,6 +282,7 @@ export type CommunityMessagePreview = z.infer<typeof CommunityMessagePreviewSche
 export type CommunityMessagePreviewAttachment = z.infer<typeof CommunityMessagePreviewAttachmentSchema>
 export type CommunityLegacyMessageAttachment = z.infer<typeof CommunityLegacyMessageAttachmentSchema>
 export type CommunityMessagesRead = z.infer<typeof CommunityMessagesReadSchema>
+export type CommunityConversationEntryRead = z.infer<typeof CommunityConversationEntryReadSchema>
 export type CommunityThreadsRead = z.infer<typeof CommunityThreadsReadSchema>
 export type CommunityLegacyThreadsRead = z.infer<typeof legacyReadSchemas.threads>
 export type CommunityMembersRead = z.infer<typeof CommunityMembersReadSchema>

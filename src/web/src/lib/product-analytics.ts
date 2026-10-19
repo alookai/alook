@@ -2,7 +2,7 @@
 
 import { isTauri } from "@alook/shared"
 import { googleCommand, isPublicAnalyticsPath, readAnalyticsConsent } from "@/lib/analytics-consent"
-import { LANDING_CTA_NAMES } from "@/lib/product-analytics-contract"
+import { LANDING_CTA_NAMES, PRODUCT_ANALYTICS_EVENTS } from "@/lib/product-analytics-contract"
 
 export type ProductAnalyticsInput =
   | { event: "landing_cta_clicked"; ctaName: string }
@@ -12,6 +12,7 @@ export type ProductAnalyticsInput =
   | { event: "onboarding_enter_clicked"; serverId: string }
   | { event: "onboarding_first_message" }
   | { event: "invitation_link_visit"; token: string }
+  | { event: "community_onboarding_completed" | "human_invitation_sent" | "human_invitation_copied" | "invited_human_joined" }
 
 type EventPayload = { event: ProductAnalyticsInput["event"]; params: Record<string, string> }
 type EventFrameWindow = Window & { sendProductEvent?: (input: EventPayload) => void }
@@ -37,13 +38,15 @@ function prepareProductAnalytics(): HTMLIFrameElement | null {
   } catch { return null }
 }
 
-export async function captureProductAnalytics(input: ProductAnalyticsInput): Promise<void> {
+export async function captureProductAnalytics(input: ProductAnalyticsInput, assertCurrent?: () => void): Promise<void> {
   try {
     if (typeof window === "undefined" || isTauri() || readAnalyticsConsent() === "denied") return
+    assertCurrent?.()
+    if (!PRODUCT_ANALYTICS_EVENTS.some(event => event === input.event)) return
     const params: Record<string, string> = {}
-    if ("ctaName" in input && LANDING_CTA_NAMES.some(name => name === input.ctaName)) params.cta_name = input.ctaName
-    if ("method" in input && ["email", "email_otp", "github", "google", "apple", "development_password"].includes(input.method)) params.method = input.method
-    if ("failureStage" in input) params.failure_stage = input.failureStage
+    if (input.event === "landing_cta_clicked" && LANDING_CTA_NAMES.some(name => name === input.ctaName)) params.cta_name = input.ctaName
+    if ((input.event === "sign_up" || input.event === "sign_in_success" || input.event === "sign_in_failed") && ["email", "email_otp", "github", "google", "apple", "development_password"].includes(input.method)) params.method = input.method
+    if (input.event === "sign_in_failed" && ["send_code", "verify_code", "social_start", "provider_callback"].includes(input.failureStage)) params.failure_stage = input.failureStage
     if (isPublicAnalyticsPath(window.location.pathname)) {
       googleCommand("event", input.event, { ...params, send_to: "G-STBCL8F4ZY" })
       return
@@ -53,7 +56,11 @@ export async function captureProductAnalytics(input: ProductAnalyticsInput): Pro
     const target = frame
     const send = () => {
       if (readAnalyticsConsent() === "denied") { target.remove(); return }
-      try { (target.contentWindow as EventFrameWindow | null)?.sendProductEvent?.({ event: input.event, params }) } catch {}
+      try {
+        assertCurrent?.()
+        if (!target.isConnected || isTauri()) return
+        (target.contentWindow as EventFrameWindow | null)?.sendProductEvent?.({ event: input.event, params })
+      } catch {}
     }
     if (frame.dataset.ready === "true") send()
     else frame.addEventListener("load", send, { once: true })

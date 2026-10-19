@@ -151,6 +151,7 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
   })
   await olderUser.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
   await expect(olderUser.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
+  await expect(olderUser.page.getByTestId(tid.messageScroller).locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
   const olderPage = await holdNextPage(olderUser.page, channelId, "cursor", caseResources)
   await moveToEdge(olderUser.page, "start")
   await olderPage.matched
@@ -173,6 +174,7 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
   })
   await newerUser.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
   await expect(newerUser.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
+  await expect(newerUser.page.getByTestId(tid.messageScroller).locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible()
   const newerPage = await holdNextPage(newerUser.page, channelId, "since", caseResources)
   await moveToEdge(newerUser.page, "end")
   await newerPage.matched

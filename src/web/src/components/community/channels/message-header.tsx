@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { ChevronLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 import { cn } from "@/lib/utils"
 
 export function MessageHeader({
@@ -48,11 +49,13 @@ export function MessageHeaderMobileBack({
   label?: string
   display?: "viewport" | "always"
 }) {
+  const hydrated = useHydratedClient()
   return (
     <Button
       variant="ghost"
       size="icon"
       onClick={onNavigate}
+      disabled={!hydrated}
       className={cn(
         "size-11 shrink-0 text-muted-foreground hover:text-foreground",
         display === "viewport" && "sm:hidden",

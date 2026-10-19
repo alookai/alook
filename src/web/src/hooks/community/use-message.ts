@@ -23,6 +23,7 @@ import {
   type MessageAccessScope,
 } from "@/lib/community-db/message-access-scope"
 import { accountUnreadAllowsAccess, getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import {
   captureCommunityLiveSnapshotToken,
   publishCommunityMessages,
@@ -43,29 +44,29 @@ import {
  * Pass a falsy id when there's nothing to load — the query stays disabled.
  */
 export type OpenerPayload = Required<Pick<Msg, "id" | "authorId" | "authorName" | "authorAvatar" | "authorAvatarVersion" | "content" | "type" | "createdAt">>
-  & Pick<Msg, "replyTo" | "attachments" | "embeds" | "reactions"> & { channelId?: string }
+  & Pick<Msg, "replyTo" | "attachments" | "embeds" | "reactions" | "seq"> & { channelId?: string }
 
 export const messageQueryFn = (
   messageId: string,
   queryClient: QueryClient,
   channelId?: string,
-) => async (context: QueryFunctionContext) => {
+) => (context: QueryFunctionContext) => withConversationReadDeadline(context.signal, async readSignal => {
   if (context.client !== queryClient) throw new DOMException("Mismatched message query owner", "AbortError")
   const token = captureCommunityLiveSnapshotToken(queryClient, channelId)
   const message = await apiFetchCommunity<MessageInput>(
     `/api/community/messages/${messageId}`,
-    context.signal ? { signal: context.signal } : undefined, token,
+    { signal: readSignal }, token,
   )
   const publishChannelId = message.channelId ?? channelId
   if (publishChannelId) {
     publishCommunityMessages(queryClient, {
       channelId: publishChannelId,
       messages: [message],
-      proof: { token, signal: context.signal },
+      proof: { token, signal: readSignal },
     })
   }
   return message.id
-}
+})
 
 export function findCachedMessage(
   queryClient: QueryClient,
@@ -118,6 +119,8 @@ export function useMessage(
     // Quick tab-switches shouldn't hammer the endpoint; 30s window is plenty
     // for the "opener stays live via mutation invalidation" contract.
     staleTime: 30_000,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.message(messageId ?? "__none__") }).retry),
+    networkMode: "always",
   })
   const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
   return {

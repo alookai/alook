@@ -18,7 +18,8 @@ import {
   isKnownNonForumSidebarChannel,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
-import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "@/hooks/community/channel-metadata"
+import { getQualifiedConversationEntry } from "@/lib/community/conversation-entry"
+import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { runCommunityWsProjectionTransaction } from "./projection-transaction"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
 import { evictServerChannelScopes } from "./scope-eviction"
@@ -57,12 +58,13 @@ function retireChannelAccess(event: { serverId: string | null; channelId: string
 function refreshChannelAccess(event: { serverId: string | null; channelId: string }, context: MembershipEventContext) {
   const { queryClient } = context
   const token = captureChannelMetadataToken(queryClient, event.channelId)
-  const key = communityKeys.channelMeta(event.serverId, event.channelId)
+  const options = channelMetadataOptions(queryClient, event.serverId, event.channelId)
+  const key = options.queryKey
   void (async () => {
     await queryClient.cancelQueries({ queryKey: key, exact: true })
     if (!isChannelMetadataTokenCurrent(token)) return
     try {
-      await queryClient.query({ ...channelMetadataOptions(queryClient, event.serverId, event.channelId), staleTime: 0, retry: false, select: undefined })
+      await queryClient.query({ ...options, staleTime: 0, retry: false, select: undefined })
       if (!isChannelMetadataTokenCurrent(token)) return
       const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
       if (channel?.archived) runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection }))
@@ -96,8 +98,7 @@ export function handleChannelMembershipChange(event: CommunityChannelMembershipC
 
 export function handleChannelMemberEvent(event: ChannelMemberEvent, context: MembershipEventContext) {
   const { queryClient } = context
-  const key = communityKeys.channelMeta(event.serverId, event.channelId)
-  const proof = queryClient.getQueryData<ChannelMetadataResource>(key)?.identityProof
+  const proof = getQualifiedConversationEntry(queryClient, event.channelId)?.proof
   const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
   const verified = !!proof && isChannelMetadataTokenCurrent(proof) && !channel?.pending && !channel?.archived
     && !getCommunityRuntime(queryClient).ws.actions.isChannelAccessRevoked(event.channelId, event.serverId)
@@ -107,7 +108,7 @@ export function handleChannelMemberEvent(event: ChannelMemberEvent, context: Mem
     handleChannelMembershipChange({ ...event, type: "community:channel.membership.change", relation, present: event.type === "community:channel.member_add" }, context)
     if (relation === "notify" && event.userId === context.viewerUserIdRef.current) {
       const token = captureChannelMetadataToken(queryClient, event.channelId)
-      context.projection.fence("channel-metadata", { queryKey: key, exact: true }, () => isChannelMetadataTokenCurrent(token))
+      context.projection.fence("channel-metadata", { queryKey: channelMetadataOptions(queryClient, event.serverId, event.channelId).queryKey, exact: true }, () => isChannelMetadataTokenCurrent(token))
     }
     return
   }

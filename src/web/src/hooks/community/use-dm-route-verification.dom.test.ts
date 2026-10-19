@@ -1,3 +1,4 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import React from "react"
 import { onlineManager } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -14,8 +15,8 @@ const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 
 const dm = { id: "dm-a", userId: "peer", name: "Peer", discriminator: "0001", avatar: "P", status: "offline" as const, preview: "" }
-const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: dm.id, serverId: null, type: "dm", name: null, parentChannelId: null,
-  parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
+const metadata = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, id: dm.id, serverId: null, type: "dm", name: null, parentChannelId: null,
+  parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" })
 const denied = () => Object.assign(new Error("missing"), { status: 404 })
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -24,7 +25,7 @@ function deferred<T>() {
 }
 async function fixture(strict = false) {
   const { client, registry } = await createCommunityQueryOwner()
-  client.setDefaultOptions({ queries: { retry: false, staleTime: Infinity, gcTime: Infinity } })
+  client.setDefaultOptions({ queries: { retry: false, staleTime: Infinity, gcTime: Infinity, retryDelay: 0 } })
   const wrapper = ({ children }: React.PropsWithChildren) => React.createElement(QueryClientProvider,
     { client }, React.createElement(CommunityDbProvider, { registry }, strict ? React.createElement(React.StrictMode, null, children) : children))
   return { client, registry, wrapper }
@@ -50,8 +51,8 @@ describe("DM route uses the shared Channel metadata owner", () => {
     await expect(first).resolves.toBe("present")
     await expect(second).resolves.toBe("present")
     await waitFor(() => expect(route.result.current.status).toBe("readable"))
-    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${dm.id}`, expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
-    expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toMatchObject({ id: metadata.id })
+    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${dm.id}/messages?entry=1`, expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(client.getQueryData(channelMetadataOptions(client, null, dm.id).queryKey)).toMatchObject({ channelId: metadata.channelId })
     expect(client.getQueryData(communityKeys.dms())).toEqual({ conversations: [] })
     expect(registry.runtime.ws.get().channelAccessScopes.get(dm.id)).toMatchObject({ serverId: null, generation: 0, revoked: false })
     route.unmount()
@@ -88,15 +89,15 @@ describe("DM route uses the shared Channel metadata owner", () => {
     const { client, registry } = await fixture()
     apiFetch.mockRejectedValueOnce(Object.assign(new Error("denied"), { status }))
     await expect(startChannelRouteVerification(client, null, dm.id)).resolves.toBe("denied")
-    apiFetch.mockResolvedValueOnce({ ...metadata, serverId: "server", type: "text" })
-    await expect(startChannelRouteVerification(client, null, "other")).rejects.toThrow("scope mismatch")
+    apiFetch.mockResolvedValue({ ...metadata, channelId: "other", channel: { ...metadata.channel, id: "other", serverId: "server", type: "text" }, peer: null, access: { ...metadata.access, channelId: "other" }, readState: { ...metadata.readState, channelId: "other" }, surfaceReceipt: { channelId: "other", surfaceKind: "channel" } })
+    await expect(startChannelRouteVerification(client, null, "other")).rejects.toThrow("target mismatch")
     expect(client.getQueryData(communityKeys.dms())).toBeUndefined()
     client.clear()
   })
 
   it("keeps a transient error local across a remount/reconnect and retries only its Channel resource", async () => {
     const { client, registry, wrapper } = await fixture()
-    apiFetch.mockRejectedValueOnce(new Error("offline"))
+    apiFetch.mockRejectedValue(new Error("offline"))
     const hook = ({ key }: { key: string }) => React.createElement(Capture, { key })
     let latest!: ReturnType<typeof useChannelMetadata>
     function Capture() { latest = useChannelMetadata(null, dm.id); return null }
@@ -107,7 +108,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
     await act(async () => { onlineManager.setOnline(false); onlineManager.setOnline(true) })
     expect(latest.status).toBe("retryable-error")
     expect(apiFetch).toHaveBeenCalledOnce()
-    apiFetch.mockResolvedValueOnce(metadata)
+    apiFetch.mockResolvedValue(metadata)
     await act(async () => latest.retry())
     await waitFor(() => expect(latest.status).toBe("readable"))
     expect(apiFetch).toHaveBeenCalledTimes(2)
@@ -122,12 +123,12 @@ describe("DM route uses the shared Channel metadata owner", () => {
     const started = startChannelRouteVerification(client, null, dm.id)
     const rejection = expect(started).rejects.toBeDefined()
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
-    if (race === "cancel") await client.cancelQueries({ queryKey: communityKeys.channelMeta(null, dm.id), exact: true })
+    if (race === "cancel") await client.cancelQueries({ queryKey: channelMetadataOptions(client, null, dm.id).queryKey, exact: true })
     else if (race === "account") registry.runtime.ws.actions.activateProfileAccount("other")
     else registry.runtime.ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 }))
     request.resolve(metadata)
     await rejection
-    expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toBeUndefined()
+    expect(client.getQueryData(channelMetadataOptions(client, null, dm.id).queryKey)).toBeUndefined()
     expect(registry.runtime.ws.get().channelAccessScopes.size).toBe(0)
     client.clear()
   })
@@ -142,7 +143,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
     route.unmount()
     expect(signal.aborted).toBe(true)
     await act(async () => request.resolve(metadata))
-    expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toBeUndefined()
+    expect(client.getQueryData(channelMetadataOptions(client, null, dm.id).queryKey)).toBeUndefined()
     client.clear()
   })
 })

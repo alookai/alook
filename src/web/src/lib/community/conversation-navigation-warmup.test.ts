@@ -1,353 +1,68 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
-import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
-import { ApiError } from "@/lib/errors"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { conversationEntryFixture as fixture, conversationEntryTarget as entryTarget } from "@/test/conversation-entry-fixtures"
 import { communityKeys } from "@/lib/query-keys"
-import {
-  getConversationNavigationProof,
-  recordConversationNavigationReceipt,
-  recoverConversationNavigationProof,
-} from "./conversation-navigation-proof"
+import { conversationEntryOptions } from "./conversation-entry"
+import { retireCommunityAccount } from "./account-cache-lifecycle"
+import { ApiError } from "@/lib/errors"
 import { startConversationNavigationWarmup } from "./conversation-navigation-warmup"
 
-type SurfaceKind = "channel" | "thread" | "forum" | "dm"
-type Page = { messages: never[]; hasMore: boolean }
+const load = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
+beforeEach(() => { load.mockReset() })
+const target = { ...entryTarget, serverId: "s1", href: "/c/channels/s1/c1", viewerId: "viewer", scopeKind: "channel" as const }
 
-const mocks = vi.hoisted(() => ({
-  requests: [] as Array<{
-    channelId: string
-    kind: "channel" | "dm"
-    pageParam: unknown
-    signal: AbortSignal | undefined
-    receipt: (value: { channelId: string; surfaceKind: SurfaceKind }) => void
-    resolve: (value: Page) => void
-    reject: (error: unknown) => void
-  }>,
-  reads: [] as Array<{
-    url: string
-    signal: AbortSignal | undefined
-    resolve: (value: { lastReadMessageId: string | null; lastReadAt: string | null; lastReadSeq: number }) => void
-    reject: (error: unknown) => void
-  }>,
-  servers: [] as Array<{
-    serverId: string
-    signal: AbortSignal | undefined
-    resolve: (value: { id: string }) => void
-    reject: (error: unknown) => void
-  }>,
-  removeScope: vi.fn(),
-  apiFetch: vi.fn(),
-}))
-
-vi.mock("@/hooks/community/use-messages", () => ({
-  channelMessagesQueryFn: (
-    channelId: string,
-    _tag: null,
-    options: { onSurfaceReceipt: (value: { channelId: string; surfaceKind: SurfaceKind }) => void },
-  ) => ({ pageParam, signal }: { pageParam: unknown; signal?: AbortSignal }) => new Promise((resolve, reject) => {
-    mocks.requests.push({
-      channelId,
-      kind: "channel",
-      pageParam,
-      signal,
-      receipt: options.onSurfaceReceipt,
-      resolve: resolve as (value: Page) => void,
-      reject,
-    })
-  }),
-  dmMessagesQueryFn: (
-    channelId: string,
-    options: { onSurfaceReceipt: (value: { channelId: string; surfaceKind: SurfaceKind }) => void },
-  ) => ({ pageParam, signal }: { pageParam: unknown; signal?: AbortSignal }) => new Promise((resolve, reject) => {
-    mocks.requests.push({
-      channelId,
-      kind: "dm",
-      pageParam,
-      signal,
-      receipt: options.onSurfaceReceipt,
-      resolve: resolve as (value: Page) => void,
-      reject,
-    })
-  }),
-}))
-vi.mock("@/hooks/community/use-servers", () => ({
-  serverProjectedQueryFn: (_queryClient: unknown, serverId: string, signal?: AbortSignal) => () => (
-    new Promise((resolve, reject) => {
-      mocks.servers.push({
-        serverId,
-        signal,
-        resolve: resolve as (value: { id: string }) => void,
-        reject,
-      })
-    })
-  ),
-}))
-vi.mock("@/lib/api/client", () => ({
-  apiFetch: (url: string, options?: { signal?: AbortSignal; assertActive?: () => void }) => {
-    options?.assertActive?.()
-    mocks.apiFetch(url, options)
-    return new Promise((resolve, reject) => {
-      mocks.reads.push({
-        url,
-        signal: options?.signal,
-        resolve: resolve as (value: {
-          lastReadMessageId: string | null
-          lastReadAt: string | null
-          lastReadSeq: number
-        }) => void,
-        reject,
-      })
-    }).then((value) => { options?.assertActive?.(); return value })
-  },
-}))
-const owners: CommunityDbRegistry[] = []
-function createClient() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const owner = createCommunityDbRegistry(client, "viewer")
-  owners.push(owner)
-  vi.spyOn(owner.runtime.messageStream.actions, "removeScope").mockImplementation(mocks.removeScope)
-  return client
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
 }
-afterEach(async () => {
-  for (const owner of owners.splice(0)) { await owner.cleanup(); owner.queryClient.clear() }
-})
 
-const target = (channelId: string) => ({
-  href: `/c/channels/s1/${channelId}`,
-  viewerId: "viewer",
-  channelId,
-  serverId: "s1",
-  scopeKind: "channel" as const,
-})
-
-describe("conversation navigation warmup", () => {
-  beforeEach(() => {
-    mocks.requests.length = 0
-    mocks.reads.length = 0
-    mocks.servers.length = 0
-    mocks.removeScope.mockReset()
-    mocks.apiFetch.mockReset()
+describe("native entry warmup", () => {
+  it("joins concurrent intent reads and reuses a covered current window", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const request = deferred<ReturnType<typeof fixture>>()
+    load.mockReturnValue(request.promise)
+    const first = startConversationNavigationWarmup(client, target)
+    const second = startConversationNavigationWarmup(client, target)
+    expect(load).toHaveBeenCalledOnce()
+    request.resolve(fixture())
+    await Promise.all([first, second])
+    await startConversationNavigationWarmup(client, target)
+    expect(load).toHaveBeenCalledOnce()
+    expect(client.getQueryData(conversationEntryOptions(client, entryTarget).queryKey)).toBeDefined()
   })
 
-  it.each(["channel", "thread", "forum", "dm"] as const)("starts a current %s receipt transport instead of joining an older-access target read", async (surfaceKind) => {
-    const queryClient = createClient()
-    const navigation = { ...target("active"), scopeKind: surfaceKind === "dm" ? "dm" as const : "channel" as const, expectedSurfaceKind: surfaceKind }
-    const key = surfaceKind === "dm" ? communityKeys.dmMessages("active") : communityKeys.channelMessages("active")
-    let release!: (value: Page) => void
-    let originalSignal!: AbortSignal
-    const existing = queryClient.infiniteQuery({ queryKey: key, initialPageParam: { mode: "newest" }, queryFn: ({ signal }) => {
-      originalSignal = signal
-      return new Promise<Page>((resolve) => { release = resolve }).then((page) => {
-        recordConversationNavigationReceipt(queryClient, { channelId: "active", surfaceKind }, 4)
-        return page
-      })
-    } }).catch((error: unknown) => error)
-    startConversationNavigationWarmup(queryClient, navigation, 5)
-    release({ messages: [], hasMore: false })
-    await existing
-    expect(getConversationNavigationProof(queryClient)?.status).toBe("warming")
-    await vi.waitFor(() => expect(mocks.requests).toHaveLength(1))
-    expect(originalSignal.aborted).toBe(true)
-    mocks.requests[0]!.receipt({ channelId: "active", surfaceKind })
-    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
-    await vi.waitFor(() => expect(getConversationNavigationProof(queryClient)?.status).toBe(surfaceKind === "forum" ? "forum" : "proven"))
+  it("keeps a different historical window and its page parameters", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const key = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "old" })
+    const previous = { pages: [{ messages: [{ id: "old", seq: 0 }] }], pageParams: [{ mode: "anchor", anchor: "old" }] }
+    client.setQueryData(key, previous)
+    const packet = fixture()
+    packet.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
+    load.mockResolvedValue(packet)
+    await startConversationNavigationWarmup(client, { ...target, anchorMessageId: "m1" })
+    expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1&anchor=m1")
+    expect(client.getQueryData(key)).toBe(previous)
   })
 
-  it.each(["channel", "thread", "forum", "dm"] as const)("makes a completed %s read without its receipt manually retryable", async (surfaceKind) => {
-    const queryClient = createClient()
-    const navigation = { ...target("missing-receipt"), scopeKind: surfaceKind === "dm" ? "dm" as const : "channel" as const, expectedSurfaceKind: surfaceKind }
-    const epoch = startConversationNavigationWarmup(queryClient, navigation, 5)
-    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
-    await vi.waitFor(() => expect(getConversationNavigationProof(queryClient)).toMatchObject({ status: "failed", manualRetry: true }))
-    expect(recoverConversationNavigationProof(queryClient, epoch, 5)).toBe(true)
-    mocks.requests[1]!.receipt({ channelId: navigation.channelId, surfaceKind })
-    mocks.requests[1]!.resolve({ messages: [], hasMore: false })
-    await vi.waitFor(() => expect(getConversationNavigationProof(queryClient)?.status).toBe(surfaceKind === "forum" ? "forum" : "proven"))
+  it.each([403, 404])("withdraws the target after an authoritative %s", async status => {
+    const { client, registry } = await createCommunityQueryOwner()
+    load.mockRejectedValue(new ApiError("denied", status))
+    await startConversationNavigationWarmup(client, target)
+    expect(registry.runtime.ws.actions.isChannelAccessRevoked("c1", "s1")).toBe(true)
+    expect(load).toHaveBeenCalledOnce()
+    expect(registry.collections.messages.get("m1")).toBeUndefined()
   })
 
-  it("starts canonical work in parallel and prevents superseded A from seeding", async () => {
-    const queryClient = createClient()
-    startConversationNavigationWarmup(queryClient, target("a"), 4)
-    startConversationNavigationWarmup(queryClient, target("b"), 4)
-    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
-    expect(mocks.requests.map((request) => request.channelId)).toEqual(["a", "b"])
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(1)
-    expect(mocks.servers).toHaveLength(1)
-    expect(mocks.requests[0]!.signal?.aborted).toBe(true)
-    expect(mocks.reads[0]!.signal?.aborted).toBe(false)
-    expect(mocks.servers[0]!.signal?.aborted).toBe(false)
-
-    mocks.requests[0]!.receipt({ channelId: "a", surfaceKind: "channel" })
-    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
-    mocks.requests[1]!.receipt({ channelId: "b", surfaceKind: "channel" })
-    mocks.requests[1]!.resolve({ messages: [], hasMore: false })
-    await vi.waitFor(() => {
-      expect(queryClient.getQueryData(communityKeys.channelMessages("b"))).toBeDefined()
-    })
-
-    expect(queryClient.getQueryData(communityKeys.channelMessages("a"))).toBeUndefined()
-    expect(getConversationNavigationProof(queryClient)).toMatchObject({
-      status: "proven",
-      target: { channelId: "b" },
-    })
-  })
-
-  it("clears target caches and overlays on definitive denial", async () => {
-    const queryClient = createClient()
-    queryClient.setQueryData(communityKeys.channelMessages("denied"), {
-      pages: [{ messages: [], hasMore: false }], pageParams: [{ mode: "newest" }],
-    })
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("denied"), { stale: true })
-    queryClient.setQueryData(communityKeys.channelMeta("s1", "denied"), { stale: true })
-    startConversationNavigationWarmup(queryClient, target("denied"), 9)
-    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
-    mocks.requests[0]!.reject(new ApiError("not found", 404))
-    await vi.waitFor(() => {
-      expect(getConversationNavigationProof(queryClient)?.status).toBe("denied")
-    })
-
-    expect(queryClient.getQueryData(communityKeys.channelMessages("denied"))).toBeUndefined()
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("denied"))).toBeUndefined()
-    expect(queryClient.getQueryData(communityKeys.channelMeta("s1", "denied"))).toBeUndefined()
-    expect(mocks.removeScope).toHaveBeenCalledWith({
-      kind: "channel",
-      id: "denied",
-      serverId: "s1",
-    })
-    expect(getConversationNavigationProof(queryClient)?.status).toBe("denied")
-    expect(mocks.reads[0]!.signal?.aborted).toBe(true)
-    expect(mocks.servers[0]!.signal?.aborted).toBe(false)
-
-    mocks.reads[0]!.resolve({ lastReadMessageId: "late", lastReadAt: null, lastReadSeq: 1 })
-    mocks.servers[0]!.resolve({ id: "late" })
-    await Promise.resolve()
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("denied"))).toBeUndefined()
-    expect(queryClient.getQueryData(communityKeys.server("s1"))).toBeUndefined()
-  })
-
-  it("clears DM caches and overlay without starting server detail on denial", async () => {
-    const queryClient = createClient()
-    const dmTarget = {
-      href: "/c/me/d1",
-      viewerId: "viewer",
-      channelId: "d1",
-      scopeKind: "dm" as const,
-      expectedSurfaceKind: "dm" as const,
-    }
-    queryClient.setQueryData(communityKeys.dmMessages("d1"), {
-      pages: [{ messages: [], hasMore: false }], pageParams: [{ mode: "newest" }],
-    })
-    queryClient.setQueryData(communityKeys.dmReadStateSnapshot("d1"), { stale: true })
-    queryClient.setQueryData(communityKeys.channelMeta(null, "d1"), "present")
-    startConversationNavigationWarmup(queryClient, dmTarget, 2)
-    expect(mocks.requests[0]).toMatchObject({ kind: "dm", pageParam: { mode: "newest" } })
-    expect(mocks.servers).toHaveLength(0)
-    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
-    mocks.requests[0]!.reject(new ApiError("forbidden", 403))
-    await vi.waitFor(() => {
-      expect(getConversationNavigationProof(queryClient)?.status).toBe("denied")
-    })
-
-    expect(queryClient.getQueryData(communityKeys.dmMessages("d1"))).toBeUndefined()
-    expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("d1"))).toBeUndefined()
-    expect(queryClient.getQueryData(communityKeys.channelMeta(null, "d1"))).toBeUndefined()
-    expect(mocks.removeScope).toHaveBeenCalledWith({ kind: "dm", id: "d1" })
-    expect(mocks.reads[0]!.signal?.aborted).toBe(true)
-    mocks.reads[0]!.resolve({ lastReadMessageId: "late", lastReadAt: null, lastReadSeq: 8 })
-    await Promise.resolve()
-    expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("d1"))).toBeUndefined()
-  })
-
-  it("commits a successful DM receipt", async () => {
-    const queryClient = createClient()
-    startConversationNavigationWarmup(queryClient, {
-      href: "/c/me/d2",
-      viewerId: "viewer",
-      channelId: "d2",
-      scopeKind: "dm",
-      expectedSurfaceKind: "dm",
-    }, 3)
-    mocks.requests[0]!.receipt({ channelId: "d2", surfaceKind: "dm" })
-    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
-    await vi.waitFor(() => {
-      expect(getConversationNavigationProof(queryClient)?.status).toBe("proven")
-    })
-  })
-
-  it("restarts canonical messages after transient failure without exposing stale cache", async () => {
-    const queryClient = createClient()
-    const key = communityKeys.channelMessages("retry")
-    queryClient.setQueryData(key, { pages: [{ messages: [{ id: "stale" }] }], pageParams: [] })
-    const epoch = startConversationNavigationWarmup(queryClient, target("retry"), 5)
-    mocks.requests[0]!.reject(new Error("network"))
-    await vi.waitFor(() => {
-      expect(getConversationNavigationProof(queryClient)?.status).toBe("failed")
-    })
-    expect(queryClient.getQueryData(key)).toBeDefined()
-
-    expect(recoverConversationNavigationProof(queryClient, epoch, 5)).toBe(true)
-    expect(mocks.requests).toHaveLength(2)
-    mocks.requests[1]!.receipt({ channelId: "retry", surfaceKind: "channel" })
-    mocks.requests[1]!.resolve({ messages: [], hasMore: false })
-    await vi.waitFor(() => {
-      expect(getConversationNavigationProof(queryClient)).toMatchObject({
-        accessEpoch: 5,
-        recoveryAttempt: 1,
-        status: "proven",
-      })
-    })
-  })
-
-  it("restarts response-to-commit access drift and accepts only the new proof", async () => {
-    const queryClient = createClient()
-    const firstEpoch = startConversationNavigationWarmup(queryClient, target("epoch"), 7)
-    mocks.requests[0]!.receipt({ channelId: "epoch", surfaceKind: "channel" })
-    expect(getConversationNavigationProof(queryClient)?.status).toBe("verified")
-
-    expect(recoverConversationNavigationProof(queryClient, firstEpoch, 8)).toBe(true)
-    expect(mocks.requests[0]!.signal?.aborted).toBe(true)
-    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
-    mocks.requests[1]!.receipt({ channelId: "epoch", surfaceKind: "forum" })
-    mocks.requests[1]!.resolve({ messages: [], hasMore: false })
-    await vi.waitFor(() => {
-      expect(getConversationNavigationProof(queryClient)).toMatchObject({
-        accessEpoch: 8,
-        recoveryAttempt: 0,
-        status: "forum",
-      })
-    })
-  })
-
-  it("uses the exact anchor and seeds current read and server results", async () => {
-    const queryClient = createClient()
-    startConversationNavigationWarmup(queryClient, {
-      ...target("anchor"),
-      anchorMessageId: "m1",
-    }, 3)
-    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
-    expect(mocks.requests[0]!.pageParam).toEqual({ mode: "anchor", anchor: "m1" })
-    mocks.requests[0]!.receipt({ channelId: "anchor", surfaceKind: "thread" })
-    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
-    mocks.reads[0]!.resolve({ lastReadMessageId: "m0", lastReadAt: null, lastReadSeq: 4 })
-    mocks.servers[0]!.resolve({ id: "s1" })
-    await vi.waitFor(() => {
-      expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("anchor"))).toMatchObject({
-        lastReadSeq: 4,
-      })
-      expect(queryClient.getQueryData(communityKeys.server("s1"))).toEqual({ id: "s1" })
-    })
-  })
-
-  it("ignores auxiliary failures while canonical proof succeeds", async () => {
-    const queryClient = createClient()
-    startConversationNavigationWarmup(queryClient, target("aux"), 4)
-    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
-    mocks.reads[0]!.reject(new Error("read transient"))
-    mocks.servers[0]!.reject(new Error("detail transient"))
-    mocks.requests[0]!.receipt({ channelId: "aux", surfaceKind: "channel" })
-    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
-    await vi.waitFor(() => {
-      expect(getConversationNavigationProof(queryClient)?.status).toBe("proven")
-    })
+  it("rejects decoded data after the original owner retires", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const request = deferred<ReturnType<typeof fixture>>()
+    load.mockReturnValue(request.promise)
+    const reading = startConversationNavigationWarmup(client, target)
+    retireCommunityAccount(registry)
+    request.resolve(fixture())
+    await reading
+    expect(registry.collections.messages.get("m1")).toBeUndefined()
   })
 })

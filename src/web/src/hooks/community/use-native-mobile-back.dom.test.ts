@@ -297,6 +297,12 @@ function mobileHarness(parentPath: string | null = "/c/channels/s1") {
   return { props, renderer: render(createElement(Harness, props)) }
 }
 
+function transition(target: HTMLElement, type = "transitionend", propertyName = "transform") {
+  const event = new Event(type, { bubbles: true })
+  Object.defineProperty(event, "propertyName", { value: propertyName })
+  act(() => { target.dispatchEvent(event) })
+}
+
 describe("mobile edge parent gesture", () => {
   it("replaces the parent once at the shared edge boundary, on release only", () => {
     const { props, renderer } = mobileHarness()
@@ -380,41 +386,90 @@ describe("layered mobile back motion", () => {
     const root = document.createElement("div")
     root.dataset.mobileBackSurface = "detail"
     Object.defineProperty(root, "clientWidth", { value: 390 })
+    const foreground = document.createElement("div")
+    foreground.dataset.panel = "true"
+    foreground.id = "main"
+    root.appendChild(foreground)
     document.body.append(root)
     roots.push(root)
-    return { ...mobileHarness(), root }
+    return { ...mobileHarness(), root, foreground }
   }
   afterEach(() => {
     roots.splice(0).forEach((root) => root.remove())
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
-  it("tracks the finger, then completes once after the foreground settles", () => {
+  it.each(["Web", "Native"])("keeps iOS %s touch painting and completes once after release", (platform) => {
     vi.useFakeTimers()
-    const { root, props, renderer } = mounted()
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)")
+    if (platform === "Native") vi.stubGlobal("__TAURI__", {})
+    const { root, foreground, props, renderer } = mounted()
     touch("touchstart", 10)
+    touch("touchmove", 70)
+    expect(root.style.getPropertyValue("--mobile-back-x")).toBe(platform === "Native" ? "60px" : "")
+    expect(root.dataset.mobileBackPhase).toBe(platform === "Native" ? "dragging" : undefined)
     touch("touchmove", 180)
-    expect(root.style.getPropertyValue("--mobile-back-x")).toBe("170px")
-    expect(root.dataset.mobileBackPhase).toBe("dragging")
+    expect(root.style.getPropertyValue("--mobile-back-x")).toBe(platform === "Native" ? "170px" : "")
+    expect(root.style.getPropertyValue("--mobile-back-progress")).toBe(platform === "Native" ? `${170 / 390}` : "")
+    expect(root.dataset.mobileBackPhase).toBe(platform === "Native" ? "dragging" : undefined)
     expect(props.replacePath).not.toHaveBeenCalled()
     touch("touchend", 180)
     expect(root.style.getPropertyValue("--mobile-back-x")).toBe("390px")
     expect(root.dataset.mobileBackPhase).toBe("settling")
+    if (platform === "Native") transition(foreground)
     touch("touchstart", 10)
     touch("touchend", 180)
     vi.advanceTimersByTime(199)
     expect(props.replacePath).not.toHaveBeenCalled()
     vi.advanceTimersByTime(1)
+    if (platform === "Web") {
+      expect(props.replacePath).not.toHaveBeenCalled()
+      transition(foreground)
+    }
     expect(props.replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
     expect(root.dataset.mobileBackPhase).toBe("committing")
     renderer.unmount()
     expect(root.style.getPropertyValue("--mobile-back-x")).toBe("")
   })
 
+  it.each(["Web", "Native"])("leaves Android %s edge touch to the platform while retaining public Back", (platform) => {
+    vi.useFakeTimers()
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Linux; Android 16)")
+    if (platform === "Native") vi.stubGlobal("__TAURI__", {})
+    const { root, foreground, props } = mounted()
+    touch("touchstart", 10)
+    expect(touch("touchmove", 200).defaultPrevented).toBe(false)
+    expect(touch("touchend", 200).defaultPrevented).toBe(false)
+    touch("touchcancel", 200)
+    expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
+    expect(root.style.getPropertyValue("--mobile-back-x")).toBe("")
+    expect(props.dismissShellOverlay).not.toHaveBeenCalled()
+    expect(props.replacePath).not.toHaveBeenCalled()
+
+    props.dismissShellOverlay.mockReturnValueOnce(true)
+    dispatchBack()
+    expect(props.dismissShellOverlay).toHaveBeenCalledOnce()
+    expect(props.replacePath).not.toHaveBeenCalled()
+    if (platform === "Native") {
+      window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: 0, started: true } }))
+      window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: 0.5 } }))
+      expect(root.style.getPropertyValue("--mobile-back-x")).toBe("195px")
+    }
+    dispatchBack()
+    expect(root.dataset.mobileBackPhase).toBe("settling")
+    vi.advanceTimersByTime(200)
+    if (platform === "Web") {
+      expect(props.replacePath).not.toHaveBeenCalled()
+      transition(foreground)
+    }
+    expect(props.replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
+  })
+
   it("keeps settling across callback changes on the same committed route", () => {
     vi.useFakeTimers()
-    const { props, renderer } = mounted()
+    const { foreground, props, renderer } = mounted()
     touch("touchstart", 10)
     touch("touchmove", 200)
     touch("touchend", 200)
@@ -422,6 +477,8 @@ describe("layered mobile back motion", () => {
     renderer.rerender(createElement(Harness, { ...props, replacePath, dismissShellOverlay: () => false }))
     vi.advanceTimersByTime(200)
     expect(props.replacePath).not.toHaveBeenCalled()
+    expect(replacePath).not.toHaveBeenCalled()
+    transition(foreground)
     expect(replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
     renderer.unmount()
   })
@@ -453,6 +510,7 @@ describe("layered mobile back motion", () => {
 
   it.each(["route", "resize", "background"])("ignores a late native commit after %s interrupts its gesture", (reason) => {
     vi.useFakeTimers()
+    vi.stubGlobal("__TAURI__", {})
     const { props, renderer } = mounted()
     const progress = (value: number) => window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: value, started: value === 0 } }))
     progress(0)
@@ -470,23 +528,109 @@ describe("layered mobile back motion", () => {
     renderer.unmount()
   })
 
-  it("returns a short held drag to the same page without navigating", () => {
+  it.each(["Web", "Native"])("cancels a short held %s drag without navigating", (platform) => {
     vi.useFakeTimers()
+    if (platform === "Native") vi.stubGlobal("__TAURI__", {})
     const { root, props, renderer } = mounted()
     touch("touchstart", 10)
     touch("touchmove", 70)
     vi.advanceTimersByTime(150)
     touch("touchend", 70)
-    expect(root.style.getPropertyValue("--mobile-back-x")).toBe("0px")
+    expect(root.style.getPropertyValue("--mobile-back-x")).toBe(platform === "Native" ? "0px" : "")
+    expect(root.dataset.mobileBackPhase).toBe(platform === "Native" ? "settling" : undefined)
     vi.advanceTimersByTime(200)
     expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     expect(props.replacePath).not.toHaveBeenCalled()
     renderer.unmount()
   })
 
+  it("accepts a new Web gesture immediately after touch cancellation", () => {
+    vi.useFakeTimers()
+    const { root, foreground, props } = mounted()
+    touch("touchstart", 10)
+    touch("touchmove", 200)
+    touch("touchcancel", 200)
+    expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
+    touch("touchstart", 10)
+    touch("touchmove", 200)
+    touch("touchend", 200)
+    expect(root.dataset.mobileBackPhase).toBe("settling")
+    vi.advanceTimersByTime(200)
+    expect(props.replacePath).not.toHaveBeenCalled()
+    transition(foreground)
+    expect(props.replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
+  })
+
+  it("waits for the foreground transform completion instead of elapsed timers or other transitions", () => {
+    vi.useFakeTimers()
+    const { root, foreground, props } = mounted()
+    const child = document.createElement("button")
+    foreground.appendChild(child)
+    touch("touchstart", 10)
+    touch("touchmove", 200)
+    touch("touchend", 200)
+    vi.advanceTimersByTime(1000)
+    transition(foreground, "transitionend", "opacity")
+    transition(child)
+    window.dispatchEvent(new CustomEvent(NATIVE_MOBILE_BACK_PROGRESS_EVENT, { detail: { progress: 0, started: true } }))
+    dispatchBack()
+    touch("touchstart", 10)
+    touch("touchmove", 200)
+    touch("touchend", 200)
+    expect(root.dataset.mobileBackPhase).toBe("settling")
+    expect(props.replacePath).not.toHaveBeenCalled()
+    transition(foreground)
+    transition(foreground)
+    expect(props.replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
+  })
+
+  it("uses the thread foreground completion instead of the containing main panel", () => {
+    const { foreground, props } = mounted()
+    const split = document.createElement("div")
+    split.dataset.mobileBackThread = "true"
+    const thread = document.createElement("div")
+    thread.dataset.panel = "true"
+    thread.id = "thread"
+    split.appendChild(thread)
+    foreground.appendChild(split)
+    touch("touchstart", 10)
+    touch("touchmove", 200)
+    touch("touchend", 200)
+    transition(foreground)
+    expect(props.replacePath).not.toHaveBeenCalled()
+    transition(thread)
+    expect(props.replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
+  })
+
+  it("retires a cancelled Web transition and permits a new confirmed gesture", () => {
+    const { root, foreground, props } = mounted()
+    touch("touchstart", 10)
+    touch("touchmove", 200)
+    touch("touchend", 200)
+    transition(foreground, "transitioncancel")
+    transition(foreground)
+    expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
+    expect(props.replacePath).not.toHaveBeenCalled()
+    touch("touchstart", 10)
+    touch("touchmove", 200)
+    touch("touchend", 200)
+    transition(foreground)
+    expect(props.replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
+  })
+
+  it("retains direct Back when no animatable foreground exists", () => {
+    const { root, foreground, props } = mounted()
+    foreground.remove()
+    touch("touchstart", 10)
+    touch("touchmove", 200)
+    touch("touchend", 200)
+    expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
+    expect(props.replacePath).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
+  })
+
   it.each(["touchcancel", "route", "resize", "background", "unmount"])("cancels queued navigation on %s", (reason) => {
     vi.useFakeTimers()
-    const { root, props, renderer } = mounted()
+    const { root, foreground, props, renderer } = mounted()
     touch("touchstart", 10)
     touch("touchmove", 200)
     if (reason === "touchcancel") touch("touchcancel", 200)
@@ -498,6 +642,7 @@ describe("layered mobile back motion", () => {
       if (reason === "unmount") renderer.unmount()
     }
     vi.advanceTimersByTime(300)
+    transition(foreground)
     expect(props.replacePath).not.toHaveBeenCalled()
     expect(root.hasAttribute("data-mobile-back-phase")).toBe(false)
     if (reason !== "unmount") renderer.unmount()

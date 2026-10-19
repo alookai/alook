@@ -5,6 +5,7 @@ import type { Database } from "../../src/db"
 import {
   advanceReadStateRevisionBuilder,
   markReadToMessageBuilder,
+  getChannelReadStateSnapshot,
 } from "../../src/db/queries/community/read-state"
 
 describe("community read-state SQLite monotonicity", () => {
@@ -68,5 +69,19 @@ describe("community read-state SQLite monotonicity", () => {
     expect(sqlite.prepare(`
       SELECT user_id AS userId, revision FROM community_read_state_revision
     `).all()).toEqual([{ userId: "u1", revision: 2 }])
+  })
+
+  it("reads one viewer and channel with its account revision in one snapshot batch", async () => {
+    sqlite.prepare("INSERT INTO community_read_state VALUES (?, ?, ?, ?, ?, ?)").run("r1", "viewer", "c1", "at1", "m1", 1)
+    sqlite.prepare("INSERT INTO community_read_state VALUES (?, ?, ?, ?, ?, ?)").run("r2", "viewer", "c2", "at2", "m2", 2)
+    sqlite.prepare("INSERT INTO community_read_state VALUES (?, ?, ?, ?, ?, ?)").run("r3", "other", "c1", "private", "private", 9)
+    sqlite.prepare("INSERT INTO community_read_state_revision VALUES (?, ?)").run("viewer", 4)
+    sqlite.prepare("INSERT INTO community_read_state_revision VALUES (?, ?)").run("other", 9)
+    Object.assign(db, { batch: async (statements: Array<{ all: () => unknown }>) => sqlite.transaction(() => statements.map((statement) => statement.all()))() })
+    await expect(getChannelReadStateSnapshot(db, { userId: "viewer", channelId: "c1" })).resolves.toEqual({
+      revision: 4, readState: { channelId: "c1", lastReadMessageId: "m1", lastReadAt: "at1", lastReadSeq: 1 },
+    })
+    await expect(getChannelReadStateSnapshot(db, { userId: "viewer", channelId: "missing" })).resolves.toEqual({ revision: 4, readState: null })
+    await expect(getChannelReadStateSnapshot(db, { userId: "missing", channelId: "c1" })).resolves.toEqual({ revision: 0, readState: null })
   })
 })

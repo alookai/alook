@@ -4,6 +4,7 @@ import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
 import { COMMUNITY_LAYOUT_STORAGE_KEY } from "@/components/community/shell/shell-frame-geometry"
 
 import { tid } from "./_fixtures/testids"
+import { expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
 import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
 
 const layoutStorageKey = COMMUNITY_LAYOUT_STORAGE_KEY
@@ -22,7 +23,7 @@ type LayoutSample = {
   overlay: number
   viewportWidth: number
   desktopVisible: boolean
-  pending: boolean
+  scriptsHeld: boolean
 }
 
 type ShellGeometry = {
@@ -78,7 +79,6 @@ async function installLayoutState(
     key,
     savedLayout,
     sidebarTestId,
-    pendingTestId,
     sampleLimit,
   }) => {
     const initializedKey = `${key}:test-initialized`
@@ -100,12 +100,10 @@ async function installLayoutState(
     let frame = 0
     const capture = () => {
       frame += 1
-      const sidebar = document.querySelector<HTMLElement>(
-        `[data-slot="resizable-panel"][data-testid="${sidebarTestId}"]`,
-      )
-      const overlay = document.querySelector<HTMLElement>(
-        '[data-slot="community-user-bar-overlay"]',
-      )
+      const roots = Array.from(document.querySelectorAll('[data-slot="community-shell-root"]')).filter(element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0 })
+      if (roots.length > 1) throw new Error("Multiple visible desktop width frames")
+      const sidebar = roots[0]?.querySelector<HTMLElement>(`[data-slot="resizable-panel"][data-testid="${sidebarTestId}"]`)
+      const overlay = roots[0]?.querySelector<HTMLElement>('[data-slot="community-user-bar-overlay"]')
       if (sidebar && overlay && samples.length < sampleLimit) {
         samples.push({
           frame,
@@ -114,7 +112,7 @@ async function installLayoutState(
           viewportWidth: window.innerWidth,
           desktopVisible: getComputedStyle(sidebar).display !== "none"
             && getComputedStyle(overlay).display !== "none",
-          pending: document.querySelector(`[data-testid="${pendingTestId}"]`) !== null,
+          scriptsHeld: Reflect.get(window, "__desktopWidthScriptsHeld") === true,
         })
       }
       requestAnimationFrame(capture)
@@ -124,12 +122,12 @@ async function installLayoutState(
     key: layoutStorageKey,
     savedLayout: layout,
     sidebarTestId: "sidebar",
-    pendingTestId: tid.initialFrame,
     sampleLimit,
   })
 }
 
 async function holdApplicationScripts(page: Page, caseResources: CaseResources) {
+  await page.addInitScript(() => Reflect.set(window, "__desktopWidthScriptsHeld", true))
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
   caseResources.own(release, async (captured) => { captured() })
@@ -148,7 +146,7 @@ async function holdApplicationScripts(page: Page, caseResources: CaseResources) 
     await route.continue()
   }
   await page.route("**/_next/**", handler)
-  return { hits: () => hits, sessionRequests: () => sessionRequests, release }
+  return { hits: () => hits, sessionRequests: () => sessionRequests, release: async () => { await page.evaluate(() => Reflect.set(window, "__desktopWidthScriptsHeld", false)); release() } }
 }
 
 async function holdCommunityReads(page: Page, caseResources: CaseResources) {
@@ -169,11 +167,12 @@ async function holdCommunityReads(page: Page, caseResources: CaseResources) {
 }
 
 async function serveOutdatedMachine(page: Page) {
-  await page.route("**/api/community/machines", async (route) => {
+  await page.route(url => url.pathname === "/api/community/machines", async (route) => {
+    const optional = new URL(route.request().url()).searchParams.get("view") === "observations"
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ machines: [outdatedMachine] }),
+      body: JSON.stringify(optional ? { quotas: [{ machineId: outdatedMachine.id, quota: [] }] } : { machines: [outdatedMachine] }),
     })
   })
 }
@@ -306,7 +305,7 @@ function compactLayoutSamples(samples: LayoutSample[]) {
       && previous.sidebar === sample.sidebar
       && previous.overlay === sample.overlay
       && previous.desktopVisible === sample.desktopVisible
-      && previous.pending === sample.pending
+      && previous.scriptsHeld === sample.scriptsHeld
     ) continue
     compact.push(sample)
   }
@@ -382,7 +381,7 @@ test.describe("desktop default User Bar width", () => {
     return { serverId, channelId }
   }
 
-  test("prepaints saved pending-shell widths and preserves the loaded handoff", async ({ caseActors, caseResources }, testInfo) => {
+  test("prepaints saved SSR shell widths and preserves the interactive handoff", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(240_000)
 
     const actors = await caseActors(["alice"])
@@ -412,14 +411,14 @@ test.describe("desktop default User Bar width", () => {
 
       await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
       await expect.poll(scripts.hits).toBeGreaterThan(0)
-      const pendingFrame = page.getByTestId(tid.initialFrame)
-      await expect(pendingFrame).toBeVisible()
+      const ssrFrame = await expectUniqueSsrCommunityFrame(page)
+      await expect(ssrFrame).toBeVisible()
       await expect.poll(async () => (
         (await page.evaluate(() => (
           Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
-        ))).some(({ pending }) => pending)
+        ))).some(({ scriptsHeld }) => scriptsHeld)
       )).toBe(true)
-      scripts.release()
+      await scripts.release()
       communityReads.release()
       await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
       await page.evaluate(() => new Promise<void>((resolve) => {
@@ -432,14 +431,14 @@ test.describe("desktop default User Bar width", () => {
       await caseResources.closeContext(session.context)
     }
 
-    await attachJson(testInfo, "saved-pending-shell-frame-sequences", evidence)
+    await attachJson(testInfo, "saved-ssr-shell-frame-sequences", evidence)
     for (const { targetWidth, sequence } of evidence) {
       expect(sequence.every(({ sidebar, overlay }) => (
         Math.abs(sidebar - targetWidth) <= geometryEpsilon
         && Math.abs(overlay - (targetWidth + 58)) <= geometryEpsilon
       ))).toBe(true)
-      expect(sequence.some(({ pending }) => pending)).toBe(true)
-      expect(sequence.at(-1)?.pending).toBe(false)
+      expect(sequence.some(({ scriptsHeld }) => scriptsHeld)).toBe(true)
+      expect(sequence.at(-1)?.scriptsHeld).toBe(false)
     }
   })
 
@@ -1061,13 +1060,16 @@ test.describe("desktop default User Bar width", () => {
         await pending.page.goto(`/c/channels/${serverId}`, { waitUntil: "commit" })
         await expect.poll(scripts.hits).toBeGreaterThan(0)
         expect(scripts.sessionRequests()).toBe(0)
-        const pendingFrame = pending.page.getByTestId(tid.initialFrame)
-        await expect(pendingFrame).toBeVisible()
-        await expect(pendingFrame).toHaveAttribute("aria-busy", "true")
-        await expect(pendingFrame).toHaveAttribute("data-community-route-kind", "server-root")
+        const ssrFrame = await expectUniqueSsrCommunityFrame(pending.page)
+        await expect(ssrFrame).toBeVisible()
+        const ssrPhase = await ssrFrame.evaluate(root => ({ initial: root.getAttribute("data-testid"), busy: root.getAttribute("aria-busy"), route: root.getAttribute("data-community-route-kind"), slot: root.getAttribute("data-slot"), placeholders: root.querySelectorAll('[data-slot="skeleton"]').length }))
+        if (ssrPhase.initial === tid.initialFrame) {
+          expect(ssrPhase.busy).toBe("true")
+          expect(ssrPhase.route).toBe("server-root")
+          expect(ssrPhase.placeholders).toBeGreaterThan(0)
+        } else expect(ssrPhase.slot).toBe("community-shell-root")
         await expect(pending.page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
-        await expect(pendingFrame.locator('[data-slot="skeleton"]')).not.toHaveCount(0)
-        scripts.release()
+        await scripts.release()
         await expect.poll(communityReads.hits).toBeGreaterThan(0)
         await expect(pending.page.locator('[data-slot="community-shell-root"]')).toBeVisible()
         const pendingSidebar = shellPanel(pending.page, "sidebar")

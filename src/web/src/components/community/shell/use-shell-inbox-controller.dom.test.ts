@@ -10,7 +10,6 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { channelMetadataOptions, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
-import { getConversationNavigationProof, useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
 import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { useShellInboxController } from "./use-shell-inbox-controller"
 
@@ -140,10 +139,6 @@ vi.mock("@/hooks/community/channel-route-verification", () => ({
 }))
 vi.mock("@/lib/community/conversation-navigation-warmup", () => ({
   startConversationNavigationWarmup: (...args: unknown[]) => mocks.warmup(...args),
-}))
-vi.mock("@/lib/community/conversation-navigation-proof", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/community/conversation-navigation-proof")>(),
-  cancelConversationNavigationProof: (...args: unknown[]) => mocks.cancelProof(...args),
 }))
 vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
   armThreadOpenerReadHandoff: (...args: unknown[]) => mocks.armOpener(...args),
@@ -384,59 +379,8 @@ describe("useShellInboxController", () => {
     expect(mocks.begin).not.toHaveBeenCalled()
   })
 
-  it("joins protected re-entry before proof capture through the real Inbox warmup, push and afterPush chain", async () => {
-    const actualWarmup = await vi.importActual<typeof import("@/lib/community/conversation-navigation-warmup")>("@/lib/community/conversation-navigation-warmup")
-    const actualVerifier = await vi.importActual<typeof import("@/hooks/community/channel-route-verification")>("@/hooks/community/channel-route-verification")
-    mocks.warmup.mockImplementation(actualWarmup.startConversationNavigationWarmup)
-    mocks.verifyDm.mockImplementation(actualVerifier.startChannelRouteVerification)
-    const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "dm1", serverId: null, type: "dm", name: null,
-      parentChannelId: null, parentMessageId: null, creatorId: null, archived: false,
-      lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
-    const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { "Content-Type": "application/json" } })
-    const requests: Array<{ path: string; signal: AbortSignal; resolve: (value: Response) => void }> = []
-    let held = false
-    vi.stubGlobal("fetch", vi.fn((path: string, options: RequestInit) => !held
-      ? Promise.resolve(json(metadata))
-      : new Promise<Response>((resolve) => requests.push({ path, signal: options.signal!, resolve }))))
-    const hook = await renderController()
-    const registry = getCommunityDbRegistry(hook.queryClient)!
-    await hook.queryClient.query(channelMetadataOptions(hook.queryClient, null, "dm1"))
-    const wrapper = ({ children }: React.PropsWithChildren) => createElement(CommunityTestProvider, { client: hook.queryClient, registry, retainOwner: true }, children)
-    const prior = renderHook(() => useChannelMetadata(null, "dm1"), { wrapper })
-    const oldProof = prior.result.current.data!.readProof!
-    act(() => retireCommunityChannelReading(registry, "dm1", { reason: "read-denied" }))
-    expect(prior.result.current.denied).toBe(true)
-    held = true
-    await act(async () => hook.current.popoverProps.onOpenDm?.(unreadDm))
-    await waitFor(() => expect(requests).toHaveLength(3))
-    expect(hook.pushed).toEqual(["/c/me/dm1"])
-    expect(mocks.submitted).toHaveBeenCalledOnce()
-    expect(mocks.verifyDm).toHaveBeenCalledTimes(2)
-    expect(getConversationNavigationProof(hook.queryClient)?.status).toBe("warming")
-    expect(registry.runtime.ws.get().channelAccessScopes.get("dm1")).toMatchObject({ generation: 2, revoked: true })
-    expect(isChannelMetadataTokenCurrent(oldProof)).toBe(false)
-    const authority = requests.find((request) => new URL(request.path, "https://alook.test").pathname === "/api/community/channels/dm1")!
-    const resource = hook.queryClient.getQueryCache().find({ queryKey: communityKeys.channelMeta(null, "dm1"), exact: true })!
-    prior.unmount()
-    expect(resource.getObserversCount()).toBe(2)
-    expect(authority.signal.aborted).toBe(false)
-    const current = renderHook(() => ({ metadata: useChannelMetadata(null, "dm1"), gate: useConversationNavigationGate(hook.queryClient, "viewer", "dm1", 0) }), { wrapper })
-    expect(current.result.current.metadata.canRead).toBe(false)
-    expect(current.result.current.gate.allowed).toBe(false)
-    await act(async () => authority.resolve(json(metadata)))
-    await waitFor(() => expect(current.result.current.metadata.canRead).toBe(true))
-    await act(async () => {
-      requests.find((request) => request.path.includes("/read-state"))!.resolve(json({ lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }))
-      requests.find((request) => request.path.includes("/messages"))!.resolve(json({ messages: [], hasMore: false, surfaceReceipt: { channelId: "dm1", surfaceKind: "dm" } }))
-    })
-    await waitFor(() => expect(current.result.current.gate.allowed).toBe(true))
-    expect(registry.runtime.ws.get().channelAccessScopes.get("dm1")).toMatchObject({ generation: 2, revoked: false })
-    expect(requests).toHaveLength(3)
-    await waitFor(() => expect(resource.getObserversCount()).toBe(1))
-    current.unmount()
-  })
 
-  it("upserts a DM only after projection/cancel and verifies only after push", async () => {
+  it("upserts a DM after projection/cancel and starts the common entry at push", async () => {
     const hook = await renderController()
     order.length = 0
     await act(async () => hook.current.popoverProps.onOpenDm?.(unreadDm))
@@ -446,7 +390,6 @@ describe("useShellInboxController", () => {
       "clear",
       "push",
       "submitted",
-      "verify",
     ])
     expect(getCanonicalCommunityChannels(hook.queryClient)).toContainEqual(expect.objectContaining({ id: "dm1", type: "dm" }))
     expect(hook.queryClient.getQueryData(communityKeys.dms())).toEqual({ ids: [] })
@@ -490,11 +433,11 @@ describe("useShellInboxController", () => {
       m: { id: "message-7", seq: 7 },
     } as never))
     expect(order).toEqual(["close", "cancel", "clear", "push"])
-    expect(hook.pushed).toEqual(["/c/channels/s1/c1?seq=7"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/c1?seq=7&msg=message-7"])
     expect(mocks.warmup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      href: "/c/channels/s1/c1?seq=7",
+      href: "/c/channels/s1/c1?seq=7&msg=message-7",
       anchorMessageId: "message-7",
-    }), 0, 0, undefined)
+    }), undefined)
     expect(mocks.begin).not.toHaveBeenCalled()
   })
 
@@ -509,7 +452,7 @@ describe("useShellInboxController", () => {
     expect(hook.pushed).toEqual(["/c/me/dm1?seq=9"])
   })
 
-  it("cancels the Marked proof and reopens Inbox when navigation throws", async () => {
+  it("reopens Inbox when navigation throws", async () => {
     const error = new Error("push failed")
     const hook = await renderController(undefined, () => { throw error })
     await expect(act(async () => hook.current.popoverProps.onOpenMarked?.({
@@ -518,7 +461,6 @@ describe("useShellInboxController", () => {
       channelId: "c1",
       m: { id: "message-7", seq: 7 },
     } as never))).rejects.toThrow("push failed")
-    expect(mocks.cancelProof).toHaveBeenCalledWith(expect.anything(), 99)
     expect(mocks.onOpenChange).toHaveBeenCalledWith(true)
   })
 

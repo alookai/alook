@@ -24,3 +24,18 @@
 
 /icon-512.png
   Cache-Control: public, max-age=300, must-revalidate
+
+/favicon.ico
+  Cache-Control: public, max-age=300, must-revalidate
+
+/manifest.json
+  Cache-Control: public, max-age=300, must-revalidate
+
+/contact/gus-photo.jpeg
+  Cache-Control: public, max-age=300, must-revalidate
+
+/fonts/jgs5/jgs5.ttf
+  Cache-Control: public, max-age=300, must-revalidate
+
+/social/readme-card-58c75311e5ba.png
+  Cache-Control: public, max-age=300, must-revalidate

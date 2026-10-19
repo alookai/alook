@@ -57,6 +57,49 @@ vi.mock("@/components/ui/resizable", () => ({
 }))
 
 describe("ThreadSplitView", () => {
+  it("reserves the native parent, target and handle while layout measurement is pending", () => {
+    const props = {
+      split: false, layoutPending: true,
+      parent: createElement("input", { "data-testid": "pending-parent-draft", defaultValue: "Parent draft" }),
+      thread: createElement("input", { "data-testid": "pending-thread-draft", defaultValue: "Thread draft" }),
+    }
+    const renderer = render(createElement(ThreadSplitView, props))
+    const group = screen.getByTestId("panel-group")
+    const parent = screen.getByTestId("pending-parent-draft")
+    const thread = screen.getByTestId("pending-thread-draft")
+    const handle = screen.getByLabelText("Resize thread panel")
+    expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout-pending", "true")
+    expect(group).toHaveAttribute("data-disabled", "true")
+    expect(group).toHaveAttribute("data-persists-layout", "false")
+    expect(parent.closest("section")).toHaveAttribute("inert")
+    renderer.rerender(createElement(ThreadSplitView, { ...props, split: true, layoutPending: false }))
+    expect(screen.getByTestId("panel-group")).toBe(group)
+    expect(screen.getByTestId("pending-parent-draft")).toBe(parent)
+    expect(screen.getByTestId("pending-thread-draft")).toBe(thread)
+    expect(screen.getByLabelText("Resize thread panel")).toBe(handle)
+    expect(parent.closest("section")).not.toHaveAttribute("inert")
+    expect(screen.getByTestId("community-thread-split")).not.toHaveAttribute("data-layout-pending")
+    renderer.unmount()
+  })
+
+  it("settles pending measurement to a single pane without replacing the target", () => {
+    const props = {
+      split: false, parent: createElement("span", null, "Parent content"),
+      thread: createElement("input", { "data-testid": "pending-target", defaultValue: "Unsent target" }),
+    }
+    const renderer = render(createElement(ThreadSplitView, { ...props, layoutPending: true }))
+    const group = screen.getByTestId("panel-group")
+    const target = screen.getByTestId("pending-target")
+    renderer.rerender(createElement(ThreadSplitView, props))
+    expect(screen.getByTestId("panel-group")).toBe(group)
+    expect(screen.getByTestId("pending-target")).toBe(target)
+    expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "full")
+    expect(screen.queryByText("Parent content")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Resize thread panel")).not.toBeInTheDocument()
+    expect(group).toHaveAttribute("data-persists-layout", "false")
+    renderer.unmount()
+  })
+
   it("keeps the actual parent mounted but inert beneath a mobile thread", () => {
     const parent = createElement("input", { "data-testid": "back-parent-draft", defaultValue: "keep me" })
     const renderer = render(createElement(ThreadSplitView, {

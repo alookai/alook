@@ -32,8 +32,8 @@ vi.mock("@/hooks/community/use-forum-feed", async () => {
     }
   } }
 })
-vi.mock("@/hooks/community/use-channel-read-state", () => ({
-  useChannelReadStateSnapshot: () => ({ snapshot: { lastReadSeq: 0 }, isFetching: false, error: null, retrying: false }),
+vi.mock("@/hooks/community/use-conversation-entry", () => ({
+  useConversationEntry: () => ({ snapshot: { lastReadSeq: 0 }, isFetching: false, error: null, retrying: false }),
 }))
 vi.mock("@/hooks/community/use-read-observer", () => ({ useTimelineReadObserver: vi.fn() }))
 vi.mock("@/lib/community-db/projections", async (load) => ({

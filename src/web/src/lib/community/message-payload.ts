@@ -99,6 +99,12 @@ export async function loadApiMessageContext(db: Database, userId: string, ids: s
   })
 }
 
+export async function readCommunityMessageResource(db: Database, userId: string, message: Parameters<typeof mapMessageForApi>[0] & { channelId: string }, contract: CommunityContract) {
+  const context = await loadApiMessageContext(db, userId, [message.id], () => message.replyToId
+    ? queries.communityMessage.getMessagesByIdsInScope(db, [message.replyToId], { channelId: message.channelId }) : Promise.resolve([]))
+  return mapMessageForApi(message, context(message.channelId), contract, message.channelId)
+}
+
 // Splits the DB's `type` column value into the wire's `{ type, systemKind }`
 // pair. `"thread_created"` was already documented above (and in the shared
 // WS type, `CommunityMessageCreate.message.type`) as a possible column

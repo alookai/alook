@@ -71,6 +71,7 @@ export function TypewriterCityArt() {
 
   return (
     <div ref={frameRef} className={styles.frame} role="img" aria-label="A giant Alook sculpture in an ASCII city, surrounded by buildings, a park, and streets.">
+      <link rel="preload" href="/fonts/jgs5/jgs5.ttf" as="font" type="font/ttf" crossOrigin="anonymous" />
       <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
       <pre className={`${styles.art}${ready ? ` ${styles.rendered}` : ""}`} aria-hidden="true">{TYPEWRITER_CITY_ART}</pre>
     </div>

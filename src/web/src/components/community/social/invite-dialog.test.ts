@@ -59,9 +59,11 @@ vi.mock("@/hooks/community/use-dm-message-sender", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer", name: "Viewer", avatar: "V" }),
 }))
-vi.mock("@/lib/analytics", () => ({
-  trackHumanInvitationSent: mocks.trackHumanInvitationSent,
-  trackHumanInvitationCopied: mocks.trackHumanInvitationCopied,
+vi.mock("@/lib/product-analytics", () => ({
+  captureProductAnalytics: ({ event }: { event: string }) => {
+    if (event === "human_invitation_sent") mocks.trackHumanInvitationSent()
+    if (event === "human_invitation_copied") mocks.trackHumanInvitationCopied()
+  },
 }))
 vi.mock("@/components/ui/dialog", async () => {
   const { createElement } = await import("react")
@@ -370,4 +372,11 @@ describe("invite funnel completion boundaries", () => {
     )).rejects.toThrow("denied")
     expect(mocks.trackHumanInvitationCopied).not.toHaveBeenCalled()
   })
+})
+
+it("does not count a retired invite owner after the receipt commits", async () => {
+  const assert = () => { throw new DOMException("retired", "AbortError") }
+  const publish = vi.fn()
+  await expect(awaitCommittedInvite({ accepted: true, nonce: "nonce", committed: Promise.resolve({ ok: true, message: { id: "message", seq: 1 } }) }, () => { assert(); publish() })).rejects.toThrow("retired")
+  expect(publish).not.toHaveBeenCalled()
 })

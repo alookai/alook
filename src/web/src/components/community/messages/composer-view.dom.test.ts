@@ -117,7 +117,7 @@ describe("ComposerView", () => {
     const onDragLeave = vi.fn()
     const onDragOver = vi.fn()
     const onDrop = vi.fn()
-    const mentionPopup = {
+    const mentionPopup: ComposerViewProps["mentionPopup"] = {
       ...EMPTY_MENTION_STATE,
       items: [{ kind: "everyone" as const, id: "everyone", label: "everyone" }],
     }

@@ -105,7 +105,7 @@ export function useDms(enabled = true): UseQueryResult<{ ids: string[] }> & { dm
     // before routing. Reusing that projection across /c/me layout mounts keeps
     // the transition request-neutral; WS and reconnect invalidations still
     // refetch this active key explicitly.
-    staleTime: Infinity,
+    staleTime: 30_000,
   })
   const profilesByUserId = useCanonicalProfilesByUserId()
   useEffect(() => {

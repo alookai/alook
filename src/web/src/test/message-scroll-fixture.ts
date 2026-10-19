@@ -84,7 +84,7 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
     createElement("div", { ref: result.scrollRef, "data-testid": "scroll" },
       createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(result.readPositionReady) },
         createElement(VirtualRows<FlatItem>, {
-          items, virtualizer: result.virtualizer,
+          items, virtualizer: result.virtualizer, reactLayout: true,
           renderItem: (item) => createElement("div", {
             "data-message-row-key": item.key,
             "data-fixture-kind": item.kind,

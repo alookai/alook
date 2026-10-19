@@ -79,11 +79,11 @@ it("attributes a delayed real IDB snapshot only after the actual Provider hydrat
   const client = clients.get("account-a")!
   expect(restoring.get("account-a")).toBe(true)
   expect(client.getQueryData(key("account-a"))).toBeUndefined()
-  expect(events.some(event => event.name === "cache.restore.finish" && event.attributes.phase === "hydrate")).toBe(false)
+  expect(events.some(event => event.name === "cache.restore.finish" && event.attributes.phase === "restore_apply")).toBe(false)
   await act(async () => read.release())
   await waitFor(() => expect(restoring.get("account-a")).toBe(false))
   expect(client.getQueryData(key("account-a"))).toEqual([expect.objectContaining({ id: "account-a" })])
-  expect(events.filter(event => event.name === "cache.restore.finish").map(event => [event.attributes.phase, event.attributes.outcome])).toEqual([["idb_read", "hit"], ["deserialize", "hit"], ["hydrate", "success"]])
+  expect(events.filter(event => event.name === "cache.restore.finish").map(event => [event.attributes.phase, event.attributes.outcome])).toEqual([["idb_read", "hit"], ["deserialize", "hit"], ["restore_apply", "success"]])
   expect(JSON.stringify(events)).not.toContain("Private")
 })
 
@@ -102,8 +102,8 @@ it("the actual retired Provider's delayed IDB callback cannot report into the re
   const builds = vi.spyOn(original.getQueryCache(), "build")
   const clears = vi.spyOn(original, "clear")
   await act(async () => read.release())
-  await waitFor(() => expect(builds).toHaveBeenCalledWith(original, expect.objectContaining({ queryKey: key("account-a") }), expect.any(Object)))
   await waitFor(() => expect(clears).toHaveBeenCalled())
+  expect(builds).not.toHaveBeenCalled()
   await waitFor(() => expect(original.getQueryCache().getAll()).toHaveLength(0))
   expect(events.filter(event => event.name.startsWith("cache.restore."))).toEqual(prior)
   expect(replacement.getQueryData(key("account-b"))).toBe(replacementData)

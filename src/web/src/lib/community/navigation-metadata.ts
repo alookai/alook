@@ -1,5 +1,5 @@
-import { noop, type QueryClient } from "@tanstack/react-query"
-import { channelMetadataOptions, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "@/hooks/community/channel-metadata"
+import { noop, QueryObserver, type QueryClient } from "@tanstack/react-query"
+import { conversationEntryOptions } from "./conversation-entry"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { channelMembershipKey } from "@/lib/community-db/schema"
 import { resolveCommunityModulePlan } from "./community-route"
@@ -18,8 +18,9 @@ export function prepareNavigationMetadata(queryClient: QueryClient, href: string
     || !registry.collections.channelMemberships.has(channelMembershipKey(channelId, registry.accountId, "access"))
     || registry.runtime.ws.actions.isChannelAccessRevoked(channelId, serverId)) return
   const action = intent === "prefetch" ? prefetchForHref(href) : navigationForHref(href)
-  const options = channelMetadataOptions(queryClient, serverId, channelId, { action, reason: intent })
-  const cached = queryClient.getQueryData<ChannelMetadataResource>(options.queryKey)
-  return queryClient.query({ ...options,
-    staleTime: cached?.readProof && isChannelMetadataTokenCurrent(cached.readProof) ? Infinity : 0 }).catch(noop)
+  const anchorMessageId = new URL(href, "https://alook.test").searchParams.get("msg")
+  const options = conversationEntryOptions(queryClient, { serverId, channelId, anchorMessageId }, { action, reason: intent })
+  const observer = new QueryObserver(queryClient, { ...options, enabled: false })
+  const unsubscribe = observer.subscribe(noop)
+  return queryClient.query({ ...options, select: undefined }).catch(noop).finally(unsubscribe)
 }

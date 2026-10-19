@@ -78,6 +78,30 @@ function prepare(
   })
 }
 
+function measureTableLayout(bodyWidth = 240) {
+  vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(function (this: Element) {
+    return this.hasAttribute("data-share-body-id") ? bodyWidth : 320
+  })
+  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (this: HTMLElement) {
+    const width = this instanceof HTMLTableElement
+      ? Number(this.dataset.measuredWidth)
+      : this.hasAttribute("data-share-body-id")
+        ? bodyWidth
+        : this.matches("[data-share-card-source], [data-share-card]")
+          ? Number.parseFloat(this.style.width) || 320
+          : 320
+    return new DOMRect(0, 0, width, 180)
+  })
+}
+
+function cellContentNodes(element: Element): unknown[] {
+  return [...element.childNodes].map(node => ({
+    name: node.nodeName,
+    text: node.nodeValue,
+    children: node instanceof Element ? cellContentNodes(node) : [],
+  }))
+}
+
 beforeEach(() => {
   vi.mocked(getFontEmbedCSS).mockResolvedValue(FONT_CSS)
   vi.stubGlobal("Image", DecodableImage)
@@ -114,6 +138,94 @@ describe("prepareShareImageSession", () => {
     expect(prepared.markup).toContain("default options")
     expect(getFontEmbedCSS).toHaveBeenCalledTimes(1)
     expect(Object.isFrozen(prepared)).toBe(true)
+  })
+
+  it("freezes every rich table cell without clipping and widens only for the largest overflow", async () => {
+    measureTableLayout()
+    const longToken = "complete-unbroken-cell-content".repeat(12)
+    const source = sourceCard(`
+      <div data-share-body-id="table-body" style="max-height:48px;-webkit-line-clamp:2;display:-webkit-box;overflow:hidden">
+        <div data-table-viewport style="max-height:24px;overflow:auto">
+          <table data-measured-width="320.4">
+            <thead><tr><th>First column</th><th>Second column</th></tr></thead>
+            <tbody>
+              <tr><td>before <strong>emphasis</strong> <a href="/about">link</a> after</td><td>${longToken}</td></tr>
+              <tr><td>complete last row</td><td><code>final rich content</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div data-table-viewport style="max-height:24px;overflow:hidden">
+          <table data-measured-width="270.2"><tbody><tr><td>second complete table</td></tr></tbody></table>
+        </div>
+      </div>
+    `)
+    const original = source.outerHTML
+    const expectedCells = [...source.querySelectorAll("th,td")].map(cell => ({ text: cell.textContent, content: cellContentNodes(cell) }))
+    const expectedRows = source.querySelectorAll("tr").length
+
+    const prepared = await prepare(source)
+    const output = document.createElement("div")
+    output.innerHTML = prepared.markup
+    const frozen = output.firstElementChild as HTMLElement
+    const body = frozen.querySelector<HTMLElement>("[data-share-body-id]")!
+    const cells = [...frozen.querySelectorAll<HTMLElement>("th,td")]
+
+    expect(source.outerHTML).toBe(original)
+    expect(frozen.querySelectorAll("tr")).toHaveLength(expectedRows)
+    expect(cells.map(cell => cell.textContent)).toEqual(expectedCells.map(cell => cell.text))
+    expect(frozen.textContent).toContain(longToken)
+    expect(frozen.textContent).toContain("complete last row")
+    expect(body.style.maxHeight).toBe("none")
+    expect(body.style.display).toBe("block")
+    expect(body.style.overflow).toBe("visible")
+    for (const viewport of frozen.querySelectorAll<HTMLElement>("[data-table-viewport]")) {
+      expect(viewport.style.maxHeight).toBe("none")
+      expect(viewport.style.overflow).toBe("visible")
+    }
+    for (const table of frozen.querySelectorAll("table")) expect(table.style.tableLayout).toBe("auto")
+    for (const [index, cell] of cells.entries()) {
+      const content = cell.firstElementChild as HTMLElement
+      expect(cellContentNodes(content)).toEqual(expectedCells[index]!.content)
+      expect(content.style.maxWidth).toBe("240px")
+      expect(content.style.whiteSpace).toBe("normal")
+      expect(content.style.overflowWrap).toBe("anywhere")
+      expect(content.style.wordBreak).toBe("normal")
+    }
+    expect(frozen.style.width).toBe("401px")
+    expect(prepared.width).toBe(401)
+    expect(Object.isFrozen(prepared)).toBe(true)
+  })
+
+  it("uses the card width for a table without a body container and keeps a fitting card unchanged", async () => {
+    measureTableLayout()
+    const source = sourceCard(`
+      <div data-table-viewport style="max-height:24px;overflow:auto">
+        <table data-measured-width="200"><tbody><tr><td>root <em>fallback</em> content</td></tr></tbody></table>
+      </div>
+    `)
+    const original = source.outerHTML
+    const originalContent = cellContentNodes(source.querySelector("td")!)
+
+    const prepared = await prepare(source)
+    const output = document.createElement("div")
+    output.innerHTML = prepared.markup
+    const frozen = output.firstElementChild as HTMLElement
+    const viewport = frozen.querySelector<HTMLElement>("[data-table-viewport]")!
+    const cell = frozen.querySelector("td")!
+    const content = cell.firstElementChild as HTMLElement
+
+    expect(source.outerHTML).toBe(original)
+    expect(frozen.querySelector("[data-share-body-id]")).toBeNull()
+    expect(frozen.querySelector("table")!.style.tableLayout).toBe("auto")
+    expect(viewport.style.maxHeight).toBe("none")
+    expect(viewport.style.overflow).toBe("visible")
+    expect(cell.textContent).toBe("root fallback content")
+    expect(cellContentNodes(content)).toEqual(originalContent)
+    expect(content.style.maxWidth).toBe("320px")
+    expect(content.style.whiteSpace).toBe("normal")
+    expect(content.style.overflowWrap).toBe("anywhere")
+    expect(frozen.style.width).toBe("320px")
+    expect(prepared.width).toBe(320)
   })
 
   it("reuses loaded pixels once for deferred duplicate images without fetching or decoding source bytes", async () => {

@@ -38,6 +38,40 @@ export interface ServiceLifecycleState {
   failure?: ServiceFailure
 }
 
+export interface PublicStaticPhaseReceipt {
+  schema: 1
+  runId: string
+  manifestDigest: string
+  commandDigest?: string
+  sequence: number
+  release: "N" | "Nplus1"
+  status: "ready" | "switching" | "failed" | "stopped"
+  caseId?: string
+  deadline?: number
+  expectedStops?: Array<{ label: string; pid: number }>
+  failure?: string
+}
+
+export function phaseReadinessFailure(receipt: PublicStaticPhaseReceipt | null, now: number): string | null {
+  if (!receipt) return "Public static phase owner has no receipt"
+  if (receipt.status === "failed" || receipt.status === "stopped") return receipt.failure ?? `Public static phase owner is ${receipt.status}`
+  if (receipt.status === "ready") return null
+  if (receipt.status !== "switching" || !Number.isSafeInteger(receipt.deadline) || now >= receipt.deadline!) return "Public static phase transition expired"
+  const stops = receipt.expectedStops ?? []
+  if (!Array.isArray(stops) || stops.length !== 2 || !stops.every(value => value && ["main backend", "Blog backend"].includes(value.label) && Number.isInteger(value.pid) && value.pid > 0)
+    || new Set(stops.map(value => value.label)).size !== 2
+    || stops[0].pid === stops[1].pid || !receipt.caseId) return "Public static phase has invalid expected children"
+  return null
+}
+
+export function phaseProbeCrossed(before: PublicStaticPhaseReceipt, after: PublicStaticPhaseReceipt | null, now: number) {
+  const failure = phaseReadinessFailure(after, now)
+  if (failure) throw new Error(failure)
+  if (!after || after.runId !== before.runId || after.manifestDigest !== before.manifestDigest || !Number.isSafeInteger(after.sequence) || after.sequence < before.sequence
+    || (after.sequence === before.sequence && after.status === "ready" && before.status === "ready" && after.release !== before.release)) throw new Error("Health sample has a foreign or regressed phase identity")
+  return after.status === "switching" || before.status === "switching" || after.sequence !== before.sequence
+}
+
 export function createLifecycleState(restorePending = false): ServiceLifecycleState {
   return { status: "starting", restorePending, services: [], health: {} }
 }

@@ -59,10 +59,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tanstack/react-query", async (load) => ({ ...await load<typeof import("@tanstack/react-query")>(), useQueryClient: () => ({ refetchQueries: mocks.read.retry }) }))
 
 vi.mock("@/hooks/community/use-forum-feed", () => ({
-  useForumFeed: () => mocks.feed,
+  useForumFeed: () => ({ ...mocks.feed, data: mocks.feed.posts.length ? { pages: [] } : undefined }),
 }))
-vi.mock("@/hooks/community/use-channel-read-state", () => ({
-  useChannelReadStateSnapshot: () => mocks.read,
+vi.mock("@/hooks/community/use-conversation-entry", () => ({
+  useConversationEntry: () => ({ ...mocks.read, refetch: mocks.read.retry }),
 }))
 vi.mock("@/hooks/community/use-read-observer", () => ({
   useTimelineReadObserver: (value: unknown) => mocks.observe(value),

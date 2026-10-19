@@ -8,6 +8,7 @@ import type { CommunityCommittedFrame } from "@/lib/community/community-route"
 import type { OwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
 
 export type CommunityNavigationController = {
+  entryIntent?: { href: string } | null
   captureIntent: (options?: { nextCommitHref: string } | { pendingCommitHref: string }) => () => boolean
   publishedHref: string
   navigationPending: boolean

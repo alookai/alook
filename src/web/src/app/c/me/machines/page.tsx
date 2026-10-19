@@ -2,12 +2,10 @@
 
 import { MachineList } from "@/components/community/machines/machine-list"
 import { OnboardingSelectDialogPreview } from "@/components/community/onboarding/onboarding-select-dialog.preview"
-import { useBreakpoint } from "@/hooks/use-mobile"
 import { useUiHandlers } from "@/stores/community"
 import { useSearchParams } from "next/navigation"
 
 export default function MeMachinesPage() {
-  const bp = useBreakpoint()
   const uiHandlers = useUiHandlers()
   const searchParams = useSearchParams()
   const onboardingPreview = searchParams.get("onboarding-preview")
@@ -21,7 +19,7 @@ export default function MeMachinesPage() {
   return (
     <>
       <MachineList
-        onBack={bp === "mobile" ? () => uiHandlers.goBackMobile?.() : undefined}
+        onBack={() => uiHandlers.goBackMobile?.()}
       />
       {showOnboardingPreview ? (
         <OnboardingSelectDialogPreview

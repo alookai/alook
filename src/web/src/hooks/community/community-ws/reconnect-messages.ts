@@ -7,6 +7,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
 import { messageWindowPage, type MessagesPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
+import { buildMessagesUrl, messageWindowIdentity } from "@/lib/community/message-window"
 
 type MessageCache = InfiniteData<MessagesWindowPage, MessagesPageParam>
 type GapRepairScope = { kind: "channel" | "dm"; scopeId: string; serverId?: string }
@@ -14,17 +15,11 @@ const MAX_CATCH_UP_PAGES = 8
 function isMessageCache(value: unknown): value is MessageCache { return !!value && typeof value === "object" && Array.isArray((value as MessageCache).pages) && Array.isArray((value as MessageCache).pageParams) }
 function messagesKey(scope: GapRepairScope) { return scope.kind === "channel" ? communityKeys.channelMessages(scope.scopeId) : communityKeys.dmMessages(scope.scopeId) }
 function targetKey(key: QueryKey) { return [...key, "reconcile-target"] }
-function isWindowKey(key: QueryKey) { return key.length === 4 || key.length === 6 && key[4] === "tag" }
+function isWindowKey(key: QueryKey) { return messageWindowIdentity(key) !== undefined }
 function latest(cache: MessageCache, includeWatermark = true) { return Math.max(0, ...cache.pages.flatMap((page) => [...page.messages.map((message) => message.seq ?? 0), ...(includeWatermark ? [page.latestSeq ?? 0] : [])])) }
 function cursor(cache: MessageCache) { return cache.pages.flatMap((page) => page.newestCursor ? [page.newestCursor] : []).sort().at(-1) ?? null }
 function url(scopeId: string, param: MessagesPageParam, tag: string | null) {
-  const search = new URLSearchParams()
-  if (tag) search.set("tag", tag)
-  if (param.mode === "anchor") search.set("anchor", param.anchor)
-  if (param.mode === "older") search.set("cursor", param.cursor)
-  if (param.mode === "since") search.set("since", param.since)
-  if (param.mode === "newer") search.set("since", param.cursor)
-  return `/api/community/channels/${scopeId}/messages${search.size ? `?${search}` : ""}`
+  return buildMessagesUrl(`/api/community/channels/${scopeId}/messages`, param, tag)
 }
 
 function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: MessagesPage[]): MessageCache {
@@ -53,7 +48,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scopeId: strin
       const pendingDirection = originalQuery?.state.fetchStatus === "fetching" ? originalQuery.state.fetchMeta?.fetchMore?.direction : undefined
       await queryClient.cancelQueries({ queryKey: key, exact: true }, { revert: true, silent: true })
       assert()
-      const tag = key[4] === "tag" && typeof key[5] === "string" ? key[5] : null
+      const tag = messageWindowIdentity(key)?.tag ?? null
       const load = async (param: MessagesPageParam) => { assert(); const page = await apiFetchCommunity<MessagesPage>(url(scopeId, param, tag), { signal, assertActive: assert }, token); assert(); return page }
       let highWater = latest(data)
       let paginationReplayed = false

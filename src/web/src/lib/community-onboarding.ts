@@ -1,5 +1,7 @@
 "use client";
 
+import { captureProductAnalytics } from "@/lib/product-analytics";
+
 import { useSelector } from "@tanstack/react-store";
 import { useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime";
 import type { OnboardingInitializationProtocol } from "./community/models/onboarding";
@@ -103,13 +105,20 @@ export function recoverCommunityOnboardingMachine(runtime: CommunityRuntime) {
   return publish(runtime, { ...currentState, machineRecovery: true });
 }
 
-export function completeCommunityOnboarding(runtime: CommunityRuntime) {
+export function completeCommunityOnboarding(runtime: CommunityRuntime, pathname?: string) {
   const currentState = readCommunityOnboardingState(runtime);
   if (currentState?.status !== "active" || currentState.stage !== "initializing") {
     return currentState;
   }
+  const protocol = currentState.initialization;
+  const result = protocol?.result;
+  if (!result || protocol.pendingDestination !== `/c/channels/${result.serverId}/${result.publicChannelId}` || pathname !== protocol.pendingDestination) return currentState;
+  const generation = runtime.lifecycle.get().generation;
   publish(runtime, null);
   trackCommunityOnboardingStageCompleted("initializing");
+  void captureProductAnalytics({ event: "community_onboarding_completed" }, () => {
+    if (!runtime.lifecycle.get().active || runtime.lifecycle.get().generation !== generation) throw new DOMException("Retired onboarding owner", "AbortError");
+  });
   return null;
 }
 

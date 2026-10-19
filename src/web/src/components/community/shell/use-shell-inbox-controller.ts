@@ -7,7 +7,6 @@ import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { dmSummaryFromInbox } from "@/lib/community/dm-cache"
 import { useInboxAttention, useInboxMarked } from "@/hooks/community/use-inbox"
-import { startChannelRouteVerification } from "@/hooks/community/channel-route-verification"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
   inboxChannelRowTarget,
@@ -34,8 +33,7 @@ import {
   clearThreadOpenerReadHandoff,
 } from "@/hooks/community/thread-opener-read-handoff"
 import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
-import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-proof"
-import { cancelConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
+import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-warmup"
 import { publishCommunityDmSummary } from "@/lib/community-db/sync"
 
 type UnreadChannel = UnreadServer["channels"][number]
@@ -60,7 +58,6 @@ export function useShellInboxController({
   navigationPending,
   pendingHref,
   viewerId,
-  accessEpoch,
 }: Options) {
   const pushInboxHref = useCallback((href: string, prepare?: (action?: Action) => void) => {
     if (router.pushImmediate) router.pushImmediate(href, prepare)
@@ -125,18 +122,16 @@ export function useShellInboxController({
     const epoch = inbox.beginProjection(target, destinationHref)
     cancelPendingNavigation()
     clearThreadOpenerReadHandoff(queryClient)
-    let proofEpoch: number | undefined
     let pushedHref = destinationHref
     try {
       pushedHref = prepare?.() ?? destinationHref
       pushInboxHref(pushedHref, action => {
-        proofEpoch = startConversationNavigationWarmup(queryClient, {
+        void startConversationNavigationWarmup(queryClient, {
           ...warmup, href: destinationHref, viewerId,
-        }, accessEpoch, 0, action)
+        }, action)
       })
       if (inbox.markProjectionSubmitted(epoch)) afterPush?.()
     } catch (error) {
-      if (proofEpoch !== undefined) cancelConversationNavigationProof(queryClient, proofEpoch)
       const nonce = new URLSearchParams(pushedHref.split("?")[1] ?? "")
         .get("inboxThreadOpener")
       if (nonce) terminateThreadOpenerReservationHandoff(queryClient, nonce)
@@ -146,7 +141,7 @@ export function useShellInboxController({
       }
       throw error
     }
-  }, [accessEpoch, cancelPendingNavigation, inbox, pushInboxHref, queryClient, viewerId])
+  }, [cancelPendingNavigation, inbox, pushInboxHref, queryClient, viewerId])
 
   const openServerChannel = useCallback((
     server: UnreadServer,
@@ -161,21 +156,19 @@ export function useShellInboxController({
       const previousOpen = inbox.closeWithoutProjection()
       cancelPendingNavigation()
       clearThreadOpenerReadHandoff(queryClient)
-      let proofEpoch: number | undefined
-      try {
+        try {
         pushInboxHref(href, action => {
-          proofEpoch = startConversationNavigationWarmup(queryClient, {
+          void startConversationNavigationWarmup(queryClient, {
             href,
             viewerId,
             channelId: channel.channelId,
             serverId: server.serverId,
             scopeKind: "channel",
             expectedSurfaceKind: channel.type === "forum" ? "forum" : "channel",
-          }, accessEpoch, 0, action)
+          }, action)
         })
       } catch (error) {
-        if (proofEpoch !== undefined) cancelConversationNavigationProof(queryClient, proofEpoch)
-        cancelPendingNavigation()
+          cancelPendingNavigation()
         inbox.onOpenChange(previousOpen)
         throw error
       }
@@ -187,7 +180,7 @@ export function useShellInboxController({
       scopeKind: "channel",
       expectedSurfaceKind: channel.type === "forum" ? "forum" : "channel",
     })
-  }, [accessEpoch, cancelPendingNavigation, inbox, pushInboxHref, pushProjected, queryClient, viewerId])
+  }, [cancelPendingNavigation, inbox, pushInboxHref, pushProjected, queryClient, viewerId])
 
   const openThread = useCallback((
     server: UnreadServer,
@@ -220,14 +213,14 @@ export function useShellInboxController({
     const previousOpen = inbox.closeWithoutProjection()
     cancelPendingNavigation()
     clearThreadOpenerReadHandoff(queryClient)
-    const seqQuery = marked.m.seq != null ? `?seq=${marked.m.seq}` : ""
+    const seq = marked.m.seq != null ? `seq=${marked.m.seq}` : ""
+    const seqQuery = marked.serverId ? `?${seq ? `${seq}&` : ""}msg=${encodeURIComponent(marked.m.id)}` : seq ? `?${seq}` : ""
     const href = marked.serverId
       ? `${channelHref(marked.serverId, marked.channelId)}${seqQuery}`
       : `/c/me/${marked.channelId}${seqQuery}`
-    let proofEpoch: number | undefined
     try {
       pushInboxHref(href, action => {
-        proofEpoch = startConversationNavigationWarmup(queryClient, {
+        void startConversationNavigationWarmup(queryClient, {
           href,
           viewerId,
           channelId: marked.channelId,
@@ -235,15 +228,14 @@ export function useShellInboxController({
           scopeKind: marked.serverId ? "channel" : "dm",
           ...(marked.serverId ? { anchorMessageId: marked.m.id } : {}),
           ...(!marked.serverId ? { expectedSurfaceKind: "dm" as const } : {}),
-        }, accessEpoch, 0, action)
+        }, action)
       })
     } catch (error) {
-      if (proofEpoch !== undefined) cancelConversationNavigationProof(queryClient, proofEpoch)
       cancelPendingNavigation()
       inbox.onOpenChange(previousOpen)
       throw error
     }
-  }, [accessEpoch, cancelPendingNavigation, inbox, pushInboxHref, queryClient, viewerId])
+  }, [cancelPendingNavigation, inbox, pushInboxHref, queryClient, viewerId])
 
   const openDm = useCallback((dm: UnreadDm) => {
     const dmId = dm.channelId
@@ -258,9 +250,6 @@ export function useShellInboxController({
       () => {
         const summary = dmSummaryFromInbox(dm)
         publishCommunityDmSummary(queryClient, summary)
-      },
-      () => {
-        void startChannelRouteVerification(queryClient, null, dmId).catch(() => undefined)
       },
     )
   }, [pushProjected, queryClient])

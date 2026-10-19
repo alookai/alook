@@ -10,11 +10,13 @@ export function VirtualRows<T>({
   virtualizer,
   renderItem,
   rowRole,
+  reactLayout = false,
 }: {
   items: T[]
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
   renderItem: (item: T, index: number) => ReactNode
   rowRole?: "listitem"
+  reactLayout?: boolean
 }) {
   return (
     <div
@@ -22,6 +24,7 @@ export function VirtualRows<T>({
       style={{
         position: "relative",
         width: "100%",
+        ...(reactLayout ? { height: virtualizer.getTotalSize() } : {}),
       }}
     >
       {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -37,6 +40,7 @@ export function VirtualRows<T>({
               top: 0,
               left: 0,
               width: "100%",
+              ...(reactLayout ? { transform: `translate3d(0, ${virtualRow.start - virtualizer.options.scrollMargin}px, 0)` } : {}),
             }}
           >
             {renderItem(item, virtualRow.index)}

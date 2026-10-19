@@ -95,7 +95,7 @@ describe("onboarding preview flow", () => {
       /onContinue=\{async \(\) => \{[\s\S]*?pendingDestination: destination[\s\S]*?navigate\(initializationResult\.serverId, initializationResult\.publicChannelId\)/,
     )
     expect(onboardingFormSource).toMatch(
-      /const pendingDestination = protocol\?\.pendingDestination[\s\S]*?pathname !== pendingDestination[\s\S]*?completeCommunityOnboarding\(communityRuntime\)/,
+      /const pendingDestination = protocol\?\.pendingDestination[\s\S]*?pathname !== pendingDestination[\s\S]*?completeCommunityOnboarding\(communityRuntime, pathname\)/,
     )
   })
 })

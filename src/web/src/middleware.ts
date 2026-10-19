@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getAuth, observeAuthSession } from "@/lib/auth"
 import { safeRedirectPath } from "@/lib/safe-redirect"
+import { COMMUNITY_DOCUMENT_ROUTE_HEADER, communityDocumentRoute } from "@/lib/community/document-route"
 import { authResponseCookies } from "@/lib/auth-response-cookies"
 
 const AUTH_REQUIRED_PREFIXES = ["/c/"]
@@ -44,7 +45,13 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(signInUrl)
     }
 
-    return authResponseCookies(request, result.headers)
+    const forwarded = new Headers(request.headers)
+    forwarded.delete(COMMUNITY_DOCUMENT_ROUTE_HEADER)
+    const documentRoute = request.method === "GET" ? communityDocumentRoute(request.nextUrl) : null
+    if (documentRoute) forwarded.set(COMMUNITY_DOCUMENT_ROUTE_HEADER, documentRoute)
+    const response = authResponseCookies(request, result.headers, forwarded)
+    response.headers.set("Cache-Control", "private, no-store")
+    return response
   }
 
   if (pathname === "/sign-in" || pathname === "/sign-up") {
@@ -66,6 +73,11 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  if (request.headers.has(COMMUNITY_DOCUMENT_ROUTE_HEADER)) {
+    const forwarded = new Headers(request.headers)
+    forwarded.delete(COMMUNITY_DOCUMENT_ROUTE_HEADER)
+    return NextResponse.next({ request: { headers: forwarded } })
+  }
   return NextResponse.next()
 }
 

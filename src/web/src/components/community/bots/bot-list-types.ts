@@ -24,9 +24,13 @@ export type BotListController = {
   isCreateDisabled: boolean
   pendingActiveBotIds: ReadonlySet<string>
   setBotActive: (bot: BotSummary, active: boolean) => Promise<void>
+  initialError: boolean
+  retryInitialLoad: () => void
+  retryingInitialLoad: boolean
   isLoading: boolean
   machines: MachineSummary[]
   machinesLoading: boolean
+  machinesUnknown: boolean
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
   createOpen: boolean
   setCreateOpen: Atom<boolean>["set"]

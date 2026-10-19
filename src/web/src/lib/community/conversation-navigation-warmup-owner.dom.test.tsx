@@ -1,391 +1,79 @@
-import React, { StrictMode, useLayoutEffect } from "react"
-import { QueryClient, useInfiniteQuery } from "@tanstack/react-query"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
-import { CommunityTestProvider } from "@/test/community-owner-fixture"
-import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
-import { createQueryClient } from "@/lib/query-client"
-import { communityKeys } from "@/lib/query-keys"
-import { apiFetch } from "@/lib/api/client"
-import { startConversationNavigationWarmup } from "./conversation-navigation-warmup"
-import { getConversationNavigationProof, recoverConversationNavigationProof, useConversationNavigationGate } from "./conversation-navigation-proof"
-import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
-import type { MessagesPageParam } from "@/lib/community/models/message"
-import { channelMetadataOptions, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
-import { startChannelRouteVerification } from "@/hooks/community/channel-route-verification"
+import React from "react"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { conversationEntryFixture as fixture, conversationEntryTarget as entryTarget } from "@/test/conversation-entry-fixtures"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
-import { retireCommunityChannelReading } from "@/lib/community-db/sync"
-import { beginNavigation, clearActions, finishAction } from "@/lib/observability/context"
-import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
+import { useMessages } from "@/hooks/community/use-messages"
+import { ApiError } from "@/lib/errors"
+import { startConversationNavigationWarmup } from "./conversation-navigation-warmup"
 
-vi.mock("@/lib/api/client", async (load) => {
-  const actual = await load<typeof import("@/lib/api/client")>()
-  return { ...actual, apiFetch: vi.fn(actual.apiFetch) }
-})
-
-
-const owners: CommunityDbRegistry[] = []
-const target = { href: "/c/me/d1", viewerId: "viewer", channelId: "d1", scopeKind: "dm" as const }
-const readKey = communityKeys.dmReadStateSnapshot("d1")
-let releases: Array<(response: Response) => void>
-let assign: ReturnType<typeof vi.fn>
-const anyDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, "any")
-let signals: AbortSignal[]
-beforeEach(() => {
-  Object.defineProperty(AbortSignal, "any", { configurable: true, value: undefined })
-  releases = []
-  signals = []
-  vi.mocked(apiFetch).mockClear()
-  assign = vi.fn()
-  const actualWindow = window
-  vi.stubGlobal("window", new Proxy(actualWindow, { get(object, key) {
-    if (key === "location") return { origin: "https://alook.test", assign }
-    return Reflect.get(object, key, object)
-  } }))
-  vi.stubGlobal("fetch", vi.fn((path: string, options: RequestInit) => {
-    if (path.includes("/messages")) return Promise.resolve(new Response(JSON.stringify({ messages: [], hasMore: false, surfaceReceipt: { channelId: "d1", surfaceKind: "dm" } }), { status: 200, headers: { "Content-Type": "application/json" } }))
-    signals.push(options.signal!)
-    return new Promise<Response>((resolve) => releases.push(resolve))
-  }))
-})
-afterEach(async () => {
-  await act(async () => {
-    retireTelemetry(); clearActions()
-    for (const owner of owners.splice(0)) { await owner.cleanup(); owner.queryClient.clear() }
-    if (anyDescriptor) Object.defineProperty(AbortSignal, "any", anyDescriptor)
-    else Reflect.deleteProperty(AbortSignal, "any")
-    vi.unstubAllGlobals()
-  })
-})
-function createClient() {
-  const client = createQueryClient()
-  const registry = createCommunityDbRegistry(client, "viewer")
-  owners.push(registry)
-  return { client, registry, unregister: registerCommunityDbRegistry(registry) }
+const load = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
+beforeEach(() => { load.mockReset() })
+const target = { ...entryTarget, serverId: "s1", href: "/c/channels/s1/c1", viewerId: "viewer", scopeKind: "channel" as const }
+async function setup() {
+  const owner = await createCommunityQueryOwner()
+  const wrapper = ({ children }: React.PropsWithChildren) => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>{children}</CommunityDbProvider></QueryClientProvider>
+  return { ...owner, wrapper }
 }
-function Gate({ client }: { client: QueryClient }) {
-  useConversationNavigationGate(client, "viewer", "d1", 0)
-  return null
-}
-function response(status: number) {
-  return new Response(JSON.stringify(status === 200
-    ? { lastReadMessageId: "read", lastReadAt: null, lastReadSeq: 5 }
-    : { error: "denied" }), { status, headers: { "Content-Type": "application/json" } })
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
 }
 
-describe("warmup original owner and complete intent resources", () => {
-  it("retains the real navigation across original registry readiness and common API merge, then separates pagination and refresh", async () => {
-    const owner = createClient()
-    configureTelemetry({ session_id: "chain-session" }, true)
-    const events: Array<{ name: string; attributes: Record<string, string> }> = []
-    installTelemetrySink(event => events.push(event))
-    const action = beginNavigation(target.href)!
-    const epoch = startConversationNavigationWarmup(owner.client, target, 0, 0, action)
-    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path.includes("/messages"))).toBe(true))
-    const message = vi.mocked(apiFetch).mock.calls.find(([path]) => path.includes("/messages"))!
-    expect(message[1]?.observation).toEqual({ action, reason: "foreground" })
-    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toMatchObject({ epoch, status: "proven" }))
-    expect(events.find(e => e.name === "data.publish")?.attributes).toMatchObject({ action_id: action.id, request_reason: "foreground", source: "network", cache_stage: "canonical" })
-    vi.mocked(apiFetch).mockClear()
-    const read = dmMessagesQueryFn("d1", { queryClient: owner.client, observation: { action, reason: "foreground" } })
-    await read({ pageParam: { mode: "older", cursor: "old" } })
-    expect(vi.mocked(apiFetch).mock.calls[0]?.[1]?.observation).toEqual({ page: action, reason: "pagination" })
-    finishAction(action, "success")
-    vi.mocked(apiFetch).mockClear()
-    await read({ pageParam: { mode: "newest" } })
-    expect(vi.mocked(apiFetch).mock.calls[0]?.[1]?.observation).toEqual({ page: action, reason: "background" })
+describe("entry handoff to mounted consumers", () => {
+  it("shares prewarm, header and message body through one native request", async () => {
+    const { client, wrapper } = await setup()
+    const request = deferred<ReturnType<typeof fixture>>()
+    load.mockReturnValue(request.promise)
+    const reading = startConversationNavigationWarmup(client, target)
+    const hook = renderHook(() => ({ metadata: useChannelMetadata("s1", "c1"), messages: useMessages("c1", { serverId: "s1" }) }), { wrapper })
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    await act(async () => { request.resolve(fixture()); await reading })
+    await waitFor(() => expect(hook.result.current.messages.messages?.[0]?.content).toBe("Body"))
+    expect(hook.result.current.metadata.canRead).toBe(true)
+    expect(load).toHaveBeenCalledOnce()
+    hook.unmount()
   })
 
-  it.each(["dm", "thread"] as const)("qualifies a revoked %s before warmup capture and keeps that request through prior-body unmount", async (kind) => {
-    const owner = createClient()
-    await owner.registry.preload()
-    const serverId = kind === "dm" ? null : "s1"
-    if (serverId) owner.client.setQueryData(communityKeys.server(serverId), serverId)
-    const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "d1", serverId, type: kind, name: kind === "dm" ? null : "Thread",
-      parentChannelId: kind === "dm" ? null : "parent", parentMessageId: kind === "dm" ? null : "opener",
-      creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
-    const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { "Content-Type": "application/json" } })
-    const pending: Array<{ path: string; signal: AbortSignal; resolve: (value: Response) => void }> = []
-    let held = false
-    vi.stubGlobal("fetch", vi.fn((path: string, options: RequestInit) => !held
-      ? Promise.resolve(json(metadata))
-      : new Promise<Response>((resolve) => pending.push({ path, signal: options.signal!, resolve }))))
-    await owner.client.query(channelMetadataOptions(owner.client, serverId, "d1"))
-    const wrapper = ({ children }: React.PropsWithChildren) => <CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>{children}</CommunityTestProvider>
-    const prior = renderHook(() => useChannelMetadata(serverId, "d1"), { wrapper })
-    const oldProof = prior.result.current.data!.readProof!
-    act(() => retireCommunityChannelReading(owner.registry, "d1", { reason: "read-denied", serverId }))
-    expect(prior.result.current.canRead).toBe(false)
-    held = true
-    const navigation = { ...target, scopeKind: kind === "dm" ? "dm" as const : "channel" as const,
-      ...(serverId ? { serverId } : {}), expectedSurfaceKind: kind }
-    let epoch!: number
-    act(() => { epoch = startConversationNavigationWarmup(owner.client, navigation, 0) })
-    await waitFor(() => expect(pending).toHaveLength(3))
-    const authority = pending.find((request) => new URL(request.path, "https://alook.test").pathname === "/api/community/channels/d1")!
-    const resource = owner.client.getQueryCache().find({ queryKey: communityKeys.channelMeta(serverId, "d1"), exact: true })!
-    expect(owner.registry.runtime.ws.get().channelAccessScopes.get("d1")).toMatchObject({ generation: 2, revoked: true })
-    expect(isChannelMetadataTokenCurrent(oldProof)).toBe(false)
-    prior.unmount()
-    expect(resource.getObserversCount()).toBe(1)
-    expect(authority.signal.aborted).toBe(false)
-    const afterPush = startChannelRouteVerification(owner.client, serverId, "d1")
-    const current = renderHook(() => ({ metadata: useChannelMetadata(serverId, "d1"), gate: useConversationNavigationGate(owner.client, "viewer", "d1", 0) }), { wrapper })
-    expect(current.result.current.metadata.canRead).toBe(false)
-    expect(owner.registry.runtime.ws.get().channelAccessScopes.get("d1")?.generation).toBe(2)
-    expect(pending).toHaveLength(3)
-    await act(async () => authority.resolve(json(metadata)))
-    await expect(afterPush).resolves.toBe("present")
-    await waitFor(() => expect(current.result.current.metadata.canRead).toBe(true))
-    await act(async () => {
-      pending.find((request) => request.path.includes("/read-state"))!.resolve(response(200))
-      pending.find((request) => request.path.includes("/messages"))!.resolve(json({ messages: [], hasMore: false, surfaceReceipt: { channelId: "d1", surfaceKind: kind } }))
-    })
-    await waitFor(() => expect(current.result.current.gate.allowed).toBe(true))
-    expect(getConversationNavigationProof(owner.client)?.epoch ?? epoch).toBe(epoch)
-    expect(owner.registry.runtime.ws.get().channelAccessScopes.get("d1")).toMatchObject({ generation: 2, revoked: false })
-    expect(pending).toHaveLength(3)
-    await waitFor(() => expect(resource.getObserversCount()).toBe(1))
-    current.unmount()
+  it("shares an explicit anchor between route metadata and the actual window", async () => {
+    const { wrapper } = await setup()
+    const packet = fixture()
+    packet.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
+    load.mockResolvedValue(packet)
+    const hook = renderHook(() => ({ metadata: useChannelMetadata("s1", "c1", { anchorMessageId: "m1" }),
+      messages: useMessages("c1", { serverId: "s1", anchorMessageId: "m1" }) }), { wrapper })
+    await waitFor(() => expect(hook.result.current.messages.initialPositionKnown).toBe(true))
+    expect(load).toHaveBeenCalledOnce()
+    expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1&anchor=m1")
+    hook.unmount()
   })
 
-  it.each(["channel", "thread", "forum", "dm"].flatMap((kind) =>
-    ["anchor", "older"].map((mode) => ({ kind, mode })),
-  ))("reads the current click after retained $mode pages on $kind", async ({ kind, mode }) => {
-    const owner = createClient()
-    await owner.registry.preload()
-    const navigation = { ...target, scopeKind: kind === "dm" ? "dm" as const : "channel" as const,
-      expectedSurfaceKind: kind as "channel" | "thread" | "forum" | "dm" }
-    const key = kind === "dm" ? communityKeys.dmMessages("d1") : communityKeys.channelMessages("d1")
-    owner.client.setQueryDefaults(key, { retry: false })
-    const oldParam: MessagesPageParam = mode === "anchor"
-      ? { mode: "anchor", anchor: "old-anchor" } : { mode: "older", cursor: "old-cursor" }
-    const retained = { pages: [{ messages: [], hasMore: true }, { messages: [], hasMore: false }],
-      pageParams: [oldParam, { mode: "older", cursor: "old-second-cursor" } as MessagesPageParam] }
-    owner.client.setQueryData(key, retained)
-    const requests: Array<{ path: string; resolve: (value: Response) => void }> = []
-    vi.stubGlobal("fetch", vi.fn((path: string) => {
-      if (!path.includes("/messages")) return Promise.resolve(response(200))
-      return new Promise<Response>((resolve) => requests.push({ path, resolve }))
-    }))
-    for (const anchorMessageId of ["current-marked-message", undefined]) {
-      const previousCount = requests.length
-      const epoch = startConversationNavigationWarmup(owner.client, { ...navigation, anchorMessageId }, 0)
-      await waitFor(() => expect(requests).toHaveLength(previousCount + 1))
-      const request = requests[previousCount]!
-      const url = new URL(request.path, "https://alook.test")
-      expect(url.searchParams.get("anchor")).toBe(anchorMessageId ?? null)
-      expect(url.searchParams.has("cursor")).toBe(false)
-      expect(owner.client.getQueryData<{ pages: unknown[] }>(key)?.pages).toHaveLength(previousCount === 0 ? 2 : 1)
-      await act(async () => request.resolve(new Response(JSON.stringify({
-        messages: [], hasMore: true, surfaceReceipt: { channelId: "d1", surfaceKind: kind },
-      }), { status: 200, headers: { "Content-Type": "application/json" } })))
-      await waitFor(() => expect(getConversationNavigationProof(owner.client)).toMatchObject({ epoch, status: kind === "forum" ? "forum" : "proven" }))
-      await waitFor(() => expect(owner.client.getQueryCache().find({ queryKey: key, exact: true })!.getObserversCount()).toBe(0))
-      expect(requests).toHaveLength(previousCount + 1)
-      expect(owner.client.getQueryData(key)).toMatchObject({ pages: [{ messages: [] }],
-        pageParams: [anchorMessageId ? { mode: "anchor", anchor: anchorMessageId } : { mode: "newest" }] })
-    }
+  it("rechecks a revoked target once on re-entry without an unblock command", async () => {
+    const { registry, wrapper } = await setup()
+    registry.runtime.ws.actions.revokeChannelAccess("s1", "c1")
+    const request = deferred<ReturnType<typeof fixture>>()
+    load.mockReturnValue(request.promise)
+    const hook = renderHook(() => useChannelMetadata("s1", "c1"), { wrapper })
+    expect(hook.result.current.denied).toBe(false)
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    await act(async () => { request.resolve(fixture()) })
+    await waitFor(() => expect(hook.result.current.canRead).toBe(true))
+    expect(load).toHaveBeenCalledOnce()
+    hook.unmount()
   })
 
-  it.each(["channel", "thread", "forum", "dm"] as const)("keeps the click-owned %s transport alive after its prior visible body unmounts", async (surfaceKind) => {
-    const owner = createClient()
-    await owner.registry.preload()
-    const navigation = { ...target, anchorMessageId: "marked-message",
-      scopeKind: surfaceKind === "dm" ? "dm" as const : "channel" as const, expectedSurfaceKind: surfaceKind }
-    const key = surfaceKind === "dm" ? communityKeys.dmMessages("d1") : communityKeys.channelMessages("d1")
-    const messageRequests: Array<{ signal: AbortSignal; resolve: (value: Response) => void; path: string }> = []
-    vi.stubGlobal("fetch", vi.fn((path: string, options: RequestInit) => {
-      if (!path.includes("/messages")) return Promise.resolve(response(200))
-      return new Promise<Response>((resolve) => messageRequests.push({ signal: options.signal!, resolve, path }))
-    }))
-    const bodyQueryFn = surfaceKind === "dm"
-      ? dmMessagesQueryFn("d1", { queryClient: owner.client })
-      : channelMessagesQueryFn("d1", null, { queryClient: owner.client })
-    function Body() {
-      const query = useInfiniteQuery({ queryKey: key, queryFn: bodyQueryFn,
-        initialPageParam: { mode: "newest" } as MessagesPageParam, getNextPageParam: () => undefined,
-        staleTime: Infinity, retry: false })
-      return <p>{query.isSuccess ? "Current target body" : "Original pending body"}</p>
-    }
-    function Surface() {
-      const gate = useConversationNavigationGate(owner.client, "viewer", "d1", 0)
-      return gate.allowed ? <Body /> : <p>{gate.failed ? "Manual Retry" : "Warming target"}</p>
-    }
-    const mounted = render(<CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner><Surface /></CommunityTestProvider>)
-    await waitFor(() => expect(messageRequests).toHaveLength(1))
-    act(() => { startConversationNavigationWarmup(owner.client, navigation, 0) })
-    await waitFor(() => expect(messageRequests).toHaveLength(2))
-    expect(mounted.getByText("Warming target")).toBeTruthy()
-    const resource = owner.client.getQueryCache().find({ queryKey: key, exact: true })!
-    await waitFor(() => expect(resource.getObserversCount()).toBe(1))
-    expect(resource.isActive()).toBe(false)
-    expect(messageRequests[0]!.signal.aborted).toBe(true)
-    expect(messageRequests[1]!.signal.aborted).toBe(false)
-    expect(messageRequests[1]!.path).toContain("anchor=marked-message")
-    await act(async () => messageRequests[1]!.resolve(new Response(JSON.stringify({
-      messages: [], hasMore: false, surfaceReceipt: { channelId: "d1", surfaceKind },
-    }), { status: 200, headers: { "Content-Type": "application/json" } })))
-    await waitFor(() => expect(mounted.getByText("Current target body")).toBeTruthy())
-    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toBeNull())
-    expect(resource.getObserversCount()).toBe(1)
-    expect(resource.isActive()).toBe(true)
-    expect(messageRequests).toHaveLength(2)
-    mounted.unmount()
-    expect(resource.getObserversCount()).toBe(0)
-  })
-
-  it.each(["cancel", "failure", "owner"] as const)("releases the original warmup message lease after %s settlement", async (settlement) => {
-    const owner = createClient()
-    await owner.registry.preload()
-    owner.client.setQueryDefaults(communityKeys.dmMessages("d1"), { retry: false })
-    let finish!: (value: Response) => void
-    let messageSignal!: AbortSignal
-    vi.stubGlobal("fetch", vi.fn((path: string, options: RequestInit) => {
-      if (!path.includes("/messages")) return Promise.resolve(response(200))
-      messageSignal = options.signal!
-      return new Promise<Response>((resolve) => { finish = resolve })
-    }))
-    const epoch = startConversationNavigationWarmup(owner.client, target, 0)
-    await waitFor(() => expect(messageSignal).toBeDefined())
-    const resource = owner.client.getQueryCache().find({ queryKey: communityKeys.dmMessages("d1"), exact: true })!
-    expect(resource.getObserversCount()).toBe(1)
-    if (settlement === "cancel") {
-      const { cancelConversationNavigationProof } = await import("./conversation-navigation-proof")
-      cancelConversationNavigationProof(owner.client, epoch)
-    } else if (settlement === "owner") owner.unregister()
-    else finish(new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } }))
-    if (settlement === "failure") {
-      await waitFor(() => expect(getConversationNavigationProof(owner.client)).toMatchObject({ status: "failed", manualRetry: true }), { timeout: 5_000 })
-    }
-    await waitFor(() => expect(resource.getObserversCount()).toBe(0))
-    if (settlement !== "failure") expect(messageSignal.aborted).toBe(true)
-  })
-
-  it("keeps a repeated same-target click alive after the old lease and late unauthorized response settle", async () => {
-    const owner = createClient()
-    await owner.registry.preload()
-    const messageRequests: Array<{ signal: AbortSignal; resolve: (value: Response) => void }> = []
-    vi.stubGlobal("fetch", vi.fn((path: string, options: RequestInit) => {
-      if (!path.includes("/messages")) return Promise.resolve(response(200))
-      return new Promise<Response>((resolve) => messageRequests.push({ signal: options.signal!, resolve }))
-    }))
-    startConversationNavigationWarmup(owner.client, { ...target, anchorMessageId: "first" }, 0)
-    await waitFor(() => expect(messageRequests).toHaveLength(1))
-    const epoch = startConversationNavigationWarmup(owner.client, { ...target, anchorMessageId: "second" }, 0)
-    await waitFor(() => expect(messageRequests).toHaveLength(2))
-    const resource = owner.client.getQueryCache().find({ queryKey: communityKeys.dmMessages("d1"), exact: true })!
-    await waitFor(() => expect(resource.getObserversCount()).toBe(1))
-    expect(messageRequests[0]!.signal.aborted).toBe(true)
-    expect(messageRequests[1]!.signal.aborted).toBe(false)
-    await act(async () => messageRequests[0]!.resolve(response(401)))
-    expect(assign).not.toHaveBeenCalled()
-    expect(getConversationNavigationProof(owner.client)).toMatchObject({ epoch, status: "warming", target: { anchorMessageId: "second" } })
-    await act(async () => messageRequests[1]!.resolve(new Response(JSON.stringify({
-      messages: [], hasMore: false, surfaceReceipt: { channelId: "d1", surfaceKind: "dm" },
-    }), { status: 200, headers: { "Content-Type": "application/json" } })))
-    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toMatchObject({ epoch, status: "proven" }))
-    await waitFor(() => expect(resource.getObserversCount()).toBe(0))
-    expect(messageRequests).toHaveLength(2)
-  })
-
-  it.each(["channel", "thread", "forum", "dm"] as const)("ends persistent %s 503 with manual Retry after finite Query retries", async (surfaceKind) => {
-    const owner = createClient()
-    await owner.registry.preload()
-    const defaults = owner.client.getDefaultOptions()
-    owner.client.setDefaultOptions({ ...defaults, queries: { ...defaults.queries, retry: 1, retryDelay: 0 } })
-    let failing = true
-    let requests = 0
-    vi.stubGlobal("fetch", vi.fn((path: string) => {
-      if (path.includes("/messages")) {
-        requests++
-        return Promise.resolve(new Response(JSON.stringify(failing ? { error: "unavailable" } : { messages: [], hasMore: false, surfaceReceipt: { channelId: "d1", surfaceKind } }), { status: failing ? 503 : 200, headers: { "Content-Type": "application/json" } }))
-      }
-      return Promise.resolve(response(200))
-    }))
-    const navigation = { ...target, scopeKind: surfaceKind === "dm" ? "dm" as const : "channel" as const, expectedSurfaceKind: surfaceKind }
-    const epoch = startConversationNavigationWarmup(owner.client, navigation, 0)
-    const rendered = render(<Gate client={owner.client} />)
-    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toMatchObject({ status: "failed", manualRetry: true }))
-    expect(requests).toBe(2)
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)) })
-    expect(requests).toBe(2)
-    failing = false
-    act(() => { expect(recoverConversationNavigationProof(owner.client, epoch, 0)).toBe(true) })
-    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toBeNull())
-    expect(requests).toBe(3)
-    rendered.unmount()
-  })
-
-  it.each([401, 403, 200].flatMap((status) => [false, true].map((consume) => ({ status, consume }))))("retired owner late $status stays silent, consumed=$consume", async ({ status, consume }) => {
-    const owner = createClient()
-    startConversationNavigationWarmup(owner.client, target, 0)
-    await waitFor(() => expect(releases).toHaveLength(1))
-    await waitFor(() => expect(getConversationNavigationProof(owner.client)?.status).toBe("proven"))
-    const mounted = consume ? render(<Gate client={owner.client} />) : null
-    expect(getConversationNavigationProof(owner.client)?.status ?? null).toBe(consume ? null : "proven")
-    expect(signals[0].aborted).toBe(false)
-    const readCall = vi.mocked(apiFetch).mock.calls.findIndex(([path]) => path.endsWith("/read-state"))
-    const request = vi.mocked(apiFetch).mock.results[readCall].value as Promise<unknown>
-    const settled = request.catch((error: unknown) => error)
-    owner.unregister()
-    expect(signals[0].aborted).toBe(true)
-    releases[0](response(status))
-    expect(await settled).toMatchObject({ name: "AbortError" })
-    expect(assign).not.toHaveBeenCalled()
-    expect(owner.client.getQueryData(readKey)).toBeUndefined()
-    expect(getConversationNavigationProof(owner.client)).toBeNull()
-    act(() => mounted?.unmount())
-  })
-
-  it.each([401, 403, 200])("current owner late %i retains ordinary behavior", async (status) => {
-    const owner = createClient()
-    owner.registry.authenticationView.setState((state) => ({ ...state, active: true }))
-    const retireDisk = vi.spyOn(owner.registry, "retireDisk").mockResolvedValue(undefined)
-    startConversationNavigationWarmup(owner.client, target, 0)
-    await waitFor(() => expect(releases).toHaveLength(1))
-    await waitFor(() => expect(getConversationNavigationProof(owner.client)?.status).toBe("proven"))
-    const mounted = render(<Gate client={owner.client} />)
-    const readCall = vi.mocked(apiFetch).mock.calls.findIndex(([path]) => path.endsWith("/read-state"))
-    const request = vi.mocked(apiFetch).mock.results[readCall].value as Promise<unknown>
-    const settled = request.catch((error: unknown) => error)
-    releases[0](response(status))
-    const result = await settled
-    expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
-    if (status === 401) {
-      expect(result).toMatchObject({ status })
-      expect(owner.client.getQueryState(readKey)).toBeUndefined()
-      expect(owner.registry.runtime.lifecycle.get().active).toBe(false)
-      expect(retireDisk).toHaveBeenCalledOnce()
-      expect(assign).toHaveBeenCalledOnce()
-    } else if (status !== 200) {
-      await waitFor(() => expect(owner.client.getQueryState(readKey)?.fetchStatus).toBe("idle"))
-      expect(result).toMatchObject({ status })
-      expect(owner.client.getQueryState(readKey)?.error).toMatchObject({ status })
-      expect(retireDisk).not.toHaveBeenCalled()
-      expect(assign).not.toHaveBeenCalled()
-    } else {
-      await waitFor(() => expect(owner.client.getQueryData(readKey)).toMatchObject({ lastReadSeq: 5 }))
-      expect(assign).not.toHaveBeenCalled()
-    }
-    act(() => mounted.unmount())
-  })
-
-  it("Strict replay starts current read, succeeds, and final owner exit clears consumed intent", async () => {
-    const owner = createClient()
-    function Warmup() {
-      useLayoutEffect(() => { startConversationNavigationWarmup(owner.client, target, 0) }, [])
-      return <Gate client={owner.client} />
-    }
-    const mounted = render(<StrictMode><CommunityTestProvider client={owner.client}><Warmup /></CommunityTestProvider></StrictMode>)
-    await waitFor(() => expect(releases).toHaveLength(1))
-    releases[0](response(200))
-    await waitFor(() => expect(owner.client.getQueryData(readKey)).toMatchObject({ lastReadSeq: 5 }))
-    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toBeNull())
-    expect(owner.registry.runtime.lifecycle.get().active).toBe(true)
-    act(() => mounted.unmount())
-    expect(getConversationNavigationProof(owner.client)).toBeNull()
-    await waitFor(() => expect(owner.registry.runtime.lifecycle.get().active).toBe(false))
-    expect(assign).not.toHaveBeenCalled()
+  it("keeps a fresh denial terminal rather than reprobing after its own generation changes", async () => {
+    const { registry, wrapper } = await setup()
+    registry.runtime.ws.actions.revokeChannelAccess("s1", "c1")
+    load.mockRejectedValue(new ApiError("denied", 403))
+    const hook = renderHook(() => useChannelMetadata("s1", "c1"), { wrapper })
+    await waitFor(() => expect(hook.result.current.denied).toBe(true))
+    expect(load).toHaveBeenCalledOnce()
+    hook.unmount()
   })
 })

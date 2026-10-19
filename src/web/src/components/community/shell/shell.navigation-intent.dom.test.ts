@@ -8,10 +8,6 @@ import {
   resolveCommunityCheckpointPlan,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
-import {
-  beginConversationNavigationProof,
-  getConversationNavigationProof,
-} from "@/lib/community/conversation-navigation-proof"
 import { ShellFrameView } from "./shell-frame-view"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import { CommunityRouteContext } from "./community-route-context"
@@ -151,24 +147,12 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
 }
 
 function beginInboxNavigation(shell: ReturnType<typeof renderShell>) {
-  let proof!: ReturnType<typeof beginConversationNavigationProof>
-  act(() => {
-    proof = beginConversationNavigationProof(shell.queryClient, {
-      href: target,
-      viewerId: "viewer",
-      channelId: "b",
-      serverId: "s1",
-      scopeKind: "channel",
-    }, 0)
-    shell.navigation.pushImmediate(target)
-  })
-  return proof
+  act(() => shell.navigation.pushImmediate(target))
 }
 
-function expectPendingProof(shell: ReturnType<typeof renderShell>, epoch: number) {
+function expectPendingTarget(shell: ReturnType<typeof renderShell>) {
   expect(shell.navigation.pendingHref).toBe(target)
   expect(shell.navigation.navigationPending).toBe(true)
-  expect(getConversationNavigationProof(shell.queryClient)?.epoch).toBe(epoch)
   expect(screen.getByRole("status").textContent).toContain("Target skeleton")
   expect(screen.getByRole("status")).toHaveAttribute("data-channel-id", "b")
   expect(screen.getByRole("status")).toHaveAttribute("data-target-href", target)
@@ -185,43 +169,39 @@ beforeEach(() => {
 
 describe("Shell input and explicit navigation ownership", () => {
   it.each(["Target skeleton", "Blank area", "Draft input"])(
-    "keeps the target checkpoint and conversation proof after clicking %s",
+    "keeps the target checkpoint after clicking %s",
     (label) => {
       const shell = renderShell()
-      const proof = beginInboxNavigation(shell)
+      beginInboxNavigation(shell)
       fireEvent.click(label === "Draft input" ? screen.getByLabelText(label) : screen.getByText(label))
-      expectPendingProof(shell, proof.epoch)
-      expect(proof.signal.aborted).toBe(false)
+      expectPendingTarget(shell)
       expect(mocks.push).toHaveBeenCalledTimes(1)
     },
   )
 
-  it.each(["Enter", " ", "ArrowDown"])("keeps pending and proof while typing %s", (key) => {
+  it.each(["Enter", " ", "ArrowDown"])("keeps pending target while typing %s", (key) => {
     const shell = renderShell()
-    const proof = beginInboxNavigation(shell)
+    beginInboxNavigation(shell)
     fireEvent.keyDown(screen.getByLabelText("Draft input"), { key })
-    expectPendingProof(shell, proof.epoch)
-    expect(proof.signal.aborted).toBe(false)
+    expectPendingTarget(shell)
   })
 
-  it("keeps pending and proof while opening and closing Inbox", () => {
+  it("keeps pending target while opening and closing Inbox", () => {
     const shell = renderShell("desktop")
-    const proof = beginInboxNavigation(shell)
+    beginInboxNavigation(shell)
     fireEvent.click(screen.getByRole("button", { name: "Inbox" }))
     expect(screen.getByRole("button", { name: "Inbox" }).getAttribute("aria-expanded")).toBe("true")
-    expectPendingProof(shell, proof.epoch)
+    expectPendingTarget(shell)
     fireEvent.click(screen.getByRole("button", { name: "Inbox" }))
     expect(screen.getByRole("button", { name: "Inbox" }).getAttribute("aria-expanded")).toBe("false")
-    expectPendingProof(shell, proof.epoch)
+    expectPendingTarget(shell)
   })
 
-  it("supersedes a previous proof at a real new navigation entry", () => {
+  it("supersedes a previous target at a real new navigation entry", () => {
     const shell = renderShell("desktop")
-    const proof = beginInboxNavigation(shell)
+    beginInboxNavigation(shell)
     fireEvent.click(screen.getByRole("button", { name: "New destination" }))
     expect(shell.navigation.pendingHref).toBe(nextTarget)
-    expect(getConversationNavigationProof(shell.queryClient)).toBeNull()
-    expect(proof.signal.aborted).toBe(true)
     expect(mocks.push.mock.calls.map(([href]) => href)).toEqual([target, nextTarget])
   })
 
@@ -270,25 +250,21 @@ describe("Shell input and explicit navigation ownership", () => {
     expect(shell.navigation.navigationPending).toBe(true)
   })
 
-  it("settles an exact frame without an extra click while retaining the independent proof", () => {
+  it("settles an exact frame without an extra click", () => {
     const shell = renderShell()
-    const proof = beginInboxNavigation(shell)
+    beginInboxNavigation(shell)
     shell.commit(target, 1)
     expect(shell.navigation.pendingHref).toBeNull()
     expect(shell.navigation.navigationPending).toBe(false)
     expect(screen.queryByRole("status")).toBeNull()
     expect(screen.getByText("Committed content")).toBeTruthy()
-    expect(getConversationNavigationProof(shell.queryClient)?.epoch).toBe(proof.epoch)
-    expect(proof.signal.aborted).toBe(false)
   })
 
-  it("still clears pending and proof on popstate", () => {
+  it("still clears pending target on popstate", () => {
     const shell = renderShell()
-    const proof = beginInboxNavigation(shell)
+    beginInboxNavigation(shell)
     act(() => window.dispatchEvent(new Event("popstate")))
     expect(shell.navigation.pendingHref).toBeNull()
-    expect(getConversationNavigationProof(shell.queryClient)).toBeNull()
-    expect(proof.signal.aborted).toBe(true)
     expect(mocks.push).toHaveBeenCalledTimes(1)
     expect(mocks.replace).not.toHaveBeenCalled()
   })
