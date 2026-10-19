@@ -17,6 +17,7 @@ export default defineProject({
   },
   plugins: [
     cloudflareTest({
+      remoteBindings: false,
       main: "./custom-worker.ts",
       wrangler: { configPath: "./wrangler.toml" },
       miniflare: {

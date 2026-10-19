@@ -15,6 +15,7 @@ const mockGetChannelForMember = vi.fn()
 const mockGetChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageClientNonceForDelivery = vi.fn()
 const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
@@ -98,6 +99,7 @@ vi.mock("@alook/shared", async () => {
         isMessageAttachmentConflict: actual.queries.communityMessage.isMessageAttachmentConflict,
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageClientNonceForDelivery: (...a: unknown[]) => mockGetMessageClientNonceForDelivery(...a),
         getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
         getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
@@ -248,6 +250,7 @@ const ctx = { params: { id: "c1" } } as any
 describe("POST /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetMessageClientNonceForDelivery.mockResolvedValue(null)
     mockDuplicateCheck.mockResolvedValue(false)
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
     // The door's single mask (requireMessageSurfaceAccess) probes getChannel
@@ -295,10 +298,11 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetDMBetween.mockResolvedValue(null)
   })
 
-  it.each([false, true])("confirms a full v3 human message with replay=%s", async (replay) => {
+  it.each([false, true])("confirms a full v3 human message from a nonce-free ordinary row with replay=%s", async (replay) => {
     const row = { id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorImage: null, authorAvatarVersion: 0,
-      content: "hello", type: "default", mentionType: null, replyToId: null, clientNonce: "v3-nonce", embeds: null, createdAt: "now" }
+      content: "hello", type: "default", mentionType: null, replyToId: null, embeds: null, createdAt: "now" }
     mockGetMessage.mockResolvedValue(row)
+    mockGetMessageClientNonceForDelivery.mockResolvedValueOnce("v3-nonce")
     mockGetMessageByAuthorAndNonce.mockResolvedValue(replay ? row : null)
     const request = postReq({ content: "hello", nonce: "v3-nonce" })
     request.headers.set("x-alook-community-contract", "3")
@@ -311,6 +315,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorAvatar: null, authorAvatarVersion: 0,
       content: "hello", type: "chat", mentionType: null, replyToId: null, clientNonce: "v3-nonce", createdAt: "now", attachments: [],
     } })
+    expect(mockGetMessageClientNonceForDelivery).toHaveBeenCalledExactlyOnceWith(expect.anything(), "m1")
     if (replay) expect(mockCreateMessage).not.toHaveBeenCalled()
     else expect(mockCreateMessage).toHaveBeenCalledOnce()
   })

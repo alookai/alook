@@ -1,3 +1,14 @@
+import com.android.build.api.instrumentation.AsmClassVisitorFactory
+import com.android.build.api.instrumentation.ClassContext
+import com.android.build.api.instrumentation.ClassData
+import com.android.build.api.instrumentation.InstrumentationParameters
+import org.objectweb.asm.ClassVisitor
+import org.objectweb.asm.MethodVisitor
+import org.objectweb.asm.Opcodes
+import org.objectweb.asm.Type
+
+import com.android.build.api.instrumentation.FramesComputationMode
+import com.android.build.api.instrumentation.InstrumentationScope
 import java.util.Properties
 import org.gradle.api.GradleException
 
@@ -168,7 +179,6 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".qa.livia.startup184container"
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
@@ -251,4 +261,40 @@ listOf(
 
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
+}
+
+abstract class TouchSdkLogSanitizer : AsmClassVisitorFactory<InstrumentationParameters.None> {
+    override fun isInstrumentable(classData: ClassData) = classData.className.startsWith("com.espressif.provisioning.")
+    override fun createClassVisitor(classContext: ClassContext, nextClassVisitor: ClassVisitor): ClassVisitor =
+        TouchSdkLogVisitor(nextClassVisitor)
+}
+
+class TouchSdkLogVisitor(next: ClassVisitor) : ClassVisitor(Opcodes.ASM9, next) {
+    override fun visitMethod(access: Int, name: String, descriptor: String, signature: String?, exceptions: Array<out String>?): MethodVisitor {
+        val next = super.visitMethod(access, name, descriptor, signature, exceptions)
+        return object : MethodVisitor(Opcodes.ASM9, next) {
+            override fun visitMethodInsn(opcode: Int, owner: String, name: String, descriptor: String, isInterface: Boolean) {
+                val arguments = Type.getArgumentTypes(descriptor)
+                val result = Type.getReturnType(descriptor)
+                val log = opcode == Opcodes.INVOKESTATIC && owner == "android/util/Log" &&
+                    name in setOf("v", "d", "i", "w", "e", "wtf", "println") && result.sort == Type.INT
+                val stackTrace = opcode == Opcodes.INVOKEVIRTUAL && name == "printStackTrace" &&
+                    descriptor in setOf("()V", "(Ljava/io/PrintStream;)V", "(Ljava/io/PrintWriter;)V")
+                if (!log && !stackTrace) {
+                    super.visitMethodInsn(opcode, owner, name, descriptor, isInterface)
+                    return
+                }
+                for (argument in arguments.reversed()) super.visitInsn(if (argument.size == 2) Opcodes.POP2 else Opcodes.POP)
+                if (stackTrace) super.visitInsn(Opcodes.POP)
+                if (log) super.visitInsn(Opcodes.ICONST_0)
+            }
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.instrumentation.transformClassesWith(TouchSdkLogSanitizer::class.java, InstrumentationScope.ALL) {}
+        variant.instrumentation.setAsmFramesComputationMode(FramesComputationMode.COMPUTE_FRAMES_FOR_INSTRUMENTED_METHODS)
+    }
 }

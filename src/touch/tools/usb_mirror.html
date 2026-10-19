@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>touch · 实板</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#171715;color:#f1efe9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center}main{text-align:center;padding:32px 16px;width:min(100%,580px)}h1{font-size:22px;font-weight:600;margin:0 0 8px}p{font-size:14px;color:#c0bdb4;margin:8px 0 24px}canvas{width:min(466px,85vw);height:auto;aspect-ratio:1;border-radius:50%;background:#000;touch-action:none;cursor:pointer;box-shadow:0 0 0 8px #292824}canvas.stale{opacity:.4;cursor:wait}.controls{display:flex;justify-content:center;gap:16px;margin:32px 0 16px}button{font:inherit;color:inherit;background:#34322e;border:1px solid #615d54;border-radius:12px;padding:12px 20px;touch-action:none;user-select:none}button:active{background:#615d54}button:disabled{opacity:.4}output{display:block;min-height:40px;font-size:13px;color:#c0bdb4;white-space:pre-line}small{display:block;margin-top:16px;font-size:12px;color:#9c988f}details{margin:24px auto 0;max-width:360px;text-align:left}summary{cursor:pointer;font-size:14px}form{display:grid;gap:16px;margin-top:16px}label{display:grid;gap:8px;font-size:14px}input{font:inherit;padding:10px;border:1px solid #615d54;border-radius:8px;background:#292824;color:inherit;width:100%}#wifi-result{font-size:13px;color:#c0bdb4}
+</style>
+<main>
+<h1>touch · 实板</h1>
+<p>鼠标点按或拖动屏幕 · 画面来自 USB 连接的设备</p>
+<canvas id="screen" class="stale" width="466" height="466" aria-label="设备实时屏幕"></canvas>
+<div class="controls"><button id="home" disabled>PWR · 返回</button><button id="record" disabled>BOOT · 按住说话</button></div>
+<output id="status">等待设备画面…</output>
+<details><summary>连接设备 Wi-Fi</summary><form id="wifi"><label>Wi-Fi 名称<input id="ssid" required autocomplete="off"></label><label>Wi-Fi 密码<input id="password" type="password" autocomplete="off"></label><button type="submit">连接设备</button><span id="wifi-result"></span></form></details>
+<small>投屏显示实际界面。麦克风与扬声器仍在硬件上。</small>
+</main>
+<script>
+const canvas=document.querySelector('#screen'),ctx=canvas.getContext('2d'),status=document.querySelector('#status'),home=document.querySelector('#home'),record=document.querySelector('#record');
+let sequence=null,lastFrame=0,live=false,touch=null,recording=false,network='',lastMove=0;
+function disconnected(){live=false;touch=null;recording=false;}
+async function input(value){if(!live)return false;try{const r=await fetch('/input',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});if(!r.ok)throw Error();return true;}catch{disconnected();return false;}}
+document.querySelector('#wifi').addEventListener('submit',async event=>{event.preventDefault();const ssid=document.querySelector('#ssid'),password=document.querySelector('#password'),result=document.querySelector('#wifi-result'),encoder=new TextEncoder(),a=encoder.encode(ssid.value),b=encoder.encode(password.value);if(a.length<1||a.length>32||(b.length!==0&&(b.length<8||b.length>63))){result.textContent='名称最多32字节；密码留空或为8至63字节。';return;}const value={type:'wifi',ssid:ssid.value,password:password.value};password.value='';const ok=await input(value);value.password='';result.textContent=ok?'连接请求已发送。请等设备 Wi-Fi 状态更新。':'请求未发送，请检查设备连接后重试。';});
+function point(event){const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(465,Math.floor((event.clientX-r.left)*466/r.width))),y:Math.max(0,Math.min(465,Math.floor((event.clientY-r.top)*466/r.height)))};}
+canvas.addEventListener('pointerdown',e=>{if(!live)return;e.preventDefault();canvas.setPointerCapture(e.pointerId);touch=point(e);input({type:'touch',...touch,down:true});});
+canvas.addEventListener('pointermove',e=>{if(!touch)return;e.preventDefault();touch=point(e);if(performance.now()-lastMove>30){lastMove=performance.now();input({type:'touch',...touch,down:true});}});
+function releaseTouch(){if(touch){input({type:'touch',...touch,down:false});touch=null;}}
+canvas.addEventListener('pointerup',releaseTouch);canvas.addEventListener('pointercancel',releaseTouch);canvas.addEventListener('lostpointercapture',releaseTouch);
+home.addEventListener('click',()=>input({type:'home'}));
+record.addEventListener('pointerdown',e=>{if(!live)return;e.preventDefault();record.setPointerCapture(e.pointerId);recording=true;input({type:'record',down:true});});
+function releaseRecord(){if(recording){input({type:'record',down:false});recording=false;}}
+record.addEventListener('pointerup',releaseRecord);record.addEventListener('pointercancel',releaseRecord);record.addEventListener('lostpointercapture',releaseRecord);
+window.addEventListener('blur',()=>{releaseTouch();releaseRecord();});document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseTouch();releaseRecord();}});
+setInterval(()=>{const age=performance.now()-lastFrame;if(age>4000)disconnected();if(live){if(touch)input({type:'touch',...touch,down:true});if(recording)input({type:'record',down:true});}canvas.classList.toggle('stale',!live);home.disabled=record.disabled=!live;status.textContent=lastFrame?(live?`已连接 · 画面 ${Math.round(age)} ms 前\n${network}`:'连接中断，输入已停止。等待新画面…'):'等待设备画面…';},200);
+async function refresh(){try{const response=await fetch('/frame',{cache:'no-store'});if(!response.ok)throw Error();const bytes=await response.arrayBuffer(),v=new DataView(bytes);if(bytes.byteLength!==434568||v.getUint32(0,true)!==0x394d4c41||v.getUint16(16,true)!==466||v.getUint16(18,true)!==466)throw Error();const next=v.getUint32(8,true);if(next!==sequence){sequence=next;const image=ctx.createImageData(466,466);for(let i=0;i<466*466;i++){const pixel=v.getUint16(256+i*2,true),at=i*4;image.data[at]=((pixel>>11)&31)*255/31;image.data[at+1]=((pixel>>5)&63)*255/63;image.data[at+2]=(pixel&31)*255/31;image.data[at+3]=255;}ctx.putImageData(image,0,0);lastFrame=performance.now();live=true;network=v.getUint32(24,true)&1?`设备 Wi-Fi 已连接 · ${[20,21,22,23].map(i=>v.getUint8(i)).join('.')}`:'设备 Wi-Fi 未连接';}}catch{if(performance.now()-lastFrame>4000)disconnected();}setTimeout(refresh,150);}
+refresh();
+</script>
+</html>

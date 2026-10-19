@@ -1,0 +1,7 @@
+.cache/
+__pycache__/
+build/
+configuration.local.h
+firmware/touch/generated/
+firmware/touch/font_cjk.c
+firmware/touch/font_ui_*.c

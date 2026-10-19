@@ -52,7 +52,8 @@
         "mobile-share-image-mobile",
         "mobile-system-notification-mobile",
         "native-back-mobile",
-        "file-save"
+        "file-save",
+        "touch-setup-mobile"
       ]
     }
   },

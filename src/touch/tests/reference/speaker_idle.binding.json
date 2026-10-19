@@ -1,0 +1,8 @@
+{
+  "commit": "c9ed3efaf40a668fe0d3bec3d1aa91f52d58fab4",
+  "sourceRanges": {
+    "src/anims_extra.h#IR_SPR-to-dvd": "6dd20206cb233a91ec76b911b2b3d1f6baf145a4405af9be8e631df88a6e5130",
+    "src/main.cpp#PAL_RAINBOW": "0628abf325e736c379464ebdff0f5232543459e2de348f3df92e961ea1ddf725"
+  },
+  "adapter": "Test display466x466; deterministic noise; identity palette transform; injected pose; body-only canvas. Original functions and sampling arithmetic are unchanged."
+}

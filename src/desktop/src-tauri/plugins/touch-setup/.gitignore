@@ -1,0 +1,6 @@
+/.tauri/
+/android/.tauri/
+/android/.gradle/
+/android/build/
+/ios/.build/
+/ios/.swiftpm/

@@ -14,11 +14,34 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { getSession, requireSession } from "./session";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { getAuth } from "@/lib/auth";
 
 describe("session", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockHeaders.mockResolvedValue(new Headers());
+  });
+
+  it("does not initialize bindings when the request boundary rejects static rendering", async () => {
+    const boundary = new Error("Request required");
+    mockHeaders.mockRejectedValueOnce(boundary);
+    await expect(getSession()).rejects.toBe(boundary);
+    expect(getCloudflareContext).not.toHaveBeenCalled();
+    expect(getAuth).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
+  });
+
+  it("waits for the request before initializing bindings", async () => {
+    let resolve!: (headers: Headers) => void;
+    mockHeaders.mockImplementationOnce(() => new Promise<Headers>(done => { resolve = done }));
+    mockGetSession.mockResolvedValueOnce(null);
+    const pending = getSession();
+    expect(getCloudflareContext).not.toHaveBeenCalled();
+    expect(getAuth).not.toHaveBeenCalled();
+    resolve(new Headers());
+    await expect(pending).resolves.toBeNull();
+    expect(getCloudflareContext).toHaveBeenCalledOnce();
   });
 
   it("getSession returns the resolved session", async () => {

@@ -12,6 +12,7 @@ interface RuntimeEnv {
   AUTH_OTP_RATE_LIMIT_WINDOW_SEC?: string
   DEV_AUTH_OTP?: string
   DEVICE_CLIENT_IDS?: string
+  TOUCH_CLIENT_ID?: string
   NODE_ENV?: string
   DEV_WS_DO_URL?: string
   DEV_QUEUE_WORKER_URL?: string

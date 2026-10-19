@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "touch-setup-mobile",
+  "description": "Touch setup for the trusted mobile main WebView",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://alook.ai"
+    ]
+  },
+  "permissions": [
+    "touch-setup"
+  ]
+}

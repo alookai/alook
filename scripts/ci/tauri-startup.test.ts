@@ -28,7 +28,12 @@ describe("Tauri startup release separation", () => {
     expect(development.bundle?.iOS?.infoPlist).toBeUndefined()
     expect(existsSync(resolve(tauriRoot, "Info.ios.plist"))).toBe(false)
     const plist = read("Info.ios.release.plist")
-    expect([...plist.matchAll(/<string>([^<]+)<\/string>/g)].map(match => match[1])).toEqual(["localhost", "alook.ai"])
+    const domains = plist.match(/<key>WKAppBoundDomains<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1] ?? ""
+    expect([...domains.matchAll(/<string>([^<]+)<\/string>/g)].map(match => match[1])).toEqual(["localhost", "alook.ai"])
+    for (const path of ["Info.plist", "Info.ios.release.plist"]) {
+      expect(read(path)).toMatch(/<key>NSCameraUsageDescription<\/key>\s*<string>Scan the setup code on your Touch\.<\/string>/)
+      expect(read(path)).toMatch(/<key>NSBluetoothAlwaysUsageDescription<\/key>\s*<string>Connect your Touch to Wi-Fi\.<\/string>/)
+    }
   })
 
   it("loads the release overlay and checks the actual IPA without dropping build version", () => {
@@ -41,7 +46,7 @@ describe("Tauri startup release separation", () => {
   })
 
   it("pins the host and every local native plugin to the same Tauri release", () => {
-    for (const path of ["Cargo.toml", ...["file-save", "mobile-share-image", "mobile-push"].map(plugin => `plugins/${plugin}/Cargo.toml`)]) {
+    for (const path of ["Cargo.toml", ...["file-save", "mobile-share-image", "mobile-push", "touch-setup"].map(plugin => `plugins/${plugin}/Cargo.toml`)]) {
       expect(read(path)).toContain('version = "=2.12.1"')
       expect(read(path)).not.toContain('version = "=2.11.2"')
     }

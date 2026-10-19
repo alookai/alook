@@ -10,6 +10,7 @@ interface __BaseEnv_CloudflareEnv {
 	NEXT_TAG_CACHE_D1: D1Database;
 	DB: D1Database;
 	TASK_QUEUE: Queue;
+	AI: Ai;
 	CF_VERSION_METADATA: WorkerVersionMetadata;
 	ASSETS: Fetcher;
 	COMMUNITY_EVENT_CONTRACT: "1";

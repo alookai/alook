@@ -143,13 +143,14 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext, contra
 }
 
 export async function mapPostedMessageForApi(db: Database, channelId: string, row: MessageRow, contract: CommunityContract = 2) {
-  const [replies, attachments] = await Promise.all([
+  const [replies, attachments, clientNonce] = await Promise.all([
     row.replyToId ? queries.communityMessage.getMessagesByIdsInScope(db, [row.replyToId], { channelId }) : Promise.resolve([]),
     contract === 3 ? queries.communityAttachment.listByMessageIds(db, [row.id]) : Promise.resolve([]),
+    contract === 3 ? queries.communityMessage.getMessageClientNonceForDelivery(db, row.id) : Promise.resolve(null),
   ])
   const replyMap = new Map(replies.filter((reply) => reply.channelId === channelId).map((reply) => [reply.id, reply]))
   const attachmentsByMessage = groupAttachments(attachments)
-  if (contract === 3) return mapMessageForApi(row, { replyMap, attachmentsByMessage, reactionsByMessage: {} }, 3, channelId)
+  if (contract === 3) return mapMessageForApi({ ...row, clientNonce }, { replyMap, attachmentsByMessage, reactionsByMessage: {} }, 3, channelId)
   return { ...row, replyTo: resolveReply(row, replyMap) }
 }
 

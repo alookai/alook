@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>touch / DM UI preview 17</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#111114;color:#f4f4f4;font:16px/1.6 system-ui,sans-serif}main{max-width:1080px;margin:auto;padding:28px}h1{font-size:28px;margin:0 0 8px}p{margin:0 0 18px;color:#b4b4bc}.layout{display:grid;grid-template-columns:minmax(320px,510px) 1fr;gap:36px;align-items:center}.device{width:min(100%,466px);aspect-ratio:1;position:relative;touch-action:none;overflow:hidden;border-radius:50%}#screen{width:100%;display:block;user-select:none;pointer-events:none}.hit{position:absolute;background:transparent;border:0;padding:0;cursor:pointer;border-radius:8px;touch-action:none}.hit:focus-visible{outline:3px solid #f1d4af;outline-offset:-3px}nav{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}button{font:inherit;cursor:pointer;border:1px solid #44444e;background:#202026;border-radius:12px;padding:7px 12px;color:#f4f4f4}#boot{background:#7edbb0;color:#000;touch-action:none;user-select:none}small{color:#a4a4ac}#name{font-size:22px;font-weight:650;margin-bottom:8px}#hint{min-height:85px}.controls{display:flex;gap:10px;flex-wrap:wrap}.note{margin-top:24px;border-top:1px solid #44444e;padding-top:16px}#toast{margin-top:12px;min-height:52px;color:#7edbb0}#frame{word-break:break-all}details{margin-top:18px}summary{cursor:pointer}#gallery{display:flex;gap:6px;flex-wrap:wrap;max-height:240px;overflow:auto}#gallery button{font-size:12px}@media(max-width:760px){main{padding:18px}.layout{grid-template-columns:1fr;gap:20px}.device{margin:auto}h1{font-size:24px}}
+</style>
+<main><h1>touch / DM UI preview 17</h1><p>Native LVGL render · 466 × 466 round screen · Sample data</p>
+<div class="layout"><div class="device" id="device"><img id="screen" alt="touch round screen"><div id="hits"></div></div>
+<div><div id="name"></div><p id="hint"></p><div class="controls"><button onclick="pwr()">Press PWR</button><button id="boot">Hold BOOT to record</button></div><div id="toast" role="status"></div>
+<nav aria-label="Main pages"><button onclick="show(avatar())">Avatar</button><button onclick="show('dm-home')">Home</button><button onclick="show(frame('list'))">DMs</button><button onclick="show(frame('chat'))">Chat</button><button onclick="show(frame('review'))">Review</button><button onclick="show('profile')">My profile</button></nav>
+<nav aria-label="DM example states"><button onclick="show('dm-loading')">Loading</button><button onclick="selected=false;show('dm-empty')">No selected DM</button><button onclick="show('dm-list-error')">List failure</button><button onclick="peer='human';selected=true;show('dm-list-error-cached')">Cached list failure</button><button onclick="canSend=false;show(frame('cannot-send'))">Cannot send</button><button onclick="canRead=canSend=false;show(frame('revoked'))">Read revoked</button><button onclick="canRead=canSend=true;show(frame('chat'))">Restore access</button><button onclick="show(frame('old-tail'))">Older window bottom</button><button onclick="show(frame('no-transcript'))">No transcript</button><button onclick="show(frame('send-failed'))">Send failed</button></nav>
+<nav aria-label="Account example states"><button onclick="show('nearby')">Nearby person</button><button onclick="show('friend-request')">Incoming request</button><button onclick="show('authorization')">Sign-in QR</button><button onclick="show('network')">Wi-Fi setup</button><button onclick="show('update-available')">Update available</button><button onclick="show('update-check-failed')">Update check failed</button><button onclick="show('update-install-failed')">Update failed</button><button onclick="selected=false;show('authorization-empty')">After logout</button></nav>
+<small>Swipe horizontally on the avatar to switch existing DMs. Swipe up to read messages. BOOT records; release to transcribe, then confirm Send. Scroll history, the DM list and long review text. Hotspots use actual LVGL control coordinates.</small><p id="frame"></p></div></div>
+<p class="note">UI preview only. Existing people/BOT conversations share the original voice flow. This version has no new-DM contact picker, DM notifications, text keyboard or full-client message tools. Hardware, microphone, services and real accounts are not connected. Firmware versions and update progress are samples; update checks, downloading and flashing are not connected. No sample action changes Alook.</p>
+<details><summary>All rendered states</summary><p>DM states are current. Unprefixed BOT frames are retained regression references.</p><div id="gallery"></div></details></main>
+<script>
+const scenes=__SCENES__,controls=__CONTROLS__,peers=['human','bot','pip','taylor'];
+let peer='human',current='',selected=true,canRead=true,canSend=true,holding=false,timer=null,gesture=null;
+const $=id=>document.getElementById(id),frame=s=>'dm-'+peer+(s?'-'+s:''),avatar=()=>selected?frame(''):'dm-empty';
+const sending=()=>current.endsWith('-sending')||current==='sending',updating=()=>['update-installing','update-restarting'].includes(current);
+function toast(text){$('toast').textContent=text}
+function description(name){
+ if(peers.some(p=>name==='dm-'+p))return ['Current DM avatar','People and BOTs share a text-free full-screen avatar. Swipe up for messages; PWR opens Home. The soft green glow shows sample presence.'];
+ if(name.startsWith('update-'))return ['Firmware update / '+name.slice(7).replaceAll('-',' '),'Current firmware and check/install status are separate. Check again after a failure; Update now appears only when an update is available. All versions and results are samples.'];
+ if(name==='dm-list-error-cached')return ['Refresh failed / Cached DMs','The last known conversations remain visible. The error does not imply that the account has no DMs. Refresh can retry.'];
+ if(name==='dm-home')return ['Home','DMs opens existing conversations. Profile and More keep their existing flows.'];
+ if(name.endsWith('-list')||name.endsWith('-list-end')||['dm-list','dm-loading','dm-empty','dm-list-error'].includes(name))return ['Existing direct messages','Choose an existing person or BOT conversation. The bottom refresh icon reloads the list. No contact picker.'];
+ if(name.includes('cannot-send'))return ['Cannot send','History remains readable. BOOT explains that this DM cannot send.'];
+ if(name.includes('revoked'))return ['Read permission withdrawn','Private message history is hidden and sending is blocked.'];
+ if(name.endsWith('-chat')||name.includes('history')||name.includes('old-tail'))return ['DM messages','Scroll continuous history. The bottom-center arrow returns to the true latest messages, including from an older bounded window. BOOT uses this recipient.'];
+ if(name.includes('no-transcript')||name==='transcription-failed')return ['No transcript','No usable text. Send is disabled; record again or discard.'];
+ if(name.includes('send-failed'))return ['Send failed','Retry preserves the same intent. Record again or discard are also available.'];
+ if(name.includes('sending'))return ['Sending','Send, discard, rerecord and PWR are locked until the attempt finishes.'];
+ if(name.includes('review'))return ['Confirm voice message','Check the full recipient and transcription. Scroll the text. Send confirms; the circular arrow waits for a new BOOT recording; close discards.'];
+ if(name.includes('record-ready'))return ['Ready to record','Wait for BOOT. The circular arrow does not start the microphone.'];
+ if(name.endsWith('recording'))return ['Recording sample','Hold BOOT; release to see a sample transcription. Close cancels.'];
+ if(name.includes('transcribing'))return ['Transcribing sample','Close cancels. The automatic sample result is not a service response.'];
+ if(name.startsWith('profile'))return ['My profile / Requests','Received pending requests, newest first. Closing a nearby card keeps the list open for this Profile visit.'];
+ return [name.replaceAll('-',' '),'Native sample page. Use its controls or PWR to return. No backend request is made.'];
+}
+function show(name){
+ if(!scenes[name]){toast('No native frame for '+name);return}
+ clearTimeout(timer);holding=false;current=name;$('screen').src=scenes[name];$('hits').replaceChildren();
+ const info=description(name);$('name').textContent=info[0];$('hint').textContent=info[1];$('frame').textContent=name;toast('');
+ for(const c of controls[name]||[]){if(c.disabled||c.width<=0||c.height<=0)continue;const b=document.createElement('button');b.className='hit';b.setAttribute('aria-label',c.action+' '+c.label);b.title=c.action+' '+c.label;Object.assign(b.style,{left:c.x/466*100+'%',top:c.y/466*100+'%',width:c.width/466*100+'%',height:c.height/466*100+'%'});b.onclick=e=>{e.stopPropagation();if(gesture&&Math.hypot(gesture.dx||0,gesture.dy||0)>20)return;act(c)};$('hits').append(b)}
+}
+function choose(index){peer=peers[index];selected=true;canRead=canSend=true;show(avatar())}
+function act(c){switch(c.action){
+ case 'Dms':show(frame('list'));break;
+ case 'OpenDm':choose(c.argument);break;
+ case 'Profile':show('profile');break;
+ case 'Settings':show('settings');break;
+ case 'Update':show('update-idle');break;
+ case 'CheckUpdate':show('update-checking');timer=setTimeout(()=>show('update-current'),800);break;
+ case 'InstallUpdate':show('update-installing');toast('Sample progress only. No firmware was downloaded or flashed.');break;
+ case 'Send':case 'Retry':show(frame('sending'));timer=setTimeout(()=>{show(frame('chat'));toast('Sample success only. Nothing was sent to Alook.')},1000);break;
+ case 'Rerecord':show(frame('record-ready'));break;
+ case 'Cancel':show(avatar());break;
+ case 'Latest':show(frame('chat'));break;
+ case 'Requests':show('profile-returned');break;
+ case 'AcceptRequest':if(c.argument===0){show('profile-accepting');timer=setTimeout(()=>show('profile-after-accept'),700)}else toast('Native request-row callback for '+(c.argument===2?'Casey':'Taylor')+'. No request was accepted.');break;
+ case 'AddFriend':show('friend-request-sent');break;
+ case 'AcceptFriend':show('already-friends');break;
+ case 'SetupNetwork':show('network');toast('Sample secure setup only. No Bluetooth connection.');break;
+ case 'ManualNetwork':show('network-manual');toast('Sample manual Wi-Fi fallback only.');break;
+ case 'Brightness':toast('Brightness callback only. No hardware is connected.');break;
+ case 'Logout':show('logout');break;
+ case 'ConfirmLogout':selected=false;show('authorization-empty');break;
+ case 'Authorize':show('authorization');break;
+ case 'Back':show(['logout','network','network-manual','network-preparing','network-authorization'].includes(current)?'settings':selected?avatar():'dm-home');break;
+ case 'Bots':show(frame('list'));break;
+ default:toast(c.action+' callback sample only.');
+}}
+function pwr(){if(sending()||updating())return;clearTimeout(timer);holding=false;show(current.startsWith('network')?'settings':!selected?'dm-home':current===avatar()?'dm-home':avatar())}
+const boot=$('boot');boot.addEventListener('pointerdown',e=>{e.preventDefault();if(sending()||updating())return;if(current.startsWith('network')){toast('Finish Wi-Fi setup before recording.');return}if(current.startsWith('authorization')){toast('Sign in first.');return}if(!selected){toast('Select an existing DM first.');return}if(!canRead||!canSend){toast('This DM cannot send.');timer=setTimeout(()=>toast(''),3000);return}boot.setPointerCapture(e.pointerId);show(frame('recording'));holding=true});boot.addEventListener('pointerup',()=>{if(!holding)return;holding=false;show(frame('transcribing'));timer=setTimeout(()=>show(frame('review')),800)});boot.addEventListener('pointercancel',()=>{if(holding)show(avatar())});
+function scroll(down){if(current.endsWith('-list')||current.endsWith('-list-end'))show(frame(down?'list-end':'list'));else if(current.endsWith('-chat')||current.endsWith('-history'))show(frame(down?'chat':'history'));else if(current.endsWith('-review')||current.endsWith('-review-end'))show(frame(down?'review-end':'review'));else if(current.startsWith('profile'))show(down?'profile-history':'profile')}
+$('device').addEventListener('wheel',e=>{e.preventDefault();scroll(e.deltaY>0)},{passive:false});$('device').addEventListener('pointerdown',e=>{gesture={x:e.clientX,y:e.clientY,dx:0,dy:0}});$('device').addEventListener('pointerup',e=>{if(!gesture)return;gesture.dx=e.clientX-gesture.x;gesture.dy=e.clientY-gesture.y;const{dx,dy}=gesture;if(current===avatar()){if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy))choose((peers.indexOf(peer)+(dx<0?1:-1)+peers.length)%peers.length);else if(dy< -50)show(frame('chat'))}else if(Math.abs(dy)>30)scroll(dy<0)});
+for(const name of Object.keys(scenes)){const b=document.createElement('button');b.textContent=name;b.onclick=()=>{const p=peers.find(p=>name==='dm-'+p||name.startsWith('dm-'+p+'-'));if(p){peer=p;selected=true}show(name)};$('gallery').append(b)}
+show(avatar());
+</script></html>

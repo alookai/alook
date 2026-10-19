@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Scan the setup code on your Touch.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>Connect your Touch to Wi-Fi.</string>
+</dict>
+</plist>
