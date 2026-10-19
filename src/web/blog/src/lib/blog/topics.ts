@@ -23,6 +23,8 @@ export const blogTopics = [
     pillarSlug: "ai-agent-team",
     entries: [
       { slug: "ai-agent-vs-chatbot", userJob: "Decide whether I need an agent or a chatbot" },
+      { slug: "grok-bot-vs-meta-muse-vs-manus-cue", userJob: "Choose a personal-agent product by tools, ongoing work and review controls" },
+      { slug: "personal-agents-vs-coding-agents", userJob: "Decide whether my existing coding tools cover the work or I need another agent product" },
       { slug: "local-ai-agents", userJob: "Choose which parts of an AI agent should run locally" },
       { slug: "how-to-delegate-tasks-to-ai-agents", userJob: "Package a task so an agent can run it reliably" },
       { slug: "ai-agent-team", userJob: "Design a multi-agent team with roles and handoffs" },

@@ -47,17 +47,19 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 30 published slugs exactly once", () => {
+  it("covers all 32 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(30);
-    expect(new Set(slugs).size).toBe(30);
+    expect(slugs).toHaveLength(32);
+    expect(new Set(slugs).size).toBe(32);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
+        "grok-bot-vs-meta-muse-vs-manus-cue",
+        "personal-agents-vs-coding-agents",
         "local-ai-agents",
         "how-to-delegate-tasks-to-ai-agents",
         "ai-agent-team",
@@ -118,6 +120,8 @@ describe("blogTopics", () => {
       "prevent-codex-opencode-duplicating-work": "Prevent Codex and OpenCode from duplicating work",
       "prevent-claude-code-opencode-duplicating-work": "Prevent Claude Code and OpenCode from duplicating work",
       "ai-agent-vs-chatbot": "Decide whether I need an agent or a chatbot",
+      "personal-agents-vs-coding-agents": "Decide whether my existing coding tools cover the work or I need another agent product",
+      "grok-bot-vs-meta-muse-vs-manus-cue": "Choose a personal-agent product by tools, ongoing work and review controls",
       "local-ai-agents":
         "Choose which parts of an AI agent should run locally",
       "how-to-delegate-tasks-to-ai-agents":
@@ -196,8 +200,8 @@ describe("topic discovery", () => {
       )
     ).toEqual([
       "ai-agent-vs-chatbot",
-      "local-ai-agents",
-      "how-to-delegate-tasks-to-ai-agents",
+      "grok-bot-vs-meta-muse-vs-manus-cue",
+      "personal-agents-vs-coding-agents",
     ]);
   });
 
