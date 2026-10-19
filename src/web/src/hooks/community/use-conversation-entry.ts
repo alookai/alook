@@ -2,7 +2,7 @@
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { channelHref, normalizeCommunityHref } from "@/lib/community/community-route"
 import type { CommunityReadStateResource } from "@alook/shared"
@@ -14,6 +14,8 @@ import {
   conversationEntryOptions, currentConversationReadState, findConversationEntryWindow,
   type ConversationEntryResource, type ConversationEntryTarget,
 } from "@/lib/community/conversation-entry"
+import type { MessageWindowData } from "@/lib/community/message-window"
+import { reconcileWindow } from "./community-ws/reconnect-messages"
 import { isConversationAccessError, isConversationAnchorMissingError } from "@/lib/community/conversation-read"
 
 type EntryWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
@@ -95,6 +97,14 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     if (!candidate || !resource) return
     entry.state.setState((state) => state.window ? state : { window: candidate, snapshot: resource.readStateAtEntry })
   }, [candidate, entry, resource])
+  useEffect(() => {
+    if (!canRead || !window || !resource || hashKey(window.key) === hashKey(resource.windowKey)) return
+    const landing = client.getQueryData<MessageWindowData>(resource.windowKey)
+    const target = Math.max(0, ...(landing?.pages.map(page => page.latestSeq ?? 0) ?? []))
+    void reconcileWindow(client, {
+      kind: input.serverId === null ? "dm" : "channel", scopeId: input.channelId, serverId: input.serverId ?? undefined,
+    }, window.key, target).catch(() => undefined)
+  }, [canRead, client, input.channelId, input.serverId, resource, window])
   const refetch = query.refetch
   const retry = useCallback(() => { void refetch({ cancelRefetch: false }) }, [refetch])
   return { ...query, intent, resource, canonical, canRead, window, snapshot, revoked, denied, anchorMissing,

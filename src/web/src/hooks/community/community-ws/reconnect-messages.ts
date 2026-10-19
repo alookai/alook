@@ -104,7 +104,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
   })
 }
 
-function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, target = 0, landing?: { page: MessagesPage; param: MessagesPageParam }) {
+export function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, target = 0, landing?: { page: MessagesPage; param: MessagesPageParam }) {
   const query = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   if (!query) return Promise.resolve()
   queryClient.setQueryData<number>(targetKey(key), (current) => Math.max(current ?? 0, target))
