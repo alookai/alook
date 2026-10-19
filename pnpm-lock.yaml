@@ -472,9 +472,6 @@ importers:
       pdfjs-dist:
         specifier: 6.4.299
         version: 6.4.299
-      postal-mime:
-        specifier: ^2.7.6
-        version: 2.7.6
       react:
         specifier: 19.3.1
         version: 19.3.1

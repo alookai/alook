@@ -6,18 +6,22 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }));
 
 const mockGetChannel = vi.fn();
+const mockGetChannelForMember = vi.fn();
 const mockGetMember = vi.fn();
 const mockUnpinMessage = vi.fn();
 const mockFanOut = vi.fn();
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }));
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
     ...actual,
     queries: {
-      communityChannel: { getChannel: (...a: unknown[]) => mockGetChannel(...a) },
+      communityChannel: {
+        getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
+      },
       communityMember: { getMember: (...a: unknown[]) => mockGetMember(...a) },
       communityPin: { unpinMessage: (...a: unknown[]) => mockUnpinMessage(...a) },
     },
@@ -56,6 +60,7 @@ describe("DELETE /api/community/channels/[id]/pins/[messageId]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" });
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" });
     mockGetMember.mockResolvedValue({ userId: "u1", role: "admin" });
     mockUnpinMessage.mockResolvedValue(undefined);
     mockFanOut.mockResolvedValue(undefined);
@@ -94,5 +99,21 @@ describe("DELETE /api/community/channels/[id]/pins/[messageId]", () => {
     const res = await DELETE(delReq(), ctx);
     expect(res.status).toBe(403);
     expect(mockUnpinMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects inaccessible channels before admin checks, writes or fanout", async () => {
+    mockGetChannelForMember.mockResolvedValue(null);
+    const res = await DELETE(delReq(), ctx);
+    expect(res.status).toBe(403);
+    expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "c1", "u1");
+    expect(mockGetMember).not.toHaveBeenCalled();
+    expect(mockUnpinMessage).not.toHaveBeenCalled();
+    expect(mockFanOut).not.toHaveBeenCalled();
+  });
+
+  it("retains missing path parameter errors without writes or fanout", async () => {
+    expect((await DELETE(delReq(), { params: { id: "c1" } })).status).toBe(400);
+    expect(mockUnpinMessage).not.toHaveBeenCalled();
+    expect(mockFanOut).not.toHaveBeenCalled();
   });
 });

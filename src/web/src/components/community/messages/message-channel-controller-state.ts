@@ -1,12 +1,10 @@
 "use client"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 
-import { useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
@@ -16,9 +14,8 @@ import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import type { MentionType, CommunityMessageResource, CommunityResourceProfile } from "@alook/shared"
+import type { MentionType } from "@alook/shared"
 
-import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import type { Msg } from "@/lib/community/models/message"
 import type { SendAttachment } from "./composer"
 import {
@@ -76,7 +73,6 @@ export function useMessageChannelController({
   const searchParams = useSearchParams()
   const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
   const [localSubmitVersion, setLocalSubmitVersion] = useAtom(useCreateAtom(0))
-  const [searchQuery, setSearchQuery] = useAtom(useCreateAtom(""))
   const [scrollTargetId, setScrollTargetId] = useAtom(useCreateAtom<string | null>(anchorMessageId))
   const [contextTarget, setContextTarget] = useAtom(useCreateAtom<MessageContextTarget | null>(null))
   const { mutateAsync: sendMessageAsync } = useSendMessage()
@@ -108,59 +104,8 @@ export function useMessageChannelController({
 
   useEffect(() => {
     setReplyTo(null)
-    setSearchQuery("")
     setContextTarget(null)
-  }, [channelId, setContextTarget, setReplyTo, setSearchQuery])
-
-  const term = searchQuery.trim()
-  const searchResource = useQuery({
-    queryKey: ["community", "message-search", channelId, term],
-    enabled: term.length > 0, subscribed: term.length > 0, gcTime: 5 * 60 * 1000, retry: false,
-    queryFn: async ({ signal }) => {
-      const token = captureCommunityLiveSnapshotToken(profileQueryClient)
-      const params = new URLSearchParams({ q: term, channelId })
-      const data = await apiFetchProfiles<{
-        results: Array<{
-          message: Pick<CommunityMessageResource, "id" | "content" | "authorId" | "createdAt"> & Partial<Pick<CommunityMessageResource, "seq">>
-          author: Pick<CommunityResourceProfile, "id" | "name" | "avatarVersion"> & { image: CommunityResourceProfile["avatar"] }
-        }>
-      }>(
-        "/api/community/messages/search?" + params,
-        (response) => response.results.map((result) => ({
-          id: result.author.id, identityAbout: { name: result.author.name },
-          avatar: { avatar: result.author.image, avatarVersion: result.author.avatarVersion },
-        })),
-        communityRequestOptions(profileQueryClient, token, signal), token.registry,
-      )
-      publishCommunityMessages(profileQueryClient, {
-        channelId,
-        messages: data.results.map((result) => ({
-          id: result.message.id, type: "chat", content: result.message.content,
-          createdAt: result.message.createdAt, authorId: result.author.id,
-          ...(result.message.seq !== undefined ? { seq: result.message.seq } : {}),
-        })),
-        proof: { token, signal },
-      })
-      return data.results.map((result) => result.message.id)
-    },
-  })
-  const searchIds = useMemo(() => term ? searchResource.data ?? [] : [], [term, searchResource.data])
-  const searchMessages = useCanonicalMessagesById(searchIds)
-  const searchProfiles = useCanonicalProfilesByUserId(searchIds.flatMap((id) => {
-    const authorId = searchMessages?.get(id)?.authorId
-    return authorId ? [authorId] : []
-  }))
-  const searchResults = useMemo(() => searchIds.flatMap((id) => {
-    const message = searchMessages?.get(id)
-    if (!message) return []
-    const profile = message.authorId ? readCommunityProfile(searchProfiles.get(message.authorId), message.authorId) : null
-    return [{ ...message, ...(profile ? { authorName: profile.name, authorAvatar: profile.avatar, authorAvatarVersion: profile.avatarVersion } : {}) }]
-  }), [searchIds, searchMessages, searchProfiles])
-  const { refetch: refetchSearch } = searchResource
-  const search = useCallback(async (query: string) => {
-    if (query.trim() === term && term) await refetchSearch({ cancelRefetch: false })
-    else setSearchQuery(query)
-  }, [term, refetchSearch, setSearchQuery])
+  }, [channelId, setContextTarget, setReplyTo])
 
   const openContextSeq = useCallback((seq: number) => {
     setContextTarget((current) => (
@@ -318,11 +263,6 @@ export function useMessageChannelController({
     pinnedIds,
     replyTo,
     setReplyTo,
-    searchQuery,
-    searchResults,
-    searchError: searchResource.isError ? "Search failed. Try again." : undefined,
-    searchLoading: searchResource.isFetching,
-    search,
     scrollTargetId,
     setScrollTargetId,
     consumeScrollTarget,
@@ -337,5 +277,5 @@ export function useMessageChannelController({
     localSubmitVersion,
     handleTyping: () => communityWsSendTyping(communityRuntime, { channelId }),
     typingUsers: typingUserIds.map((id) => typingNames[id] ?? resolveUserName(id)),
-  }), [feed, pinnedIds, replyTo, setReplyTo, searchQuery, searchResults, searchResource.isError, searchResource.isFetching, search, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, onSheetReply, jumpToSeq, messageActions, acceptMessage, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
+  }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, onSheetReply, jumpToSeq, messageActions, acceptMessage, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
 }

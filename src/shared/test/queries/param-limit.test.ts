@@ -16,7 +16,6 @@ import * as categoryQueries from "../../src/db/queries/community/category";
 import * as memberQueries from "../../src/db/queries/community/member";
 import * as reactionQueries from "../../src/db/queries/community/reaction";
 import * as dmQueries from "../../src/db/queries/community/dm";
-import * as overviewQueries from "../../src/db/queries/overview";
 import * as taskQueries from "../../src/db/queries/task";
 import * as agentQueries from "../../src/db/queries/agent";
 import * as conversationQueries from "../../src/db/queries/conversation";
@@ -394,8 +393,6 @@ describe("high-cardinality query bind matrix", () => {
       (db) => categoryQueries.getCategoriesByIds(db as never, ids),
       (db) => agentQueries.getAgentsByIds(db as never, ids, "workspace_1"),
       (db) => conversationQueries.getConversationsByIds(db as never, ids, "workspace_1"),
-      (db) => overviewQueries.getRecentTerminalTasks(db as never, "workspace_1", ids),
-      (db) => overviewQueries.getConversationCountsByAgent(db as never, "workspace_1", ids),
       (db) => taskQueries.listPendingTasksByRuntimes(db as never, ids, "workspace_1"),
       (db) => taskQueries.listActiveTaskCountsByWorkspace(db as never, "workspace_1", ids, "user_1"),
       (db) => taskQueries.listActiveTasksByWorkspace(db as never, "workspace_1", ids, "user_1"),

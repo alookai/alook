@@ -1,1 +1,1 @@
-export type RightPanel = "members" | "pinned" | "search" | "threads" | null
+export type RightPanel = "members" | "pinned" | "threads" | null

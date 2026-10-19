@@ -15,7 +15,7 @@ it.each([true, false])("links the exact response server identity without replaci
   const span = tracer.startSpan("GET", { kind: SpanKind.CLIENT }, trace.setSpan(ROOT_CONTEXT, root))
   const client = span.spanContext()
   const server = { traceId: "a".repeat(32), spanId: "b".repeat(16), traceFlags: sampled ? 1 : 0 }
-  const response = traceResponse(new Response(), new Request("https://alook.ai/api/agents", { headers: { traceparent: `00-${client.traceId}-${client.spanId}-01` } }), { isTraced: sampled, spanContext: () => server })
+  const response = traceResponse(new Response(), new Request("https://alook.ai/api/community/bots", { headers: { traceparent: `00-${client.traceId}-${client.spanId}-01` } }), { isTraced: sampled, spanContext: () => server })
   observeResourceResponse(span, response.headers.get("server-timing")!)
   span.end()
   const recorded = exporter.getFinishedSpans()[0]!
@@ -41,9 +41,9 @@ it("projects exact native resources for reversed same-URL requests and retains o
   const one = make(), two = make()
   const record = (span: typeof one, responseEnd: number) => {
     const id = span.spanContext()
-    const response = traceResponse(new Response(), new Request("https://alook.ai/api/agents", { headers: { traceparent: `00-${id.traceId}-${id.spanId}-01` } }), { isTraced: true })
+    const response = traceResponse(new Response(), new Request("https://alook.ai/api/community/bots", { headers: { traceparent: `00-${id.traceId}-${id.spanId}-01` } }), { isTraced: true })
     observeResourceResponse(span, response.headers.get("server-timing")!)
-    entries.push({ name: "https://alook.ai/api/agents", entryType: "resource", serverTiming: [{ name: "alook_upstream", description: id.traceId + "-" + id.spanId }], fetchStart: 100, requestStart: 105, responseStart: responseEnd - 1, responseEnd, transferSize: 50, encodedBodySize: 30, decodedBodySize: 80, responseStatus: 200, nextHopProtocol: "h2", initiatorType: "fetch" } as unknown as PerformanceEntry)
+    entries.push({ name: "https://alook.ai/api/community/bots", entryType: "resource", serverTiming: [{ name: "alook_upstream", description: id.traceId + "-" + id.spanId }], fetchStart: 100, requestStart: 105, responseStart: responseEnd - 1, responseEnd, transferSize: 50, encodedBodySize: 30, decodedBodySize: 80, responseStatus: 200, nextHopProtocol: "h2", initiatorType: "fetch" } as unknown as PerformanceEntry)
   }
   record(two, 120); now = 120; finishTransportClock(two); two.end()
   record(one, 180); now = 180; finishTransportClock(one); one.end()

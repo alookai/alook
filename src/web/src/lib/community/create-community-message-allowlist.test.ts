@@ -19,8 +19,6 @@ const ALLOWLIST = [
   // The canonical id-in-path message door (human + bot, folds flat `send` and
   // the former dm/[id]/messages route — DM now flows through this one tree).
   "src/app/api/community/channels/[id]/messages/route.ts",
-  // Bot enrollment welcome message (server owner adds a bot → greeting).
-  "src/app/api/community/servers/[id]/bots/route.ts",
   // First-run onboarding placeholder. Role events start the bots first, then
   // this invokes the deferred canonical dispatcher so normal mention, wake,
   // broadcast, and typing behavior all remain intact.

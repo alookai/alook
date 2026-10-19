@@ -746,12 +746,7 @@ export { validateCommunityName, sanitizeCommunityName } from "./lib/community-na
 export type { CommunityNameValidation } from "./lib/community-name";
 export { parseInviteToken } from "./lib/invite-link";
 export { slugify } from "./lib/slugify";
-export {
-  addRepeatInterval,
-  computeNextScheduledAt,
-  expandOccurrences,
-  getOccurrencesPerDay,
-} from "./db/queries/calendar-event";
+
 
 // Utils
 export { parseEmailHandle, toAlookAddress, isValidHandle, extractDomain, isSensitiveRecipient } from "./utils/email";

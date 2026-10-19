@@ -268,35 +268,6 @@ describe("whole-statement SQL correctness on native D1", () => {
     statementCount(record, 'thread_inbox_child_lookup', 13);
   });
 
-  it("selects newest scoped search rows before the global limit and escapes literal LIKE input", async () => {
-    const f = await seedCommunity("search");
-    await seedBatch(Array.from({ length: 60 }, (_, i) => runtimeEnv.DB.prepare("INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'needle old', ?, ?, ?)").bind(`${f.prefix}_old_${i}`, f.sender, baseline, f.channels[0], i + 1)));
-    await seedBatch(f.channels.map((channel, i) => runtimeEnv.DB.prepare("INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'needle new', ?, ?, ?)").bind(`${f.prefix}_new_${i}`, f.sender, `2026-09-02T00:00:${String(i).padStart(3, "0")}Z`, channel, i === 0 ? 61 : 1)));
-    const decoy = await seedCommunity("search_decoy", 1);
-    await run("INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'needle hidden', '2099-01-01', ?, 1)", `${decoy.prefix}_msg`, decoy.sender, decoy.channels[0]);
-    await run("INSERT INTO community_category (id, server_id, name, private) VALUES (?, ?, 'Hidden', 1)", `${f.prefix}_hidden_category`, f.server);
-    await run("INSERT INTO community_channel (id, server_id, category_id, name, type, created_at) VALUES (?, ?, ?, 'hidden', 'text', ?)", `${f.prefix}_hidden`, f.server, `${f.prefix}_hidden_category`, baseline);
-    await run("INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'needle private', '2099-01-01', ?, 1)", `${f.prefix}_hidden_msg`, f.sender, `${f.prefix}_hidden`);
-    const { db, record } = recordedDb("search");
-    const ids = f.channels.slice(0, 124);
-    const serverResult = await queries.communitySearch.searchMessagesInServer(db, { query: "needle", serverId: f.server, visibleChannelIds: [...ids, ...ids], limit: 3 });
-    expect(serverResult.map(({ message }) => message.id)).toEqual([123, 122, 121].map((i) => `${f.prefix}_new_${i}`));
-    expect(await queries.communitySearch.searchMessagesInServer(db, { query: "needle", serverId: f.server, visibleChannelIds: [] })).toEqual([]);
-    expect((await queries.communitySearch.searchMessagesInServer(db, { query: "needle", serverId: f.server, visibleChannelIds: f.channels })).map(({ message }) => message.id)).toEqual(Array.from({ length: 50 }, (_, i) => `${f.prefix}_new_${124 - i}`));
-    expect((await queries.communitySearch.searchMessages(db, { query: "needle", channelId: f.channels[0], limit: 1 }))[0].message.id).toBe(`${f.prefix}_new_0`);
-    statementCount(record, "json_each", 4);
-    const literal = String.raw`100%_\end`;
-    await run("INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, ?, '2099-01-01', ?, 62)", `${f.prefix}_literal`, f.sender, literal, f.channels[0]);
-    expect((await queries.communitySearch.searchMessages(db, { query: literal, channelId: f.channels[0] })).map(({ message }) => message.id)).toEqual([`${f.prefix}_literal`]);
-    const dm = `${f.prefix}_dm`;
-    await run("INSERT INTO community_channel (id, type, created_at) VALUES (?, 'dm', ?)", dm, baseline);
-    await seedBatch([1, 2].map((seq) => runtimeEnv.DB.prepare("INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'needle dm', ?, ?, ?)").bind(`${f.prefix}_dm_${seq}`, f.sender, seq === 1 ? baseline : later, dm, seq)));
-    expect((await queries.communitySearch.searchMessages(db, { query: "needle", channelId: dm, limit: 1 }))[0].message.id).toBe(`${f.prefix}_dm_2`);
-    const tied = [3, 4].map((seq) => `${f.prefix}_tie_${seq}`);
-    await seedBatch(tied.map((id, i) => runtimeEnv.DB.prepare("INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'tie', ?, ?, ?)").bind(id, f.sender, later, dm, i + 3)));
-    expect(new Set((await queries.communitySearch.searchMessages(db, { query: "tie", channelId: dm, limit: 2 })).map(({ message }) => message.id))).toEqual(new Set(tied));
-  });
-
   it("creates exactly one complete graph with a single native seven-statement batch", async () => {
     const prefix = fixturePrefix("server_success");
     const owner = `${prefix}_owner`;

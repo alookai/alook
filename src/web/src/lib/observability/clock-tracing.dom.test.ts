@@ -67,13 +67,13 @@ it("normalizes real native HTTP exports and mirrors, retaining missing-hook and 
     return { spans, events }
   }
   const flush = async () => { await vi.advanceTimersByTimeAsync(0); now += 4000; await vi.advanceTimersByTimeAsync(3000) }
-  const path = "/api/agents"
+  const path = "/api/community/bots"
   for (const next of ["success", "body", "error", "abort", "http-error"]) {
     mode = next; const wallStart = Date.now()
     if (next === "error" || next === "abort") await expect(window.fetch(path)).rejects.toThrow()
     else await window.fetch(path)
     await flush()
-    const { spans, events } = exported(), span = spans.filter(s => s.name === "GET /api/agents").at(-1)!
+    const { spans, events } = exported(), span = spans.filter(s => s.name === "GET /api/community/bots").at(-1)!
     expect(Number(span.startTimeUnixNano) / 1e6).toBeCloseTo(wallStart, 2)
     expect(Number(span.endTimeUnixNano) / 1e6).toBeCloseTo(wallStart + 12, 2)
     const mirror = events.find(e => e.trace?.span_id === span.spanId)!
@@ -83,12 +83,12 @@ it("normalizes real native HTTP exports and mirrors, retaining missing-hook and 
   }
   for (const event of ["load", "error", "abort", "timeout"]) {
     const wallStart = Date.now(), xhr = new XMLHttpRequest()
-    xhr.open("GET", "/api/workspaces"); xhr.send()
+    xhr.open("GET", "/api/community/servers"); xhr.send()
     now += 17; drift *= -1; vi.setSystemTime(performance.timeOrigin + now + drift)
     Object.defineProperty(xhr, "status", { value: event === "load" ? 200 : 0 })
     xhr.dispatchEvent(new Event(event))
     await flush()
-    const { spans, events } = exported(), span = spans.filter(s => s.name === "GET /api/workspaces").at(-1)!
+    const { spans, events } = exported(), span = spans.filter(s => s.name === "GET /api/community/servers").at(-1)!
     expect(Number(span.startTimeUnixNano) / 1e6).toBeCloseTo(wallStart, 2)
     expect(Number(span.endTimeUnixNano) / 1e6).toBeCloseTo(wallStart + 17, 2)
     const mirror = events.find(e => e.trace?.span_id === span.spanId)!
@@ -121,7 +121,7 @@ it("normalizes real native HTTP exports and mirrors, retaining missing-hook and 
   }
   mode = "success"; const resumedStart = Date.now()
   await window.fetch(path); await flush()
-  expect(Number(exported().spans.filter(s => s.name === "GET /api/agents").at(-1)!.startTimeUnixNano) / 1e6).toBeCloseTo(resumedStart, 2)
+  expect(Number(exported().spans.filter(s => s.name === "GET /api/community/bots").at(-1)!.startTimeUnixNano) / 1e6).toBeCloseTo(resumedStart, 2)
   expect(JSON.stringify(sent)).not.toContain("alook.internal.http")
 })
 

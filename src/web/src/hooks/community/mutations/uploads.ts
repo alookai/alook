@@ -114,9 +114,6 @@ function uploadPath(target: UploadTarget): string | null {
   // Thread / DM / channel are all channel rows in one id-space → one upload
   // door. Whichever id the target carries, it's a channelId to channels/{id}.
   // Canonical attachments door (route/disc trunk): POST channels/{id}/attachments
-  // (re-pointed off the old channels/{id}/upload, which stays alive through the
-  // deploy window and is deleted at the flat-delete step). The response is the
-  // stable attachment-id carrier consumed by the later message send.
   const id = target.threadId ?? target.dmId ?? target.channelId
   return id ? `/api/community/channels/${id}/attachments` : null
 }

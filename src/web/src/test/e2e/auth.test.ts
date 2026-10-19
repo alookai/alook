@@ -20,17 +20,16 @@ describe("auth", () => {
     expect(cookie).toContain("=")
   })
 
-  it("GET /api/me with session cookie returns user profile", async () => {
+  it("GET /api/community/users/me/profile with session cookie returns user profile", async () => {
     const cookie = await signIn(testEmail, testPassword)
-    const res = await sessionRequest("/api/me", cookie)
+    const res = await sessionRequest("/api/community/users/me/profile", cookie)
     expect(res.status).toBe(200)
     const data = await res.json() as Record<string, unknown>
-    expect(data.email).toBe(testEmail)
     expect(data.name).toBe(testName)
   })
 
-  it("GET /api/me without auth returns 401", async () => {
-    const res = await fetch(`${APP_URL}/api/me`)
+  it("GET /api/community/users/me/profile without auth returns 401", async () => {
+    const res = await fetch(`${APP_URL}/api/community/users/me/profile`)
     expect(res.status).toBe(401)
   })
 

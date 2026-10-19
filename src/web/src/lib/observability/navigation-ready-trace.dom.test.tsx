@@ -59,7 +59,7 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   expect(navigationForHref(window.location.href)).toBe(navigation)
   const parent = navigation.span!.spanContext()
   const { apiFetchResponse } = await import("@/lib/api/client")
-  await apiFetchResponse("/api/agents", { observation: { action: navigation, reason: "router" } })
+  await apiFetchResponse("/api/community/bots", { observation: { action: navigation, reason: "router" } })
   now = 1250
   await act(async () => { resolve?.([]); await vi.advanceTimersByTimeAsync(0); view!.rerender(<Root />) })
   expect(navigation.done).toBe(true)
@@ -78,11 +78,11 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   expect(navigationSpan).toHaveLength(1)
   expect(navigationSpan[0]).toMatchObject({ name: "navigation", traceId: parent.traceId })
   expect(Number(BigInt(String(navigationSpan[0]!.endTimeUnixNano)) - BigInt(String(navigationSpan[0]!.startTimeUnixNano))) / 1e6).toBeCloseTo(1250, 2)
-  expect(spans.filter(span => span.parentSpanId === parent.spanId && span.name === "GET /api/agents")).toMatchObject([{ name: "GET /api/agents", traceId: parent.traceId }])
+  expect(spans.filter(span => span.parentSpanId === parent.spanId && span.name === "GET /api/community/bots")).toMatchObject([{ name: "GET /api/community/bots", traceId: parent.traceId }])
   const ready = events.filter(event => event.name === "navigation.ready")
   expect(ready).toHaveLength(1)
   expect(ready[0]?.attributes).toMatchObject({ navigation_kind: "document", start_ms: "0", duration_ms: "1250", trace_id: parent.traceId, span_id: parent.spanId, action_id: navigation.id })
-  const http = spans.find(span => span.parentSpanId === parent.spanId && span.name === "GET /api/agents")!
+  const http = spans.find(span => span.parentSpanId === parent.spanId && span.name === "GET /api/community/bots")!
   expect(Number(http.startTimeUnixNano) / 1e6 - navigation.origin).toBeCloseTo(900, 2)
   expect(Number(http.endTimeUnixNano) / 1e6 - navigation.origin).toBeCloseTo(1012, 2)
   const mirrors = events.filter(event => event.name === "faro.tracing.fetch")

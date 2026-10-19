@@ -41,15 +41,6 @@ describe("community/bot exports", () => {
     expect(typeof q.assertNoLiveBots).toBe("function")
   })
 
-  it("exposes approval-request helpers", () => {
-    expect(typeof q.getApprovalRequest).toBe("function")
-    expect(typeof q.listPendingApprovalsForBot).toBe("function")
-    expect(typeof q.findPendingJoinRequest).toBe("function")
-    expect(typeof q.createApprovalRequestStatement).toBe("function")
-    expect(typeof q.resolveApprovalRequest).toBe("function")
-    expect(typeof q.getApprovalRequestByDmMessageId).toBe("function")
-  })
-
   it("exports OwnerHasBotsError as a real Error subclass", () => {
     const e = new q.OwnerHasBotsError("boom")
     expect(e).toBeInstanceOf(Error)

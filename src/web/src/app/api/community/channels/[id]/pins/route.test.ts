@@ -13,7 +13,7 @@ const mockPinMessage = vi.fn();
 const mockListPins = vi.fn();
 const mockFanOut = vi.fn();
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }));
 
 // Keep the real isUniqueConstraintError; only stub the query functions.
 vi.mock("@alook/shared", async () => {
@@ -76,6 +76,7 @@ describe("POST /api/community/channels/[id]/pins", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" });
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" });
     // Pinning is admin-only — every happy path starts with an admin caller.
     mockGetMember.mockResolvedValue({ userId: "u1", role: "admin" });
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1" });
@@ -156,6 +157,25 @@ describe("POST /api/community/channels/[id]/pins", () => {
     const res = await POST(postReq("m1"), ctx);
     expect(res.status).toBe(403);
     expect(mockPinMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects inaccessible channels before admin checks, target reads, writes or fanout", async () => {
+    mockGetChannelForMember.mockResolvedValue(null);
+    const res = await POST(postReq("m1"), ctx);
+    expect(res.status).toBe(403);
+    expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "c1", "u1");
+    expect(mockGetMember).not.toHaveBeenCalled();
+    expect(mockGetMessage).not.toHaveBeenCalled();
+    expect(mockPinMessage).not.toHaveBeenCalled();
+    expect(mockFanOut).not.toHaveBeenCalled();
+  });
+
+  it("retains invalid JSON and missing channel parameter errors", async () => {
+    const invalid = new NextRequest("http://localhost/api/community/channels/c1/pins", { method: "POST", body: "{" });
+    expect((await POST(invalid, ctx)).status).toBe(400);
+    expect((await POST(postReq("m1"), { params: {} })).status).toBe(400);
+    expect(mockPinMessage).not.toHaveBeenCalled();
+    expect(mockFanOut).not.toHaveBeenCalled();
   });
 
   it("returns 404 when the message does not belong to the channel", async () => {

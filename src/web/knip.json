@@ -27,7 +27,6 @@
   ],
   "project": ["src/**/*.{ts,tsx,css,mdx}", "blog/**/*.{ts,tsx,css,mdx}", "auth/**/*.{ts,tsx,mts}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
   "ignoreDependencies": [
-    "@tailwindcss/node",
     "cloudflare",
     "rehype-autolink-headings",
     "rehype-external-links",

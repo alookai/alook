@@ -311,19 +311,13 @@ export function ThreadChannelSurface({
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
               kind={rightPanel}
-              viewerUserId={viewer.id}
               {...memberPanelProps}
               pinned={controller.feed.pinned}
               pinnedLoading={controller.feed.pinnedLoading}
-              searchResults={controller.searchResults}
-              searchError={controller.searchError}
-              searchLoading={controller.searchLoading}
-              searchQuery={controller.searchQuery}
               threads={controller.feed.threads}
               threadsLoading={controller.feed.threadsLoading}
               onOpenThread={onOpenChild}
               onJumpToMessage={controller.jumpToSeq}
-              onSearch={controller.search}
               onOpenProfile={onOpenProfile}
             />
           )}

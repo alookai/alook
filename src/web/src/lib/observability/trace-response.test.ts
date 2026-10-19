@@ -3,7 +3,7 @@ import { readTraceResponse, responseTraceContext, traceResponse } from "./trace-
 
 const client = { traceId: "a".repeat(32), spanId: "b".repeat(16), traceFlags: 1 }
 const server = { traceId: "c".repeat(32), spanId: "d".repeat(16), traceFlags: 1 }
-const request = () => new Request("https://alook.ai/api/agents", { headers: { traceparent: `00-${client.traceId}-${client.spanId}-01`, authorization: "private-token" } })
+const request = () => new Request("https://alook.ai/api/community/bots", { headers: { traceparent: `00-${client.traceId}-${client.spanId}-01`, authorization: "private-token" } })
 
 it("preserves the original stream, status and cache headers and uses only actual native server identity", async () => {
   const stream = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("body")); controller.close() } })
@@ -15,7 +15,7 @@ it("preserves the original stream, status and cache headers and uses only actual
   const header = response.headers.get("server-timing")!
   expect(header).toContain('db;dur=2;desc="a,b"')
   expect(header).not.toContain("private-token")
-  expect(header).not.toContain("/api/agents")
+  expect(header).not.toContain("/api/community/bots")
   expect(readTraceResponse(header, client)).toEqual({ matched: true, server, sampling: "selected" })
   expect(await response.text()).toBe("body")
 })

@@ -102,7 +102,7 @@ vi.mock("@/lib/middleware/helpers", async () => {
   }
 })
 
-import { DELETE, GET, PATCH } from "./route"
+import { DELETE, PATCH } from "./route"
 
 function patchReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/bots/b1", {
@@ -111,38 +111,6 @@ function patchReq(body: unknown) {
   })
 }
 const ctx = { params: { id: "b1" } } as any
-
-describe("GET /api/community/bots/[id]", () => {
-  it("returns the owned bot with a canonical versioned avatar", async () => {
-    mockGetBotOwnedBy.mockResolvedValue({
-      id: "b1",
-      name: "Bot",
-      discriminator: "0042",
-      image: "/api/community/bots/b1/avatar",
-      avatarVersion: 4,
-      description: "helper",
-      machineId: "mac1",
-      runtime: "codex",
-      modelName: null,
-      reasoningEffort: null,
-      runtimeConfigRevision: 2,
-    })
-
-    const res = await GET(
-      new NextRequest("http://localhost/api/community/bots/b1"),
-      ctx,
-    )
-
-    expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({
-      bot: {
-        id: "b1",
-        image: "/api/community/bots/b1/avatar?v=4",
-        avatarVersion: 4,
-      },
-    })
-  })
-})
 
 describe("PATCH /api/community/bots/[id]", () => {
   beforeEach(() => {

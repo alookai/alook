@@ -159,10 +159,8 @@ export function ForumChannelSurface({
           open
           onOpenChange={(open) => { if (!open) setPanelState({ channelId, panel: null }) }}
           kind={rightPanel}
-          viewerUserId={viewer.id}
           {...memberPanelProps}
           pinned={[]}
-          searchResults={[]}
           threads={[]}
           onOpenThread={onOpenPost}
           onOpenProfile={onOpenProfile}

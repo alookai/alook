@@ -32,32 +32,6 @@ import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-c
 
 const log = createLogger({ service: "community-bot-update" })
 
-export const GET = withAuth(async (_req, ctx) => {
-  const db = getDb(ctx.env.DB)
-  const id = ctx.params?.id as string
-  const bot = await queries.communityBot.getBotOwnedBy(db, id, ctx.userId)
-  if (!bot) return writeError("bot not found", 404)
-  return writeJSON({
-    bot: {
-      id: bot.id,
-      name: bot.name,
-      discriminator: bot.discriminator,
-      image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
-      avatarVersion: bot.avatarVersion,
-      ownerUserId: bot.ownerUserId,
-      description: bot.description,
-      createdAt: bot.createdAt,
-      updatedAt: bot.updatedAt,
-      lastRefreshContextAt: bot.lastRefreshContextAt,
-      machineId: bot.machineId,
-      runtime: bot.runtime,
-      modelName: bot.modelName,
-      reasoningEffort: bot.reasoningEffort,
-      runtimeConfigRevision: bot.runtimeConfigRevision,
-    },
-  })
-})
-
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const id = ctx.params?.id as string
   const [body, err] = await parseBody(req, CommunityBotPatchRequestSchema)

@@ -211,7 +211,7 @@ describe("original observation ownership", () => {
     vi.advanceTimersByTime(240)
     finishAction(first, "success", { phase: "primary", region: "bots" })
     const second = beginNavigation("/c/me/friends")!
-    const request = startRequest("/api/agents", { observation: { action: second, reason: "router" } })
+    const request = startRequest("/api/community/bots", { observation: { action: second, reason: "router" } })
     vi.advanceTimersByTime(660)
     const spans = [first, second].map((_action, index) => ({ spanContext: () => ({ traceId: String(index + 1).repeat(32), spanId: String(index + 1).repeat(16) }), setAttribute: vi.fn(), end: vi.fn() }))
     const factory = vi.fn((_name: string, _fields: Record<string, string>, _start: HrTime) => spans[factory.mock.calls.length - 1] as unknown as Span)

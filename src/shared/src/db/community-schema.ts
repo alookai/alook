@@ -558,13 +558,6 @@ export const communityPushDevice = sqliteTable(
 );
 
 // 19. community_bot_approval_request
-// Represents pending/resolved approval workflows a bot owner sees in the
-// owner↔bot DM. After migration 0065 the ONLY live `kind` is:
-//   - "join_server": another user asked to add the bot to a server they're in
-// The former "friend" kind was folded into `community_friendship`
-// (needsOwnerApproval column) and its rows deleted by the migration. The table
-// name and shape stay; only the Drizzle `kind` union narrows (see `ApprovalKind`
-// in queries/community/bot.ts). `serverId` is non-null iff kind="join_server".
 export const communityBotApprovalRequest = sqliteTable(
   "community_bot_approval_request",
   {

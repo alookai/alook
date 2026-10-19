@@ -199,20 +199,14 @@ export function TextChannelSurface({
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
               kind={rightPanel}
-              viewerUserId={viewer.id}
               {...memberPanelProps}
               pinned={feed.pinned}
               pinnedLoading={feed.pinnedLoading}
-              searchResults={controller.searchResults}
-              searchError={controller.searchError}
-              searchLoading={controller.searchLoading}
-              searchQuery={controller.searchQuery}
               threads={feed.threads}
               threadsLoading={feed.threadsLoading}
               onOpenThread={onOpenThread}
               onOpenProfile={onOpenProfile}
               onJumpToMessage={controller.jumpToSeq}
-              onSearch={controller.search}
             />
           )}
             dialogs={(

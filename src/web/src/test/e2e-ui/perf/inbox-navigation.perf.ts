@@ -121,7 +121,7 @@ async function measureInboxClick({
     path === `/api/community/channels/${targetId}/messages`
   ))
   const readStarts = startsFor((path) => (
-    path === `/api/community/channels/${targetId}/read-state`
+    path === "/api/community/users/me/read-state"
   ))
   const rscStarts = startsFor((path) => path.includes(targetId) && path.endsWith("?_rsc"))
   const detailStarts = Object.fromEntries(detailPaths.map((path) => [
@@ -214,7 +214,7 @@ test("Inbox Channel/DM navigation fixed trace", async ({ browser }) => {
     detailPaths: [
       `/api/community/servers/${targetServer.id}/categories`,
       `/api/community/servers/${targetServer.id}/channels`,
-      `/api/community/servers/${targetServer.id}/unreads`,
+      "/api/community/users/me/attention",
     ],
   }))
   await page.goBack()
@@ -234,7 +234,7 @@ test("Inbox Channel/DM navigation fixed trace", async ({ browser }) => {
     detailPaths: [
       `/api/community/servers/${targetServer.id}/categories`,
       `/api/community/servers/${targetServer.id}/channels`,
-      `/api/community/servers/${targetServer.id}/unreads`,
+      "/api/community/users/me/attention",
     ],
   }))
 

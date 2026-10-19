@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { queries, isUniqueConstraintError, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
@@ -45,13 +45,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
-  const db = getDb(ctx.env.DB)
+  const db = getPrimaryDb(ctx.env.DB)
 
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) return writeError("channel not found", 404)
 
   const pinnable = requirePinnableSurface(channel.type)
   if (!pinnable.ok) return writeError(pinnable.error, pinnable.status)
+
+  const access = await requireChannelMember(db, channelId, ctx.userId)
+  if (!access.ok) return writeError(access.error, access.status)
 
   // Pinning is a moderation action — require server admin / owner.
   const adminCheck = await requireServerAdmin(db, channel.serverId, ctx.userId)

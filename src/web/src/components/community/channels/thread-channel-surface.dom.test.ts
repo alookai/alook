@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
   handleTyping: vi.fn(),
   setReplyTo: vi.fn(),
   jumpToSeq: vi.fn(),
-  search: vi.fn(),
   setContextTarget: vi.fn(),
 }))
 
@@ -94,9 +93,6 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
     pinnedIds: new Set(["pinned_1"]),
     replyTo: { id: "reply_1", authorName: "Alice", text: "hello" },
     setReplyTo: mocks.setReplyTo,
-    searchQuery: "query",
-    searchResults: [{ id: "search_1", type: "chat" }],
-    search: mocks.search,
     scrollTargetId: "m_target",
     setScrollTargetId: vi.fn(),
     consumeScrollTarget: vi.fn(),
@@ -465,10 +461,8 @@ describe("ThreadChannelSurface ownership", () => {
     expect(panelProps).toEqual(expect.objectContaining({
       kind: "pinned",
       pinned: expect.arrayContaining([expect.objectContaining({ id: "pinned_1" })]),
-      searchQuery: "query",
       onOpenThread: props.onOpenChild,
       onJumpToMessage: mocks.jumpToSeq,
-      onSearch: mocks.search,
     }))
     const contextProps = mockedMessageContextSheet.mock.calls.at(-1)![0]
     expect(contextProps).toEqual(expect.objectContaining({

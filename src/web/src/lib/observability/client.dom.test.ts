@@ -135,8 +135,8 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   const one = startAction("message.edit")!, two = startAction("message.pin")!
   const firstContext = one.span!.spanContext(), secondContext = two.span!.spanContext()
   await Promise.all([
-    apiFetchResponse("/api/agents", { observation: { action: one, reason: "command" } }),
-    apiFetchResponse("/api/workspaces", { observation: { action: two, reason: "command" } }),
+    apiFetchResponse("/api/community/bots", { observation: { action: one, reason: "command" } }),
+    apiFetchResponse("/api/community/servers", { observation: { action: two, reason: "command" } }),
   ])
   finishAction(one, "success"); finishAction(two, "success")
   await vi.advanceTimersByTimeAsync(3000)
@@ -145,8 +145,8 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   const children = (parent: typeof firstContext) => spans.filter(span => span.traceId === parent.traceId && span.parentSpanId === parent.spanId)
   expect(children(firstContext)).toHaveLength(1)
   expect(children(secondContext)).toHaveLength(1)
-  expect(children(firstContext)[0]?.name).toBe("GET /api/agents")
-  expect(children(secondContext)[0]?.name).toBe("GET /api/workspaces")
+  expect(children(firstContext)[0]?.name).toBe("GET /api/community/bots")
+  expect(children(secondContext)[0]?.name).toBe("GET /api/community/servers")
   const beforeDm = sent.length
   const dm = startAction("dm.message.send")!
   const dmContext = dm.span!.spanContext()

@@ -9,7 +9,6 @@ import type { MessageChannelControllerValue as FacadeControllerValue } from "./m
 import type {
   FileAttachment,
   ImagePreview,
-  Msg,
   SendAttachment,
 } from "@/lib/community/models/message"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
@@ -40,9 +39,6 @@ type ExpectedControllerValue = {
   pinnedIds: Set<string>
   replyTo: ExpectedReplyTarget | null
   setReplyTo: (reply: ExpectedReplyTarget | null) => void
-  searchQuery: string
-  searchResults: Msg[]
-  search: (query: string) => void
   scrollTargetId: string | null
   setScrollTargetId: (targetId: string | null) => void
   consumeScrollTarget: (targetId: string) => void
@@ -125,7 +121,6 @@ describe("MessageChannelController facade contract", () => {
       "const router = useRouter()",
       "const searchParams = useSearchParams()",
       "const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))",
-      "const [searchQuery, setSearchQuery] = useAtom(useCreateAtom(\"\"))",
       "const [scrollTargetId, setScrollTargetId] = useAtom(useCreateAtom<string | null>(anchorMessageId))",
       "const [contextTarget, setContextTarget] = useAtom(useCreateAtom<MessageContextTarget | null>(null))",
       "useSendMessage()",
@@ -146,9 +141,7 @@ describe("MessageChannelController facade contract", () => {
       expect(position, token).toBeGreaterThan(cursor)
       cursor = position
     }
-    expect(body.match(/\buseCreateAtom(?:<[^>]+>)?\(/g)).toHaveLength(5)
-    expect(body).toContain('queryKey: ["community", "message-search", channelId, term]')
-    expect(body).toContain("const searchMessages = useCanonicalMessagesById(searchIds)")
+    expect(body.match(/\buseCreateAtom(?:<[^>]+>)?\(/g)).toHaveLength(4)
     expect(body).not.toMatch(/\buseState(?:<[^>]+>)?\(/)
     expect(actions).not.toMatch(/\buse[A-Z][A-Za-z]+\(/)
     expect(send).not.toMatch(/\buse[A-Z][A-Za-z]+\(/)

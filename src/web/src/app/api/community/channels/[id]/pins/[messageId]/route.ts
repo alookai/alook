@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getPrimaryDb } from "@/lib/db"
 import { queries, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
-import { requireServerAdmin } from "@/lib/community/permissions"
+import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
 
 export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
@@ -12,13 +12,16 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const messageId = ctx.params?.messageId
   if (!channelId || !messageId) return writeError("missing params", 400)
 
-  const db = getDb(ctx.env.DB)
+  const db = getPrimaryDb(ctx.env.DB)
 
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) return writeError("channel not found", 404)
 
   const pinnable = requirePinnableSurface(channel.type)
   if (!pinnable.ok) return writeError(pinnable.error, pinnable.status)
+
+  const access = await requireChannelMember(db, channelId, ctx.userId)
+  if (!access.ok) return writeError(access.error, access.status)
 
   // Unpinning is a moderation action — require admin / owner.
   const auth = await requireServerAdmin(db, channel.serverId, ctx.userId)

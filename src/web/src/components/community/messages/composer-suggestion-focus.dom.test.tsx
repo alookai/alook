@@ -50,7 +50,6 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
   MessageChannelController: ({ children }: { children: (value: MessageChannelControllerValue) => ReactNode }) => children({
     feed: {} as MessageChannelControllerValue["feed"],
     pinnedIds: new Set(), replyTo: null, setReplyTo: vi.fn(),
-    searchQuery: "", searchResults: [], searchLoading: false, search: vi.fn(),
     scrollTargetId: null, setScrollTargetId: vi.fn(), consumeScrollTarget: vi.fn(),
     contextTarget: null, setContextTarget: vi.fn(), openContextSeq: vi.fn(),
     onSheetReply: vi.fn(), jumpToSeq: vi.fn(),

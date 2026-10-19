@@ -1,7 +1,7 @@
 import type { CommunityUserCore } from "@/lib/community/models/people"
 import type { ReactNode } from "react"
 import type { MentionType, CommunityResourceProfile } from "@alook/shared"
-import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
+import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { SendAttachment } from "./composer"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import type { ReplyTarget } from "@/lib/community/models/message"
@@ -44,11 +44,6 @@ export type MessageChannelControllerValue = {
   pinnedIds: Set<string>
   replyTo: ReplyTarget | null
   setReplyTo: (reply: ReplyTarget | null) => void
-  searchQuery: string
-  searchResults: Msg[]
-  searchError?: string
-  searchLoading: boolean
-  search: (query: string) => void
   scrollTargetId: string | null
   setScrollTargetId: (targetId: string | null) => void
   consumeScrollTarget: (targetId: string) => void

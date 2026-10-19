@@ -44,7 +44,7 @@ afterEach(async () => {
 });
 
 describe("workspace and daemon high-cardinality D1 queries", () => {
-  it("preserves global overview/task/trace ordering and fixed-bind claims at 125", async () => {
+  it("preserves global task/trace ordering and fixed-bind claims at 125", async () => {
     const prefix = fixturePrefix("workspace");
     const userId = `${prefix}_user`;
     const workspaceId = `${prefix}_workspace`;
@@ -89,12 +89,6 @@ describe("workspace and daemon high-cardinality D1 queries", () => {
     }));
 
     const db = createDb(runtimeEnv.DB);
-    const recent = await queries.overview.getRecentTerminalTasks(db, workspaceId, agentIds, 15);
-    expect(recent).toHaveLength(15);
-    expect(recent.map((task) => task.completedAt)).toEqual(
-      [...recent.map((task) => task.completedAt)].sort().reverse(),
-    );
-    expect(await queries.overview.getConversationCountsByAgent(db, workspaceId, agentIds)).toHaveLength(125);
     expect(await queries.task.listActiveTaskCountsByWorkspace(db, workspaceId, agentIds, userId)).toHaveLength(125);
     expect(await queries.task.listActiveTasksByWorkspace(db, workspaceId, agentIds, userId)).toHaveLength(50);
     expect(await queries.task.listPendingTasksByRuntimes(db, runtimeIds, workspaceId)).toHaveLength(125);

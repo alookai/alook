@@ -204,12 +204,6 @@
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:9"
   },
   {
-    "key": "src/shared/src/db/queries/agent-skill.ts:syncAgentSkills:values:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/agent-skill.ts:syncGlobalSkills:values:1"
-  },
-  {
     "key": "src/shared/src/db/queries/agent.ts:getAgentsByIds:inArray:1"
   },
   {
@@ -483,12 +477,6 @@
     "key": "src/shared/src/db/queries/community/read-state.ts:advanceReadStateRevisionWhenAnyBuilder:or-map:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/search.ts:searchMessagesInServer:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/server-folder.ts:insertFolderItems:values:1"
-  },
-  {
     "key": "src/shared/src/db/queries/community/server.ts:getServersByIds:inArray:1"
   },
   {
@@ -540,15 +528,6 @@
     "key": "src/shared/src/db/queries/native-oauth.ts:registerAttempt:inArray:2"
   },
   {
-    "key": "src/shared/src/db/queries/overview.ts:getConversationCountsByAgent:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/overview.ts:getRecentTerminalTasks:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/overview.ts:getRecentTerminalTasks:inArray:2"
-  },
-  {
     "key": "src/shared/src/db/queries/product-plan.ts:reconcileActiveBotsBuilder:inArray:1"
   },
   {
@@ -571,15 +550,6 @@
   },
   {
     "key": "src/shared/src/db/queries/runtime.ts:getAgentRuntimesForWorkspace:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task-message.ts:listTaskMessages:notInArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/task-message.ts:listTaskMessages:notInArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/task-message.ts:listTaskMessagesSince:notInArray:1"
   },
   {
     "key": "src/shared/src/db/queries/task.ts:cancelActiveTasksByConversation:inArray:1"
@@ -667,8 +637,5 @@
   },
   {
     "key": "src/shared/src/db/queries/user.ts:getUsersByIds:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/workspace-file-request.ts:markDispatched:inArray:1"
   }
 ]

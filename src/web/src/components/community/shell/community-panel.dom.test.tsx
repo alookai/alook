@@ -29,7 +29,6 @@ describe("CommunityPanel pinned author line", () => {
         authorId: "user_1", authorName: "Stale author",
         content: "Pinned body", createdAt,
       }]}
-      searchResults={[]}
       threads={[]}
       onOpenThread={vi.fn()}
       onJumpToMessage={onJumpToMessage}

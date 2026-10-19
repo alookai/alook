@@ -151,22 +151,6 @@ export async function invalidateMany(keys: string[]): Promise<void> {
   })));
 }
 
-const INBOX_TYPE_COMBOS = [
-  "*",
-  "user_dm_message",
-  "calendar_event",
-  "email_notification",
-  "calendar_event,email_notification",
-  "calendar_event,user_dm_message",
-  "email_notification,user_dm_message",
-  "calendar_event,email_notification,user_dm_message",
-];
-
-export function invalidateInboxCounts(userId: string, workspaceId: string): Promise<void> {
-  const prefix = `inbox:${userId}:${workspaceId}:`;
-  return invalidateMany(INBOX_TYPE_COMBOS.map((combo) => `${prefix}${combo}`));
-}
-
 export const cacheKeys = {
   machineToken: (token: string) => `mt:${token.slice(0, 20)}`,
   member: (workspaceId: string, userId: string) => `mem:${workspaceId}:${userId}`,

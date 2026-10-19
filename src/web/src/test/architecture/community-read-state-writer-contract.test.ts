@@ -153,9 +153,6 @@ describe("human account read-state writer contract", () => {
     expect(route.match(/authorKind: "human"/g)).toHaveLength(2)
     expect(route.match(/authorKind: "bot"/g)).toHaveLength(2)
 
-    const botEnrollment = source("src/web/src/app/api/community/servers/[id]/bots/route.ts")
-    expect(botEnrollment).toContain('authorKind: "bot"')
-
     const friendship = source("src/shared/src/db/queries/community/friendship.ts")
     expect(friendship.match(/authorKind: "bot"/g)).toHaveLength(2)
   })

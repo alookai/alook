@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { resolve, relative } from "node:path"
 import ts from "typescript"
 import { expect, it } from "vitest"
-import { actionNames, pageRoutes, routeTemplate } from "./coverage"
+import { actionNames, apiRoutes, pageRoutes, routeTemplate } from "./coverage"
 import { actionVariants } from "./actions"
 
 const web = resolve(import.meta.dirname, "../../..")
@@ -13,6 +13,11 @@ it("normalizes the ordinary message route without retaining a message ID or quer
 it("keeps the route whitelist aligned with both builds and parallel route slots", () => {
   const routes = new Set(["src/app", "blog/src/app"].flatMap(root => files(resolve(web, root)).filter(file => file.endsWith("/page.tsx")).map(file => "/" + relative(resolve(web, root), file).split("/").slice(0, -1).filter(segment => !segment.startsWith("(") && !segment.startsWith("@")).join("/"))))
   expect([...routes].sort()).toEqual([...pageRoutes].sort())
+})
+it("keeps the API whitelist aligned with the current route files", () => {
+  const root = resolve(web, "src/app/api")
+  const routes = files(root).filter(file => file.endsWith("/route.ts")).map(file => "/api/" + relative(root, file).split("/").slice(0, -1).join("/"))
+  expect(routes.sort()).toEqual([...apiRoutes].sort())
 })
 it("keeps existing mutation owners inventoried and semantic variants on the whitelist", () => {
   const inventory = new Set<string>([...mutationCoverage, ...facadeCoverage].map(entry => entry.file))

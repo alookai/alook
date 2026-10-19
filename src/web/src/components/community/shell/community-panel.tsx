@@ -1,23 +1,18 @@
 "use client"
 
-import { useAtom, useCreateAtom } from "@tanstack/react-store";
-
-import { MessagesSquare, Pin, Search, Users } from "lucide-react"
+import { MessagesSquare, Pin, Users } from "lucide-react"
 import { stripInlineMarkup, type CommunityRole as Role } from "@alook/shared"
 
 import { Avatar } from "@/components/community/avatar"
 import { MemberList } from "@/components/community/members/member-list"
-import { Message } from "@/components/community/messages/message"
 import { MessageAuthorLine } from "@/components/community/messages/message-author-line"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
-import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatRelativeTime } from "@/lib/community/format-time"
-import { onEnterSubmit } from "@/lib/ime"
 import type { MemberManageContext } from "@/components/community/members/member-management-types"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
-import type { Msg, RenderMsg, Thread } from "@/lib/community/models/message"
+import type { Msg, Thread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
@@ -38,10 +33,6 @@ export type CommunityPanelProps = {
   manageContext?: MemberManageContext
   pinned: Msg[]
   pinnedLoading?: boolean
-  searchResults: Msg[]
-  searchError?: string
-  searchLoading?: boolean
-  searchQuery?: string
   threads: Thread[]
   threadsLoading?: boolean
   onOpenThread: (id: string) => void
@@ -50,11 +41,8 @@ export type CommunityPanelProps = {
   onKickMember?: (memberId: string) => Promise<unknown> | void
   myRole?: Role
   onJumpToMessage?: (seq: number) => void
-  onSearch?: (query: string) => void
-  viewerUserId?: string
 }
 
-/** Members, pins, search, and threads business content in the shared modal shell. */
 export function CommunityPanel(props: CommunityPanelProps) {
   const { open, onOpenChange, kind } = props
   const { icon: Icon, label } = panelHeading(kind)
@@ -91,10 +79,6 @@ function renderCommunityPanelBody({
   manageContext,
   pinned,
   pinnedLoading,
-  searchResults,
-  searchError,
-  searchLoading,
-  searchQuery,
   threads,
   threadsLoading,
   onOpenThread,
@@ -103,8 +87,6 @@ function renderCommunityPanelBody({
   onKickMember,
   myRole,
   onJumpToMessage,
-  onSearch,
-  viewerUserId,
 }: CommunityPanelProps, profilesByUserId: ReadonlyMap<string, CommunityProfile>) {
   if (kind === "members") {
     return (
@@ -161,20 +143,6 @@ function renderCommunityPanelBody({
     })
   }
 
-  if (kind === "search") {
-    return (
-      <SearchPanel
-        searchResults={searchResults}
-        error={searchError}
-        loading={searchLoading}
-        initialQuery={searchQuery}
-        onOpenProfile={onOpenProfile}
-        onSearch={onSearch}
-        viewerUserId={viewerUserId}
-      />
-    )
-  }
-
   if (threadsLoading && threads.length === 0) return <ThreadListSkeleton />
   return (
     <>
@@ -220,64 +188,9 @@ function panelHeading(kind: Exclude<RightPanel, null>) {
       return { icon: Users, label: "Members" }
     case "pinned":
       return { icon: Pin, label: "Pinned Messages" }
-    case "search":
-      return { icon: Search, label: "Search" }
     case "threads":
       return { icon: MessagesSquare, label: "Threads" }
   }
-}
-
-function SearchPanel({
-  searchResults,
-  error,
-  loading,
-  initialQuery,
-  onOpenProfile,
-  onSearch,
-  viewerUserId,
-}: {
-  searchResults: Msg[]
-  error?: string
-  loading?: boolean
-  initialQuery?: string
-  onOpenProfile?: OpenProfile
-  onSearch?: (query: string) => void
-  viewerUserId?: string
-}) {
-  const [query, setQuery] = useAtom(useCreateAtom(initialQuery ?? ""))
-  const submit = () => {
-    const nextQuery = query.trim()
-    if (nextQuery) onSearch?.(nextQuery)
-  }
-
-  return (
-    <>
-      <div className="relative mb-3">
-        <Search className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="h-9 pl-8"
-          placeholder="Search messages"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onEnterSubmit(submit)}
-        />
-      </div>
-      <div className="mb-2 text-xs text-muted-foreground" role={error ? "alert" : "status"}>{error ?? (loading ? "Searching…" : `${searchResults.length} results`)}</div>
-      {searchResults.map((message) => {
-        const renderMessage: RenderMsg = { ...message, grouped: false }
-        return (
-          <Message
-            key={message.id}
-            m={renderMessage}
-            compact
-            viewerUserId={viewerUserId}
-            onOpenThread={() => {}}
-            onOpenProfile={onOpenProfile}
-          />
-        )
-      })}
-    </>
-  )
 }
 
 function PinnedListSkeleton() {
