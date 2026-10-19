@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import {
   COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, requestedCommunityContract, communityReadSchemas, communityChannelResourceFromStorage, CommunityMessageResourceSchema,
   normalizeCommunityChannelResource, normalizeCommunityMessageResource, CommunityConversationEntryReadSchema, CommunityMessagesReadSchema,
-  type CommunityAccessDecision, type CommunityReadStateResource, type CommunityMessageSurfaceReceipt, type CommunityMessagesRead,
+  type CommunityAccessDecision, type CommunityMessageSurfaceReceipt, type CommunityMessagesRead,
   type CommunityConversationEntryRead,
 } from "@alook/shared"
 import { writeJSON } from "@/lib/middleware/helpers"
@@ -43,13 +43,6 @@ function messageReadPayload(channelId: string, page: MessagePage, contract: 2 | 
 
 export function communityMessagesReadFromPage(channelId: string, page: MessagePage) {
   return CommunityMessagesReadSchema.parse(messageReadPayload(channelId, page, 3))
-}
-
-export function writeCommunityReadState(request: Request, channelId: string,
-  state: Omit<CommunityReadStateResource, "channelId">) {
-  const contract = requestedCommunityContract(request.headers)
-  if (contract !== 2 && contract !== 3) return writeJSON(state)
-  return versionedJSON(communityReadSchemas(contract).readState.parse({ contractVersion: contract, channelId, readState: { channelId, ...state } }), contract)
 }
 
 export function writeCommunityConversationEntryRead(entry: CommunityConversationEntryRead) {

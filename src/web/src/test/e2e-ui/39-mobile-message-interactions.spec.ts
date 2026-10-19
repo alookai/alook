@@ -281,17 +281,18 @@ type ReadState = {
 async function settledReadState(page: Page, channelId: string): Promise<ReadState> {
   let previous: ReadState | null = null
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const response = await page.request.get(`/api/community/channels/${channelId}/read-state`)
+    const response = await page.request.get("/api/community/users/me/read-state")
     expect(response.ok()).toBe(true)
-    const current = await response.json() as ReadState
+    const snapshot = await response.json() as { readStates: Array<ReadState & { channelId: string }> }
+    const current = snapshot.readStates.find((row) => row.channelId === channelId)
     if (
-      current.lastReadMessageId
+      current?.lastReadMessageId
       && previous?.lastReadMessageId === current.lastReadMessageId
       && previous.lastReadSeq === current.lastReadSeq
     ) {
       return current
     }
-    previous = current
+    previous = current ?? null
     await page.waitForTimeout(100)
   }
   throw new Error(`read state did not settle for ${channelId}: ${JSON.stringify(previous)}`)

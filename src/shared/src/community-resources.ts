@@ -228,7 +228,6 @@ export const CommunityMessagePostedSchema = CommunityMessagesReadSchema.pick({ c
   message: CommunityMessageResourceSchema, deduped: z.boolean(), threadId: id.optional(),
 })
 export const CommunityMessageReadSchema = CommunityMessagePostedSchema.omit({ deduped: true, threadId: true })
-export const CommunityReadStateReadSchema = z.strictObject({ ...envelope, readState: CommunityReadStateResourceSchema })
 export const CommunityMembersReadSchema = z.strictObject({ ...envelope, relation: z.enum(["access", "notify"]), members: z.array(CommunityMemberRelationSchema), profiles: z.array(CommunityResourceProfileSchema) })
 export const CommunityThreadsReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema,
   threads: z.array(CommunityChannelResourceSchema),
@@ -250,7 +249,6 @@ const legacyEnvelope = { contractVersion: z.literal(2), channelId: id }
 const legacyReadSchemas = {
   channel: CommunityChannelReadSchema.extend(legacyEnvelope),
   messages: CommunityMessagesReadSchema.extend({ ...legacyEnvelope, messages: z.array(CommunityLegacyMessageResourceSchema) }),
-  readState: CommunityReadStateReadSchema.extend(legacyEnvelope),
   members: CommunityMembersReadSchema.extend({ ...legacyEnvelope, profiles: z.array(legacyProfileSchema) }),
   threads: CommunityThreadsReadSchema.extend({ ...legacyEnvelope, included: CommunityThreadsReadSchema.shape.included.extend({
     messages: z.array(CommunityLegacyMessageResourceSchema), profiles: z.array(legacyProfileSchema),
@@ -259,7 +257,7 @@ const legacyReadSchemas = {
   error: CommunityReadErrorSchema.extend({ contractVersion: z.literal(2) }),
 }
 const resourceReadSchemas = {
-  channel: CommunityChannelReadSchema, messages: CommunityMessagesReadSchema, readState: CommunityReadStateReadSchema,
+  channel: CommunityChannelReadSchema, messages: CommunityMessagesReadSchema,
   members: CommunityMembersReadSchema, threads: CommunityThreadsReadSchema, readAdvance: CommunityReadAdvanceSchema, error: CommunityReadErrorSchema,
 }
 

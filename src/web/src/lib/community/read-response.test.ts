@@ -27,7 +27,7 @@ describe("common read response publication", () => {
   it("recognizes only complete read routes and decodes their encoded channel identity", () => {
     expect(communityReadTarget("/api/community/channels/a%2Fb/read?lastReadSeq=4", "put")).toEqual({ channelId: "a/b", resource: "read" })
     expect(communityReadTarget("/api/community/channels/thread/members?relation=notify")).toEqual({ channelId: "thread", resource: "members" })
-    for (const [path, method] of [["/api/community/channels/thread/read", "GET"], ["/api/community/channels/thread/messages/extra", "GET"], ["/api/community/channels/thread", "PUT"], ["/api/community/messages/search?q=term", "GET"], ["/api/community/messages/batch", "GET"]]) {
+    for (const [path, method] of [["/api/community/channels/thread/read", "GET"], ["/api/community/channels/thread/read-state", "GET"], ["/api/community/channels/thread/messages/extra", "GET"], ["/api/community/channels/thread", "PUT"], ["/api/community/messages/search?q=term", "GET"], ["/api/community/messages/batch", "GET"]]) {
       expect(communityReadTarget(path!, method)).toBeNull()
       const body = { contractVersion: 2, private: "unrelated endpoint" }
       expect(decodeCommunityReadResponse(path!, method, confirmed(), body)).toBe(body)

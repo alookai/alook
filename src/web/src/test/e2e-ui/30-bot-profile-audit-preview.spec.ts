@@ -101,8 +101,22 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     }))
     return data.bot.id
   }
+  async function joinBotToServer(runnerKey: string, botId: string, serverId: string): Promise<void> {
+    const token = await actors.seed.createInvite("alice", serverId)
+    const joined = await jsonRequest<{ serverId: string; member: { userId: string } }>(
+      "alice",
+      `/api/community/invites/${token}/join`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${runnerKey}` },
+        body: "{}",
+      },
+    )
+    expect(joined.serverId).toBe(serverId)
+    expect(joined.member.userId).toBe(botId)
+  }
   actors.onCleanup(cleanupCreatedResources)
-  return { createdBotIds, createdMachineIds, cleanupCreatedResources, headersFor, jsonRequest, pairMachine, createBot }
+  return { createdBotIds, createdMachineIds, cleanupCreatedResources, headersFor, jsonRequest, pairMachine, createBot, joinBotToServer }
 }
 
 type UserKey = "alice" | "bob"
@@ -611,7 +625,7 @@ test("owned bot profile preview stays root-bounded from its first visible frame"
   const actors = await caseActors(["alice", "bob"])
   const { asUser } = actors
   const { seedChannel, seedForumThread, seedJoinServer, seedServer } = actors.seed
-  const { jsonRequest, pairMachine, createBot } = await prepareCase(actors, caseResources)
+  const { jsonRequest, pairMachine, createBot, joinBotToServer } = await prepareCase(actors, caseResources)
 
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `preview-overflow-${suffix}`)
@@ -630,11 +644,8 @@ test("owned bot profile preview stays root-bounded from its first visible frame"
   const { credential, machineId } = await pairMachine()
   const botName = `Overflow bot ${suffix}`
   const botId = await createBot(machineId, botName)
-  await jsonRequest("alice", `/api/community/servers/${serverId}/bots`, {
-    method: "POST",
-    body: JSON.stringify({ botId }),
-  })
   const runnerKey = await enrollBot(credential, botId)
+  await joinBotToServer(runnerKey, botId, serverId)
   const { servers } = await jsonRequest<{
     servers: Array<{ id: string; name: string; discriminator: string }>
   }>("alice", "/api/community/servers")
@@ -715,7 +726,7 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
   const actors = await caseActors(["alice", "bob"])
   const { asUser } = actors
   const { seedChannel, seedJoinServer, seedServer } = actors.seed
-  const { headersFor, jsonRequest, pairMachine, createBot } = await prepareCase(actors, caseResources)
+  const { headersFor, jsonRequest, pairMachine, createBot, joinBotToServer } = await prepareCase(actors, caseResources)
 
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `profile-preview-server-with-a-long-name-${suffix}`)
@@ -729,14 +740,9 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
   const { credential, machineId } = await pairMachine()
   const botName = `Preview bot ${suffix} long-name`
   const botId = await createBot(machineId, botName)
-  await jsonRequest("alice", `/api/community/servers/${serverId}/bots`, {
-    method: "POST",
-    body: JSON.stringify({ botId }),
-  })
-  await jsonRequest("alice", `/api/community/servers/${staleServerId}/bots`, {
-    method: "POST",
-    body: JSON.stringify({ botId }),
-  })
+  const runnerKey = await enrollBot(credential, botId)
+  await joinBotToServer(runnerKey, botId, serverId)
+  await joinBotToServer(runnerKey, botId, staleServerId)
 
   const { servers } = await jsonRequest<{
     servers: Array<{ id: string; name: string; discriminator: string }>
@@ -745,7 +751,6 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
   const staleServer = servers.find((candidate) => candidate.id === staleServerId)
   expect(server).toBeTruthy()
   expect(staleServer).toBeTruthy()
-  const runnerKey = await enrollBot(credential, botId)
   const channelRef = `/${server!.name}#${server!.discriminator}/${channelName}`
   let latestSeq = 0
   for (const index of [1, 2, 3]) {

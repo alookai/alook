@@ -16,7 +16,7 @@ export function communityReadTarget(path: string, method = "GET") {
   if (method.toUpperCase() !== "GET") return null
   const single = /^\/api\/community\/messages\/([^/?]+)(?:\?|$)/.exec(path)
   if (single && !["search", "batch", "tags"].includes(single[1])) return { channelId: "", messageId: decodeURIComponent(single[1]), resource: "message" }
-  const matched = /^\/api\/community\/channels\/([^/?]+)(?:\/(messages|read-state|members|threads))?(?:\?|$)/.exec(path)
+  const matched = /^\/api\/community\/channels\/([^/?]+)(?:\/(messages|members|threads))?(?:\?|$)/.exec(path)
   if (!matched) return null
   const resource = matched[2] ?? "metadata"
   return { channelId: decodeURIComponent(matched[1]), resource: resource === "messages" && new URL(path, "https://alook.invalid").searchParams.has("entry") ? "entry" : resource }
@@ -84,11 +84,6 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
       olderCursor: data.page.olderCursor ?? undefined, newerCursor: data.page.newerCursor ?? undefined,
       hasMoreOlder: data.page.hasMoreOlder, hasMoreNewer: data.page.hasMoreNewer, latestSeq: data.page.latestSeq,
       surfaceReceipt: data.surfaceReceipt }
-  }
-  if (target.resource === "read-state") {
-    const data = schemas.readState.parse(value)
-    assertScope(data.channelId); assertScope(data.readState.channelId)
-    return data.readState
   }
   if (target.resource === "read") {
     const data = schemas.readAdvance.parse(value)

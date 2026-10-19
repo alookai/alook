@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { COMMUNITY_CONTRACT_HEADER, normalizeCommunityChannelResource, type CommunityConversationEntryRead } from "@alook/shared"
-import { writeCommunityChannelRead, writeCommunityMessagesRead, writeCommunityReadState, writeCommunityConversationEntryRead } from "./read-contract"
+import { writeCommunityChannelRead, writeCommunityMessagesRead, writeCommunityConversationEntryRead } from "./read-contract"
 import { decodeCommunityReadResponse } from "./read-response"
 import { parseCommunityMessageWindow } from "./messages"
 import { mapMessageForWs } from "./message-payload"
@@ -25,15 +25,13 @@ describe("common reading negotiation", () => {
     expect(() => decodeCommunityReadResponse("/api/community/channels/channel", "GET", new Response(), body)).toThrow("confirmation mismatch")
     expect(decodeCommunityReadResponse("/api/community/channels/channel", "GET", new Response(), { ...channel, readContractVersion: 2, accessDecision: access })).not.toHaveProperty("readContractVersion")
   })
-  it.each(["channel", "forum", "thread", "dm"] as const)("uses the same message and read-state resource for %s", async (surfaceKind) => {
+  it.each(["channel", "forum", "thread", "dm"] as const)("uses the same message resource for %s", async (surfaceKind) => {
     const message = { id: "m1", seq: 1, authorId: "user", createdAt: "2026-10-07T12:00:00Z", content: "hello", type: "chat" }
     const response = writeCommunityMessagesRead(request("2"), "channel", { messages: [message], latestSeq: 1, hasMore: true, cursor: "cursor", surfaceReceipt: { channelId: "channel", surfaceKind } })
     const body = await response.json()
     expect(body.messages[0]).toMatchObject({ channelId: "channel", clientNonce: null, replyToId: null, attachments: [] })
     expect(body.messages[0]).not.toHaveProperty("resourceComplete")
     expect(decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, body)).toMatchObject({ olderCursor: "cursor", hasMoreOlder: true, surfaceReceipt: { surfaceKind } })
-    const state = writeCommunityReadState(request("2"), "channel", { lastReadAt: null, lastReadMessageId: null, lastReadSeq: 0 })
-    expect(decodeCommunityReadResponse("/api/community/channels/channel/read-state", "GET", state, await state.json())).toEqual({ channelId: "channel", lastReadAt: null, lastReadMessageId: null, lastReadSeq: 0 })
   })
   it("gives DM and channel transports a single target identity", () => {
     expect(communityKeys.dmMessages("channel")).toEqual(communityKeys.channelMessages("channel"))
