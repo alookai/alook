@@ -237,15 +237,16 @@ export function MessageContextSheet({
 
   const anchorId = query.data && !query.data.notFound ? (query.data.anchorId ?? null) : null
 
+  const canonicalPending = !!query.data && !query.data.notFound && canonicalMessages === undefined
+  const anchorMissing = canonicalMessages !== undefined && !!anchorId && !canonicalMessages.has(anchorId)
+
   // ── Sheet-local actions ──────────────────────────────────────────────────
   const findMessage = useCallback(
     (id: string): Msg | undefined => {
-      const transport = (canonicalMessages === undefined
-        ? queryClient.getQueryData<SheetCache>(queryKey)?.messages
-        : query.data?.messages)?.find((message) => message.id === id)
+      const transport = query.data?.messages?.find((message) => message.id === id)
       return transport ? materializeCanonicalMessage(transport, canonicalMessages) : undefined
     },
-    [canonicalMessages, query.data, queryClient, queryKey],
+    [canonicalMessages, query.data],
   )
 
   const runReactionIntent = useCallback((
@@ -421,7 +422,7 @@ export function MessageContextSheet({
       bodyRef={bodyRef}
       bodyClassName="px-4 py-3"
     >
-      {query.isLoading && <ContextSkeleton />}
+      {(query.isLoading || canonicalPending) && <ContextSkeleton />}
 
       {query.isError && (
         <p className="py-8 text-center text-sm text-muted-foreground">
@@ -429,13 +430,13 @@ export function MessageContextSheet({
         </p>
       )}
 
-      {query.data?.notFound && (
+      {(query.data?.notFound || anchorMissing) && (
         <p className="py-8 text-center text-sm text-muted-foreground">
           Message not found — it may have been deleted.
         </p>
       )}
 
-      {!query.isLoading && !query.isError && query.data && !query.data.notFound && (
+      {!query.isLoading && !query.isError && !canonicalPending && !anchorMissing && query.data && !query.data.notFound && (
         <ContextRows
           rows={renderRows}
           viewerUserId={currentUser.id}

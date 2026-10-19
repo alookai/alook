@@ -21,7 +21,7 @@
  * see a stale value for up to the cache TTL (~60s default).
  *
  * ✅ Use this module for:
- *   - Pure TTL memoization / read-through cache (`cached`, `cachedBatch`)
+ *   - Pure TTL memoization / read-through cache (`cached`)
  *   - Best-effort throttles where a double-run is safe (`throttled`)
  *   - Negative-cache flags with short TTLs, config, feature flags,
  *     whitelists, static-content indexes — the classic "write rarely,
@@ -92,55 +92,6 @@ export async function cached<T>(
   }
 
   return value;
-}
-
-/**
- * Batch-get from KV. Returns { hits, misses } where hits is a Map of found entries
- * and misses is the list of keys that need to be fetched from D1.
- * On KV failure, all keys are returned as misses (graceful fallback).
- */
-export async function cachedBatch<T>(
-  keys: string[],
-  ttlSeconds: number,
-  fetchMissing: (missingKeys: string[]) => Promise<Map<string, T>>,
-): Promise<Map<string, T>> {
-  if (keys.length === 0) return new Map();
-
-  const kv = getKV();
-  const result = new Map<string, T>();
-  let missingKeys = keys;
-
-  if (kv) {
-    const hits: string[] = [];
-    await Promise.all(
-      keys.map(async (key) => {
-        try {
-          const raw = await kv.get(key);
-          if (raw) {
-            result.set(key, JSON.parse(raw) as T);
-            hits.push(key);
-          }
-        } catch (err) {
-          log.warn("KV batch read failed", { key, err });
-        }
-      }),
-    );
-    missingKeys = keys.filter((k) => !hits.includes(k));
-  }
-
-  if (missingKeys.length > 0) {
-    const fetched = await fetchMissing(missingKeys);
-    for (const [key, value] of fetched) {
-      result.set(key, value);
-      if (value != null && kv) {
-        kv.put(key, JSON.stringify(value), { expirationTtl: Math.max(ttlSeconds, MIN_KV_TTL) }).catch((err) => {
-          log.warn("KV batch write failed", { key, err });
-        });
-      }
-    }
-  }
-
-  return result;
 }
 
 /**

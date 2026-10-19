@@ -41,7 +41,7 @@ function Probe() {
   const self = useCanonicalCommunityProfile("viewer")
   const channel = useRouteChannelProjection("c1")
   const messages = useMessageWindowProjection("c1", ["m1"], [])
-  return createElement("span", null, `${self?.name}:${channel?.name}:${messages.messages?.[0]?.content}`)
+  return createElement("span", null, `${self?.name}:${channel?.name}:${messages.canonicalMessages?.[0]?.content}`)
 }
 
 describe("document resource handoff", () => {

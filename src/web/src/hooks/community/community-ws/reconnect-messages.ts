@@ -1,7 +1,8 @@
 import { CancelledError, queryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages, retireCommunityChannelReading } from "@/lib/community-db/sync"
+import { isConversationAnchorMissingError } from "@/lib/community/conversation-read"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -32,8 +33,11 @@ function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: Mess
   return { ...cache, pages }
 }
 
-export function messageReconcileOptions(queryClient: QueryClient, scopeId: string, key: QueryKey) {
+export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey) {
+  const scopeId = scope.scopeId
   const token = captureCommunityLiveSnapshotToken(queryClient, scopeId), registry = getCommunityDbRegistry(queryClient)
+  const channel = registry?.collections.channels.get(scopeId)
+  const serverId = scope.kind === "dm" ? null : channel ? channel.serverId : scope.serverId
   const originalQuery = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   const receipt = { token, window: originalQuery }
   return queryOptions({
@@ -82,10 +86,11 @@ export function messageReconcileOptions(queryClient: QueryClient, scopeId: strin
         return { latestSeq: highWater }
       } catch (error) {
         assert()
-        if (!(error instanceof ApiError) || (error.status !== 403 && error.status !== 404)) throw error
-        const kind = key[1] === "dm" ? "dm" : "channel"
-        getCommunityRuntime(queryClient).messageStream.actions.removeScope(kind === "dm" ? { kind, id: scopeId } : { kind, id: scopeId, serverId: "" })
-        queryClient.removeQueries({ queryKey: key, exact: true })
+        if (!(error instanceof ApiError) || (error.status !== 403 && error.status !== 404) || isConversationAnchorMissingError(error)) throw error
+        if (registry) retireCommunityChannelReading(registry, scopeId, {
+          reason: "read-denied", serverId,
+          preserveQuery: queryClient.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true }),
+        })
         return { latestSeq: 0 }
       } finally {
         const repair = queryClient.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true })
@@ -108,7 +113,7 @@ function reconcile(queryClient: QueryClient, scope: GapRepairScope, target = 0) 
       try { assertCommunityLiveSnapshotTokenCurrent(queryClient, receipt.token, undefined) } catch { current = false }
       if (!current) queryClient.removeQueries({ queryKey: repairKey, exact: true })
     }
-    return queryClient.query({ ...messageReconcileOptions(queryClient, scope.scopeId, query.queryKey), select: undefined }).catch((error: unknown) => {
+    return queryClient.query({ ...messageReconcileOptions(queryClient, scope, query.queryKey), select: undefined }).catch((error: unknown) => {
       if (!isAbortError(error) && !(error instanceof CancelledError)) throw error
     })
   })).then(() => undefined)
@@ -123,4 +128,4 @@ export function scheduleFocusedMessageGapRepair(queryClient: QueryClient, scope:
   return incomingSeq > known + 1 ? reconcile(queryClient, scope, incomingSeq).catch(() => undefined) : null
 }
 
-export function reconcileFocusedMessageQueries(queryClient: QueryClient, kind: "channel" | "dm", scopeId: string): Promise<void> { return reconcile(queryClient, { kind, scopeId }) }
+export function reconcileFocusedMessageQueries(queryClient: QueryClient, kind: "channel" | "dm", scopeId: string, serverId?: string): Promise<void> { return reconcile(queryClient, { kind, scopeId, serverId }) }

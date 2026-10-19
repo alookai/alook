@@ -1,4 +1,4 @@
-import { queries, type CommunityContract, type Database } from "@alook/shared"
+import { COMMUNITY_CONVERSATION_ANCHOR_MISSING, queries, type CommunityContract, type Database } from "@alook/shared"
 import { buildAnchorResponse, buildPaginatedResponse, buildSinceResponse, type parseCommunityMessageWindow } from "./messages"
 import { enrichMessages } from "./enrich-messages"
 import type { DoorTarget } from "./message-door"
@@ -10,7 +10,7 @@ export async function readCommunityMessageWindow(db: Database, input: {
   window: ReturnType<typeof parseCommunityMessageWindow>
   contract: CommunityContract
   tag?: string
-}): Promise<{ ok: true; page: MessagePage } | { ok: false; status: 404; error: string }> {
+}): Promise<{ ok: true; page: MessagePage } | { ok: false; status: 404; error: string; details: string[] }> {
   const { viewerId, target, window: { anchorId, since, cursor, pageSize }, contract, tag } = input
   const channelId = target.target.channelId
   const scope = { channelId, isDm: target.isDm, isForum: target.target.kind === "forum", contract }
@@ -18,7 +18,7 @@ export async function readCommunityMessageWindow(db: Database, input: {
 
   if (anchorId) {
     const anchor = await queries.communityMessage.getMessageInScope(db, anchorId, { channelId })
-    if (!anchor) return { ok: false, status: 404, error: "anchor not found" }
+    if (!anchor) return { ok: false, status: 404, error: "anchor not found", details: [COMMUNITY_CONVERSATION_ANCHOR_MISSING] }
     const around = await queries.communityMessage.listMessagesAround(db, {
       channelId, anchor: { createdAt: anchor.createdAt, id: anchor.id }, limit: pageSize, tag,
     })

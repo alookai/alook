@@ -17,7 +17,7 @@ import type { findConversationEntryWindow } from "@/lib/community/conversation-e
 import type { Msg } from "@/lib/community/models/message"
 import { messageReconcileOptions } from "./community-ws/reconnect-messages"
 
-export { channelMessagesQueryFn, dmMessagesQueryFn } from "@/lib/community/message-window"
+export { channelMessagesQueryFn } from "@/lib/community/message-window"
 export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
 
 export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
@@ -102,7 +102,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const options = messageWindowOptions(client, enabled ? channelId : "__none__", initial, tag, { observation })
   const queryKey = selectedWindow?.key ?? options.queryKey
   const query = useInfiniteQuery({ ...options, queryKey, enabled, subscribed: enabled })
-  useQuery({ ...messageReconcileOptions(client, channelId ?? "__none__", queryKey), enabled: false, subscribed: enabled })
+  useQuery({ ...messageReconcileOptions(client, { kind: serverId === null ? "dm" : "channel", scopeId: channelId ?? "__none__", serverId: serverId ?? undefined }, queryKey), enabled: false, subscribed: enabled })
   const originalQuery = client.getQueryCache().find({ queryKey, exact: true })
   const owner = useMemo(() => ({ present, query: originalQuery, enabled }), [present, originalQuery, enabled])
   const committed = useRef<typeof owner | null>(null)
@@ -172,7 +172,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const error = query.error ?? entry.error
   const windowAvailable = !!selectedWindow && query.data !== undefined
   const initialLoadError = windowAvailable ? null : error ?? (entry.failed ? INITIAL_ENTRY_ERROR : null)
-  const loading = !!channelId && (windowAvailable ? projection.messages === undefined : !initialLoadError && !entry.denied && !entry.anchorMissing)
+  const loading = !!channelId && (windowAvailable ? projection.canonicalMessages === undefined : !initialLoadError && !entry.denied && !entry.anchorMissing)
   const entryWindow = entry.window, retryEntry = entry.retry, refetchWindow = query.refetch
   const retryInitialLoad = useCallback(() => {
     if (entryWindow) void refetchWindow({ cancelRefetch: false })

@@ -37,7 +37,6 @@ describe("common reading negotiation", () => {
   })
   it("gives DM and channel transports a single target identity", () => {
     expect(communityKeys.dmMessages("channel")).toEqual(communityKeys.channelMessages("channel"))
-    expect(communityKeys.dmReadStateSnapshot("channel")).toEqual(communityKeys.channelReadStateSnapshot("channel"))
     expect(communityKeys.channelMeta(null, "channel")).toEqual(communityKeys.channelMeta("server", "channel"))
     expect(communityKeys.channelMembers("channel", "access")).not.toEqual(communityKeys.channelMembers("channel", "notify"))
   })

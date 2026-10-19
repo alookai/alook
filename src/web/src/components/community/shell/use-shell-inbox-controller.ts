@@ -284,7 +284,7 @@ export function useShellInboxController({
     unreadDms,
     mentions,
     marked: inboxMarked.marked,
-    markedLoading: inboxMarked.isLoading,
+    markedLoading: inboxMarked.isLoading || inboxMarked.canonicalPending,
     loading,
     attentionError: attention.isInitialError,
     onRetryAttention: () => { void attention.refetch() },

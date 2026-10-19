@@ -131,7 +131,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const result = await readCommunityMessageWindow(db, {
     viewerId: userId, target: resolved.value, window, tag, contract: requestedCommunityContract(req.headers) ?? 1,
   })
-  if (!result.ok) return writeError(result.error, result.status)
+  if (!result.ok) return NextResponse.json({ error: result.error, details: result.details }, { status: result.status })
   return writeCommunityMessagesRead(req, channelId, result.page)
 })
 

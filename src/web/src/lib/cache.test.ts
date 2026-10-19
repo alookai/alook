@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { cached, cachedBatch, invalidate, invalidateMany, bindCacheKV, cacheKeys, getKV, throttled } from "./cache";
+import { cached, invalidate, invalidateMany, bindCacheKV, cacheKeys, getKV, throttled } from "./cache";
 
 function createMockKV() {
   const store = new Map<string, { value: string; expiration?: number }>();
@@ -105,61 +105,6 @@ describe("cache", () => {
 
       expect(result).toEqual({ data: "no-kv" });
       expect(fn).toHaveBeenCalledOnce();
-    });
-  });
-
-  describe("cachedBatch()", () => {
-    it("returns all from KV on full cache hit", async () => {
-      mockKV._store.set("k1", { value: JSON.stringify("v1") });
-      mockKV._store.set("k2", { value: JSON.stringify("v2") });
-      const fetchMissing = vi.fn();
-
-      const result = await cachedBatch(["k1", "k2"], 300, fetchMissing);
-
-      expect(result.get("k1")).toBe("v1");
-      expect(result.get("k2")).toBe("v2");
-      expect(fetchMissing).not.toHaveBeenCalled();
-    });
-
-    it("fetches missing keys from D1 and stores in KV", async () => {
-      mockKV._store.set("k1", { value: JSON.stringify("cached") });
-      const fetchMissing = vi.fn(async (keys: string[]) => {
-        const m = new Map<string, string>();
-        for (const k of keys) m.set(k, `fetched-${k}`);
-        return m;
-      });
-
-      const result = await cachedBatch(["k1", "k2", "k3"], 300, fetchMissing);
-
-      expect(result.get("k1")).toBe("cached");
-      expect(result.get("k2")).toBe("fetched-k2");
-      expect(result.get("k3")).toBe("fetched-k3");
-      expect(fetchMissing).toHaveBeenCalledWith(["k2", "k3"]);
-      expect(mockKV.put).toHaveBeenCalledTimes(2);
-    });
-
-    it("falls back to full D1 fetch when KV throws", async () => {
-      (mockKV.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("KV down"));
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const fetchMissing = vi.fn(async (keys: string[]) => {
-        const m = new Map<string, string>();
-        for (const k of keys) m.set(k, `db-${k}`);
-        return m;
-      });
-
-      const result = await cachedBatch(["k1", "k2"], 300, fetchMissing);
-
-      expect(result.get("k1")).toBe("db-k1");
-      expect(result.get("k2")).toBe("db-k2");
-      expect(fetchMissing).toHaveBeenCalledWith(["k1", "k2"]);
-      warnSpy.mockRestore();
-    });
-
-    it("returns empty map for empty keys", async () => {
-      const fetchMissing = vi.fn();
-      const result = await cachedBatch([], 300, fetchMissing);
-      expect(result.size).toBe(0);
-      expect(fetchMissing).not.toHaveBeenCalled();
     });
   });
 
@@ -320,15 +265,6 @@ describe("cache", () => {
       // cached() should fall through to fn
       const result = await cached("key", 300, async () => "db-value");
       expect(result).toBe("db-value");
-
-      // cachedBatch() should fetch all from D1
-      const batchResult = await cachedBatch(
-        ["k1", "k2"],
-        300,
-        async (keys) => new Map(keys.map((k) => [k, `val-${k}`])),
-      );
-      expect(batchResult.get("k1")).toBe("val-k1");
-      expect(batchResult.get("k2")).toBe("val-k2");
 
       // invalidate() should not throw
       await expect(invalidate("key")).resolves.toBeUndefined();

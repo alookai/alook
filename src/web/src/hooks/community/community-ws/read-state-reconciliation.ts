@@ -58,40 +58,6 @@ const MAX_RETRY_DELAY_MS = 5_000
 const reconciliationStates = new WeakMap<QueryClient, ReconciliationState>()
 const disposedReconciliationClients = new WeakSet<QueryClient>()
 
-const emptyReadState = {
-  lastReadMessageId: null,
-  lastReadAt: null,
-  lastReadSeq: 0,
-}
-
-function cachedReadStateTarget(key: QueryKey) {
-  if (
-    key[0] === "community"
-    && (key[1] === "channel" || key[1] === "dm")
-    && typeof key[2] === "string"
-    && key[3] === "read-state-snapshot"
-  ) {
-    return { kind: key[1], channelId: key[2] }
-  }
-  return null
-}
-
-function projectReadStateRows(queryClient: QueryClient, snapshot: AccountReadStateSnapshot) {
-  const byChannel = new Map(snapshot.readStates.map((row) => [row.channelId, row]))
-  for (const query of queryClient.getQueryCache().getAll()) {
-    const target = cachedReadStateTarget(query.queryKey)
-    if (!target) continue
-    const row = byChannel.get(target.channelId)
-    queryClient.setQueryData(query.queryKey, row
-      ? {
-          lastReadMessageId: row.lastReadMessageId,
-          lastReadAt: row.lastReadAt,
-          lastReadSeq: row.lastReadSeq,
-        }
-      : emptyReadState)
-  }
-}
-
 function applyAccountReadStateSnapshot(
   queryClient: QueryClient,
   snapshot: AccountReadStateSnapshot,
@@ -114,17 +80,14 @@ function applyAccountReadStateSnapshot(
   if (current && snapshot.revision < current.revision) return "stale" as const
   if (current?.revision === snapshot.revision) {
     // Same revision is the same authoritative account snapshot by contract.
-    // Re-project leaf caches in case one mounted after the first application,
     // but do not trigger a second round of derived-surface refetches when
     // concurrent auth/live reconciliations joined the same HTTP request.
-    projectReadStateRows(queryClient, snapshot)
     projectReadCoordinatorSnapshot(queryClient, snapshot)
     acceptAccountUnreadPrimarySnapshot(queryClient, snapshot)
     return "stale" as const
   }
   notifyManager.batch(() => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), snapshot)
-    projectReadStateRows(queryClient, snapshot)
     projectReadCoordinatorSnapshot(queryClient, snapshot)
     acceptAccountUnreadPrimarySnapshot(queryClient, snapshot)
   })

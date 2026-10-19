@@ -1583,6 +1583,15 @@ describe("GET explicit conversation entry", () => {
     expect(mockListMessages).not.toHaveBeenCalled()
   })
 
+  it("marks a missing ordinary window anchor separately from target access denial", async () => {
+    mockGetMessageInScope.mockResolvedValue(null)
+    const response = await GET(request("window=around&anchorMessageId=gone"), ctx)
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "anchor not found", details: ["conversation_anchor_missing"] })
+    expect(mockListMessages).not.toHaveBeenCalled()
+    expect(mockListMessagesAround).not.toHaveBeenCalled()
+  })
+
   it("honors an explicit newest window without discarding the entry pointer", async () => {
     mockGetChannelReadStateSnapshot.mockResolvedValue({ revision: 5, readState: pointer })
     const response = await GET(request("entry=1&window=tail"), ctx)

@@ -1,3 +1,5 @@
+import { COMMUNITY_CONVERSATION_ANCHOR_MISSING } from "@alook/shared"
+import { ingestDms, ingestMessages, ingestServerDetail, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { messageWindowPage, type MessagesPage } from "@/lib/community/models/message"
@@ -162,7 +164,7 @@ describe("focused message reconnect catch-up", () => {
   it("refreshes a completed query variant when another variant still holds the scope owner", async () => {
     const { client: client } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("variants")
-    const taggedKey = [...key, "tag", "selected"]
+    const taggedKey = communityKeys.channelMessagesWindow("variants", { mode: "newest" }, "selected")
     const subscriptions = [seedActiveQuery(client, key), seedActiveQuery(client, taggedKey)]
     let releaseTagged!: (page: unknown) => void
     const tagged = new Promise((resolve) => { releaseTagged = resolve })
@@ -383,6 +385,103 @@ describe("focused message reconnect catch-up", () => {
     await reconcileFocusedMessageQueries(queryClient, "channel", "ch_denied")
 
     expect(queryClient.getQueryData(queryKey)).toBeUndefined()
+    unsubscribe()
+  })
+
+  it.each([403, 404])("retires a denied DM through its real scope and keeps the DM shell for status %s", async (status) => {
+    const { client, registry, runtime } = await createCommunityQueryOwner("a")
+    ingestDms(registry, { conversations: ["denied", "sibling"].map((id) => ({ id, userId: id + "-peer", name: id, discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline", preview: "old" })) })
+    ingestMessages(registry, "denied", [{ id: "private", type: "chat", content: "remove" }])
+    ingestMessages(registry, "sibling", [{ id: "sibling-message", type: "chat", content: "keep" }])
+    const scope = { kind: "dm" as const, id: "denied" }
+    runtime.messageStream.actions.accept(scope, { nonce: "pending", tempId: "temp", message: { type: "chat", content: "pending", authorId: "a" }, localUploads: [] })
+    const key = communityKeys.dmMessages(scope.id), sibling = communityKeys.dmMessages("sibling")
+    const subscriptions = [seedActiveQuery(client, key), seedActiveQuery(client, sibling)]
+    apiFetchMock.mockRejectedValueOnce(new ApiError("denied", status))
+    try {
+      await reconcileFocusedMessageQueries(client, "dm", scope.id)
+      expect(client.getQueryData(key)).toBeUndefined()
+      expect(client.getQueryData(sibling)).toBeDefined()
+      expect(registry.collections.messages.has("private")).toBe(false)
+      expect(registry.collections.messages.get("sibling-message")?.content).toBe("keep")
+      expect(registry.collections.channels.get(scope.id)?.type).toBe("dm")
+      expect(runtime.ws.actions.isChannelAccessRevoked(scope.id, null)).toBe(true)
+      expect(runtime.messageStream.get().entries.has("dm:" + scope.id)).toBe(false)
+    } finally { for (const subscription of subscriptions) subscription.unsubscribe() }
+  })
+
+  it("retires a denied channel using its captured server and leaves the sibling readable", async () => {
+    const { client, registry, runtime } = await createCommunityQueryOwner("a")
+    ingestServerDetail(registry, { id: "server", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "a",
+      categories: [{ id: "category", name: "Chats", channels: ["denied-channel", "sibling-channel"].map((id) => ({ id, name: id, active: false, unread: false })) }] })
+    ingestMessages(registry, "denied-channel", [{ id: "private", type: "chat", content: "remove" }])
+    ingestMessages(registry, "sibling-channel", [{ id: "public", type: "chat", content: "keep" }])
+    const key = communityKeys.channelMessages("denied-channel"), sibling = communityKeys.channelMessages("sibling-channel")
+    const subscriptions = [seedActiveQuery(client, key), seedActiveQuery(client, sibling)]
+    apiFetchMock.mockRejectedValueOnce(new ApiError("forbidden", 403))
+    try {
+      await reconcileFocusedMessageQueries(client, "channel", "denied-channel", "server")
+      expect(client.getQueryData(key)).toBeUndefined()
+      expect(client.getQueryData(sibling)).toBeDefined()
+      expect(registry.collections.channels.has("denied-channel")).toBe(false)
+      expect(registry.collections.messages.has("private")).toBe(false)
+      expect(registry.collections.messages.get("public")?.content).toBe("keep")
+      expect(runtime.ws.actions.isChannelAccessRevoked("denied-channel", "server")).toBe(true)
+      expect(runtime.ws.actions.isChannelAccessRevoked("sibling-channel", "server")).toBe(false)
+    } finally { for (const subscription of subscriptions) subscription.unsubscribe() }
+  })
+
+  it.each(["account", "replacement"] as const)("ignores a late denial after %s ownership changes", async (change) => {
+    const { client, registry, runtime } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("late-denial")
+    const subscriptions = [seedActiveQuery(client, key)]
+    ingestMessages(registry, "late-denial", [{ id: "keep", type: "chat", content: "current" }])
+    let reject!: (error: Error) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail }))
+    const repair = reconcileFocusedMessageQueries(client, "channel", "late-denial", "server")
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    if (change === "account") { runtime.ws.actions.activateProfileAccount("b"); runtime.ws.actions.activateProfileAccount("a") }
+    else { client.removeQueries({ queryKey: key, exact: true }); subscriptions.push(seedActiveQuery(client, key)) }
+    const current = client.getQueryCache().find({ queryKey: key, exact: true })
+    reject(new ApiError("forbidden", 403))
+    await repair
+    expect(client.getQueryCache().find({ queryKey: key, exact: true })).toBe(current)
+    expect(registry.collections.messages.get("keep")?.content).toBe("current")
+    expect(runtime.ws.actions.isChannelAccessRevoked("late-denial", "server")).toBe(false)
+    for (const subscription of subscriptions) subscription.unsubscribe()
+  })
+
+  it("keeps a missing anchor local to its window and retains its canonical body and pending intent", async () => {
+    const { client, registry, runtime } = await createCommunityQueryOwner("a")
+    const scope = { kind: "channel" as const, id: "anchor-scope", serverId: "server" }
+    const key = communityKeys.channelMessagesWindow(scope.id, { mode: "anchor", anchor: "gone" })
+    const { unsubscribe } = seedActiveQuery(client, key)
+    ingestMessages(registry, scope.id, [{ id: "readable", type: "chat", content: "keep" }])
+    runtime.messageStream.actions.accept(scope, { nonce: "pending", tempId: "temp", message: { type: "chat", content: "pending", authorId: "a" }, localUploads: [] })
+    const missing = new ApiError("anchor not found", 404, [COMMUNITY_CONVERSATION_ANCHOR_MISSING])
+    apiFetchMock.mockRejectedValueOnce(missing)
+    try {
+      await expect(reconcileFocusedMessageQueries(client, "channel", scope.id, scope.serverId)).rejects.toBe(missing)
+      expect(client.getQueryData(key)).toBeDefined()
+      expect(registry.collections.messages.get("readable")?.content).toBe("keep")
+      expect(runtime.ws.actions.isChannelAccessRevoked(scope.id, scope.serverId)).toBe(false)
+      expect(runtime.messageStream.get().entries.get("channel:" + scope.id)?.state.outboxByNonce.has("pending")).toBe(true)
+    } finally { unsubscribe() }
+  })
+
+  it("does not turn a late denial after explicit DM deletion into read-denied retirement or restore its shell", async () => {
+    const { client, registry } = await createCommunityQueryOwner("a")
+    ingestDms(registry, { conversations: [{ id: "deleted", userId: "peer", name: "Peer", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline", preview: "" }] })
+    const key = communityKeys.dmMessages("deleted"), { unsubscribe } = seedActiveQuery(client, key)
+    let reject!: (error: Error) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail }))
+    const repair = reconcileFocusedMessageQueries(client, "dm", "deleted")
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    retireCommunityChannelReading(registry, "deleted", { reason: "resource-deleted", serverId: null })
+    reject(new ApiError("gone", 404))
+    await repair
+    expect(registry.collections.channels.has("deleted")).toBe(false)
+    expect(client.getQueryData(key)).toBeUndefined()
     unsubscribe()
   })
 
@@ -1093,7 +1192,7 @@ describe("focused message reconnect catch-up", () => {
 
   it("keeps a tag-filtered active query scoped to the same tag", async () => {
     const { client: queryClient } = await createCommunityQueryOwner("a")
-    const queryKey = [...communityKeys.channelMessages("forum_1"), "tag", "bug"] as const
+    const queryKey = communityKeys.channelMessagesWindow("forum_1", { mode: "newest" }, "bug")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock.mockResolvedValue({ messages: [], hasMoreNewer: false, latestSeq: 2 })
 

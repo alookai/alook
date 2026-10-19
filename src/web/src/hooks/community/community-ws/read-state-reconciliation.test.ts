@@ -1,3 +1,5 @@
+import { seedCommunityReadState } from "@/test/community-query-owner"
+import { currentConversationReadState } from "@/lib/community/conversation-entry"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
@@ -51,8 +53,8 @@ describe("account read-state reconciliation", () => {
   })
 
   it("loads the authoritative full replacement, including regression and removal", async () => {
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), { lastReadSeq: 1 })
-    queryClient.setQueryData(communityKeys.dmReadStateSnapshot("dm1"), { lastReadSeq: 2 })
+    seedCommunityReadState(queryClient, "c1", { lastReadSeq: 1 })
+    seedCommunityReadState(queryClient, "dm1", { lastReadSeq: 2 })
     apiFetch.mockResolvedValue({
       revision: 10,
       readStates: [{
@@ -65,11 +67,11 @@ describe("account read-state reconciliation", () => {
 
     await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
     expect(apiFetch).toHaveBeenCalledWith("/api/community/users/me/read-state", expect.objectContaining({ signal: expect.any(AbortSignal) }))
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toMatchObject({
+    expect(currentConversationReadState(queryClient, "c1")).toMatchObject({
       lastReadMessageId: "m0",
       lastReadSeq: 0,
     })
-    expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("dm1"))).toEqual({
+    expect(currentConversationReadState(queryClient, "dm1")).toMatchObject({
       lastReadMessageId: null,
       lastReadAt: null,
       lastReadSeq: 0,
@@ -81,7 +83,7 @@ describe("account read-state reconciliation", () => {
       revision: 4,
       readStates: [],
     })
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), {
+    seedCommunityReadState(queryClient, "c1", {
       lastReadMessageId: "m4",
       lastReadAt: "2026-08-24T00:00:04.000Z",
       lastReadSeq: 4,
@@ -113,7 +115,7 @@ describe("account read-state reconciliation", () => {
 
     expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
       .toMatchObject({ revision: 4 })
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1")))
+    expect(currentConversationReadState(queryClient, "c1"))
       .toMatchObject({ lastReadSeq: 4 })
 
     releases[1]!({
@@ -129,7 +131,7 @@ describe("account read-state reconciliation", () => {
       expect.objectContaining({ revision: 6 }),
       expect.objectContaining({ revision: 6 }),
     ])
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1")))
+    expect(currentConversationReadState(queryClient, "c1"))
       .toMatchObject({ lastReadSeq: 6 })
   })
 
@@ -159,7 +161,7 @@ describe("account read-state reconciliation", () => {
       revision: 10,
       readStates: [],
     })
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("late"), {
+    seedCommunityReadState(queryClient, "late", {
       lastReadMessageId: null,
       lastReadAt: null,
       lastReadSeq: 0,
@@ -176,7 +178,7 @@ describe("account read-state reconciliation", () => {
 
     await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
 
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("late")))
+    expect(currentConversationReadState(queryClient, "late"))
       .toMatchObject({ lastReadMessageId: "m3", lastReadSeq: 3 })
   })
 
@@ -260,8 +262,8 @@ describe("account read-state reconciliation", () => {
       .mockReturnValueOnce(new Promise<AccountReadStateSnapshot>((resolve) => {
         releaseFresh = resolve
       }))
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), { lastReadSeq: 0 })
-    queryClient.setQueryData(communityKeys.dmReadStateSnapshot("removed"), { lastReadSeq: 4 })
+    seedCommunityReadState(queryClient, "c1", { lastReadSeq: 0 })
+    seedCommunityReadState(queryClient, "removed", { lastReadSeq: 4 })
 
     const auth = reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
     expect(projectReadStateEnvelope(queryClient, {
@@ -306,11 +308,11 @@ describe("account read-state reconciliation", () => {
         }],
       },
     ])
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toMatchObject({
+    expect(currentConversationReadState(queryClient, "c1")).toMatchObject({
       lastReadMessageId: "m5",
       lastReadSeq: 5,
     })
-    expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("removed"))).toEqual({
+    expect(currentConversationReadState(queryClient, "removed")).toMatchObject({
       lastReadMessageId: null,
       lastReadAt: null,
       lastReadSeq: 0,
@@ -339,7 +341,7 @@ describe("account read-state reconciliation", () => {
       revision: 4,
       readStates: [],
     })
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), {
+    seedCommunityReadState(queryClient, "c1", {
       lastReadMessageId: null,
       lastReadAt: null,
       lastReadSeq: 0,
@@ -366,7 +368,7 @@ describe("account read-state reconciliation", () => {
       targetRevision: 5,
     })).resolves.toMatchObject({ revision: 5 })
     expect(apiFetch).toHaveBeenCalledTimes(2)
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1")))
+    expect(currentConversationReadState(queryClient, "c1"))
       .toMatchObject({ lastReadSeq: 5 })
   })
 
@@ -425,7 +427,7 @@ describe("account read-state reconciliation", () => {
       revision: 4,
       readStates: [],
     })
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), {
+    seedCommunityReadState(queryClient, "c1", {
       lastReadMessageId: null,
       lastReadAt: null,
       lastReadSeq: 0,
@@ -452,7 +454,7 @@ describe("account read-state reconciliation", () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
     expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
       .toMatchObject({ revision: 4 })
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1")))
+    expect(currentConversationReadState(queryClient, "c1"))
       .toMatchObject({ lastReadSeq: 0 })
     await expect(reconcileAccountReadState(queryClient, {
       targetRevision: 5,

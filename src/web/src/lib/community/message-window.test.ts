@@ -29,6 +29,7 @@ describe("native message window identity", () => {
       expect(messageWindowIdentity(options.queryKey)?.channelId).toBe("c1")
     }
     expect(messageWindowIdentity([...specs[1].queryKey, "reconcile"])).toBeUndefined()
+    expect(messageWindowIdentity([...communityKeys.channelMessages("c1"), "tag", "old"])).toBeUndefined()
     expect(messageWindowIdentity(["foreign", "channel", "c1", "messages"])).toBeUndefined()
     expect(messageWindowIdentity([...communityKeys.channelMessages("c1"), "window", { mode: "anchor", anchor: "m1", tag: null, extra: true }])).toBeUndefined()
   })

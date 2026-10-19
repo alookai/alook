@@ -93,17 +93,12 @@ export const channelMessagesQueryFn =
     return messageWindowPage(page)
   }
 
-export const dmMessagesQueryFn =
-  (dmId: string, options?: MessagesTransportOptions) =>
-  channelMessagesQueryFn(dmId, undefined, options)
-
 export type InitialMessageWindow = Extract<MessagesPageParam, { mode: "newest" | "anchor" | "since" }>
 export type MessageWindowData = InfiniteData<MessagesPage, MessagesPageParam>
 
 export function messageWindowIdentity(key: QueryKey): { channelId: string; initial: InitialMessageWindow; tag: string | null } | undefined {
   if (key[0] !== "community" || key[1] !== "channel" || typeof key[2] !== "string" || key[3] !== "messages") return
   if (key.length === 4) return { channelId: key[2], initial: { mode: "newest" }, tag: null }
-  if (key.length === 6 && key[4] === "tag" && typeof key[5] === "string") return { channelId: key[2], initial: { mode: "newest" }, tag: key[5] }
   if (key.length !== 6 || key[4] !== "window" || !key[5] || typeof key[5] !== "object") return
   const value = key[5] as Record<string, unknown>
   if (value.tag !== null && typeof value.tag !== "string") return

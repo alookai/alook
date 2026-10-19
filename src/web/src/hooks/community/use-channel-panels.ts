@@ -132,6 +132,7 @@ export const pinsQueryFn = (channelId: string, queryClient: QueryClient) =>
 
 export function usePins(channelId: string | null): UseQueryResult<PinsWindowResponse> & {
   pins: Msg[]
+  canonicalPending: boolean
 } {
   const queryClient = useQueryClient()
   const enabled = !!channelId
@@ -152,5 +153,6 @@ export function usePins(channelId: string | null): UseQueryResult<PinsWindowResp
   return {
     ...query,
     pins: materializeCanonicalMessages(ids.map((id) => ({ id })), canonicalMessages),
+    canonicalPending: enabled && !!query.data && !query.isError && canonicalMessages === undefined,
   }
 }

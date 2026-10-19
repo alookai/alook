@@ -1,3 +1,5 @@
+import { seedCommunityReadState } from "@/test/community-query-owner"
+import { currentConversationReadState } from "@/lib/community/conversation-entry"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -50,7 +52,7 @@ describe("same-account read-state WS events", () => {
       revision: 2,
       readStates: [],
     })
-    queryClient.setQueryData(communityKeys.dmReadStateSnapshot("dm1"), {
+    seedCommunityReadState(queryClient, "dm1", {
       lastReadMessageId: null,
       lastReadAt: null,
       lastReadSeq: 0,
@@ -71,8 +73,7 @@ describe("same-account read-state WS events", () => {
       inboxChanged: true,
     }, context(queryClient))
 
-    await vi.waitFor(() => expect(queryClient.getQueryData(
-      communityKeys.dmReadStateSnapshot("dm1"),
+    await vi.waitFor(() => expect(currentConversationReadState(queryClient, "dm1",
     )).toMatchObject({
       lastReadMessageId: "m4",
       lastReadSeq: 4,
@@ -112,7 +113,7 @@ describe("same-account read-state WS events", () => {
       revision: 7,
       readStates: [],
     })
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), { lastReadSeq: 0 })
+    seedCommunityReadState(queryClient, "c1", { lastReadSeq: 0 })
 
     apiFetch.mockResolvedValue({
       revision: 8,
@@ -131,8 +132,7 @@ describe("same-account read-state WS events", () => {
       reason: "read_all",
     } as const
     dispatchCommunityWsEvent(event, context(queryClient))
-    await vi.waitFor(() => expect(queryClient.getQueryData(
-      communityKeys.channelReadStateSnapshot("c1"),
+    await vi.waitFor(() => expect(currentConversationReadState(queryClient, "c1",
     )).toMatchObject({
       lastReadSeq: 8,
     }))

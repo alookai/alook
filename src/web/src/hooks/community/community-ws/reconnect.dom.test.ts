@@ -1,4 +1,7 @@
 import { seedCanonicalFocusedChannel } from "./test-harness"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { ingestMessages, ingestServerDetail } from "@/lib/community-db/sync"
+import { ApiError } from "@/lib/errors"
 import { getCapturedRuntime } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -41,6 +44,42 @@ async function flushMicrotasks(iterations = 12) {
 }
 
 describe("useCommunityWs — resyncs machines on WS reconnect", () => {
+  it.each(["channelId", "secondaryChannelId"] as const)("keeps a captured %s in its own server when navigation switches servers before repair", async (field) => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const { communityWsReconnectPolicies } = await import("./registry")
+    const { client, registry, runtime } = await createCommunityQueryOwner("scope-viewer")
+    const subscriptions: Array<() => void> = []
+    for (const serverId of ["server-A", "server-B"]) {
+      const id = serverId === "server-A" ? "channel-A" : "channel-B"
+      ingestServerDetail(registry, { id: serverId, name: serverId, discriminator: "0001", description: "", icon: null, ownerId: "scope-viewer",
+        categories: [{ id: "category-" + serverId, name: "Chats", channels: [{ id, name: id, active: false, unread: false }] }] })
+      ingestMessages(registry, id, [{ id: "message-" + id, seq: 1, type: "chat", content: id }])
+      const queryKey = communityKeys.channelMessages(id)
+      client.setQueryData(queryKey, { pages: [{ messages: [{ id: "message-" + id, seq: 1 }], latestSeq: 1, hasMore: false }], pageParams: [{ mode: "newest" }] })
+      subscriptions.push(new QueryObserver(client, { queryKey, queryFn: async () => null, staleTime: Infinity }).subscribe(() => {}))
+    }
+    runtime.ui.actions.setCurrentServerId("server-A")
+    if (field === "channelId") runtime.ui.actions.subscribe({ channelId: "channel-A" })
+    else runtime.ui.actions.claimSecondaryChannel(Symbol("old-pane"), "channel-A")
+    const revoke = vi.spyOn(runtime.ws.actions, "revokeChannelAccess")
+    getCommunityApiFetchMock().mockRejectedValueOnce(new ApiError("forbidden", 403))
+    try {
+      const repairing = reconcileCommunityWsReconnect(client, 0, { excludePolicies: communityWsReconnectPolicies.filter((policy) => policy !== "focused-messages") })
+      runtime.ui.actions.setCurrentServerId("server-B")
+      runtime.ui.actions.subscribe({ channelId: "channel-B" })
+      await repairing
+      expect(getCommunityApiFetchMock()).toHaveBeenCalledExactlyOnceWith("/api/community/channels/channel-A/messages", expect.anything())
+      expect(revoke).toHaveBeenCalledWith("server-A", "channel-A")
+      expect(revoke).not.toHaveBeenCalledWith("server-B", "channel-A")
+      expect(client.getQueryData(communityKeys.channelMessages("channel-A"))).toBeUndefined()
+      expect(registry.collections.messages.has("message-channel-A")).toBe(false)
+      expect(client.getQueryData(communityKeys.channelMessages("channel-B"))).toBeDefined()
+      expect(registry.collections.messages.get("message-channel-B")?.content).toBe("channel-B")
+      expect(runtime.ws.actions.isChannelAccessRevoked("channel-B", "server-B")).toBe(false)
+      expect(runtime.ui.get().subscription.channelId).toBe("channel-B")
+    } finally { revoke.mockRestore(); for (const unsubscribe of subscriptions) unsubscribe() }
+  })
+
   it("re-reads the authoritative self identity after a reconnect gap", async () => {
     const apiFetch = getCommunityApiFetchMock()
     apiFetch.mockImplementation(async (url: unknown) => {
@@ -372,7 +411,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     )?.isInvalidated).toBe(true)
   })
 
-  it("reconciles the focused DM's messages on reconnect, but NOT its read-state snapshot", async () => {
+  it("reconciles the focused DM's messages on reconnect, without invalidating its entry resource", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     getCapturedRuntime().ui.actions.subscribe({ dmConversationId: "dm_focus" })
 
@@ -386,7 +425,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       (c) => c[0]?.queryKey as unknown[] | undefined,
     )
     expect(invalidatedKeys).toContainEqual(communityKeys.channelMembers("dm_focus"))
-    expect(invalidatedKeys).not.toContainEqual(communityKeys.dmReadStateSnapshot("dm_focus"))
+    expect(invalidatedKeys).not.toContainEqual(communityKeys.conversationEntry("dm_focus"))
     expect(
       invalidatedKeys.some(
         (k) =>

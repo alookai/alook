@@ -17,7 +17,6 @@ import {
 describe("communityKeys", () => {
   it("keeps DM navigation resources in the canonical Channel query family", () => {
     expect(communityKeys.dmMessages("target")).toEqual(communityKeys.channelMessages("target"))
-    expect(communityKeys.dmReadStateSnapshot("target")).toEqual(communityKeys.channelReadStateSnapshot("target"))
   })
 
   it("roots every key under ['community']", () => {
@@ -85,17 +84,6 @@ describe("communityKeys", () => {
     const messagesRoot = communityKeys.channelMessages("c1")
     expect(messagesRoot).toEqual(["community", "channel", "c1", "messages"])
 
-    // Cursor-page keys extend the root so invalidateQueries on the root
-    // clears every page.
-    expect(communityKeys.channelMessagesPage("c1", "cur-1")).toEqual([
-      ...messagesRoot,
-      "cur-1",
-    ])
-    expect(communityKeys.channelMessagesPage("c1")).toEqual([
-      ...messagesRoot,
-      null,
-    ])
-
     expect(communityKeys.pins("c1")).toEqual([
       "community",
       "channel",
@@ -120,11 +108,6 @@ describe("communityKeys", () => {
     const dmRoot = communityKeys.dmMessages("d1")
     expect(dmRoot).toEqual(["community", "channel", "d1", "messages"])
 
-    expect(communityKeys.dmMessagesPage("d1", "cur-1")).toEqual([
-      ...dmRoot,
-      "cur-1",
-    ])
-    expect(communityKeys.dmMessagesPage("d1")).toEqual([...dmRoot, null])
   })
 
   it("nests inbox feeds under a shared inbox() prefix", () => {

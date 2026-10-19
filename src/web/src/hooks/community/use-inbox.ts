@@ -301,6 +301,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
 
 export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowResponse> & {
   marked: Marked[]
+  canonicalPending: boolean
 } {
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
@@ -326,7 +327,7 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowRes
       return message ? [{ ...marked, m: message }] : []
     })
   }, [canonicalMessages, query.data?.marked, markedAccess, pendingMarks])
-  return { ...query, marked }
+  return { ...query, marked, canonicalPending: enabled && !!query.data && !query.isError && canonicalMessages === undefined }
 }
 
 export type MessageMarkedResponse = { marked: boolean }

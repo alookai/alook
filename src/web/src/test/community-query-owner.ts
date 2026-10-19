@@ -5,6 +5,8 @@ import { createCommunityDbRegistry, getCommunityDbRegistry, type CommunityDbRegi
 import { ingestMessages } from "@/lib/community-db/sync"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 import { getCommunityRuntime } from "@/stores/community/runtime"
+import { communityKeys } from "@/lib/query-keys"
+import type { ReadStateRow } from "@/lib/community-db/schema"
 import { EMPTY_STORED, messageScopeKey } from "@/stores/community/message-stream-store"
 import type { MessageScope } from "@/lib/community/message-stream"
 
@@ -33,6 +35,14 @@ export function seedCommunityMessageWindow(client: QueryClient, key: QueryKey, w
     ...window,
     pages: window.pages.map((page) => ({ ...page, hasMoreNewer: page.hasMoreNewer ?? false, messages: page.messages.map(({ id }) => ({ id })) })),
   }, options)
+}
+export function seedCommunityReadState(client: QueryClient, channelId: string, row: { lastReadMessageId?: string | null; lastReadAt?: string | null; lastReadSeq: number }) {
+  const registry = getCommunityDbRegistry(client)
+  if (!registry) throw new Error("Read-state fixture requires its original owner")
+  client.setQueryData<ReadStateRow[]>(communityKeys.communityDbCollection(registry.scopeId, "readStates"), (rows) => [
+    ...(rows ?? []).filter((current) => current.channelId !== channelId),
+    { channelId, lastReadMessageId: null, lastReadAt: null, ...row },
+  ])
 }
 beforeEach(() => async () => {
   const retire = async () => {

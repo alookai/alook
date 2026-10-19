@@ -21,7 +21,6 @@ import type { CommunityDbRegistry } from "./collections"
 import { communityCollectionQuery, communityJoinedMessagesQuery } from "./queries"
 import { communityProjection } from "./live-query"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
-import { MAX_PERSISTED_MESSAGES_PER_SCOPE } from "@/lib/query-persister"
 
 import type {
   CommunityCollectionName,
@@ -313,19 +312,6 @@ function useJoinedMessageQuery(channelId: string | null | undefined, ids?: reado
   return { registry, data: result.data as Array<{ message: MessageRow; child?: ChannelRow }> | undefined }
 }
 
-export function useMessageProjection(channelId: string | null, ids?: readonly string[]) {
-  const { data } = useJoinedMessageQuery(channelId, ids)
-  return useMemo(() => {
-    if (!channelId || !data) return undefined
-    const messages = data
-      .sort((a, b) => (a.message.seq ?? 0) - (b.message.seq ?? 0))
-      .map(({ message, child }) => {
-        return projectedMessage(message, child)
-      })
-    return messages
-  }, [channelId, data])
-}
-
 export function useCanonicalMessagesById(ids?: readonly string[]): ReadonlyMap<string, Msg> | undefined {
   const { registry, data } = useJoinedMessageQuery(undefined, ids)
   return useMemo(() => !registry ? undefined : new Map(
@@ -335,21 +321,13 @@ export function useCanonicalMessagesById(ids?: readonly string[]): ReadonlyMap<s
   ), [registry, data])
 }
 
-export function useMessageWindowProjection(channelId: string | null, ids: readonly string[] | undefined, liveIds: readonly string[]) {
-  const registry = useOptionalCommunityDbRegistry()
-  const warm = useLiveQuery({ query: (q) => registry && channelId && ids === undefined
-    ? q.from({ message: registry.collections.messages }).where(({ message }) => eq(message.channelId, channelId))
-      .orderBy(({ message }) => message.seq, "desc").orderBy(({ message }) => message.id, "desc")
-      .limit(MAX_PERSISTED_MESSAGES_PER_SCOPE).select(({ message }) => ({ id: message.id }))
-    : undefined }).data as Array<{ id: string }> | undefined
-  const selected = useMemo(() => ids ?? warm?.map((message) => message.id) ?? [], [ids, warm])
-  const allIds = useMemo(() => [...new Set([...selected, ...liveIds])], [selected, liveIds])
+export function useMessageWindowProjection(channelId: string | null, ids: readonly string[], liveIds: readonly string[]) {
+  const allIds = useMemo(() => [...new Set([...ids, ...liveIds])], [ids, liveIds])
   const { data } = useJoinedMessageQuery(channelId, allIds)
   const canonicalMessages = useMemo(() => !channelId || !data ? undefined : data
     .sort((a, b) => (a.message.seq ?? 0) - (b.message.seq ?? 0))
     .map(({ message, child }) => projectedCanonicalMessage(message, child)), [channelId, data])
-  const messages = useMemo(() => canonicalMessages?.map(presentCanonicalMessage), [canonicalMessages])
-  return { messages, canonicalMessages, windowIds: selected }
+  return { canonicalMessages, windowIds: ids }
 }
 
 function useCollectionById<N extends "channels" | "servers">(name: N) {
@@ -373,19 +351,17 @@ export function materializeCanonicalMessage(
   transport: Pick<Msg, "id">,
   canonical: ReadonlyMap<string, Msg> | undefined,
 ): Msg | undefined {
-  return canonical === undefined ? transport as Msg : canonical.get(transport.id)
+  return canonical?.get(transport.id)
 }
 
 export function materializeCanonicalMessages(
   transport: readonly Pick<Msg, "id">[],
   canonical: ReadonlyMap<string, Msg> | undefined,
 ): Msg[] {
-  return canonical === undefined
-    ? [...transport] as Msg[]
-    : transport.flatMap((message) => {
-        const row = canonical.get(message.id)
-        return row ? [row] : []
-      })
+  return transport.flatMap((message) => {
+    const row = canonical?.get(message.id)
+    return row ? [row] : []
+  })
 }
 
 export function useNotificationSettingsProjection() {

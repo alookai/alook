@@ -188,10 +188,29 @@ describe("MessageContextSheet thread navigation", () => {
     mocks.openThread = undefined
     mocks.pin = undefined
     mocks.reply = undefined
-    mocks.canonicalMessages.mockReturnValue(undefined)
+    mocks.canonicalMessages.mockReturnValue(new Map([["message_1", {
+      id: "message_1", seq: 1, type: "chat", authorId: "author_1", authorName: "Author", content: "Message",
+      createdAt: "2026-08-20T00:00:00.000Z", thread: { id: "child_1", name: "Child", messageCount: 1 },
+    }]]))
     mocks.toggleReaction = undefined
     mocks.addReaction = undefined
     mocks.noData = false
+  })
+
+  it("does not render or act on transport rows while the canonical owner is unavailable", () => {
+    mocks.canonicalMessages.mockReturnValue(undefined)
+    render(React.createElement(MessageContextSheet, { open: true, onOpenChange: mocks.close, channelId: "parent_1", targetSeq: 1 }))
+    expect(mocks.reply).toBeUndefined()
+    expect(mocks.pin).toBeUndefined()
+    expect(mocks.toggleReaction).toBeUndefined()
+  })
+
+  it("shows a missing anchor when the canonical map exists without its ID", () => {
+    mocks.canonicalMessages.mockReturnValue(new Map())
+    const view = render(React.createElement(MessageContextSheet, { open: true, onOpenChange: mocks.close, channelId: "parent_1", targetSeq: 1 }))
+    expect(view.getByText("Message not found — it may have been deleted.")).toBeTruthy()
+    expect(mocks.reply).toBeUndefined()
+    expect(mocks.pin).toBeUndefined()
   })
 
   it("carries the source author ID and complete visible body into a sheet reply", () => {

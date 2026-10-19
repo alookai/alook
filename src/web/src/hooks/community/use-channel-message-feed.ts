@@ -75,6 +75,6 @@ export function useChannelMessageFeed({
     threads: threadsQuery.threads,
     threadsLoading: threadsQuery.isLoading,
     pinned: pinsQuery.pins,
-    pinnedLoading: pinsQuery.isLoading,
+    pinnedLoading: pinsQuery.isLoading || pinsQuery.canonicalPending,
   }
 }

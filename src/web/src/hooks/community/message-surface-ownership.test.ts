@@ -7,6 +7,7 @@ import {
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import {
+  materializeCanonicalMessage,
   materializeCanonicalMessages,
 } from "@/lib/community-db/projections"
 import {
@@ -33,6 +34,16 @@ afterEach(async () => {
 })
 
 describe("embedded message surface ownership", () => {
+  it("never promotes raw transport text when the canonical owner is unavailable or a row is missing", () => {
+    const transport: Msg = { id: "m1", type: "chat", content: "stale transport" }
+    expect(materializeCanonicalMessage(transport, undefined)).toBeUndefined()
+    expect(materializeCanonicalMessages([transport], undefined)).toEqual([])
+    expect(materializeCanonicalMessage(transport, new Map())).toBeUndefined()
+    expect(materializeCanonicalMessages([transport], new Map())).toEqual([])
+    const canonical: Msg = { ...transport, content: "canonical" }
+    expect(materializeCanonicalMessage(transport, new Map([["m1", canonical]]))).toBe(canonical)
+  })
+
   it("publishes an empty first load once and projects WS edit/delete across every surface", async () => {
     const queryClient = new QueryClient()
     registry = createCommunityDbRegistry(queryClient, "viewer")

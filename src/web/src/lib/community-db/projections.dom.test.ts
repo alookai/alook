@@ -16,7 +16,7 @@ import {
   getMemberReadState,
   useChannelRefDirectoryProjection,
   useDmProjection,
-  useMessageProjection,
+  useMessageWindowProjection,
   useNotificationSettingsProjection,
   useRouteChannelProjection,
   useServerRailProjection,
@@ -75,11 +75,11 @@ describe("community DB projections", () => {
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children),
     )
-    const observations: Array<{ array: ReturnType<typeof useMessageProjection>; map: ReturnType<typeof useCanonicalMessagesById> }> = []
+    const observations: Array<{ array: ReturnType<typeof useMessageWindowProjection>["canonicalMessages"]; map: ReturnType<typeof useCanonicalMessagesById> }> = []
     const rendered = renderHook(() => {
-      const array = useMessageProjection("c1", ["selected"]), map = useCanonicalMessagesById(["selected"])
+      const array = useMessageWindowProjection("c1", ["selected"], []).canonicalMessages, map = useCanonicalMessagesById(["selected"])
       observations.push({ array, map })
-      return { array, map, nullScope: useMessageProjection(null), emptyScope: useMessageProjection("") }
+      return { array, map, nullScope: useMessageWindowProjection(null, [], []).canonicalMessages, emptyScope: useMessageWindowProjection("", [], []).canonicalMessages }
     }, { wrapper })
     try {
       expect(observations[0]?.array).toEqual([])
@@ -186,7 +186,7 @@ describe("community DB projections", () => {
       tree: useServerTreeProjection("s1"),
       dms: useDmProjection(),
       route: useRouteChannelProjection("c1"),
-      messages: useMessageProjection("c1"),
+      messages: useMessageWindowProjection("c1", ["m1"], []).canonicalMessages,
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
       directory: useChannelRefDirectoryProjection(),
@@ -452,7 +452,7 @@ describe("community DB projections", () => {
       tree: useServerTreeProjection("s1"),
       dms: useDmProjection(),
       route: useRouteChannelProjection("c1"),
-      messages: useMessageProjection("c1"),
+      messages: useMessageWindowProjection("c1", ["m1", "m2"], []).canonicalMessages,
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
       profiles: useCanonicalProfilesByUserId(),

@@ -11,9 +11,7 @@ import type { MessagesPageParam } from "./community/models/message"
  *   inbox feeds under it, `invalidateQueries({ queryKey: communityKeys.server(id) })`
  *   invalidates every subkey of that server, and so on.
  * - Parameterisation matches the underlying route params. Message list keys
- *   include an optional cursor so pagination pages nest under a stable
- *   channel-scoped root (useful for `useInfiniteQuery` and for invalidating
- *   all pages of one channel in a single call).
+ *   identify a loaded window under a stable channel-scoped root.
  */
 export const communityKeys = {
   all: ["community"] as const,
@@ -64,9 +62,6 @@ export const communityKeys = {
     [...communityKeys.all, "invite-info", token] as const,
 
   // ── Channel-scoped resources ────────────────────────────────────────────
-  // Message list roots are keyed by channelId so paginated pages nest under
-  // a stable prefix. Cursor-specific keys use `channelMessagesPage`; consumers
-  // that want to invalidate every page of a channel use `channelMessages`.
   channelMessages: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "messages"] as const,
   channelMessagesWindow: (channelId: string, initial: Extract<MessagesPageParam, { mode: "newest" | "anchor" | "since" }>, tag?: string | null) =>
@@ -77,14 +72,8 @@ export const communityKeys = {
     [...communityKeys.conversationEntries(channelId), {
       serverId: intent.serverId ?? null, anchorMessageId: intent.anchorMessageId ?? null, tag: intent.tag ?? null, preferTail: intent.preferTail === true,
     }, ...(qualification ? [qualification] : [])] as const,
-  channelMessagesPage: (channelId: string, cursor?: string | null) =>
-    [...communityKeys.channelMessages(channelId), cursor ?? null] as const,
-
   dmMessages: (dmId: string) =>
     communityKeys.channelMessages(dmId),
-  dmMessagesPage: (dmId: string, cursor?: string | null) =>
-    [...communityKeys.dmMessages(dmId), cursor ?? null] as const,
-
   // Explicit membership roster of a private-category channel + the addable
   // (not-yet-member) server members for its picker.
   channelMembers: (channelId: string, relation?: "access" | "notify") =>
@@ -107,16 +96,6 @@ export const communityKeys = {
     [...communityKeys.forumFeeds(channelId), tag] as const,
   forumTags: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "forum-tags"] as const,
-  // #3: the viewer's `communityReadState` row for a single channel, fetched
-  // once per channel mount and frozen thereafter so the "New" divider stays
-  // anchored while the watermark advances.
-  channelReadStateSnapshot: (channelId: string) =>
-    [...communityKeys.all, "channel", channelId, "read-state-snapshot"] as const,
-  // DM sibling of `channelReadStateSnapshot`. Same freeze semantics — the
-  // hook latches the first non-null response so the "New" divider anchor
-  // stays put while the progressive watermark advances.
-  dmReadStateSnapshot: (dmId: string) =>
-    communityKeys.channelReadStateSnapshot(dmId),
   accountReadStateSnapshot: () =>
     [...communityKeys.all, "read-state-snapshot"] as const,
   accountAttention: () =>

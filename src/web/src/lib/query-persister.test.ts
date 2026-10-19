@@ -44,15 +44,15 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.server("srv_1"))).toBe(false)
   })
 
-  it("does NOT persist channel read-state snapshot (refetched on every mount)", () => {
+  it("does NOT persist channel entry qualification", () => {
     expect(
-      shouldPersistQueryKey(communityKeys.channelReadStateSnapshot("ch_1")),
+      shouldPersistQueryKey(communityKeys.conversationEntry("ch_1", { serverId: "srv_1" })),
     ).toBe(false)
   })
 
-  it("does NOT persist DM read-state snapshot (refetched on every mount)", () => {
+  it("does NOT persist DM entry qualification", () => {
     expect(
-      shouldPersistQueryKey(communityKeys.dmReadStateSnapshot("dm_1")),
+      shouldPersistQueryKey(communityKeys.conversationEntry("dm_1")),
     ).toBe(false)
   })
 
@@ -659,7 +659,7 @@ describe("shouldPersistQuery", () => {
     expect(shouldPersistQuery(communityKeys.servers(), { servers: [] })).toBe(false)
     expect(shouldPersistQuery(communityKeys.channelMessages("ch_1"), undefined)).toBe(false)
     expect(
-      shouldPersistQuery(communityKeys.channelReadStateSnapshot("ch_1"), {
+      shouldPersistQuery(communityKeys.conversationEntry("ch_1", { serverId: "srv_1" }), {
         lastReadMessageId: "m_1",
       }),
     ).toBe(false)

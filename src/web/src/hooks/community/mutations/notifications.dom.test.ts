@@ -89,17 +89,17 @@ describe("notification mutation cache refresh", () => {
     await waitFor(() => expect(view.rendered.result.current.settings.server).toMatchObject({ server_1: "All Messages", server_2: "Nothing" }))
   })
 
-  it("refreshes settings, inbox, and all read-state snapshots after a server change", async () => {
+  it("refreshes settings, inbox, and the account read-state resource after a server change", async () => {
     const view = await setup()
-    const keys = [communityKeys.inbox(), communityKeys.servers(), communityKeys.channelReadStateSnapshot("parent_1"), communityKeys.channelReadStateSnapshot("child_1"), communityKeys.dmReadStateSnapshot("dm_1")]
+    const keys = [communityKeys.inbox(), communityKeys.servers(), communityKeys.accountReadStateSnapshot()]
     for (const key of keys) view.client.setQueryData(key, { ids: [] })
     await act(async () => { await view.rendered.result.current.command.mutateAsync({ serverId: "server_1", level: "Nothing" }) })
     for (const key of keys) expect(view.client.getQueryState(key)?.isInvalidated).toBe(true)
   })
 
-  it("refreshes every read-state snapshot after a parent channel change", async () => {
+  it("refreshes the account read-state resource after a parent channel change", async () => {
     const view = await setup("channel")
-    const keys = [communityKeys.inbox(), communityKeys.servers(), communityKeys.channelReadStateSnapshot("parent_1"), communityKeys.channelReadStateSnapshot("child_1"), communityKeys.dmReadStateSnapshot("dm_1")]
+    const keys = [communityKeys.inbox(), communityKeys.servers(), communityKeys.accountReadStateSnapshot()]
     const unrelated = ["application", "unrelated"]
     for (const key of [...keys, unrelated]) view.client.setQueryData(key, { ids: [] })
     await act(async () => { await view.rendered.result.current.command.mutateAsync({ channelId: "parent_1", level: "Nothing" }) })
