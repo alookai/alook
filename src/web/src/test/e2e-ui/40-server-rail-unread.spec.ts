@@ -334,11 +334,18 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   const clearResponse = page.waitForResponse((response) => (
     response.request().method() === "PUT"
     && new URL(response.url()).pathname === `/api/community/channels/${backgroundChannel}/read`
+    && (response.request().postDataJSON() as { lastReadMessageId?: string } | null)?.lastReadMessageId === lastMessageId
   ))
   void clearResponse.catch(() => {})
   await page.getByTestId(tid.channelRow(backgroundChannel)).click()
   await expect(page.getByTestId(tid.message(lastMessageId))).toBeVisible()
-  expect((await clearResponse).status()).toBe(200)
+  await expect(page.getByTestId(tid.newDivider)).toBeInViewport()
+  await expect(page.getByTestId(tid.message(lastMessageId))).not.toBeInViewport({ ratio: 0.2 })
+  await page.getByTestId(tid.scrollToPresent).click()
+  await expect(page.getByTestId(tid.message(lastMessageId))).toBeInViewport({ ratio: 0.2 })
+  const cleared = await clearResponse
+  expect(cleared.status()).toBe(200)
+  expect(await cleared.json()).toMatchObject({ targetSeq: 13 })
   await expect(badge).toHaveCount(0)
   await expectPrimaryCount("read-clear", 0)
   await capture("read-clear", 0)

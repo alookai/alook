@@ -431,6 +431,43 @@ describe("native member subscriptions", () => {
 })
 
 describe("useServerMembers search lifecycle", () => {
+  it("ignores search effects and retained callbacks after the member view is disabled", async () => {
+    apiFetchMock.mockResolvedValue(makeEnvelope([], false, 0))
+    const harness = await mountServerMembers()
+    const retired = harness.resultRef.current!
+    function SearchConsumer({ serverId }: { serverId: string | null }) {
+      const result = useServerMembers(serverId)
+      const { searchMembers } = result
+      useEffect(() => { searchMembers("") }, [searchMembers])
+      useEffect(() => { harness.resultRef.current = result }, [result])
+      return null
+    }
+    try {
+      await act(async () => harness.renderer.rerender(createElement(
+        QueryClientProvider,
+        { client: harness.queryClient },
+        createElement(SearchConsumer, { serverId: "srv_1" }),
+      )))
+      const reads = apiFetchMock.mock.calls.length
+      await act(async () => harness.renderer.rerender(createElement(
+        QueryClientProvider,
+        { client: harness.queryClient },
+        createElement(SearchConsumer, { serverId: null }),
+      )))
+      await act(async () => {
+        retired.searchMembers("retired")
+        harness.resultRef.current!.searchMembers("disabled")
+      })
+      await flushEffects()
+      expect(harness.resultRef.current).toMatchObject({ members: [], searchQuery: "", searchStatus: "idle" })
+      expect(apiFetchMock).toHaveBeenCalledTimes(reads)
+      expect(toastApiErrorMock).not.toHaveBeenCalled()
+    } finally {
+      await act(async () => harness.renderer.unmount())
+      harness.queryClient.clear()
+    }
+  })
+
   it("does not carry an earlier query failure into the next query debounce", async () => {
     vi.useFakeTimers()
     apiFetchMock.mockImplementation((url: unknown) => isSearchUrl(url) ? Promise.reject(new Error("controlled search error")) : Promise.resolve(makeEnvelope([], false, 0)))

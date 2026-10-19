@@ -559,66 +559,60 @@ export function useScrollAnchor({
       && (previous.clientHeight !== root.clientHeight || previous.clientWidth !== root.clientWidth
         || previous.paddingEnd !== (native.options.paddingEnd ?? 0))
     if (!viewportResized && !input.handover) {
-      if (next) {
-        observeGeometry(next)
-        if (paginationRef.current?.phase === "settling") {
-          paginationRef.current = null
-          setPaginationDirection(null)
-          clearOlderMeasurementAnchor()
+      if (!next) return false
+      observeGeometry(next)
+    } else {
+      const clampedByResize = viewportResized && !previous.isScrolling && previous.scrollTop > max
+        && Math.abs(root.scrollTop - max) <= 1
+      if (!readReady.get() && !input.handover
+        && (!next || (native.isScrolling && !clampedByResize))) return false
+      if (input.touch || input.pointers.size > 0 || (native.isScrolling && !clampedByResize)
+        || root.scrollTop < 0 || root.scrollTop > max + 1
+        ) return true
+      if (previous?.epoch === owner.epoch && readReady.get() && previous.pinEligible
+        && previous.clientWidth !== root.clientWidth && !isFetchingOlder && !isFetchingNewer) {
+        claimPosition("present")
+        retireInitialPosition()
+        startIntent("end", null, "auto", false, true)
+        return false
+      }
+      if (!next) return native.getVirtualItems().length > 0
+      const virtualItems = native.getVirtualItems()
+      let offset = root.scrollTop
+      let originHeld = false
+      if (viewportResized && previous?.epoch === owner.epoch) {
+        originHeld = !previous.pinEligible && previous.scrollTop <= 1
+          && previous.key === currentItemsRef.current[0]?.key && previous.itemStart <= 1
+        if (originHeld) offset = previous.scrollTop
+        else if (previous.clientHeight !== next.clientHeight || previous.clientWidth !== next.clientWidth || previous.paddingEnd !== next.paddingEnd) {
+          const previousFold = virtualItems.find((candidate) => candidate.key === previous.key)
+          if (previousFold) {
+            const totalDelta = next.total - previous.total - (next.paddingEnd - previous.paddingEnd)
+            const adjustedPreviousOffset = previous.scrollTop
+              + (previous.pinEligible ? totalDelta : previousFold.start - previous.itemStart)
+            const resized = resolveViewportResizeAnchor({
+              previousClientHeight: previous.clientHeight,
+              nextClientHeight: next.clientHeight,
+              previousScrollHeight: previous.scrollHeight + totalDelta,
+              nextScrollHeight: next.scrollHeight,
+              previousScrollTop: adjustedPreviousOffset,
+            })
+            offset = resized.scrollTop
+          }
         }
       }
-      return false
-    }
-    const clampedByResize = viewportResized && !previous.isScrolling && previous.scrollTop > max
-      && Math.abs(root.scrollTop - max) <= 1
-    if (!readReady.get() && !input.handover
-      && (!next || (native.isScrolling && !clampedByResize))) return false
-    if (input.touch || input.pointers.size > 0 || (native.isScrolling && !clampedByResize)
-      || root.scrollTop < 0 || root.scrollTop > max + 1
-      ) return true
-    if (previous?.epoch === owner.epoch && readReady.get() && previous.pinEligible
-      && previous.clientWidth !== root.clientWidth && !isFetchingOlder && !isFetchingNewer) {
-      claimPosition("present")
-      retireInitialPosition()
-      startIntent("end", null, "auto", false, true)
-      return false
-    }
-    if (!next) return native.getVirtualItems().length > 0
-    const virtualItems = native.getVirtualItems()
-    let offset = root.scrollTop
-    let originHeld = false
-    if (viewportResized && previous?.epoch === owner.epoch) {
-      originHeld = !previous.pinEligible && previous.scrollTop <= 1
-        && previous.key === currentItemsRef.current[0]?.key && previous.itemStart <= 1
-      if (originHeld) offset = previous.scrollTop
-      else if (previous.clientHeight !== next.clientHeight || previous.clientWidth !== next.clientWidth || previous.paddingEnd !== next.paddingEnd) {
-        const previousFold = virtualItems.find((candidate) => candidate.key === previous.key)
-        if (previousFold) {
-          const totalDelta = next.total - previous.total - (next.paddingEnd - previous.paddingEnd)
-          const adjustedPreviousOffset = previous.scrollTop
-            + (previous.pinEligible ? totalDelta : previousFold.start - previous.itemStart)
-          const resized = resolveViewportResizeAnchor({
-            previousClientHeight: previous.clientHeight,
-            nextClientHeight: next.clientHeight,
-            previousScrollHeight: previous.scrollHeight + totalDelta,
-            nextScrollHeight: next.scrollHeight,
-            previousScrollTop: adjustedPreviousOffset,
-          })
-          offset = resized.scrollTop
-        }
+      offset = Math.max(0, Math.min(offset, max))
+      acceptedGeometryRef.current = {
+        ...next, scrollTop: offset, pinEligible: !originHeld && next.pinEligible && max - offset <= 1,
+        isScrolling: clampedByResize ? previous.isScrolling : next.isScrolling,
       }
+      holdNativeOrigin(originHeld || (offset <= 1 && !acceptedGeometryRef.current.pinEligible) ? currentItemsRef.current[0]?.key ?? null : null)
+      if (input.handover) {
+        input.handover = false
+        setReadPositionReady(true)
+      }
+      if (Math.abs(offset - root.scrollTop) > 0.5) native.scrollToOffset(offset, { behavior: "auto" })
     }
-    offset = Math.max(0, Math.min(offset, max))
-    acceptedGeometryRef.current = {
-      ...next, scrollTop: offset, pinEligible: !originHeld && next.pinEligible && max - offset <= 1,
-      isScrolling: clampedByResize ? previous.isScrolling : next.isScrolling,
-    }
-    holdNativeOrigin(originHeld || (offset <= 1 && !acceptedGeometryRef.current.pinEligible) ? currentItemsRef.current[0]?.key ?? null : null)
-    if (input.handover) {
-      input.handover = false
-      setReadPositionReady(true)
-    }
-    if (Math.abs(offset - root.scrollTop) > 0.5) native.scrollToOffset(offset, { behavior: "auto" })
     if (paginationRef.current?.phase === "settling") {
       paginationRef.current = null
       setPaginationDirection(null)

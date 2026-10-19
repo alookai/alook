@@ -447,6 +447,9 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     loadMore: () => { assertView(); if ((!searching || searchReady) && active.hasNextPage && !active.isFetching) void active.fetchNextPage({ cancelRefetch: false }) },
     reset: () => { assertView(); intent.setState((state) => ({ ...state, query: "", debounced: "" })) },
     refresh: () => { assertView(); void queryClient.invalidateQueries({ queryKey: key }, { cancelRefetch: false }) },
-    searchMembers: (query) => { assertView(); intent.setState((state) => { const trimmed = query.trim(); return state.query === trimmed ? state : { ...state, query: trimmed, debounced: trimmed ? state.debounced : "" } }) },
+    searchMembers: (query) => {
+      try { assertView() } catch { return }
+      intent.setState((state) => { const trimmed = query.trim(); return state.query === trimmed ? state : { ...state, query: trimmed, debounced: trimmed ? state.debounced : "" } })
+    },
   }
 }

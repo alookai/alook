@@ -68,7 +68,9 @@ test("@ candidates page to completion and shared popups stay anchored through vi
 
   const browse = Array.from({ length: 12 }, (_, index) => candidate("Browse", index + 1))
   const matches = Array.from({ length: 205 }, (_, index) => candidate("CapMatch", index + 1))
+  const browseCursors: Array<string | null> = []
   const searchReads = new Map<string, number>()
+  const searchCursors = new Map<string, Array<string | null>>()
   let releaseSearchTail!: () => void
   const searchTailReleased = new Promise<void>((resolve) => {
     releaseSearchTail = resolve
@@ -86,6 +88,7 @@ test("@ candidates page to completion and shared popups stay anchored through vi
       const query = url.searchParams.get("q") ?? ""
       searchReads.set(query, (searchReads.get(query) ?? 0) + 1)
       const cursor = url.searchParams.get("cursor")
+      searchCursors.set(query, [...(searchCursors.get(query) ?? []), cursor])
       if (query === "Fail") {
         await route.fulfill({ status: 500, json: { error: "forced failure" } })
         return
@@ -116,6 +119,7 @@ test("@ candidates page to completion and shared popups stay anchored through vi
     }
 
     const cursor = url.searchParams.get("cursor")
+    browseCursors.push(cursor)
     await route.fulfill({
       json: cursor
         ? { members: browse.slice(8), limit: 8, total: 12, hasMore: false }
@@ -139,17 +143,41 @@ test("@ candidates page to completion and shared popups stay anchored through vi
   ).join(" ")
   await editable.fill(wrappedPrefix)
   await editable.pressSequentially(" @")
+  const mentionPopup = page.getByTestId(tid.mentionPopup)
+  const mentionOptions = mentionPopup.getByRole("option")
+  await expect(page.getByTestId(tid.mentionOption(browse[7]!.id))).toHaveCount(1)
+  await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  expect(browseCursors).toEqual([null])
+  await expect(page.getByTestId(tid.mentionOption(browse[11]!.id))).toHaveCount(0)
+  const popupBounds = await mentionPopup.boundingBox()
+  expect(popupBounds).not.toBeNull()
+  await page.mouse.move(popupBounds!.x + popupBounds!.width / 2, popupBounds!.y + popupBounds!.height / 2)
+  await page.mouse.wheel(0, 800)
   await expect(page.getByTestId(tid.mentionOption(browse[11]!.id))).toHaveCount(1)
+  expect(browseCursors).toEqual([null, "browse-page-2"])
 
   await editable.pressSequentially("CapMatch")
-  await searchTailRequested
   await expect(page.getByTestId(tid.mentionOption(matches[0]!.id))).toBeVisible()
-  const mentionOptions = page.getByTestId(tid.mentionPopup).getByRole("option")
   await expect(mentionOptions).toHaveCount(200)
+  await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  expect(searchCursors.get("CapMatch")).toEqual([null])
+  await expect(page.getByTestId(tid.mentionOption(matches[0]!.id))).toHaveAttribute("aria-selected", "true")
+  await editable.press("ArrowUp")
+  await expect(page.getByTestId(tid.mentionOption(matches[199]!.id))).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByTestId(tid.mentionOption(matches[199]!.id))).toBeVisible()
+  await searchTailRequested
+  expect(searchCursors.get("CapMatch")).toEqual([null, "search-page-2"])
   await expect(page.getByTestId(tid.mentionStatus)).toHaveAttribute("data-state", "loading-more")
   releaseSearchTail()
   await expect(page.getByTestId(tid.mentionOption(matches[204]!.id))).toHaveCount(1)
   await expect(mentionOptions).toHaveCount(205)
+  await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
 
   const readBounds = (popupTestId: string) => page.getByTestId(popupTestId).evaluate((element) => {
     const popup = element.getBoundingClientRect()
@@ -252,4 +280,14 @@ test("@ candidates page to completion and shared popups stay anchored through vi
   await expect(page.getByTestId(tid.mentionPopup).getByRole("option")).toHaveCount(205)
   await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
   expect(searchReads.get("CapMatch")).toBe(2)
+  await editable.press("ArrowUp")
+  const lastOption = page.getByTestId(tid.mentionOption(matches[204]!.id))
+  await expect(lastOption).toHaveAttribute("aria-selected", "true")
+  await expect(lastOption).toBeVisible()
+  await expect(lastOption).toHaveAttribute("title", `${matches[204]!.name}#${matches[204]!.discriminator}`)
+  await editable.press("Enter")
+  const insertedMention = editable.locator('[data-type="mention"]')
+  await expect(insertedMention).toHaveCount(1)
+  await expect(insertedMention).toHaveAttribute("data-id", matches[204]!.userId)
+  await expect(insertedMention).toHaveAttribute("data-label", `${matches[204]!.name}#${matches[204]!.discriminator}`)
 })
