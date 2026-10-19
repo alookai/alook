@@ -48,8 +48,9 @@ test.describe("threads", () => {
     // Open the message's more-menu → Create Thread. Retry the open since the
     // hover toolbar can close between the hover and the menu click.
     await expect(async () => {
+      await expect(page.getByTestId(tid.messageScroller).locator('[data-message-list-content][data-read-position-ready="true"][data-initial-position-phase="revealed"]')).toBeVisible({ timeout: 3_000 })
       await row.hover()
-      await page.getByRole("button", { name: "More actions" }).first().click()
+      await page.getByRole("button", { name: "More actions" }).first().click({ timeout: 3_000 })
       await page.getByRole("menuitem", { name: "Create Thread" }).click({ timeout: 3_000 })
     }).toPass({ timeout: 20_000 })
 
