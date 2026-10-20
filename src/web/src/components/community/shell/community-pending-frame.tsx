@@ -84,7 +84,7 @@ export function CommunityPendingFrame({
       data-community-main-kind={plan.main.kind}
       data-community-target-href={href}
       role={plan.main.kind === "server-conversation" ? "status" : undefined}
-      className="flex min-h-0 min-w-0 flex-1 flex-col"
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
     >
       {content}
     </div>

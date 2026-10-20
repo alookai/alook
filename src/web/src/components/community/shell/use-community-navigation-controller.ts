@@ -22,6 +22,11 @@ import {
 import type { CommunityNavigationController } from "@/contexts/community/route-frame"
 export type { CommunityNavigationController } from "@/contexts/community/route-frame"
 
+export function hasPendingParentReturn({ entryIntent, navigationPending, pendingHref }: Pick<CommunityNavigationController, "entryIntent" | "navigationPending" | "pendingHref">) {
+  return navigationPending && pendingHref !== null && entryIntent?.resume === true
+    && normalizeCommunityHref(entryIntent.href).href === normalizeCommunityHref(pendingHref).href
+}
+
 export function useCommunityNavigationController(
   committedFrame: CommunityCommittedFrame,
 ): CommunityNavigationController {
@@ -72,6 +77,7 @@ export function useCommunityNavigationController(
   const [navigationPending, setNavigationPending] = useAtom(useCreateAtom(false))
   const [pendingHref, setPendingHref] = useAtom(useCreateAtom<string | null>(null))
   const [entryIntent, setEntryIntent] = useAtom(useCreateAtom<{ href: string; resume?: boolean } | null>(null))
+  const parentReturnPending = hasPendingParentReturn({ entryIntent, navigationPending, pendingHref })
 
   const cancelPendingNavigation = useCallback(() => {
     supersedeNavigationIntent(gateRef.current)
@@ -90,7 +96,7 @@ export function useCommunityNavigationController(
           targetHref: pendingHref,
           baselineRevision: pendingBaselineRevisionRef.current,
         })
-    if (!settled) return
+    if (!settled || parentReturnPending && !isPublishedNonStructuralCommit(committedFrame, publishedHref, pendingHref)) return
     settledIntentRef.current = {
       revision: gateRef.current.revision,
       frameRevision: committedFrame.revision,
@@ -99,7 +105,7 @@ export function useCommunityNavigationController(
     supersedeNavigationIntent(gateRef.current)
     setNavigationPending(false)
     setPendingHref(null)
-  }, [committedFrame, pendingHref, publishedHref, setNavigationPending, setPendingHref])
+  }, [committedFrame, parentReturnPending, pendingHref, publishedHref, setNavigationPending, setPendingHref])
 
   useEffect(() => {
     if (typeof window === "undefined") return

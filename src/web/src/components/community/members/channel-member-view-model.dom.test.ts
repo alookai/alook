@@ -281,6 +281,19 @@ describe("useChannelMemberViewModel", () => {
     vi.clearAllMocks()
   })
 
+  it("displays a qualified resumed role without member reads or inactive view writes", () => {
+    const modelProps = props({ accessAllowed: false, roleDisplayAllowed: true })
+    const renderer = rtlRender(renderHarness(modelProps))
+    expect(latestModel().myRole).toBe("admin")
+    expect(mocks.serverMemberArgs.at(-1)).toBeNull()
+    expect(mockedUseChannelMembers).toHaveBeenCalledWith("channel_1", false, "server_1", "access")
+    expect(() => latestModel().memberPanelProps.onSetRole?.("member_1", "member")).toThrow()
+    expect(mocks.setMemberRole).not.toHaveBeenCalled()
+    mocks.viewerRole = undefined
+    renderer.rerender(renderHarness(modelProps))
+    expect(latestModel().myRole).toBeUndefined()
+  })
+
   it("reads the qualified own role even when the member window excludes the viewer", () => {
     mocks.serverMembers = [member("alice_1", "Alice")]
     const renderer = rtlRender(renderHarness(props()))
