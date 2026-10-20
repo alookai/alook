@@ -56,11 +56,11 @@ export function SocialSignIn({
     lastProvider.current = provider
     const action = observed.current
     if (!isTauri()) {
-      const failed = () => { void captureProductAnalytics({ event: "sign_in_failed", method: provider, failureStage: "social_start" }) }
+      const failed = (error: unknown) => { void captureProductAnalytics({ event: "sign_in_failed", method: provider, failureStage: "social_start", error }) }
       void signIn.social({ provider, callbackURL: postLoginUrl }).then(result => {
         finishAction(action, result.error ? "error" : "observed")
-        if (result.error) failed()
-      }, () => { finishAction(action, "error"); failed() })
+        if (result.error) failed(result.error)
+      }, error => { finishAction(action, "error"); failed(error) })
       return
     }
     if (controller.current) void controller.current.start(provider, safeRedirectPath(postLoginUrl))

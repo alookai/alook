@@ -6,6 +6,21 @@ function gtag() { window.dataLayer.push(arguments); }
 gtag('consent', 'default', { analytics_storage: 'granted', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
 gtag('js', new Date());
 const fields = { page_location: 'https://alook.ai/analytics/product', page_referrer: '', page_title: 'Alook' };
+const authReasons = {
+  PROVIDER_NOT_FOUND: 'Provider not found', ID_TOKEN_NOT_SUPPORTED: 'ID token not supported',
+  INVALID_TOKEN: 'Invalid token', FAILED_TO_GET_USER_INFO: 'Failed to get user info',
+  USER_EMAIL_NOT_FOUND: 'User email not found', EMAIL_NOT_VERIFIED: 'Email not verified',
+  INVALID_EMAIL: 'Invalid email', INVALID_EMAIL_OR_PASSWORD: 'Invalid email or password',
+  INVALID_OTP: 'Invalid OTP', OTP_EXPIRED: 'OTP expired', TOO_MANY_ATTEMPTS: 'Too many attempts',
+  USER_NOT_FOUND: 'User not found', FAILED_TO_CREATE_USER: 'Failed to create user',
+  FAILED_TO_CREATE_SESSION: 'Failed to create session', FAILED_TO_CREATE_VERIFICATION: 'Unable to create verification',
+  INVALID_ORIGIN: 'Invalid origin', MISSING_OR_NULL_ORIGIN: 'Missing or null Origin',
+  INVALID_CALLBACK_URL: 'Invalid callback URL', INVALID_REDIRECT_URL: 'Invalid redirect URL',
+  INVALID_ERROR_CALLBACK_URL: 'Invalid error callback URL', INVALID_NEW_USER_CALLBACK_URL: 'Invalid new user callback URL',
+  CALLBACK_URL_REQUIRED: 'Callback URL is required', VALIDATION_ERROR: 'Validation error',
+  RATE_LIMIT_EXCEEDED: 'Too many requests', INTERNAL_SERVER_ERROR: 'Internal server error',
+  NETWORK_ERROR: 'Network request failed', UNKNOWN_ERROR: 'No recognized error detail returned'
+};
 gtag('config', 'G-STBCL8F4ZY', { send_page_view: false, allow_google_signals: false, allow_ad_personalization_signals: false, ...fields });
 window.sendProductEvent = function ({ event, params }) {
   if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit', 'community_onboarding_completed', 'human_invitation_sent', 'human_invitation_copied', 'invited_human_joined'].includes(event)) return;
@@ -13,6 +28,15 @@ window.sendProductEvent = function ({ event, params }) {
   if (event === 'landing_cta_clicked' && typeof params?.cta_name === 'string') safe.cta_name = params.cta_name;
   if (['sign_up', 'sign_in_success', 'sign_in_failed'].includes(event) && ['email', 'email_otp', 'github', 'google', 'apple', 'development_password'].includes(params?.method)) safe.method = params.method;
   if (event === 'sign_in_failed' && ['send_code', 'verify_code', 'social_start', 'provider_callback'].includes(params?.failure_stage)) safe.failure_stage = params.failure_stage;
+  if (event === 'sign_in_failed') {
+    if (typeof params?.http_status === 'string' && /^[1-5][0-9]{2}$/.test(params.http_status)) safe.http_status = params.http_status;
+    if (typeof params?.error_code === 'string' && Object.hasOwn(authReasons, params.error_code)) {
+      safe.error_code = params.error_code;
+      safe.error_reason = authReasons[params.error_code];
+    } else if (params?.error_code === 'HTTP_ERROR' && safe.http_status) {
+      safe.error_code = 'HTTP_ERROR'; safe.error_reason = 'HTTP ' + safe.http_status;
+    }
+  }
   gtag('event', event, { ...safe, ...fields, send_to: 'G-STBCL8F4ZY' });
 };
 </script>

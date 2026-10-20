@@ -51,8 +51,8 @@ function SignInForm({
   appleEnabled: boolean
 }) {
   useEffect(() => { void captureProductAnalytics({ event: "login_page_view" }) }, [])
-  const failed = (failureStage: "send_code" | "verify_code") => {
-    void captureProductAnalytics({ event: "sign_in_failed", method: "email_otp", failureStage })
+  const failed = (failureStage: "send_code" | "verify_code", error: unknown) => {
+    void captureProductAnalytics({ event: "sign_in_failed", method: "email_otp", failureStage, error })
   }
   const [email, setEmail] = useAtom(useCreateAtom(""))
   const [emailError, setEmailError] = useAtom(useCreateAtom(""))
@@ -96,16 +96,16 @@ function SignInForm({
       })
       finishAction(observation, error ? "error" : "success")
       if (error) {
-        failed("send_code")
+        failed("send_code", error)
         if (error.status !== 429) setEmailError(error.message ?? "Failed to send code")
       } else {
         setEmailError("")
         setOtpError("")
         setStep("code")
       }
-    } catch {
+    } catch (error) {
       finishAction(observation, "error")
-      failed("send_code")
+      failed("send_code", error)
       setEmailError("Failed to send code")
     }
     setLoading(false)
@@ -125,7 +125,7 @@ function SignInForm({
       })
       finishAction(observation, error ? "error" : "success")
       if (error) {
-        failed("verify_code")
+        failed("verify_code", error)
         setOtpError(error.message ?? "Invalid code")
         setCode("")
       } else {
@@ -133,9 +133,9 @@ function SignInForm({
         window.location.href = postLoginUrl
         return
       }
-    } catch {
+    } catch (error) {
       finishAction(observation, "error")
-      failed("verify_code")
+      failed("verify_code", error)
       setOtpError("Invalid code")
       setCode("")
     }
