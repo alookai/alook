@@ -305,9 +305,11 @@ describe("renderMessageListView", () => {
     expect(content).toHaveAttribute("data-read-position-ready", "false")
     expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
     expect(renderer.container.querySelectorAll(".h-8")).toHaveLength(0)
-    renderer.rerender(renderMessageListView(props({ messages: [] }), state, renderRows))
+    renderer.rerender(renderMessageListView(props({ messages: [], historyStartKnown: true }), state, renderRows))
     expect(content).toHaveClass("pt-8", "justify-end", "min-h-full")
     expect(renderer.getByText(/Beginning of the channel/)).toBeInTheDocument()
+    renderer.rerender(renderMessageListView(props({ messages: [] }), state, renderRows))
+    expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
   })
 
   it("keeps the original scroller mounted through a cold error and retry, without rendering an empty hero", () => {

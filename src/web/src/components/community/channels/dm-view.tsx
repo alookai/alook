@@ -125,6 +125,8 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     messages: fetchedMessages,
     isLoading: messagesLoading,
     hasMoreOlder: hasMoreMessages,
+    historyStartKnown,
+    initialPositionMessageId,
     hasMoreNewer: hasMoreNewerMessages,
     isFetchingOlder: isFetchingOlderMessages,
     isFetchingNewer: isFetchingNewerMessages,
@@ -468,6 +470,8 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             // `anchorInCache`'s doc comment above.
             initialScrollReady={!readSnapshotFetching && (anchorInCache || initialPositionKnown)}
             hasMore={hasMoreMessages}
+            historyStartKnown={historyStartKnown}
+            initialPositionMessageId={initialPositionMessageId}
             isFetching={messagesFetching}
             isFetchingOlder={isFetchingOlderMessages}
             onLoadOlder={fetchOlderMessages}

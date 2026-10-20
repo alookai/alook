@@ -132,6 +132,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const oldest = pages.at(-1)
   const newest = pages[0]
   const hasMoreOlder = (oldest?.hasMoreOlder ?? oldest?.hasMore) ?? false
+  const historyStartKnown = !!selectedWindow && (oldest?.hasMoreOlder ?? oldest?.hasMore) === false
   const hasMoreNewer = newest?.hasMoreNewer ?? false
   const fetchPage = useCallback((direction: "older" | "newer") => {
     const original = committed.current
@@ -182,7 +183,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: windowAvailable ? "covered" as const : "uncovered" as const,
       wait_reason: !entry.canRead ? "entry" as const : !windowAvailable ? "window" as const : loading ? "projection" as const : "none" as const },
     messages, canonicalMessages: canonicalBase, canonicalById,
-    latestSeq, hasMoreOlder, hasMoreNewer, hasMore: hasMoreOlder,
+    latestSeq, hasMoreOlder, hasMoreNewer, historyStartKnown, hasMore: hasMoreOlder,
     isLoading: loading, isPending: loading, isError: !!initialLoadError && !query.data,
     error, initialLoadError, isFetching: entry.isFetching || query.isFetching,
     isFetchingOlder: query.isFetchingNextPage,
@@ -192,6 +193,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     navigationBlocked: !entry.canRead,
     readSnapshot: entry.snapshot, readSnapshotFetching: entry.isPending,
     initialPositionKnown: !!selectedWindow && entry.snapshot !== null && !loading,
+    initialPositionMessageId: entry.initialPositionMessageId,
     retryInitialLoad, retryingInitialLoad: entry.isFetching || query.isFetching,
     entryCanRead: entry.canRead, entryDenied: entry.denied, entryAnchorMissing: entry.anchorMissing,
   }

@@ -67,7 +67,7 @@ export function renderMessageListView(
             <>
               {props.messages.length === 0
                 ? <>
-                    <div className="mb-6">{renderMessageListHero(props)}</div>
+                    {props.historyStartKnown && <div className="mb-6">{renderMessageListHero(props)}</div>}
                     <div aria-hidden="true" data-message-empty-tail className="shrink-0" style={{ height: CONVERSATION_TAIL_SPACE_PX }} />
                   </>
                 : renderRows()}

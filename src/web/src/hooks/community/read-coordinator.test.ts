@@ -37,6 +37,7 @@ import {
   disposeReadCoordinator,
   flushPendingReadIntents,
   getReadCoordinator,
+  getLocalReadingPosition,
   projectReadCoordinatorSnapshot,
   READ_COORDINATOR_DEBOUNCE_MS,
   registerReadSurface,
@@ -106,6 +107,54 @@ describe("read coordinator", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
+  })
+
+  it("retains exact normal reading after ACK and failed reconciliation without lowering local progress", async () => {
+    const client = createOwnedClient(), lease = timelineLease(client)
+    apiFetch.mockResolvedValue({ changed: true, revision: 1, targetSeq: 8 })
+    reconcileAccountReadState.mockRejectedValue(new Error("readback unavailable"))
+    expect(submitTimeline(lease, 8)).toBe(true)
+    expect(submitTimeline(lease, 4)).toBe(false)
+    expect(getLocalReadingPosition(client, "channel-1")).toEqual({ kind: "timeline", channelId: "channel-1", messageId: "message-8", seq: 8 })
+    releaseReadSurface(lease)
+    await vi.advanceTimersByTimeAsync(0)
+    const scope = getReadCoordinator(client, "user-1").state.get().scopes.get("timeline:channel-1")!
+    expect(scope.inFlight).toBeNull()
+    expect(scope.confirmedSeq).toBe(8)
+    expect(getLocalReadingPosition(client, "channel-1")?.messageId).toBe("message-8")
+  })
+
+  it("does not lend an opener handoff as a viewport reading position", () => {
+    const client = createOwnedClient()
+    const lease = registerReadSurface(client, "user-1", { kind: "timeline", channelId: "channel-1" }, 0, "cancel-uncommitted")
+    expect(submitTimeline(lease, 8)).toBe(true)
+    expect(getLocalReadingPosition(client, "channel-1")).toBeNull()
+    releaseReadSurface(lease)
+    expect(getLocalReadingPosition(client, "channel-1")).toBeNull()
+  })
+
+  it("retires local and confirmed maxima with original access instead of borrowing the next generation", () => {
+    const client = createOwnedClient(), runtime = getCommunityDbRegistry(client)!.runtime
+    runtime.ws.actions.rememberChannelAccess("server", "channel-1")
+    const old = timelineLease(client, 40)
+    expect(submitTimeline(old, 80)).toBe(true)
+    client.setQueryData(communityKeys.accountReadStateSnapshot(), { revision: 1, readStates: [{ channelId: "channel-1", lastReadSeq: 80 }] })
+    runtime.ws.actions.revokeChannelAccess("server", "channel-1")
+    runtime.ws.actions.rememberChannelAccess("server", "channel-1")
+    expect(getLocalReadingPosition(client, "channel-1")).toBeNull()
+    expect(submitTimeline(old, 90)).toBe(false)
+    const current = timelineLease(client, 2)
+    expect(getReadCoordinator(client, "user-1").state.get().scopes.get("timeline:channel-1")?.confirmedSeq).toBe(2)
+    expect(submitTimeline(current, 3)).toBe(true)
+    expect(getLocalReadingPosition(client, "channel-1")?.seq).toBe(3)
+  })
+
+  it("drops local position when its original account retires", () => {
+    const client = createOwnedClient(), lease = timelineLease(client)
+    expect(submitTimeline(lease, 8)).toBe(true)
+    getCommunityDbRegistry(client)!.runtime.ws.actions.activateProfileAccount("replacement")
+    expect(getLocalReadingPosition(client, "channel-1")).toBeNull()
+    expect(submitTimeline(lease, 9)).toBe(false)
   })
 
   it("is an account-owned singleton and returns an unconsumed flush before and after disposal", async () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -6,15 +6,24 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture as fixture, dmConversationEntryFixture, conversationEntryTarget as target } from "@/test/conversation-entry-fixtures"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { registerCommunityDbRegistry } from "@/lib/community-db/collections"
-import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot } from "@/lib/community-db/sync"
-import { conversationEntryOptions, publishConversationEntry } from "@/lib/community/conversation-entry"
+import { captureCommunityLiveSnapshotToken, ingestMessages, ingestReadStateSnapshot } from "@/lib/community-db/sync"
+import { conversationEntryOptions, currentConversationReadState, publishConversationEntry } from "@/lib/community/conversation-entry"
 import { communityKeys } from "@/lib/query-keys"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import { useConversationEntry } from "./use-conversation-entry"
 import { useChannelMetadata } from "./use-channel-metadata"
-import { useDmMessages } from "./use-messages"
+import { useDmMessages, useMessages } from "./use-messages"
+import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
+import { useMessageListController } from "@/components/community/messages/message-list-controller"
+import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize } from "@/test/message-scroll-fixture"
+import type { FlatItem } from "@/lib/community/message-list-items"
+import { renderMessageListRow } from "@/components/community/messages/message-list-row"
+import { confirmReadSurface, disposeReadCoordinator, getReadCoordinator, registerReadSurface, releaseReadSurface, submitReadIntentGeneration } from "./read-coordinator"
+import { disposeAccountReadStateReconciliation } from "./community-ws/read-state-reconciliation"
+import { getAccountUnreadProjection } from "./account-unread-projection"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async (original) => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
@@ -245,4 +254,379 @@ describe("conversation entry selection", () => {
     dispose()
   })
 
+})
+
+describe("conversation entry return during accepted reading", () => {
+  beforeEach(installMessageScrollFixture)
+  afterEach(restoreMessageScrollFixture)
+
+  async function readingOwner() {
+    const owner = await setup()
+    const value = fixture()
+    value.messages = Array.from({ length: 42 }, (_, index) => ({
+      ...value.messages[0], id: `m${index + 1}`, seq: index + 1,
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
+    }))
+    value.channel.messageCount = 42
+    value.channel.lastMessageAt = value.messages[41].createdAt
+    value.readState = { channelId: "c1", lastReadMessageId: "m30", lastReadSeq: 30, lastReadAt: value.messages[29].createdAt }
+    value.selection = { reason: "read_pointer", anchorMessageId: "m30" }
+    value.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 42 }
+    owner.publish(value)
+    const put = deferred<{ changed: boolean; revision: number; targetSeq: number }>()
+    const canonical = deferred<{ revision: number; readStates: typeof value.readState[] }>()
+    load.mockImplementation((url: string) => {
+      if (url === "/api/community/channels/c1/read") return put.promise
+      if (url === "/api/community/users/me/read-state") return canonical.promise
+      if (url === "/api/community/users/me/attention") return Promise.resolve({ scopes: [], items: [], limit: 100, truncated: false })
+      throw new Error(`Unexpected reading transport ${url}`)
+    })
+    const coordinator = getReadCoordinator(owner.client, "viewer")
+    const lease = registerReadSurface(owner.client, "viewer", { kind: "timeline", channelId: "c1" }, 30)
+    const read42 = { ...value.readState, lastReadMessageId: "m42", lastReadSeq: 42, lastReadAt: value.messages[41].createdAt }
+    const finish = async () => {
+      disposeReadCoordinator(owner.client)
+      disposeAccountReadStateReconciliation(owner.client)
+      await act(async () => {
+        put.resolve({ changed: true, revision: 5, targetSeq: 42 })
+        canonical.resolve({ revision: 5, readStates: [read42] })
+      })
+    }
+    return { ...owner, put, canonical, coordinator, lease, read42, finish,
+      scope: () => coordinator.state.get().scopes.get("timeline:c1")!,
+    }
+  }
+
+  function mountReadingEntry(owner: Awaited<ReturnType<typeof readingOwner>>, scrollToMessageId?: string) {
+    let latest!: {
+      feed: ReturnType<typeof useMessages>
+      controller: ReturnType<typeof useMessageListController>
+      newDividerBefore: string | undefined
+    }
+    function EntryList() {
+      const feed = useMessages("c1", { serverId: "s1", viewerUserId: "viewer" })
+      const projection = resolveMessageReadProjection({ messages: feed.messages,
+        lastReadMessageId: feed.readSnapshot?.lastReadMessageId ?? null,
+        viewerUserId: "viewer", anchorReconciled: feed.anchorReconciled,
+      })
+      const props = { channel: "Channel", messages: feed.messages,
+        loading: feed.isLoading, initialLoadError: feed.initialLoadError,
+        newDividerBefore: projection.newDividerBefore, scrollToMessageId,
+        initialScrollReady: !feed.readSnapshotFetching && (projection.anchorFound || feed.initialPositionKnown),
+        hasMore: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer,
+        historyStartKnown: feed.historyStartKnown,
+        initialPositionMessageId: feed.initialPositionMessageId,
+        isFetching: feed.isFetching, isFetchingOlder: feed.isFetchingOlder, isFetchingNewer: feed.isFetchingNewer,
+        presentVersion: feed.presentVersion, variant: "channel" as const, hoverCapable: false,
+        onOpenThread: () => undefined,
+      }
+      const controller = useMessageListController(props)
+      latest = { feed, controller, newDividerBefore: projection.newDividerBefore }
+      return createElement("div", { "data-slot": "community-conversation-surface" },
+        createElement("div", { ref: controller.scrollRef, "data-testid": "community-message-scroller" },
+          createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(controller.readPositionReady) },
+            createElement(VirtualRows<FlatItem>, {
+              items: controller.items, virtualizer: controller.virtualizer, reactLayout: true,
+              renderItem: (item, index) => item.kind === "leading" ? renderMessageListRow(item, props, controller, index) : createElement("div", {
+                "data-message-row-key": item.key, "data-fixture-kind": item.kind,
+                "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),
+                "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,
+              }, item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id }) :
+                item.kind === "divider" && item.newDivider ? createElement("div", { "data-new-divider": "" }) : null),
+            }))),
+        createElement("div", { "data-slot": "community-conversation-footer" }))
+    }
+    const view = render(createElement(EntryList), { wrapper: owner.wrapper })
+    const root = view.getByTestId("community-message-scroller")
+    resize()
+    const visible = (id: string) => {
+      const row = root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)
+      if (!row) return false
+      const rect = row.getBoundingClientRect(), viewport = root.getBoundingClientRect()
+      return rect.top >= viewport.top && rect.bottom <= viewport.bottom
+    }
+    return { view, root, visible, get latest() { return latest } }
+  }
+
+  it.each(["before PUT confirmation", "after PUT before canonical publication", "after ACK and failed canonical readback"] as const)(
+    "keeps accepted local reading in the returned viewport %s without confirming the entry snapshot", async boundary => {
+      const owner = await readingOwner()
+      const first = mountReadingEntry(owner)
+      let returned: ReturnType<typeof mountReadingEntry> | undefined
+      try {
+        expect(first.latest.feed.readSnapshot?.lastReadSeq).toBe(30)
+        act(() => first.latest.controller.pillOnClick())
+        resize()
+        expect(first.latest.controller.readPositionReady).toBe(true)
+        expect(first.visible("m42")).toBe(true)
+        const generation = submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })
+        expect(generation).not.toBeNull()
+        expect(owner.scope().accepted?.intent).toEqual({ kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })
+        getAccountUnreadProjection(owner.client, "viewer").recordOptimisticRead("c1", 42, generation!)
+        expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m31", seq: 31 })).toBeNull()
+        first.view.unmount()
+        releaseReadSurface(owner.lease)
+        await act(async () => vi.advanceTimersByTimeAsync(0))
+        expect(load).toHaveBeenCalledWith("/api/community/channels/c1/read", expect.objectContaining({
+          method: "PUT", body: JSON.stringify({ lastReadMessageId: "m42" }),
+        }))
+        expect(owner.scope().inFlight?.phase).toBe("mutation")
+        if (boundary !== "before PUT confirmation") {
+          await act(async () => owner.put.resolve({ changed: true, revision: 5, targetSeq: 42 }))
+          expect(load.mock.calls.some(([url]) => url === "/api/community/users/me/read-state")).toBe(true)
+          expect(owner.scope().inFlight?.phase).toBe("reconciling")
+          expect(owner.scope().confirmedSeq).toBe(42)
+          if (boundary === "after ACK and failed canonical readback") {
+            await act(async () => owner.canonical.reject(new Error("canonical readback unavailable")))
+            expect(owner.scope().inFlight).toBeNull()
+            expect(owner.scope().accepted).toBeNull()
+            expect(owner.scope().dirty).toBeNull()
+          }
+        } else {
+          expect(owner.scope().confirmedSeq).toBe(30)
+          expect(load.mock.calls.some(([url]) => url === "/api/community/users/me/read-state")).toBe(false)
+        }
+        expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(30)
+        returned = mountReadingEntry(owner)
+        expect(returned.latest.feed.messages).toHaveLength(42)
+        expect(returned.latest.feed.readSnapshot?.lastReadSeq).toBe(30)
+        expect(returned.latest.newDividerBefore).toBe("m31")
+        expect(returned.latest.controller.readPositionReady).toBe(true)
+        expect(returned.visible("m42")).toBe(true)
+        const offset = returned.root.scrollTop, captured = returned.latest.feed.readSnapshot
+        await act(async () => ingestReadStateSnapshot(owner.registry, { revision: 6, readStates: [owner.read42] }))
+        resize()
+        expect(returned.latest.feed.readSnapshot).toBe(captured)
+        expect(returned.root.scrollTop).toBe(offset)
+      } finally {
+        first.view.unmount()
+        returned?.view.unmount()
+        await owner.finish()
+      }
+    },
+  )
+
+  it("reads a qualified covering window when the accepted target survives only as a canonical entity", async () => {
+    const owner = await readingOwner()
+    const originalKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m30" })
+    const originalWindow = owner.client.getQueryData<import("@/lib/community/message-window").MessageWindowData>(originalKey)!
+    const entryRead = deferred<ReturnType<typeof fixture>>()
+    const originalLoad = load.getMockImplementation()!
+    let view: ReturnType<typeof mountReadingEntry> | undefined
+    try {
+      expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })).not.toBeNull()
+      owner.client.setQueryData(originalKey, { ...originalWindow, pages: originalWindow.pages.map(page => ({ ...page,
+        messages: page.messages.filter(message => message.id !== "m42"), hasMoreNewer: true,
+      })) })
+      const retainedWindow = owner.client.getQueryData(originalKey)
+      expect(owner.registry.collections.messages.get("m42")?.seq).toBe(42)
+      load.mockImplementation((url: string, options: unknown) => url.includes("/messages?entry=1") ? entryRead.promise : originalLoad(url, options))
+      view = mountReadingEntry(owner)
+      expect(view.latest.feed.initialPositionKnown).toBe(false)
+      expect(view.latest.feed.initialPositionMessageId).toBeNull()
+      expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1&anchor=m42")).toBe(true)
+      const fresh = fixture()
+      fresh.messages = Array.from({ length: 23 }, (_, index) => ({ ...fresh.messages[0], id: `m${index + 20}`, seq: index + 20,
+        createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 20)).toISOString(),
+      }))
+      fresh.readState = { channelId: "c1", lastReadMessageId: "m30", lastReadSeq: 30, lastReadAt: fresh.messages.find(message => message.id === "m30")!.createdAt }
+      fresh.selection = { reason: "explicit_anchor", anchorMessageId: "m42" }
+      fresh.page = { ...fresh.page, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 42 }
+      await act(async () => entryRead.resolve(fresh))
+      expect(view.latest.feed.error).toBeNull()
+      resize()
+      expect(view.latest.feed.initialPositionKnown).toBe(true)
+      expect(view.latest.feed.initialPositionMessageId).toBe("m42")
+      expect(view.visible("m42")).toBe(true)
+      expect(view.latest.feed.readSnapshot?.lastReadSeq).toBe(30)
+      expect(owner.client.getQueryData(originalKey)).toBe(retainedWindow)
+      expect(view.latest.feed.historyStartKnown).toBe(false)
+    } finally { view?.view.unmount(); releaseReadSurface(owner.lease); await owner.finish() }
+  })
+
+  it("keeps canonical NEW when no reading was accepted, then leaves that active entry frozen after canonical publication", async () => {
+    const owner = await readingOwner()
+    const first = mountReadingEntry(owner)
+    let returned: ReturnType<typeof mountReadingEntry> | undefined
+    try {
+      act(() => first.latest.controller.pillOnClick())
+      resize()
+      expect(first.visible("m42")).toBe(true)
+      expect(owner.scope().accepted).toBeNull()
+      first.view.unmount()
+      releaseReadSurface(owner.lease)
+      await act(async () => vi.advanceTimersByTimeAsync(0))
+      returned = mountReadingEntry(owner)
+      expect(returned.latest.feed.readSnapshot?.lastReadSeq).toBe(30)
+      expect(returned.latest.newDividerBefore).toBe("m31")
+      expect(returned.visible("m31")).toBe(true)
+      expect(returned.visible("m42")).toBe(false)
+      expect(load).not.toHaveBeenCalled()
+      const captured = returned.latest.feed.readSnapshot, offset = returned.root.scrollTop
+      await act(async () => ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [owner.read42] }))
+      resize()
+      expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(42)
+      expect(returned.latest.feed.readSnapshot).toBe(captured)
+      expect(returned.latest.newDividerBefore).toBe("m31")
+      expect(returned.root.scrollTop).toBe(offset)
+    } finally {
+      first.view.unmount()
+      returned?.view.unmount()
+      await owner.finish()
+    }
+  })
+
+  it.each(["covering response", "canonical publication before the covering response"] as const)("takes higher progress from %s through its own qualified window", async boundary => {
+    const owner = await readingOwner()
+    const previousKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m30" })
+    const previous = owner.client.getQueryData<import("@/lib/community/message-window").MessageWindowData>(previousKey)!
+    const localRead = deferred<ReturnType<typeof fixture>>(), canonicalRead = deferred<ReturnType<typeof fixture>>()
+    let view: ReturnType<typeof mountReadingEntry> | undefined
+    try {
+      expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })).not.toBeNull()
+      owner.client.setQueryData(previousKey, { ...previous, pages: previous.pages.map(page => ({ ...page, messages: page.messages.filter(message => message.id !== "m42"), hasMoreNewer: true })) })
+      const oldLoad = load.getMockImplementation()!
+      load.mockImplementation((url: string, options: unknown) => url === "/api/community/channels/c1/messages?entry=1&anchor=m42" ? localRead.promise
+        : url === "/api/community/channels/c1/messages?entry=1" ? canonicalRead.promise : oldLoad(url, options))
+      view = mountReadingEntry(owner)
+      const higher = { channelId: "c1", lastReadMessageId: "m100", lastReadSeq: 100, lastReadAt: "2026-10-01T00:01:40.000Z" }
+      const aroundLocal = fixture()
+      aroundLocal.messages = [{ ...aroundLocal.messages[0], id: "m42", seq: 42 }]
+      aroundLocal.readState = boundary === "covering response" ? higher : { ...aroundLocal.readState, lastReadMessageId: "m30", lastReadSeq: 30 }
+      aroundLocal.readStateRevision = boundary === "covering response" ? 5 : 4
+      aroundLocal.selection = { reason: "explicit_anchor", anchorMessageId: "m42" }
+      aroundLocal.page = { ...aroundLocal.page, hasMoreOlder: true, hasMoreNewer: true, latestSeq: 100 }
+      await act(async () => {
+        if (boundary !== "covering response") ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [higher] })
+        localRead.resolve(aroundLocal)
+      })
+      resize()
+      await act(async () => vi.advanceTimersByTimeAsync(0))
+      expect(view.latest.feed.initialPositionKnown).toBe(false)
+      expect(view.latest.feed.initialPositionMessageId).toBeNull()
+      expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1")).toBe(true)
+      const aroundCanonical = fixture()
+      aroundCanonical.messages = [{ ...aroundCanonical.messages[0], id: "m100", seq: 100, createdAt: higher.lastReadAt }]
+      aroundCanonical.readState = higher
+      aroundCanonical.readStateRevision = 5
+      aroundCanonical.selection = { reason: "read_pointer", anchorMessageId: "m100" }
+      aroundCanonical.page = { ...aroundCanonical.page, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 100 }
+      await act(async () => canonicalRead.resolve(aroundCanonical))
+      resize()
+      expect(view.latest.feed.initialPositionKnown).toBe(true)
+      expect(view.latest.feed.readSnapshot?.lastReadSeq).toBe(100)
+      expect(view.latest.feed.initialPositionMessageId).toBeNull()
+      expect(view.visible("m100")).toBe(true)
+    } finally { view?.view.unmount(); releaseReadSurface(owner.lease); await owner.finish() }
+  })
+
+  it("allows an explicit older viewport target without lowering accepted or confirmed reading", async () => {
+    const owner = await readingOwner()
+    let entry: ReturnType<typeof mountReadingEntry> | undefined
+    try {
+      expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })).not.toBeNull()
+      confirmReadSurface(owner.lease, 29)
+      expect(owner.scope().confirmedSeq).toBe(30)
+      entry = mountReadingEntry(owner, "m12")
+      expect(entry.visible("m12")).toBe(true)
+      expect(owner.scope().dirty?.intent.seq).toBe(42)
+      confirmReadSurface(owner.lease, 42)
+      confirmReadSurface(owner.lease, 31)
+      expect(owner.scope().confirmedSeq).toBe(42)
+      expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m31", seq: 31 })).toBeNull()
+      expect(entry.visible("m12")).toBe(true)
+    } finally {
+      entry?.view.unmount()
+      releaseReadSurface(owner.lease)
+      await owner.finish()
+    }
+  })
+
+  it("uses higher canonical reading for a fresh entry instead of an older local target", async () => {
+    const owner = await readingOwner()
+    let view: ReturnType<typeof mountReadingEntry> | undefined
+    try {
+      expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m31", seq: 31 })).not.toBeNull()
+      await act(async () => ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [owner.read42] }))
+      view = mountReadingEntry(owner)
+      expect(view.latest.feed.initialPositionMessageId).toBeNull()
+      expect(view.latest.feed.readSnapshot?.lastReadSeq).toBe(42)
+      expect(view.latest.newDividerBefore).toBeUndefined()
+      expect(view.visible("m42")).toBe(true)
+      expect(load).not.toHaveBeenCalled()
+    } finally { view?.view.unmount(); releaseReadSurface(owner.lease); await owner.finish() }
+  })
+
+  it.each(["seq=12", "msg=m12"])("leaves explicit route %s ahead of the local landing", async search => {
+    const owner = await readingOwner(), Owner = owner.wrapper
+    const navigation = { entryIntent: { href: `/c/channels/s1/c1?${search}` } }
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(Owner, null, createElement(CommunityRouteContext, { value: { navigation } as never }, children))
+    }
+    const view = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper: Wrapper })
+    try {
+      expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })).not.toBeNull()
+      navigation.entryIntent = { href: `/c/channels/s1/c1?${search}` }
+      view.rerender()
+      expect(view.result.current.initialPositionMessageId).toBeNull()
+      expect(view.result.current.readSnapshot?.lastReadSeq).toBe(30)
+      expect(owner.scope().dirty?.intent.seq).toBe(42)
+      expect(load).not.toHaveBeenCalled()
+    } finally { view.unmount(); releaseReadSurface(owner.lease); await owner.finish() }
+  })
+
+  it("does not claim the beginning from a live row before the selected history window is known", async () => {
+    const owner = await readingOwner()
+    const entryRead = deferred<ReturnType<typeof fixture>>()
+    const previousKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m30" })
+    const previousWindow = owner.client.getQueryData(previousKey)
+    expect(previousWindow).toBeDefined()
+    const fresh = fixture()
+    fresh.messages = Array.from({ length: 22 }, (_, index) => ({
+      ...fresh.messages[0], id: `m${index + 59}`, seq: index + 59,
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 59)).toISOString(),
+    }))
+    const read60 = { channelId: "c1", lastReadMessageId: "m60", lastReadSeq: 60, lastReadAt: fresh.messages[1].createdAt }
+    fresh.readState = read60
+    fresh.readStateRevision = 5
+    fresh.selection = { reason: "read_pointer", anchorMessageId: "m60" }
+    fresh.channel.messageCount = 80
+    fresh.channel.lastMessageAt = fresh.messages.at(-1)!.createdAt
+    fresh.page = { olderCursor: "older", newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 }
+    await act(async () => {
+      ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [read60] })
+      ingestMessages(owner.registry, "c1", [{ ...fresh.messages.at(-1)!, resourceComplete: true }])
+      owner.runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, {
+        type: "wsMessage", message: fresh.messages.at(-1)!,
+      })
+    })
+    load.mockImplementation((url: string) => {
+      if (url === "/api/community/channels/c1/messages?entry=1") return entryRead.promise
+      throw new Error(`Unexpected history transport ${url}`)
+    })
+    const view = mountReadingEntry(owner)
+    try {
+      expect(view.latest.feed.messages.map(message => message.id)).toEqual(["m80"])
+      expect(view.latest.feed.initialPositionKnown).toBe(false)
+      expect(owner.client.getQueryData(previousKey)).toBe(previousWindow)
+      expect(view.latest.feed.readSnapshot).toBeNull()
+      expect(view.latest.feed.isLoading).toBe(true)
+      expect(view.latest.controller.initialPosition.contentVisible).toBe(true)
+      expect(view.latest.controller.readPositionReady).toBe(false)
+      expect(view.latest.feed.hasMoreOlder).toBe(false)
+      expect.soft(view.root.textContent).not.toContain("Beginning of the channel")
+      await act(async () => entryRead.resolve(fresh))
+      resize()
+      expect(view.latest.feed.initialPositionKnown).toBe(true)
+      expect(view.latest.feed.hasMoreOlder).toBe(true)
+      expect(owner.client.getQueryData(previousKey)).toBe(previousWindow)
+      expect(view.latest.feed.messages.map(message => message.id)).toEqual(fresh.messages.map(message => message.id))
+      expect(view.root.textContent).not.toContain("Beginning of the channel")
+    } finally {
+      view.view.unmount()
+      entryRead.resolve(fresh)
+      releaseReadSurface(owner.lease)
+      await owner.finish()
+    }
+  })
 })

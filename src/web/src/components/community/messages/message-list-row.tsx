@@ -30,7 +30,7 @@ export function renderMessageListRow(
     return (
       <div className="flow-root" data-message-row-key={item.key}>
         <div className="flex flex-col gap-2 py-4">
-          {props.hasMore ? (
+          {!props.historyStartKnown ? (
             <div className="flex h-8 items-center justify-center text-xs text-muted-foreground">
               {props.isFetchingOlder ? "Loading older messages…" : ""}
             </div>

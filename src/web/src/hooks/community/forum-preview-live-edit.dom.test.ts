@@ -4,7 +4,7 @@ import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { dispatchCommunityWsEvent } from "./community-ws/registry"
-import { captureCommunityLiveSnapshotToken, publishCommunityForumFeed, publishCommunityMessages } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityForumFeed, publishCommunityMessages, publishCommunityMessageFields } from "@/lib/community-db/sync"
 import { normalizeThreadResources } from "./forum-feed-window"
 import { forumConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { conversationEntryOptions, publishConversationEntry } from "@/lib/community/conversation-entry"
@@ -16,6 +16,7 @@ vi.mock("./use-channel-panels", () => ({
   useForumTags: () => ({ data: { tags: [] }, isSuccess: true }),
 }))
 import { useForumFeed } from "./use-forum-feed"
+import { useEditMessage } from "./mutations/messages"
 
 const original = "original first body ".repeat(34)
 const edited = "edited first body with complete content ".repeat(29)
@@ -53,7 +54,7 @@ async function mount(contractVersion: 2 | 3 = 2, firstSeq = 1) {
   function Wrapper({ children }: PropsWithChildren) {
     return createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry }, children)
   }
-  const view = renderHook(() => useForumFeed("server", "forum"), { wrapper: Wrapper })
+  const view = renderHook(() => ({ ...useForumFeed("server", "forum"), editCommand: useEditMessage() }), { wrapper: Wrapper })
   await waitFor(() => expect(view.result.current.posts.find((post) => post.id === "post")?.preview).toBe(original))
   const context = { contract: contractVersion, deliveryMode: "single" as const,
     queryClient: owner.client, communityStore: owner.runtime.ui, wsStore: owner.runtime.ws,
@@ -67,6 +68,71 @@ async function mount(contractVersion: 2 | 3 = 2, firstSeq = 1) {
 }
 
 describe("Forum first body through the actual edited dispatcher", () => {
+  it("keeps the same forum window and confirms its exact first-body preview after HTTP edit without self WS", async () => {
+    const view = await mount(3, 7)
+    const key = communityKeys.forumFeed("forum", null)
+    const window = view.client.getQueryData(key)
+    let resolve!: (value: unknown) => void
+    let command!: Promise<unknown>
+    apiFetch.mockImplementation((_path: string, options?: { method?: string }) => options?.method === "PATCH"
+      ? new Promise(done => { resolve = done })
+      : Promise.resolve(page(3, 7)))
+    try {
+      expect(view.registry.collections.channels.get("post")?.firstMessageId).toBe("first")
+      expect(view.registry.collections.messages.get("first")?.seq).toBe(7)
+      act(() => { command = view.result.current.editCommand.mutateAsync({ serverId: "server", channelId: "post", messageId: "first", content: edited }) })
+      await waitFor(() => expect(resolve).toBeTypeOf("function"))
+      expect(view.registry.collections.messages.get("first")?.content).toBe(edited)
+      await waitFor(() => expect(view.preview()).toBe(edited))
+      expect(view.client.getQueryData(key)).toBe(window)
+      await act(async () => { resolve(undefined); await command })
+      expect(view.registry.collections.messages.get("first")?.content).toBe(edited)
+      expect(view.client.getQueryData(key)).toBe(window)
+      expect(view.preview("other")).toBe("Other original")
+      expect(apiFetch.mock.calls.filter(([, options]) => options?.method === "PATCH")).toHaveLength(1)
+      expect(view.preview()).toBe(edited)
+    } finally {
+      resolve?.(undefined)
+      await command?.catch(() => undefined)
+      view.unmount()
+    }
+  })
+
+  it.each(["rollback", "WS then success", "WS then failure"] as const)("keeps first-body preview under the original edit transaction: %s", async outcome => {
+    const view = await mount(3, 7)
+    const key = communityKeys.forumFeed("forum", null), window = view.client.getQueryData(key)
+    let resolve!: (value: unknown) => void, reject!: (reason: Error) => void
+    apiFetch.mockImplementation((_path: string, options?: { method?: string }) => options?.method === "PATCH"
+      ? new Promise((done, fail) => { resolve = done; reject = fail }) : Promise.resolve(page(3, 7)))
+    let command!: Promise<unknown>
+    try {
+      act(() => { command = view.result.current.editCommand.mutateAsync({ serverId: "server", channelId: "post", messageId: "first", content: edited }).catch(error => error) })
+      await waitFor(() => expect(resolve).toBeTypeOf("function"))
+      await waitFor(() => expect(view.preview()).toBe(edited))
+      if (outcome !== "rollback") view.edit("post", "first", "newer WS content")
+      await act(async () => { if (outcome === "WS then success") resolve(undefined); else reject(new Error("edit denied")); await command })
+      const expected = outcome === "rollback" ? original : "newer WS content"
+      await waitFor(() => expect(view.preview()).toBe(expected))
+      expect(view.registry.collections.messages.get("first")?.content).toBe(expected)
+      expect(view.preview("other")).toBe("Other original")
+      expect(view.client.getQueryData(key)).toBe(window)
+    } finally { resolve?.(undefined); await command?.catch(() => undefined); view.unmount() }
+  })
+
+  it("does not mirror rejected content when another HTTP field is accepted", async () => {
+    const view = await mount(3, 7)
+    try {
+      const token = captureCommunityLiveSnapshotToken(view.client, "post")
+      view.edit("post", "first", "newer WS content")
+      let published = false
+      act(() => { published = publishCommunityMessageFields(view.client, "first", { content: "old HTTP content", authorName: "HTTP author" }, { token }) })
+      expect(published).toBe(true)
+      expect(view.registry.collections.messages.get("first")?.authorName).toBe("HTTP author")
+      expect(view.registry.collections.messages.get("first")?.content).toBe("newer WS content")
+      await waitFor(() => expect(view.preview()).toBe("newer WS content"))
+    } finally { view.unmount() }
+  })
+
   it.each([{ contract: 2 as const, firstSeq: 1 }, { contract: 3 as const, firstSeq: 7 }])(
     "updates the existing full preview from contract$contract first-body identity, not a sequence guess",
     async ({ contract, firstSeq }) => {

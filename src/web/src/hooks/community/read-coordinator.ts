@@ -4,7 +4,7 @@ import type { CommunityReadAdvanceSchema } from "@alook/shared"
 import type { z } from "zod"
 import { createStore } from "@tanstack/react-store"
 import type { Mutation, QueryClient } from "@tanstack/react-query"
-import { communityRequestOptions } from "@/lib/community-db/sync"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
@@ -22,8 +22,10 @@ import {
 } from "./inbox-read-reservation"
 import { getAccountUnreadProjection } from "./account-unread-projection"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import type { ReadStateRow } from "@/lib/community-db/schema"
 import {
   clearAttentionScopeOptimistically,
+  captureCommunityLiveSnapshotToken,
   commitAttentionScopeOptimisticSnapshot,
   hasAttentionScopeOptimisticFence,
   projectConfirmedAttention,
@@ -79,6 +81,8 @@ type SurfaceLease = {
 
 type ScopeState = {
   surface: ReadSurface
+  authority: ReturnType<typeof communityRequestOptions>
+  localPosition: QueuedReadIntent | null
   epoch: number
   leases: Set<symbol>
   releaseTimer: ReturnType<typeof setTimeout> | null
@@ -153,14 +157,25 @@ class ReadCoordinator {
 
   register(surface: ReadSurface, confirmedSeq: number, releasePolicy: SurfaceLease["releasePolicy"]): SurfaceLease {
     this.assertActive()
-    const key = scopeKey(surface), token = Symbol(key), current = this.scope(key)
+    const registry = getCommunityDbRegistry(this.queryClient)
+    const canonical = this.queryClient.getQueryData<ReadStateRow[]>(communityKeys.communityDbCollection(registry?.scopeId ?? "anon", "readStates"))?.find(row => row.channelId === surface.channelId)
+      ?? registry?.collections.readStates.get(surface.channelId)
+    confirmedSeq = Math.max(confirmedSeq, canonical?.lastReadSeq ?? 0)
+    const key = scopeKey(surface), token = Symbol(key), previous = this.scope(key)
+    const current = previous && this.authorityCurrent(previous) ? previous : undefined
+    if (previous && !current) {
+      if (previous.timer !== null) clearTimeout(previous.timer)
+      if (previous.releaseTimer !== null) clearTimeout(previous.releaseTimer)
+      previous.inFlight?.controller.abort()
+      if (previous.attentionOptimistic) commitAttentionScopeOptimisticSnapshot(previous.attentionOptimistic.registry, previous.attentionOptimistic.snapshot)
+    }
     if (current?.releaseTimer !== null && current?.releaseTimer !== undefined) clearTimeout(current.releaseTimer)
     const state: ScopeState = current
       ? { ...current, confirmedSeq: Math.max(current.confirmedSeq, confirmedSeq), releaseTimer: null, leases: new Set([...current.leases, token]) }
-      : { surface: { ...surface }, epoch: 0, leases: new Set([token]), releaseTimer: null, timer: null, accepted: null, dirty: null, inFlight: null, attemptEpoch: 0, confirmedSeq, attentionOptimistic: null }
+      : { surface: { ...surface }, authority: communityRequestOptions(this.queryClient, captureCommunityLiveSnapshotToken(this.queryClient, surface.channelId)), localPosition: null,
+        epoch: (previous?.epoch ?? -1) + 1, leases: new Set([token]), releaseTimer: null, timer: null, accepted: null, dirty: null, inFlight: null, attemptEpoch: (previous?.attemptEpoch ?? -1) + 1, confirmedSeq, attentionOptimistic: null }
     this.state.setState((owner) => ({ ...owner, scopes: new Map(owner.scopes).set(key, state) }))
-    const cached = this.queryClient.getQueryData<ReadCoordinatorSnapshot>(communityKeys.accountReadStateSnapshot())
-    if (cached) this.applySnapshot(cached)
+    if ([state.accepted, state.dirty, state.inFlight?.target].some(target => target && target.intent.seq <= state.confirmedSeq)) this.cancelConfirmedWork(key)
     return { coordinator: this, key, token, epoch: state.epoch, releasePolicy }
   }
 
@@ -212,10 +227,11 @@ class ReadCoordinator {
     if (Math.max(state.accepted?.intent.seq ?? 0, state.dirty?.intent.seq ?? 0, state.inFlight?.target.intent.seq ?? 0) >= intent.seq) return null
     const superseded = [state.accepted, state.dirty].filter((pending) => pending && pending.intent.seq < intent.seq && pending.generation !== state.inFlight?.target.generation)
     const generation = this.latestIntentGeneration + 1
-    const queued: QueuedReadIntent = { intent: { ...intent }, generation, dueAt: Date.now() + READ_COORDINATOR_DEBOUNCE_MS, ownerToken: lease.token, request: communityRequestOptions(this.queryClient) }
+    const queued: QueuedReadIntent = { intent: { ...intent }, generation, dueAt: Date.now() + READ_COORDINATOR_DEBOUNCE_MS, ownerToken: lease.token, request: state.authority }
     queued.request.assertActive()
     this.state.setState((owner) => ({ ...owner, latestIntentGeneration: generation }))
-    this.update(lease.key, (scope) => ({ ...scope, accepted: laterIntent(scope.accepted, queued), dirty: laterIntent(scope.dirty, queued) }))
+    this.update(lease.key, (scope) => ({ ...scope, accepted: laterIntent(scope.accepted, queued), dirty: laterIntent(scope.dirty, queued),
+      localPosition: lease.releasePolicy === "flush" ? laterIntent(scope.localPosition, queued) : scope.localPosition }))
     this.beginAttentionOptimisticRead(lease.key)
     for (const pending of superseded) getAccountUnreadProjection(this.queryClient, this.ownerUserId).settleOptimisticRead(pending!.generation, false)
     this.schedule(lease.key, READ_COORDINATOR_DEBOUNCE_MS)
@@ -231,7 +247,7 @@ class ReadCoordinator {
   resume() {
     if (this.disposed) return
     for (const [key, scope] of this.state.get().scopes) {
-      if (!scope.dirty || scope.confirmedSeq >= scope.dirty.intent.seq) continue
+      if (!this.authorityCurrent(scope) || !scope.dirty || scope.confirmedSeq >= scope.dirty.intent.seq) continue
       this.update(key, (current) => ({ ...current, accepted: laterIntent(current.accepted, current.dirty!) }))
       this.schedule(key, 0)
     }
@@ -241,9 +257,18 @@ class ReadCoordinator {
     if (this.disposed) return
     const byChannel = new Map(snapshot.readStates.map((row) => [row.channelId, row.lastReadSeq]))
     for (const [key, scope] of this.state.get().scopes) {
+      if (!this.authorityCurrent(scope)) continue
       this.update(key, (current) => ({ ...current, confirmedSeq: Math.max(current.confirmedSeq, byChannel.get(scope.surface.channelId) ?? 0) }))
       this.cancelConfirmedWork(key)
     }
+  }
+
+  localReadingPosition(channelId: string): ReadIntent | null {
+    const scope = this.scope(scopeKey({ kind: "timeline", channelId }))
+    const message = scope?.localPosition ? getCommunityDbRegistry(this.queryClient)?.collections.messages.get(scope.localPosition.intent.messageId) : undefined
+    if (message && (message.channelId !== channelId || message.seq !== scope?.localPosition?.intent.seq)) return null
+    return !this.disposed && scope && this.authorityCurrent(scope) && scope.localPosition
+      ? { ...scope.localPosition.intent } : null
   }
 
   dispose() {
@@ -484,11 +509,14 @@ class ReadCoordinator {
 
   private validState(lease: SurfaceLease) {
     const scope = this.scope(lease.key)
-    return !this.disposed && lease.coordinator === this && scope?.epoch === lease.epoch && scope.leases.has(lease.token) ? scope : null
+    return !this.disposed && lease.coordinator === this && scope?.epoch === lease.epoch && scope.leases.has(lease.token) && this.authorityCurrent(scope) ? scope : null
+  }
+  private authorityCurrent(scope: ScopeState) {
+    try { scope.authority.assertActive(); return true } catch { return false }
   }
   private attemptActive(key: string, attemptEpoch: number, identityEpoch: number) {
     const scope = this.scope(key)
-    return !this.disposed && this.state.get().identityEpoch === identityEpoch && scope?.inFlight?.attemptEpoch === attemptEpoch && scope.attemptEpoch === attemptEpoch
+    return !this.disposed && this.state.get().identityEpoch === identityEpoch && scope?.inFlight?.attemptEpoch === attemptEpoch && scope.attemptEpoch === attemptEpoch && this.authorityCurrent(scope)
   }
   private assertActive() { if (this.disposed) throw new Error("read coordinator disposed") }
 }
@@ -518,6 +546,10 @@ export function disposeReadCoordinator(queryClient: QueryClient) {
   coordinators.get(queryClient)?.dispose()
   disposeInboxReadReservation(queryClient)
   unregisterReadCoordinatorSnapshotProjector(queryClient)
+}
+
+export function getLocalReadingPosition(queryClient: QueryClient, channelId: string) {
+  return coordinators.get(queryClient)?.localReadingPosition(channelId) ?? null
 }
 
 export function projectReadCoordinatorSnapshot(

@@ -17,7 +17,7 @@ import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { captureCommunityLiveSnapshotToken, publishCommunityMessageFields, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityMessageFields, publishCommunityMessages, publishCommunityCreatedChannel, updateCommunityMessageContentOptimistically } from "@/lib/community-db/sync"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 import {
@@ -85,7 +85,7 @@ export function useEditMessage() {
       const registry = origin.registry
       await registry?.ready
       origin.assert(token); assertActive?.()
-      await registry!.collections.messages.preload()
+      await Promise.all([registry!.collections.messages.preload(), registry!.collections.channels.preload()])
       origin.assert(token); assertActive?.()
       await Promise.all([
         queryClient.cancelQueries({ queryKey: communityKeys.channelMessages(channelId) }),
@@ -104,11 +104,7 @@ export function useEditMessage() {
         } catch (error) { origin.assert(token); throw error }
       }
       const transaction = registry!.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
-      transaction.mutate(() => {
-        if (registry!.collections.messages.has(messageId)) {
-          registry!.collections.messages.update(messageId, (row) => { row.content = content })
-        }
-      })
+      transaction.mutate(() => updateCommunityMessageContentOptimistically(registry!, messageId, content))
       try { if (transaction.mutations.length) await transaction.commit(); else await persist() } catch (error) { origin.assert(token); throw error }
     },
   })

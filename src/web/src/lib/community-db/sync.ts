@@ -2168,9 +2168,36 @@ function publishConfirmedFields<N extends CollectionName>(
   ))
   if (!fields.length) return false
   const accepted = Object.fromEntries(fields.map((field) => [field, changes[field as keyof CommunityCollectionRows[N]]]))
-  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => (
-    patchRows(registry, name, (row) => ({ ...row, ...accepted }), (row) => getKey(row) === id, [id], fields)
-  ))
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => notifyManager.batch(() => {
+    const published = patchRows(registry, name, (row) => ({ ...row, ...accepted }), (row) => getKey(row) === id, [id], fields)
+    if (name === "messages" && fields.includes("content")) {
+      const message = collectionRows(registry, "messages").find((row) => row.id === id)
+      if (message?.channelId && typeof message.content === "string") patchMessageFirstPreview(registry, message.channelId, id, message.content)
+    }
+    return published
+  }))
+}
+
+function firstMessageChannel(registry: CommunityDbRegistry, channelId: string, messageId: string) {
+  return collectionRows(registry, "channels").find((row) => row.id === channelId
+    && row.type === "thread" && row.firstMessageId === messageId)
+}
+
+function patchMessageFirstPreview(registry: CommunityDbRegistry, channelId: string, messageId: string, content: string) {
+  if (!firstMessageChannel(registry, channelId, messageId)) return
+  patchRows(registry, "channels", (row) => ({ ...row, preview: content }),
+    (row) => row.id === channelId && row.type === "thread" && row.firstMessageId === messageId,
+    [channelId], ["preview"])
+}
+
+export function updateCommunityMessageContentOptimistically(registry: CommunityDbRegistry, messageId: string, content: string) {
+  const message = registry.collections.messages.get(messageId)
+  if (!message) return
+  registry.collections.messages.update(messageId, (row) => { row.content = content })
+  const channel = firstMessageChannel(registry, message.channelId, messageId)
+  if (channel && registry.collections.channels.has(channel.id)) {
+    registry.collections.channels.update(channel.id, (row) => { row.preview = content })
+  }
 }
 
 export function publishCommunityServerFields(
@@ -2681,14 +2708,7 @@ export function projectCommunityWsEventToDb(
         [event.messageId],
         ["content"],
       )
-      const thread = registry.collections.channels.get(event.channelId)
-      if (thread?.type === "thread" && thread.firstMessageId === event.messageId) {
-        const ownsPreview = (row: ChannelRow) => row.id === event.channelId
-          && row.type === "thread" && row.firstMessageId === event.messageId
-        patchRows(registry, "channels",
-          (row) => ownsPreview(row) ? { ...row, preview: event.content } : row,
-          ownsPreview, [event.channelId], ["preview"])
-      }
+      patchMessageFirstPreview(registry, event.channelId, event.messageId, event.content)
       return
     }
     case "community:message.updated":

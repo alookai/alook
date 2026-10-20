@@ -137,7 +137,7 @@ export function findConversationEntryWindow(client: QueryClient, target: Convers
     if (!Array.isArray(data?.pages) || !Array.isArray(data.pageParams) || !data.pages.length || data.pageParams.length !== data.pages.length || data.pages.some((page) => !Array.isArray(page.messages))) continue
     const ids = data.pages.flatMap((page) => page.messages.map((message) => message.id))
     if (ids.length && !ids.some((id) => messages.get(id)?.resourceComplete === true)) continue
-    const anchored = !!anchor && (ids.includes(anchor) || data.pageParams.some((param) => param.mode === "anchor" && param.anchor === anchor))
+    const anchored = !!anchor && ids.includes(anchor) && messages.get(anchor)?.resourceComplete === true
     const missingPointer = !target.anchorMessageId && pointer.lastReadMessageId === resource.readStateAtEntry.lastReadMessageId && resource.selection.reason === "read_pointer_missing"
       && hashKey(window.queryKey) === hashKey(resource.windowKey) && identity.initial.mode === "newest" && data.pages[0].hasMoreNewer === false
     if (anchor ? !anchored && !missingPointer : data.pages[0].hasMoreNewer !== false) continue

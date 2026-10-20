@@ -12,16 +12,17 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
 import {
-  conversationEntryOptions, currentConversationReadState, findConversationEntryWindow,
+  conversationEntryOptions, currentConversationReadState, findConversationEntryWindow, getQualifiedConversationEntry,
   type ConversationEntryResource, type ConversationEntryTarget,
 } from "@/lib/community/conversation-entry"
 import type { MessageWindowData } from "@/lib/community/message-window"
 import { reconcileWindow } from "./community-ws/reconnect-messages"
 import { isConversationAccessError, isConversationAnchorMissingError } from "@/lib/community/conversation-read"
+import { getLocalReadingPosition } from "./read-coordinator"
 
 type EntryWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
 
-export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string } | null) {
+export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, useLocalPosition = false) {
   const client = useQueryClient()
   const runtime = useCommunityRuntime()
   const canonical = useRouteChannelProjection(target?.channelId ?? null)
@@ -38,13 +39,26 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   const tag = target?.tag ?? null
   const preferTail = target?.preferTail === true
   const enabled = target !== null
-  const input = useMemo(() => ({ channelId, serverId, anchorMessageId, tag, preferTail }), [channelId, serverId, anchorMessageId, tag, preferTail])
-  const options = useMemo(() => conversationEntryOptions(client, input), [client, input, accountEpoch, accessEpoch, generation, parentGeneration, intent])
+  const baseInput = useMemo(() => ({ channelId, serverId, anchorMessageId, tag, preferTail }), [channelId, serverId, anchorMessageId, tag, preferTail])
+  const landing = useMemo(() => {
+    const search = new URLSearchParams(intent?.href.split("?")[1] ?? "")
+    const position = useLocalPosition && enabled && !anchorMessageId && !tag && !preferTail && !intent?.resume && !search.has("msg") && !search.has("seq")
+      ? getLocalReadingPosition(client, channelId) : null
+    const pointer = currentConversationReadState(client, channelId)
+    if (!position || !pointer || pointer.lastReadSeq >= position.seq) return { input: baseInput, requestInput: baseInput, position: null }
+    const input = { ...baseInput, anchorMessageId: position.messageId }
+    const cached = client.getQueryData<ConversationEntryResource>(conversationEntryOptions(client, baseInput).queryKey)
+      ?? getQualifiedConversationEntry(client, channelId)
+    const covered = cached && findConversationEntryWindow(client, input, cached, pointer)
+    return { input, requestInput: covered ? baseInput : input, position }
+  }, [client, baseInput, accountEpoch, accessEpoch, generation, parentGeneration, intent, useLocalPosition, enabled, anchorMessageId, channelId, tag, preferTail])
+  const input = landing.input
+  const options = useMemo(() => conversationEntryOptions(client, landing.requestInput), [client, landing, accountEpoch, accessEpoch, generation, parentGeneration, intent])
   const parentId = canonical?.parentChannelId ?? undefined
   const verification = useMemo(() => ({ needed: !serverRevoked && runtime.ws.actions.isChannelAccessRevoked(channelId, serverId, parentId), generation }), [runtime, channelId, serverId])
   const query = useQuery({ ...options, enabled: !!target && !revoked, refetchOnReconnect: false, refetchOnWindowFocus: false })
   const anchorMissing = isConversationAnchorMissingError(query.error)
-  const fallbackInput = useMemo(() => ({ ...input, anchorMessageId: null }), [input])
+  const fallbackInput = useMemo(() => ({ ...baseInput, anchorMessageId: null }), [baseInput])
   const fallbackOptions = useMemo(() => conversationEntryOptions(client, fallbackInput), [client, fallbackInput, accountEpoch, accessEpoch, generation, parentGeneration])
   const fallback = useQuery({ ...fallbackOptions, enabled: !!target && anchorMissing && !revoked, subscribed: !!target && anchorMissing,
     refetchOnReconnect: false, refetchOnWindowFocus: false })
@@ -65,7 +79,8 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     const pointer = currentConversationReadState(client, channelId)
     if (pointer && !findConversationEntryWindow(client, input, query.data, pointer)) void client.query({ ...options, select: undefined }).catch(() => undefined)
   }, [client, intent, input, options, revoked])
-  return { client, input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
+  return { client, input: anchorMissing && landing.position ? baseInput : input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
+    localPosition: anchorMissing ? null : landing.position,
     denied: serverRevoked || revoked && (!verification.needed || generation !== verification.generation) || isConversationAccessError(query.error) && Number((query.error as { status?: unknown } | null)?.status) !== 401, anchorMissing,
     verificationError: (!qualified && anchorMissing ? fallback.error : query.error)?.name === "AbortError" ? null : !qualified && anchorMissing ? fallback.error : query.error,
     verificationPending: !qualified && (anchorMissing ? fallback.isPending : query.isPending),
@@ -87,25 +102,36 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
       ? current : { path: expectedPath, intent: incomingIntent })
   }, [active, expectedPath, incomingIntent, resuming])
   const intent = (active && !resuming) || retainedIntent.path !== expectedPath ? incomingIntent : retainedIntent.intent
-  const { client, input, options, query, canonical, resource, canRead, revoked, denied, anchorMissing } = useConversationResource(target, intent)
+  const { client, input, options, query, canonical, resource, canRead, revoked, denied, anchorMissing, localPosition } = useConversationResource(target, intent, true)
+  const canonicalInput = useMemo(() => localPosition ? { ...input, anchorMessageId: null } : input, [input, localPosition])
   const entry = useMemo(() => {
     const cached = client.getQueryData<ConversationEntryResource>(options.queryKey)
     const pointer = cached && isChannelMetadataTokenCurrent(cached.proof) ? currentConversationReadState(client, input.channelId) : undefined
-    const window = cached && pointer ? findConversationEntryWindow(client, input, cached, pointer) : undefined
+    const window = cached && pointer ? findConversationEntryWindow(client,
+      localPosition && pointer.lastReadSeq >= localPosition.seq ? canonicalInput : input, cached, pointer) : undefined
     return { knownRevision: pointer?.observedRevision ?? -1, state: createStore<{ snapshot: CommunityReadStateResource | null; window: EntryWindow | null }>({
       snapshot: window ? pointer! : null,
       window: window ?? null,
     }) }
-  }, [client, input, options, intent])
+  }, [client, input, canonicalInput, localPosition, options, intent])
   const selected = useSelector(entry.state, (state) => state)
-  const candidate = !selected.window && resource && resource.readStateRevision >= entry.knownRevision
-    ? findConversationEntryWindow(client, input, resource, resource.readStateAtEntry) : undefined
+  const currentRevision = currentConversationReadState(client, input.channelId)?.observedRevision ?? -1
+  const needsCanonicalWindow = !!localPosition && !selected.window && !!resource && (resource.readStateRevision < currentRevision
+    || resource.readStateAtEntry.lastReadSeq >= localPosition.seq && !findConversationEntryWindow(client, canonicalInput, resource, resource.readStateAtEntry))
+  const canonicalQuery = useQuery({ ...conversationEntryOptions(client, canonicalInput), enabled: canRead && needsCanonicalWindow,
+    subscribed: needsCanonicalWindow, staleTime: 0, refetchOnReconnect: false, refetchOnWindowFocus: false })
+  const candidateResource = needsCanonicalWindow && canonicalQuery.data && isChannelMetadataTokenCurrent(canonicalQuery.data.proof)
+    && canonicalQuery.data.readStateRevision >= Math.max(entry.knownRevision, currentRevision) ? canonicalQuery.data : resource
+  const candidateTarget = localPosition && candidateResource && candidateResource.readStateAtEntry.lastReadSeq >= localPosition.seq
+    ? canonicalInput : input
+  const candidate = !selected.window && candidateResource && candidateResource.readStateRevision >= Math.max(entry.knownRevision, currentRevision)
+    ? findConversationEntryWindow(client, candidateTarget, candidateResource, candidateResource.readStateAtEntry) : undefined
   const window = canRead ? selected.window ?? candidate ?? null : null
-  const snapshot = window ? selected.snapshot ?? resource!.readStateAtEntry : null
+  const snapshot = window ? selected.snapshot ?? candidateResource!.readStateAtEntry : null
   useLayoutEffect(() => {
-    if (!candidate || !resource) return
-    entry.state.setState((state) => state.window ? state : { window: candidate, snapshot: resource.readStateAtEntry })
-  }, [candidate, entry, resource])
+    if (!candidate || !candidateResource) return
+    entry.state.setState((state) => state.window ? state : { window: candidate, snapshot: candidateResource.readStateAtEntry })
+  }, [candidate, entry, candidateResource])
   useEffect(() => {
     if (!canRead || !window || !resource || hashKey(window.key) === hashKey(resource.windowKey)) return
     const landing = client.getQueryData<MessageWindowData>(resource.windowKey)
@@ -114,11 +140,13 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
       kind: input.serverId === null ? "dm" : "channel", scopeId: input.channelId, serverId: input.serverId ?? undefined,
     }, window.key, target).catch(() => undefined)
   }, [canRead, client, input.channelId, input.serverId, resource, window])
-  const refetch = query.refetch
+  const activeQuery = needsCanonicalWindow ? canonicalQuery : query
+  const refetch = activeQuery.refetch
   const retry = useCallback(() => { void refetch({ cancelRefetch: false }) }, [refetch])
-  return { ...query, intent, resource, canonical, canRead, window, snapshot, revoked, denied, anchorMissing,
-    isPending: !!target && !window && !denied && !anchorMissing && !query.isError && query.errorUpdatedAt === 0,
-    failed: !window && query.errorUpdatedAt > 0,
-    retry, retrying: query.isFetching,
+  return { ...activeQuery, intent, resource, canonical, canRead, window, snapshot, revoked, denied, anchorMissing,
+    initialPositionMessageId: window && localPosition && snapshot && snapshot.lastReadSeq < localPosition.seq ? localPosition.messageId : null,
+    isPending: !!target && !window && !denied && !anchorMissing && !activeQuery.isError && activeQuery.errorUpdatedAt === 0,
+    failed: !window && activeQuery.errorUpdatedAt > 0,
+    retry, retrying: activeQuery.isFetching,
   }
 }

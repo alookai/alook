@@ -76,6 +76,7 @@ export function useScrollAnchor({
   newDividerBefore,
   initialScrollReady,
   scrollToMessageId,
+  initialPositionMessageId,
   onScrollTargetPositioned,
   onScrollTargetCancelled,
   hasMoreOlder,
@@ -91,6 +92,7 @@ export function useScrollAnchor({
   newDividerBefore?: string
   initialScrollReady: boolean
   scrollToMessageId?: string | null
+  initialPositionMessageId?: string | null
   onScrollTargetPositioned?: (id: string) => void
   onScrollTargetCancelled?: (id: string) => void
   hasMoreOlder?: boolean
@@ -875,10 +877,10 @@ export function useScrollAnchor({
     if (positionKind.get() !== "initial" || initialRetiredRef.current || !hasMessages || !viewportReady) return
     if (initialScrollReady && !entryResolvedRef.current) {
       entryResolvedRef.current = true
-      startIntent(newDividerBefore ? "unread" : "end", newDividerBefore ?? null)
+      startIntent(initialPositionMessageId ? "target" : newDividerBefore ? "unread" : "end", initialPositionMessageId ?? newDividerBefore ?? null)
     } else if (!initialScrollReady && !hasMoreNewer && !semanticIntentRef.current) startIntent("end", null)
     else scheduleInitialPositionSettled()
-  }, [cancelFrame, hasMessages, hasMoreNewer, initialScrollReady, items, newDividerBefore, positionKind, releasePosition, scheduleInitialPositionSettled, startIntent, virtualItems])
+  }, [cancelFrame, hasMessages, hasMoreNewer, initialScrollReady, initialPositionMessageId, items, newDividerBefore, positionKind, releasePosition, scheduleInitialPositionSettled, startIntent, virtualItems])
 
   const requestPresentPosition = useCallback(() => {
     presentIntentRef.current = { epoch: claimPosition("present"), allowAttachedTail: false, fetching: false }

@@ -94,6 +94,53 @@ chore(deps): update dependencies
 
 Use the body to explain *what and why*, not how. Reference issues with `Closes #123`.
 
+## Community conversation maintenance contract
+
+Forums are channels with a different presentation. Share account/access qualification, canonical entities, message commands and reading ownership. Keep post ID windows, tag filters and retained view lifetimes where their consumers require them.
+
+### State owners and cache coverage
+
+| State | Owner and contract |
+|---|---|
+| Canonical channel, message, membership and read facts | [community DB](src/web/src/lib/community-db/sync.ts). HTTP and WS publish through the same qualified writers. Transport windows contain IDs, cursors and page boundaries. |
+| Entry qualification and selected window | [conversation-entry](src/web/src/lib/community/conversation-entry.ts) and [use-conversation-entry](src/web/src/hooks/community/use-conversation-entry.ts). Bind account, channel/server, access generation, original request and Query identity. A cached entity or anchor parameter alone does not prove target coverage. |
+| Local reading and PUT confirmation | [read-coordinator](src/web/src/hooks/community/read-coordinator.ts). Keep exact accepted message ID/sequence and original authority. Normal viewport progress survives release, ACK and failed canonical readback; cancel-uncommitted opener handoff does not supply a viewport position. |
+| Initial viewport and active user input | [use-scroll-anchor](src/web/src/hooks/community/use-scroll-anchor.ts). A fresh ordinary entry can consume a newer qualified local target once. Explicit message/sequence navigation wins; active entries and retained parent resume keep their original position ownership. |
+| Navigation completion and role display | [navigation controller](src/web/src/components/community/shell/use-community-navigation-controller.ts), [shell frame](src/web/src/components/community/shell/shell-frame.tsx), [channel route](src/web/src/components/community/channels/channel-route.tsx) and [member VM](src/web/src/components/community/members/channel-member-view-model.tsx). The existing navigation owner completes URL publication plus structural frame; the existing server-role authority supplies display facts. |
+
+Use a qualified cached window only when its IDs and complete canonical entities cover the requested target. Otherwise obtain coverage through the existing entry/window request. Preserve valid older windows and the actual selected Query's pages/page parameters. Landing reconciliation carries its sequence high waterline through the existing [reconnect owner](src/web/src/hooks/community/community-ws/reconnect-messages.ts), including a newer requirement that arrives during an older read.
+
+Freshness and retention are different. Entry and message-window options own stale/GC policy; [query-persister](src/web/src/lib/query-persister.ts) owns the bounded persisted closure and restore eligibility. A prior visit, restored entity or fresh metadata does not establish an available, qualified landing window. Account retirement and channel/parent access generation changes retire original authority before reuse; never recapture new permission for old work or carry an old generation's maximum into the new one.
+
+### Request, merge and action boundaries
+
+Capture account, target and allowed lifetime before an async command. Keep that qualification through transport, authentication effects and canonical publication. View-dependent actions also keep their original view guard. An accepted send has its existing account/target lifetime across view changes; that does not authorize old UI completion or a stale retry.
+
+| Action | Required merge/display boundary |
+|---|---|
+| Entry, pagination, explicit jump, present | Existing Query/window owner reads and reconciles IDs. Keep the selected window and captured canonical read snapshot; do not wait for all background synchronization or clear unrelated caches. |
+| Read | Real visible reading admits the intent. Local progress, server-confirmed sequence and canonical read snapshot are separate. Local and confirmed progress each advance monotonically within a valid generation; jumping to older content changes the viewport only. |
+| Send, edit, reaction, pin, mark, tags and thread actions | Existing command/transaction owners publish their qualified result. Preserve field revisions, original optimistic rollback and newer WS facts; one command's completion cannot settle another view or overwrite a newer field. |
+| First-body edit and forum preview | The shared accepted content writer mirrors full content only for exact child `firstMessageId`. Mirror optimistic content in the same native transaction. HTTP acceptance of another field does not authorize rejected content. Title/opener, later replies and missing first-body identity do not grant preview ownership. Keep the forum ID window. |
+| Back and resumed-parent role display | `hasPendingParentReturn` derives the accepted return from the original resume intent and exact pending target/state. Repeated Back merges until URL and structural frame both complete; the next Back then goes higher. Ordinary forward cancellation remains. `roleDisplayAllowed` can use qualified cached own role for a ready/hydrated resumed forum; member reads and action source guards still require their original access/current view. |
+
+Preserve each action's existing confirmation model: Pin/Mark update after ACK; forum posting uses two HTTP commands and does not promise an atomic post transaction. Ordinary message deletion is not a supported action. Post archive/deletion keep their existing qualified command and retirement paths.
+
+### Display evidence and regressions
+
+[use-messages](src/web/src/hooks/community/use-messages.ts) exposes `historyStartKnown` only when the selected qualified page explicitly confirms no older history. Leading and empty heroes require that evidence. No selected page means unknown history, even if live rows are visible. Content visibility and read-position readiness remain separate; showing content alone does not acknowledge reading. `initialPositionMessageId` supplies only the one-shot local landing, without rewriting canonical snapshot/NEW or fabricating server confirmation.
+
+The target root in [CommunityPendingFrame](src/web/src/components/community/shell/community-pending-frame.tsx) paints the theme background over retained content during cross-scope loading. Preserve old DOM/inert and drawer-exit ownership. Opaque coverage does not require another MobilePage, transition state, request or fixed animation wait.
+
+Keep these existing regression entry points when changing the contract:
+
+- Reading/coverage: `use-conversation-entry.dom.test.tsx`, `read-coordinator.test.ts`, `use-read-observer.dom.test.ts`, `use-messages.window.dom.test.tsx`, `use-scroll-anchor.repin.dom.test.ts` under `src/web/src/hooks/community/`.
+- Boundary display: `message-list-row.dom.test.ts`, `message-list-view.dom.test.ts`, `message-list.older-load.dom.test.ts` under `src/web/src/components/community/messages/`.
+- Content/commands: `forum-preview-live-edit.dom.test.ts`, `accepted-send-lifecycle.dom.test.ts` and `mutations/message-field-owner.dom.test.tsx` under `src/web/src/hooks/community/`.
+- Navigation/role/target container: `shell-frame.dom.test.ts`, `use-community-navigation-controller.dom.test.ts`, `community-pending-frame.dom.test.ts`, `channel-route.text-scroll-target.dom.test.ts` and `channel-member-view-model.dom.test.ts` in their corresponding component directories.
+
+Use the normal Web Vitest configs and repository gates. Real QA must also bind target/scope, actual input, visible landing and backend read/message evidence. HTTP body completion, canonical publication and final viewport are different events; component/system-event controls do not establish native bridge behavior.
+
 ## Testing
 
 - **Framework:** Vitest

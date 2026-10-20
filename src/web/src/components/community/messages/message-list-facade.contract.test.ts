@@ -31,6 +31,7 @@ type ExpectedMessageListProps = {
   onPreviewAttachment?: (attachment: FileAttachment) => void
   resolveUserName?: (userId: string) => string
   scrollToMessageId?: string | null
+  initialPositionMessageId?: string | null
   hero?: ReactNode
   variant?: "channel" | "dm"
   onScrollRoot?: (element: HTMLDivElement | null) => void
@@ -38,6 +39,7 @@ type ExpectedMessageListProps = {
   initialScrollReady?: boolean
   onScrollTargetConsumed?: (id: string) => void
   hasMore?: boolean
+  historyStartKnown?: boolean
   isFetching?: boolean
   isFetchingOlder?: boolean
   onLoadOlder?: () => void
