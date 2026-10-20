@@ -238,14 +238,46 @@ describe("getAuth lifecycle", () => {
     expect(second).not.toBe(first)
   })
 
-  it("starts a fresh lifecycle after a module reload", async () => {
-    const env = makeEnv()
+  it("starts a fresh development lifecycle after a module reload", async () => {
+    const env = makeEnv({ NODE_ENV: "development" })
     const firstModule = await loadAuthModule()
     const first = firstModule.getAuth(env as never)
     const secondModule = await loadAuthModule()
     const second = secondModule.getAuth(env as never)
 
     expect(second).not.toBe(first)
+  })
+
+  it("shares the production instance across independently loaded module copies", async () => {
+    const env = makeEnv({
+      NODE_ENV: "production",
+      CF_VERSION_METADATA: { id: "shared-production-modules", tag: "", timestamp: "a" },
+    })
+    const firstModule = await loadAuthModule()
+    const first = firstModule.getAuth(env as never)
+    const secondModule = await loadAuthModule()
+    const second = secondModule.getAuth({ ...env, DB: {} } as never)
+    const { betterAuth } = await import("better-auth")
+
+    expect(second).toBe(first)
+    expect(betterAuth).toHaveBeenCalledTimes(1)
+  })
+
+  it("invalidates the shared production instance on version or provider changes", async () => {
+    const env = makeEnv({
+      NODE_ENV: "production",
+      CF_VERSION_METADATA: { id: "shared-generation-a", tag: "", timestamp: "a" },
+    })
+    const firstModule = await loadAuthModule()
+    const first = firstModule.getAuth(env as never)
+    const secondModule = await loadAuthModule()
+    const nextVersion = { ...env, CF_VERSION_METADATA: { id: "shared-generation-b", tag: "", timestamp: "b" } }
+    const second = secondModule.getAuth(nextVersion as never)
+    const third = firstModule.getAuth({ ...nextVersion, GITHUB_CLIENT_ID: "changed-provider" } as never)
+
+    expect(second).not.toBe(first)
+    expect(third).not.toBe(second)
+    expect(secondModule.getAuth({ ...nextVersion, GITHUB_CLIENT_ID: "changed-provider" } as never)).toBe(third)
   })
 
   it("rebuilds when optional contact configuration changes", async () => {

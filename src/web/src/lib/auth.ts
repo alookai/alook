@@ -127,6 +127,11 @@ export function createAuth(env: Env) {
     baseURL: env.BETTER_AUTH_URL,
     database: env.DB,
     secret: env.BETTER_AUTH_SECRET,
+    advanced: {
+      database: {
+        validateSchema: false,
+      },
+    },
     // Signed session-data cookie lets getSession() validate without hitting D1.
     // Fixes first-login 401 for newly-registered users: the just-written user row
     // may not yet be visible on a D1 read-replica, but the signed cookie carries
@@ -414,7 +419,13 @@ type AuthLifecycleEntry = {
   auth: AuthInstance
 }
 
-let authLifecycleEntry: AuthLifecycleEntry | undefined
+type AuthLifecycle = { entry?: AuthLifecycleEntry }
+
+const moduleAuthLifecycle: AuthLifecycle = {}
+const workerAuthLifecycleKey = Symbol.for("alook.auth.lifecycle.v1")
+const workerGlobal = globalThis as typeof globalThis & {
+  [workerAuthLifecycleKey]?: AuthLifecycle
+}
 
 function authConfiguration(env: Env): readonly (string | undefined)[] {
   return [
@@ -462,8 +473,9 @@ function authVersionId(env: Env): string | undefined {
  * bindings, and compatibility configuration, so its version-metadata ID is
  * the binding-generation boundary. Scalar auth/provider configuration is
  * compared explicitly for local development and tests, where those values can
- * change without a deployed version transition. A module/HMR reload naturally
- * starts a fresh lifecycle as well.
+ * change without a deployed version transition. Production module copies
+ * share one lifecycle in the Worker global. Development keeps a module-local
+ * lifecycle so an HMR reload starts fresh.
  *
  * Production fails safe when version metadata is unavailable: construct a
  * request-local instance instead of retaining binding-derived objects behind
@@ -487,21 +499,26 @@ function resolveAuthInstance(env: Env): AuthInstance {
 
   const lifecycleVersion = versionId ?? "local-module"
   const configuration = authConfiguration(env)
+  const lifecycle = mode === "production"
+    ? workerGlobal[workerAuthLifecycleKey] ??= {}
+    : moduleAuthLifecycle
+  let entry = lifecycle.entry
   if (
-    !authLifecycleEntry
-    || authLifecycleEntry.versionId !== lifecycleVersion
-    || !sameAuthConfiguration(authLifecycleEntry.configuration, configuration)
+    !entry
+    || entry.versionId !== lifecycleVersion
+    || !sameAuthConfiguration(entry.configuration, configuration)
   ) {
-    annotateWorkerSpan({ auth_instance: "created", auth_reuse_reason: !authLifecycleEntry ? "cold" : authLifecycleEntry.versionId !== lifecycleVersion ? "version_changed" : "configuration_changed" })
-    authLifecycleEntry = {
+    annotateWorkerSpan({ auth_instance: "created", auth_reuse_reason: !entry ? "cold" : entry.versionId !== lifecycleVersion ? "version_changed" : "configuration_changed" })
+    entry = {
       configuration,
       versionId: lifecycleVersion,
       auth: createAuth(env),
     }
+    lifecycle.entry = entry
   } else {
     annotateWorkerSpan({ auth_instance: "reused", auth_reuse_reason: "match" })
   }
-  return authLifecycleEntry.auth
+  return entry.auth
 }
 
 export async function observeAuthSession<T>(auth: AuthInstance, execute: () => Promise<T>): Promise<T> {
