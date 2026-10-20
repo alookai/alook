@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { saveFile, fileSaveMessage, type FileSaveResult } from "@/lib/file-save"
-import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
@@ -112,6 +112,8 @@ export function MessageShareDialog({ m, open, onClose }: {
   open: boolean
   onClose: () => void
 }) {
+  const [visible, setVisible] = useState(open)
+  useEffect(() => { setVisible(open) }, [open])
   const messages = useMemo(() => (Array.isArray(m) ? m : [m]), [m])
   const mobileNative = isTauri() && isMobile()
   const runtime = useCommunityRuntime(), client = useQueryClient()
@@ -251,12 +253,12 @@ export function MessageShareDialog({ m, open, onClose }: {
     setCopied(false)
     try { await command.mutateAsync({ action, original }) } catch {}
   }
-  const close = () => { source.retire(); onClose() }
+  const close = () => { source.retire(); setVisible(false) }
   const copy = () => startExport("copy")
   const download = () => startExport("download")
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && close()}>
+    <Dialog open={visible} onOpenChange={(o) => !o && close()} onOpenChangeComplete={(next) => { if (!next) onClose() }}>
       {/* NOTE: DialogContent's base class carries `sm:max-w-sm` (384px). That's
           a responsive variant, so it sorts AFTER a plain `max-w-[…]` in the
           generated CSS and would silently cap the dialog at 384px — the reason a

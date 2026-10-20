@@ -1,0 +1,110 @@
+diff --git a/dialog/portal/DialogPortal.d.mts b/dialog/portal/DialogPortal.d.mts
+index 299ffafd74f728fd83b5400ee8125649c4ba8ad7..4cc3ae5ae3e86b7a11a63b6ed2c957a4fbc15596 100644
+--- a/dialog/portal/DialogPortal.d.mts
++++ b/dialog/portal/DialogPortal.d.mts
+@@ -15,6 +15,12 @@ export interface DialogPortalProps extends BaseUIComponentProps<'div', DialogPor
+    * @default false
+    */
+   keepMounted?: boolean | undefined;
++  /**
++   * Render children in place without a portal or portal element.
++   * Only applies to non-modal roots.
++   * @default false
++   */
++  inline?: boolean | undefined;
+   /**
+    * A parent element to render the portal element into.
+    */
+diff --git a/dialog/portal/DialogPortal.d.ts b/dialog/portal/DialogPortal.d.ts
+index 0e6ff01c744b9377705b8e9a7a5e6780fb14aa8f..dc457ee4e9175bf4941ae562168b49b75d6ae753 100644
+--- a/dialog/portal/DialogPortal.d.ts
++++ b/dialog/portal/DialogPortal.d.ts
+@@ -15,6 +15,12 @@ export interface DialogPortalProps extends BaseUIComponentProps<'div', DialogPor
+    * @default false
+    */
+   keepMounted?: boolean | undefined;
++  /**
++   * Render children in place without a portal or portal element.
++   * Only applies to non-modal roots.
++   * @default false
++   */
++  inline?: boolean | undefined;
+   /**
+    * A parent element to render the portal element into.
+    */
+diff --git a/dialog/portal/DialogPortal.js b/dialog/portal/DialogPortal.js
+index 9ffd479ee89beb4e0f7140174e4b1b15cc28a5f9..ad8fa8995bc5c0fb9a2846e8534e5e7f3c26f3f8 100644
+--- a/dialog/portal/DialogPortal.js
++++ b/dialog/portal/DialogPortal.js
+@@ -22,6 +22,7 @@ var _jsxRuntime = require("react/jsx-runtime");
+  */const DialogPortal = exports.DialogPortal = /*#__PURE__*/React.forwardRef(function DialogPortal(props, forwardedRef) {
+   const {
+     keepMounted = false,
++    inline = false,
+     ...portalProps
+   } = props;
+   const store = (0, _DialogRootContext.useDialogRootContext)();
+@@ -34,7 +35,7 @@ var _jsxRuntime = require("react/jsx-runtime");
+   }
+   return /*#__PURE__*/(0, _jsxRuntime.jsx)(_DialogPortalContext.DialogPortalContext.Provider, {
+     value: keepMounted,
+-    children: /*#__PURE__*/(0, _jsxRuntime.jsxs)(_floatingUiReact.FloatingPortal, {
++    children: inline && modal === false ? props.children : /*#__PURE__*/(0, _jsxRuntime.jsxs)(_floatingUiReact.FloatingPortal, {
+       ref: forwardedRef,
+       ...portalProps,
+       children: [mounted && modal === true && /*#__PURE__*/(0, _jsxRuntime.jsx)(_InternalBackdrop.InternalBackdrop, {
+diff --git a/dialog/portal/DialogPortal.mjs b/dialog/portal/DialogPortal.mjs
+index 014516e7ea01c271ee3c8806d79a5b89b03bd2eb..256c75dde42b05b7a16be5c980aacd7589389938 100644
+--- a/dialog/portal/DialogPortal.mjs
++++ b/dialog/portal/DialogPortal.mjs
+@@ -18,6 +18,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+ export const DialogPortal = /*#__PURE__*/React.forwardRef(function DialogPortal(props, forwardedRef) {
+   const {
+     keepMounted = false,
++    inline = false,
+     ...portalProps
+   } = props;
+   const store = useDialogRootContext();
+@@ -30,7 +31,7 @@ export const DialogPortal = /*#__PURE__*/React.forwardRef(function DialogPortal(
+   }
+   return /*#__PURE__*/_jsx(DialogPortalContext.Provider, {
+     value: keepMounted,
+-    children: /*#__PURE__*/_jsxs(FloatingPortal, {
++    children: inline && modal === false ? props.children : /*#__PURE__*/_jsxs(FloatingPortal, {
+       ref: forwardedRef,
+       ...portalProps,
+       children: [mounted && modal === true && /*#__PURE__*/_jsx(InternalBackdrop, {
+diff --git a/drawer/portal/DrawerPortal.d.mts b/drawer/portal/DrawerPortal.d.mts
+index a0b67c78622dbbcf5ac27d9e83a0cf82a8ddf95d..653a7c74f510614d2815596e486e574a84367cab 100644
+--- a/drawer/portal/DrawerPortal.d.mts
++++ b/drawer/portal/DrawerPortal.d.mts
+@@ -15,6 +15,12 @@ export interface DrawerPortalProps extends BaseUIComponentProps<'div', DrawerPor
+    * @default false
+    */
+   keepMounted?: boolean | undefined;
++  /**
++   * Render children in place without a portal or portal element.
++   * Only applies to non-modal roots.
++   * @default false
++   */
++  inline?: boolean | undefined;
+   /**
+    * A parent element to render the portal element into.
+    */
+diff --git a/drawer/portal/DrawerPortal.d.ts b/drawer/portal/DrawerPortal.d.ts
+index e30194f7cbd0d0760df06f4e2893c0830f595fb4..b7a92f62266ba8b19226ad5ee3f327eed91a5c10 100644
+--- a/drawer/portal/DrawerPortal.d.ts
++++ b/drawer/portal/DrawerPortal.d.ts
+@@ -15,6 +15,12 @@ export interface DrawerPortalProps extends BaseUIComponentProps<'div', DrawerPor
+    * @default false
+    */
+   keepMounted?: boolean | undefined;
++  /**
++   * Render children in place without a portal or portal element.
++   * Only applies to non-modal roots.
++   * @default false
++   */
++  inline?: boolean | undefined;
+   /**
+    * A parent element to render the portal element into.
+    */

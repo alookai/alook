@@ -1,5 +1,6 @@
 "use client"
 
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useMemo } from "react"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
@@ -21,6 +22,7 @@ export function useChannelMessageFeed({
   isChildChannel: boolean
   anchorMessageId: string | null
 }) {
+  const active = useConversationActivity()
   const messagesQuery = useMessages(channelId, {
     serverId,
     anchorMessageId,
@@ -39,7 +41,7 @@ export function useChannelMessageFeed({
   const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   /* istanbul ignore next -- retained Chromium covers the mounted observer integration */
   useChannelWatermark({
-    channelId,
+    channelId: active ? channelId : null,
     messages: messagesQuery.messages,
     scrollRootEl,
     snapshotStatus: messagesQuery.entryDenied || isConversationAccessError(messagesQuery.initialLoadError)

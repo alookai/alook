@@ -5,6 +5,7 @@ import { USE_SERVER_DEFAULT } from "@alook/shared"
 import { act, fireEvent, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { readComposerDraft, writeComposerDraft } from "@/lib/community/composer-draft"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import type { Member } from "@/lib/community/models/people"
 import { CommunityMentionList, ChannelRefList } from "./composer-suggestion-popups"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
@@ -114,6 +115,31 @@ function BackListener({ replacePath }: { replacePath: (path: string) => void }) 
 }
 
 describe("composer suggestion focus with installed TipTap", () => {
+  it("retains the editor and draft while background focus and submission are disabled", async () => {
+    const probeRef: Probe = { current: null }, handle = createRef<ComposerHandle>()
+    const accept = vi.fn(() => true)
+    const node = (active: boolean) => <ConversationActivityContext value={active}>
+      <Harness {...props} probeRef={probeRef} handle={handle} draftKey="background" onAcceptSend={accept} autoFocus />
+    </ConversationActivityContext>
+    const view = render(node(true))
+    const editor = await editorOf(probeRef)
+    await type(editor, "Keep parent draft")
+    const document = editor.getJSON()
+    view.rerender(node(false))
+    expect(probeRef.current!.editor).toBe(editor)
+    expect(editor.isEditable).toBe(false)
+    await act(async () => { handle.current!.focusEditor(); handle.current!.submitNow() })
+    await waitFor(() => expect(editor.isFocused).toBe(false))
+    expect(accept).not.toHaveBeenCalled()
+    expect(editor.getJSON()).toEqual(document)
+    view.rerender(node(true))
+    expect(probeRef.current!.editor).toBe(editor)
+    expect(editor.isEditable).toBe(true)
+    expect(editor.getJSON()).toEqual(document)
+    await act(async () => { handle.current!.submitNow() })
+    await waitFor(() => expect(accept).toHaveBeenCalledOnce())
+  })
+
   beforeEach(() => {
     localStorage.clear()
     surfaces.breakpoint = "desktop"

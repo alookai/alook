@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo } from "react"
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { channelHref, normalizeCommunityHref } from "@/lib/community/community-route"
 import type { CommunityReadStateResource } from "@alook/shared"
@@ -77,7 +78,15 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   const context = useContext(CommunityRouteContext)
   const currentIntent = context?.navigation.entryIntent
   const expectedPath = target ? target.serverId === null ? `/c/me/${encodeURIComponent(target.channelId)}` : channelHref(target.serverId, target.channelId) : null
-  const intent = currentIntent && normalizeCommunityHref(currentIntent.href).pathname === expectedPath ? currentIntent : null
+  const active = useConversationActivity()
+  const incomingIntent = currentIntent && normalizeCommunityHref(currentIntent.href).pathname === expectedPath ? currentIntent : null
+  const [retainedIntent, setRetainedIntent] = useState({ path: expectedPath, intent: incomingIntent })
+  const resuming = incomingIntent?.resume === true
+  useLayoutEffect(() => {
+    if (active && !resuming) setRetainedIntent(current => current.path === expectedPath && current.intent === incomingIntent
+      ? current : { path: expectedPath, intent: incomingIntent })
+  }, [active, expectedPath, incomingIntent, resuming])
+  const intent = (active && !resuming) || retainedIntent.path !== expectedPath ? incomingIntent : retainedIntent.intent
   const { client, input, options, query, canonical, resource, canRead, revoked, denied, anchorMissing } = useConversationResource(target, intent)
   const entry = useMemo(() => {
     const cached = client.getQueryData<ConversationEntryResource>(options.queryKey)

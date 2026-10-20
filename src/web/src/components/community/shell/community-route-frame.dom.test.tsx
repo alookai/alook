@@ -31,7 +31,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: mocks.userId }),
 }))
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false, useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/lib/community-onboarding", () => ({ useCommunityOnboarding: () => null }))
 vi.mock("./use-shell-rail-controller", () => ({
   useShellRailController: () => ({ railProps: {}, navigate: vi.fn() }),

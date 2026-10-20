@@ -1,10 +1,12 @@
 "use client"
 
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useLayoutEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useCommunityMutationOrigin } from "./community-origin"
 
 export function useCommunityViewSource(identity: string, enabled = true) {
+  enabled = useConversationActivity() && enabled
   const origin = useCommunityMutationOrigin()
   const view = useMemo(() => createStore({ identity, owner: origin.registry, active: enabled, generation: 0, controller: new AbortController() }), [origin.registry, identity, enabled])
   useLayoutEffect(() => {

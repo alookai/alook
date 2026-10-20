@@ -71,7 +71,7 @@ export function useCommunityNavigationController(
   const pendingBaselineLeafRef = useRef(committedFrame.leafKey)
   const [navigationPending, setNavigationPending] = useAtom(useCreateAtom(false))
   const [pendingHref, setPendingHref] = useAtom(useCreateAtom<string | null>(null))
-  const [entryIntent, setEntryIntent] = useAtom(useCreateAtom<{ href: string } | null>(null))
+  const [entryIntent, setEntryIntent] = useAtom(useCreateAtom<{ href: string; resume?: boolean } | null>(null))
 
   const cancelPendingNavigation = useCallback(() => {
     supersedeNavigationIntent(gateRef.current)
@@ -157,8 +157,8 @@ export function useCommunityNavigationController(
     submitNavigation(() => router.push(href))
   }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref, submitNavigation])
 
-  const replace = useCallback((href: string) => {
-    setEntryIntent({ href })
+  const replace = useCallback((href: string, options?: { resume?: boolean }) => {
+    setEntryIntent({ href, ...(options?.resume ? { resume: true } : {}) })
     if (href === publishedHref && !navigationPending) { settledIntentRef.current = null; navigationNoop(href); return }
     beginNavigation(href)
     void prepareNavigationMetadata(queryClient, href, "foreground")

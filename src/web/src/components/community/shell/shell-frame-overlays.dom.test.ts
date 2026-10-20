@@ -144,7 +144,7 @@ describe("ShellFrameOverlays", () => {
     }))
 
     expect(renderer.container.querySelectorAll("profile-card")).toHaveLength(0)
-    expect(renderer.container.querySelectorAll("image-lightbox")).toHaveLength(0)
+    expect(hostProps.get("image-lightbox")).toMatchObject({ image: null })
     expect(renderer.container.querySelectorAll("crop-dialog")).toHaveLength(0)
     expect(hostProps.get("attachment-sheet")).toMatchObject({
       attachment: null,

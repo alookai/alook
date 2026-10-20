@@ -1,41 +1,12 @@
 import {
-  Fragment,
-  cloneElement,
   createElement,
-  type ComponentProps,
-  type ReactElement,
-  type ReactNode,
 } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@/test/react-dom-harness"
 
-vi.mock("@base-ui/react/dialog", () => ({
-  Dialog: {
-    Root: ({ children, ...props }: ComponentProps<"div">) =>
-      createElement("div", props, children),
-    Trigger: ({ children, ...props }: ComponentProps<"button">) =>
-      createElement("button", props, children),
-    Portal: ({ children }: { children: ReactNode }) =>
-      createElement(Fragment, null, children),
-    Backdrop: ({ forceRender: _forceRender, ...props }:
-      ComponentProps<"div"> & { forceRender?: boolean }) => createElement("div", props),
-    Popup: ({ children, ...props }: ComponentProps<"div">) =>
-      createElement("div", { ...props, "data-testid": "dialog-popup" }, children),
-    Close: ({
-      children,
-      render: control,
-      ...props
-    }: ComponentProps<"button"> & { render?: ReactElement }) => control
-      ? cloneElement(control, props, children)
-      : createElement("button", props, children),
-    Title: ({ children, ...props }: ComponentProps<"h2">) =>
-      createElement("h2", props, children),
-    Description: ({ children, ...props }: ComponentProps<"p">) =>
-      createElement("p", props, children),
-  },
-}))
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }))
 
-import { DialogContent } from "./dialog"
+import { Dialog, DialogContent, DialogTitle } from "./dialog"
 
 const handlerNames = [
   "onClick",
@@ -71,7 +42,7 @@ describe("DialogContent", () => {
       const rendered = render(createElement(
         "div",
         { [name]: parentHandler },
-        createElement(DialogContent, { [name]: handler }, "Dialog body"),
+        createElement(Dialog, { defaultOpen: true }, createElement(DialogContent, { [name]: handler, "data-testid": "dialog-popup" }, createElement(DialogTitle, null, "Dialog body"))),
       ))
 
       fire[name](rendered.getByTestId("dialog-popup"))
@@ -82,7 +53,7 @@ describe("DialogContent", () => {
   })
 
   it("keeps the close affordance touch-safe on mobile", () => {
-    render(createElement(DialogContent, null, "Dialog body"))
+    render(createElement(Dialog, { defaultOpen: true }, createElement(DialogContent, null, createElement(DialogTitle, null, "Dialog body"))))
 
     expect(screen.getByRole("button", { name: "Close" }))
       .toHaveClass("size-11", "sm:size-7")

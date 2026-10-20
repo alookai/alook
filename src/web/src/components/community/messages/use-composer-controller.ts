@@ -1,3 +1,4 @@
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useMutation, useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections";
 import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
@@ -63,6 +64,7 @@ export function useComposerController(
   }: ComposerProps,
   ref: ForwardedRef<ComposerHandle>,
 ): ComposerViewProps {
+  const active = useConversationActivity()
   const registry = useOptionalCommunityDbRegistry()
   const client = useQueryClient()
   const draftKey = registry && requestedDraftKey ? `${registry.accountId}:${requestedDraftKey}` : undefined
@@ -70,7 +72,7 @@ export function useComposerController(
   const hoverCapable = useHoverCapable()
   const hoverCapableRef = useRef(hoverCapable)
   const [editorHasContent, setEditorHasContent] = useAtom(useCreateAtom(false))
-  const protocol = useCreateStore({ active: true, generation: 0, scope: "", scopeVersion: 0, draftKey, nextLongPasteIndex: 1, suppress: false, previousHasContent: false })
+  const protocol = useCreateStore({ active, generation: 0, scope: "", scopeVersion: 0, draftKey, nextLongPasteIndex: 1, suppress: false, previousHasContent: false })
   const sendKey = ["community", "composer-accept", useCreateAtom(crypto.randomUUID()).get()]
   const sendInFlight = useIsMutating({ mutationKey: sendKey, exact: true }) > 0
   useLayoutEffect(() => {
@@ -127,7 +129,7 @@ export function useComposerController(
     protocol.setState((state) => ({ ...state, draftKey, scope, ...(state.scope !== scope ? { scopeVersion: state.scopeVersion + 1, nextLongPasteIndex: 1 } : {}) }))
   }, [scope, draftKey, protocol])
   const fireTyping = () => {
-    if (!onTyping || typingTimer.current) return
+    if (!protocol.get().active || !onTyping || typingTimer.current) return
     onTyping()
     typingTimer.current = setTimeout(() => {
       typingTimer.current = null
@@ -217,7 +219,9 @@ export function useComposerController(
     onBlur: ({ editor: blurredEditor }) => resetPopups(blurredEditor),
   })
   useLayoutEffect(() => {
-    protocol.setState((state) => ({ ...state, active: true }))
+    protocol.setState((state) => ({ ...state, active }))
+    editor?.setEditable(active, false)
+    if (!active) { editor?.commands.blur(); resetPopups(editor) }
     const onDestroy = () => {
       if (editorRef.current !== editor) return
       protocol.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
@@ -229,7 +233,7 @@ export function useComposerController(
       editor?.off("destroy", onDestroy)
       resetPopups(editor)
     }
-  }, [editor, protocol, resetPopups])
+  }, [active, editor, protocol, resetPopups])
   useLayoutEffect(() => {
     editorRef.current = editor
     return () => { if (editorRef.current === editor) editorRef.current = null }
@@ -316,21 +320,22 @@ export function useComposerController(
 
   useImperativeHandle(ref, () => ({
     focusEditor: () => {
+      if (!protocol.get().active) return
       suppressSuggestions(() => editor?.commands.focus("end"))
     },
     insertTextAtCaret: (text) => {
-      if (!editor || !text) return
+      if (!protocol.get().active || !editor || !text) return
       const insertion = textNodeForCaretInsertion(text, editor.state)
       editor.chain().focus().insertContent(insertion).run()
     },
     insertMentionAtCaret: (mention) => {
-      if (editor && mention.id && mention.label) editor.chain().focus().insertContent(mentionNodesForCaretInsertion(mention, editor.state)).run()
+      if (protocol.get().active && editor && mention.id && mention.label) editor.chain().focus().insertContent(mentionNodesForCaretInsertion(mention, editor.state)).run()
     },
     submitNow: () => {
       send()
     },
     resetAfterSubmit: () => {
-      if (!editor) return
+      if (!protocol.get().active || !editor) return
       editor.commands.clearContent()
       setEditorHasContent(false)
       setPendingFiles([])
@@ -339,15 +344,16 @@ export function useComposerController(
     },
     isEmpty: () => !editor || (editor.isEmpty && pendingFiles.length === 0),
     openFilePicker: () => {
+      if (!protocol.get().active) return
       fileInputRef.current?.click()
     },
   }))
 
   useEffect(() => {
-    if (!autoFocus || !editor || isForumThreadBody || editor.isFocused) return
+    if (!active || !autoFocus || !editor || isForumThreadBody || editor.isFocused) return
     if (document.activeElement?.closest(`[data-testid="${tid.serverRailScroll}"]`)) return
     suppressSuggestions(() => editor.commands.focus("end"))
-  }, [autoFocus, editor, channel, isForumThreadBody, suppressSuggestions])
+  }, [active, autoFocus, editor, channel, isForumThreadBody, suppressSuggestions])
 
   useComposerReplyMention({ editor, channelType, isForumThreadBody, replyingTo, members, suppressSuggestions })
 

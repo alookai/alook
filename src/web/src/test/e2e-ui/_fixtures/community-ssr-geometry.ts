@@ -8,7 +8,7 @@ export type SsrLifecycleSample = {
   incompleteShellHtml?: string
   overflow: number
   geometry: SsrGeometry
-  retainedBackground?: { module: string; visibility: string; inert: boolean; ariaHidden: boolean }[]
+  retainedBackground?: { module: string; visibility: string; inert: boolean; ariaHidden: boolean; hitTestBlocked: boolean }[]
 }
 
 export function ssrGeometryErrors(
@@ -29,7 +29,7 @@ export function ssrGeometryErrors(
       if (surface !== "detail" || !["rail", "sidebar", "userBar"].includes(retained.module)) {
         errors.push(`${label}: unexpected retained module ${retained.module}`)
       }
-      if (retained.visibility !== "hidden" || !retained.inert || !retained.ariaHidden) {
+      if (!retained.inert || !retained.ariaHidden || !retained.hitTestBlocked) {
         errors.push(`${label}: unsafe retained module ${retained.module}`)
       }
     }

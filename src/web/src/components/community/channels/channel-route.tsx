@@ -2,7 +2,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ComponentProps } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
@@ -37,6 +37,9 @@ import { useThreadSplitMode } from "@/hooks/community/use-thread-split-mode"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
+import { MobilePage } from "@/components/community/shell/mobile-page"
+import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 
 const THREAD_VIEW_PARAM = "threadView"
@@ -48,15 +51,47 @@ type RouteTarget = {
   searchParams: URLSearchParams
   routeCommitted: boolean
   anchorMessageId: string | null
+  resume: boolean
   routeModel: ReturnType<typeof useChannelRouteModel>
   currentUser: ReturnType<typeof useCurrentUser>
 }
 
-export function ChannelRoute({ serverParam, channelId, targetHref, routeCommitted = true }: {
+type ChannelRouteProps = {
   serverParam: string
   channelId: string
   targetHref?: string
   routeCommitted?: boolean
+}
+
+export function ChannelRoute(props: ChannelRouteProps) {
+  return <MobileChannelRoutes {...props} />
+}
+
+function MobileChannelRoutes(props: ChannelRouteProps) {
+  const { breakpoint } = useCommunityRouteFrame()
+  const [mobileSeen, setMobileSeen] = useState(breakpoint === "mobile")
+  if (breakpoint === "mobile" && !mobileSeen) setMobileSeen(true)
+  const [initialId, setInitialId] = useState(props.channelId)
+  if (!mobileSeen && breakpoint !== "mobile" && initialId !== props.channelId) setInitialId(props.channelId)
+  const identity = useRouteChannelProjection(props.channelId)
+  const parentId = identity?.parentChannelId
+  const [retained, setRetained] = useState({ current: props.channelId, previous: null as string | null })
+  if (retained.current !== props.channelId) setRetained({ current: props.channelId, previous: retained.current })
+  const previous = retained.current !== props.channelId ? retained.current : retained.previous
+  const backgroundId = mobileSeen || breakpoint === "mobile" ? parentId ?? (identity === undefined ? previous : null) : null
+  const ids = backgroundId && backgroundId !== props.channelId ? [backgroundId, props.channelId] : [props.channelId]
+  return <>{ids.map(id => <ConversationActivityContext key={!mobileSeen && breakpoint !== "mobile" || id === initialId ? "initial" : id} value={id === props.channelId && (!mobileSeen && breakpoint !== "mobile" || props.routeCommitted !== false)}>
+    <ChannelRouteLayer {...props} channelId={id} foreground={id === props.channelId} backgroundVisible={id === parentId} routeCommitted={id === props.channelId ? props.routeCommitted : true} targetHref={id === props.channelId ? props.targetHref : channelHref(props.serverParam, id)} />
+  </ConversationActivityContext>)}</>
+}
+
+function ChannelRouteLayer({ serverParam, channelId, targetHref, routeCommitted = true, backgroundVisible = true, foreground = true }: {
+  serverParam: string
+  channelId: string
+  targetHref?: string
+  routeCommitted?: boolean
+  backgroundVisible?: boolean
+  foreground?: boolean
 }) {
   const committedSearch = useSearchParams()
   const search = targetHref === undefined ? committedSearch.toString() : normalizeCommunityHref(targetHref).search
@@ -64,7 +99,9 @@ export function ChannelRoute({ serverParam, channelId, targetHref, routeCommitte
   const serverId = decodeURIComponent(serverParam)
   const currentUser = useCurrentUser()
   const { navigation } = useCommunityRouteFrame()
-  const entryIntent = navigation.entryIntent && normalizeCommunityHref(navigation.entryIntent.href).pathname === channelHref(serverParam, channelId) ? navigation.entryIntent : null
+  const matchingIntent = navigation.entryIntent && normalizeCommunityHref(navigation.entryIntent.href).pathname === channelHref(serverParam, channelId) ? navigation.entryIntent : null
+  const resume = matchingIntent?.resume === true
+  const entryIntent = resume ? null : matchingIntent
   const routeAnchorMessageId = searchParams.get("msg")
   const intentAnchorMessageId = entryIntent ? new URLSearchParams(normalizeCommunityHref(entryIntent.href).search).get("msg") : undefined
   const scope = JSON.stringify([currentUser.id, serverId, channelId])
@@ -72,15 +109,20 @@ export function ChannelRoute({ serverParam, channelId, targetHref, routeCommitte
   const anchorMessageId = intentAnchorMessageId !== undefined ? intentAnchorMessageId
     : routeAnchorMessageId ?? (captured.scope === scope ? captured.anchorMessageId : null)
   useLayoutEffect(() => {
+    if (resume && captured.scope === scope) return
     if (!entryIntent && routeAnchorMessageId === null && routeCommitted && captured.scope === scope) return
     const next = intentAnchorMessageId !== undefined ? intentAnchorMessageId : routeAnchorMessageId
     setCaptured(current => current.scope === scope && current.anchorMessageId === next ? current : { scope, anchorMessageId: next })
-  }, [scope, captured.scope, entryIntent, intentAnchorMessageId, routeAnchorMessageId, routeCommitted, setCaptured])
+  }, [resume, scope, captured.scope, entryIntent, intentAnchorMessageId, routeAnchorMessageId, routeCommitted, setCaptured])
   const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id, anchorMessageId)
-  return <ChannelRouteFrame key={JSON.stringify([currentUser.id, serverId])}
+  const content = <ChannelRouteFrame key={JSON.stringify([currentUser.id, serverId])}
     serverId={serverId} serverParam={serverParam} channelId={channelId}
-    searchParams={searchParams} routeCommitted={routeCommitted}
+    searchParams={searchParams} routeCommitted={routeCommitted} resume={resume}
     routeModel={routeModel} anchorMessageId={anchorMessageId} currentUser={currentUser} />
+  return <MobilePage active={foreground} backgroundVisible={backgroundVisible}
+    parentPath={routeModel.layoutHint.parentChannelId ? channelHref(serverParam, routeModel.layoutHint.parentChannelId) : serverRootHref(serverParam)}>
+    {content}
+  </MobilePage>
 }
 
 function ChannelRouteFrame(target: RouteTarget) {
@@ -115,7 +157,7 @@ function ChannelRouteFrame(target: RouteTarget) {
     else navigation.push(channelHref(serverParam, id))
   }, [navigation, serverParam, split])
   const navigateServerRoot = useCallback(() => {
-    uiHandlers.replacePath?.(serverRootHref(serverParam))
+    uiHandlers.goBackMobile(serverRootHref(serverParam))
   }, [serverParam, uiHandlers])
   const openProfile = useCallback<OpenProfile>((name, event, discriminator, userId) => {
     uiHandlers.openProfile?.(name, event, discriminator, userId)
@@ -123,7 +165,7 @@ function ChannelRouteFrame(target: RouteTarget) {
   const pane = <ChannelTargetPane key={JSON.stringify([currentUser.id, serverId, channelId])}
     {...target} split={split} layoutPending={layoutPending} resolvingParent={resolvingParent} onOpenChild={enterThread} />
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
-  return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col">
+  return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:bg-background">
     <ThreadSplitView
       split={split} layoutPending={layoutPending} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
       parent={split && parent ? <ThreadSplitParentSurface
@@ -149,13 +191,14 @@ function QualifiedThreadSurface({ routeLifecycle, ...props }: ComponentProps<typ
   return <ThreadChannelSurface {...props} threadOpenerHandoff={threadOpenerHandoff} />
 }
 
-function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, routeCommitted,
+function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, routeCommitted, resume,
   routeModel, anchorMessageId, currentUser, split, layoutPending, resolvingParent, onOpenChild }: RouteTarget & {
   split: boolean
   layoutPending: boolean
   resolvingParent: boolean
   onOpenChild: (id: string) => void
 }) {
+  const active = useConversationActivity()
   const router = useRouter()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const currentAnchorMessageId = anchorMessageId
@@ -236,12 +279,12 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   const { mutate: setChannelNotif } = useSetChannelNotif()
 
   const navigateServerRoot = useCallback(() => {
-    uiHandlers.replacePath?.(serverRootHref(serverParam))
+    uiHandlers.goBackMobile(serverRootHref(serverParam))
   }, [serverParam, uiHandlers])
   const navigateParent = useCallback(() => {
     const parentChannelId = currentChannelMeta?.parentChannelId
     if (!parentChannelId) return
-    uiHandlers.replacePath?.(channelHref(serverParam, parentChannelId))
+    uiHandlers.goBackMobile(channelHref(serverParam, parentChannelId))
   }, [currentChannelMeta?.parentChannelId, serverParam, uiHandlers])
   const setNotificationLevel = useCallback((level: ChannelNotifLevel) => {
     setChannelNotif({ channelId, level }, {
@@ -250,7 +293,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   }, [channelId, setChannelNotif])
 
   useEffect(() => {
-    if (!routeCommitted || !anchorMessageId || !searchParams.has("msg") || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
+    if (!active || !routeCommitted || !anchorMessageId || !searchParams.has("msg") || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
     const search = searchParams.toString()
     const routePath = channelHref(serverParam, channelId)
     const href = `${routePath}${search ? `?${search}` : ""}`
@@ -258,7 +301,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
       removeCommunityParam(href, "msg"),
       { scroll: false },
     )
-  }, [channelId, anchorMessageId, routeCommitted, router, searchParams, serverParam])
+  }, [active, channelId, anchorMessageId, routeCommitted, router, searchParams, serverParam])
   const openThreadFullscreen = useCallback(() => {
     uiHandlers.cancelPendingNavigation?.()
     const params = new URLSearchParams(searchParams.toString())
@@ -273,9 +316,9 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   const channelReadReady =
     routeModel.routeLifecycle === "ready" &&
     routeModel.routeHydrated
-  const channelHydrated = !resolvingParent && routeCommitted && channelReadReady &&
+  const channelHydrated = !resolvingParent && (routeCommitted || resume) && channelReadReady &&
     (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
-  const clientReady = channelHydrated && currentChannelId === channelId
+  const clientReady = active && routeCommitted && channelHydrated && currentChannelId === channelId
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",
     serverId,

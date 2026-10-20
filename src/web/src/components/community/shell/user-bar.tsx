@@ -111,7 +111,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >
       {mobile
-        ? <UserBarExtensionDrawer>{extensionContent}</UserBarExtensionDrawer>
+        ? <UserBarExtensionDrawer onDismiss={dismissExtensionWithFocus}>{extensionContent}</UserBarExtensionDrawer>
         : extensionContent && extension && (
           <UserBarPopover
             anchor={baseRef}

@@ -1,10 +1,13 @@
 import { createElement, startTransition, StrictMode, Suspense, useLayoutEffect, useRef, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
-import { act, render, screen, setupUser } from "@/test/react-dom-harness"
+import { act, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { UserBar } from "./user-bar"
 import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { tid } from "@/lib/community/testids"
 import type { UserBarExtensionKind } from "./user-bar-extension-state"
+import { requestNativeBack } from "@/components/ui/native-back-layer"
+
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }))
 
 vi.mock("../avatar", () => ({
   Avatar: () => createElement("span", { "data-testid": "user-avatar" }),
@@ -29,6 +32,24 @@ function renderBar() {
 }
 
 describe("UserBar Inbox switching", () => {
+  it("dismisses the real mobile extension once through native Back", async () => {
+    const dismissed = vi.fn()
+    function Harness() {
+      const [active, setActive] = useState<UserBarExtensionKind>("inbox")
+      const inbox = createElement("button", null, "Inbox item")
+      return createElement(UserBar, {
+        breakpoint: "mobile", user: { id: "u1", name: "User", avatar: "U" },
+        hasUnread: false, inboxOpen: active === "inbox",
+        extension: { active, inbox, profile: null, update: null, updateBadgePhase: null, eligibleMachines: [],
+          onOpenUpdate: vi.fn(), onRequestUpdate: vi.fn(), onDismiss: () => { dismissed(); setActive("none") },
+        },
+      })
+    }
+    render(createElement(Harness))
+    act(() => { expect(requestNativeBack(document)).toBe("requested") })
+    expect(dismissed).toHaveBeenCalledOnce()
+  })
+
   it("keeps committed mobile extension switching outside render-phase updates", async () => {
     const errors = vi.spyOn(console, "error")
     function Harness() {
@@ -61,6 +82,7 @@ describe("UserBar Inbox switching", () => {
     await user.click(trigger)
     expect(trigger).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByRole("dialog", { name: "Inbox" })).toBeVisible()
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Inbox" })).toHaveFocus())
     await user.click(screen.getByRole("button", { name: "User", exact: true }))
     expect(screen.getByRole("dialog", { name: "Your profile" })).toBeVisible()
     expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
@@ -97,7 +119,7 @@ describe("UserBar Inbox switching", () => {
         }, "Start pending content"),
         createElement("button", { onClick: () => setLabel(null) }, "Close drawer"),
         createElement(Suspense, { fallback: createElement("span", null, "Pending") },
-          createElement(UserBarExtensionDrawer, null,
+          createElement(UserBarExtensionDrawer, { onDismiss: () => setLabel(null) },
             label === null ? null : createElement(Content, { label }),
           ),
         ),
@@ -172,6 +194,7 @@ describe("UserBar Inbox switching", () => {
     expect(renderer.getAllByRole("button", { name: "Inbox item" })).toHaveLength(1)
     if (breakpoint === "mobile") {
       expect(dialog.closest(".community-user-bar-drawer")).not.toBeNull()
+      expect(dialog.closest(`[data-testid="${tid.userBar}"]`)).not.toBeNull()
       expect(dialog.className).not.toContain("fade-in")
     } else {
       expect(dialog.closest(".community-user-bar-drawer")).toBeNull()

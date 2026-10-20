@@ -21,7 +21,7 @@ export type CommunityUiHandlers = {
   previewImage?: (image: ImagePreview) => void
   previewAttachment?: (attachment: FileAttachment) => void
   openProfile?: (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => void
-  goBackMobile?: () => void
+  goBackMobile?: (parentPath?: string) => void
   navigatePath?: (href: string) => void
   replacePath?: (href: string) => void
   // Jump to message `seq` within the CURRENT DM. Channel surfaces provide the

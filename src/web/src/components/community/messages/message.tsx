@@ -387,6 +387,7 @@ function MessageImpl({
     : reactionAddButton
   const row = (
     <div
+      data-base-ui-swipe-ignore=""
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",

@@ -29,7 +29,7 @@ vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => ({ d
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname, useSearchParams: () => new URLSearchParams(), useRouter: () => ({ refresh: vi.fn(), push: ui.push, replace: ui.replace }) }))
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "A" }) }))
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false, useBreakpoint: () => "desktop" }))
 vi.mock("@/hooks/community/use-servers", async (original) => ({
   ...await original<typeof import("@/hooks/community/use-servers")>(),
   useServer: (id: string | null) => ({ server: id ? { id, name: id, categories: [] } : null, data: undefined }),

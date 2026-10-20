@@ -1,9 +1,10 @@
 "use client"
 
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { isForum as isForumType, type CommunityChannelResource } from "@alook/shared"
@@ -63,6 +64,9 @@ export function useChannelRouteModel(
   accountId: string,
   anchorMessageId?: string | null,
 ) {
+  const active = useConversationActivity()
+  const ownedChannel = useRef(channelId)
+  useLayoutEffect(() => { ownedChannel.current = channelId }, [channelId])
   const router = useRouter()
   const pathname = usePathname()
   const queryClient = useQueryClient()
@@ -109,16 +113,20 @@ export function useChannelRouteModel(
     parentSubtype,
   }), [skeletonSubtype, structuralParentId, parentSubtype])
   useEffect(() => {
-    runtime.ui.actions.setCurrentChannelId(channelId)
-  }, [channelId, runtime])
+    if (active) runtime.ui.actions.setCurrentChannelId(channelId)
+  }, [active, channelId, runtime])
   useEffect(() => {
-    communityWsSubscribe(runtime, { channelId })
-  }, [channelId, runtime])
+    if (active) communityWsSubscribe(runtime, { channelId })
+  }, [active, channelId, runtime])
   useEffect(() => () => {
+    if (!active) return
+    const current = runtime.ui.get().currentChannelId
+    if (current !== null && current !== ownedChannel.current) return
     runtime.ui.actions.setCurrentChannelId(null)
     communityWsUnsubscribe(runtime)
-  }, [runtime])
+  }, [active, runtime])
   useEffect(() => {
+    if (!active) return
     if (metaQuery.canRead) exited.current = null
     if (metaQuery.denied || metaQuery.isArchived) {
       if (exited.current?.client === queryClient && exited.current.scope === exitScope) return
@@ -130,7 +138,7 @@ export function useChannelRouteModel(
       router.replace(consumeCommunityColdEntryFailure(accountId, `/c/channels/${serverParam}/${channelId}`)
         ? COMMUNITY_COLD_ENTRY_FALLBACK : `/c/channels/${serverParam}`)
     } else if (metadataError && metaQuery.error) toastApiError(metaQuery.error, "Failed to load channel")
-  }, [accountId, channelId, exitScope, metaQuery.canRead, metaQuery.denied, metaQuery.error, metaQuery.isArchived, metadataError, pathname, queryClient, router, runtime, serverId, serverParam])
+  }, [active, accountId, channelId, exitScope, metaQuery.canRead, metaQuery.denied, metaQuery.error, metaQuery.isArchived, metadataError, pathname, queryClient, router, runtime, serverId, serverParam])
 
   return {
     ...model,

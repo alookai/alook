@@ -226,8 +226,10 @@ describe("ProfileCard surface contracts", () => {
 
     act(() => (root.onOpenChange as (open: boolean, details: unknown) => void)(false, details))
 
-    expect(onClose).toHaveBeenCalledOnce()
+    expect(onClose).not.toHaveBeenCalled()
     expect(mockProps.get("sheet-root")?.open).toBe(false)
+    act(() => (mockProps.get("sheet-root")!.onOpenChangeComplete as (open: boolean) => void)(false))
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it("keeps the desktop profile on the anchored Popover path", () => {

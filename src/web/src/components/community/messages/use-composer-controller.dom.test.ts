@@ -139,6 +139,7 @@ type TestEditor = {
       setAttribute: ReturnType<typeof vi.fn>
     }
   }
+  setEditable: ReturnType<typeof vi.fn>
   commands: {
     clearContent: ReturnType<typeof vi.fn>
     focus: ReturnType<typeof vi.fn>
@@ -218,6 +219,7 @@ describe("useComposerController", () => {
         },
       },
       view: { dispatch, dom: { setAttribute: setDomAttribute } },
+      setEditable: vi.fn(),
       commands: {
         clearContent,
         focus,

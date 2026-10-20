@@ -1,3 +1,4 @@
+import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
@@ -498,7 +499,7 @@ test.describe("desktop default User Bar width", () => {
     }
     expectMainAbsorbsViewportDelta(unsavedResizeSequence)
     await fresh.page.setViewportSize({ width: 639, height: 768 })
-    await expect(shellPanel(fresh.page, "sidebar")).toBeHidden()
+    await expectInertBackground(shellPanel(fresh.page, "sidebar"))
     await expect(shellPanel(fresh.page, "main")).toBeVisible()
     await fresh.page.setViewportSize({ width: 640, height: 768 })
     await expectDesktopGeometry(fresh.page, expectedDefaultSidebarWidth)
@@ -582,7 +583,7 @@ test.describe("desktop default User Bar width", () => {
     }
     expectMainAbsorbsViewportDelta(savedResizeSequence)
     await saved.page.setViewportSize({ width: 639, height: 768 })
-    await expect(shellPanel(saved.page, "sidebar")).toBeHidden()
+    await expectInertBackground(shellPanel(saved.page, "sidebar"))
     await saved.page.setViewportSize({ width: 640, height: 768 })
     await expectDesktopGeometry(saved.page, restoredWidth)
     expect(await saved.page.evaluate((key) => localStorage.getItem(key), layoutStorageKey))
@@ -809,7 +810,7 @@ test.describe("desktop default User Bar width", () => {
         ).length)
         await page.setViewportSize({ width, height: 844 })
         if (width < 640) {
-          await expect(shellPanel(page, "sidebar")).toBeHidden()
+          await expectInertBackground(shellPanel(page, "sidebar"))
           previousWidth = width
           continue
         }
@@ -890,7 +891,7 @@ test.describe("desktop default User Bar width", () => {
     ))).toEqual([])
 
     await saved.page.setViewportSize({ width: 639, height: 844 })
-    await expect(shellPanel(saved.page, "sidebar")).toBeHidden()
+    await expectInertBackground(shellPanel(saved.page, "sidebar"))
     await saved.page.goto("/c/me")
     await expect(saved.page.getByRole("link", { name: "Friends", exact: true })).toBeVisible()
     await expect(shellPanel(saved.page, "sidebar")).toBeVisible()

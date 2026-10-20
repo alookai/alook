@@ -8,7 +8,7 @@ import { tid } from "@/lib/community/testids"
 vi.mock("./settings-shell.module.css", () => ({ default: { shell: "settings-shell" } }))
 const apiFetchMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: apiFetchMock, toastApiError: vi.fn() }))
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false, useBreakpoint: () => "desktop" }))
 vi.mock("@/hooks/community/use-server-panels", () => ({ useInvites: () => ({ invites: [], isLoading: false }) }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/hooks/community/use-notification-settings", async (importOriginal) => ({

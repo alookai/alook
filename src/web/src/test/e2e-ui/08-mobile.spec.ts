@@ -1,3 +1,4 @@
+import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
@@ -75,8 +76,9 @@ test.describe("mobile layout", () => {
 
       await page.goto(`/c/channels/${serverId}/${channelId}`)
       await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-      await expect(shellPanel(page, "sidebar")).toBeHidden()
-      await expectPanelToFillGroup(page, "main")
+      await expectInertBackground(shellPanel(page, "sidebar"))
+      const detail = page.locator('[data-mobile-page-active="true"] [data-slot="mobile-page"]')
+      await expect.poll(() => detail.boundingBox()).toMatchObject({ x: 0, y: 0, width, height: 844 })
     }
 
     const mainPanel = shellPanel(page, "main")
@@ -175,7 +177,7 @@ test.describe("mobile layout", () => {
       await page.goto(pathname)
       const back = page.getByRole("button", { name: "Back" })
       await expect(back).toBeVisible()
-      await expect(page.getByTestId(tid.homeButton)).toBeHidden()
+      await expectInertBackground(page.getByTestId(tid.homeButton))
       await expectNoWrongMeConversationLoading(page)
 
       await back.click()

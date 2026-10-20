@@ -1,5 +1,6 @@
 "use client"
 
+import { useLayoutEffect, useState } from "react"
 import { MessagesSquare, Pin, Users } from "lucide-react"
 import { stripInlineMarkup, type CommunityRole as Role } from "@alook/shared"
 
@@ -21,7 +22,7 @@ import { readCommunityProfile } from "@/lib/community/profile-read"
 export type CommunityPanelProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  kind: Exclude<RightPanel, null>
+  kind: RightPanel
   members: Member[]
   memberScopeId?: string
   membersLoading?: boolean
@@ -45,13 +46,18 @@ export type CommunityPanelProps = {
 
 export function CommunityPanel(props: CommunityPanelProps) {
   const { open, onOpenChange, kind } = props
-  const { icon: Icon, label } = panelHeading(kind)
+  const [retained, setRetained] = useState(kind)
+  useLayoutEffect(() => { if (kind) setRetained(kind) }, [kind])
+  const displayed = kind ?? retained
   const profilesByUserId = useCanonicalProfilesByUserId()
+  if (!displayed) return null
+  const { icon: Icon, label } = panelHeading(displayed)
 
   return (
     <CommunitySheet
       open={open}
       onOpenChange={onOpenChange}
+      onOpenChangeComplete={(open) => { if (!open) setRetained(null) }}
       title={(
         <span className="flex min-w-0 items-center gap-2">
           <Icon className="size-4 shrink-0 text-muted-foreground" />
@@ -61,7 +67,7 @@ export function CommunityPanel(props: CommunityPanelProps) {
       desktopWidth={kind === "members" ? 380 : undefined}
       bodyClassName={kind === "members" ? "p-0 sm:p-0" : undefined}
     >
-      {renderCommunityPanelBody(props, profilesByUserId)}
+      {renderCommunityPanelBody({ ...props, kind: displayed }, profilesByUserId)}
     </CommunitySheet>
   )
 }

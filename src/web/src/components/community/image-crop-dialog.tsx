@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback } from "react"
+import { useCallback, useRef, useState } from "react"
 import Cropper, { type Area } from "react-easy-crop"
 import { toast } from "sonner"
 import { getErrorMessage } from "@/lib/api/client"
@@ -36,6 +36,8 @@ export function ImageCropDialog({
   onCancel: () => void
   onCropped: (file: File) => void
 }) {
+  const [open, setOpen] = useState(true)
+  const cropped = useRef<File | null>(null)
   const [crop, setCrop] = useAtom(useCreateAtom({ x: 0, y: 0 }))
   const [zoom, setZoom] = useAtom(useCreateAtom(1))
   const [cropPixels, setCropPixels] = useAtom(useCreateAtom<Area | null>(null))
@@ -54,7 +56,8 @@ export function ImageCropDialog({
         toast.error("Failed to process image — please try again")
         return
       }
-      onCropped(buildCroppedIconFile(blob, originalFileName))
+      cropped.current = buildCroppedIconFile(blob, originalFileName)
+      setOpen(false)
     } catch (e) {
       toast.error(getErrorMessage(e, "Failed to process image — please try again"))
     } finally {
@@ -63,12 +66,18 @@ export function ImageCropDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onCancel() }}>
+    <Dialog open={open} onOpenChange={setOpen} onOpenChangeComplete={(next) => {
+      if (next) return
+      const file = cropped.current
+      cropped.current = null
+      if (file) onCropped(file)
+      else onCancel()
+    }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Crop image</DialogTitle>
         </DialogHeader>
-        <div className="relative h-80 w-full overflow-hidden rounded-md bg-muted">
+        <div data-base-ui-swipe-ignore="" className="relative h-80 w-full overflow-hidden rounded-md bg-muted">
           <Cropper
             image={imageSrc}
             crop={crop}
@@ -98,7 +107,7 @@ export function ImageCropDialog({
           </SliderControl>
         </Slider>
         <DialogFooter>
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
           <Button onClick={save} disabled={!cropPixels || saving}>
             {saving ? "Saving…" : "Save"}
           </Button>

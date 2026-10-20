@@ -1,15 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog"
+import { Drawer as AlertDialogPrimitive } from "@base-ui/react/drawer"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
+import { SwipeRoot, SwipeViewport, SwipePopup, SwipeBackdrop, type SwipeRootProps } from "./swipe-container"
 
-function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
-  const back = useNativeBackRoot(props.onOpenChangeComplete)
-  return <NativeBackRoot value={back.owner}><AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} onOpenChangeComplete={back.complete} /></NativeBackRoot>
+function AlertDialog({ ...props }: SwipeRootProps) {
+  return <SwipeRoot data-slot="alert-dialog" {...props} modal disablePointerDismissal />
 }
 
 function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
@@ -29,7 +28,7 @@ function AlertDialogOverlay({
   ...props
 }: AlertDialogPrimitive.Backdrop.Props) {
   return (
-    <AlertDialogPrimitive.Backdrop
+    <SwipeBackdrop
       data-slot="alert-dialog-overlay"
       className={cn(
         "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
@@ -48,11 +47,15 @@ function AlertDialogContent({
 }: AlertDialogPrimitive.Popup.Props & {
   size?: "default" | "sm"
 }) {
-  const renderPopup = useNativeBackPopupRender<AlertDialogPrimitive.Popup.State>(render)
+  const popup = React.useRef<HTMLDivElement>(null)
   return (
     <AlertDialogPortal>
-      <AlertDialogOverlay />
-      <AlertDialogPrimitive.Popup
+      <AlertDialogOverlay forceRender />
+      <SwipeViewport className="fixed inset-0 z-50">
+      <SwipePopup
+        ref={popup}
+        role="alertdialog"
+        initialFocus={() => popup.current?.querySelector<HTMLElement>('[data-slot="alert-dialog-cancel"]') ?? popup.current ?? false}
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
@@ -60,8 +63,9 @@ function AlertDialogContent({
           className
         )}
         {...props}
-        render={renderPopup}
+        render={render}
       />
+      </SwipeViewport>
     </AlertDialogPortal>
   )
 }

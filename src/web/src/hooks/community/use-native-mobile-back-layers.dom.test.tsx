@@ -1,6 +1,6 @@
 import { createRef, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
+import { Drawer as DialogPrimitive } from "@base-ui/react/drawer"
 import { act, fireEvent, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverPopup, PopoverPortal, PopoverPositioner, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
@@ -9,6 +9,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { NATIVE_MOBILE_BACK_EVENT, useNativeMobileBack } from "./use-native-mobile-back"
+
+vi.mock("@/hooks/use-mobile", async (load) => ({ ...await load<typeof import("@/hooks/use-mobile")>(), useIsMobile: () => false }))
 
 function BackListener({ replacePath }: { replacePath: (path: string) => void }) {
   useNativeMobileBack({ dismissShellOverlay: () => false, parentPath: "/c/me", replacePath })

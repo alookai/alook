@@ -1,5 +1,6 @@
 "use client"
 
+import { MobilePage } from "./mobile-page"
 import { DmRoute } from "@/components/community/channels/dm-route"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
@@ -97,6 +98,14 @@ export function ShellFrameView({
     />
   ) : null
 
+  const main = checkpoint.main.kind === "dm-route" ? (
+    <DmRoute key={`${profile.currentUser.id}/${checkpoint.main.dmId}`} dmId={checkpoint.main.dmId}
+      routeCommitted={routeCommitted} />
+  ) : checkpoint.main.kind === "keep" || checkpoint.main.kind === "server-route" ? children : (
+    <CommunityPendingFrame href={checkpoint.targetHref} reserveBackSlot={surface === "detail"}
+      conversationSubtype={checkpoint.main.conversationSubtype} />
+  )
+  const meDetail = surface === "detail" && checkpoint.targetHref.startsWith("/c/me/")
   return (
     <CommunityShellLayout
       breakpoint={breakpoint}
@@ -117,16 +126,7 @@ export function ShellFrameView({
           ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />
           : checkpoint.sidebar.kind === "me-skeleton" ? <DmSidebarSkeleton /> : null}
       </>}
-      main={checkpoint.main.kind === "dm-route" ? (
-        <DmRoute key={`${profile.currentUser.id}/${checkpoint.main.dmId}`} dmId={checkpoint.main.dmId}
-          routeCommitted={routeCommitted} />
-      ) : checkpoint.main.kind === "keep" || checkpoint.main.kind === "server-route" ? children : (
-        <CommunityPendingFrame
-          href={checkpoint.targetHref}
-          reserveBackSlot={surface === "detail"}
-          conversationSubtype={checkpoint.main.conversationSubtype}
-        />
-      )}
+      main={meDetail ? <MobilePage key={checkpoint.targetHref.split("?")[0]} parentPath="/c/me">{main}</MobilePage> : main}
       userBar={(
         <UserBar
           breakpoint={breakpoint}

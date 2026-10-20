@@ -9,6 +9,9 @@ overrides:
   '@vitest/snapshot': 4.1.11
 
 patchedDependencies:
+  '@base-ui/react@1.9.0':
+    hash: 51d33f6e4f128a90fe02d40ba5c0f2cd5614eabbab780845f28186dc473cab0a
+    path: patches/@base-ui__react@1.9.0.patch
   '@opennextjs/cloudflare@1.20.10':
     hash: cb9094d9ddd1702fff24915cbb952868b0a9f30762cf972213ec5fc02a98f07f
     path: patches/@opennextjs__cloudflare@1.20.10.patch
@@ -270,7 +273,7 @@ importers:
         version: 2.1.0
       '@base-ui/react':
         specifier: ^1.9.0
-        version: 1.9.0(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        version: 1.9.0(patch_hash=51d33f6e4f128a90fe02d40ba5c0f2cd5614eabbab780845f28186dc473cab0a)(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -10483,7 +10486,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@base-ui/react@1.9.0(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@base-ui/react@1.9.0(patch_hash=51d33f6e4f128a90fe02d40ba5c0f2cd5614eabbab780845f28186dc473cab0a)(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@babel/runtime': 8.0.7
       '@base-ui/utils': 0.5.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)

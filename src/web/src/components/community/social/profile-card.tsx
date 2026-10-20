@@ -176,7 +176,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
     if (!canSendMessage || !text || !data.userId) return
     onMessage?.(data.userId, text)
     setMsg("")
-    if (mobile) onClose()
+    if (mobile && (embedded || extension)) onClose()
     else close()
   }
   const interruptAgent = () => {
@@ -377,10 +377,8 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
     return (
       <Sheet
         open={open}
-        onOpenChange={(nowOpen) => {
-          setOpen(nowOpen)
-          if (!nowOpen) onClose()
-        }}
+        onOpenChange={setOpen}
+        onOpenChangeComplete={(nowOpen) => { if (!nowOpen) onClose() }}
         modal
       >
         <SheetContent
