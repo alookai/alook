@@ -13,6 +13,18 @@ const sdk = vi.hoisted(() => {
   return { ready, release }
 })
 vi.mock("@grafana/faro-web-tracing", async importOriginal => { await sdk.ready; return importOriginal<typeof import("@grafana/faro-web-tracing")>() })
+type ExportedNavigation = { name: string; startTimeUnixNano: string; endTimeUnixNano: string }
+type CapturedBody = { traces?: { resourceSpans: Array<{ scopeSpans: Array<{ spans: ExportedNavigation[] }> }> } }
+function exportedNavigation(sent: readonly CapturedBody[]) {
+  return sent.flatMap(body => body.traces?.resourceSpans.flatMap(resource => resource.scopeSpans.flatMap(scope => scope.spans)) ?? []).find(span => span.name === "navigation")
+}
+async function waitForNavigationExport(sent: readonly CapturedBody[]) {
+  return vi.waitFor(() => {
+    const navigation = exportedNavigation(sent)
+    expect(navigation).toBeDefined()
+    return navigation!
+  }, { timeout: 4000 })
+}
 let mounted: ReturnType<typeof render> | undefined
 afterEach(async () => {
   await act(async () => { mounted?.unmount(); document.cookie = "alook_analytics_consent=v1.denied; path=/"; announceAnalyticsConsent("denied"); await vi.advanceTimersByTimeAsync(0) })
@@ -46,7 +58,7 @@ it("keeps the actual Provider identity delay distinct from SDK delay and complet
   await act(async () => mounted!.rerender(tree(true)))
   expect(sent).toEqual([])
   now = 7_201_000
-  await act(async () => { sdk.release(); await vi.dynamicImportSettled(); await vi.advanceTimersByTimeAsync(4000) })
+  await act(async () => { sdk.release(); await vi.dynamicImportSettled(); await waitForNavigationExport(sent) })
   const events = sent.flatMap(body => body.events ?? [])
   const observed = events.find(event => event.name === "document.observed")!
   expect(observed.attributes).toMatchObject({ navigation_kind: "document_observation", start_ms: "7200000", duration_ms: "166", document_elapsed_ms: "7200166", document_load_ms: "8625", observation_start_ms: "7200000" })
@@ -55,6 +67,25 @@ it("keeps the actual Provider identity delay distinct from SDK delay and complet
   expect(phases).toHaveLength(2)
   expect(phases[0]!.attributes).toMatchObject({ phase: "activation", activation_reason: "identity", bootstrap_ms: "100", bootstrap_document_state: "interactive", identity_ms: "7200000", identity_document_state: "complete", activation_ms: "7200000" })
   expect(phases[1]!.attributes).toMatchObject({ phase: "sdk_ready", sdk_import_end_ms: "7201000", sdk_ready_ms: "7201000", page_instance_id: observed.attributes.page_instance_id })
-  const navigation = sent.flatMap(body => body.traces?.resourceSpans.flatMap(resource => resource.scopeSpans.flatMap(scope => scope.spans)) ?? []).find(span => span.name === "navigation")!
+  const navigation = exportedNavigation(sent)!
   expect(Number(BigInt(navigation.endTimeUnixNano) - BigInt(navigation.startTimeUnixNano)) / 1e6).toBeCloseTo(166, 2)
+})
+
+it("rejects event-only delivery within the original navigation export budget", async () => {
+  vi.useFakeTimers()
+  const sent: Array<CapturedBody & { events?: Array<{ name: string }> }> = [{ events: [{ name: "observation.lifecycle" }] }]
+  const start = Date.now()
+  await expect(waitForNavigationExport(sent)).rejects.toThrow()
+  expect(Date.now() - start).toBeLessThanOrEqual(4000)
+})
+
+it("accepts a navigation span delivered late within the original export budget", async () => {
+  vi.useFakeTimers()
+  const sent: CapturedBody[] = []
+  const navigation = { name: "navigation", startTimeUnixNano: "1000000", endTimeUnixNano: "167000000" }
+  setTimeout(() => sent.push({ traces: { resourceSpans: [{ scopeSpans: [{ spans: [navigation] }] }] } }), 3500)
+  const start = Date.now()
+  expect(await waitForNavigationExport(sent)).toBe(navigation)
+  expect(Date.now() - start).toBeGreaterThanOrEqual(3500)
+  expect(Date.now() - start).toBeLessThanOrEqual(4000)
 })
