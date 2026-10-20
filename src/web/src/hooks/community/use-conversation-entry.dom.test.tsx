@@ -444,6 +444,70 @@ describe("conversation entry return during accepted reading", () => {
     } finally { view?.view.unmount(); releaseReadSurface(owner.lease); await owner.finish() }
   })
 
+  it.each([true, false])("uses alternate entry coverage after ordinary entry eviction only with qualification: %s", async qualified => {
+    const owner = await readingOwner()
+    const alternateTarget = { ...target, anchorMessageId: "m42" }
+    const alternate = fixture()
+    alternate.messages = [{ ...alternate.messages[0], id: "m42", seq: 42, createdAt: owner.read42.lastReadAt! }]
+    alternate.channel.messageCount = 42
+    alternate.readState = { channelId: "c1", lastReadMessageId: "m30", lastReadSeq: 30, lastReadAt: "2026-10-01T00:00:30.000Z" }
+    alternate.selection = { reason: "explicit_anchor", anchorMessageId: "m42" }
+    alternate.page = { ...alternate.page, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 42 }
+    const alternateResource = publishConversationEntry(owner.client, alternateTarget, alternate,
+      { token: captureCommunityLiveSnapshotToken(owner.client, "c1") })
+    const alternateKey = conversationEntryOptions(owner.client, alternateTarget).queryKey
+    owner.client.setQueryData(alternateKey, alternateResource)
+    const retainedWindow = owner.client.getQueryData(alternateResource.windowKey)
+    expect(retainedWindow).toBeDefined()
+    const ordinaryKey = conversationEntryOptions(owner.client, target).queryKey
+    owner.client.removeQueries({ queryKey: ordinaryKey, exact: true })
+    owner.client.removeQueries({ queryKey: communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m30" }), exact: true })
+    if (!qualified) owner.client.removeQueries({ queryKey: alternateKey, exact: true })
+    expect(owner.client.getQueryData(ordinaryKey)).toBeUndefined()
+    expect(owner.client.getQueryData(alternateKey)).toBe(qualified ? alternateResource : undefined)
+    expect(owner.registry.collections.messages.get("m42")?.seq).toBe(42)
+    const response = qualified ? fixture() : alternate
+    if (qualified) {
+      response.messages = [{ ...response.messages[0], id: "m30", seq: 30, createdAt: alternate.readState.lastReadAt! }]
+      response.channel.messageCount = 42
+      response.readState = alternate.readState
+      response.selection = { reason: "read_pointer", anchorMessageId: "m30" }
+      response.page = { ...response.page, hasMoreOlder: true, hasMoreNewer: true, latestSeq: 42 }
+    }
+    const entryRead = deferred<ReturnType<typeof fixture>>()
+    const originalLoad = load.getMockImplementation()!
+    const expectedRequest = `/api/community/channels/c1/messages?entry=1${qualified ? "" : "&anchor=m42"}`
+    load.mockImplementation((url: string, options: unknown) => {
+      if (!url.includes("/messages?entry=1")) return originalLoad(url, options)
+      if (url !== expectedRequest) throw new Error(`Unexpected entry coverage request ${url}`)
+      return entryRead.promise
+    })
+    let view: ReturnType<typeof mountReadingEntry> | undefined
+    try {
+      expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })).not.toBeNull()
+      view = mountReadingEntry(owner)
+      expect(view.latest.feed.initialPositionKnown).toBe(false)
+      expect(load.mock.calls.filter(([url]) => url.includes("/messages?entry=1")).map(([url]) => url)).toEqual([expectedRequest])
+      await act(async () => entryRead.resolve(response))
+      resize()
+      expect(view.latest.feed.error).toBeNull()
+      expect(view.latest.feed.initialPositionKnown).toBe(true)
+      expect(view.latest.feed.initialPositionMessageId).toBe("m42")
+      expect(view.latest.feed.messages.map(message => message.id)).toEqual(["m42"])
+      expect(view.visible("m42")).toBe(true)
+      expect(view.latest.feed.readSnapshot?.lastReadSeq).toBe(30)
+      expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(30)
+      expect(owner.client.getQueryData(alternateResource.windowKey)).toBe(retainedWindow)
+      expect(view.latest.feed.historyStartKnown).toBe(false)
+      expect(load.mock.calls.filter(([url]) => url.includes("/messages?entry=1")).map(([url]) => url)).toEqual([expectedRequest])
+    } finally {
+      view?.view.unmount()
+      entryRead.resolve(response)
+      releaseReadSurface(owner.lease)
+      await owner.finish()
+    }
+  })
+
   it("keeps canonical NEW when no reading was accepted, then leaves that active entry frozen after canonical publication", async () => {
     const owner = await readingOwner()
     const first = mountReadingEntry(owner)
