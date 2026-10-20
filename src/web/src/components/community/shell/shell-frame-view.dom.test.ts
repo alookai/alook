@@ -306,6 +306,8 @@ describe("ShellFrameView", () => {
     const initialRailWrapper = renderer.container.querySelector('[class*="invisible sm:visible sm:contents"]')!
     expect(initialRailWrapper.className).toContain("min-h-0")
     expect(initialRailWrapper.className).not.toContain("hidden")
+    expect(initialRailWrapper).toHaveAttribute("inert")
+    expect(initialRailWrapper).toHaveAttribute("aria-hidden", "true")
     expect(renderer.container.querySelector('[data-slot="community-shell-body"]')?.className).toContain("pt-2")
     expect(renderer.container.querySelector('[data-slot="community-shell-body"]')?.className).not.toContain("pt-0")
     expect(renderer.container.querySelector('[data-app-surface]')?.className).not.toContain("max-sm:border-0")
@@ -416,6 +418,8 @@ describe("ShellFrameView", () => {
       inbox,
     }, createElement("main-content")))
     expect(renderer.container.querySelectorAll("[data-server-rail]")).toHaveLength(1)
+    expect(renderer.container.querySelector("[data-community-rail]")).not.toHaveAttribute("inert")
+    expect(renderer.container.querySelector("[data-community-rail]")).not.toHaveAttribute("aria-hidden")
     expect(renderer.container.querySelectorAll("sidebar-content")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(0)
@@ -441,6 +445,8 @@ describe("ShellFrameView", () => {
     }, createElement("main-content")))
 
     const shell = renderer.container.querySelector("[data-shell-root]")!
+    expect(shell.querySelector("[data-community-rail]")).not.toHaveAttribute("inert")
+    expect(shell.querySelector("[data-community-rail]")).not.toHaveAttribute("aria-hidden")
     const hostTypes = [...shell.querySelectorAll("*")].map((node) => (
       node.hasAttribute("data-server-rail") ? "server-rail"
         : node.hasAttribute("data-app-surface") ? "app-surface"

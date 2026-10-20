@@ -18,10 +18,14 @@ describe("first mobile Portal adoption with the native message virtualizer", () 
   it("hydrates the original SSR control and retains its draft, focus and selection through both breakpoint directions", async () => {
     const owner = await createCommunityQueryOwner()
     const navigation = { captureIntent: () => () => true, replace: vi.fn(), pendingHref: null, publishedHref: "/c/channels/s1/c1" }
+    let parentReady = false
     function Page() {
       return <CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
         <CommunityRouteContext value={{ breakpoint: viewport.breakpoint, navigation, frame: { revision: 0 } } as never}>
-          <MobilePage parentPath="/c/channels/s1"><input aria-label="SSR draft" defaultValue="Initial" /></MobilePage>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {parentReady && <MobilePage key="parent" active={false} parentPath="/c/channels/s1"><span>Retained parent</span></MobilePage>}
+            <MobilePage key="foreground" parentPath="/c/channels/s1"><input aria-label="SSR draft" defaultValue="Initial" /></MobilePage>
+          </div>
         </CommunityRouteContext>
       </CommunityTestProvider>
     }
@@ -38,25 +42,49 @@ describe("first mobile Portal adoption with the native message virtualizer", () 
     input.setSelectionRange(2, 5)
     let root!: ReturnType<typeof hydrateRoot>
     await act(async () => { root = hydrateRoot(container, <Page />) })
-    for (const breakpoint of ["desktop", "mobile", "desktop", "mobile"] as const) {
-      viewport.breakpoint = breakpoint
-      await act(async () => root.render(<Page />))
-      expect(container.querySelector("input")).toBe(input)
-      expect(input).toHaveValue("Typed before hydration")
-      expect(input).toHaveFocus()
-      expect([input.selectionStart, input.selectionEnd]).toEqual([2, 5])
+    try {
+      for (const breakpoint of ["desktop", "mobile", "desktop", "mobile"] as const) {
+        viewport.breakpoint = breakpoint
+        await act(async () => root.render(<Page />))
+        expect(container.querySelector("input")).toBe(input)
+        expect(input).toHaveValue("Typed before hydration")
+        expect(input).toHaveFocus()
+        expect([input.selectionStart, input.selectionEnd]).toEqual([2, 5])
+      }
+      for (const ready of [true, false]) {
+        parentReady = ready
+        await act(async () => root.render(<Page />))
+        expect(container.querySelector("input")).toBe(input)
+        expect(input).toHaveValue("Typed before hydration")
+        expect(input).toHaveFocus()
+        expect([input.selectionStart, input.selectionEnd]).toEqual([2, 5])
+        const pages = container.querySelectorAll("[data-mobile-page-active]")
+        expect(pages).toHaveLength(ready ? 2 : 1)
+        for (const page of pages) expect(page).toHaveClass("max-sm:absolute", "max-sm:inset-0")
+        const background = container.querySelector('[data-mobile-page-active="false"]')
+        if (ready) {
+          expect(background).toHaveAttribute("inert")
+          expect(background).toHaveAttribute("aria-hidden", "true")
+        }
+      }
+      expect(navigation.replace).not.toHaveBeenCalled()
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
     }
-    await act(async () => root.unmount())
-    container.remove()
   })
 
   it.each(["reader", "tail"])("retains the %s through the first mobile layout and width-dependent measurements", async position => {
     const owner = await createCommunityQueryOwner()
     const navigation = { captureIntent: () => () => true, replace: vi.fn(), pendingHref: null, publishedHref: "/c/channels/s1/c1" }
+    let parentReady = false
     function Wrapper({ children }: PropsWithChildren) {
       return <CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
         <CommunityRouteContext value={{ breakpoint: viewport.breakpoint, navigation, frame: { revision: 0 } } as never}>
-          <MobilePage parentPath="/c/channels/s1">{children}</MobilePage>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {parentReady && <MobilePage key="parent" active={false} parentPath="/c/channels/s1"><span>Retained parent</span></MobilePage>}
+            <MobilePage key="foreground" parentPath="/c/channels/s1">{children}</MobilePage>
+          </div>
         </CommunityRouteContext>
       </CommunityTestProvider>
     }
@@ -78,5 +106,19 @@ describe("first mobile Portal adoption with the native message virtualizer", () 
     else expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(navigation.replace).not.toHaveBeenCalled()
+    for (const ready of [true, false]) {
+      parentReady = ready
+      h.stage({})
+      resize()
+      expect(screen.getByTestId("scroll")).toBe(h.root)
+      expect(scrollFixture.latest.virtualizer).toBe(native)
+      if (position === "reader") expect(bodyTop(h.root, id)).toBeCloseTo(before, 0)
+      else expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      expect(navigation.replace).not.toHaveBeenCalled()
+      const page = h.root.closest("[data-mobile-page-active]")
+      expect(page).toHaveAttribute("data-mobile-page-active", "true")
+      expect(page).toHaveClass("max-sm:absolute", "max-sm:inset-0")
+    }
   })
 })

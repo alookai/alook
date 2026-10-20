@@ -44,7 +44,7 @@ export function MobilePage({ children, parentPath, active = true, backgroundVisi
     return registry?.register(request)
   }, [active, mobile, registry, request])
   return <div inert={!active} aria-hidden={!active || undefined} data-mobile-page-active={active}
-    hidden={!active && (!mobile || !backgroundVisible)} className="flex min-h-0 min-w-0 flex-1 flex-col">
+    hidden={!active && (!mobile || !backgroundVisible)} className="flex min-h-0 min-w-0 flex-1 flex-col max-sm:absolute max-sm:inset-0">
     <SwipeRoot kind="page" open={open} swipeEnabled={mobile && active && !navigation.navigationPending}
       onOpenChange={(next, details) => {
         if (next) return

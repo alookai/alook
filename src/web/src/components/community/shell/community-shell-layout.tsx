@@ -387,7 +387,7 @@ export function CommunityShellLayout({
       data-slot="community-shell-root"
     >
       {(!isMobileDetail || preserveHiddenMobileModules) && (
-        <div data-community-rail inert={isMobileDetail} aria-hidden={isMobileDetail || undefined} className={cn(
+        <div data-community-rail inert={isMobileDetail || isInitialDetail} aria-hidden={isMobileDetail || isInitialDetail || undefined} className={cn(
           "flex min-h-0",
           isInitialDetail && "invisible sm:visible sm:contents",
 

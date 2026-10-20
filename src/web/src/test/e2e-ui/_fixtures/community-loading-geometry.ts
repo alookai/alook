@@ -203,8 +203,13 @@ async function visibleGeometry(page: Page): Promise<Geometry> {
     const frames = Array.from(document.querySelectorAll('[data-slot="community-shell-root"]')).filter(visible)
     if (frames.length !== 1) throw new Error(`Expected one actual geometry frame, got ${frames.length}`)
     const frame = frames[0]
-    const detail = innerWidth < 640 ? frame.querySelector('[data-mobile-page-active="true"] [data-slot="mobile-page"]') : null
-    const selectors = { shell: '[data-slot="community-shell-root"]', body: '[data-slot="community-shell-body"]', surface: '[data-slot="community-app-surface"]', rail: '[data-slot="community-server-rail-viewport"]', sidebar: `[data-slot="resizable-panel"][data-testid="${sidebarId}"]`, main: `[data-slot="resizable-panel"][data-testid="${mainId}"]`, userBar: '[data-slot="community-user-bar-overlay"]' }
+    const detailLayers = innerWidth < 640
+      ? Array.from(frame.querySelectorAll(`[data-slot="resizable-panel"][data-testid="${mainId}"][data-mobile-layer="true"]`)).filter(visible)
+      : []
+    if (detailLayers.length > 1) throw new Error(`Duplicate mobile detail layer: ${detailLayers.length}`)
+    const detailLayer = detailLayers[0]
+    const detail = detailLayer?.querySelector('[data-mobile-page-active="true"] [data-slot="mobile-page"]') ?? detailLayer
+    const selectors = { shell: '[data-slot="community-shell-root"]', body: '[data-slot="community-shell-body"]', surface: '[data-slot="community-app-surface"]', backgroundSurface: '[data-slot="community-app-surface"]', rail: '[data-slot="community-server-rail-viewport"]', sidebar: `[data-slot="resizable-panel"][data-testid="${sidebarId}"]`, main: `[data-slot="resizable-panel"][data-testid="${mainId}"]`, userBar: '[data-slot="community-user-bar-overlay"]' }
     const result: Geometry = {}
     for (const [name, selector] of Object.entries(selectors)) {
       if (detail && ["rail", "sidebar", "userBar"].includes(name)) {
@@ -311,8 +316,8 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
     document.addEventListener("readystatechange", () => { if (document.readyState !== "loading") parsed = true })
     document.addEventListener("DOMContentLoaded", () => { parsed = true }, { once: true })
 
-    const rect = (root: Element, selector: string) => {
-      const element = root.matches(selector) ? root : root.querySelector<HTMLElement>(selector)
+    const rect = (root: Element, selector?: string) => {
+      const element = !selector || root.matches(selector) ? root : root.querySelector<HTMLElement>(selector)
       if (!element) return null
       const style = getComputedStyle(element)
       if (style.display === "none" || style.visibility !== "visible") return null
@@ -328,13 +333,17 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
         const activePanel = '[data-slot="resizable-panel"][data-mobile-active="true"]'
         const hiddenPanel = '[data-slot="resizable-panel"][data-mobile-hidden="true"]'
         const sidebarPanel = '[data-slot="resizable-panel"][id="sidebar"]'
-        const detail = expectedSurface === "detail" ? shell.querySelector('[data-mobile-page-active="true"] [data-slot="mobile-page"]') : null
+        const detailLayer = expectedSurface === "detail"
+          ? shell.querySelector('[data-slot="resizable-panel"][data-mobile-layer="true"]')
+          : null
+        const detail = detailLayer?.querySelector('[data-mobile-page-active="true"] [data-slot="mobile-page"]') ?? detailLayer
+        const detailGeometry = detail ? rect(detail) : null
         const geometry = Object.fromEntries(Object.entries({
           shell: rect(shell, '[data-slot="community-shell-root"]'),
-          surface: detail ? rect(detail, '[data-slot="mobile-page"]') : rect(shell, '[data-slot="community-app-surface"]'),
+          surface: expectedSurface === "detail" ? detailGeometry : rect(shell, '[data-slot="community-app-surface"]'),
           rail: expectedSurface === "detail" ? null : rect(shell, '[data-slot="community-server-rail-viewport"]'),
           sidebar: expectedSurface === "detail" ? null : rect(shell, activePanel),
-          main: detail ? rect(detail, '[data-slot="mobile-page"]') : rect(shell, expectedSurface === "detail" ? activePanel : hiddenPanel),
+          main: expectedSurface === "detail" ? detailGeometry : rect(shell, hiddenPanel),
           userBar: expectedSurface === "detail" ? null : rect(shell, '[data-slot="community-user-bar-overlay"]'),
         }).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null))
         const retainedBackground = expectedSurface === "detail"
