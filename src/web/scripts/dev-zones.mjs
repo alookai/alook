@@ -4,6 +4,8 @@ import { mkdirSync } from "node:fs"
 import net from "node:net"
 import { resolve } from "node:path"
 import { createPhaseGate, createZoneIngress } from "./dev-zone-ingress.mjs"
+import { startManagedCollector, stopOwnedChild } from "../../observability/scripts/managed.mjs"
+import { spawnOwnedProcess } from "../../observability/scripts/owned-process.mjs"
 import {
   exactWorkerDevArgs,
   LOCAL_WORKER_ENDPOINTS,
@@ -20,6 +22,17 @@ import {
 
 const packageManagerCli = process.env.npm_execpath
 const workerMode = process.argv.includes("--worker")
+function developmentPort(value, fallback) {
+  if (workerMode || !value) return fallback
+  if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535) throw new Error("Development ports must be between 1 and 65535")
+  return Number(value)
+}
+const developmentPorts = {
+  ingress: developmentPort(process.env.ALOOK_DEV_PORT, 3000),
+  main: developmentPort(process.env.ALOOK_DEV_MAIN_PORT, 3001),
+  blog: developmentPort(process.env.ALOOK_DEV_BLOG_PORT, 3002),
+}
+if (new Set(Object.values(developmentPorts)).size !== 3) throw new Error("Development ingress and backend ports must be distinct")
 const withWsDo = process.argv.includes("--with-ws-do")
 const wranglerEntryFlag = process.argv.indexOf("--wrangler-entry")
 const wranglerEntry = wranglerEntryFlag === -1 ? undefined : process.argv[wranglerEntryFlag + 1]
@@ -62,6 +75,7 @@ const childEnv = { ...process.env, WRANGLER_REGISTRY_PATH: registryPath }
 const processes = []
 let shuttingDown = false
 const lifetime = new AbortController()
+let collector
 
 function assertLive(deadline = Infinity) {
   if (shuttingDown || lifetime.signal.aborted || receipt?.status === "failed") throw new Error("Managed development owner is retired")
@@ -69,10 +83,11 @@ function assertLive(deadline = Infinity) {
 }
 
 function spawnBackend(label, command, args) {
-  const child = spawn(command, args, {
+  const child = (workerMode ? spawn : spawnOwnedProcess)(command, args, {
     cwd: process.cwd(),
     env: childEnv,
     stdio: "inherit",
+    detached: !workerMode && process.platform !== "win32",
   })
   processes.push(child)
 
@@ -173,12 +188,12 @@ const backends = workerMode
       {
         label: "main backend",
         command: packageManagerCli,
-        args: ["exec", "next", "dev", "--hostname", "127.0.0.1", "--port", "3001"],
+        args: ["exec", "next", "dev", "--hostname", "127.0.0.1", "--port", String(developmentPorts.main)],
       },
       {
         label: "Blog backend",
         command: packageManagerCli,
-        args: ["exec", "next", "dev", "blog", "--hostname", "127.0.0.1", "--port", "3002"],
+        args: ["exec", "next", "dev", "blog", "--hostname", "127.0.0.1", "--port", String(developmentPorts.blog)],
       },
     ]
 
@@ -193,12 +208,11 @@ const selectedBackends = manifest ? [
   ...phaseWorkerDefinitions(manifest, manifest.defaultRelease, wranglerEntry, runtimeRoot),
 ] : backends
 
-for (const backend of selectedBackends) {
-  const child = spawnBackend(backend.label, backend.command, backend.args)
-  if (manifest && backend.label !== "stable WS/queue") phaseChildren.push({ label: backend.label, child })
-}
-
-const ingress = createZoneIngress({ phaseGate, wsBackend: manifest ? { hostname: "127.0.0.1", port: 8789 } : undefined })
+const ingress = createZoneIngress({
+  port: developmentPorts.ingress,
+  backends: { main: { hostname: "127.0.0.1", port: developmentPorts.main }, blog: { hostname: "127.0.0.1", port: developmentPorts.blog } },
+  phaseGate, wsBackend: manifest ? { hostname: "127.0.0.1", port: 8789 } : undefined,
+})
 
 function failPhase(error) {
   if (!manifest || receipt?.status === "failed") return
@@ -322,9 +336,13 @@ async function shutdown(exitCode = 0) {
     writePhaseFile(receiptPath, receipt)
   }
 
-  for (const child of processes) {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM")
-  }
+  await Promise.all([
+    collector?.stop(),
+    ...processes.map(child => {
+      if (!workerMode) return stopOwnedChild(child)
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM")
+    }),
+  ])
   try { await ingress.close() } catch (error) { console.error(error); exitCode = 1 }
   process.exitCode = exitCode
 }
@@ -334,7 +352,16 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 try {
-  await Promise.all([waitForPort(3001), waitForPort(3002)])
+  if (!workerMode) {
+    collector = await startManagedCollector({ root: runtimeRoot, packageManager: packageManagerCli, env: childEnv, signal: lifetime.signal, onExit: () => { void shutdown(1) } })
+    Object.assign(childEnv, collector.env)
+    assertLive()
+  }
+  for (const backend of selectedBackends) {
+    const child = spawnBackend(backend.label, backend.command, backend.args)
+    if (manifest && backend.label !== "stable WS/queue") phaseChildren.push({ label: backend.label, child })
+  }
+  await Promise.all([waitForPort(developmentPorts.main), waitForPort(developmentPorts.blog)])
   assertLive()
   if (manifest) {
     await waitForHttpOk("http://127.0.0.1:8789/health")
@@ -345,9 +372,9 @@ try {
   await ingress.listen()
   assertLive()
   if (manifest) phaseTimer = setInterval(() => { void pollPhase() }, 100)
-  if (!workerMode) await waitForHttpOk("http://127.0.0.1:3000/")
+  if (!workerMode) await waitForHttpOk(`http://127.0.0.1:${developmentPorts.ingress}/`)
   console.log(
-    `Alook multi-zone ${workerMode ? "Worker" : "Next"} development ready at http://127.0.0.1:3000`,
+    `Alook multi-zone ${workerMode ? "Worker" : "Next"} development ready at http://127.0.0.1:${developmentPorts.ingress}`,
   )
 } catch (error) {
   console.error(error)

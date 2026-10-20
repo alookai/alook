@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "scripts/managed.mjs",
+    "public/app.js",
+    "public/viewer-bootstrap.js"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "test-runtime/**/*.ts",
+    "scripts/**/*.mjs",
+    "public/*.js"
+  ],
+  "ignoreDependencies": [
+    "cloudflare"
+  ],
+  "vitest": {
+    "entry": [
+      "src/**/*.test.ts",
+      "test-runtime/**/*.test.ts",
+      "scripts/**/*.test.mjs",
+      "public/**/*.test.js"
+    ]
+  }
+}

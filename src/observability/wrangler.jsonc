@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "alook-observability-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "vars": { "LOCAL_RUN_ID": "standalone" },
+  "dev": { "ip": "127.0.0.1", "port": 4318 },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "alook-observability-local",
+      "database_id": "00000000-0000-0000-0000-000000000235",
+      "migrations_dir": "./migrations"
+    }
+  ]
+}

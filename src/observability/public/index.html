@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-local-observability="shell">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Alook · Local observations</title>
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body class="local-shell">
+    <header class="local-header">
+      <div><p class="eyebrow">ALOOK / DEVELOPMENT</p><h1>Local observations</h1></div>
+      <p id="stats" class="subtle" role="status">Connecting to local receiver…</p>
+    </header>
+    <form id="filters" class="local-filters">
+      <label>Page instance<input name="page" maxlength="128" placeholder="All pages" autocomplete="off"></label>
+      <label>Session<input name="session" maxlength="128" placeholder="All sessions" autocomplete="off"></label>
+      <button type="submit" id="refresh">Refresh list</button>
+    </form>
+    <nav class="local-tabs" aria-label="Observation type">
+      <button id="traces-tab" type="button" aria-pressed="true">Traces</button>
+      <button id="logs-tab" type="button" aria-pressed="false">All logs &amp; measurements</button>
+    </nav>
+    <p id="error" class="local-error" role="alert" hidden></p>
+    <main class="local-workspace">
+      <section class="local-list thin-scrollbar" aria-label="Received observations">
+        <p id="list-status" class="subtle">Loading…</p><div id="items"></div>
+      </section>
+      <section id="selection" class="local-selection" aria-label="Selected observation">
+        <div class="local-empty"><h2>Follow a real navigation</h2><p>Start Alook, allow analytics, then open a page. Refresh this list to inspect its trace and related events.</p><p class="subtle">Received data stays in this checkout. Recent data is retained within the displayed limits.</p></div>
+      </section>
+    </main>
+    <footer class="local-footer">Trace extent includes every retained span. Use the document and navigation fields to inspect their individual timings.</footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

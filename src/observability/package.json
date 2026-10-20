@@ -1,0 +1,27 @@
+{
+  "name": "@alook/observability",
+  "version": "0.1.55",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "test": "vitest run --config vitest.workspace.config.ts",
+    "typecheck": "tsc --noEmit",
+    "knip": "knip",
+    "cf-typegen": "wrangler types --include-runtime=false --strict-vars=false"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.3",
+    "@cloudflare/workers-types": "^5.20261019.1",
+    "@types/node": "^25.9.4",
+    "jsdom": "29.1.1",
+    "knip": "^6.32.2",
+    "typescript": "^6.0.3",
+    "vitest": "4.1.12",
+    "wrangler": "4.151.0"
+  }
+}

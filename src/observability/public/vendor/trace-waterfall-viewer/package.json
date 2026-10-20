@@ -1,0 +1,18 @@
+{
+  "name": "trace-waterfall-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Client-side viewer for OTLP, Jaeger and Zipkin trace exports: interactive waterfall, critical path analysis and self-time breakdown, entirely in the browser.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "serve": "python3 -m http.server 8000",
+    "build:demos": "node tools/build-demos.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

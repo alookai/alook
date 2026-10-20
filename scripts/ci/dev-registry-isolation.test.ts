@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -42,11 +44,20 @@ describe("local Wrangler registry isolation", () => {
     expect(launcher).toContain("WRANGLER_REGISTRY_PATH: resolve(process.cwd(), registryPath)")
   })
 
-  it("executes native package-manager launchers directly", () => {
-    const launcher = readFileSync(launcherPath, "utf8").replaceAll("\r\n", "\n")
-
-    expect(launcher).toContain('spawn(\n  packageManagerCli,\n  ["exec", command, ...args]')
-    expect(launcher).not.toContain("process.execPath")
+  it.skipIf(process.platform === "win32")("executes a native package-manager launcher directly and preserves Worker argv", () => {
+    const root = realpathSync(mkdtempSync(resolve(tmpdir(), "alook-native-registry-")))
+    try {
+      const packageManager = resolve(root, "native-pnpm")
+      const cwd = resolve(root, "src/web")
+      mkdirSync(cwd, { recursive: true })
+      writeFileSync(packageManager, '#!/bin/sh\nprintf \'%s\\n\' "$WRANGLER_REGISTRY_PATH"\nprintf \'%s\\n\' "$@"\n')
+      chmodSync(packageManager, 0o755)
+      const result = spawnSync(process.execPath, [launcherPath, "../../.wrangler/registry", "wrangler", "dev", "--local"], {
+        cwd, env: { ...process.env, npm_execpath: packageManager }, encoding: "utf8", timeout: 5000,
+      })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stdout.trim().split("\n")).toEqual([resolve(root, ".wrangler/registry"), "exec", "wrangler", "dev", "--local"])
+    } finally { rmSync(root, { recursive: true, force: true }) }
   })
 
   it("uses one shared registry inside the current worktree for every dev entrypoint", () => {

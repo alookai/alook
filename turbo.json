@@ -6,6 +6,6 @@
     "typecheck": { "dependsOn": ["^build"] },
     "lint": {},
     "knip": {},
-    "dev": { "cache": false, "persistent": true }
+    "dev": { "cache": false, "persistent": true, "passThroughEnv": ["ALOOK_OBSERVABILITY_*", "ALOOK_DEV_*"] }
   }
 }

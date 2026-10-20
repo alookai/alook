@@ -12,6 +12,8 @@ export default defineConfig({
       "src/email-worker",
       "src/ws-do",
       "src/queue-worker",
+      "src/observability",
+      "src/observability/vitest.runtime.config.mts",
       "src/app",
       "tests/utils",
       "scripts/ci",
@@ -23,7 +25,7 @@ export default defineConfig({
     ],
     coverage: {
       provider: "istanbul",
-      include: ["src/**/*.{ts,tsx,js,jsx}", "scripts/ci/**/*.mjs"],
+      include: ["src/**/*.{ts,tsx,js,jsx}", "src/observability/scripts/**/*.mjs", "scripts/ci/**/*.mjs"],
       exclude: [
         "**/*.test.*",
         "**/*.spec.*",
@@ -33,6 +35,7 @@ export default defineConfig({
         "**/.wrangler/**",
         "**/dist/**",
         "**/bundled/**",
+        "src/observability/public/vendor/**",
         "**/__mocks__/**",
         "src/web/src/test/fixtures/**",
         "**/test-harness.ts",

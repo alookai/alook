@@ -6,6 +6,7 @@ packages:
   - "src/email-worker"
   - "src/ws-do"
   - "src/queue-worker"
+  - "src/observability"
   - "src/app"
   - "src/desktop"
   - "tests/utils"
