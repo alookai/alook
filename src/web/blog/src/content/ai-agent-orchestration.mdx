@@ -1,204 +1,151 @@
 export const metadata = {
   slug: "ai-agent-orchestration",
-  title: "AI Agent Coordination: How Orchestration Works",
+  title: "AI Agent Orchestration: How Multiple Agents Work Together",
   date: "2026-06-03",
-  dateModified: "2026-08-11",
+  dateModified: "2026-10-20",
   author: "Alook Team",
-  excerpt:
-    "AI agent coordination keeps agents aligned on roles, handoffs, and shared state. Orchestration is the system layer that makes that reliable.",
-  readingTime: "6 min read",
+  excerpt: "Learn how AI agent orchestration assigns work, moves evidence between agents, and handles failures and human decisions. Choose a practical setup.",
+  readingTime: "7 min read",
   image: "/blog/ai-agent-orchestration/hero.webp",
 };
 
-export const jsonLd = [
-  {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: [
-      {
-        "@type": "Question",
-        name: "What is AI agent coordination?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "AI agent coordination is how multiple agents stay aligned on roles, handoffs, current state, and the next action. AI agent orchestration is the system layer that makes that coordination reliable by sequencing steps, passing outputs forward, and retrying failed work.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Is AI agent coordination the same as AI agent orchestration?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Teams often use the terms interchangeably. Coordination emphasizes alignment between agents. Orchestration emphasizes the system that routes work, sequences steps, and handles retries. In practice, orchestration is usually how coordination gets enforced.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What is AI agent orchestration?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "AI agent orchestration is the coordination layer above individual agents. It decides which agent runs, in what order, how outputs pass between steps, and how failed steps retry. People also call this AI agent coordination when the emphasis is on keeping multi-agent work aligned.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "What is agent orchestration?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Agent orchestration is the same idea without the marketing prefix: a system that assigns roles, sequences steps, and moves results between agents so a multi-step job can finish without a person forwarding every message.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "How do I orchestrate multiple checks in one user flow?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Split the flow into named checks owned by specialized agents or steps, define the order and what each check returns, then let the orchestration layer pass results forward and retry a failed check without restarting the whole flow. Keep human approval for irreversible actions after the checks pass.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "AI orchestration vs automation: what's the difference?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Automation runs a single task on a trigger. Orchestration coordinates several agents across a multi-step task, deciding order, handoffs, and recovery. Multi-agent workflow automation is what you get when the two combine.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Do you need to write code for AI orchestration?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "Not necessarily. Building your own orchestration means writing code. A platform can let you describe roles and sequences while it handles queues, retries, and state.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "When is AI orchestration overkill?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "For a one-off task, or anything a single agent handles well on its own, orchestration adds complexity you don't need. It pays off when work is repetitive, multi-step, and runs on a schedule.",
-        },
-      },
-    ],
-  },
-];
+![Claude Code, Codex, and Cursor illustrate investigation, patching, and review before a human decision.](/blog/ai-agent-orchestration/hero.webp)
 
-![Hand-drawn diagram of AI orchestration as a coordination layer connecting data, analysis, writing, and delivery agents around a shared goal](/blog/ai-agent-orchestration/hero.webp)
+*Illustrative roles, not a test run. Claude Code, Codex, and Cursor can each take a different role.*
 
-**AI agent coordination** is how multiple specialized agents stay aligned on one job: who owns which step, what each handoff returns, what state stays current, and who acts next. **AI agent orchestration** is the system layer that makes that coordination reliable, without you forwarding every message by hand.
+**AI agent orchestration defines how agents receive work, exchange results, and decide what happens next.** In multi-agent orchestration, those rules connect several agents around a task: who owns each part, what evidence moves with it, and when work should stop or return to a person. Recovery still needs saved progress and a way to resume execution.
 
-One agent does step one. Another picks up step two. A third closes it out. You set the roles once. The orchestration layer keeps the work moving.
+A customer reports that a signup button fails. One agent could investigate and prepare a fix; a separate reviewer might help. Before recruiting more agents, decide who will own the diagnosis and who will check the patch. Someone also needs to notice if either of them stops replying. A list of agent names will not settle those responsibilities.
 
-## What is AI orchestration?
+## What is AI agent orchestration?
 
-AI orchestration is the coordination layer above your individual agents. It decides which agent runs, in what order, and what happens to each agent's output. **Agent orchestration** is the same idea stated without the “AI” prefix.
+An agent can make several tool calls and revise its approach within one task. Orchestration concerns the rules around that work: assigning responsibility, making results available, recording progress, and deciding whether another step may begin.
 
-A single agent answers one prompt at a time. Orchestration turns a set of agents into something closer to a team, where each one owns a narrow job and the handoffs happen on their own. You describe the roles and the sequence. The layer keeps the work flowing.
+These overlapping terms describe different aspects of a design:
 
-For named pattern catalogs (fan-out, review gates, and similar), see [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns). This page stays on the coordination layer itself.
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Orchestration terms; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
+<div style={{ minWidth: "620px", overflowWrap: "normal", wordBreak: "normal" }}>
 
-## AI agent coordination vs orchestration
+| Term | What to examine |
+|---|---|
+| AI agent coordination | Whether participants agree on the current task, evidence, ownership, and next action |
+| AI agent orchestration | The rules or mechanisms that assign work and control its progress |
+| Multi-agent orchestration | How those mechanisms connect more than one agent |
+| AI orchestration | A broader label that can also include models, tools, data, and business processes |
 
-Teams often use these terms interchangeably. That is usually fine. The difference is mostly about emphasis.
+</div>
+</div>
 
-**Coordination** points at alignment between agents: shared status, clean handoffs, current decisions, and a visible next step.
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Four orchestration mechanisms; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}><picture><source srcSet="/blog/ai-agent-orchestration/orchestration-mechanisms.webp" /><img src="/blog/ai-agent-orchestration/orchestration-mechanisms.webp" alt="Role specialization, evidence-bearing handoffs, bounded retries, and sharing relevant task information." className="min-w-[1000px] sm:min-w-0" width={1200} height={630} style={{ display: "block", width: "100%", maxWidth: "none", height: "auto", margin: 0 }} /></picture></div>
 
-**Orchestration** points at the system that enforces that alignment: roles, sequencing, retries, state passing, and approval gates.
+*Configure the handoff, information-sharing, and recovery rules for the task.*
 
-In practice, coordination is the job you want. Orchestration is the mechanism that makes it happen. If one agent investigates, another writes the patch, and a third reviews it, coordination is the fact that they do not trip over each other. Orchestration is the layer that moves the diagnosis forward, routes the patch to review, and pauses before merge when a human decision is required.
+Automation can already include multiple steps, branches, saved state, and human approval. Using agents changes which decisions a model makes; it does not make those other capabilities exclusive to agent systems.
 
-## Why one agent isn't enough
+For the separate question of how messages and artifacts travel, see [AI agent communication](/blog/ai-agent-communication).
 
-You can ask one capable model to handle a long, multi-step job. It tends to break down in predictable ways.
+## When multi-agent orchestration makes sense
 
-Long tasks drift. Ask a single agent to pull numbers, analyze them, write a summary, and format an email, and quality slips somewhere in the middle. It grabs the wrong metric, skips a source, or loses the thread halfway through. The more steps you pack into one prompt, the more places it can go wrong.
+**Keep one agent when it can finish the task with suitable tools and you can check the result.** Use ordinary code for deterministic work such as authentication and input validation. Neither check needs its own language model simply because it sits inside a larger process.
 
-There's also no recovery. When a single agent fails at step three, the whole run fails. You start over. Splitting the job across specialized agents means a failed step can retry on its own without wiping out the steps that already worked.
+Splitting work becomes more useful when a task needs separate expertise, independent review, different permission scopes, or investigations that can proceed independently. Those benefits must justify the extra messages, latency, and failure points. Microsoft's [architecture guidance](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns) similarly recommends choosing the least complex arrangement that meets the requirements.
 
-![Comparison of one agent doing every step in sequence versus orchestration with specialized agents that can retry a failed step](/blog/ai-agent-orchestration/single-agent-vs-orchestration.webp)
+A concrete example appears in the [Hugging Face agents course](https://huggingface.co/learn/agents-course/en/unit2/smolagents/multi_agent_systems): a manager delegates web research to a specialized agent and uses the returned information. Study its implementation before adding a manager to your own task.
 
-## How AI orchestration works
+Before splitting the signup investigation, ask what another owner contributes. A reviewer with a separate remit can examine the patch against the reported failure. Creating four agents to run four predictable validation functions would add coordination without establishing a useful division of responsibility.
 
-Multi-agent workflow automation is a fixed AI workflow where each agent owns one step and hands its result to the next. The orchestration layer is what makes that reliable. A few things happen underneath it:
+## Rules, a coordinator, or peer handoffs
 
-![Hand-drawn diagram of the orchestration layer with four mechanisms: role specialization, handoffs, retries, and shared context](/blog/ai-agent-orchestration/how-orchestration-works.webp)
+Choose how the next action is selected before choosing a framework.
 
-- **Role specialization.** Each agent has one job. A data agent pulls numbers. A writing agent turns them into prose. Narrow scope keeps each agent accurate.
-- **Handoffs.** The output of one agent becomes the input of the next, without you forwarding anything.
-- **Retries.** When a step fails, the layer runs it again instead of failing the whole AI workflow.
-- **Shared context.** Agents work from the same information, so step four knows what step one decided.
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Choosing who decides the next step; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
+<div style={{ minWidth: "620px", overflowWrap: "normal", wordBreak: "normal" }}>
 
-Get this right and the AI workflow runs on schedule whether you show up or not. For building a full [AI team](/blog/ai-agent-team) around these workflows, start by defining the roles.
+| Decision method | Useful when | Boundary to define |
+|---|---|---|
+| Fixed rules in code | Dependencies and acceptable transitions are known | Which result permits the next step |
+| A coordinating agent | Findings determine which specialist is needed | Allowed delegates, budget, and stopping conditions |
+| Participants hand work to peers | Owners can identify the next recipient from the task | Who accepts a handoff and who resolves a stalled exchange |
+
+</div>
+</div>
+
+These methods can be combined. The investigator might choose which diagnostic tool to use, while a fixed rule prevents implementation until the problem is confirmed. A person can retain the decision to merge.
+
+Sequential and parallel execution describe a different choice. A reviewer needs the patch before reviewing it; two independent investigations may run together. If they disagree, name who resolves the conflict. For a wider catalog, see [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns).
+
+## A bug report, from investigation to review
+
+The following is a suggested workflow, not a measured test or a claim that a particular platform runs it automatically.
+
+**Investigate the report.** Give the investigator the report, relevant environment details, and access to the necessary logs or code. Ask for reproduction steps and evidence that distinguishes a confirmed problem from a hypothesis. If the report cannot be reproduced, the owner should check the environment or logs and request the missing information. Patching waits until there is enough evidence to justify a change.
+
+**Prepare a patch.** Once the problem is confirmed, hand the diagnosis to an implementation owner. The output should identify the patch version, checks actually run, results, and unresolved limitations. “Fixed” without a reference to the changed artifact leaves the reviewer guessing.
+
+**Review that version.** The reviewer checks the patch against the evidence and acceptance criteria. A changed patch needs a matching review; an approval of an earlier version does not carry forward automatically.
+
+**Request the human decision.** Present the reviewed patch and remaining risks to the person responsible for merging. A decision to revise returns work to its owner. Approval allows the next authorized action; a pending decision keeps the task paused.
+
+Every transfer needs a small, explicit record:
+
+- Task identifier, current owner, and named next recipient
+- Relevant evidence and the exact artifact or revision
+- Checks completed, results, and unresolved questions
+- Access needed, completion criteria, and conditions that require a pause
+
+Keep that record somewhere participants can retrieve it. A local path alone is insufficient if the recipient cannot access that machine. Share the necessary artifact through an agreed channel, and keep unrelated private material out of the handoff. For help defining the assignment itself, see [how to delegate tasks to AI agents](/blog/how-to-delegate-tasks-to-ai-agents).
+
+![Bug-report workflow pauses for missing evidence and requires review and a human decision before proceeding.](/blog/ai-agent-orchestration/bug-report-handoff.webp)
+
+## Failed checks, missing replies, and human decisions
+
+A timeout does not mean the same thing as a failed test or a person who has yet to approve a merge:
+
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Failure and decision responses; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
+<div style={{ minWidth: "620px", overflowWrap: "normal", wordBreak: "normal" }}>
+
+| Situation | Next action |
+|---|---|
+| A diagnostic tool times out | Retry within a configured limit if repeating the action is safe; otherwise stop for the owner |
+| The diagnosis lacks evidence | Ask for the missing information; do not advance to patching |
+| The patch fails a relevant check | Return the failure evidence to the implementation owner |
+| An agent does not respond | Record who is waiting, then notify the responsible person under the agreed timeout policy |
+| A merge decision is pending | Preserve the reviewed version and pause until a decision arrives |
+
+</div>
+</div>
+
+**Recovery depends on durable records and execution design.** A single agent can resume from saved progress; several agents can lose progress if nobody stores it.
+
+Before retrying an action with external effects, check whether the first attempt already succeeded. Repeating a read is different from repeating a payment or sending a message twice. Set a retry limit and an escalation owner rather than instructing agents to keep trying indefinitely.
+
+Creative work or an unusual exception may need a person to choose between proposals. Give that person the options and evidence, then record which decision lets work resume. The task can remain paused while they consider it. A design review, for example, can produce several drafts without granting any agent authority to publish one.
+
+## Implementing AI agent orchestration
+
+Choose by the decisions you need to control. **These layers can be combined**: a workflow can run agent code while people review its results in a room.
+
+<div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Implementation paths; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
+<div style={{ minWidth: "620px", overflowWrap: "normal", wordBreak: "normal" }}>
+
+| Your requirement | Starting point | What you must establish |
+|---|---|---|
+| Known steps and conditional transitions | Ordinary code or a workflow engine; inspect the [LangGraph workflow examples](https://docs.langchain.com/oss/python/langgraph/workflows-agents) for code-defined paths | State storage, validation, retry limits, and who handles failures |
+| A manager chooses which specialist to call | An agent framework; follow the [Hugging Face manager-and-web-agent example](https://huggingface.co/learn/agents-course/en/unit2/smolagents/multi_agent_systems) | Delegate permissions, tool access, budget, result checks, and stop conditions |
+| People review work from existing agents | A conversation and artifact-sharing space | Who accepts each handoff, where execution happens, and who resumes paused work |
+
+</div>
+</div>
+
+For the bug report, a small implementation with transitions in code could record a task ID, diagnosis, patch revision, check results, and a pending decision. Permit the review step only when a patch revision exists; permit merge only after approval of that revision. A framework does not remove these requirements. If resuming after interruption matters, inspect its persistence configuration: [LangGraph's documentation](https://docs.langchain.com/oss/python/langgraph/persistence) explains checkpoints and checkpointers, rather than treating chat history as execution state.
+
+For existing coding agents, also consider where people will inspect results and make decisions. [Claude Code and Codex on the same team](/blog/claude-code-and-codex-same-team) addresses that collaboration path.
+
+For the signup report, a useful acceptance check is simple: can the next owner locate the evidence, identify the current patch, and tell whether to act or wait? If that answer is unclear, improve the handoff before adding another agent.
+
+Once you have chosen how work should move, people and agents need a place to discuss it. If you already use Claude Code or Codex, [Alook](https://alook.ai) brings you, your coworkers, and your bots into the same room to review handoffs and exchange files. Each owner retains control of their bot's tools and runtime; room access does not automatically grant local file access or permission to execute tools. The conversation keeps the work visible, while your instructions and execution setup still govern sequencing, retries, and when to ask a person.
 
 
-## How do I orchestrate multiple checks in one user flow?
+![Illustrative Alook UI: Scout hands an approved brief to Quill, who returns a draft for human review.](/blog/ai-agent-orchestration/alook-two-bot-handoff.webp)
 
-Treat each check as a named step with a clear owner and return shape.
-
-Example shape for a coding or product flow:
-
-1. **Auth check** — confirm the actor may run the flow
-2. **Input validation** — reject bad payloads early
-3. **Business rule check** — apply the domain constraints
-4. **Side-effect gate** — prepare writes, wait for approval if needed
-
-Orchestration runs those steps in order, passes structured results forward, and retries a failed check without restarting the whole flow. Keep a human decision after the checks when the next action sends, spends, publishes, or changes production. For Claude Code and Codex as peer runtimes on the same repo, see [Claude Code and Codex on the same team](/blog/claude-code-and-codex-same-team).
-
-## What to orchestrate first
-
-Not every task is a good fit. Pick one workflow to start, and make it something you already repeat on a schedule.
-
-![Infographic comparing good first orchestration candidates versus tasks to skip for now](/blog/ai-agent-orchestration/what-to-orchestrate-first.webp)
-
-Good first candidates share a pattern. They repeat often, follow the same steps each time, and need little judgment:
-
-- A weekly metrics email pulled from a few sources
-- A new lead notification enriched with company details
-- A daily industry news summary
-- Meeting notes turned into CRM updates
-
-Some work resists orchestration, and it helps to know that going in:
-
-- **Creative work.** Taste is hard to hand off. Agents tend to produce generic output when the goal is originality.
-- **Exception-heavy processes.** If a task has dozens of special-case rules, the edge cases pile up faster than you can encode them.
-- **Anything needing real-time human judgment.** Live sales calls, sensitive support, design review. If a person has to step in constantly, orchestration adds overhead instead of removing it.
-
-Start narrow. Get one workflow stable. Expand from there once you trust it.
-
-## Building vs buying orchestration
-
-You can build an orchestration system yourself. Expect to write retry logic, queue management, state persistence, and error handling, then keep maintaining all of it.
-
-That maintenance is the real cost. APIs change. Models update. Timeouts and rate limits show up at the worst moments. You end up maintaining orchestration plumbing instead of using it.
-
-A coordination layer can reduce what you build yourself. [Alook](https://alook.ai) provides rooms, persistent identities, and durable message threads so agents can pass handoffs and keep shared history across sessions. The orchestration logic—sequencing, retries, and when to escalate—still lives in your agent instructions and operating rules, not in a hosted workflow engine.
-
-The future of this work isn't one super-intelligent model doing everything. It's teams of specialized agents, each good at a narrow task, passing work between each other. Like a company, minus the meetings.
-
-## AI orchestration FAQ
-
-**What is AI agent coordination?**
-AI agent coordination is how multiple agents stay aligned on roles, handoffs, current state, and the next action. **AI agent orchestration** is the system layer that makes that coordination reliable.
-
-**Is AI agent coordination the same as AI agent orchestration?**
-Most teams use the terms almost interchangeably. Coordination emphasizes alignment between agents. Orchestration emphasizes the system that sequences work, passes outputs forward, and handles retries.
-
-**What is AI agent orchestration?**
-AI agent orchestration is the coordination layer above individual agents. It decides which agent runs, in what order, how outputs pass between steps, and how failed steps retry. **AI agent coordination** usually points at the same job.
-
-**What is agent orchestration?**
-The same coordination idea without the marketing prefix: roles, sequence, handoffs, and recovery so a multi-step job can finish without a person forwarding every message.
-
-**How do I orchestrate multiple checks in one user flow?**
-Split the flow into named checks, define order and return values, let the layer pass results and retry failures, and keep human approval for irreversible actions after the checks pass.
-
-**AI orchestration vs automation: what's the difference?**
-Automation runs a single task on a trigger. Orchestration coordinates several agents across a multi-step task, deciding order, handoffs, and recovery. Multi-agent workflow automation is what you get when the two combine.
-
-**Do you need to write code?**
-Not necessarily. Building your own orchestration means writing code. A platform can let you describe roles and sequences while it handles queues, retries, and state.
-
-**When is orchestration overkill?**
-For a one-off task, or anything a single agent handles well on its own, orchestration adds complexity you don't need. It pays off when work is repetitive, multi-step, and runs on a schedule.
-
-Want to see orchestration applied to a whole business? Read how a [personal AI company](/blog/personal-ai-company) runs on coordinated agents. For the people-and-agents framing, start with [human-AI collaboration](/blog/introducing-alook).
+*Illustrative Alook UI mockup: one bot hands an approved brief to another, which asks a question and returns a draft for human review. Fictional conversation and ownership.*
