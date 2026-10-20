@@ -1,5 +1,6 @@
-import type { Page, Response } from "@playwright/test"
+import type { Page, Request, Response } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
+import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 
 import { tid } from "./_fixtures/testids"
 import type { CaseActors } from "./_fixtures/case-fixture"
@@ -150,36 +151,111 @@ test.describe("mobile server header direct hierarchy", () => {
     }
   })
 
-  test("639↔640 preserves the header and composer owners without resize requests", async ({ caseActors }) => {
+  test("639↔640 preserves the header and composer owners without resize requests", async ({ caseActors, caseResources }) => {
     const actors = await caseActors(["alice"])
     const { asUser } = actors
     const { serverId, threadId } = await prepareCase1(actors)
 
-    const { page } = await asUser("alice")
-    const startupAttentionPaths = [
-      "/api/community/users/me/attention",
-    ] as const
-    const startupAttentionGenerations = new Map<string, number>(
-      startupAttentionPaths.map((pathname) => [pathname, 0]),
-    )
-    const observeStartupAttention = (response: Response) => {
-      const pathname = new URL(response.url()).pathname
-      if (response.request().method() !== "GET" || !response.ok()) return
-      if (!startupAttentionGenerations.has(pathname)) return
-      startupAttentionGenerations.set(pathname, (startupAttentionGenerations.get(pathname) ?? 0) + 1)
+    const { context, page } = await asUser("alice")
+    let holdAuthentication = true
+    const proxy = await proxyCommunityWebSockets(context, {
+      decideConnectionFrame: (frame) => frame.type === "auth.ok" && holdAuthentication ? "hold" : "forward",
+    })
+    type StartupPhase = "initial" | "authenticated"
+    let phase: StartupPhase | "resize" = "initial"
+    const startupRequests = new Map<Request, {
+      phase: StartupPhase | "resize"
+      pathname: string
+      method: string
+      status?: number
+      terminal: "pending" | "finished" | "failed"
+      failure?: string
+    }>()
+    const observeRequest = (request: Request) => {
+      const pathname = new URL(request.url()).pathname
+      if (pathname.startsWith("/api/community/")) {
+        startupRequests.set(request, { phase, pathname, method: request.method(), terminal: "pending" })
+      }
     }
-    page.on("response", observeStartupAttention)
+    const observeResponse = (response: Response) => {
+      const record = startupRequests.get(response.request())
+      if (record) record.status = response.status()
+    }
+    const observeFinished = (request: Request) => {
+      const record = startupRequests.get(request)
+      if (record) record.terminal = "finished"
+    }
+    const observeFailed = (request: Request) => {
+      const record = startupRequests.get(request)
+      if (record) {
+        record.terminal = "failed"
+        record.failure = request.failure()?.errorText
+      }
+    }
+    caseResources.own(proxy, async (captured) => {
+      holdAuthentication = false
+      page.off("request", observeRequest)
+      page.off("response", observeResponse)
+      page.off("requestfinished", observeFinished)
+      page.off("requestfailed", observeFailed)
+      try {
+        captured.releaseHeldConnections()
+      } finally {
+        await caseResources.closeContext(context)
+      }
+      await test.info().attach("header-hierarchy-startup", {
+        body: JSON.stringify({
+          connections: captured.connectionFrames,
+          requests: [...startupRequests].map(([request, record]) => ({ ...record, timing: request.timing() })),
+        }),
+        contentType: "application/json",
+      })
+    })
+    page.on("request", observeRequest)
+    page.on("response", observeResponse)
+    page.on("requestfinished", observeFinished)
+    page.on("requestfailed", observeFailed)
+    const directoryPaths = [
+      "/api/community/servers",
+      `/api/community/servers/${serverId}/categories`,
+      `/api/community/servers/${serverId}/channels`,
+    ]
+    const readStatePath = "/api/community/users/me/read-state"
+    const expectStartupFinished = async (generation: StartupPhase, paths: string[]) => {
+      await expect.poll(() => {
+        const records = [...startupRequests].map(([request, record]) => ({ ...record, timing: request.timing() }))
+        const readStateEnd = Math.max(-1, ...records.filter((record) => record.phase === "authenticated"
+          && record.pathname === readStatePath && record.method === "GET"
+          && record.terminal === "finished" && record.status === 200 && record.timing.responseEnd >= 0)
+          .map((record) => record.timing.startTime + record.timing.responseEnd))
+        return {
+          failed: records.filter((record) => record.terminal === "failed"
+            || (record.status !== undefined && (record.status < 200 || record.status >= 300))),
+          pending: records.filter((record) => record.terminal === "pending"),
+          missing: paths.filter((pathname) => !records.some((record) => record.phase === generation
+            && record.pathname === pathname && record.method === "GET"
+            && record.terminal === "finished" && record.status === 200
+            && (generation === "initial" || !directoryPaths.includes(pathname)
+              || (readStateEnd >= 0 && record.timing.startTime >= readStateEnd)))),
+        }
+      }).toEqual({ failed: [], pending: [], missing: [] })
+    }
     await page.setViewportSize({ width: 639, height: 844 })
     await page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
     await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toBeVisible({ timeout: 20_000 })
     await expectMobileBack(page)
-    // The shell-owned attention query settles once on cold mount. Keep that
-    // generation outside the resize measurement window.
-    await expect.poll(() => startupAttentionPaths.every(
-      (pathname) => (startupAttentionGenerations.get(pathname) ?? 0) >= 1,
-    )).toBe(true)
-    page.off("response", observeStartupAttention)
+    // RULE: Cold HTTP reads and first-auth read-state/directory reconciliation
+    // must finish before the all-community resize measurement begins.
+    await expectStartupFinished("initial", ["/api/community/users/me/attention", ...directoryPaths])
+    await expect.poll(() => proxy.heldConnectionCount()).toBe(1)
+    expect(proxy.connectionCount()).toBe(1)
+    phase = "authenticated"
+    holdAuthentication = false
+    expect(proxy.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)
+    await expectStartupFinished("authenticated", [readStatePath, ...directoryPaths])
     await page.waitForLoadState("networkidle")
+    await expectStartupFinished("authenticated", [readStatePath, ...directoryPaths])
+    expect(proxy.connectionCount()).toBe(1)
 
     await page.evaluate(({ composerTestId, threadPanelTestId }) => {
       const backControl = document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector('button[aria-label="Back"]')
@@ -189,8 +265,10 @@ test.describe("mobile server header direct hierarchy", () => {
       composerTestId: tid.channelComposerShell,
       threadPanelTestId: tid.threadSplitPanel,
     })
+    phase = "resize"
     let communityRequests = 0
     let newSockets = 0
+    const connectionCount = proxy.connectionCount()
     page.on("request", (request) => {
       if (new URL(request.url()).pathname.startsWith("/api/community/")) communityRequests += 1
     })
@@ -220,5 +298,6 @@ test.describe("mobile server header direct hierarchy", () => {
     expect(new URL(page.url()).pathname).toBe(pathname)
     expect(communityRequests).toBe(0)
     expect(newSockets).toBe(0)
+    expect(proxy.connectionCount() - connectionCount).toBe(0)
   })
 })
