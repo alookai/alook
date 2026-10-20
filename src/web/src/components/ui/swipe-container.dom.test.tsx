@@ -2,7 +2,7 @@ import { useState } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, mockElementGeometry, render, screen, waitFor } from "@/test/react-dom-harness"
 import { SwipeRoot, SwipePortal, SwipeViewport, SwipePopup, SwipeTitle } from "./swipe-container"
-import { canStartSwipe } from "./swipe-gesture-policy"
+import { canStartSwipe, isSystemSwipeStart } from "./swipe-gesture-policy"
 import { Dialog, DialogContent, DialogTitle } from "./dialog"
 import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import { requestNativeBack } from "./native-back-layer"
@@ -10,8 +10,14 @@ import { requestNativeBack } from "./native-back-layer"
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }))
 
 const hitTest = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
+const nativeBridge = Object.getOwnPropertyDescriptor(window, "AlookNative")
+const tauriBridge = Object.getOwnPropertyDescriptor(window, "__TAURI__")
 afterEach(() => {
   vi.restoreAllMocks()
+  for (const [key, descriptor] of [["AlookNative", nativeBridge], ["__TAURI__", tauriBridge]] as const) {
+    if (descriptor) Object.defineProperty(window, key, descriptor)
+    else Reflect.deleteProperty(window, key)
+  }
   if (hitTest) Object.defineProperty(document, "elementFromPoint", hitTest)
   else Reflect.deleteProperty(document, "elementFromPoint")
 })
@@ -154,6 +160,8 @@ describe("shared Drawer interaction", () => {
       expect(popup).not.toHaveAttribute("data-swiping")
     }
     const area = screen.getByTestId("swipe-start")
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android WebView")
+    Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => JSON.stringify({ left: 24, right: 24, width: 390 }) } })
     touch(area, "touchStart", 8)
     touch(area, "touchMove", 290)
     touch(area, "touchEnd", 290)
@@ -161,6 +169,75 @@ describe("shared Drawer interaction", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "retained draft" } })
     expect(screen.getByRole("textbox")).toHaveValue("retained draft")
     restore()
+  })
+
+  it("uses current native system edges in CSS pixels, with a separate application start strip", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android WebView")
+    let region = { left: 48, right: 72, width: 780 }
+    Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => JSON.stringify(region) } })
+    const root = document.createElement("div"), target = document.createElement("span")
+    root.appendChild(target); document.body.appendChild(root)
+    const restore = mockElementGeometry(document.documentElement, { clientWidth: 390, clientHeight: 844 })
+    const start = { target, root, enabled: true, kind: "page" as const, pointerType: "touch", y: 100 }
+    try {
+      expect(canStartSwipe({ ...start, x: 23 })).toBe(false)
+      expect(canStartSwipe({ ...start, x: 24 })).toBe(true)
+      expect(canStartSwipe({ ...start, x: 152 })).toBe(true)
+      expect(canStartSwipe({ ...start, x: 153 })).toBe(false)
+      region = { left: 96, right: 0, width: 780 }
+      expect(canStartSwipe({ ...start, x: 24 })).toBe(false)
+      expect(canStartSwipe({ ...start, x: 48 })).toBe(true)
+      region = { left: 0, right: 0, width: 780 }
+      expect(canStartSwipe({ ...start, x: 0 })).toBe(true)
+      expect(canStartSwipe({ ...start, x: 129 })).toBe(false)
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue("iPhone")
+      region = { left: 96, right: 96, width: 780 }
+      expect(canStartSwipe({ ...start, x: 0 })).toBe(true)
+      expect(canStartSwipe({ ...start, x: 128 })).toBe(true)
+      expect(canStartSwipe({ ...start, x: 129 })).toBe(false)
+    } finally { restore(); root.remove() }
+  })
+
+  it("does not fabricate native measurements when the Android bridge is unavailable or invalid", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android WebView")
+    const root = document.createElement("div"), target = document.createElement("span")
+    root.appendChild(target); document.body.appendChild(root)
+    const start = { target, root, enabled: true, kind: "page" as const, pointerType: "touch", x: 80, y: 100 }
+    try {
+      expect(canStartSwipe(start)).toBe(true)
+      Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+      expect(canStartSwipe(start)).toBe(false)
+      for (const value of ["null", "bad json", '{"left":-1,"right":0,"width":390}', '{"left":200,"right":200,"width":390}']) {
+        Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => value } })
+        expect(canStartSwipe(start)).toBe(false)
+      }
+      Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => { throw new Error("bridge retired") } } })
+      expect(canStartSwipe(start)).toBe(false)
+    } finally { root.remove() }
+  })
+
+  it("yields zoomed content and top/bottom gesture space without borrowing an unhosted document", () => {
+    const root = document.createElement("div"), target = document.createElement("span")
+    root.appendChild(target); document.body.appendChild(root)
+    const restore = mockElementGeometry(document.documentElement, { clientHeight: 844 })
+    const viewport = Object.getOwnPropertyDescriptor(window, "visualViewport")
+    const scale = { scale: 1 }
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: scale })
+    const start = { target, root, enabled: true, pointerType: "touch", x: 120 }
+    try {
+      expect(canStartSwipe({ ...start, y: 24 })).toBe(true)
+      expect(canStartSwipe({ ...start, y: 23 })).toBe(false)
+      expect(canStartSwipe({ ...start, y: 812 })).toBe(true)
+      expect(canStartSwipe({ ...start, y: 813 })).toBe(false)
+      scale.scale = 2
+      expect(canStartSwipe({ ...start, y: 100 })).toBe(false)
+      expect(isSystemSwipeStart(root, 120)).toBe(false)
+      expect(isSystemSwipeStart(document.implementation.createHTMLDocument().body, 120)).toBe(false)
+    } finally {
+      restore(); root.remove()
+      if (viewport) Object.defineProperty(window, "visualViewport", viewport)
+      else Reflect.deleteProperty(window, "visualViewport")
+    }
   })
 
   it("yields overflow scrollers, multi-touch, selection, and disabled surfaces", () => {

@@ -7,7 +7,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { cn } from "@/lib/utils"
 import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
-import { canStartSwipe } from "./swipe-gesture-policy"
+import { canStartSwipe, isSystemSwipeStart } from "./swipe-gesture-policy"
 import styles from "./swipe-container.module.css"
 
 type SwipeKind = "page" | "overlay"
@@ -51,17 +51,17 @@ const SwipeViewportElement = React.forwardRef<HTMLDivElement, React.ComponentPro
 }, ref) {
   const { enabled, kind, cancelledRef } = React.useContext(SwipeContext)
   const isolate = kind === "overlay" || enabled
-  return <div {...props} ref={ref}
+  return <div {...props} ref={ref} data-swipe-viewport={kind}
     onPointerDown={(event) => {
       cancelledRef.current = !canStartSwipe({ target: event.target, x: event.clientX, y: event.clientY, root: event.currentTarget,
-        enabled, pointerType: event.pointerType })
+        enabled, kind, pointerType: event.pointerType })
       if (!cancelledRef.current) onPointerDown?.(event)
       if (isolate) event.stopPropagation()
     }}
     onTouchStart={(event) => {
       const touch = event.touches[0]
       cancelledRef.current = !touch || !canStartSwipe({ target: event.target, x: touch.clientX, y: touch.clientY, root: event.currentTarget,
-        enabled, pointerType: "touch", touches: event.touches.length })
+        enabled, kind, pointerType: "touch", touches: event.touches.length })
       if (cancelledRef.current) onTouchCancel?.(event)
       else onTouchStart?.(event)
       if (isolate) event.stopPropagation()
@@ -82,6 +82,18 @@ const SwipeViewportElement = React.forwardRef<HTMLDivElement, React.ComponentPro
     onClick={(event) => { onClick?.(event); if (kind === "overlay") event.stopPropagation() }}
     onContextMenu={(event) => { onContextMenu?.(event); if (kind === "overlay") event.stopPropagation() }} />
 })
+
+export function usePageSwipeStart() {
+  const { enabled, kind } = React.useContext(SwipeContext)
+  const page = enabled && kind === "page"
+  const reservesReply = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (!page || !(event.target instanceof Element)) return false
+    const root = event.target.closest<HTMLElement>('[data-swipe-viewport="page"]')
+    return !!root && (isSystemSwipeStart(root, event.clientX) || canStartSwipe({ target: event.target, root, x: event.clientX, y: event.clientY,
+      enabled: true, kind: "page", pointerType: event.pointerType }))
+  }, [page])
+  return { page, reservesReply }
+}
 
 export function SwipeViewport({ className, ...props }: Omit<Drawer.Viewport.Props, "render">) {
   return <Drawer.Viewport {...props} className={cn(styles.viewport, className)} render={<SwipeViewportElement />} />

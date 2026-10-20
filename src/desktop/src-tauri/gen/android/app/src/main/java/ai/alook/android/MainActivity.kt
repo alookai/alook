@@ -21,6 +21,11 @@ class MainActivity : TauriActivity() {
 
     private var isReady = false
     private var mainWebView: WebView? = null
+    private var systemGestureInsets: Insets? = null
+    @Volatile private var systemGestureRegionJson = "null"
+    private val gestureLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+        syncSystemGestureRegion()
+    }
     private var startupAttachListener: View.OnAttachStateChangeListener? = null
     private val mobileShareImageDocumentOwner = MobileShareImageDocumentOwner(this)
 
@@ -69,7 +74,9 @@ class MainActivity : TauriActivity() {
             val imeInsets = insets.getInsets(imeType)
             val imeVisible = insets.isVisible(imeType)
             val bottomPadding = if (imeVisible) imeInsets.bottom else chromeInsets.bottom
+            systemGestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures())
             v.setPadding(chromeInsets.left, chromeInsets.top, chromeInsets.right, bottomPadding)
+            syncSystemGestureRegion()
             WindowInsetsCompat.Builder(insets)
                 .setInsets(chromeTypes, Insets.NONE)
                 .setInsets(imeType, Insets.of(imeInsets.left, imeInsets.top, imeInsets.right, 0))
@@ -84,7 +91,9 @@ class MainActivity : TauriActivity() {
 
     override fun onDestroy() {
         clearStartupAttachListener()
+        mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
         mainWebView = null
+        systemGestureRegionJson = "null"
         mobileShareImageDocumentOwner.detach()
         super.onDestroy()
     }
@@ -92,12 +101,16 @@ class MainActivity : TauriActivity() {
     override fun onWebViewCreate(webView: WebView) {
         super.onWebViewCreate(webView)
         clearStartupAttachListener()
+        mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
         mainWebView = webView
+        webView.addOnLayoutChangeListener(gestureLayoutListener)
+        syncSystemGestureRegion()
         if (!isReady && !isDestroyed && !isFinishing) {
             val listener = object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(view: View) {
                     if (view !== mainWebView || isDestroyed || isFinishing) return
                     isReady = true
+                    syncSystemGestureRegion()
                     clearStartupAttachListener()
                 }
                 override fun onViewDetachedFromWindow(view: View) {}
@@ -111,6 +124,20 @@ class MainActivity : TauriActivity() {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(webView, THEME_OBSERVER_SCRIPT, setOf("*"))
         }
+    }
+
+    private fun syncSystemGestureRegion() {
+        val webView = mainWebView ?: return
+        val insets = systemGestureInsets ?: ViewCompat.getRootWindowInsets(webView)
+            ?.getInsets(WindowInsetsCompat.Type.systemGestures()) ?: return
+        val root = webView.rootView
+        val location = IntArray(2)
+        val rootLocation = IntArray(2)
+        webView.getLocationInWindow(location)
+        root.getLocationInWindow(rootLocation)
+        systemGestureRegionJson = SystemGestureRegion.fromWindow(
+            root.width, location[0] - rootLocation[0], webView.width, insets.left, insets.right,
+        )?.toJson() ?: "null"
     }
 
     private fun clearStartupAttachListener() {
@@ -133,6 +160,9 @@ class MainActivity : TauriActivity() {
     }
 
     class ThemeBridge(private val activity: MainActivity) {
+        @JavascriptInterface
+        fun getSystemGestureRegion(): String = activity.systemGestureRegionJson
+
         @JavascriptInterface
         fun setWindowTheme(dark: Boolean) {
             activity.applyWindowTheme(dark)

@@ -369,6 +369,7 @@ export function CommunityShellLayout({
   const sidebarMobileHidden = isInitialDetail
   const mainMobileActive = isInitialDetail
   const mainMobileHidden = isMobileList || (isInitial && surface === "list")
+  const mainMobileCollapsed = breakpoint === "mobile" || (isInitial && surface === "list")
   const showUserBar = isDesktop || isMobileList || isInitial || preserveHiddenMobileModules
 
   const initialUserBarStyle = {
@@ -473,8 +474,8 @@ export function CommunityShellLayout({
               groupResizeBehavior="preserve-relative-size"
               disabled={!isDesktop}
               data-mobile-active={mainMobileActive || undefined}
-              data-mobile-hidden={mainMobileHidden || undefined}
-              className="flex min-w-0 flex-col bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none"
+              data-mobile-hidden={mainMobileCollapsed || undefined}
+              className={cn("flex min-w-0 flex-col sm:bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none", mainMobileHidden && "max-sm:hidden")}
             >
               <div
                 data-slot="community-main-panel-content"

@@ -6,10 +6,17 @@
   pointer-events: auto;
 }
 
+@layer components {
+  @media (max-width: 639px) {
+    .popup {
+      transition-property: transform, opacity;
+    }
+  }
+}
+
 @media (max-width: 639px) {
   .popup {
     animation: none !important;
-    transition-property: transform, opacity;
     transition-duration: 220ms;
     transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
     transform: translate3d(var(--drawer-swipe-movement-x, 0px), var(--drawer-swipe-movement-y, 0px), 0);

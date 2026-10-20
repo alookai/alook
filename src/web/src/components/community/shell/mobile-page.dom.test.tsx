@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { act, screen, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, mockElementGeometry, screen, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { CommunityRouteContext, type CommunityNavigationController } from "@/contexts/community/route-frame"
 import { MobilePageBackContext, type MobilePageBack } from "@/contexts/community/mobile-page-back"
@@ -8,6 +8,7 @@ import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { requestNativeBack } from "@/components/ui/native-back-layer"
 import { MobilePage } from "./mobile-page"
 import { useCommunityRuntime } from "@/stores/community/runtime"
+import { Message } from "@/components/community/messages/message"
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }))
 afterEach(() => vi.restoreAllMocks())
@@ -56,6 +57,118 @@ function holdExit(popup: HTMLElement) {
 }
 
 describe("mobile page dismissal", () => {
+  it.each([{ userAgent: "iPhone", start: 8 }, { userAgent: "Android WebView", start: 80 }])("follows an inline $userAgent page touch inside a vertical scroller, cancels, then commits one parent Back", async ({ userAgent, start }) => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(userAgent)
+    const task = fixture()
+    render(<task.Fixture><div style={{ overflowY: "auto" }} data-testid="page-scroll"><div data-testid="page-touch">Page body</div></div></task.Fixture>)
+    const area = screen.getByTestId("page-touch")
+    const popup = area.closest<HTMLElement>('[data-slot="mobile-page"]')!
+    const scroller = screen.getByTestId("page-scroll")
+    const restorePopup = mockElementGeometry(popup, { width: 390, height: 600, offsetWidth: 390, offsetHeight: 600, clientWidth: 390, clientHeight: 600 })
+    const restoreScroll = mockElementGeometry(scroller, { width: 390, height: 600, clientWidth: 390, clientHeight: 600, scrollWidth: 390, scrollHeight: 1800 })
+    const hitTest = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => area })
+    const touch = (type: string, x: number, time: number) => {
+      const point = { clientX: x, clientY: 100, identifier: 0, target: area }
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperties(event, {
+        touches: { value: type === "touchend" || type === "touchcancel" ? [] : [point] },
+        changedTouches: { value: [point] }, timeStamp: { value: time },
+      })
+      fireEvent(area, event)
+    }
+    try {
+      touch("touchstart", start, 100)
+      touch("touchmove", 170, 300)
+      touch("touchmove", 220, 500)
+      expect(popup).toHaveAttribute("data-swiping")
+      expect(popup.style.transform).toContain("50px")
+      touch("touchcancel", 220, 700)
+      await waitFor(() => expect(popup).not.toHaveAttribute("data-swiping"))
+      expect(popup).toHaveAttribute("data-open")
+      expect(task.replace).not.toHaveBeenCalled()
+      const animation = holdExit(popup)
+      touch("touchstart", start, 1000)
+      touch("touchmove", 170, 1200)
+      touch("touchmove", 380, 1400)
+      touch("touchend", 380, 1600)
+      await waitFor(() => expect(popup).toHaveAttribute("data-closed"))
+      expect(task.replace).not.toHaveBeenCalled()
+      await waitFor(() => expect(animation.animations).toHaveBeenCalled())
+      await act(async () => animation.finish())
+      expect(task.replace).toHaveBeenCalledExactlyOnceWith("/c/me", { resume: true })
+    } finally {
+      restorePopup(); restoreScroll()
+      if (hitTest) Object.defineProperty(document, "elementFromPoint", hitTest)
+      else Reflect.deleteProperty(document, "elementFromPoint")
+    }
+  })
+
+  it.each(["iPhone", "Android WebView"])("gives the page strip and message Reply separate start ownership on %s", async (userAgent) => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(userAgent)
+    const task = fixture(), reply = vi.fn()
+    render(<task.Fixture><Message m={{ id: "m1", type: "chat", authorId: "author", content: "Swipe text", createdAt: new Date(0).toISOString(), grouped: false }} onOpenThread={vi.fn()} onReply={reply} hoverCapable={false} /></task.Fixture>)
+    const area = screen.getByText("Swipe text")
+    const row = area.closest<HTMLElement>("[data-page-swipe-reply-row]")!
+    const popup = area.closest<HTMLElement>('[data-slot="mobile-page"]')!
+    const restore = mockElementGeometry(popup, { width: 390, height: 600, offsetWidth: 390, offsetHeight: 600, clientWidth: 390, clientHeight: 600 })
+    const restoreWidth = mockElementGeometry(document.documentElement, { clientWidth: 390, clientHeight: 844 })
+    const originalHit = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
+    const originalBridge = Object.getOwnPropertyDescriptor(window, "AlookNative")
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => area })
+    Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => '{"left":48,"right":48,"width":780}' } })
+    const pointer = (type: "pointerDown" | "pointerMove" | "pointerUp", x: number) => fireEvent[type](area, { pointerType: "touch", pointerId: 1, clientX: x, clientY: 100 })
+    const touch = (type: "touchstart" | "touchmove" | "touchcancel", x: number) => {
+      const point = { clientX: x, clientY: 100, identifier: 0, target: area }
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperties(event, { touches: { value: type === "touchcancel" ? [] : [point] }, changedTouches: { value: [point] } })
+      fireEvent(area, event)
+    }
+    try {
+      if (userAgent === "Android WebView") {
+        pointer("pointerDown", 8)
+        touch("touchstart", 8)
+        pointer("pointerMove", 78)
+        touch("touchmove", 78)
+        pointer("pointerUp", 78)
+        touch("touchcancel", 78)
+        expect(reply).not.toHaveBeenCalled()
+        expect(popup).not.toHaveAttribute("data-swiping")
+      }
+      const start = userAgent === "iPhone" ? 8 : 24
+      pointer("pointerDown", start)
+      touch("touchstart", start)
+      pointer("pointerMove", start + 50)
+      touch("touchmove", start + 50)
+      pointer("pointerMove", start + 100)
+      touch("touchmove", start + 100)
+      expect(popup).toHaveAttribute("data-swiping")
+      expect(popup.style.transform).toContain("50px")
+      expect(row.style.transform).toBe("")
+      expect(reply).not.toHaveBeenCalled()
+      touch("touchcancel", start + 100)
+      pointer("pointerUp", start + 100)
+      await waitFor(() => expect(popup).not.toHaveAttribute("data-swiping"))
+      expect(task.replace).not.toHaveBeenCalled()
+      pointer("pointerDown", 220)
+      touch("touchstart", 220)
+      pointer("pointerMove", 290)
+      touch("touchmove", 290)
+      expect(row.style.transform).toContain("translate3d")
+      expect(popup).not.toHaveAttribute("data-swiping")
+      pointer("pointerUp", 290)
+      touch("touchcancel", 290)
+      expect(reply).toHaveBeenCalledOnce()
+      expect(task.replace).not.toHaveBeenCalled()
+    } finally {
+      restore(); restoreWidth()
+      if (originalHit) Object.defineProperty(document, "elementFromPoint", originalHit)
+      else Reflect.deleteProperty(document, "elementFromPoint")
+      if (originalBridge) Object.defineProperty(window, "AlookNative", originalBridge)
+      else Reflect.deleteProperty(window, "AlookNative")
+    }
+  })
+
   it("reopens the retained current page on desktop while a completed mobile Back still waits for parent publication", async () => {
     const task = fixture()
     const view = render(<task.Fixture />)

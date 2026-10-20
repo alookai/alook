@@ -27,6 +27,7 @@ import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./mes
 import { formatMessageTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
+import { usePageSwipeStart } from "@/components/ui/swipe-container"
 import { avatarInitial } from "@/lib/community/avatar"
 import { stripInlineMarkup } from "@alook/shared"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
@@ -231,6 +232,7 @@ function MessageImpl({
     : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = m.content ?? ""
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
+  const pageSwipe = usePageSwipeStart()
   const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
   // Right-click context-menu open state — tracked so the Mark/Unmark label's
   // lazy read fires for the context menu too, not just the ⋯ dropdown.
@@ -387,7 +389,8 @@ function MessageImpl({
     : reactionAddButton
   const row = (
     <div
-      data-base-ui-swipe-ignore=""
+      data-base-ui-swipe-ignore={pageSwipe.page ? "y" : ""}
+      data-page-swipe-reply-row=""
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
@@ -425,7 +428,7 @@ function MessageImpl({
       onPointerDown={swipeReplyEnabled
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
-            if (event.pointerType !== "touch") return
+            if (event.pointerType !== "touch" || pageSwipe.reservesReply(event)) return
             const nested = (event.target as Element).closest?.(
               "button, a, input, textarea, select, [role=button]",
             )

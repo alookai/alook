@@ -1,3 +1,4 @@
+import { expectInertBackground } from "./inert-background"
 import type {
   BrowserContext,
   BrowserContextOptions,
@@ -910,7 +911,7 @@ export async function runRouteLoadingGeometry(
             .toBe(true)
         } else {
           await expect(loadedAdd).toHaveCount(1)
-          await expect(loadedAdd).toBeHidden()
+          await expectInertBackground(loadedAdd)
           expect(await loadedAdd.evaluate((element) => (
             element.closest('[inert][aria-hidden="true"]') !== null
           ))).toBe(true)

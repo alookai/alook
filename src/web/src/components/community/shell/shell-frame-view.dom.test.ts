@@ -787,7 +787,7 @@ describe("ShellFrameView", () => {
     expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-active"]).toBe(true)
     expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-hidden"]).toBeUndefined()
     expect(latestProps(mocks.panelProps, "main")["data-mobile-active"]).toBeUndefined()
-    expect(latestProps(mocks.panelProps, "main")["data-mobile-hidden"]).toBeUndefined()
+    expect(latestProps(mocks.panelProps, "main")["data-mobile-hidden"]).toBe(true)
     expect(renderer.container.querySelectorAll("[data-shell-overlays]")).toHaveLength(1)
     const detailMotion = renderer.container.querySelector('[data-community-mobile-surface="detail"]')!
     expect(detailMotion.className).toContain("flex")

@@ -26,8 +26,11 @@ export function UserBarExtensionDrawer({ children, onDismiss }: { children: Cont
           <SwipeViewport>
             <SwipePopup role="presentation" initialFocus={() => {
               if (!children?.props.focusOnOpen) return false
+              const panel = host?.querySelector<HTMLElement>(`[data-testid="${tid.userBarExtension}"]`)
+              if (!panel) return false
+              panel.focus({ preventScroll: true })
               children.props.onInitialFocus?.()
-              return host?.querySelector<HTMLElement>(`[data-testid="${tid.userBarExtension}"]`) ?? false
+              return false
             }} finalFocus={false}
               data-slot="user-bar-swipe" className="community-user-bar-drawer" inert={!open}>
               {content && cloneElement(content, { interactive: open, animate: false, focusOnOpen: false })}

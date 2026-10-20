@@ -52,6 +52,7 @@ describe("UserBar Inbox switching", () => {
 
   it("keeps committed mobile extension switching outside render-phase updates", async () => {
     const errors = vi.spyOn(console, "error")
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
     function Harness() {
       const [active, setActive] = useState<UserBarExtensionKind>("none")
       const inbox = createElement("button", null, "Inbox item")
@@ -82,7 +83,12 @@ describe("UserBar Inbox switching", () => {
     await user.click(trigger)
     expect(trigger).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByRole("dialog", { name: "Inbox" })).toBeVisible()
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Inbox" })).toHaveFocus())
+    const dialog = screen.getByRole("dialog", { name: "Inbox" })
+    await waitFor(() => expect(dialog).toHaveFocus())
+    const panelFocusCalls = focus.mock.calls.filter((_, index) => focus.mock.contexts[index] === dialog)
+    expect(panelFocusCalls.length).toBeGreaterThan(0)
+    for (const args of panelFocusCalls) expect(args).toEqual([{ preventScroll: true }])
+    focus.mockRestore()
     await user.click(screen.getByRole("button", { name: "User", exact: true }))
     expect(screen.getByRole("dialog", { name: "Your profile" })).toBeVisible()
     expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
