@@ -204,7 +204,7 @@ async function visibleGeometry(page: Page): Promise<Geometry> {
     if (frames.length !== 1) throw new Error(`Expected one actual geometry frame, got ${frames.length}`)
     const frame = frames[0]
     const detail = innerWidth < 640 ? frame.querySelector('[data-mobile-page-active="true"] [data-slot="mobile-page"]') : null
-    const selectors = { shell: '[data-slot="community-shell-root"]', surface: '[data-slot="community-app-surface"]', rail: '[data-slot="community-server-rail-viewport"]', sidebar: `[data-slot="resizable-panel"][data-testid="${sidebarId}"]`, main: `[data-slot="resizable-panel"][data-testid="${mainId}"]`, userBar: '[data-slot="community-user-bar-overlay"]' }
+    const selectors = { shell: '[data-slot="community-shell-root"]', body: '[data-slot="community-shell-body"]', surface: '[data-slot="community-app-surface"]', rail: '[data-slot="community-server-rail-viewport"]', sidebar: `[data-slot="resizable-panel"][data-testid="${sidebarId}"]`, main: `[data-slot="resizable-panel"][data-testid="${mainId}"]`, userBar: '[data-slot="community-user-bar-overlay"]' }
     const result: Geometry = {}
     for (const [name, selector] of Object.entries(selectors)) {
       if (detail && ["rail", "sidebar", "userBar"].includes(name)) {

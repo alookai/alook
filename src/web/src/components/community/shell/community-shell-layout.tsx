@@ -389,26 +389,19 @@ export function CommunityShellLayout({
       {(!isMobileDetail || preserveHiddenMobileModules) && (
         <div data-community-rail inert={isMobileDetail} aria-hidden={isMobileDetail || undefined} className={cn(
           "flex min-h-0",
-          isInitialDetail && "hidden sm:contents",
+          isInitialDetail && "invisible sm:visible sm:contents",
 
         )}>
           {rail}
         </div>
       )}
       <div
-        className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 flex-col",
-          !isInitialDetail && "pt-2",
-          isInitialDetail && "pt-0 sm:pt-2",
-        )}
+        data-slot="community-shell-body"
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col pt-2"
       >
         <AppSurface
           data-slot="community-app-surface"
-          className={cn(
-            SHELL_SURFACE_CLASS,
-
-            isInitialDetail && "max-sm:rounded-none max-sm:border-0 max-sm:bg-background max-sm:shadow-none max-sm:ring-0",
-          )}
+          className={SHELL_SURFACE_CLASS}
         >
           <ResizablePanelGroup
             id="community-shell"
@@ -484,7 +477,7 @@ export function CommunityShellLayout({
               data-mobile-active={mainMobileActive || undefined}
               data-mobile-hidden={mainMobileHidden || undefined}
               data-mobile-layer={surface === "detail" || undefined}
-              className={cn("flex min-w-0 flex-col sm:bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none", mainMobileHidden && "max-sm:hidden")}
+              className={cn("flex min-w-0 flex-col sm:bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none", isInitialDetail && "max-sm:bg-background", mainMobileHidden && "max-sm:hidden")}
             >
               <div
                 data-slot="community-main-panel-content"
