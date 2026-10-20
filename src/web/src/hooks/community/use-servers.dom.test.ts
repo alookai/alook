@@ -7,6 +7,7 @@ import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, publishAccountAttentionSnapshot, publishCommunityLiveSnapshot, projectCommunityWsEventToDb, publishCommunityChannelDirectory } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
+import { forumConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { AccountUnreadProjection, getActiveAccountUnreadProjection } from "./account-unread-projection"
 import { serversQueryFn, serversProjectedQueryFn, serverProjectedQueryFn, useServers, useServer, useViewerServerRole, type ServersResponse, type ServerDetail } from "./use-servers"
 
@@ -31,7 +32,7 @@ const canonical = (id = "srv_1") => ({ ...identity, id, initial: "A", active: fa
 function publish(snapshot: Parameters<typeof publishCommunityLiveSnapshot>[1]["snapshot"]) {
   return publishCommunityLiveSnapshot(client, { snapshot, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
 }
-function seedList(servers = [canonical()]) {
+function seedList(servers: ServersResponse["servers"] = [canonical()]) {
   publish({ kind: "servers", data: { servers } })
   client.setQueryData(communityKeys.servers(), servers.map((server) => server.id))
 }
@@ -468,6 +469,64 @@ function deferred<T>() {
 }
 
 describe("qualified viewer server role", () => {
+  it.each([false, true])("admits an authoritative owner role with newer forum-presence confirmation=%s", async confirmed => {
+    const entry = forumConversationEntryFixture("forum", identity.id)
+    publishAccountAttentionSnapshot(client, {
+      snapshot: { scopes: [], items: [], limit: 100, truncated: false, included: {
+        servers: [{ id: identity.id, name: identity.name, discriminator: identity.discriminator }],
+        channels: [entry.channel], dms: [], profiles: [], messages: [],
+      } },
+      proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
+    })
+    const held = deferred<{ servers: Array<typeof identity & { role: string; memberId: string }> }>()
+    apiFetchMock.mockReturnValue(held.promise)
+    const view = renderHook(() => useViewerServerRole(identity.id, "viewer"), { wrapper: Owner })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.anything()))
+    expect(view.result.current).toBeUndefined()
+    if (confirmed) await act(async () => { await seedConversationEntry(client, entry) })
+    await act(async () => { held.resolve({ servers: [{ ...identity, role: "owner", memberId: "own-member" }] }) })
+    await waitFor(() => expect(view.result.current).toBe("owner"))
+    view.unmount()
+  })
+
+  it("keeps a newer role demotion while admitting an older owner response", async () => {
+    seedList([{ ...canonical(), isOwner: true, role: "owner", memberId: "own-member" }])
+    const held = deferred<{ servers: Array<typeof identity & { role: string; memberId: string }> }>()
+    apiFetchMock.mockReturnValue(held.promise)
+    let request!: ReturnType<typeof fetchList>
+    await act(async () => { request = fetchList() })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.anything()))
+    act(() => projectCommunityWsEventToDb(client, {
+      type: "community:member.update", serverId: identity.id, memberId: "own-member", userId: "viewer", changes: { role: "member" },
+    }))
+    await act(async () => {
+      held.resolve({ servers: [{ ...identity, role: "owner", memberId: "own-member" }] })
+      await request
+    })
+    const view = renderHook(() => useViewerServerRole(identity.id, "viewer"), { wrapper: Owner })
+    await waitFor(() => expect(view.result.current).toBe("member"))
+    view.unmount()
+  })
+
+  it("keeps confirmed membership when an older server list omits it", async () => {
+    const entry = forumConversationEntryFixture("forum", identity.id)
+    publishAccountAttentionSnapshot(client, {
+      snapshot: { scopes: [], items: [], limit: 100, truncated: false, included: {
+        servers: [{ id: identity.id, name: identity.name, discriminator: identity.discriminator }],
+        channels: [entry.channel], dms: [], profiles: [], messages: [],
+      } },
+      proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
+    })
+    const held = deferred<{ servers: Array<typeof identity & { role: string; memberId: string }> }>()
+    apiFetchMock.mockReturnValue(held.promise)
+    const request = fetchList()
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.anything()))
+    await act(async () => { await seedConversationEntry(client, entry) })
+    await act(async () => { held.resolve({ servers: [] }); await request })
+    expect(registry.collections.servers.get(identity.id)).toBeDefined()
+    expect(registry.collections.serverMemberships.get("srv_1:viewer")).toMatchObject({ userId: "viewer", viewer: true })
+  })
+
   it("uses the live own membership before roster pagination and follows member-id-only demotion", async () => {
     apiFetchMock.mockResolvedValue({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] })
     await fetchList()

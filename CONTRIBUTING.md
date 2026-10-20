@@ -112,6 +112,8 @@ Use a qualified cached window only when its IDs and complete canonical entities 
 
 Freshness and retention are different. Entry and message-window options own stale/GC policy; [query-persister](src/web/src/lib/query-persister.ts) owns the bounded persisted closure and restore eligibility. A prior visit, restored entity or fresh metadata does not establish an available, qualified landing window. Account retirement and channel/parent access generation changes retire original authority before reuse; never recapture new permission for old work or carry an old generation's maximum into the new one.
 
+Presence revisions protect confirmed rows from older snapshot omissions. An existing row may accept an in-flight snapshot when only its presence revision is newer; a real newer field update retains the existing whole-row protection.
+
 ### Request, merge and action boundaries
 
 Capture account, target and allowed lifetime before an async command. Keep that qualification through transport, authentication effects and canonical publication. View-dependent actions also keep their original view guard. An accepted send has its existing account/target lifetime across view changes; that does not authorize old UI completion or a stale retry.
@@ -134,7 +136,7 @@ The target root in [CommunityPendingFrame](src/web/src/components/community/shel
 
 Keep these existing regression entry points when changing the contract:
 
-- Reading/coverage: `use-conversation-entry.dom.test.tsx`, `read-coordinator.test.ts`, `use-read-observer.dom.test.ts`, `use-messages.window.dom.test.tsx`, `use-scroll-anchor.repin.dom.test.ts` under `src/web/src/hooks/community/`.
+- Reading/coverage and canonical roles: `use-conversation-entry.dom.test.tsx`, `read-coordinator.test.ts`, `use-read-observer.dom.test.ts`, `use-messages.window.dom.test.tsx`, `use-scroll-anchor.repin.dom.test.ts`, `use-servers.dom.test.ts` under `src/web/src/hooks/community/`.
 - Boundary display: `message-list-row.dom.test.ts`, `message-list-view.dom.test.ts`, `message-list.older-load.dom.test.ts` under `src/web/src/components/community/messages/`.
 - Content/commands: `forum-preview-live-edit.dom.test.ts`, `accepted-send-lifecycle.dom.test.ts` and `mutations/message-field-owner.dom.test.tsx` under `src/web/src/hooks/community/`.
 - Navigation/role/target container: `shell-frame.dom.test.ts`, `use-community-navigation-controller.dom.test.ts`, `community-pending-frame.dom.test.ts`, `channel-route.text-scroll-target.dom.test.ts` and `channel-member-view-model.dom.test.ts` in their corresponding component directories.

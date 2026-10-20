@@ -383,6 +383,9 @@ function replaceRows<N extends CollectionName>(
       continue
     }
     if (nextByKey.has(key)) {
+      const context = canonicalWriteContexts.get(registry.queryClient)
+      const revisions = canonicalRevisionState(registry.queryClient).fieldRevisions.get(canonicalEntityKey(name, key))
+      if (context?.kind === "query" && !Array.from(revisions?.values() ?? []).some(revision => revision > context.requestRevision)) nextByKey.set(key, row)
       clearPendingOperations(registry, name, [key])
       continue
     }
