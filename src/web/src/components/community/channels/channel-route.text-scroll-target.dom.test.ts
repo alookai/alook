@@ -1,6 +1,8 @@
 import React from "react"
 import { renderToString } from "react-dom/server"
-import { QueryClientProvider } from "@tanstack/react-query"
+import { QueryClientProvider, useQuery } from "@tanstack/react-query"
+import { ROOT_CONTEXT, trace } from "@opentelemetry/api"
+import { InMemorySpanExporter, SimpleSpanProcessor, WebTracerProvider } from "@opentelemetry/sdk-trace-web"
 import { CommunityDbProvider, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { act, fireEvent, screen } from "@/test/react-dom-harness"
 import { renderCommunity as render, renderCommunityHook } from "@/test/community-owner-harness"
@@ -15,6 +17,9 @@ import type { ConversationNavigationTarget } from "@/lib/community/conversation-
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { runAuthoritativeServerEject } from "@/lib/community/eject-server"
 import ServerLayout from "@/app/c/channels/layout"
+import { beginNavigation, clearActions, installActionSpans } from "@/lib/observability/context"
+import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
+import { useObservedRegion } from "@/lib/observability/regions"
 
 const {
   mockRouteModel,
@@ -1745,5 +1750,107 @@ describe("ChannelRoute message surface ownership", () => {
       )
     })
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
+  })
+
+  describe("route-entry observations", () => {
+    let provider: WebTracerProvider
+    let exporter: InMemorySpanExporter
+    let now: number
+    let events: string[]
+
+    beforeEach(() => {
+      now = 100
+      events = []
+      mockSearchParams.value = ""
+      window.history.replaceState(null, "", "/c/channels/server_1/channel_1")
+      vi.spyOn(performance, "now").mockImplementation(() => now)
+      exporter = new InMemorySpanExporter()
+      provider = new WebTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+      configureTelemetry({ session_id: "route-entry" }, true)
+      installTelemetrySink(event => events.push(event.name))
+      installActionSpans((name, attributes, startTime, links, parent) => provider.getTracer("alook.frontend").startSpan(name, { attributes, startTime, links }, parent ? trace.setSpan(ROOT_CONTEXT, parent) : ROOT_CONTEXT))
+    })
+
+    afterEach(async () => {
+      retireTelemetry()
+      clearActions()
+      installActionSpans(undefined)
+      vi.mocked(useChannelRouteModel).mockImplementation(() => mockRouteModel as ReturnType<typeof useChannelRouteModel>)
+      mockedMessageList.mockImplementation(() => null)
+      window.history.replaceState(null, "", "/")
+      await provider.shutdown()
+    })
+
+    it("measures the skeleton entry request before the list mounts, then waits for the actual list phases", async () => {
+      let release!: () => void
+      const response = new Promise<void>(resolve => { release = resolve })
+      vi.mocked(useChannelRouteModel).mockImplementation(function useEntryRouteModel() {
+        const entry = useQuery({ queryKey: ["route-entry-observation"], queryFn: async () => { await response; return true }, staleTime: Infinity })
+        return { ...mockRouteModel, routeHydrated: !entry.isPending, routeLifecycle: entry.isPending ? "pending" : "ready", skeletonSubtype: entry.isPending ? "unknown" : "text" } as ReturnType<typeof useChannelRouteModel>
+      })
+      let observedFeed = feed({ isLoading: true, observation: { wait_reason: "window", snapshot_source: "network", target_coverage: "uncovered" } })
+      mockedUseChannelMessageFeed.mockImplementation(() => observedFeed)
+      mockedMessageList.mockImplementation(function ObservedList(props) {
+        useObservedRegion("messages", !props.loading, props.messages.length, props.observation)
+        return React.createElement("p", null, props.loading ? "Waiting for messages" : "Ready messages")
+      })
+      const navigation = beginNavigation(window.location.href)!
+      const node = () => React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" })
+      const view = render(node())
+      expect(view.container.querySelector('[aria-label="Resolving conversation"]')).not.toBeNull()
+      expect(mockedMessageList).not.toHaveBeenCalled()
+      now = 3500
+      await act(async () => { release(); await vi.advanceTimersByTimeAsync(0) })
+      expect(mockedMessageList).toHaveBeenCalled()
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("region.ready_commit")
+      expect(events).not.toContain("navigation.ready")
+      now = 3520
+      observedFeed = feed({ isLoading: true, observation: { wait_reason: "projection", snapshot_source: "network", target_coverage: "covered" } })
+      view.rerender(node())
+      now = 3550
+      observedFeed = feed({ isLoading: true, observation: { wait_reason: "virtual_window", snapshot_source: "network", target_coverage: "covered" } })
+      view.rerender(node())
+      now = 3590
+      observedFeed = feed({ isLoading: false, observation: { wait_reason: "none", snapshot_source: "network", target_coverage: "covered" } })
+      view.rerender(node())
+      const waits = exporter.getFinishedSpans().filter(span => span.name === "region.wait")
+      expect(waits.map(span => [span.attributes.wait_reason, span.attributes.release_reason, span.attributes.outcome])).toEqual([
+        ["entry", "condition_changed", "superseded"], ["window", "condition_changed", "superseded"],
+        ["projection", "condition_changed", "superseded"], ["virtual_window", "ready", "empty"],
+      ])
+      expect(waits.map(span => span.duration[0] * 1000 + span.duration[1] / 1e6)).toEqual([3400, 20, 30, 40])
+      expect(new Set(waits.map(span => span.parentSpanContext?.spanId))).toEqual(new Set([navigation.span!.spanContext().spanId]))
+      expect(navigation.done).toBe(true)
+      expect(events.filter(name => name === "navigation.ready")).toHaveLength(1)
+      view.unmount()
+    })
+
+    it.each(["uncommitted", "other-target"])("does not observe a retained %s pane as a foreground entry", reason => {
+      Object.assign(mockRouteModel, { routeLifecycle: "pending", routeHydrated: false, skeletonSubtype: "text" })
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(React.createElement(ChannelRoute, {
+        serverParam: "server_1", channelId: reason === "other-target" ? "background-parent" : "channel_1", routeCommitted: reason !== "uncommitted",
+      }))
+      now = 3500
+      view.unmount()
+      expect(exporter.getFinishedSpans().filter(span => span.name === "region.wait")).toHaveLength(0)
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("navigation.ready")
+    })
+
+    it.each(["text", "thread", "forum"] as const)("cancels a %s skeleton wait on unmount without claiming content ready", subtype => {
+      if (subtype === "thread") configureThreadRoute()
+      Object.assign(mockRouteModel, { routeLifecycle: "pending", routeHydrated: false, skeletonSubtype: subtype })
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+      now = 3500
+      view.unmount()
+      expect(exporter.getFinishedSpans().filter(span => span.name === "region.wait")).toMatchObject([
+        { attributes: { wait_reason: "entry", release_reason: "unmounted", outcome: "cancelled" }, duration: [3, 400000000] },
+      ])
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("navigation.ready")
+    })
   })
 })

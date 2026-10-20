@@ -49,7 +49,7 @@ test.describe("threads", () => {
     // hover toolbar can close between the hover and the menu click.
     await expect(async () => {
       await row.hover()
-      await page.getByRole("button", { name: "More actions" }).first().click()
+      await page.getByRole("button", { name: "More actions" }).first().click({ timeout: 3_000 })
       await page.getByRole("menuitem", { name: "Create Thread" }).click({ timeout: 3_000 })
     }).toPass({ timeout: 20_000 })
 

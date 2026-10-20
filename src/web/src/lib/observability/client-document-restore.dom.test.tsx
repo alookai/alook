@@ -26,6 +26,7 @@ afterEach(async () => {
 })
 
 it("retires the old document before native resume, then exports one original Back in a fresh consent session", async () => {
+  vi.spyOn(document, "readyState", "get").mockReturnValue("loading")
   vi.useFakeTimers(); sessionStorage.clear()
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
   let now = 200

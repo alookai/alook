@@ -38,6 +38,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
+import { useObservedRegion } from "@/lib/observability/regions"
 
 const THREAD_VIEW_PARAM = "threadView"
 
@@ -275,6 +276,14 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     routeModel.routeHydrated
   const channelHydrated = !resolvingParent && routeCommitted && channelReadReady &&
     (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
+  useObservedRegion(isForum || routeModel.skeletonSubtype === "forum" ? "forum" : "messages", false, undefined, {
+    snapshot_source: "unknown", target_coverage: "unknown",
+    wait_reason: resolvingParent ? "identity" : routeModel.routeLifecycle !== "ready" ? "entry" : !routeModel.routeHydrated ? "projection" : "entry",
+  }, {
+    active: routeCommitted && !channelHydrated && !routeModel.metadataError && !openerError && routeModel.routeLifecycle !== "terminal-error",
+    primary: false,
+    href: `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`,
+  })
   const clientReady = channelHydrated && currentChannelId === channelId
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",

@@ -21,6 +21,7 @@ afterEach(async () => {
 })
 
 it("binds the initial navigation before ready and parents a real native HTTP span", async () => {
+  vi.spyOn(document, "readyState", "get").mockReturnValue("loading")
   vi.useFakeTimers(); sessionStorage.clear()
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
   let now = 240
