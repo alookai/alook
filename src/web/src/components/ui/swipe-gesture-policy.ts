@@ -31,7 +31,7 @@ export function canStartSwipe({
   const width = document.documentElement.clientWidth || view.innerWidth
   const edges = systemGestureEdges(view, width)
   if (!edges || x < edges.left || x > width - edges.right) return false
-  if (kind === "page" && x > edges.left + Math.min(128, width / 3)) return false
+  if (kind === "page" && x > edges.left + Math.min(96, width / 4)) return false
   const height = document.documentElement.clientHeight || view.innerHeight
   if (y !== undefined && (y < 24 || y > height - 32)) return false
   for (let element: Element | null = target; element && root.contains(element); element = element.parentElement) {

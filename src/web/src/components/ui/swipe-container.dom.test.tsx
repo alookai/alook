@@ -84,7 +84,7 @@ describe("shared Drawer interaction", () => {
     const popup = screen.getByTestId("swipe-popup"), area = screen.getByTestId("swipe-start")
     const restore = mockElementGeometry(popup, { width: 390, height: 600, offsetWidth: 390, offsetHeight: 600, clientWidth: 390, clientHeight: 600 })
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => area })
-    touch(area, "touchStart", 120, 100, 100)
+    touch(area, "touchStart", 80, 100, 100)
     touch(area, "touchMove", 170, 100, 300)
     touch(area, "touchMove", 190, 100, 1000)
     touch(area, "touchEnd", 190, 100, 1400)
@@ -100,7 +100,7 @@ describe("shared Drawer interaction", () => {
     const popup = screen.getByTestId("swipe-popup"), area = screen.getByTestId("swipe-start")
     const restore = mockElementGeometry(popup, { width: 390, height: 600, offsetWidth: 390, offsetHeight: 600, clientWidth: 390, clientHeight: 600 })
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => area })
-    touch(area, "touchStart", 120)
+    touch(area, "touchStart", 80)
     touch(area, "touchMove", 170)
     touch(area, "touchMove", 360)
     touch(area, "touchEnd", 360)
@@ -116,12 +116,12 @@ describe("shared Drawer interaction", () => {
     const popup = screen.getByTestId("swipe-popup"), area = screen.getByTestId("swipe-start")
     const restore = mockElementGeometry(popup, { width: 390, height: 600, offsetWidth: 390, offsetHeight: 600, clientWidth: 390, clientHeight: 600 })
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => area })
-    touch(area, "touchStart", 120, 120)
-    touch(area, "touchMove", 120, 170)
-    touch(area, "touchMove", 120, 220)
+    touch(area, "touchStart", 80, 120)
+    touch(area, "touchMove", 80, 170)
+    touch(area, "touchMove", 80, 220)
     expect(popup.style.transform).toContain("50px")
     fireEvent.touchMove(area, { touches: [
-      { clientX: 120, clientY: 260, identifier: 0, target: area },
+      { clientX: 80, clientY: 260, identifier: 0, target: area },
       { clientX: 170, clientY: 260, identifier: 1, target: area },
     ] })
     await waitFor(() => expect(popup).not.toHaveAttribute("data-swiping"))
@@ -136,7 +136,7 @@ describe("shared Drawer interaction", () => {
     const restore = mockElementGeometry(popup, { width: 390, height: 600, offsetWidth: 390, offsetHeight: 600, clientWidth: 390, clientHeight: 600 })
     const area = screen.getByTestId("swipe-start")
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => area })
-    touch(area, "touchStart", 120)
+    touch(area, "touchStart", 80)
     touch(area, "touchMove", 170)
     await waitFor(() => { expect(popup).toHaveAttribute("data-swiping") })
     touch(area, "touchMove", 220)
@@ -182,19 +182,19 @@ describe("shared Drawer interaction", () => {
     try {
       expect(canStartSwipe({ ...start, x: 23 })).toBe(false)
       expect(canStartSwipe({ ...start, x: 24 })).toBe(true)
-      expect(canStartSwipe({ ...start, x: 152 })).toBe(true)
-      expect(canStartSwipe({ ...start, x: 153 })).toBe(false)
+      expect(canStartSwipe({ ...start, x: 120 })).toBe(true)
+      expect(canStartSwipe({ ...start, x: 121 })).toBe(false)
       region = { left: 96, right: 0, width: 780 }
       expect(canStartSwipe({ ...start, x: 24 })).toBe(false)
       expect(canStartSwipe({ ...start, x: 48 })).toBe(true)
       region = { left: 0, right: 0, width: 780 }
       expect(canStartSwipe({ ...start, x: 0 })).toBe(true)
-      expect(canStartSwipe({ ...start, x: 129 })).toBe(false)
+      expect(canStartSwipe({ ...start, x: 97 })).toBe(false)
       vi.spyOn(navigator, "userAgent", "get").mockReturnValue("iPhone")
       region = { left: 96, right: 96, width: 780 }
       expect(canStartSwipe({ ...start, x: 0 })).toBe(true)
-      expect(canStartSwipe({ ...start, x: 128 })).toBe(true)
-      expect(canStartSwipe({ ...start, x: 129 })).toBe(false)
+      expect(canStartSwipe({ ...start, x: 96 })).toBe(true)
+      expect(canStartSwipe({ ...start, x: 97 })).toBe(false)
     } finally { restore(); root.remove() }
   })
 

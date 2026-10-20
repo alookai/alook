@@ -369,7 +369,6 @@ export function CommunityShellLayout({
   const sidebarMobileHidden = isInitialDetail
   const mainMobileActive = isInitialDetail
   const mainMobileHidden = isMobileList || (isInitial && surface === "list")
-  const mainMobileCollapsed = breakpoint === "mobile" || (isInitial && surface === "list")
   const showUserBar = isDesktop || isMobileList || isInitial || preserveHiddenMobileModules
 
   const initialUserBarStyle = {
@@ -418,7 +417,16 @@ export function CommunityShellLayout({
             disabled={!isDesktop}
             className={cn(
               "min-h-0 flex-1",
-              !isDesktop && [
+              [
+                "max-sm:*:data-[mobile-layer=true]:fixed!",
+                "max-sm:*:data-[mobile-layer=true]:z-20!",
+                "max-sm:*:data-[mobile-layer=true]:inset-0!",
+                "max-sm:*:data-[mobile-layer=true]:flex-none!",
+                "max-sm:*:data-[mobile-layer=true]:w-screen!",
+                "max-sm:*:data-[mobile-layer=true]:min-w-0!",
+                "max-sm:*:data-[mobile-layer=true]:max-w-none!",
+                "max-sm:*:data-[mobile-layer=true]:overflow-visible!",
+                "max-sm:*:data-[mobile-layer=true]:pointer-events-none!",
                 "max-sm:*:data-[mobile-active=true]:flex-1!",
                 "max-sm:*:data-[mobile-hidden=true]:flex-none!",
                 "max-sm:*:data-[mobile-hidden=true]:w-0!",
@@ -474,7 +482,8 @@ export function CommunityShellLayout({
               groupResizeBehavior="preserve-relative-size"
               disabled={!isDesktop}
               data-mobile-active={mainMobileActive || undefined}
-              data-mobile-hidden={mainMobileCollapsed || undefined}
+              data-mobile-hidden={mainMobileHidden || undefined}
+              data-mobile-layer={surface === "detail" || undefined}
               className={cn("flex min-w-0 flex-col sm:bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none", mainMobileHidden && "max-sm:hidden")}
             >
               <div

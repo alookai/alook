@@ -34,7 +34,9 @@ async function expectRootListDuringCancelledSwipe(page: Page, channelId: string)
     await expect(row).toBeVisible()
     await expect(row).toContainText("swipe-root-text")
     expect((await row.boundingBox())?.width).toBeGreaterThan(200)
-    expect((await page.locator('[data-slot="resizable-panel"][id="main"]').boundingBox())?.width).toBe(0)
+    const mainLayer = page.locator('[data-slot="resizable-panel"][id="main"]')
+    await expect(mainLayer).toHaveCSS("position", "fixed")
+    expect(await mainLayer.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 })
     const foregroundLeft = (await popup.boundingBox())!.x
     expect(await row.evaluate((element, edge) => {
       let { left, right } = element.getBoundingClientRect()

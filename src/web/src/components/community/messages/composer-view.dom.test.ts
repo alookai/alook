@@ -85,6 +85,33 @@ function baseProps(
 }
 
 describe("ComposerView", () => {
+  it.each([
+    { name: "native iPhone", native: true, ua: "iPhone", compact: true },
+    { name: "native Android", native: true, ua: "Android", compact: true },
+    { name: "mobile browser", native: false, ua: "iPhone", compact: false },
+    { name: "desktop Tauri", native: true, ua: "Macintosh", compact: false },
+  ])("keeps ordinary/live/loading padding aligned on $name", ({ native, ua, compact }) => {
+    const bridge = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    const userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue(ua)
+    if (native) Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    else Reflect.deleteProperty(window, "__TAURI__")
+    try {
+      const view = render(createElement("div", null,
+        createElement(ComposerView, baseProps()),
+        createElement(ComposerSkeleton),
+        createElement(ComposerView, baseProps({ isForumThreadBody: true })),
+      ))
+      const wrappers = Array.from(view.container.firstElementChild!.children) as HTMLElement[]
+      expect(wrappers.map(element => element.style.paddingBottom)).toEqual([
+        compact ? "0.25rem" : "", compact ? "0.25rem" : "", "",
+      ])
+    } finally {
+      userAgent.mockRestore()
+      if (bridge) Object.defineProperty(window, "__TAURI__", bridge)
+      else Reflect.deleteProperty(window, "__TAURI__")
+    }
+  })
+
   it("scopes single-line placeholder containment to chat composers", () => {
     const css = readFileSync(
       resolve(

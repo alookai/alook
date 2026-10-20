@@ -169,6 +169,55 @@ describe("mobile page dismissal", () => {
     }
   })
 
+  it.each([true, false].flatMap(withReply => [{ withReply, deltas: [32] }, { withReply, deltas: [76, 0] }]))("keeps a page-zone drag ($deltas,reply=$withReply) from becoming a message menu tap", async ({ deltas, withReply }) => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("iPhone")
+    const task = fixture(), reply = vi.fn()
+    render(<task.Fixture><Message m={{ id: "m1", type: "chat", authorId: "author", content: "Page drag text", createdAt: new Date(0).toISOString(), grouped: false }} onOpenThread={vi.fn()} onReply={withReply ? reply : undefined} onCopy={vi.fn()} hoverCapable={false} /></task.Fixture>)
+    const area = screen.getByText("Page drag text")
+    const row = area.closest<HTMLElement>("[data-page-swipe-reply-row]")!
+    const capture = vi.fn()
+    Object.defineProperty(row, "setPointerCapture", { configurable: true, value: capture })
+    const width = mockElementGeometry(document.documentElement, { clientWidth: 390, clientHeight: 844 })
+    const pointer = (type: string, x: number) => fireEvent(row, new PointerEvent(type, { bubbles: true, pointerType: "touch", pointerId: 19, clientX: x, clientY: 100 }))
+    try {
+      pointer("pointerdown", 8)
+      for (const delta of deltas) pointer("pointermove", 8 + delta)
+      pointer("pointerup", 8 + deltas.at(-1)!)
+      fireEvent.click(row)
+      expect(screen.queryAllByRole("menuitem")).toHaveLength(0)
+      expect(reply).not.toHaveBeenCalled()
+      expect(capture).not.toHaveBeenCalled()
+      expect(row.style.transform).toBe("")
+      expect(task.replace).not.toHaveBeenCalled()
+      pointer("pointerdown", 8)
+      pointer("pointermove", 40)
+      pointer("pointercancel", 40)
+      fireEvent.click(row)
+      expect(screen.queryAllByRole("menuitem")).toHaveLength(0)
+      expect(reply).not.toHaveBeenCalled()
+      pointer("pointerdown", 8)
+      pointer("pointerup", 8)
+      fireEvent.click(row)
+      expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0)
+    } finally { width() }
+  })
+
+  it("retains message-body Reply outside the page strip at the original100px start", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("iPhone")
+    const task = fixture(), reply = vi.fn()
+    render(<task.Fixture><Message m={{ id: "m1", type: "chat", authorId: "author", content: "Body reply text", createdAt: new Date(0).toISOString(), grouped: false }} onOpenThread={vi.fn()} onReply={reply} hoverCapable={false} /></task.Fixture>)
+    const row = screen.getByText("Body reply text").closest<HTMLElement>("[data-page-swipe-reply-row]")!
+    const width = mockElementGeometry(document.documentElement, { clientWidth: 390, clientHeight: 844 })
+    const pointer = (type: string, x: number) => fireEvent(row, new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "touch", pointerId: 17, clientX: x, clientY: 100 }))
+    try {
+      pointer("pointerdown", 100)
+      pointer("pointermove", 172)
+      pointer("pointerup", 172)
+      expect(reply).toHaveBeenCalledOnce()
+      expect(task.replace).not.toHaveBeenCalled()
+    } finally { width() }
+  })
+
   it("reopens the retained current page on desktop while a completed mobile Back still waits for parent publication", async () => {
     const task = fixture()
     const view = render(<task.Fixture />)

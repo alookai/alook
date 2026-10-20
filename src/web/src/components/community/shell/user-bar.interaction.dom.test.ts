@@ -1,7 +1,7 @@
 import { createElement, startTransition, StrictMode, Suspense, useLayoutEffect, useRef, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
-import { UserBar } from "./user-bar"
+import { UserBar, UserBarSkeleton } from "./user-bar"
 import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { tid } from "@/lib/community/testids"
 import type { UserBarExtensionKind } from "./user-bar-extension-state"
@@ -30,6 +30,34 @@ function renderBar() {
   }))
   return { order, onInboxOpenChange, onOpenProfile, onEditProfile }
 }
+
+describe("UserBar native mobile spacing", () => {
+  it.each([
+    { name: "native iPhone", native: true, ua: "iPhone", breakpoint: "mobile", compact: true },
+    { name: "native Android", native: true, ua: "Android", breakpoint: "mobile", compact: true },
+    { name: "mobile browser", native: false, ua: "iPhone", breakpoint: "mobile", compact: false },
+    { name: "narrow desktop Tauri", native: true, ua: "Macintosh", breakpoint: "mobile", compact: false },
+    { name: "wide native iPhone", native: true, ua: "iPhone", breakpoint: "desktop", compact: true },
+  ] as const)("keeps live/loading padding aligned on $name", ({ native, ua, breakpoint, compact }) => {
+    const bridge = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    const userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue(ua)
+    if (native) Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    else Reflect.deleteProperty(window, "__TAURI__")
+    try {
+      const view = render(createElement("div", null,
+        createElement(UserBar, { breakpoint, user: { id: "u1", name: "User", avatar: "U" }, hasUnread: false }),
+        createElement(UserBarSkeleton),
+      ))
+      for (const id of [tid.userBar, tid.initialUserBarPending]) {
+        expect(view.getByTestId(id).style.paddingBottom).toBe(compact ? "0.25rem" : "")
+      }
+    } finally {
+      userAgent.mockRestore()
+      if (bridge) Object.defineProperty(window, "__TAURI__", bridge)
+      else Reflect.deleteProperty(window, "__TAURI__")
+    }
+  })
+})
 
 describe("UserBar Inbox switching", () => {
   it("dismisses the real mobile extension once through native Back", async () => {
