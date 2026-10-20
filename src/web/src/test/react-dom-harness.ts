@@ -101,3 +101,13 @@ export function mockElementGeometry(
     }
   }
 }
+
+if (typeof window.matchMedia !== "function") {
+  Object.defineProperty(window, "matchMedia", { configurable: true, writable: true,
+    value: (media: string) => ({
+      media, matches: media.includes("prefers-reduced-motion"), onchange: null,
+      addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {},
+      dispatchEvent: () => false,
+    }),
+  })
+}

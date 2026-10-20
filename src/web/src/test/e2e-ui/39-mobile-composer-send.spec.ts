@@ -175,7 +175,10 @@ async function expectExplicitTouchSend({
   if (parentRoot) {
     await expect(parentRoot).toHaveCount(0)
     await expect(root.getByTestId(tid.composerFileInput)).toHaveCount(1)
-    await expect(page.getByTestId(tid.composerFileInput)).toHaveCount(1)
+    await expect(page.getByTestId(tid.composerFileInput)).toHaveCount(2)
+    await expect.poll(() => page.getByTestId(tid.composerFileInput).evaluateAll(inputs => (
+      inputs.filter(input => input.closest('[data-mobile-page-active="false"][inert][aria-hidden="true"]')).length
+    ))).toBe(1)
   }
 
   await root.getByTestId(tid.composerFileInput).setInputFiles({

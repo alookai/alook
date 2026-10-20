@@ -53,7 +53,7 @@ import SignInPageClient from "./sign-in-client"
 
 describe("sign-in client Apple availability", () => {
   beforeEach(() => {
-    vi.clearAllMocks(); mocks.send.mockResolvedValue({}); mocks.verify.mockResolvedValue({ error: { message: "bad code" } }); mocks.verifyInput = undefined
+    vi.clearAllMocks(); mocks.send.mockResolvedValue({}); mocks.verify.mockResolvedValue({ error: { code: "INVALID_OTP", status: 400 } }); mocks.verifyInput = undefined
     mocks.searchParams = new URLSearchParams("redirect=%2Fc%2Fme")
     window.matchMedia = vi.fn(() => ({
       matches: false,
@@ -68,18 +68,30 @@ describe("sign-in client Apple availability", () => {
     await setupUser().click(screen.getByRole("button", { name: "Send Code" }))
     expect(mocks.capture).toHaveBeenCalledTimes(1)
     await act(async () => { await mocks.verifyInput!("123456") })
-    expect(mocks.capture).toHaveBeenLastCalledWith({ event: "sign_in_failed", method: "email_otp", failureStage: "verify_code" })
+    expect(mocks.capture).toHaveBeenLastCalledWith({ event: "sign_in_failed", method: "email_otp", failureStage: "verify_code", error: { code: "INVALID_OTP", status: 400 } })
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("123456")
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("bad code")
   })
 
   it("records send-code failure without mistaking it for successful authentication", async () => {
-    mocks.send.mockResolvedValueOnce({ error: { message: "private detail" } })
+    mocks.send.mockResolvedValueOnce({ error: { status: 429 } })
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
     await setupUser().click(screen.getByRole("button", { name: "Send Code" }))
-    expect(mocks.capture).toHaveBeenLastCalledWith({ event: "sign_in_failed", method: "email_otp", failureStage: "send_code" })
+    expect(mocks.capture).toHaveBeenLastCalledWith({ event: "sign_in_failed", method: "email_otp", failureStage: "send_code", error: { status: 429 } })
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("private detail")
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("sign_in_success")
+  })
+
+  it("forwards caught send and verification failures with their actual stage", async () => {
+    const error = new TypeError("Failed to fetch")
+    mocks.send.mockRejectedValueOnce(error)
+    render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
+    await setupUser().click(screen.getByRole("button", { name: "Send Code" }))
+    expect(mocks.capture).toHaveBeenLastCalledWith({ event: "sign_in_failed", method: "email_otp", failureStage: "send_code", error })
+    await setupUser().click(screen.getByRole("button", { name: "Send Code" }))
+    mocks.verify.mockRejectedValueOnce(error)
+    await act(async () => { await mocks.verifyInput!("123456") })
+    expect(mocks.capture).toHaveBeenLastCalledWith({ event: "sign_in_failed", method: "email_otp", failureStage: "verify_code", error })
   })
 
   it.each([true, false])("passes server-derived appleEnabled=%s unchanged", (appleEnabled) => {

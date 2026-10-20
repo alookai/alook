@@ -1,10 +1,13 @@
 import { createElement, startTransition, StrictMode, Suspense, useLayoutEffect, useRef, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
-import { act, render, screen, setupUser } from "@/test/react-dom-harness"
-import { UserBar } from "./user-bar"
+import { act, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
+import { UserBar, UserBarSkeleton } from "./user-bar"
 import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { tid } from "@/lib/community/testids"
 import type { UserBarExtensionKind } from "./user-bar-extension-state"
+import { requestNativeBack } from "@/components/ui/native-back-layer"
+
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }))
 
 vi.mock("../avatar", () => ({
   Avatar: () => createElement("span", { "data-testid": "user-avatar" }),
@@ -28,9 +31,56 @@ function renderBar() {
   return { order, onInboxOpenChange, onOpenProfile, onEditProfile }
 }
 
+describe("UserBar native mobile spacing", () => {
+  it.each([
+    { name: "native iPhone", native: true, ua: "iPhone", breakpoint: "mobile", compact: true },
+    { name: "native Android", native: true, ua: "Android", breakpoint: "mobile", compact: true },
+    { name: "mobile browser", native: false, ua: "iPhone", breakpoint: "mobile", compact: false },
+    { name: "narrow desktop Tauri", native: true, ua: "Macintosh", breakpoint: "mobile", compact: false },
+    { name: "wide native iPhone", native: true, ua: "iPhone", breakpoint: "desktop", compact: true },
+  ] as const)("keeps live/loading padding aligned on $name", ({ native, ua, breakpoint, compact }) => {
+    const bridge = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    const userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue(ua)
+    if (native) Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    else Reflect.deleteProperty(window, "__TAURI__")
+    try {
+      const view = render(createElement("div", null,
+        createElement(UserBar, { breakpoint, user: { id: "u1", name: "User", avatar: "U" }, hasUnread: false }),
+        createElement(UserBarSkeleton),
+      ))
+      for (const id of [tid.userBar, tid.initialUserBarPending]) {
+        expect(view.getByTestId(id).style.paddingBottom).toBe(compact ? "0.25rem" : "")
+      }
+    } finally {
+      userAgent.mockRestore()
+      if (bridge) Object.defineProperty(window, "__TAURI__", bridge)
+      else Reflect.deleteProperty(window, "__TAURI__")
+    }
+  })
+})
+
 describe("UserBar Inbox switching", () => {
+  it("dismisses the real mobile extension once through native Back", async () => {
+    const dismissed = vi.fn()
+    function Harness() {
+      const [active, setActive] = useState<UserBarExtensionKind>("inbox")
+      const inbox = createElement("button", null, "Inbox item")
+      return createElement(UserBar, {
+        breakpoint: "mobile", user: { id: "u1", name: "User", avatar: "U" },
+        hasUnread: false, inboxOpen: active === "inbox",
+        extension: { active, inbox, profile: null, update: null, updateBadgePhase: null, eligibleMachines: [],
+          onOpenUpdate: vi.fn(), onRequestUpdate: vi.fn(), onDismiss: () => { dismissed(); setActive("none") },
+        },
+      })
+    }
+    render(createElement(Harness))
+    act(() => { expect(requestNativeBack(document)).toBe("requested") })
+    expect(dismissed).toHaveBeenCalledOnce()
+  })
+
   it("keeps committed mobile extension switching outside render-phase updates", async () => {
     const errors = vi.spyOn(console, "error")
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
     function Harness() {
       const [active, setActive] = useState<UserBarExtensionKind>("none")
       const inbox = createElement("button", null, "Inbox item")
@@ -55,24 +105,42 @@ describe("UserBar Inbox switching", () => {
         },
       })
     }
-    const user = setupUser()
-    render(createElement(StrictMode, null, createElement(Harness)))
-    const trigger = screen.getByTestId(tid.inboxTrigger)
-    await user.click(trigger)
-    expect(trigger).toHaveAttribute("aria-expanded", "true")
-    expect(screen.getByRole("dialog", { name: "Inbox" })).toBeVisible()
-    await user.click(screen.getByRole("button", { name: "User", exact: true }))
-    expect(screen.getByRole("dialog", { name: "Your profile" })).toBeVisible()
-    expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
-    await user.click(trigger)
-    expect(screen.getByRole("dialog", { name: "Inbox" })).toBeVisible()
-    await user.click(trigger)
-    expect(trigger).toHaveAttribute("aria-expanded", "false")
-    expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
-    expect(errors.mock.calls.filter((args) => args.some((arg) => (
-      typeof arg === "string" && /Cannot update a component|while rendering a different component/.test(arg)
-    )))).toEqual([])
-    errors.mockRestore()
+    try {
+      const user = setupUser()
+      render(createElement(StrictMode, null, createElement(Harness)))
+      const trigger = screen.getByTestId(tid.inboxTrigger)
+      await user.click(trigger)
+      expect(trigger).toHaveAttribute("aria-expanded", "true")
+      expect(screen.getByRole("dialog", { name: "Inbox" })).toBeVisible()
+      const dialog = screen.getByRole("dialog", { name: "Inbox" })
+      await waitFor(() => expect(dialog).toHaveFocus())
+      const panelFocusCalls = focus.mock.calls.filter((_, index) => focus.mock.contexts[index] === dialog)
+      expect(panelFocusCalls.length).toBeGreaterThan(0)
+      for (const args of panelFocusCalls) expect(args).toEqual([{ preventScroll: true }])
+      await user.click(screen.getByRole("button", { name: "User", exact: true }))
+      const profileDialog = screen.getByRole("dialog", { name: "Your profile" })
+      expect(profileDialog).toBeVisible()
+      expect(profileDialog).toBe(dialog)
+      await waitFor(() => expect(profileDialog).toHaveFocus())
+      expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
+      await user.click(trigger)
+      const reopenedInbox = screen.getByRole("dialog", { name: "Inbox" })
+      expect(reopenedInbox).toBeVisible()
+      expect(reopenedInbox).toBe(dialog)
+      await waitFor(() => expect(reopenedInbox).toHaveFocus())
+      const allPanelFocusCalls = focus.mock.calls.filter((_, index) => focus.mock.contexts[index] === dialog)
+      expect(allPanelFocusCalls.length).toBeGreaterThanOrEqual(3)
+      for (const args of allPanelFocusCalls) expect(args).toEqual([{ preventScroll: true }])
+      await user.click(trigger)
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
+      expect(errors.mock.calls.filter((args) => args.some((arg) => (
+        typeof arg === "string" && /Cannot update a component|while rendering a different component/.test(arg)
+      )))).toEqual([])
+    } finally {
+      focus.mockRestore()
+      errors.mockRestore()
+    }
   })
 
   it("keeps only committed content when a suspended extension render is abandoned", async () => {
@@ -97,7 +165,7 @@ describe("UserBar Inbox switching", () => {
         }, "Start pending content"),
         createElement("button", { onClick: () => setLabel(null) }, "Close drawer"),
         createElement(Suspense, { fallback: createElement("span", null, "Pending") },
-          createElement(UserBarExtensionDrawer, null,
+          createElement(UserBarExtensionDrawer, { onDismiss: () => setLabel(null) },
             label === null ? null : createElement(Content, { label }),
           ),
         ),
@@ -172,6 +240,7 @@ describe("UserBar Inbox switching", () => {
     expect(renderer.getAllByRole("button", { name: "Inbox item" })).toHaveLength(1)
     if (breakpoint === "mobile") {
       expect(dialog.closest(".community-user-bar-drawer")).not.toBeNull()
+      expect(dialog.closest(`[data-testid="${tid.userBar}"]`)).not.toBeNull()
       expect(dialog.className).not.toContain("fade-in")
     } else {
       expect(dialog.closest(".community-user-bar-drawer")).toBeNull()

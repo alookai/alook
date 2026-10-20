@@ -365,9 +365,9 @@ export function CommunityShellLayout({
   const isMobileDetail = breakpoint === "mobile" && surface === "detail"
   const isInitial = breakpoint === "unknown"
   const isInitialDetail = isInitial && surface === "detail"
-  const sidebarMobileActive = isMobileList || (isInitial && surface === "list")
-  const sidebarMobileHidden = isMobileDetail || isInitialDetail
-  const mainMobileActive = isMobileDetail || isInitialDetail
+  const sidebarMobileActive = breakpoint === "mobile" || (isInitial && surface === "list")
+  const sidebarMobileHidden = isInitialDetail
+  const mainMobileActive = isInitialDetail
   const mainMobileHidden = isMobileList || (isInitial && surface === "list")
   const showUserBar = isDesktop || isMobileList || isInitial || preserveHiddenMobileModules
 
@@ -387,28 +387,21 @@ export function CommunityShellLayout({
       data-slot="community-shell-root"
     >
       {(!isMobileDetail || preserveHiddenMobileModules) && (
-        <div data-community-rail inert={isMobileDetail} aria-hidden={isMobileDetail || undefined} className={cn(
+        <div data-community-rail inert={isMobileDetail || isInitialDetail} aria-hidden={isMobileDetail || isInitialDetail || undefined} className={cn(
           "flex min-h-0",
-          isInitialDetail && "hidden sm:contents",
-          isMobileDetail && preserveHiddenMobileModules && "hidden",
+          isInitialDetail && "invisible sm:visible sm:contents",
+
         )}>
           {rail}
         </div>
       )}
       <div
-        className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 flex-col",
-          !isMobileDetail && !isInitialDetail && "pt-2",
-          isInitialDetail && "pt-0 sm:pt-2",
-        )}
+        data-slot="community-shell-body"
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col pt-2"
       >
         <AppSurface
           data-slot="community-app-surface"
-          className={cn(
-            SHELL_SURFACE_CLASS,
-            isMobileDetail && "rounded-none border-0 bg-background shadow-none ring-0",
-            isInitialDetail && "max-sm:rounded-none max-sm:border-0 max-sm:bg-background max-sm:shadow-none max-sm:ring-0",
-          )}
+          className={SHELL_SURFACE_CLASS}
         >
           <ResizablePanelGroup
             id="community-shell"
@@ -417,7 +410,16 @@ export function CommunityShellLayout({
             disabled={!isDesktop}
             className={cn(
               "min-h-0 flex-1",
-              !isDesktop && [
+              [
+                "max-sm:*:data-[mobile-layer=true]:fixed!",
+                "max-sm:*:data-[mobile-layer=true]:z-20!",
+                "max-sm:*:data-[mobile-layer=true]:inset-0!",
+                "max-sm:*:data-[mobile-layer=true]:flex-none!",
+                "max-sm:*:data-[mobile-layer=true]:w-screen!",
+                "max-sm:*:data-[mobile-layer=true]:min-w-0!",
+                "max-sm:*:data-[mobile-layer=true]:max-w-none!",
+                "max-sm:*:data-[mobile-layer=true]:overflow-visible!",
+                "max-sm:*:data-[mobile-layer=true]:pointer-events-none!",
                 "max-sm:*:data-[mobile-active=true]:flex-1!",
                 "max-sm:*:data-[mobile-hidden=true]:flex-none!",
                 "max-sm:*:data-[mobile-hidden=true]:w-0!",
@@ -442,14 +444,13 @@ export function CommunityShellLayout({
               data-mobile-hidden={sidebarMobileHidden || undefined}
               className={cn(
                 "flex flex-col bg-sidebar",
-                (isDesktop || isMobileList || isInitial) && "pb-[calc(3.75rem+var(--app-safe-area-bottom))] sm:pb-15",
+                (isDesktop || breakpoint === "mobile" || isInitial) && "pb-[calc(3.75rem+var(--app-safe-area-bottom))] sm:pb-15",
               )}
             >
               <div
                 ref={sidebarPanelRef}
                 data-slot="community-sidebar-panel-content"
                 data-community-mobile-surface={isMobileList ? "list" : undefined}
-                hidden={isMobileDetail}
                 inert={isMobileDetail}
                 aria-hidden={isMobileDetail || undefined}
                 className={cn(
@@ -475,7 +476,8 @@ export function CommunityShellLayout({
               disabled={!isDesktop}
               data-mobile-active={mainMobileActive || undefined}
               data-mobile-hidden={mainMobileHidden || undefined}
-              className="flex min-w-0 flex-col bg-background"
+              data-mobile-layer={surface === "detail" || undefined}
+              className={cn("flex min-w-0 flex-col sm:bg-background max-sm:absolute max-sm:inset-0 max-sm:pointer-events-none", isInitialDetail && "max-sm:bg-background", mainMobileHidden && "max-sm:hidden")}
             >
               <div
                 data-slot="community-main-panel-content"
@@ -484,7 +486,7 @@ export function CommunityShellLayout({
                 inert={isMobileList}
                 aria-hidden={isMobileList || undefined}
                 className={cn(
-                  "flex min-h-0 flex-1 flex-col",
+                  "flex min-h-0 flex-1 flex-col max-sm:pointer-events-auto",
                   isInitial && surface === "list" && "max-sm:hidden",
                 )}
               >
@@ -505,9 +507,9 @@ export function CommunityShellLayout({
               isDesktop && "w-(--community-desktop-user-bar-width)",
               isInitial && "w-[calc(100%+3.5rem)] sm:w-(--community-desktop-user-bar-width)",
               isInitialDetail && "max-sm:hidden",
-              isMobileDetail && preserveHiddenMobileModules && "hidden",
+
             )}
-            style={isMobileList ? {
+            style={breakpoint === "mobile" ? {
                   width: `calc(100% + ${COMMUNITY_RAIL_WIDTH}px)`,
                   marginLeft: -COMMUNITY_RAIL_WIDTH,
                 }

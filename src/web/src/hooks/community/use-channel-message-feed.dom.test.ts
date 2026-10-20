@@ -2,6 +2,7 @@ import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook } from "@/test/react-dom-harness"
 import { useChannelMessageFeed } from "./use-channel-message-feed"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 
 const mocks = vi.hoisted(() => ({
   messages: { messages: [{ id: "read", authorId: "viewer", seq: 1 }, { id: "peer", authorId: "peer", seq: 2 }],
@@ -23,6 +24,15 @@ beforeEach(() => {
 })
 
 describe("message feed consumes the entry snapshot", () => {
+  it("keeps the canonical feed visible while retiring the background watermark scope", () => {
+    function Wrapper({ children }: { children: React.ReactNode }) {
+      return React.createElement(ConversationActivityContext, { value: false }, children)
+    }
+    const hook = renderHook(() => useChannelMessageFeed(target), { wrapper: Wrapper })
+    expect(hook.result.current.messages).toBe(mocks.messages.messages)
+    expect(mocks.useMessages).toHaveBeenLastCalledWith("c1", expect.objectContaining({ serverId: "s1" }))
+    expect(mocks.watermark).toHaveBeenLastCalledWith(expect.objectContaining({ channelId: null }))
+  })
   it("projects NEW and unread count independently of secondary pins and threads", () => {
     const hook = renderHook(() => useChannelMessageFeed(target))
     expect(hook.result.current.newDividerBefore).toBe("peer")

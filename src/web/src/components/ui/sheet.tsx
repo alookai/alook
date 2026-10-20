@@ -1,16 +1,19 @@
 "use client"
 
 import * as React from "react"
-import { Dialog as SheetPrimitive } from "@base-ui/react/dialog"
+import { Drawer as SheetPrimitive } from "@base-ui/react/drawer"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
-import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
+import { SwipeRoot, SwipeViewport, SwipePopup, SwipeBackdrop, type SwipeRootProps } from "./swipe-container"
+import type { SwipeDirection } from "./swipe-gesture-policy"
 
-function Sheet({ ...props }: SheetPrimitive.Root.Props) {
-  const back = useNativeBackRoot(props.onOpenChangeComplete)
-  return <NativeBackRoot value={back.owner}><SheetPrimitive.Root data-slot="sheet" {...props} onOpenChangeComplete={back.complete} /></NativeBackRoot>
+const SheetDirectionContext = React.createContext<React.Dispatch<React.SetStateAction<SwipeDirection>> | null>(null)
+
+function Sheet({ ...props }: SwipeRootProps) {
+  const [direction, setDirection] = React.useState<SwipeDirection>(props.swipeDirection ?? "right")
+  return <SheetDirectionContext value={setDirection}><SwipeRoot data-slot="sheet" {...props} swipeDirection={direction} /></SheetDirectionContext>
 }
 
 function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
@@ -27,7 +30,7 @@ function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
 
 function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
   return (
-    <SheetPrimitive.Backdrop
+    <SwipeBackdrop
       data-slot="sheet-overlay"
       className={cn(
         "fixed inset-0 z-50 bg-black/20 backdrop-blur-[2px] transition-[opacity,backdrop-filter] duration-200 ease-out data-ending-style:opacity-0 data-ending-style:backdrop-blur-none data-starting-style:opacity-0 data-starting-style:backdrop-blur-none",
@@ -51,11 +54,15 @@ function SheetContent({
   showCloseButton?: boolean
   showOverlay?: boolean
 }) {
-  const renderPopup = useNativeBackPopupRender<SheetPrimitive.Popup.State>(render)
+  const setDirection = React.useContext(SheetDirectionContext)
+  React.useLayoutEffect(() => {
+    setDirection?.(side === "bottom" ? "down" : side === "top" ? "up" : side)
+  }, [setDirection, side])
   return (
     <SheetPortal>
       {showOverlay && <SheetOverlay forceRender />}
-      <SheetPrimitive.Popup
+      <SwipeViewport className="fixed inset-0 z-50">
+      <SwipePopup
         data-slot="sheet-content"
         data-side={side}
         className={cn(
@@ -67,7 +74,7 @@ function SheetContent({
           className
         )}
         {...props}
-        render={renderPopup}
+        render={render}
       >
         {children}
         {showCloseButton && (
@@ -85,7 +92,8 @@ function SheetContent({
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>
         )}
-      </SheetPrimitive.Popup>
+      </SwipePopup>
+      </SwipeViewport>
     </SheetPortal>
   )
 }

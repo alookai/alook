@@ -154,9 +154,9 @@ export function ForumChannelSurface({
           />
         </Body>
       )}
-      panels={rightPanel && (
+      panels={(
         <CommunityPanel
-          open
+          open={rightPanel !== null}
           onOpenChange={(open) => { if (!open) setPanelState({ channelId, panel: null }) }}
           kind={rightPanel}
           {...memberPanelProps}

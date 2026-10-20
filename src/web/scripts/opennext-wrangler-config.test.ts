@@ -50,6 +50,7 @@ describe("OpenNext and Wrangler refresh", () => {
 
     const rootManifest = readPackage("package.json")
     expect(rootManifest.pnpm?.patchedDependencies).toEqual({
+      "@base-ui/react@1.9.0": "patches/@base-ui__react@1.9.0.patch",
       "@opennextjs/cloudflare@1.20.10": "patches/@opennextjs__cloudflare@1.20.10.patch",
     })
     expect(existsSync(new URL("patches/@opennextjs__aws@4.1.4.patch", repositoryRoot))).toBe(false)

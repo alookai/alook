@@ -1,25 +1,15 @@
 "use client"
 
 import * as React from "react"
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
+import { Drawer as DialogPrimitive } from "@base-ui/react/drawer"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
-import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
+import { SwipeRoot, SwipeViewport, SwipePopup, SwipeBackdrop, type SwipeRootProps } from "./swipe-container"
 
-function stopPropagationAfter<Event extends React.SyntheticEvent>(
-  handler: ((event: Event) => void) | undefined,
-) {
-  return (event: Event) => {
-    handler?.(event)
-    event.stopPropagation()
-  }
-}
-
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  const back = useNativeBackRoot(props.onOpenChangeComplete)
-  return <NativeBackRoot value={back.owner}><DialogPrimitive.Root data-slot="dialog" {...props} onOpenChangeComplete={back.complete} /></NativeBackRoot>
+function Dialog({ ...props }: SwipeRootProps) {
+  return <SwipeRoot data-slot="dialog" {...props} />
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
@@ -39,7 +29,7 @@ function DialogOverlay({
   ...props
 }: DialogPrimitive.Backdrop.Props) {
   return (
-    <DialogPrimitive.Backdrop
+    <SwipeBackdrop
       data-slot="dialog-overlay"
       className={cn(
         "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
@@ -71,28 +61,28 @@ function DialogContent({
   showCloseButton?: boolean
   overlayClassName?: string
 }) {
-  const renderPopup = useNativeBackPopupRender<DialogPrimitive.Popup.State>(render)
   return (
     <DialogPortal>
       <DialogOverlay className={overlayClassName} forceRender />
-      <DialogPrimitive.Popup
+      <SwipeViewport className="fixed inset-0 z-50">
+      <SwipePopup
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
-        render={renderPopup}
-        onClick={stopPropagationAfter(onClick)}
-        onContextMenu={stopPropagationAfter(onContextMenu)}
-        onPointerCancel={stopPropagationAfter(onPointerCancel)}
-        onPointerDown={stopPropagationAfter(onPointerDown)}
-        onPointerMove={stopPropagationAfter(onPointerMove)}
-        onPointerUp={stopPropagationAfter(onPointerUp)}
-        onTouchCancel={stopPropagationAfter(onTouchCancel)}
-        onTouchEnd={stopPropagationAfter(onTouchEnd)}
-        onTouchMove={stopPropagationAfter(onTouchMove)}
-        onTouchStart={stopPropagationAfter(onTouchStart)}
+        render={render}
+        onClick={onClick}
+        onContextMenu={onContextMenu}
+        onPointerCancel={onPointerCancel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onTouchCancel={onTouchCancel}
+        onTouchEnd={onTouchEnd}
+        onTouchMove={onTouchMove}
+        onTouchStart={onTouchStart}
       >
         {children}
         {showCloseButton && (
@@ -111,7 +101,8 @@ function DialogContent({
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}
-      </DialogPrimitive.Popup>
+      </SwipePopup>
+      </SwipeViewport>
     </DialogPortal>
   )
 }

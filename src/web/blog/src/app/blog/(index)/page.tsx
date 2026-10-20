@@ -1,5 +1,5 @@
 import { ObservedStaticContent } from "@/lib/observability/regions";
-import type { Metadata } from "next";
+import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import Image from "next/image";
 import Link from "next/link";
 import { isGuide } from "@blog/lib/blog/guides";
@@ -11,29 +11,17 @@ import { RecentPosts } from "./recent-posts";
 const pageTitle = "Blog";
 
 const description =
-  "Thoughts on building AI companies, agent collaboration, and the future of personal software.";
+  "Read Alook articles on AI agent collaboration, multi-agent workflows, and shared context for teams working with Claude Code, Codex, and other agents.";
 
-export const metadata: Metadata = {
-  title: pageTitle,
+export const metadata = buildPublicPageMetadata({
+  title: "Blog — AI Agent Collaboration & Workflows — Alook",
   description,
-  alternates: {
-    canonical: "https://alook.ai/blog",
-    types: {
-      "application/rss+xml": "/blog/feed.xml",
-      "text/markdown": "/llms.txt",
-    },
+  path: "/blog",
+  alternateTypes: {
+    "application/rss+xml": "/blog/feed.xml",
+    "text/markdown": "/llms.txt",
   },
-  openGraph: {
-    title: pageTitle,
-    description,
-    url: "https://alook.ai/blog",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: pageTitle,
-    description,
-  },
-};
+});
 
 const collectionJsonLd = {
   "@context": "https://schema.org",

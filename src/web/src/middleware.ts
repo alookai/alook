@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { getAuth, observeAuthSession } from "@/lib/auth"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { COMMUNITY_DOCUMENT_ROUTE_HEADER, communityDocumentRoute } from "@/lib/community/document-route"
 import { authResponseCookies } from "@/lib/auth-response-cookies"
@@ -32,6 +30,9 @@ export async function middleware(request: NextRequest) {
   const needsAuth = !isPublic && (pathname === "/c" || AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p)))
 
   if (needsAuth) {
+    const [{ getCloudflareContext }, { getAuth, observeAuthSession }] = await Promise.all([
+      import("@opennextjs/cloudflare"), import("@/lib/auth"),
+    ])
     const { env } = await getCloudflareContext({ async: true })
     const auth = getAuth(env as Env)
     const result = await observeAuthSession(auth, () => auth.api.getSession({
@@ -55,6 +56,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname === "/sign-in" || pathname === "/sign-up") {
+    const [{ getCloudflareContext }, { getAuth, observeAuthSession }] = await Promise.all([
+      import("@opennextjs/cloudflare"), import("@/lib/auth"),
+    ])
     const { env } = await getCloudflareContext({ async: true })
     const auth = getAuth(env as Env)
     const result = await observeAuthSession(auth, () => auth.api.getSession({

@@ -1,11 +1,13 @@
 "use client"
 
+import { requestNativeBack } from "@/components/ui/native-back-layer"
+import { MobilePageBackContext, type MobilePageBack } from "@/contexts/community/mobile-page-back"
 import { commitNavigation } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
@@ -310,14 +312,24 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     dismissUserBarExtension()
     return true
   }, [breakpoint, checkpoint.surface, committedFrame.href, dismissUserBarExtension, navigation.navigationPending, replacePath, userBarExtension.active])
-  const goBackMobile = useCallback(() => {
-    if (route.parentPath) navigation.replace(route.parentPath)
-  }, [navigation, route.parentPath])
+  const pageBack = useRef<MobilePageBack | null>(null)
+  const pageBackRegistry = useMemo(() => ({ register: (request: MobilePageBack) => {
+    pageBack.current = request
+    return () => { if (pageBack.current === request) pageBack.current = null }
+  } }), [])
+  const goBackMobile = useCallback((target = mobileParentPath) => {
+    if (!target) return
+    if (breakpoint === "mobile") {
+      if (requestNativeBack(document) !== "none" || dismissNativeBackShellOverlay()) return
+      if (pageBack.current?.(target)) return
+      navigation.replace(target, { resume: true })
+    } else navigation.replace(target)
+  }, [breakpoint, dismissNativeBackShellOverlay, mobileParentPath, navigation])
 
   useNativeMobileBack({
     dismissShellOverlay: dismissNativeBackShellOverlay,
     parentPath: mobileParentPath,
-    replacePath,
+    replacePath: goBackMobile,
   })
 
   useEffect(() => {
@@ -358,6 +370,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
 
   return (
     <CommunityRouteContext value={{ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }}>
+    <MobilePageBackContext value={pageBackRegistry}>
     <ShellFrameView
       breakpoint={breakpoint}
       checkpoint={checkpoint}
@@ -377,6 +390,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     >
       {children}
     </ShellFrameView>
+    </MobilePageBackContext>
     </CommunityRouteContext>
   )
 }

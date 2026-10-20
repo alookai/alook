@@ -434,7 +434,7 @@ describe("ShellFrame orchestration", () => {
     }))
     const handlers = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
     handlers.goBackMobile()
-    expect(mocks.replace).toHaveBeenLastCalledWith("/c/channels/s1")
+    expect(mocks.replace).toHaveBeenLastCalledWith("/c/channels/s1", { resume: true })
   })
 
   it("returns mobile server onboarding to the semantic list surface", () => {
@@ -467,7 +467,7 @@ describe("ShellFrame orchestration", () => {
     const event = new Event("alook:native-back", { cancelable: true })
     act(() => { window.dispatchEvent(event) })
     expect(event.defaultPrevented).toBe(true)
-    if (expected) expect(mocks.replace).toHaveBeenCalledExactlyOnceWith(expected)
+    if (expected) expect(mocks.replace).toHaveBeenCalledExactlyOnceWith(expected, { resume: true })
     else expect(mocks.replace).not.toHaveBeenCalled()
     renderer.unmount()
   })
@@ -667,7 +667,7 @@ describe("ShellFrame orchestration", () => {
       const shell = renderInboxLifecycle()
       const overlay = screen.getByTestId(tid.inboxTrigger).closest("[data-slot='community-user-bar-overlay']")!
       expect(overlay).toHaveAttribute("inert")
-      expect(overlay.classList.contains("hidden")).toBe(true)
+      expect(overlay.classList.contains("hidden")).toBe(false)
       fireEvent.click(screen.getByRole("button", { name: "Open Inbox" }))
       expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/me")
       expect(shell.context.navigation.navigationPending).toBe(true)

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react"
 import { CircleAlert, Download, LoaderCircle, Settings } from "lucide-react"
+import { isMobile } from "@alook/shared"
 import { InboxUnreadIndicator } from "./inbox-unread-indicator"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils"
 import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { UserBarExtensionSlot } from "./user-bar-extension-slot"
 import { UserBarPopover } from "./user-bar-popover"
+import { useHydratedClient } from "./use-hydrated-client"
 import type {
   UserBarExtensionKind,
   UserBarUpdatePhase,
@@ -53,6 +55,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   onInboxOpenChange?: (open: boolean) => void
   extension?: UserBarExtension
 }) {
+  const nativeMobile = useHydratedClient() && isMobile()
   const profileTriggerRef = useRef<HTMLButtonElement>(null)
   const profileNameTriggerRef = useRef<HTMLButtonElement>(null)
   const lastProfileTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -108,10 +111,11 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   return (
     <div
       data-testid={tid.userBar}
+      style={nativeMobile ? { paddingBottom: "0.25rem" } : undefined}
       className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >
       {mobile
-        ? <UserBarExtensionDrawer>{extensionContent}</UserBarExtensionDrawer>
+        ? <UserBarExtensionDrawer onDismiss={dismissExtensionWithFocus}>{extensionContent}</UserBarExtensionDrawer>
         : extensionContent && extension && (
           <UserBarPopover
             anchor={baseRef}
@@ -159,9 +163,11 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
 }
 
 export function UserBarSkeleton() {
+  const nativeMobile = useHydratedClient() && isMobile()
   return (
     <div
       data-testid={tid.initialUserBarPending}
+      style={nativeMobile ? { paddingBottom: "0.25rem" } : undefined}
       aria-hidden
       className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >

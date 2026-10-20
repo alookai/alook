@@ -43,9 +43,7 @@ export function ShellFrameOverlays({
           onOpenBotAudit={controller.openBotAudit}
         />
       )}
-      {controller.preview && (
-        <ImageLightbox image={controller.preview} onClose={controller.closePreview} />
-      )}
+      <ImageLightbox image={controller.preview} onClose={controller.closePreview} />
       <AttachmentPreviewSheet
         attachment={controller.attachmentPreview}
         open={!!controller.attachmentPreview}

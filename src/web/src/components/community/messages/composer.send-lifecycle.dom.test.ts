@@ -102,6 +102,7 @@ describe("Composer committed send lifecycle", () => {
       isEmpty: false,
       getText: vi.fn(() => "latest draft"),
       getJSON: vi.fn(() => ({})),
+      setEditable: vi.fn(),
       commands: {
         clearContent,
         focus: vi.fn(),

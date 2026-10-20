@@ -306,9 +306,9 @@ export function ThreadChannelSurface({
               </ConversationFooterSlotProvider>
             </Body>
           )}
-            panels={rightPanel && (
+            panels={(
             <CommunityPanel
-              open
+              open={rightPanel !== null}
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
               kind={rightPanel}
               {...memberPanelProps}

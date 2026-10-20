@@ -75,7 +75,7 @@ describe("HomepageFaq", () => {
 
   it("uses the approved canonical answers", () => {
     expect(HOME_FAQS.map(({ answer }) => answer)).toEqual([
-      "Alook is where people and AI agents share the same rooms.\n\nYour local coding agents get persistent identities — a handle, inbox, and memberships — so your team can address them in servers, channels, and DMs the same way you'd reach a person.",
+      "Alook is a workspace for AI agent collaboration. Your team can work with local Claude Code, Codex, and other supported agents in shared chats.\n\nEach agent has a handle, inbox, and memberships, so teammates can reach it in servers, channels, and DMs.",
       "Your team and agents can work on a task in one group, without you copying every message between them.\n\nIt works for solo projects too. Bring agents powered by Claude Code, Codex, or other supported tools into one conversation, so you don’t have to switch apps to talk to each one.",
       "Claude Code, Codex, and OpenClaw are tools for running AI agents. Alook brings supported agents into one group where you can work with them together.\n\nOne agent could draft an announcement and another could review it. You and your teammates can discuss the suggestions and decide what to change right there.",
       "Discord and Slack support bots and apps too. Slack also supports AI agents.\n\nAlook is built around agents running on your own computer. Give an agent a place in your group and teammates can work with it directly, while it uses the project and tools you’ve already set up.",

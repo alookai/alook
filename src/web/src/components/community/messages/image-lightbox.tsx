@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { useLayoutEffect, useMemo } from "react"
+import { useLayoutEffect, useMemo, useState } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react"
@@ -69,6 +69,7 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
       <div
         ref={frameRef}
         data-testid={tid.imageLightbox}
+        data-base-ui-swipe-ignore=""
         data-zoom-scale={view.scale}
         data-native-context-menu="true"
         role="region"
@@ -141,17 +142,22 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
   )
 }
 
-export function ImageLightbox({ image, onClose }: { image: ImagePreview; onClose: () => void }) {
+export function ImageLightbox({ image, onClose }: { image: ImagePreview | null; onClose: () => void }) {
+  const [retained, setRetained] = useState(image)
+  useLayoutEffect(() => { if (image) setRetained(image) }, [image])
+  const displayed = image ?? retained
+  if (!displayed) return null
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+    <Dialog open={image !== null} onOpenChange={(open) => { if (!open) onClose() }}
+      onOpenChangeComplete={(open) => { if (!open) setRetained(null) }}>
       <DialogContent
-        aria-label={image.name}
+        aria-label={displayed.name}
         className="top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] left-[max(1rem,env(safe-area-inset-left))] flex h-[calc(100dvh_-_max(1rem,env(safe-area-inset-top))_-_max(1rem,env(safe-area-inset-bottom)))] w-auto max-w-none translate-x-0 translate-y-0 overflow-visible border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-none"
         showCloseButton={false}
       >
         <PreviewFrame
-          key={`${image.originalUrl}\u0000${image.thumbnailUrl ?? ""}\u0000${image.width ?? ""}\u0000${image.height ?? ""}`}
-          image={image}
+          key={`${displayed.originalUrl}\u0000${displayed.thumbnailUrl ?? ""}\u0000${displayed.width ?? ""}\u0000${displayed.height ?? ""}`}
+          image={displayed}
           onClose={onClose}
         />
       </DialogContent>

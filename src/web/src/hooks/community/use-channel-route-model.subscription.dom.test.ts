@@ -63,6 +63,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => ({ ...await importO
 }))
 
 import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-route-model"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 
 function Harness({ channelId = "post-1" }: { channelId?: string }) {
   const result = useChannelRouteModel("server-1", "server-1", channelId, "viewer")
@@ -107,6 +108,25 @@ beforeEach(async () => {
 
 
 describe("useChannelRouteModel subscription ownership", () => {
+  it("releases primary focus in the background and restores it on foreground return", () => {
+    const node = (active: boolean) => React.createElement(ConversationActivityContext, { value: active }, React.createElement(Harness))
+    const renderer = render(node(true))
+    expect(mocks.subscribe).toHaveBeenCalledOnce()
+    renderer.rerender(node(false))
+    expect(getCommunityRuntime(queryClient).ui.get().currentChannelId).toBeNull()
+    expect(mocks.unsubscribe).toHaveBeenCalledOnce()
+    renderer.rerender(node(true))
+    expect(mocks.subscribe).toHaveBeenCalledTimes(2)
+    expect(getCommunityRuntime(queryClient).ui.get().currentChannelId).toBe("post-1")
+  })
+
+  it("never subscribes or redirects an inactive denied parent", () => {
+    mocks.metaQuery.isArchived = true
+    render(React.createElement(ConversationActivityContext, { value: false }, React.createElement(Harness)))
+    expect(mocks.subscribe).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(getCommunityRuntime(queryClient).ui.get().currentChannelId).toBeNull()
+  })
   it("updates the primary child without clearing a real parent owner, then clears all on host exit", () => {
     const runtime = getCommunityRuntime(queryClient)
     mocks.subscribe.mockImplementation((owner, target) => owner.ui.actions.subscribe(target))

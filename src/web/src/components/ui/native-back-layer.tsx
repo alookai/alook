@@ -130,7 +130,9 @@ function NativeBackPopup<State extends { open: boolean }>({ elementProps, state,
   React.useLayoutEffect(() => {
     const element = ref.current
     if (!owner || !element) return
-    if (state.open) activate(owner, element, () => requestEscape(element))
+    if (state.open) activate(owner, element, () => requestEscape(element), () => (
+      !element.hidden && !element.parentElement?.closest("[inert], [hidden]")
+    ))
     else startClosing(owner, element)
   })
   React.useLayoutEffect(() => {

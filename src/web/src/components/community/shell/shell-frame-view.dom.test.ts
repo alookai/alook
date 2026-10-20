@@ -9,6 +9,8 @@ import {
   desktopUserBarInitialOverlayCssWidth,
 } from "./shell-frame-geometry"
 
+vi.mock("./mobile-page", () => ({ MobilePage: ({ children }: { children: ReactNode }) => children }))
+
 const mocks = vi.hoisted(() => ({
   onLayoutChanged: vi.fn(),
   dmMount: vi.fn(),
@@ -301,8 +303,15 @@ describe("ShellFrameView", () => {
       inbox,
     }, createElement("main-content")))
     expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(0)
-    const initialRailWrapper = renderer.container.querySelector('[class*="hidden sm:contents"]')!
+    const initialRailWrapper = renderer.container.querySelector('[class*="invisible sm:visible sm:contents"]')!
     expect(initialRailWrapper.className).toContain("min-h-0")
+    expect(initialRailWrapper.className).not.toContain("hidden")
+    expect(initialRailWrapper).toHaveAttribute("inert")
+    expect(initialRailWrapper).toHaveAttribute("aria-hidden", "true")
+    expect(renderer.container.querySelector('[data-slot="community-shell-body"]')?.className).toContain("pt-2")
+    expect(renderer.container.querySelector('[data-slot="community-shell-body"]')?.className).not.toContain("pt-0")
+    expect(renderer.container.querySelector('[data-app-surface]')?.className).not.toContain("max-sm:border-0")
+    expect(latestProps(mocks.panelProps, "main").className).toContain("max-sm:bg-background")
     expect(renderer.container.querySelectorAll("sidebar-content")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
     expect(renderer.container.querySelector('[data-slot="community-user-bar-overlay"]')?.className)
@@ -311,6 +320,8 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelectorAll("[data-shell-overlays]")).toHaveLength(0)
     expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-hidden"]).toBe(true)
     expect(latestProps(mocks.panelProps, "main")["data-mobile-active"]).toBe(true)
+    expect(latestProps(mocks.panelProps, "main")["data-mobile-layer"]).toBe(true)
+    expect(latestProps(mocks.panelProps, "main")["data-mobile-hidden"]).toBeUndefined()
     const initialGroup = latestProps(mocks.groupProps)
     expect(initialGroup.className).toContain(
       "max-sm:*:data-[mobile-active=true]:flex-1!",
@@ -407,6 +418,8 @@ describe("ShellFrameView", () => {
       inbox,
     }, createElement("main-content")))
     expect(renderer.container.querySelectorAll("[data-server-rail]")).toHaveLength(1)
+    expect(renderer.container.querySelector("[data-community-rail]")).not.toHaveAttribute("inert")
+    expect(renderer.container.querySelector("[data-community-rail]")).not.toHaveAttribute("aria-hidden")
     expect(renderer.container.querySelectorAll("sidebar-content")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-channel-loading-frame]")).toHaveLength(0)
@@ -432,6 +445,8 @@ describe("ShellFrameView", () => {
     }, createElement("main-content")))
 
     const shell = renderer.container.querySelector("[data-shell-root]")!
+    expect(shell.querySelector("[data-community-rail]")).not.toHaveAttribute("inert")
+    expect(shell.querySelector("[data-community-rail]")).not.toHaveAttribute("aria-hidden")
     const hostTypes = [...shell.querySelectorAll("*")].map((node) => (
       node.hasAttribute("data-server-rail") ? "server-rail"
         : node.hasAttribute("data-app-surface") ? "app-surface"
@@ -750,6 +765,7 @@ describe("ShellFrameView", () => {
     expect(mobileSidebarPanel["data-mobile-hidden"]).toBeUndefined()
     expect(latestProps(mocks.panelProps, "main")["data-mobile-active"]).toBeUndefined()
     expect(latestProps(mocks.panelProps, "main")["data-mobile-hidden"]).toBe(true)
+    expect(latestProps(mocks.panelProps, "main")["data-mobile-layer"]).toBeUndefined()
     expect(latestProps(mocks.groupProps).disabled).toBe(true)
     expect(latestProps(mocks.groupProps).className).toContain(
       "max-sm:*:data-[mobile-active=true]:flex-1!",
@@ -778,14 +794,15 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelectorAll('[data-slot="community-user-bar-overlay"]')).toHaveLength(1)
     expect(renderer.container.querySelectorAll('[data-slot="community-user-bar-underlay"]')).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-app-surface]")).toHaveLength(1)
-    expect(renderer.container.querySelector("[data-app-surface]")?.className).toContain("rounded-none")
+    expect(renderer.container.querySelector("[data-app-surface]")?.className).toContain("rounded-tl-xl")
     expect(renderer.container.querySelectorAll("main-content")).toHaveLength(1)
     expect(latestProps(mocks.panelProps, "sidebar").hidden).toBeUndefined()
     expect(latestProps(mocks.panelProps, "main").hidden).toBeUndefined()
-    expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-active"]).toBeUndefined()
-    expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-hidden"]).toBe(true)
-    expect(latestProps(mocks.panelProps, "main")["data-mobile-active"]).toBe(true)
+    expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-active"]).toBe(true)
+    expect(latestProps(mocks.panelProps, "sidebar")["data-mobile-hidden"]).toBeUndefined()
+    expect(latestProps(mocks.panelProps, "main")["data-mobile-active"]).toBeUndefined()
     expect(latestProps(mocks.panelProps, "main")["data-mobile-hidden"]).toBeUndefined()
+    expect(latestProps(mocks.panelProps, "main")["data-mobile-layer"]).toBe(true)
     expect(renderer.container.querySelectorAll("[data-shell-overlays]")).toHaveLength(1)
     const detailMotion = renderer.container.querySelector('[data-community-mobile-surface="detail"]')!
     expect(detailMotion.className).toContain("flex")
@@ -793,7 +810,7 @@ describe("ShellFrameView", () => {
     const detailSidebar = renderer.container.querySelector(
       '[data-slot="community-sidebar-panel-content"]',
     )!
-    expect(detailSidebar).toHaveAttribute("hidden")
+    expect(detailSidebar).not.toHaveAttribute("hidden")
     expect(detailSidebar).toHaveAttribute("inert")
     expect(detailSidebar).toHaveAttribute("aria-hidden", "true")
     expect(renderer.container.querySelector('[data-slot="community-shell-root"]'))

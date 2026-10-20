@@ -164,7 +164,7 @@ beforeEach(() => {
   mocks.search = ""
   mocks.push.mockReset()
   mocks.replace.mockReset()
-  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })))
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
 })
 
 describe("Shell input and explicit navigation ownership", () => {

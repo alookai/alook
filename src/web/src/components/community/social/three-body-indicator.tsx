@@ -67,5 +67,5 @@ export function ThreeBodyIndicator() {
       document.removeEventListener("visibilitychange", sync)
     }
   }, [])
-  return <pre ref={element} aria-hidden className={`font-mono ${styles.asciiOrbit}`}>{firstFrame}</pre>
+  return <span className={styles.asciiOrbit}><pre ref={element} aria-hidden className="font-mono">{firstFrame}</pre></span>
 }

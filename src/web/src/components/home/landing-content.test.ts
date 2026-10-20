@@ -230,7 +230,7 @@ describe("landing content contract", () => {
     expect(rootRoute).toContain("LandingPage")
     expect(rootRoute).toContain("getSession")
     expect(rootRoute).toContain("<LandingPage isLoggedIn={!!session} />")
-    expect(rootRoute).toContain('canonical: "https://alook.ai"')
+    expect(rootRoute).toContain('path: "/"')
     expect(rootRoute).not.toContain("HomePage")
     expect(rootRoute).not.toContain("FAQPage")
     expect(rootRoute).not.toContain("Personal Company")
@@ -242,9 +242,9 @@ describe("landing content contract", () => {
     expect(BRAND_TITLE).toBe("Alook — Share your agents with people you trust")
     expect(BRAND_DESCRIPTION).toContain("agents you already use")
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
-    expect(LANDING_META_TITLE).toBe("Human-AI Collaboration Workspace for Teams & Agents — Alook")
+    expect(LANDING_META_TITLE).toBe("Alook | AI Agent Collaboration for Claude Code & Codex")
     expect(LANDING_META_DESCRIPTION).toBe(
-      "Build human-AI teams in shared rooms with local Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi agents running on your machines.",
+      "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team.",
     )
     expect(brandCopySource).not.toContain("Personal Company")
     expect(rootRoute).toContain("LANDING_META_TITLE")
@@ -399,10 +399,10 @@ describe("landing content contract", () => {
     expect(landingPageSource).not.toContain("NOT ANOTHER")
     expect(landingPageSource).not.toContain("leaves the terminal")
     expect(landingPageSource).not.toContain("Your agent gets a name")
-    expect(landingPageSource).toContain("Give feedback together")
+    expect(landingPageSource).toContain("AI agent collaboration")
     expect(landingPageSource).toContain("Let teammates talk to your agent.")
     expect(normalizedLandingPageSource).toContain(
-      "They can ask for a preview, request a change, and review the result in one conversation.",
+      "Coordinate multi-agent workflows in one conversation. Ask for a preview, request changes, and review results with your team.",
     )
     expect(landingPageSource).toContain('data-testid="landing-runtime-badges"')
     expect(landingPageSource).toContain("A familiar face")

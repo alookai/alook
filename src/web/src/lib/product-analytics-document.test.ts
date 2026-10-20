@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 import { PRODUCT_ANALYTICS_EVENTS } from "./product-analytics-contract"
+import { authFailureParams } from "./auth-failure"
 
 function documentSender() {
   const html = readFileSync(new URL("../../public/analytics-events.html", import.meta.url), "utf8")
@@ -34,4 +35,30 @@ it("retains the existing allowed authentication dimensions in the actual event d
   expect(Array.from(document.dataLayer[0])[2]).toMatchObject({ method: "email" })
   expect(Array.from(document.dataLayer[1])[2]).toMatchObject({ method: "github", failure_stage: "social_start" })
   expect(Array.from(document.dataLayer[2])[2]).toMatchObject({ cta_name: "get_started" })
+})
+
+it.each([
+  { code: "PROVIDER_NOT_FOUND", status: 404 },
+  { code: "INVALID_ORIGIN", status: 403 },
+  { code: "INVALID_OTP", status: 400 },
+  { code: "OTP_EXPIRED", status: 400 },
+  { status: 429 },
+  { status: 503 },
+  new TypeError("Failed to fetch"),
+  new Error("private@example.test token=secret"),
+])("keeps the normalized failure reason through the actual outgoing GA command: %j", error => {
+  const document = documentSender()
+  const params = authFailureParams(error)
+  document.sendProductEvent({ event: "sign_in_failed", params: { method: "google", failure_stage: "social_start", ...params } })
+  expect(Array.from(document.dataLayer[0])[2]).toMatchObject(params)
+  expect(JSON.stringify(document.dataLayer)).not.toContain("private@example.test")
+  expect(JSON.stringify(document.dataLayer)).not.toContain("token=secret")
+})
+
+it("does not trust arbitrary reason text even with an approved error code", () => {
+  const document = documentSender()
+  document.sendProductEvent({ event: "sign_in_failed", params: { error_code: "INVALID_OTP", error_reason: "private@example.test", http_status: "400?token=secret" } })
+  expect(Array.from(document.dataLayer[0])[2]).toMatchObject({ error_code: "INVALID_OTP", error_reason: "Invalid OTP" })
+  expect(JSON.stringify(document.dataLayer)).not.toContain("private@example.test")
+  expect(JSON.stringify(document.dataLayer)).not.toContain("secret")
 })

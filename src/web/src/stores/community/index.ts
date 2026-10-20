@@ -27,7 +27,7 @@ export function useUiHandlers() {
     previewImage: (image: ImagePreview) => ui.get().uiHandlers.previewImage?.(image),
     previewAttachment: (attachment: FileAttachment) => ui.get().uiHandlers.previewAttachment?.(attachment),
     openProfile: (name: string, event: React.MouseEvent, discriminator?: string, userId?: string) => ui.get().uiHandlers.openProfile?.(name, event, discriminator, userId),
-    goBackMobile: () => ui.get().uiHandlers.goBackMobile?.(),
+    goBackMobile: (parentPath?: string) => ui.get().uiHandlers.goBackMobile?.(parentPath),
     navigatePath: (href: string) => ui.get().uiHandlers.navigatePath?.(href),
     replacePath: (href: string) => ui.get().uiHandlers.replacePath?.(href),
     jumpToSeq: (seq: number) => ui.get().uiHandlers.jumpToSeq?.(seq),

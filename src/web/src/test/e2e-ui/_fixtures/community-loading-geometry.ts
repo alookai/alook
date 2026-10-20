@@ -1,3 +1,4 @@
+import { expectInertBackground } from "./inert-background"
 import type {
   BrowserContext,
   BrowserContextOptions,
@@ -20,6 +21,7 @@ import { WEB_URL } from "../_setup/paths"
 import { ssrGeometryErrors, type SsrLifecycleSample } from "./community-ssr-geometry"
 import { expectUniqueSsrCommunityFrame } from "./community-ssr-frame"
 import type { UserKey } from "../_setup/users"
+import { waitForElementMotion } from "./actions"
 
 type Theme = "light" | "dark"
 type CommunityAsUser = (
@@ -194,14 +196,37 @@ const shellPanel = (page: Page, id: "sidebar" | "main") => (
 )
 
 async function visibleGeometry(page: Page): Promise<Geometry> {
+  const detail = page.locator('[data-mobile-page-active="true"] [data-slot="mobile-page"]')
+  if (await detail.count()) await waitForElementMotion(detail)
   return page.evaluate(({ sidebarId, mainId }) => {
     const visible = (element: Element) => { const box = element.getBoundingClientRect(); const style = getComputedStyle(element); return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.visibility !== "collapse" }
     const frames = Array.from(document.querySelectorAll('[data-slot="community-shell-root"]')).filter(visible)
     if (frames.length !== 1) throw new Error(`Expected one actual geometry frame, got ${frames.length}`)
     const frame = frames[0]
-    const selectors = { shell: '[data-slot="community-shell-root"]', surface: '[data-slot="community-app-surface"]', rail: '[data-slot="community-server-rail-viewport"]', sidebar: `[data-slot="resizable-panel"][data-testid="${sidebarId}"]`, main: `[data-slot="resizable-panel"][data-testid="${mainId}"]`, userBar: '[data-slot="community-user-bar-overlay"]' }
+    const detailLayers = innerWidth < 640
+      ? Array.from(frame.querySelectorAll(`[data-slot="resizable-panel"][data-testid="${mainId}"][data-mobile-layer="true"]`)).filter(visible)
+      : []
+    if (detailLayers.length > 1) throw new Error(`Duplicate mobile detail layer: ${detailLayers.length}`)
+    const detailLayer = detailLayers[0]
+    const detail = detailLayer?.querySelector('[data-mobile-page-active="true"] [data-slot="mobile-page"]') ?? detailLayer
+    const selectors = { shell: '[data-slot="community-shell-root"]', body: '[data-slot="community-shell-body"]', surface: '[data-slot="community-app-surface"]', backgroundSurface: '[data-slot="community-app-surface"]', rail: '[data-slot="community-server-rail-viewport"]', sidebar: `[data-slot="resizable-panel"][data-testid="${sidebarId}"]`, main: `[data-slot="resizable-panel"][data-testid="${mainId}"]`, userBar: '[data-slot="community-user-bar-overlay"]' }
     const result: Geometry = {}
     for (const [name, selector] of Object.entries(selectors)) {
+      if (detail && ["rail", "sidebar", "userBar"].includes(name)) {
+        for (const element of Array.from(frame.querySelectorAll(selector)).filter(visible)) {
+          const guard = name === "sidebar" ? element.querySelector('[data-slot="community-sidebar-panel-content"]') : element.closest("[inert]")
+          if (!guard?.hasAttribute("inert") || guard.getAttribute("aria-hidden") !== "true") throw new Error(`Unsafe background geometry module ${name}`)
+          const box = element.getBoundingClientRect()
+          const hit = document.elementFromPoint(Math.max(0, Math.min(innerWidth - 1, box.x + box.width / 2)), Math.max(0, Math.min(innerHeight - 1, box.y + box.height / 2)))
+          if (hit && element.contains(hit)) throw new Error(`Interactive background geometry module ${name}`)
+        }
+        continue
+      }
+      if (detail && ["surface", "main"].includes(name)) {
+        const box = detail.getBoundingClientRect()
+        result[name] = { x: box.x, y: box.y, width: box.width, height: box.height }
+        continue
+      }
       const nodes = (frame.matches(selector) ? [frame] : Array.from(frame.querySelectorAll(selector))).filter(visible)
       if (nodes.length > 1) throw new Error(`Duplicate geometry module ${name}`)
       if (nodes.length === 1) { const box = nodes[0].getBoundingClientRect(); result[name] = { x: box.x, y: box.y, width: box.width, height: box.height } }
@@ -291,8 +316,8 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
     document.addEventListener("readystatechange", () => { if (document.readyState !== "loading") parsed = true })
     document.addEventListener("DOMContentLoaded", () => { parsed = true }, { once: true })
 
-    const rect = (root: Element, selector: string) => {
-      const element = root.matches(selector) ? root : root.querySelector<HTMLElement>(selector)
+    const rect = (root: Element, selector?: string) => {
+      const element = !selector || root.matches(selector) ? root : root.querySelector<HTMLElement>(selector)
       if (!element) return null
       const style = getComputedStyle(element)
       if (style.display === "none" || style.visibility !== "visible") return null
@@ -307,18 +332,24 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
       if (shell) {
         const activePanel = '[data-slot="resizable-panel"][data-mobile-active="true"]'
         const hiddenPanel = '[data-slot="resizable-panel"][data-mobile-hidden="true"]'
+        const sidebarPanel = '[data-slot="resizable-panel"][id="sidebar"]'
+        const detailLayer = expectedSurface === "detail"
+          ? shell.querySelector('[data-slot="resizable-panel"][data-mobile-layer="true"]')
+          : null
+        const detail = detailLayer?.querySelector('[data-mobile-page-active="true"] [data-slot="mobile-page"]') ?? detailLayer
+        const detailGeometry = detail ? rect(detail) : null
         const geometry = Object.fromEntries(Object.entries({
           shell: rect(shell, '[data-slot="community-shell-root"]'),
-          surface: rect(shell, '[data-slot="community-app-surface"]'),
-          rail: rect(shell, '[data-slot="community-server-rail-viewport"]'),
-          sidebar: rect(shell, expectedSurface === "list" ? activePanel : hiddenPanel),
-          main: rect(shell, expectedSurface === "detail" ? activePanel : hiddenPanel),
-          userBar: rect(shell, '[data-slot="community-user-bar-overlay"]'),
+          surface: expectedSurface === "detail" ? detailGeometry : rect(shell, '[data-slot="community-app-surface"]'),
+          rail: expectedSurface === "detail" ? null : rect(shell, '[data-slot="community-server-rail-viewport"]'),
+          sidebar: expectedSurface === "detail" ? null : rect(shell, activePanel),
+          main: expectedSurface === "detail" ? detailGeometry : rect(shell, hiddenPanel),
+          userBar: expectedSurface === "detail" ? null : rect(shell, '[data-slot="community-user-bar-overlay"]'),
         }).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null))
         const retainedBackground = expectedSurface === "detail"
           ? Object.entries({
               rail: ['[data-community-rail]', '[data-community-rail]'],
-              sidebar: [hiddenPanel, '[data-slot="community-sidebar-panel-content"]'],
+              sidebar: [sidebarPanel, '[data-slot="community-sidebar-panel-content"]'],
               userBar: ['[data-slot="community-user-bar-overlay"]', '[data-slot="community-user-bar-overlay"]'],
             }).flatMap(([module, [selector, guardSelector]]) => {
               const element = document.querySelector<HTMLElement>(selector)
@@ -326,8 +357,10 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
               const box = element.getBoundingClientRect()
               if (!box.width || !box.height) return []
               const guard = document.querySelector<HTMLElement>(guardSelector)
+              const hit = document.elementFromPoint(Math.max(0, Math.min(innerWidth - 1, box.x + box.width / 2)), Math.max(0, Math.min(innerHeight - 1, box.y + box.height / 2)))
               return [{ module, visibility: getComputedStyle(element).visibility,
-                inert: guard?.inert === true, ariaHidden: guard?.getAttribute("aria-hidden") === "true" }]
+                inert: guard?.inert === true, ariaHidden: guard?.getAttribute("aria-hidden") === "true",
+                hitTestBlocked: !hit || !element.contains(hit) }]
             })
           : []
         samples.push({
@@ -887,7 +920,7 @@ export async function runRouteLoadingGeometry(
             .toBe(true)
         } else {
           await expect(loadedAdd).toHaveCount(1)
-          await expect(loadedAdd).toBeHidden()
+          await expectInertBackground(loadedAdd)
           expect(await loadedAdd.evaluate((element) => (
             element.closest('[inert][aria-hidden="true"]') !== null
           ))).toBe(true)

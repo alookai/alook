@@ -20,6 +20,8 @@ import ServerLayout from "@/app/c/channels/layout"
 import { beginNavigation, clearActions, installActionSpans } from "@/lib/observability/context"
 import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
 import { useObservedRegion } from "@/lib/observability/regions"
+import { channelSchema } from "@/lib/community-db/schema"
+import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
 
 const {
   mockRouteModel,
@@ -71,7 +73,7 @@ const {
   mockCanManageServer: vi.fn((role?: string | null) => role === "owner" || role === "admin"),
   mockDismissConversation: vi.fn(),
   mockParentMetadata: { identityKnown: false, canRead: false, status: "pending", retrying: false, retry: vi.fn() },
-  mockNavigation: { entryIntent: null as { href: string } | null, push: vi.fn(), navigationPending: false, pendingHref: null as string | null },
+  mockNavigation: { entryIntent: null as { href: string; resume?: boolean } | null, push: vi.fn(), navigationPending: false, pendingHref: null as string | null },
   mockPathname: { value: "/c/channels/server_1/channel_1" },
   mockViewerId: { value: "viewer_1" },
   mockClaimSecondary: vi.fn(),
@@ -134,14 +136,15 @@ vi.mock("next/navigation", () => ({
 }))
 vi.mock("@/components/community/shell/community-route-context", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/components/community/shell/community-route-context")>(),
-  useCommunityRouteFrame: () => ({ navigation: mockNavigation, breakpoint: mockBreakpoint.value }),
+  useCommunityRouteFrame: () => ({ navigation: mockNavigation, breakpoint: mockBreakpoint.value, frame: { revision: 0 } }),
 }))
 vi.mock("@/hooks/community/use-channel-metadata", () => ({
   useChannelMetadata: (...args: unknown[]) => { mockUseChannelMetadata(...args); return mockParentMetadata },
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mockBreakpoint.value }))
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: () => mockBreakpoint.value === "mobile", useBreakpoint: () => mockBreakpoint.value }))
 vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
   THREAD_OPENER_HANDOFF_PARAM: "inboxThreadOpener",
   useClaimThreadOpenerReadHandoff: vi.fn(),
@@ -421,6 +424,7 @@ function useMockParentIdentity(props: Record<string, unknown>) {
 
 describe("ChannelRoute message surface ownership", () => {
   beforeEach(() => {
+    vi.mocked(useChannelRouteModel).mockImplementation(() => mockRouteModel)
     mockUiHandlers.cancelPendingNavigation.mockClear()
     mockNavigation.push.mockReset()
     mockNavigation.navigationPending = false
@@ -477,6 +481,49 @@ describe("ChannelRoute message surface ownership", () => {
       skeletonSubtype: "unknown",
       layoutHint: { subtype: "unknown", parentChannelId: null, parentSubtype: "unknown" },
     })
+  })
+
+  it("keeps the real mobile parent DOM, scroll and draft through child entry and pending resume", async () => {
+    const registry = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
+    const parent = { ...mockRouteModel }
+    const child = { ...mockRouteModel, channel: null, parent: parent.channel,
+      currentChannelMeta: { id: "child_1", name: "Thread", parentChannelId: "channel_1", parentMessageId: "opener_1", creatorId: "viewer_1" },
+      isChild: true, isNotifyUnit: true, skeletonSubtype: "thread",
+      layoutHint: { subtype: "thread", parentChannelId: "channel_1", parentSubtype: "text" },
+    }
+    vi.mocked(useChannelRouteModel).mockImplementation((_server, _param, id) => (id === "channel_1" ? parent : child) as never)
+    const base = conversationEntryFixture().channel
+    registry.collections.channels.utils.writeUpsert([
+      channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+      channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+    ])
+    mockBreakpoint.value = "mobile"
+    mockSearchParams.value = ""
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const node = (id: string, committed = true) => React.createElement(ChannelRoute, {
+      serverParam: "server_1", channelId: id, routeCommitted: committed,
+    })
+    const view = render(node("channel_1"))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    const composer = view.container.querySelector<HTMLTextAreaElement>('[data-draft-key="server_1/channel_1"]')!
+    const pane = composer.closest<HTMLElement>('[data-community-target-href]')!
+    pane.scrollTop = 184
+    fireEvent.change(composer, { target: { value: "Retained parent draft" } })
+    mockCurrentChannelId.value = "child_1"
+    view.rerender(node("child_1"))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(view.container.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+    expect(composer.closest('[data-mobile-page-active="false"]')).toHaveAttribute("inert")
+    expect(pane.scrollTop).toBe(184)
+    mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1", resume: true }
+    view.rerender(node("channel_1", false))
+    expect(view.container.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+    expect(composer).toHaveValue("Retained parent draft")
+    expect(pane.scrollTop).toBe(184)
+    mockCurrentChannelId.value = "channel_1"
+    view.rerender(node("channel_1"))
+    expect(view.container.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+    expect(composer).toHaveValue("Retained parent draft")
   })
 
   it("keeps the operational opener gate outside pending child content", async () => {
@@ -717,7 +764,7 @@ describe("ChannelRoute message surface ownership", () => {
     renderer.unmount()
   })
 
-  it("keeps the same target slot through cold parent-hint and shared mobile resolution", () => {
+  it("keeps one cold loading target when mobile adopts its Drawer container", () => {
     configureThreadRoute()
     Object.assign(mockRouteModel, { currentChannelMeta: null, routeHydrated: false, routeLifecycle: "pending",
       layoutHint: { subtype: "thread", parentChannelId: null, parentSubtype: "unknown" } })
@@ -725,7 +772,6 @@ describe("ChannelRoute message surface ownership", () => {
     mockSplitMode.value = "pending"
     const props = { serverParam: "server_1", channelId: "channel_1" }
     const renderer = render(React.createElement(ChannelRoute, props))
-    const outer = renderer.container.firstElementChild
     const pane = screen.getByTestId("community-thread-split-panel")
     const skeleton = pane.querySelector("[data-message-list-skeleton]")
     expect(skeleton).not.toBeNull()
@@ -734,9 +780,10 @@ describe("ChannelRoute message surface ownership", () => {
     mockBreakpoint.value = "mobile"
     mockSplitMode.value = "full"
     renderer.rerender(React.createElement(ChannelRoute, props))
-    expect(renderer.container.firstElementChild).toBe(outer)
-    expect(screen.getByTestId("community-thread-split-panel")).toBe(pane)
-    expect(pane.querySelector("[data-message-list-skeleton]")).toBe(skeleton)
+    const mobilePane = screen.getByTestId("community-thread-split-panel")
+    expect(mobilePane.closest('[data-slot="mobile-page"]')).not.toBeNull()
+    expect(mobilePane.querySelector("[data-message-list-skeleton]")).not.toBeNull()
+    expect(screen.getAllByTestId("community-thread-split-panel")).toHaveLength(1)
     expect(mockUseChannelMetadata).not.toHaveBeenCalled()
     expect(mockClaimSecondary).not.toHaveBeenCalled()
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
@@ -1100,7 +1147,8 @@ describe("ChannelRoute message surface ownership", () => {
     const renderer = render(React.createElement(ChannelRoute, props))
     const outer = renderer.container.firstElementChild
     expect(outer?.tagName).toBe("DIV")
-    expect(mockSplitContainerRef).toHaveBeenCalledWith(outer)
+    const measurement = renderer.container.querySelector('[data-community-target-href]')
+    expect(mockSplitContainerRef).toHaveBeenCalledWith(measurement)
     Object.assign(mockRouteModel, {
       skeletonSubtype: "thread",
       layoutHint: { subtype: "thread", parentChannelId: "parent_1", parentSubtype: "text" },
@@ -1488,7 +1536,7 @@ describe("ChannelRoute message surface ownership", () => {
     )
 
     fireEvent.click(screen.getByTestId("community-thread-split-close"))
-    expect(mockUiHandlers.replacePath).toHaveBeenCalledWith("/c/channels/server_1/parent_1")
+    expect(mockUiHandlers.goBackMobile).toHaveBeenCalledWith("/c/channels/server_1/parent_1")
   })
 
   it("uses the same split parent contract for a forum post", async () => {
@@ -1670,7 +1718,7 @@ describe("ChannelRoute message surface ownership", () => {
     )
   })
 
-  it("replaces directly to the verified parent from the child Back control", async () => {
+  it("requests the verified parent through the shared Back control", async () => {
     configureThreadRoute()
     mockBreakpoint.value = "mobile"
     mockedUseChannelMessageFeed.mockImplementation(() => feed({ anchorInCache: true }))
@@ -1682,13 +1730,13 @@ describe("ChannelRoute message surface ownership", () => {
     })
     act(() => mockHeaderParentNavigate.current?.())
 
-    expect(mockUiHandlers.replacePath).toHaveBeenCalledWith(
+    expect(mockUiHandlers.goBackMobile).toHaveBeenCalledWith(
       "/c/channels/server_1/parent_1",
     )
-    expect(mockUiHandlers.goBackMobile).not.toHaveBeenCalled()
+    expect(mockUiHandlers.replacePath).not.toHaveBeenCalled()
   })
 
-  it("replaces directly to the canonical server root from a top-level channel", async () => {
+  it("requests the canonical server root through the shared Back control", async () => {
     mockBreakpoint.value = "mobile"
     mockedUseChannelMessageFeed.mockImplementation(() => feed())
 
@@ -1699,10 +1747,10 @@ describe("ChannelRoute message surface ownership", () => {
     })
     act(() => mockHeaderServerNavigate.current?.())
 
-    expect(mockUiHandlers.replacePath).toHaveBeenCalledWith(
+    expect(mockUiHandlers.goBackMobile).toHaveBeenCalledWith(
       "/c/channels/server_1",
     )
-    expect(mockUiHandlers.goBackMobile).not.toHaveBeenCalled()
+    expect(mockUiHandlers.replacePath).not.toHaveBeenCalled()
   })
 
   it("keeps a child target through warm cache and 5000ms until MessageList consumes it", async () => {
@@ -1777,8 +1825,128 @@ describe("ChannelRoute message surface ownership", () => {
       installActionSpans(undefined)
       vi.mocked(useChannelRouteModel).mockImplementation(() => mockRouteModel as ReturnType<typeof useChannelRouteModel>)
       mockedMessageList.mockImplementation(() => null)
+      mockedForumChannelSurface.mockImplementation(() => null)
       window.history.replaceState(null, "", "/")
       await provider.shutdown()
+    })
+
+    function retainedRoute(subtype: "text" | "forum" = "text") {
+      const registry = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
+      const parent = { ...mockRouteModel, isForum: subtype === "forum", channel: { id: "channel_1", name: "Parent", type: subtype } }
+      const child = { ...mockRouteModel, channel: null, parent: parent.channel,
+        currentChannelMeta: { id: "child_1", name: "Thread", parentChannelId: "channel_1", parentMessageId: "opener_1", creatorId: "viewer_1" },
+        routeLifecycle: "pending", routeHydrated: false, isChild: true, isNotifyUnit: true, skeletonSubtype: "thread",
+        layoutHint: { subtype: "thread", parentChannelId: "channel_1", parentSubtype: subtype },
+      }
+      vi.mocked(useChannelRouteModel).mockImplementation((_server, _param, id) => (id === "channel_1" ? parent : child) as ReturnType<typeof useChannelRouteModel>)
+      const base = conversationEntryFixture().channel
+      registry.collections.channels.utils.writeUpsert([
+        channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", type: subtype, muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+        channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+      ])
+      mockBreakpoint.value = "mobile"
+      mockedUseChannelMessageFeed.mockReturnValue(feed())
+      return { parent, node: (id: string, committed = true) => React.createElement(ChannelRoute, {
+        serverParam: "server_1", channelId: id, routeCommitted: committed,
+      }) }
+    }
+
+    it.each(["text", "forum"] as const)("does not let a retained inactive %s descendant finish the current same-href navigation", subtype => {
+      const { node } = retainedRoute(subtype)
+      mockedMessageList.mockImplementation(function ObservedList() {
+        useObservedRegion("messages", true, 1)
+        return React.createElement("p", { "data-testid": "retained-observation" }, "Cached messages")
+      })
+      mockedForumChannelSurface.mockImplementation(function ObservedForum() {
+        useObservedRegion("forum", true, 1)
+        return React.createElement("p", { "data-testid": "retained-observation" }, "Cached posts")
+      })
+      mockCurrentChannelId.value = "child_1"
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(node("child_1", false))
+      expect(window.location.pathname).toBe("/c/channels/server_1/channel_1")
+      expect(screen.getByTestId("retained-observation").closest('[data-mobile-page-active="false"]')).toHaveAttribute("inert")
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("region.ready_commit")
+      expect(events).not.toContain("navigation.ready")
+      view.unmount()
+      expect(exporter.getFinishedSpans().filter(span => span.name === "region.wait")).toHaveLength(0)
+    })
+
+    it("does not start an entry wait in an inactive retained skeleton with routeCommitted=true", () => {
+      const { parent, node } = retainedRoute()
+      Object.assign(parent, { routeLifecycle: "pending", routeHydrated: false, skeletonSubtype: "text" })
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(node("child_1", false))
+      expect(view.container.querySelector('[data-mobile-page-active="false"] [aria-label="Loading conversation"]')).not.toBeNull()
+      view.unmount()
+      expect(exporter.getFinishedSpans().filter(span => span.name === "region.wait")).toHaveLength(0)
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("navigation.ready")
+    })
+
+    it("closes a retained wait once as hidden and preserves its DOM, draft and scroll through uncommitted resume", async () => {
+      const { node } = retainedRoute()
+      let ready = false
+      mockedMessageList.mockImplementation(function ObservedList() {
+        useObservedRegion("messages", ready, 1, { wait_reason: ready ? "none" : "window" })
+        return React.createElement("p", { "data-testid": "retained-list" }, ready ? "Ready" : "Waiting")
+      })
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(node("channel_1"))
+      const list = screen.getByTestId("retained-list")
+      const composer = view.container.querySelector<HTMLTextAreaElement>('[data-draft-key="server_1/channel_1"]')!
+      const pane = composer.closest<HTMLElement>('[data-community-target-href]')!
+      pane.scrollTop = 184
+      fireEvent.change(composer, { target: { value: "Retained observed draft" } })
+      mockCommitLastCommunityRoute.mockClear()
+      mockDismissConversation.mockClear()
+      now = 200
+      mockCurrentChannelId.value = "child_1"
+      view.rerender(node("child_1", false))
+      const waits = () => exporter.getFinishedSpans().filter(span => span.name === "region.wait")
+      expect(waits()).toMatchObject([
+        { attributes: { region: "messages", wait_reason: "window", release_reason: "hidden", outcome: "cancelled" }, duration: [0, 100000000] },
+      ])
+      now = 300
+      ready = true
+      view.rerender(node("child_1", false))
+      expect(screen.getByTestId("retained-list")).toBe(list)
+      expect(view.container.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+      expect(composer).toHaveValue("Retained observed draft")
+      expect(pane.scrollTop).toBe(184)
+      expect(waits()).toHaveLength(1)
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("region.ready_commit")
+      expect(events).not.toContain("navigation.ready")
+      now = 400
+      mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1", resume: true }
+      mockCurrentChannelId.value = "channel_1"
+      view.rerender(node("channel_1", false))
+      expect(screen.getByTestId("retained-list")).toBe(list)
+      expect(view.container.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+      expect(composer).toHaveValue("Retained observed draft")
+      expect(pane.scrollTop).toBe(184)
+      expect(waits()).toHaveLength(1)
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("region.ready_commit")
+      expect(events).not.toContain("navigation.ready")
+      expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+      expect(mockDismissConversation.mock.calls.every(call => call[2] === false)).toBe(true)
+      now = 500
+      view.rerender(node("channel_1"))
+      expect(screen.getByTestId("retained-list")).toBe(list)
+      expect(composer).toHaveValue("Retained observed draft")
+      expect(pane.scrollTop).toBe(184)
+      expect(navigation.done).toBe(true)
+      expect(events.filter(name => name === "region.ready_commit")).toHaveLength(1)
+      expect(events.filter(name => name === "navigation.ready")).toHaveLength(1)
+      expect(waits().map(span => [span.attributes.release_reason, span.attributes.outcome])).toEqual([["hidden", "cancelled"], ["ready", "success"]])
+      expect(mockCommitLastCommunityRoute).toHaveBeenCalledTimes(1)
+      expect(mockDismissConversation).toHaveBeenLastCalledWith("viewer_1", { kind: "server", serverId: "server_1", channelId: "channel_1" }, true)
+      view.unmount()
+      expect(waits()).toHaveLength(2)
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     })
 
     it("measures the skeleton entry request before the list mounts, then waits for the actual list phases", async () => {

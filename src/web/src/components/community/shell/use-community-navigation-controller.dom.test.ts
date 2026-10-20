@@ -126,6 +126,14 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBe("/c/channels/s1")
   })
 
+  it("marks an explicit parent resume without adding browser history", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.replace("/c/channels/s1/c1", { resume: true }))
+    expect(hook.current.entryIntent).toEqual({ href: "/c/channels/s1/c1", resume: true })
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/s1/c1")
+    expect(mocks.push).not.toHaveBeenCalled()
+  })
+
   it("forwards scroll:false without changing target publication or cancellation", async () => {
     const hook = await renderController()
     await act(async () => hook.current.push("/c/channels/s1/post2?msg=m2", { scroll: false }))

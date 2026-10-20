@@ -27,6 +27,13 @@ function loadFrame() {
 }
 
 describe("frontend product analytics", () => {
+  it("sends the safe authentication reason through the existing analytics document", async () => {
+    await captureProductAnalytics({ event: "sign_in_failed", method: "google", failureStage: "social_start", error: { code: "INVALID_ORIGIN", status: 403, message: "private@example.test token=secret" } })
+    const { send } = loadFrame()
+    expect(send).toHaveBeenCalledExactlyOnceWith({ event: "sign_in_failed", params: { method: "google", failure_stage: "social_start", error_code: "INVALID_ORIGIN", error_reason: "Invalid origin", http_status: "403" } })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("uses only a static GA4 document and never the backend collection endpoint", async () => {
     await captureProductAnalytics({ event: "login_page_view" })
     const { frame, send } = loadFrame()
@@ -183,11 +190,11 @@ it.each(["active", "retired", "reactivated"] as const)("qualifies delayed onboar
 it.each([
   { event: "sign_up", method: "email" },
   { event: "sign_in_success", method: "google" },
-  { event: "sign_in_failed", method: "github", failureStage: "social_start" },
+  { event: "sign_in_failed", method: "github", failureStage: "social_start", error: { code: "PROVIDER_NOT_FOUND", status: 404 } },
 ] as const)("retains the existing $event dimensions", async input => {
   await captureProductAnalytics(input)
   const { send } = loadFrame()
-  expect(send).toHaveBeenCalledWith({ event: input.event, params: { method: input.method, ...("failureStage" in input ? { failure_stage: input.failureStage } : {}) } })
+  expect(send).toHaveBeenCalledWith({ event: input.event, params: { method: input.method, ...("failureStage" in input ? { failure_stage: input.failureStage, error_code: "PROVIDER_NOT_FOUND", error_reason: "Provider not found", http_status: "404" } : {}) } })
 })
 
 it("does not send a detached event frame after consent is granted again", async () => {

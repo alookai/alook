@@ -64,6 +64,24 @@ const attempt = {
 }
 
 describe("social sign-in native boundary", () => {
+  it.each(["google", "github"])("forwards %s rejection details and does not count successful starts as failures", async provider => {
+    const error = { code: "PROVIDER_NOT_FOUND", message: "Provider not found", status: 404 }
+    mocks.social.mockResolvedValueOnce({ error })
+    render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
+    await setupUser().click(button(`native-oauth-${provider}`))
+    expect(mocks.capture).toHaveBeenCalledExactlyOnceWith({ event: "sign_in_failed", method: provider, failureStage: "social_start", error })
+    await setupUser().click(button(`native-oauth-${provider}`))
+    expect(mocks.capture).toHaveBeenCalledOnce()
+  })
+
+  it("forwards a social fetch rejection instead of discarding the error", async () => {
+    const error = new TypeError("Failed to fetch")
+    mocks.social.mockRejectedValueOnce(error)
+    render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
+    await setupUser().click(button("native-oauth-google"))
+    expect(mocks.capture).toHaveBeenCalledExactlyOnceWith({ event: "sign_in_failed", method: "google", failureStage: "social_start", error })
+  })
+
   it("preserves normal browser social login and callback destination", async () => {
     const user = setupUser()
     render(createElement(SocialSignIn, { postLoginUrl: "/c/me?tab=1" }))

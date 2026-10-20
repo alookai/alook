@@ -11,6 +11,7 @@ import { conversationEntryOptions, publishConversationEntry } from "@/lib/commun
 import { communityKeys } from "@/lib/query-keys"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import { useConversationEntry } from "./use-conversation-entry"
 import { useChannelMetadata } from "./use-channel-metadata"
 import { useDmMessages } from "./use-messages"
@@ -39,6 +40,40 @@ async function setup() {
 }
 
 describe("conversation entry selection", () => {
+  it("retains a parent's window and NEW through background and semantic resume, while a fresh entry reselects", async () => {
+    const { wrapper: Owner, publish, registry } = await setup()
+    const value = fixture()
+    value.messages.push({ ...value.messages[0], id: "m2", seq: 2, content: "Second" })
+    value.page.latestSeq = 2
+    publish(value)
+    let active = true
+    const navigation = { entryIntent: { href: "/c/channels/s1/c1" } as { href: string; resume?: boolean } }
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(Owner, null, createElement(CommunityRouteContext, { value: { navigation } as never },
+        createElement(ConversationActivityContext, { value: active }, children)))
+    }
+    const hook = renderHook(() => useConversationEntry(target), { wrapper: Wrapper })
+    const original = hook.result.current.window
+    expect(original).not.toBeNull()
+    expect(hook.result.current.snapshot?.lastReadMessageId).toBe("m1")
+    active = false
+    navigation.entryIntent = { href: "/c/channels/s1/child" }
+    hook.rerender()
+    await act(async () => ingestReadStateSnapshot(registry, { revision: 5, readStates: [
+      { channelId: "c1", lastReadMessageId: "m2", lastReadSeq: 2, lastReadAt: "later" },
+    ] }))
+    expect(hook.result.current.window).toBe(original)
+    active = true
+    navigation.entryIntent = { href: "/c/channels/s1/c1", resume: true }
+    hook.rerender()
+    expect(hook.result.current.window).toBe(original)
+    expect(hook.result.current.snapshot?.lastReadMessageId).toBe("m1")
+    navigation.entryIntent = { href: "/c/channels/s1/c1" }
+    hook.rerender()
+    expect(hook.result.current.snapshot?.lastReadMessageId).toBe("m2")
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it("shares one returned-DM read between metadata and the subsequently mounted body", async () => {
     const { wrapper: Owner, registry, client } = await setup()
     const dmTarget = { channelId: "c1", serverId: null }

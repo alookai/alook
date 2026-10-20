@@ -58,6 +58,10 @@ export const blogTopics = [
         userJob: "Carry decisions across coding agent sessions",
       },
       {
+        slug: "share-claude-code-session",
+        userJob: "Share a Claude Code session or transcript so a teammate can review or continue the work",
+      },
+      {
         slug: "multiple-ai-agents-edit-same-repository",
         userJob: "Run parallel agents on one repo without conflicts",
       },

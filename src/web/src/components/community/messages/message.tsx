@@ -27,6 +27,7 @@ import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./mes
 import { formatMessageTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
+import { usePageSwipeStart } from "@/components/ui/swipe-container"
 import { avatarInitial } from "@/lib/community/avatar"
 import { stripInlineMarkup } from "@alook/shared"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
@@ -36,6 +37,7 @@ import { AttachmentCard } from "./attachment-card"
 import {
   advanceMobileReplyGesture,
   beginMobileReplyGesture,
+  movedBeyondLongPressTolerance,
   shouldCommitMobileReply,
   shouldSuppressClickAfterMobileReplyGesture,
   type MobileReplyGesture,
@@ -231,6 +233,7 @@ function MessageImpl({
     : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = m.content ?? ""
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
+  const pageSwipe = usePageSwipeStart()
   const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
   // Right-click context-menu open state — tracked so the Mark/Unmark label's
   // lazy read fires for the context menu too, not just the ⋯ dropdown.
@@ -249,6 +252,7 @@ function MessageImpl({
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
   const swipeGestureRef = useRef<MobileReplyGesture | null>(null)
+  const pageSwipeStartRef = useRef<{ x: number; y: number } | null>(null)
   const [swipeVisual, setSwipeVisual] = useAtom(useCreateAtom({ offset: 0, active: false, crossed: false }))
   const avatarMention = useMobileAvatarMention({
     onMention: onMentionAuthor,
@@ -307,7 +311,8 @@ function MessageImpl({
     || (!desktopMenuInputActive && touchInputCapable)
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
-  const swipeReplyEnabled = interactive && touchInputCapable && !selectMode && !!onReply
+  const swipePointerEnabled = interactive && touchInputCapable && !selectMode
+  const swipeReplyEnabled = swipePointerEnabled && !!onReply
   const activateOverlays = interactive && !selectMode && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
@@ -387,6 +392,8 @@ function MessageImpl({
     : reactionAddButton
   const row = (
     <div
+      data-base-ui-swipe-ignore={pageSwipe.page ? "y" : ""}
+      data-page-swipe-reply-row=""
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
@@ -421,10 +428,17 @@ function MessageImpl({
             linkPointerRef.current = null
           }
         : undefined}
-      onPointerDown={swipeReplyEnabled
+      onPointerDown={swipePointerEnabled
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             if (event.pointerType !== "touch") return
+            pageSwipeStartRef.current = null
+            if (pageSwipe.reservesReply(event)) {
+              pageSwipeStartRef.current = { x: event.clientX, y: event.clientY }
+              suppressLongPressClick.current = false
+              return
+            }
+            if (!swipeReplyEnabled) return
             const nested = (event.target as Element).closest?.(
               "button, a, input, textarea, select, [role=button]",
             )
@@ -435,11 +449,17 @@ function MessageImpl({
             setSwipeVisual({ offset: 0, active: true, crossed: false })
           }
         : undefined}
-      onPointerMove={swipeReplyEnabled
+      onPointerMove={swipePointerEnabled
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            if (event.pointerType !== "touch") return
+            const pageStart = pageSwipeStartRef.current
+            if (pageStart) {
+              suppressLongPressClick.current ||= movedBeyondLongPressTolerance(pageStart.x, pageStart.y, event.clientX, event.clientY)
+              return
+            }
             const current = swipeGestureRef.current
-            if (!current || event.pointerType !== "touch") return
+            if (!current) return
             if (selectionBelongsToRow(window.getSelection(), event.currentTarget)) {
               swipeGestureRef.current = null
               setSwipeVisual({ offset: 0, active: false, crossed: false })
@@ -461,11 +481,13 @@ function MessageImpl({
             })
           }
         : undefined}
-      onPointerUp={swipeReplyEnabled
+      onPointerUp={swipePointerEnabled
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            if (event.pointerType !== "touch") return
+            pageSwipeStartRef.current = null
             const gesture = swipeGestureRef.current
-            if (!gesture || event.pointerType !== "touch") return
+            if (!gesture) return
             const commit = shouldCommitMobileReply(gesture)
             swipeGestureRef.current = null
             suppressLongPressClick.current = suppressLongPressClick.current
@@ -474,10 +496,11 @@ function MessageImpl({
             if (commit) onReply?.()
           }
         : undefined}
-      onPointerCancel={swipeReplyEnabled
+      onPointerCancel={swipePointerEnabled
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             swipeGestureRef.current = null
+            pageSwipeStartRef.current = null
             suppressLongPressClick.current = true
             setSwipeVisual({ offset: 0, active: false, crossed: false })
           }

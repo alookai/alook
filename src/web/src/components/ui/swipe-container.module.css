@@ -1,0 +1,87 @@
+.viewport {
+  pointer-events: none;
+}
+
+.popup {
+  pointer-events: auto;
+}
+
+@layer components {
+  @media (max-width: 639px) {
+    .popup {
+      transition-property: transform, opacity;
+    }
+  }
+}
+
+@media (max-width: 639px) {
+  .popup {
+    animation: none !important;
+    transition-duration: 220ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    transform: translate3d(var(--drawer-swipe-movement-x, 0px), var(--drawer-swipe-movement-y, 0px), 0);
+  }
+
+  .popup[data-background] {
+    transform: none !important;
+    transition: none;
+    pointer-events: none;
+  }
+
+  .popup[data-swiping] {
+    transition-duration: 0ms;
+    user-select: none;
+  }
+
+  .popup[data-ending-style] {
+    transition-duration: calc(var(--drawer-swipe-strength, 1) * 220ms);
+  }
+
+  .popup[data-starting-style][data-swipe-direction="right"],
+  .popup[data-ending-style][data-swipe-direction="right"] {
+    transform: translate3d(100vw, 0, 0);
+  }
+
+  .popup[data-starting-style][data-swipe-direction="left"],
+  .popup[data-ending-style][data-swipe-direction="left"] {
+    transform: translate3d(-100vw, 0, 0);
+  }
+
+  .popup[data-starting-style][data-swipe-direction="down"],
+  .popup[data-ending-style][data-swipe-direction="down"] {
+    transform: translate3d(0, 100%, 0);
+  }
+
+  .popup[data-starting-style][data-swipe-direction="up"],
+  .popup[data-ending-style][data-swipe-direction="up"] {
+    transform: translate3d(0, -100%, 0);
+  }
+
+  .popup[data-slot="user-bar-swipe"][data-starting-style],
+  .popup[data-slot="user-bar-swipe"][data-ending-style] {
+    transform: translate3d(0, 100%, 0);
+  }
+
+  .backdrop {
+    opacity: calc(1 - var(--drawer-swipe-progress, 0));
+    transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .backdrop[data-starting-style],
+  .backdrop[data-ending-style] {
+    opacity: 0;
+  }
+
+  .backdrop[data-swiping] {
+    transition-duration: 0ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popup,
+  .backdrop {
+    transition-property: none !important;
+    transition-duration: 0ms !important;
+    animation: none !important;
+  }
+}

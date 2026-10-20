@@ -11,7 +11,7 @@ import {
   Smile,
   X,
 } from "lucide-react"
-import { stripInlineMarkup } from "@alook/shared"
+import { isMobile, stripInlineMarkup } from "@alook/shared"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type {
@@ -30,6 +30,7 @@ import {
 } from "./composer-suggestion-popups"
 import type { ComposerReplyTarget, MentionCandidateSource } from "./composer-types"
 import { SendStrokeRoundedIcon } from "./send-stroke-rounded-icon"
+import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 
 const COMPOSER_OUTER_CLASS =
   "relative pl-[var(--community-composer-inline-start)] pr-[var(--community-composer-inline-end)] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:pb-3"
@@ -89,6 +90,7 @@ export function ComposerView({
   onUploadFile,
   onEmojiPick,
 }: ComposerViewProps) {
+  const nativeMobile = useHydratedClient() && isMobile()
   const replyPreview = replyingTo
     ? stripInlineMarkup(replyingTo.text).replace(/\s+/g, " ").trim()
     : null
@@ -99,6 +101,7 @@ export function ComposerView({
 
   return (
     <div
+      style={nativeMobile && !isForumThreadBody ? { paddingBottom: "0.25rem" } : undefined}
       className={
         isForumThreadBody
           ? "relative"
@@ -253,8 +256,9 @@ export function ComposerView({
 }
 
 export function ComposerSkeleton() {
+  const nativeMobile = useHydratedClient() && isMobile()
   return (
-    <div className={COMPOSER_OUTER_CLASS}>
+    <div className={COMPOSER_OUTER_CLASS} style={nativeMobile ? { paddingBottom: "0.25rem" } : undefined}>
       <div className="relative rounded-(--community-composer-top-radius) bg-muted py-3 px-12 shadow-(--e1) ring-1 ring-border/40">
         <Skeleton className="h-6 w-2/5 rounded" />
         <Skeleton className="absolute left-2 bottom-2 size-8 rounded-full" />

@@ -209,6 +209,6 @@ describe("ForumChannelSurface ownership", () => {
     })
 
     expect(mockedChannelHeader.mock.calls.at(-1)![0].rightPanel).toBeNull()
-    expect(renderer!.container.querySelectorAll("community-panel")).toHaveLength(0)
+    expect(mockedCommunityPanel.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({ kind: null, open: false }))
   })
 })

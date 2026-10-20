@@ -12,6 +12,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo } from "react"
 import { materializeIntent } from "@/lib/community/message-stream"
 import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { MentionType } from "@alook/shared"
@@ -65,6 +66,7 @@ export function useMessageChannelController({
   onOpenPinned,
   resolveUserName,
 }: Omit<MessageChannelControllerProps, "children">): MessageChannelControllerValue {
+  const active = useConversationActivity()
   const profileQueryClient = useQueryClient()
   const communityRuntime = useCommunityRuntime()
   const source = useCommunityViewSource(`message-actions:${serverId}:${channelId}`)
@@ -126,10 +128,10 @@ export function useMessageChannelController({
 
   const pendingReply = useCommunityStore((state) => state.pendingReply)
   useEffect(() => {
-    if (!pendingReply || pendingReply.channelId !== channelId) return
+    if (!active || !pendingReply || pendingReply.channelId !== channelId) return
     setReplyTo(pendingReply.target)
     communityRuntime.ui.actions.setPendingReply(null)
-  }, [pendingReply, channelId, setReplyTo, communityRuntime.ui.actions])
+  }, [active, pendingReply, channelId, setReplyTo, communityRuntime.ui.actions])
 
   const actionContext = useMemo(() => ({ scope: [communityRuntime, channelId], store: createStore<MessageActionContext>({
     messageIds: [],
@@ -172,7 +174,7 @@ export function useMessageChannelController({
   const seqParam = searchParams.get("seq")
   const searchParamsString = searchParams.toString()
   useEffect(() => {
-    if (pathname !== channelHref(serverParam, channelId) || !seqParam) return
+    if (!active || pathname !== channelHref(serverParam, channelId) || !seqParam) return
     const seq = Number(seqParam)
     if (!Number.isSafeInteger(seq) || seq < 1) return
     const message = actionContext.get().messageIds.map(getMessage).find((item) => item?.seq === seq)
@@ -180,7 +182,7 @@ export function useMessageChannelController({
     setContextTarget({ serverId, channelId, label: channelName, seq })
     const href = `${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`
     router.replace(removeCommunityParam(href, "seq"), { scroll: false })
-  }, [seqParam, serverId, serverParam, channelId, channelName, pathname, router, searchParamsString, actionContext, getMessage, setContextTarget, setScrollTargetId])
+  }, [active, seqParam, serverId, serverParam, channelId, channelName, pathname, router, searchParamsString, actionContext, getMessage, setContextTarget, setScrollTargetId])
 
   const messageScope = useMemo(
     () => ({ kind: "channel" as const, id: channelId, serverId }),

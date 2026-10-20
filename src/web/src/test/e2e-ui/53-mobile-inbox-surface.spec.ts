@@ -1,3 +1,4 @@
+import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Page, Request, Route } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
@@ -354,7 +355,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       const hiddenId = await seedChannel("alice", serverId, `hidden-${stamp}`)
       await bob.page.getByTestId(tid.channelRow(landingId)).click()
       await expect(bob.page).toHaveURL(`/c/channels/${serverId}/${landingId}`)
-      await expect(overlay).toBeHidden()
+      await expectInertBackground(overlay)
       await expect(overlay).toHaveAttribute("inert", "")
       await expect(overlay).toHaveAttribute("aria-hidden", "true")
       await send(hiddenId, `Hidden Inbox digit ${stamp}`)
@@ -367,7 +368,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
 
       for (let cycle = 0; cycle < 2; cycle += 1) {
         await bob.page.getByTestId(tid.channelRow(landingId)).click()
-        await expect(overlay).toBeHidden()
+        await expectInertBackground(overlay)
         await expect(overlay).toHaveAttribute("inert", "")
         await expect(overlay).toHaveAttribute("aria-hidden", "true")
         await send(hiddenId, `Repeated hidden Inbox ${stamp} ${cycle}`)

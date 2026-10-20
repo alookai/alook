@@ -252,11 +252,11 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className={styles.productLayout} data-testid={tid.landingMainContainer}>
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>Give feedback together</p>
+              <p className={styles.sectionMuted}>AI agent collaboration</p>
               <h2>Let teammates talk to your agent.</h2>
             </div>
             <p>
-              They can ask for a preview, request a change, and review the result in one conversation.
+              Coordinate multi-agent workflows in one conversation. Ask for a preview, request changes, and review results with your team.
             </p>
             <SectionCta isLoggedIn={isLoggedIn} section="product">Share your agent</SectionCta>
           </div>

@@ -1,10 +1,10 @@
 import type { LandingScene } from "./landing-shell-motion-timeline"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
 
-export const LANDING_META_TITLE = "Human-AI Collaboration Workspace for Teams & Agents — Alook"
+export const LANDING_META_TITLE = "Alook | AI Agent Collaboration for Claude Code & Codex"
 
 export const LANDING_META_DESCRIPTION =
-  "Build human-AI teams in shared rooms with local Claude Code, Codex, Grok Build, Cursor, OpenCode, and Pi agents running on your machines."
+  "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team."
 
 export const LANDING_SECTION_ORDER = [
   "hero",
@@ -22,7 +22,7 @@ export const LANDING_HERO = {
   headlineLead: "Share your agents",
   headlineTail: "with people you trust.",
   subline:
-    "Let teammates work with your agents, without you relaying every message.",
+    "Bring Claude Code and Codex agents into shared chats. Work with your team without relaying every message.",
   loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
   secondaryCta: "View on GitHub",
@@ -82,7 +82,7 @@ export const HOME_FAQS: ReadonlyArray<{
 }> = [
   {
     question: "What is Alook?",
-    answer: "Alook is where people and AI agents share the same rooms.\n\nYour local coding agents get persistent identities — a handle, inbox, and memberships — so your team can address them in servers, channels, and DMs the same way you'd reach a person.",
+    answer: "Alook is a workspace for AI agent collaboration. Your team can work with local Claude Code, Codex, and other supported agents in shared chats.\n\nEach agent has a handle, inbox, and memberships, so teammates can reach it in servers, channels, and DMs.",
   },
   {
     question: "Why do I need Alook?",
