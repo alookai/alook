@@ -134,6 +134,26 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.push).not.toHaveBeenCalled()
   })
 
+  it.each(["frame-first", "publication-first"] as const)("keeps the parent resume pending until URL and frame match, %s", async (order) => {
+    const parent = "/c/channels/s1/forum"
+    mocks.pathname.current = "/c/channels/s1/post"
+    mocks.frame.current = { ...normalizeCommunityHref(mocks.pathname.current), revision: 4 }
+    const hook = await renderController()
+    await act(async () => hook.current.replace(parent, { resume: true }))
+    if (order === "frame-first") mocks.frame.current = { ...normalizeCommunityHref(parent), revision: 5 }
+    else mocks.pathname.current = parent
+    await hook.rerender()
+    expect(hook.current.navigationPending).toBe(true)
+    expect(hook.current.pendingHref).toBe(parent)
+    mocks.pathname.current = parent
+    mocks.frame.current = { ...normalizeCommunityHref(parent), revision: 5 }
+    await hook.rerender()
+    expect(hook.current.navigationPending).toBe(false)
+    expect(hook.current.pendingHref).toBeNull()
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith(parent)
+    await hook.unmount()
+  })
+
   it("forwards scroll:false without changing target publication or cancellation", async () => {
     const hook = await renderController()
     await act(async () => hook.current.push("/c/channels/s1/post2?msg=m2", { scroll: false }))

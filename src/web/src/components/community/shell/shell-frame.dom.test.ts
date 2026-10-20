@@ -1,10 +1,13 @@
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import type { QueryClient } from "@tanstack/react-query"
-import { createElement, useCallback, useLayoutEffect, type ReactNode } from "react"
+import { createElement, StrictMode, useCallback, useLayoutEffect, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render as renderDom, screen } from "@/test/react-dom-harness"
+import { act, fireEvent, render as renderDom, screen, waitFor } from "@/test/react-dom-harness"
 import { ShellFrame } from "./shell-frame"
+import { MobilePage } from "./mobile-page"
+import ServerLayout from "@/app/c/channels/layout"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { communityKeys } from "@/lib/query-keys"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import { CommunityShellLayout } from "./community-shell-layout"
@@ -31,6 +34,7 @@ const mocks = vi.hoisted(() => {
     openChanges: vi.fn(),
     outsideAction: vi.fn(),
     currentHref: { current: "/c/channels/s1" },
+    selectedHref: { current: "/c/channels/s1" },
     pendingHref: { current: null as string | null },
     navigationPending: { current: false },
     serverCache,
@@ -83,12 +87,16 @@ vi.mock("@/lib/community/eject-server", async (importOriginal) => ({ ...await im
   observeOwnerServerDeleteRouteCommit: (...args: unknown[]) => mocks.observeOwnerDelete(...args),
   registerOwnerServerDeleteRoute: (...args: unknown[]) => mocks.registerOwnerDelete(...args),
 }))
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint.current }))
+vi.mock("@/hooks/use-mobile", () => ({
+  useBreakpoint: () => mocks.breakpoint.current,
+  useIsMobile: () => mocks.breakpoint.current === "mobile",
+}))
 vi.mock("@/lib/community-onboarding", () => ({
   useCommunityOnboarding: () => mocks.onboardingState.current,
 }))
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.currentHref.current.split("?")[0],
+  useSelectedLayoutSegments: () => mocks.selectedHref.current.split("/").slice(3),
   useSearchParams: () => new URLSearchParams(mocks.currentHref.current.split("?")[1]),
   useRouter: () => ({ push: mocks.push, replace: mocks.replace, prefetch: vi.fn() }),
 }))
@@ -102,8 +110,9 @@ vi.mock("@/components/ui/resizable", () => {
 })
 vi.mock("./use-hydrated-client", () => ({ useHydratedClient: () => true }))
 vi.mock("./use-community-navigation-controller", async (importOriginal) => {
-  const { useCommunityNavigationController } = await importOriginal<typeof import("./use-community-navigation-controller")>()
-  return { useCommunityNavigationController: (frame: Parameters<typeof useCommunityNavigationController>[0]) => {
+  const original = await importOriginal<typeof import("./use-community-navigation-controller")>()
+  const { useCommunityNavigationController } = original
+  return { ...original, useCommunityNavigationController: (frame: Parameters<typeof useCommunityNavigationController>[0]) => {
     const actual = useCommunityNavigationController(frame)
     return mocks.lifecycle ? actual : {
       publishedHref: mocks.currentHref.current,
@@ -121,9 +130,6 @@ vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOrigin
   useCommunityStore: Object.assign(vi.fn(), {
     getState: () => ({ registerUiHandlers: mocks.registerUiHandlers }),
   }),
-}))
-vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/ws")>(),
-  useCommunityWsStore: (selector: (state: { accessEpoch: number }) => unknown) => selector({ accessEpoch: 0 }),
 }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: mocks.viewerId }),
@@ -184,6 +190,19 @@ vi.mock("./shell-frame-view", () => ({
   },
 }))
 
+const returnRoot = "/c/channels/s1"
+const returnForum = `${returnRoot}/forum`
+const returnPost = `${returnRoot}/post`
+
+vi.mock("@/components/community/channels/channel-route", () => ({
+  ChannelRoute: ({ channelId, routeCommitted }: { channelId: string; routeCommitted: boolean }) => {
+    const parentPath = channelId === "post" ? returnForum : returnRoot
+    return createElement(MobilePage, { parentPath },
+      createElement("div", { "data-testid": `return-leaf-${channelId}`, "data-route-committed": String(routeCommitted) },
+        createElement("button", { onClick: () => mocks.registerUiHandlers.mock.calls.at(-1)![0].goBackMobile(parentPath) }, `Back ${channelId}`)))
+  },
+}))
+
 let queryClient: QueryClient
 function NativeOwner({ children }: { children: React.ReactNode }) { return createElement(CommunityTestProvider, { client: queryClient }, children) }
 function render(node: React.ReactNode) { return renderDom(node, { wrapper: NativeOwner }) }
@@ -236,6 +255,75 @@ function expectVisibleInbox() {
   expect(screen.getByTestId(tid.userBarExtension)).toHaveTextContent("Inbox contents")
 }
 
+function holdReturnExit(popup: HTMLElement) {
+  let finish!: () => void
+  const finished = new Promise<void>(resolve => { finish = resolve })
+  const animations = vi.fn(() => [{ finished, effect: { getTiming: () => ({ duration: 220, iterations: 1 }) } }])
+  Object.defineProperty(popup, "getAnimations", { configurable: true, value: animations })
+  return { finish, animations }
+}
+
+function renderPostReturnLifecycle({ strict = false } = {}) {
+  mocks.lifecycle = true
+  mocks.breakpoint.current = "mobile"
+  mocks.currentHref.current = returnPost
+  mocks.selectedHref.current = returnPost
+  mocks.projectedChannel.current = { id: "post", serverId: "s1", parentChannelId: "forum" }
+  vi.spyOn(window, "matchMedia").mockImplementation(media => ({
+    media, matches: media === "(max-width: 639px)", onchange: null,
+    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
+  }))
+  let frameHref = returnPost
+  let context!: ReturnType<typeof useCommunityRouteFrame>
+  let runtime!: ReturnType<typeof useCommunityRuntime>
+  function Capture() {
+    const current = useCommunityRouteFrame()
+    const owner = useCommunityRuntime()
+    useLayoutEffect(() => { context = current; runtime = owner }, [current, owner])
+    return createElement(ServerLayout, null, createElement("div", null, "Server list route"))
+  }
+  const node = () => {
+    const shell = createElement(ShellFrame, { ...baseProps, frameHref }, createElement(Capture))
+    return strict ? createElement(StrictMode, null, shell) : shell
+  }
+  const renderer = render(node())
+  return {
+    get context() { return context },
+    retireOwner: () => runtime.lifecycle.setState(state => ({ ...state, active: false })),
+    retireAccess: () => runtime.ws.setState(state => ({ ...state, accessEpoch: state.accessEpoch + 1 })),
+    commit(href: string, { frame = true, published = true } = {}) {
+      if (frame) { frameHref = href; mocks.selectedHref.current = href }
+      if (published) mocks.currentHref.current = href
+      mocks.projectedChannel.current = frameHref === returnPost
+        ? { id: "post", serverId: "s1", parentChannelId: "forum" }
+        : frameHref === returnForum ? { id: "forum", serverId: "s1", parentChannelId: null } : undefined
+      renderer.rerender(node())
+    },
+  }
+}
+
+async function returnToProjectedForum(options: { strict?: boolean } = {}) {
+  const task = renderPostReturnLifecycle(options)
+  const exit = holdReturnExit(screen.getByTestId("return-leaf-post").closest<HTMLElement>("[data-slot='mobile-page']")!)
+  fireEvent.click(screen.getByRole("button", { name: "Back post" }))
+  expect(mocks.replace).not.toHaveBeenCalled()
+  await waitFor(() => expect(exit.animations).toHaveBeenCalled())
+  await act(async () => exit.finish())
+  await waitFor(() => expect(screen.getByTestId("return-leaf-forum")).toBeVisible())
+  expect(screen.getByTestId("return-leaf-forum")).toHaveAttribute("data-route-committed", "false")
+  expect(task.context.frame.href).toBe(returnPost)
+  expect(task.context.navigation.publishedHref).toBe(returnPost)
+  expect(task.context.navigation.pendingHref).toBe(returnForum)
+  expect(task.context.navigation.navigationPending).toBe(true)
+  expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
+  return task
+}
+
+function repeatBack(entry: "button" | "system", page: string) {
+  if (entry === "button") fireEvent.click(screen.getByRole("button", { name: `Back ${page}` }))
+  else act(() => { window.dispatchEvent(new Event("alook:native-back", { cancelable: true })) })
+}
+
 describe("ShellFrame orchestration", () => {
   beforeEach(async () => {
     const owner = await createCommunityQueryOwner()
@@ -249,6 +337,7 @@ describe("ShellFrame orchestration", () => {
     mocks.push.mockReset()
     mocks.replace.mockReset()
     mocks.currentHref.current = "/c/channels/s1"
+    mocks.selectedHref.current = "/c/channels/s1"
     mocks.pendingHref.current = null
     mocks.navigationPending.current = false
     mocks.serverCache.clear()
@@ -266,7 +355,7 @@ describe("ShellFrame orchestration", () => {
     mocks.inboxOptions.mockClear()
   })
 
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
   it("does not rewrite the committed frame from an eagerly published pathname", () => {
     const renderer = render(createElement(ShellFrame, baseProps))
@@ -767,6 +856,96 @@ describe("ShellFrame orchestration", () => {
       shell.update({ publishedHref: "/c/me", frameHref: "/c/me" })
       expectVisibleInbox()
       expect(mocks.openChanges).toHaveBeenCalledExactlyOnceWith(true)
+    })
+  })
+
+  describe("accepted mobile parent return", () => {
+    it.each(["button", "system"] as const)("does not reopen the old post when %s Back repeats before parent publication", async (entry) => {
+      const task = await returnToProjectedForum()
+      repeatBack(entry, "forum")
+      expect(mocks.replace.mock.calls.slice(1).map(args => args[0])).not.toContain(returnPost)
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
+      expect(task.context.navigation.pendingHref).toBe(returnForum)
+      expect(task.context.navigation.navigationPending).toBe(true)
+      expect(screen.queryByTestId("return-leaf-post")).toBeNull()
+      task.commit(returnForum)
+      await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
+      expect(task.context.frame.href).toBe(returnForum)
+      expect(screen.queryByTestId("return-leaf-post")).toBeNull()
+      expect(screen.getByTestId("return-leaf-forum")).toBeVisible()
+    })
+
+    it("keeps the accepted parent return through StrictMode lifecycle replay", async () => {
+      const task = await returnToProjectedForum({ strict: true })
+      repeatBack("button", "forum")
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
+      expect(task.context.navigation.pendingHref).toBe(returnForum)
+      task.commit(returnForum)
+      await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
+      expect(screen.getByTestId("return-leaf-forum")).toBeVisible()
+    })
+
+    it.each(["frame-first", "publication-first"] as const)("coalesces repeated Back until the complete parent return, %s", async (order) => {
+      const task = await returnToProjectedForum()
+      task.commit(returnForum, { frame: order === "frame-first", published: order === "publication-first" })
+      expect(task.context.navigation.navigationPending).toBe(true)
+      expect(task.context.navigation.pendingHref).toBe(returnForum)
+      repeatBack("button", "forum")
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
+      task.commit(returnForum)
+      await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
+      expect(screen.getByTestId("return-leaf-forum")).toBeVisible()
+      expect(screen.queryByTestId("return-leaf-post")).toBeNull()
+    })
+
+    it("returns from a fully committed forum to the semantic server list", async () => {
+      const task = await returnToProjectedForum()
+      task.commit(returnForum)
+      await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
+      expect(task.context.frame.href).toBe(returnForum)
+      const exit = holdReturnExit(screen.getByTestId("return-leaf-forum").closest<HTMLElement>("[data-slot='mobile-page']")!)
+      fireEvent.click(screen.getByRole("button", { name: "Back forum" }))
+      await waitFor(() => expect(exit.animations).toHaveBeenCalled())
+      await act(async () => exit.finish())
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum, returnRoot])
+      const panel = document.querySelector<HTMLElement>("[data-slot='community-main-panel-content']")!
+      expect(panel).toHaveAttribute("hidden")
+      expect(panel).toHaveAttribute("inert")
+      expect(screen.queryByTestId("return-leaf-post")).toBeNull()
+      task.commit(returnRoot)
+      await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
+      expect(task.context.frame.href).toBe(returnRoot)
+      expect(screen.getByRole("button", { name: "Outside action" })).toBeVisible()
+    })
+
+    it.each(["button", "system"] as const)("still cancels an ordinary forward navigation on %s Back", async (entry) => {
+      const task = renderPostReturnLifecycle()
+      const destination = `${returnRoot}/other`
+      act(() => task.context.navigation.push(destination))
+      await waitFor(() => expect(screen.getByTestId("return-leaf-other")).toBeVisible())
+      expect(task.context.navigation.pendingHref).toBe(destination)
+      expect(task.context.frame.href).toBe(returnPost)
+      repeatBack(entry, "other")
+      expect(mocks.replace).toHaveBeenCalledExactlyOnceWith(returnPost)
+      await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
+      expect(screen.getByTestId("return-leaf-post")).toBeVisible()
+      expect(screen.queryByTestId("return-leaf-other")).toBeNull()
+    })
+
+    it.each(["newer intent", "retired owner", "retired access"] as const)("does not publish an old closing return after a %s", async (boundary) => {
+      const task = renderPostReturnLifecycle()
+      const exit = holdReturnExit(screen.getByTestId("return-leaf-post").closest<HTMLElement>("[data-slot='mobile-page']")!)
+      fireEvent.click(screen.getByRole("button", { name: "Back post" }))
+      await waitFor(() => expect(exit.animations).toHaveBeenCalled())
+      act(() => {
+        if (boundary === "newer intent") task.context.navigation.push(`${returnRoot}/other`)
+        else if (boundary === "retired owner") task.retireOwner()
+        else task.retireAccess()
+      })
+      await act(async () => exit.finish())
+      expect(mocks.replace).not.toHaveBeenCalled()
+      expect(task.context.navigation.pendingHref).toBe(boundary === "newer intent" ? `${returnRoot}/other` : null)
+      expect(screen.queryByTestId("return-leaf-forum")).toBeNull()
     })
   })
 

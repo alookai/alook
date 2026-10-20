@@ -255,6 +255,8 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     isNotifyUnit,
     currentUser,
     accessAllowed: !resolvingParent && routeCommitted && routeModel.routeLifecycle === "ready",
+    roleDisplayAllowed: !resolvingParent && routeModel.routeLifecycle === "ready"
+      && (routeCommitted || resume && isForum && routeModel.routeHydrated),
   })
   const {
     composerMembers,

@@ -69,6 +69,7 @@ export function useChannelMemberViewModel({
   isNotifyUnit,
   currentUser,
   accessAllowed = true,
+  roleDisplayAllowed = accessAllowed,
 }: {
   serverId: string
   channelId: string
@@ -80,6 +81,7 @@ export function useChannelMemberViewModel({
   isNotifyUnit: boolean
   currentUser: { id: string }
   accessAllowed?: boolean
+  roleDisplayAllowed?: boolean
 }): {
   composerMembers: Member[]
   composerMentionCandidates?: MentionCandidateSource
@@ -89,7 +91,7 @@ export function useChannelMemberViewModel({
   myRole: Role | undefined
 } {
   const membersHook = useServerMembers(accessAllowed && currentServer ? serverId : null)
-  const myRole = useViewerServerRole(accessAllowed && currentServer ? serverId : null, currentUser.id)
+  const myRole = useViewerServerRole(roleDisplayAllowed && currentServer ? serverId : null, currentUser.id)
   const source = useCommunityViewSource(`channel-members:${serverId}:${channelId}`, accessAllowed)
   const originalView = useCallback((caller?: MemberOriginalView) => {
     const local = source.capture()

@@ -521,6 +521,21 @@ describe("ChannelRoute message surface ownership", () => {
     expect(composer).toHaveValue("Retained parent draft")
   })
 
+  it.each(["resumed forum", "forward", "unhydrated", "pending", "text"] as const)("qualifies role display separately from member reads for %s", (boundary) => {
+    Object.assign(mockRouteModel, { isForum: true, channel: { id: "channel_1", name: "Forum", type: "forum" }, skeletonSubtype: "forum", layoutHint: { subtype: "forum", parentChannelId: null, parentSubtype: "unknown" } })
+    mockBreakpoint.value = "mobile"
+    mockSearchParams.value = ""
+    mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1", resume: true }
+    if (boundary === "forward") mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1" }
+    if (boundary === "unhydrated") mockRouteModel.routeHydrated = false
+    if (boundary === "pending") mockRouteModel.routeLifecycle = "pending"
+    if (boundary === "text") mockRouteModel.isForum = false
+    render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1", routeCommitted: false }))
+    const model = mockedUseChannelMemberViewModel.mock.calls.at(-1)![0]
+    expect(model.accessAllowed).toBe(false)
+    expect(model.roleDisplayAllowed ?? false).toBe(boundary === "resumed forum")
+  })
+
   it("keeps the operational opener gate outside pending child content", async () => {
     configureThreadRoute()
     mockRouteModel.routeLifecycle = "pending"

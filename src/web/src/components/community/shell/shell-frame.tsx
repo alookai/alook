@@ -31,7 +31,7 @@ import { ShellFrameView } from "./shell-frame-view"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
-import { useCommunityNavigationController } from "./use-community-navigation-controller"
+import { hasPendingParentReturn, useCommunityNavigationController } from "./use-community-navigation-controller"
 import type { ShellFrameProps } from "./shell-frame-types"
 import {
   initialUserBarExtensionState,
@@ -302,8 +302,10 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     if (breakpoint !== "mobile" || checkpoint.surface !== "detail" || userBarExtension.active === "none") return
     dismissUserBarExtension()
   }, [breakpoint, checkpoint.surface, dismissUserBarExtension, userBarExtension.active])
+  const parentReturnPending = hasPendingParentReturn(navigation)
   const dismissNativeBackShellOverlay = useCallback(() => {
     if (navigation.navigationPending) {
+      if (parentReturnPending) return true
       replacePath(committedFrame.href)
       return true
     }
@@ -311,7 +313,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     if (userBarExtension.active === "none") return false
     dismissUserBarExtension()
     return true
-  }, [breakpoint, checkpoint.surface, committedFrame.href, dismissUserBarExtension, navigation.navigationPending, replacePath, userBarExtension.active])
+  }, [breakpoint, checkpoint.surface, committedFrame.href, dismissUserBarExtension, navigation.navigationPending, parentReturnPending, replacePath, userBarExtension.active])
   const pageBack = useRef<MobilePageBack | null>(null)
   const pageBackRegistry = useMemo(() => ({ register: (request: MobilePageBack) => {
     pageBack.current = request
