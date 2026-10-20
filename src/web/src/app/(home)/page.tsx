@@ -5,7 +5,7 @@ import {
   LANDING_META_TITLE,
 } from "@/components/home/landing-content";
 import { LandingPage } from "@/components/home/landing-page";
-import { getSession } from "@/lib/session";
+import { headers } from "next/headers";
 import { SITE_OG_IMAGE } from "@/lib/seo/site-metadata";
 
 const title = LANDING_META_TITLE;
@@ -32,6 +32,8 @@ export const metadata: Metadata = {
 };
 
 export default async function Page() {
-  const session = await getSession();
+  const requestHeaders = await headers();
+  const hasCredentials = requestHeaders.has("cookie") || requestHeaders.has("authorization");
+  const session = hasCredentials ? await (await import("@/lib/session")).getSession() : null;
   return <><ObservedStaticContent /><LandingPage isLoggedIn={!!session} /></>;
 }

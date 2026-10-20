@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react"
+import Image from "next/image"
+import { Avatar as AvatarFrame } from "@/components/ui/avatar"
 import { Avatar } from "@/components/community/avatar"
 import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import styles from "./hero-avatar-swarm.module.css"
@@ -61,7 +63,23 @@ export function HeroAvatarSwarm() {
         >
           <span className={styles.shadow} />
           <span className={styles.face}>
-            <Avatar label={avatar.name} seed={avatar.seed} src={LANDING_HUMAN_AVATARS[avatar.seed]} size={avatar.size} />
+            {LANDING_HUMAN_AVATARS[avatar.seed] ? (
+              <AvatarFrame className="bg-muted" style={{ width: avatar.size, height: avatar.size, opacity: 1 }} aria-hidden>
+                <span aria-hidden className="absolute inset-0 bg-muted rounded-full" />
+                <Image
+                  src={LANDING_HUMAN_AVATARS[avatar.seed]}
+                  alt=""
+                  width={avatar.size}
+                  height={avatar.size}
+                  unoptimized
+                  loading="eager"
+                  data-slot="avatar-image"
+                  className="absolute inset-0 size-full object-cover transition-none opacity-100 aspect-square rounded-full"
+                />
+              </AvatarFrame>
+            ) : (
+              <Avatar label={avatar.name} seed={avatar.seed} size={avatar.size} />
+            )}
           </span>
         </span>
       ))}
