@@ -75,7 +75,6 @@ export type CommunityCheckpointPlan = {
   main: { kind: "keep" } | { kind: "server-route"; href: string } | { kind: "module-route"; href: string; module: "friends" | "bots" | "machines" | "me-root" | "server-landing" | "route-resolution" } | { kind: "dm-route"; href: string; dmId: string } | {
     kind: "target-skeleton"
     href: string
-    conversationSubtype?: "text" | "forum" | "thread"
   }
 }
 
@@ -299,13 +298,11 @@ export function resolveCommunityCheckpointPlan({
   targetHref,
   pending,
   targetReady,
-  targetConversationSubtype,
 }: {
   committedFrame: CommunityCommittedFrame
   targetHref: string | null
   pending: boolean
   targetReady: boolean
-  targetConversationSubtype?: "text" | "forum" | "thread"
 }): CommunityCheckpointPlan {
   if (!pending || !targetHref) {
     return committedPlan(committedFrame, targetHref && normalizeCommunityHref(targetHref).leafKey === committedFrame.leafKey ? targetHref : committedFrame.href)
@@ -318,8 +315,7 @@ export function resolveCommunityCheckpointPlan({
   if (plan.main.kind === "keep") return {
     ...plan,
     mode: "cold-scope",
-    main: { kind: "target-skeleton", href: target.href,
-      ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}) },
+    main: { kind: "target-skeleton", href: target.href },
   }
   return {
     ...plan,

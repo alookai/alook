@@ -1,6 +1,8 @@
 "use client"
 
+import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
+import { useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { BellOff, Loader2, Pencil, Trash2, Users } from "lucide-react"
@@ -14,8 +16,6 @@ import { tid } from "@/lib/community/testids"
 import type { Channel } from "@/lib/community/models/navigation"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 
-// True when the row has at least one right-click action. With none, we skip the
-// ContextMenu wrapper entirely so a non-manager doesn't get an empty popover strip.
 export function hasChannelMenu(h: { onEdit?: () => void; onManageMembers?: () => void; onDelete?: () => void }) {
   return !!(h.onEdit || h.onManageMembers || h.onDelete)
 }
@@ -100,12 +100,19 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
   ) : (
     <div {...rowProps} onClick={onClick}>{content}</div>
   )
-  if (!hasChannelMenu({ onEdit, onManageMembers, onDelete })) return row
+  const hasMenu = hasChannelMenu({ onEdit, onManageMembers, onDelete })
+  const menuActionsRef = useRef<ContextMenuPrimitive.Root.Actions | null>(null)
+  useEffect(() => {
+    if (!hasMenu) {
+      menuActionsRef.current?.close()
+      menuActionsRef.current?.unmount()
+    }
+  }, [hasMenu])
   return (
     <>
-      <ContextMenu>
+      <ContextMenu disabled={!hasMenu} actionsRef={menuActionsRef}>
         <ContextMenuTrigger render={row} />
-        <ContextMenuContent className="w-48">
+        {hasMenu && <ContextMenuContent className="w-48">
           <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
           {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit channel</ContextMenuItem>}
           {onManageMembers && <ContextMenuItem onClick={onManageMembers}><Users className="size-4" /> Manage members</ContextMenuItem>}
@@ -118,7 +125,7 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
               ><Trash2 className="size-4" /> Delete channel</ContextMenuItem>
             </>
           )}
-        </ContextMenuContent>
+        </ContextMenuContent>}
       </ContextMenu>
       {onDelete && (
         <ConfirmDialog

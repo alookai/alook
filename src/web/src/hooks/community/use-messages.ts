@@ -13,7 +13,7 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useMessageOverlayIds } from "@/stores/community/message-stream"
 import { materializeMessageStream, type MessageScope } from "@/lib/community/message-stream"
 import { messageWindowOptions, type InitialMessageWindow } from "@/lib/community/message-window"
-import type { findConversationEntryWindow } from "@/lib/community/conversation-entry"
+import { knownConversationLatestSeq, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
 import type { Msg } from "@/lib/community/models/message"
 import { messageReconcileOptions } from "./community-ws/reconnect-messages"
 
@@ -87,7 +87,9 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const proof = entry.resource?.proof
   const viewKey = hashKey([channelId, serverId, anchorMessageId, tag, proof?.accountEpoch ?? -1, proof?.accessEpoch ?? -1,
     channelId ? proof?.channelScopes.get(channelId)?.generation ?? 0 : 0])
-  const present = useMemo(() => createStore<PresentSelection>({ attempt: 0, pending: false, window: null, version: 0, error: null }), [viewKey, entry.intent])
+  const present = useMemo(() => ({ viewKey, intent: entry.intent,
+    state: createStore<PresentSelection>({ attempt: 0, pending: false, window: null, version: 0, error: null }),
+  }), [viewKey, entry.intent]).state
   const selection = useSelector(present, (state) => state)
   const selectedWindow = entry.canRead ? selection.window ?? entry.window : null
   const enabled = !!channelId && !!selectedWindow && entry.canRead
@@ -128,6 +130,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const messages = useMemo(() => entry.canRead ? materializeMessageStream(canonicalBase, overlay, canonicalById).filter((message) => messageMatchesTag(message, tag)) : [],
     [canonicalBase, canonicalById, overlay, entry.canRead, tag])
   const latestSeq = Math.max(0, ...(query.data?.pages.map((page) => page.latestSeq ?? 0) ?? []))
+  const readSnapshotFetching = entry.isPending || entry.isFetching && !!channelId && !anchorMessageId && !tag
+    && knownConversationLatestSeq(client, channelId) > latestSeq
   const pages = query.data?.pages ?? []
   const oldest = pages.at(-1)
   const newest = pages[0]
@@ -191,8 +195,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     fetchOlder, fetchNewer, jumpToPresent, presentVersion: selection.version,
     anchorReconciled: !!selectedWindow,
     navigationBlocked: !entry.canRead,
-    readSnapshot: entry.snapshot, readSnapshotFetching: entry.isPending,
-    initialPositionKnown: !!selectedWindow && entry.snapshot !== null && !loading,
+    readSnapshot: entry.snapshot, readSnapshotFetching,
+    initialPositionKnown: !!selectedWindow && entry.snapshot !== null && !loading && !readSnapshotFetching,
     initialPositionMessageId: entry.initialPositionMessageId, positionEntry: entry.intent,
     retryInitialLoad, retryingInitialLoad: entry.isFetching || query.isFetching,
     entryCanRead: entry.canRead, entryDenied: entry.denied, entryAnchorMissing: entry.anchorMissing,

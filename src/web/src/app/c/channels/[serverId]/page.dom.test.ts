@@ -2,6 +2,7 @@ import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@/test/react-dom-harness"
 import ServerDefaultPage from "./page"
+import { tid } from "@/lib/community/testids"
 import { CommunityServerRouteContext } from "@/components/community/shell/community-route-context"
 
 import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
@@ -67,6 +68,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
     const rendered = render(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
 
     expect(mocks.replace).not.toHaveBeenCalled()
+    expect(screen.getByTestId(tid.pendingMain("server-landing"))).toHaveAttribute("data-community-target-href", "/c/channels/server_1")
     expect(screen.getByRole("main", { name: "Loading server" })).toHaveAttribute("aria-busy", "true")
     expect(screen.getByRole("main", { name: "Loading server" }))
       .not.toHaveAttribute("data-community-mobile-transition")

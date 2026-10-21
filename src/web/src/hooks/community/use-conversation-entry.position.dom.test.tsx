@@ -13,7 +13,7 @@ import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize } from "@/test/message-scroll-fixture"
-import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot, publishAccountAttentionSnapshot } from "@/lib/community-db/sync"
 import { currentConversationReadState } from "@/lib/community/conversation-entry"
 import { disposeReadCoordinator, getLocalReadingPosition, getReadCoordinator } from "./read-coordinator"
 import { disposeAccountReadStateReconciliation } from "./community-ws/read-state-reconciliation"
@@ -96,16 +96,31 @@ function entry(kind: Kind, channelId = "c1", ownTail = false) {
   return value
 }
 
-async function setup(kind: Kind, ownTail = false, strict = false) {
+async function setup(kind: Kind, ownTail = false, strict = false, options: {
+  cached?: ReturnType<typeof entry>
+  latestAttentionSeq?: number
+  refresh?: Promise<ReturnType<typeof entry>>
+} = {}) {
   owner = await createCommunityQueryOwner()
-  await seedConversationEntry(owner.client, entry(kind, "c1", ownTail))
+  await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail))
   await seedConversationEntry(owner.client, entry("channel", "c2"))
+  if (options.latestAttentionSeq) publishAccountAttentionSnapshot(owner.client, {
+    snapshot: { scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true,
+      lastUnreadSeq: options.latestAttentionSeq, lastAttentionSeq: null, attentionCount: 0 }],
+    items: [], limit: 100, truncated: false,
+    included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
+    proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined },
+  })
   let finishPut!: (value: unknown) => void
   let finishCanonical!: (value: unknown) => void
   const put = new Promise(resolve => { finishPut = resolve })
   const canonicalTransport = new Promise(resolve => { finishCanonical = resolve })
   releaseTransport = () => { finishPut({ changed: true, revision: 6, targetSeq: 42 }); finishCanonical({ revision: 6, readStates: [] }) }
   load.mockImplementation((url: string) => {
+    if (url === "/api/community/channels/c1/messages?entry=1" && options.refresh) return options.refresh
+    if (url.startsWith("/api/community/channels/c1/messages?since=") && options.refresh) return options.refresh.then(value => ({
+      ...value.page, messages: value.messages.filter(message => message.seq > 1),
+    }))
     if (url.endsWith("/read")) return put
     if (url === "/api/community/users/me/read-state") return canonicalTransport
     if (url === "/api/community/users/me/attention") return Promise.resolve({ scopes: [], items: [], limit: 100, truncated: false })
@@ -196,6 +211,38 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
+  it("keeps a cached read tail visible without settling it before the known newer entry arrives", async () => {
+    const fresh = entry("channel")
+    fresh.messages = fresh.messages.slice(0, 13)
+    fresh.channel.messageCount = 13
+    fresh.readState = { channelId: "c1", lastReadMessageId: "m1", lastReadSeq: 1, lastReadAt: fresh.messages[0].createdAt }
+    fresh.selection = { reason: "read_pointer", anchorMessageId: "m1" }
+    fresh.page.latestSeq = 13
+    const cached = { ...fresh, channel: { ...fresh.channel, messageCount: 1 }, messages: fresh.messages.slice(0, 1), page: { ...fresh.page, latestSeq: 1 } }
+    let finishRefresh!: (value: typeof fresh) => void
+    const refresh = new Promise<typeof fresh>(resolve => { finishRefresh = resolve })
+    const view = await setup("channel", false, false, { cached, latestAttentionSeq: 13, refresh })
+    try {
+      expect(latest.feed.messages.map(message => message.id)).toEqual(["m1"])
+      expect(view.visible("m1")).toBe(true)
+      expect(latest.feed.isFetching).toBe(true)
+      const initialReadReady = view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready")
+      await act(async () => { finishRefresh(fresh); await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      expect(latest.feed.error).toBeNull()
+      expect(latest.feed.messages).toHaveLength(13)
+      const marker = view.root().querySelector("[data-new-divider]")!.getBoundingClientRect()
+      const viewport = view.root().getBoundingClientRect()
+      expect({ initialReadReady, newInViewport: marker.bottom > viewport.top && marker.top < viewport.bottom,
+        lastInViewport: view.visible("m13"), readReadyAfter: view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready"),
+      }).toEqual({ initialReadReady: "false", newInViewport: true, lastInViewport: false, readReadyAfter: "true" })
+      expect(latest.feed.readSnapshot?.lastReadSeq).toBe(1)
+      expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    } finally {
+      await act(async () => { finishRefresh(fresh); await vi.advanceTimersByTimeAsync(0) })
+    }
+  })
+
   it.each([
     { kind: "channel", strict: false }, { kind: "post", strict: false },
     { kind: "thread", strict: false }, { kind: "channel", strict: true },

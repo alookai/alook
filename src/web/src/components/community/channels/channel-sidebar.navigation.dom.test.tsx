@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render, setupUser } from "@/test/react-dom-harness"
+import { act, fireEvent, render, setupUser, waitFor } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"
 import { ChannelSidebar } from "./channel-sidebar"
 import { useChannelTree } from "./use-channel-tree"
@@ -72,5 +72,30 @@ describe("real sortable channel navigation surface", () => {
     await user.keyboard("{Enter}")
     expect(onPick.mock.calls).toEqual([["two"], ["two"]])
     expect(onReorder).not.toHaveBeenCalled()
+    for (const element of [view.getByTestId(tid.channelSidebarScroll), anchor, ...(grouped ? [view.getByText("Group")] : [])]) {
+      fireEvent.contextMenu(element, { button: 2 })
+      expect(view.queryByRole("menu")).toBeNull()
+    }
   })
+})
+
+it.each(["list", "row", "category"] as const)("retires an open %s menu when actions become unavailable without reviving it or replacing content", async kind => {
+  const onPick = vi.fn()
+  const view = render(<Sidebar onPick={onPick} grouped />)
+  const scroll = view.getByTestId(tid.channelSidebarScroll)
+  const row = view.getByTestId(tid.channelRow("two"))
+  const category = view.getByText("Group")
+  const trigger = kind === "list" ? scroll : kind === "row" ? row : category.closest('[data-slot="context-menu-trigger"]')!
+  fireEvent.contextMenu(trigger, { button: 2 })
+  expect(await view.findByRole("menu")).toBeVisible()
+  view.rerender(<Sidebar onPick={onPick} isAdmin={false} grouped />)
+  expect(view.queryByRole("menu")).toBeNull()
+  view.rerender(<Sidebar onPick={onPick} grouped />)
+  const closing = view.queryByRole("menu")
+  if (closing) expect(closing).toHaveAttribute("data-closed")
+  await waitFor(() => expect(view.queryByRole("menu")).toBeNull())
+  expect(view.getByTestId(tid.channelSidebarScroll)).toBe(scroll)
+  expect(view.getByTestId(tid.channelRow("two"))).toBe(row)
+  expect(view.getByText("Group")).toBe(category)
+  expect(onPick).not.toHaveBeenCalled()
 })

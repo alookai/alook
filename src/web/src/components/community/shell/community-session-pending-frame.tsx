@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
 import { AppSurface } from "@/components/ui/app-surface"
@@ -13,7 +14,7 @@ import { Shell } from "./shell"
 import { UserBarSkeleton } from "./user-bar"
 
 /** Stable, inert viewport shown before authenticated community providers exist. */
-export function CommunitySessionPendingFrame({ pathname }: { pathname: string }) {
+export function CommunitySessionPendingFrame({ pathname, children }: { pathname: string; children?: ReactNode }) {
   const breakpoint = useBreakpoint()
   const plan = resolveCommunityModulePlan(pathname)
   const showCommunityShell = plan.rail === "community"
@@ -27,9 +28,9 @@ export function CommunitySessionPendingFrame({ pathname }: { pathname: string })
       >
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <AppSurface className="rounded-none border-0 bg-background">
-            {plan.main.kind !== "none" && (
+            {children ?? (plan.main.kind !== "none" && (
               <CommunityPendingFrame href={pathname} plan={plan} />
-            )}
+            ))}
           </AppSurface>
         </div>
       </Shell>

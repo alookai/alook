@@ -1,5 +1,7 @@
 "use client"
 
+import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
+import { useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
@@ -10,8 +12,6 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, C
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DropLine } from "../drop-line"
 
-// True when the category header has at least one right-click action. With none, we skip
-// the ContextMenu wrapper so a non-admin doesn't get an empty popover strip.
 export function hasCategoryMenu(h: { onAddChannel?: () => void; onSettings?: () => void; onDelete?: () => void }) {
   return !!(h.onAddChannel || h.onSettings || h.onDelete)
 }
@@ -38,8 +38,6 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging
   const lineSide: "top" | "bottom" = activeIndex !== -1 && activeIndex < index ? "bottom" : "top"
-  // The header div is the drag surface; it renders bare (no ContextMenu) when there are no
-  // actions, so share its props/children across both branches to avoid drift.
   const headerProps = {
     ref: setActivatorNodeRef,
     ...(canReorder ? attributes : { role: "button", tabIndex: 0 }),
@@ -80,15 +78,22 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
       <ChevronDown className={`size-3 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
     </>
   )
+  const hasMenu = hasCategoryMenu({ onAddChannel, onSettings, onDelete })
+  const menuActionsRef = useRef<ContextMenuPrimitive.Root.Actions | null>(null)
+  useEffect(() => {
+    if (!hasMenu) {
+      menuActionsRef.current?.close()
+      menuActionsRef.current?.unmount()
+    }
+  }, [hasMenu])
   return (
     <div ref={setNodeRef} style={style} className={`relative mb-4 ${pending ? "opacity-60" : ""}`}>
       {showLine && <DropLine side={lineSide} />}
-      {hasCategoryMenu({ onAddChannel, onSettings, onDelete }) ? (
-      <ContextMenu>
+      <ContextMenu disabled={!hasMenu} actionsRef={menuActionsRef}>
         <ContextMenuTrigger render={<div {...headerProps} />}>
           {headerInner}
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
+        {hasMenu && <ContextMenuContent className="w-48">
           <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">{name}</div>
           {onAddChannel && <ContextMenuItem onClick={onAddChannel}><Plus className="size-4" /> Create channel</ContextMenuItem>}
           {onSettings && <ContextMenuItem onClick={onSettings}><Settings className="size-4" /> Category settings</ContextMenuItem>}
@@ -101,11 +106,8 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
               ><Trash2 className="size-4" /> Delete category</ContextMenuItem>
             </>
           )}
-        </ContextMenuContent>
+        </ContextMenuContent>}
       </ContextMenu>
-      ) : (
-        <div {...headerProps}>{headerInner}</div>
-      )}
       {open && (
         <div className={`rounded-md transition-colors ${isOver ? "bg-accent/40" : ""}`}>
           {children}

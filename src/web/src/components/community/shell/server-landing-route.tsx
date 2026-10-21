@@ -3,7 +3,8 @@
 import { useCommunityServerRoute } from "@/components/community/shell/community-route-context"
 import { useEffect, useRef } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
-import { ServerLandingPendingFrame } from "@/components/community/shell/server-landing-pending-frame"
+import { CommunityPendingFrame } from "./community-pending-frame"
+import { serverRootHref } from "@/lib/community/community-route"
 import { useServer } from "@/hooks/community/use-servers"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { getLastChannel, resolveCommunityLandingHref } from "@/lib/community/last-channel"
@@ -47,5 +48,7 @@ export default function ServerDefaultPage() {
     )
   }
 
-  return <ServerLandingPendingFrame />
+  const root = serverRootHref(serverId)
+  const search = searchParams.toString()
+  return <CommunityPendingFrame href={`${root}${search ? `?${search}` : ""}`} />
 }

@@ -222,7 +222,6 @@ describe("community route", () => {
       targetHref: "/c/channels/s1/c2?msg=m2&threadView=full",
       pending: true,
       targetReady: true,
-      targetConversationSubtype: "forum",
     }).main).toEqual({
       kind: "server-route",
       href: "/c/channels/s1/c2?msg=m2&threadView=full",
@@ -234,6 +233,17 @@ describe("community route", () => {
       committedFrame: { ...normalizeCommunityHref("/c/me/dm1"), revision: 2 },
       targetHref: "/c/me/dm2", pending: true, targetReady: true,
     }).main).toEqual({ kind: "dm-route", href: "/c/me/dm2", dmId: "dm2" })
+  })
+
+  it("keeps a public invite outside the authenticated target consumers", () => {
+    expect(resolveCommunityCheckpointPlan({
+      committedFrame: { ...normalizeCommunityHref("/c/me/friends"), revision: 2 },
+      targetHref: "/c/invite/token?from=server", pending: true, targetReady: false,
+    })).toEqual({
+      mode: "cold-scope", surface: "detail", targetHref: "/c/invite/token?from=server",
+      rail: { kind: "keep" }, sidebar: { kind: "keep" },
+      main: { kind: "target-skeleton", href: "/c/invite/token?from=server" },
+    })
   })
 
   it("keeps committed A as the source after the router publishes B", () => {

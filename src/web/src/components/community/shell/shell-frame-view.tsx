@@ -4,6 +4,7 @@ import { MobilePage } from "./mobile-page"
 import { DmRoute } from "@/components/community/channels/dm-route"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
+import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
 import { CommunityPendingFrame } from "./community-pending-frame"
 import { CommunityModuleRoute } from "./community-module-route"
 import { communityServerId, resolveCommunityModulePlan } from "@/lib/community/community-route"
@@ -64,7 +65,8 @@ export function ShellFrameView({
 }: Props) {
   const { surface } = checkpoint
   const contentHref = checkpoint.main.kind === "keep" ? checkpoint.targetHref : checkpoint.main.href
-  const targetSidebar = resolveCommunityModulePlan(contentHref).sidebar
+  const modulePlan = resolveCommunityModulePlan(contentHref)
+  const targetSidebar = modulePlan.sidebar
   const { runningBots } = useRunningOwnedBots()
   const inboxElement = (
     <InboxPopover
@@ -111,9 +113,11 @@ export function ShellFrameView({
       ? `server:${communityServerId(checkpoint.main.href)}`
       : checkpoint.main.module}`} href={checkpoint.main.href} routeCommitted={routeCommitted} />
   ) : checkpoint.main.kind === "keep" ? children : (
-    <CommunityPendingFrame href={checkpoint.targetHref} reserveBackSlot={surface === "detail"}
-      conversationSubtype={checkpoint.main.conversationSubtype} />
+    <CommunityPendingFrame href={checkpoint.targetHref} reserveBackSlot={surface === "detail"} />
   )
+  if (modulePlan.route === "community-root-redirect") {
+    return <CommunitySessionPendingFrame pathname={contentHref}>{main}</CommunitySessionPendingFrame>
+  }
   const meDetail = surface === "detail" && checkpoint.targetHref.startsWith("/c/me/")
   return (
     <CommunityShellLayout

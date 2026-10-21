@@ -114,10 +114,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     : null
   const targetServer = useServerTreeProjection(targetServerId)
   const targetRouteChannel = useRouteChannelProjection(targetChannelId)
-  const targetChannel = targetServer?.categories
-    ?.flatMap((category) => category.channels)
-    .find((channel) => channel.id === targetChannelId)
-    ?? targetRouteChannel
   const displayedModule = targetModulePlan ?? committedModule
   const displayedChannelId = targetModulePlan ? targetChannelId : committedChannelId
   const displayedChannel = targetModulePlan ? targetRouteChannel : committedChannel
@@ -128,11 +124,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     && displayedChannel.parentChannelId
     ? channelHref(displayedModule.sidebar.serverId, displayedChannel.parentChannelId)
     : displayedRoute.parentPath
-  const targetConversationSubtype = targetChannel?.type === "text"
-    || targetChannel?.type === "forum"
-    || targetChannel?.type === "thread"
-    ? targetChannel.type
-    : undefined
   const targetReady = targetServerId
     ? queryClient.getQueryData(communityKeys.server(targetServerId)) !== undefined
       || targetServer !== undefined
@@ -145,7 +136,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       ? navigation.entryIntent?.href ?? navigation.publishedHref : navigation.publishedHref),
     pending: navigation.navigationPending,
     targetReady,
-    targetConversationSubtype,
   })
   const projectedView = checkpoint.rail.kind === "target"
     ? checkpoint.rail.view

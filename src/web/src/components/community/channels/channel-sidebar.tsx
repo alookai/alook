@@ -1,10 +1,11 @@
 "use client"
 
+import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { OfficialServerBadge } from "../official-server-badge"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { channelHref } from "@/lib/community/community-route"
-import { Fragment, memo, useRef, type MouseEvent } from "react"
+import { Fragment, memo, useEffect, useRef, type MouseEvent } from "react"
 import { Settings, Users, Link2, Bell, ChevronDown, UserPlus } from "lucide-react"
 import {
   DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, useDndContext,
@@ -97,6 +98,13 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   forumThreadsByParent = {}, activeThreadId, onSelectForumThread,
 }: ChannelSidebarProps) {
   const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, onDragOver, onDragEnd: treeDragEnd } = tree
+  const menuActionsRef = useRef<ContextMenuPrimitive.Root.Actions | null>(null)
+  useEffect(() => {
+    if (!isAdmin) {
+      menuActionsRef.current?.close()
+      menuActionsRef.current?.unmount()
+    }
+  }, [isAdmin])
   // Category the dragged channel started in — captured at drag start, because
   // `onDragOver` mutates `order` mid-drag so by drop time it already reflects
   // the destination.
@@ -351,10 +359,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           )}
         </header>
       )}
-      {/* right-click anywhere in the list (incl. empty space) → create channel / category.
-          Non-admins have no actions, so the menu is skipped entirely (no empty popover). */}
-      {isAdmin ? (
-      <ContextMenu>
+      <ContextMenu disabled={!isAdmin} actionsRef={menuActionsRef}>
         <ContextMenuTrigger
           render={(
             <div
@@ -365,19 +370,13 @@ export const ChannelSidebar = memo(function ChannelSidebar({
         >
           {channelTree}
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
-          <ContextMenuItem onClick={() => requestCreateChannel(noneCatId)}>Create channel</ContextMenuItem>
-          <ContextMenuItem onClick={() => setDialog({ kind: "create-category" })}>Create category</ContextMenuItem>
-        </ContextMenuContent>
+        {isAdmin && (
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={() => requestCreateChannel(noneCatId)}>Create channel</ContextMenuItem>
+            <ContextMenuItem onClick={() => setDialog({ kind: "create-category" })}>Create category</ContextMenuItem>
+          </ContextMenuContent>
+        )}
       </ContextMenu>
-      ) : (
-        <div
-          data-testid={tid.channelSidebarScroll}
-          className="min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none"
-        >
-          {channelTree}
-        </div>
-      )}
 
       {dialog?.kind === "create-channel" && (
         <CreateChannelDialog

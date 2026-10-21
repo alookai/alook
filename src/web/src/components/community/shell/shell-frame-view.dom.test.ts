@@ -234,6 +234,24 @@ const extensionProps = {
 let animateDescriptor: PropertyDescriptor | undefined
 
 describe("ShellFrameView", () => {
+  it("keeps neutral root presentation under the same host before a target consumer takes over", () => {
+    const common = { ...extensionProps, breakpoint: "unknown" as const, sidebar: () => null, rail, profile, inbox }
+    const root: CommunityCheckpointPlan = { ...committedCheckpoint("/c", "list"), main: { kind: "module-route", href: "/c", module: "route-resolution" } }
+    const target: CommunityCheckpointPlan = { ...committedCheckpoint("/c/me/friends", "list"), main: { kind: "module-route", href: "/c/me/friends", module: "friends" } }
+    const view = render(createElement(ShellFrameView, { ...common, checkpoint: root }))
+    expect(view.container.querySelector('[data-slot="community-shell-root"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Loading community"][aria-busy="true"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-server-rail], [data-user-bar], [data-shell-overlays]')).toBeNull()
+    expect(view.container.querySelector('[data-module-target="/c"]')).not.toBeNull()
+    view.rerender(createElement(ShellFrameView, { ...common, breakpoint: "desktop", checkpoint: target, routeCommitted: false }))
+    const input = view.getByRole("textbox") as HTMLInputElement
+    input.value = "Target draft"
+    expect(view.container.querySelector('[data-slot="community-shell-root"]')).not.toBeNull()
+    view.rerender(createElement(ShellFrameView, { ...common, breakpoint: "desktop", checkpoint: target, routeCommitted: true }))
+    expect(view.getByRole("textbox")).toBe(input)
+    expect(input).toHaveValue("Target draft")
+  })
+
   beforeEach(() => {
     vi.unstubAllGlobals()
     mocks.onLayoutChanged.mockClear()
@@ -914,7 +932,6 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelector("[data-channel-loading-frame]")).not.toBeNull()
     expect(mocks.pendingProps).toHaveBeenLastCalledWith(expect.objectContaining({
       href: "/c/channels/s1/c2",
-      conversationSubtype: undefined,
     }))
     expect(renderer.container.querySelector("[data-community-mobile-transition]")).toBeNull()
 
@@ -938,7 +955,6 @@ describe("ShellFrameView", () => {
           main: {
             kind: "target-skeleton",
             href: "/c/channels/s1/c3",
-            conversationSubtype: "thread",
           },
         },
       },
@@ -946,7 +962,6 @@ describe("ShellFrameView", () => {
     ))
     expect(mocks.pendingProps).toHaveBeenLastCalledWith(expect.objectContaining({
       href: "/c/channels/s1/c3",
-      conversationSubtype: "thread",
     }))
     renderer.rerender(createElement(
       ShellFrameView,

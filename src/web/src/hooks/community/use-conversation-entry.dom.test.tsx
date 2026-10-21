@@ -6,7 +6,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture as fixture, dmConversationEntryFixture, conversationEntryTarget as target } from "@/test/conversation-entry-fixtures"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { registerCommunityDbRegistry } from "@/lib/community-db/collections"
-import { captureCommunityLiveSnapshotToken, ingestMessages, ingestReadStateSnapshot } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, ingestMessages, ingestReadStateSnapshot, publishAccountAttentionSnapshot } from "@/lib/community-db/sync"
 import { conversationEntryOptions, currentConversationReadState, publishConversationEntry } from "@/lib/community/conversation-entry"
 import { communityKeys } from "@/lib/query-keys"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
@@ -763,5 +763,48 @@ describe("conversation entry return during accepted reading", () => {
       releaseReadSurface(owner.lease)
       await owner.finish()
     }
+  })
+})
+
+
+describe("native entry freshness with authoritative newer attention", () => {
+  it.each([["channel", false, false], ["channel", true, false], ["dm", false, false], ["dm", true, false], ["channel", true, true], ["dm", true, true]] as const)("keeps cached %s content while respecting newer=%s, explicit anchor=%s", async (kind, newer, explicitAnchor) => {
+    const { client, registry, wrapper } = await setup()
+    const packet = kind === "dm" ? dmConversationEntryFixture() : fixture()
+    const selectedTarget = { channelId: packet.channelId, serverId: packet.channel.serverId, ...(explicitAnchor ? { anchorMessageId: "m1" } : {}) }
+    if (explicitAnchor) packet.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
+    load.mockResolvedValueOnce(packet)
+    const original = await client.query(conversationEntryOptions(client, selectedTarget))
+    load.mockClear()
+    publishAccountAttentionSnapshot(client, {
+      snapshot: { scopes: [{ scopeId: packet.channelId, channelId: packet.channelId, serverId: packet.channel.serverId,
+        ordinaryUnread: newer, lastUnreadSeq: newer ? 2 : 1, lastAttentionSeq: null, attentionCount: 0 }], items: [], limit: 100, truncated: false,
+        included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
+      proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
+    })
+    const held = deferred<ReturnType<typeof fixture>>()
+    load.mockReturnValue(held.promise)
+    const hook = renderHook(() => useConversationEntry(selectedTarget), { wrapper })
+    const selected = hook.result.current.window
+    expect(selected).not.toBeNull()
+    expect(hook.result.current.isPending).toBe(false)
+    expect(hook.result.current.snapshot?.lastReadMessageId).toBe("m1")
+    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(original.windowKey)?.pages[0].messages.map(row => row.id)).toEqual(["m1"])
+    if (!newer || explicitAnchor) {
+      await act(async () => { await Promise.resolve() })
+      expect(load).not.toHaveBeenCalled()
+    } else {
+      await waitFor(() => expect(load).toHaveBeenCalledOnce())
+      expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1")
+      expect(hook.result.current.window).toBe(selected)
+      const fresh = { ...packet, channel: { ...packet.channel, messageCount: 2 }, messages: [...packet.messages, { ...packet.messages[0], id: "m2", seq: 2, content: "New message" }], page: { ...packet.page, latestSeq: 2 } }
+      await act(async () => { held.resolve(fresh) })
+      await waitFor(() => expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(original.windowKey)?.pages.flatMap(page => page.messages.map(row => row.id))).toContain("m2"))
+      expect(hook.result.current.window).toBe(selected)
+      expect(hook.result.current.snapshot?.lastReadMessageId).toBe("m1")
+      expect(load.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true)
+    }
+    expect(registry.collections.readStates.get(packet.channelId)?.lastReadSeq).toBe(1)
+    hook.unmount()
   })
 })

@@ -14,7 +14,7 @@ import {
   assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken,
   publishCommunityChannelMetadata, publishCommunityChannelMembersSnapshot, publishCommunityConversationReadState, confirmCommunityConversationPresence,
   publishCommunityMessages, retireCommunityChannelReading, type CommunityFreshQueryProof,
-  publishCommunityForumFeed,
+  publishCommunityForumFeed, getCanonicalCommunityAttentionScopes,
 } from "@/lib/community-db/sync"
 import { messageWindowPage, type MessagesPageParam } from "./models/message"
 import { messageWindowIdentity, type InitialMessageWindow, type MessageWindowData } from "./message-window"
@@ -145,6 +145,12 @@ export function findConversationEntryWindow(client: QueryClient, target: Convers
   }
 }
 
+export function knownConversationLatestSeq(client: QueryClient, channelId: string) {
+  return Math.max(0, ...getCanonicalCommunityAttentionScopes(client)
+    .filter(scope => scope.channelId === channelId)
+    .map(scope => Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0)))
+}
+
 export function conversationEntryOptions(client: QueryClient, target: ConversationEntryTarget, observation?: ApiRequestOptions["observation"]) {
   const qualification = captureCommunityLiveSnapshotToken(client, target.channelId)
   const queryKey = communityKeys.conversationEntry(target.channelId, target, {
@@ -201,7 +207,14 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
       const resource = query.state.data
       if (!resource) return 0
       const pointer = knownPointer && resource.readStateRevision <= (knownPointer.observedRevision ?? -1) ? knownPointer : resource.readStateAtEntry
-      return findConversationEntryWindow(client, target, resource, pointer) ? 5_000 : 0
+      const window = findConversationEntryWindow(client, target, resource, pointer)
+      if (!window) return 0
+      if (!target.anchorMessageId && !target.tag && messageWindowIdentity(window.key)) {
+        const cachedWindow = client.getQueryData<MessageWindowData>(window.key)!
+        const observedLatest = Math.max(0, ...cachedWindow.pages.map(page => page.latestSeq ?? 0))
+        if (knownConversationLatestSeq(client, target.channelId) > observedLatest) return 0
+      }
+      return 5_000
     },
     gcTime: typeof window === "undefined" ? Infinity : 5 * 60 * 1000,
     retry: target.serverId === null ? false : retryConversationRead,
