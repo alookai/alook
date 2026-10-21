@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { observeWorkerOperation } from "./worker"
-import { resolveObservationBuild } from "./build"
+import { resolveObservationLabels } from "./build"
 import { createWebWorkerHandler, workerRequestAttributes } from "../worker-runtime"
 
 const native = vi.hoisted(() => ({ tracing: undefined as ExecutionContext["tracing"] | undefined }))
@@ -21,7 +21,7 @@ it("passes execution to native request spans and filters private attributes", as
 })
 
 it("records received trace context and actual Worker version without claiming a native parent", () => {
-  const build = resolveObservationBuild({ NEXT_PUBLIC_FARO_RELEASE: "a".repeat(40), NEXT_PUBLIC_FARO_ENVIRONMENT: "qa" })
+  const build = resolveObservationLabels({ release: "a".repeat(40), environment: "qa" })
   const request = new Request("https://fixture.test/c/me?token=PRIVATE", { headers: { traceparent: `00-${"b".repeat(32)}-${"c".repeat(16)}-01`, tracestate: "PRIVATE" } })
   const fields = workerRequestAttributes(request, { CF_VERSION_METADATA: { id: "real-version" } } as Env, build)
   expect(fields).toMatchObject({ release: "a".repeat(40), environment: "qa", worker_version: "real-version", trace_context: "received", upstream_trace_id: "b".repeat(32), upstream_span_id: "c".repeat(16) })

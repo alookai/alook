@@ -9,9 +9,15 @@ const blogRedirectRules = JSON.parse(
 	readFileSync(path.resolve(__dirname, "src/lib/blog/redirects.json"), "utf8"),
 ) as Array<{ source: string; destination: string; statusCode: 301 }>;
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "../package.json"), "utf8"));
+const { resolveObservationBuild } = createRequire(path.resolve(__dirname, "next.config.ts"))("../src/lib/observability/build.ts") as typeof import("@/lib/observability/build");
+const observation = resolveObservationBuild(process.env);
 
 const nextConfig: NextConfig = {
-  env: { NEXT_PUBLIC_APP_VERSION: pkg.version },
+  env: {
+    NEXT_PUBLIC_APP_VERSION: pkg.version,
+    NEXT_PUBLIC_FARO_RELEASE: observation.release ?? "",
+    NEXT_PUBLIC_FARO_ENVIRONMENT: observation.environment ?? "",
+  },
 	assetPrefix: "/blog-static",
 	images: { unoptimized: true },
 	pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],

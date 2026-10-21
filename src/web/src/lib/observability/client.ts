@@ -12,7 +12,7 @@ import { installLongTaskObserver } from "./browser"
 import { resolveCommunityModulePlan } from "../community/community-route"
 import { observeTransportSpan, finishTransportSpan, installNavigationFetchContext } from "./requests"
 import { resolveFrontendIdentity } from "./runtime"
-import { resolveObservationBuild } from "./build"
+import { resolveObservationLabels } from "./build"
 import { finishTransportClock } from "./clock"
 import { observeResourceResponse } from "./resource"
 
@@ -25,7 +25,7 @@ function validBuildProfile(profile: BuildProfile) {
 }
 const build: BuildProfile = {
   url: process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL,
-  ...resolveObservationBuild({ NEXT_PUBLIC_FARO_ENVIRONMENT: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT, NEXT_PUBLIC_FARO_RELEASE: process.env.NEXT_PUBLIC_FARO_RELEASE }),
+  ...resolveObservationLabels({ environment: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT, release: process.env.NEXT_PUBLIC_FARO_RELEASE }),
 }
 let started = false
 let documentSuspended = false

@@ -24,6 +24,14 @@ This starts the web app and workers locally. To work on the CLI separately:
 pnpm dev:cli
 ```
 
+### Frontend telemetry build configuration
+
+`NEXT_PUBLIC_FARO_COLLECTOR_URL` is the only manual Faro setting. Supply it to the Web and Blog build environments when enabling their existing consent-controlled telemetry.
+
+Both apps derive environment from `NODE_ENV` and source release from the first valid full Git SHA in `WORKERS_CI_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, then `GITHUB_SHA`. Next embeds these values at build time. Worker runtime variables do not change an existing browser bundle.
+
+`NEXT_PUBLIC_FARO_RELEASE` and `NEXT_PUBLIC_FARO_ENVIRONMENT` are generated build outputs for the browser and the Web Worker's first-request snapshot. Do not configure them: both Next configs overwrite them from the native build inputs. Missing or invalid source identity remains `release_status=missing`; package versions and Worker version IDs do not replace a Git SHA. Environment validation keeps the existing telemetry allowlist.
+
 ## Project Structure
 
 Alook is a monorepo with nine packages:

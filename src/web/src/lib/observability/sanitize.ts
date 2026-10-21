@@ -2,7 +2,7 @@ import type { TransportItem, EventEvent, ExceptionEvent, MeasurementEvent, Trace
 import { actionNames, routeTemplate } from "./coverage"
 import { cleanAttributes, eventNames } from "./schema"
 import type { FrontendIdentity } from "./runtime"
-import { resolveObservationBuild } from "./build"
+import { resolveObservationLabels } from "./build"
 import { documentEventNames } from "./document-timing"
 import { transportClockStart, transportClockEnd, retiredObservationSpan } from "./clock"
 import { networkEventNames } from "./resource"
@@ -25,7 +25,7 @@ function qualifiedMonotonic(fields: Record<string, unknown>, since?: number) {
 }
 export function sanitizeTrace(input: unknown, sessionId: string, origin: string, identity?: Partial<FrontendIdentity> & { release?: string; environment?: string }, since = 0, monotonicSince?: number) {
   const canonical = { ...(identity ? { frontend_surface: identity.frontend_surface, client_platform: identity.client_platform, app_version: identity.app_version } : {}),
-    ...resolveObservationBuild({ NEXT_PUBLIC_FARO_RELEASE: identity?.release, NEXT_PUBLIC_FARO_ENVIRONMENT: identity?.environment }) }
+    ...resolveObservationLabels({ release: identity?.release, environment: identity?.environment }) }
   const context = cleanAttributes(canonical)
   const resources = array(record(input).resourceSpans).flatMap(resource => {
     const scopes = array(record(resource).scopeSpans).flatMap(scope => {
