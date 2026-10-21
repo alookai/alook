@@ -78,6 +78,8 @@ describe("ForumView scroll anchoring", () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     for (const [name, descriptor] of [
       ["scrollTop", scrollTopDescriptor],
       ["scrollHeight", scrollHeightDescriptor],
@@ -106,6 +108,60 @@ describe("ForumView scroll anchoring", () => {
     root.scrollHeight = 500
     view.rerender(createElement(ForumView, { ...props([post("p3"), post("p2"), post("p1")]), onLoadMore }))
     expect(root.scrollTop).toBe(20)
+  })
+
+  it("retains measured titles across unrelated list renders and remeasures changed content and viewport", async () => {
+    let width = 18
+    const frames = new Map<number, FrameRequestCallback>()
+    let frameId = 0
+    const observations = new Map<Element, ResizeObserverCallback>()
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId })
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => { frames.delete(id) })
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(element: Element) { observations.set(element, this.callback) }
+      unobserve(element: Element) { observations.delete(element) }
+      disconnect() {}
+    })
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, width, 1))
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(function (this: HTMLElement) {
+      const lines = Math.ceil(Array.from(this.textContent ?? "").length / width)
+      return Object.assign(Array.from({ length: lines }, (_, index) => new DOMRect(0, index * 2, width, 1)), { item: () => null }) as unknown as DOMRectList
+    })
+    const clone = vi.spyOn(HTMLElement.prototype, "cloneNode")
+    const copies = (id: string) => clone.mock.contexts.filter(node => node.querySelector(`[data-testid="${tid.forumThreadTitleText(id)}"]`)).length
+    const flushFrames = () => act(() => {
+      const pending = [...frames.values()]
+      frames.clear()
+      for (const callback of pending) callback(0)
+    })
+    const first = { ...post("p1"), name: "Long wrapping forum title ".repeat(8), parentSeq: 205 }
+    const second = { ...post("p2"), name: "Second title", parentSeq: 204 }
+    const view = render(createElement(ForumView, props([first, second])))
+    await act(async () => { await Promise.resolve() })
+    flushFrames()
+    const measured = [copies("p1"), copies("p2")]
+    expect(measured.every(count => count > 0)).toBe(true)
+    for (let index = 0; index < 5; index++) {
+      view.rerender(createElement(ForumView, props([{ ...first }, { ...second }], "All", index % 2 === 0)))
+    }
+    expect([copies("p1"), copies("p2")]).toEqual(measured)
+    view.rerender(createElement(ForumView, props([first, second, { ...post("p3"), parentSeq: 203 }])))
+    expect([copies("p1"), copies("p2")]).toEqual(measured)
+    expect(copies("p3")).toBeGreaterThan(0)
+    const changed = { ...first, name: "Changed wrapping title ".repeat(8), parentSeq: 999 }
+    view.rerender(createElement(ForumView, props([changed, second])))
+    expect(copies("p1")).toBe(measured[0] + 1)
+    expect(copies("p2")).toBe(measured[1])
+    expect(view.getByTestId(tid.forumThreadTitle("p1"))).toHaveAttribute("aria-label", `${changed.name} #999`)
+    expect(view.getByTestId(tid.forumThreadSeq("p1"))).toHaveTextContent("#999")
+    const title = view.getByTestId(tid.forumThreadTitleText("p1"))
+    const clamp = title.closest<HTMLElement>("[data-clamped]")!
+    width = 28
+    act(() => { observations.get(clamp)!([], {} as ResizeObserver) })
+    flushFrames()
+    expect(copies("p1")).toBe(measured[0] + 2)
+    expect(view.getByTestId(tid.forumThreadTitleText("p1"))).toHaveTextContent("…")
   })
 
   it("updates the full title and sequence without a measured duplicate and keeps row activation", () => {

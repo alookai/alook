@@ -3,7 +3,7 @@
 import { useObservedRegion } from "@/lib/observability/regions"
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback, useLayoutEffect, useRef } from "react"
+import { memo, useCallback, useLayoutEffect, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { Archive, ArchiveRestore, MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
@@ -98,7 +98,7 @@ export function toggleForumArchivedStatus(tags: string[]): string[] {
     : [...ordinaryTags, FORUM_ARCHIVE_TAG]
 }
 
-function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; seq?: number }) {
+const ForumPostTitle = memo(function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; seq?: number }) {
   return (
     <h3
       data-testid={tid.forumThreadTitle(postId)}
@@ -121,7 +121,7 @@ function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; s
       />
     </h3>
   )
-}
+})
 
 // Forum channel body — rendered under the shared ChannelHeader. A feed of posts;
 // each post opens as a thread. The filter bar's tag chips are DERIVED from the
