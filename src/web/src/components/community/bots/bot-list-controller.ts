@@ -7,7 +7,7 @@ import { useMutationState, useQueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useCommunityModuleLocation } from "@/contexts/community/module-route"
 import { isPresenceOnline } from "@alook/shared"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
@@ -40,20 +40,21 @@ export function useBotListController(): BotListController {
   const client = useQueryClient()
   const protocol = useMemo(() => createStore({ scrolledFor: null as string | null, suppressedAudit: null as string | null, targetAudit: null as string | null, activityOpen: false, activityGeneration: 0 }), [])
   const patchProtocol = useCallback((patch: Partial<ReturnType<typeof protocol.get>>) => protocol.setState((state) => ({ ...state, ...patch })), [protocol])
-  const router = useRouter()
   const source = useCommunityViewSource("bot-list")
   const uiHandlers = useUiHandlers()
-  const searchParams = useSearchParams()
+  const { router, searchParams, routeCommitted } = useCommunityModuleLocation()
   const botsQuery = useBots()
   const { bots } = botsQuery
   const isLoading = botsQuery.isLoading || botsQuery.profilesPending === true
   const botsResolved = botsQuery.data !== undefined && botsQuery.profilesPending !== true
   const [billingOpen, setBillingOpen] = useAtom(useCreateAtom(false))
   const viewPlan = () => {
-    const next = new URL(window.location.href)
+    const next = new URL(routeCommitted ? window.location.href : `/c/me/bots?${searchParams.toString()}`, window.location.origin)
     next.searchParams.delete("billing")
     next.searchParams.set("settings", "billing")
-    window.history.pushState(null, "", `${next.pathname}${next.search}${next.hash}`)
+    const href = `${next.pathname}${next.search}${next.hash}`
+    if (routeCommitted) window.history.pushState(null, "", href)
+    else router.push(href)
   }
   const machinesQuery = useMachines()
   const { machines, isLoading: machinesLoading } = machinesQuery
@@ -226,7 +227,7 @@ export function useBotListController(): BotListController {
     patchProtocol({ targetAudit: targetAuditBotId })
   }, [patchProtocol, protocol, targetAuditBotId])
   useEffect(() => {
-    if (!targetMachineId || bots.length === 0) return
+    if (!routeCommitted || !targetMachineId || bots.length === 0) return
     setCollapsedMachines((current) => {
       if (!current.has(targetMachineId)) return current
       const next = new Set(current)
@@ -240,10 +241,10 @@ export function useBotListController(): BotListController {
     setHighlightId(targetMachineId)
     const timer = setTimeout(() => { try { assert(); setHighlightId(null) } catch {} }, 2000)
     return () => clearTimeout(timer)
-  }, [targetMachineId, bots.length, setCollapsedMachines, protocol, source, patchProtocol, setHighlightId])
+  }, [routeCommitted, targetMachineId, bots.length, setCollapsedMachines, protocol, source, patchProtocol, setHighlightId])
 
   useEffect(() => {
-    if (!botsResolved) return
+    if (!routeCommitted || !botsResolved) return
     if (!targetAuditBotId) {
       patchProtocol({ suppressedAudit: null })
       if (activityOpen) {
@@ -274,7 +275,7 @@ export function useBotListController(): BotListController {
     if (!activityOpen) {
       setActivityOpen(true)
     }
-  }, [activityBot, activityOpen, bots, botsResolved, patchProtocol, protocol, router, searchParams, setActivityBot, setActivityGeneration, setActivityOpen, targetAuditBotId])
+  }, [routeCommitted, activityBot, activityOpen, bots, botsResolved, patchProtocol, protocol, router, searchParams, setActivityBot, setActivityGeneration, setActivityOpen, targetAuditBotId])
 
   const openActivity = (bot: BotSummary) => {
     uiHandlers.cancelPendingNavigation?.()

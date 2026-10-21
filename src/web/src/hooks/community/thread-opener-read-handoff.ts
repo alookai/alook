@@ -3,6 +3,7 @@
 import { useCallback, useLayoutEffect, useRef } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { channelHref, removeCommunityParam } from "@/lib/community/community-route"
 import {
@@ -68,6 +69,7 @@ export function useThreadOpenerRouteGate({
   openerMessageId: string | null
   lifecycle: RouteLifecycle
 }) {
+  const active = useConversationActivity()
   const queryClient = useQueryClient()
   const router = useRouter()
   const pathname = usePathname()
@@ -95,7 +97,7 @@ export function useThreadOpenerRouteGate({
     && handoff.openerMessageId === openerMessageId
 
   useLayoutEffect(() => {
-    if (!nonce || !routeAligned) return
+    if (!active || !nonce || !routeAligned) return
     const lease = registerThreadOpenerRouteLease(
       queryClient,
       nonce,
@@ -103,10 +105,10 @@ export function useThreadOpenerRouteGate({
       childChannelId,
     )
     return () => releaseThreadOpenerRouteLease(lease)
-  }, [childChannelId, nonce, queryClient, routeAligned, serverId])
+  }, [active, childChannelId, nonce, queryClient, routeAligned, serverId])
 
   useLayoutEffect(() => {
-    if (!nonce || !routeAligned) return
+    if (!active || !nonce || !routeAligned) return
     if (!routeMatches || lifecycle === "terminal-error") {
       terminateThreadOpenerReservationHandoff(queryClient, nonce)
       cleanUrl()
@@ -117,9 +119,9 @@ export function useThreadOpenerRouteGate({
       cleanUrl()
       return
     }
-  }, [canonicalMatches, cleanUrl, lifecycle, nonce, queryClient, routeAligned, routeMatches])
+  }, [active, canonicalMatches, cleanUrl, lifecycle, nonce, queryClient, routeAligned, routeMatches])
 
-  return routeAligned && canonicalMatches && handoff ? handoff : null
+  return active && routeAligned && canonicalMatches && handoff ? handoff : null
 }
 
 export function useClaimThreadOpenerReadHandoff(

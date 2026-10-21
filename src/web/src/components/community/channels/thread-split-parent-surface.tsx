@@ -1,5 +1,6 @@
 "use client"
 
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useLayoutEffect, useState, type ComponentProps } from "react"
 import { canManageServer, isForum, USE_SERVER_DEFAULT } from "@alook/shared"
 import { toastApiError } from "@/lib/api/client"
@@ -46,6 +47,7 @@ export function ThreadSplitParentSurface({
   onOpenProfile: OpenProfile
   onIdentity: (parentId: string, confirmed: boolean) => void
 }) {
+  const active = useConversationActivity()
   const metadata = useChannelMetadata(serverId, hint.id)
   const channel = metadata.data ? { ...hint, ...metadata.data } : hint
   const runtime = useCommunityRuntime()
@@ -55,12 +57,12 @@ export function ThreadSplitParentSurface({
     return () => onIdentity(channel.id, false)
   }, [channel.id, metadata.identityKnown, onIdentity])
   useLayoutEffect(() => {
-    if (metadata.canRead) communityWsClaimSecondaryChannel(runtime, subscriptionOwner, channel.id)
+    if (active && metadata.canRead) communityWsClaimSecondaryChannel(runtime, subscriptionOwner, channel.id)
     else communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
     return () => {
       communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
     }
-  }, [channel.id, metadata.canRead, runtime, subscriptionOwner])
+  }, [active, channel.id, metadata.canRead, runtime, subscriptionOwner])
   const members = useChannelMemberViewModel({
     serverId,
     channelId: channel.id,
@@ -71,7 +73,7 @@ export function ThreadSplitParentSurface({
     isChildChannel: false,
     isNotifyUnit: false,
     currentUser: viewer,
-    accessAllowed: metadata.canRead,
+    accessAllowed: active && metadata.canRead,
   })
   const notifs = useNotificationSettings()
   const { mutate: setChannelNotif } = useSetChannelNotif()

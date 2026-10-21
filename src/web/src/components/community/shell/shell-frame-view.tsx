@@ -5,6 +5,8 @@ import { DmRoute } from "@/components/community/channels/dm-route"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
 import { CommunityPendingFrame } from "./community-pending-frame"
+import { CommunityModuleRoute } from "./community-module-route"
+import { communityServerId } from "@/lib/community/community-route"
 import { ServerRail } from "./server-rail"
 import { UserBar } from "./user-bar"
 import { InboxPopover } from "./community-inbox-popover"
@@ -101,7 +103,11 @@ export function ShellFrameView({
   const main = checkpoint.main.kind === "dm-route" ? (
     <DmRoute key={`${profile.currentUser.id}/${checkpoint.main.dmId}`} dmId={checkpoint.main.dmId}
       routeCommitted={routeCommitted} />
-  ) : checkpoint.main.kind === "keep" || checkpoint.main.kind === "server-route" ? children : (
+  ) : checkpoint.main.kind === "server-route" || checkpoint.main.kind === "module-route" ? (
+    <CommunityModuleRoute key={`${profile.currentUser.id}/${checkpoint.main.kind === "server-route"
+      ? `server:${communityServerId(checkpoint.main.href)}`
+      : checkpoint.main.module}`} href={checkpoint.main.href} routeCommitted={routeCommitted} />
+  ) : checkpoint.main.kind === "keep" ? children : (
     <CommunityPendingFrame href={checkpoint.targetHref} reserveBackSlot={surface === "detail"}
       conversationSubtype={checkpoint.main.conversationSubtype} />
   )

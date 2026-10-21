@@ -17,7 +17,7 @@ const machineDialogSource = readFileSync(
   "utf8",
 )
 const machinesPageSource = readFileSync(
-  resolve(directory, "../../../app/c/me/machines/page.tsx"),
+  resolve(directory, "../machines/me-machines-route.tsx"),
   "utf8",
 )
 

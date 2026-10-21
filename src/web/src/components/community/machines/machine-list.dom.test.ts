@@ -1,8 +1,12 @@
 import React from "react"
+import { useCommunityNavigationController } from "@/components/community/shell/use-community-navigation-controller"
+import { CommunityRouteContext } from "@/contexts/community/route-frame"
+import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { renderToString } from "react-dom/server"
 import { render as renderNative } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
 import MeMachinesPage from "@/app/c/me/machines/page"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
@@ -10,6 +14,9 @@ import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  replace: vi.fn(),
+  push: vi.fn(),
+  pathname: "/c/me/machines",
   goBackMobile: vi.fn(),
   query: vi.fn(),
   toastSuccess: vi.fn(),
@@ -59,7 +66,8 @@ vi.mock("@/components/ui/alert-dialog", () => ({
 }))
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
+  usePathname: () => mocks.pathname,
   useSearchParams: () => new URLSearchParams(),
 }))
 
@@ -138,6 +146,21 @@ function withExactClass(container: HTMLElement, className: string): HTMLElement[
 }
 
 describe("SSR mobile Back footprint", () => {
+  it("keeps reconnect and URL cleanup dormant until the target is committed", () => {
+    mocks.machines.current = [machine()]
+    mocks.machinesLoading.current = false
+    mocks.machinesError.current = false
+    mocks.capacityPending.current = false
+    mocks.replace.mockClear()
+    const node = (routeCommitted: boolean) => React.createElement(CommunityModuleRouteContext, {value: {href: "/c/me/machines?reconnect=machine-1&keep=1", routeCommitted}}, React.createElement(MeMachinesPage))
+    const view = render(node(false))
+    expect(view.queryByTestId("test-pair-sheet")).toBeNull()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    view.rerender(node(true))
+    expect(view.getByTestId("test-pair-sheet")).toBeVisible()
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines?keep=1")
+  })
+
   it.each([false, true])("keeps the existing mobile header through hydrate with loading=%s", async loading => {
     mocks.machines.current = []
     mocks.machinesLoading.current = loading
@@ -186,6 +209,27 @@ describe("machine daemon update UI", () => {
     mocks.machinesError.current = false
     mocks.machines.current = []
     mocks.onboardingState.current = "done"
+  })
+
+  it("publishes a pending View plan click through the latest navigation owner", () => {
+    mocks.pathname = "/c/channels/source/channel"
+    mocks.machines.current = [machine({status: "offline"})]
+    mocks.capacity.current = {plan: {id: "free", displayName: "Free"}, isFounder: false, limit: 1, ownedCount: 1, onlineCount: 0}
+    const frame = {...normalizeCommunityHref(mocks.pathname), revision: 0}
+    let navigation!: ReturnType<typeof useCommunityNavigationController>
+    function Scenario() {
+      const currentNavigation = useCommunityNavigationController(frame)
+      React.useLayoutEffect(() => { navigation = currentNavigation }, [currentNavigation])
+      return React.createElement(CommunityRouteContext, {value: {frame, navigation: currentNavigation, breakpoint: "desktop", ownerDeleteRouteScope: undefined}},
+        React.createElement(CommunityModuleRouteContext, {value: {href: currentNavigation.pendingHref ?? "/c/me/machines?keep=1", routeCommitted: false}}, React.createElement(MachineList)))
+    }
+    const view = render(React.createElement(Scenario))
+    act(() => navigation.pushImmediate("/c/me/machines?keep=1"))
+    const oldIntent = navigation.captureIntent()
+    fireEvent.click(view.getByRole("button", {name: "Connect a machine"}))
+    fireEvent.click(view.getByRole("button", {name: "View plan"}))
+    expect(navigation.pendingHref).toBe("/c/me/machines?keep=1&settings=billing")
+    expect(oldIntent()).toBe(false)
   })
 
   it("shows Retry when the list is unknown rather than claiming no machines exist", () => {

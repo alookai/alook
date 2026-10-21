@@ -1,4 +1,5 @@
 import React from "react"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import type { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -277,6 +278,34 @@ describe("thread opener read handoff", () => {
     expect(first).toMatch(/inboxThreadOpener=opener-\d+$/)
     expect(second).toMatch(/inboxThreadOpener=opener-\d+$/)
     expect(second).not.toBe(first)
+  })
+
+  it("does not clean a stale published nonce while an inactive target owns a new handoff", () => {
+    const next = {...target, nonce: "nonce-2"}
+    armThreadOpenerReservationHandoff(state.queryClient!, next)
+    const node = (active: boolean) => React.createElement(ConversationActivityContext, {value: active}, React.createElement(Harness, {lifecycle: active ? "ready" : "pending"}))
+    const renderer = rtlRender(node(false))
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(mocks.register).not.toHaveBeenCalled()
+    expect(mocks.submit).not.toHaveBeenCalled()
+    expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-2")).toMatchObject({phase: "armed", openerSeq: 7})
+    state.params = "inboxThreadOpener=nonce-2&msg=new-target&tab=all"
+    renderer.rerender(node(true))
+    expect(mocks.submit).toHaveBeenCalledExactlyOnceWith({lease: "parent"}, {kind: "timeline", channelId: "parent-1", messageId: "opener-7", seq: 7})
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/server-1/child-1?msg=new-target&tab=all", {scroll: false})
+  })
+
+  it("keeps a matching readable handoff unclaimed while its target remains inactive", () => {
+    armThreadOpenerReservationHandoff(state.queryClient!, target)
+    const node = (active: boolean) => React.createElement(ConversationActivityContext, {value: active}, React.createElement(Harness, {lifecycle: "ready"}))
+    const renderer = rtlRender(node(false))
+    expect(mocks.register).not.toHaveBeenCalled()
+    expect(mocks.submit).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-1")).toMatchObject({phase: "armed"})
+    renderer.rerender(node(true))
+    expect(mocks.submit).toHaveBeenCalledExactlyOnceWith({lease: "parent"}, {kind: "timeline", channelId: "parent-1", messageId: "opener-7", seq: 7})
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/server-1/child-1?msg=message-9&tab=all", {scroll: false})
   })
 
   it("cleans an aligned nonce URL when no matching handoff exists", async () => {

@@ -17,6 +17,7 @@ import {
   isPublishedNonStructuralCommit,
   isStructuralFrameCommit,
   normalizeCommunityHref,
+  resolveCommunityModulePlan,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
 import type { CommunityNavigationController } from "@/contexts/community/route-frame"
@@ -96,7 +97,8 @@ export function useCommunityNavigationController(
           targetHref: pendingHref,
           baselineRevision: pendingBaselineRevisionRef.current,
         })
-    if (!settled || parentReturnPending && !isPublishedNonStructuralCommit(committedFrame, publishedHref, pendingHref)) return
+    const exactPublication = parentReturnPending || ["friends", "bots", "machines"].includes(resolveCommunityModulePlan(target.href).main.kind)
+    if (!settled || exactPublication && !isPublishedNonStructuralCommit(committedFrame, publishedHref, pendingHref)) return
     settledIntentRef.current = {
       revision: gateRef.current.revision,
       frameRevision: committedFrame.revision,

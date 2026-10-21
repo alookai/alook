@@ -1,4 +1,8 @@
 import React from "react"
+import { useCommunityNavigationController } from "@/components/community/shell/use-community-navigation-controller"
+import { CommunityRouteContext } from "@/contexts/community/route-frame"
+import { normalizeCommunityHref } from "@/lib/community/community-route"
+import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
 import { useQueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { readFileSync } from "node:fs"
@@ -16,6 +20,7 @@ const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "ut
 
 const mocks = vi.hoisted(() => ({
   hookOrder: [] as string[],
+  pathname: "/c/me/bots",
   target: "mac1" as string | null,
   audit: null as string | null,
   bots: [] as BotSummary[],
@@ -53,6 +58,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("next/navigation", () => ({
+  usePathname: () => mocks.pathname,
   useRouter: () => {
     mocks.hookOrder.push("router")
     return { push: mocks.push, replace: mocks.replace }
@@ -179,9 +185,51 @@ const bot = (id: string, machineId: string): BotSummary => ({
 })
 
 describe("useBotListController", () => {
+  it("publishes pending billing through the real navigation owner instead of leaving the old target selected", () => {
+    mocks.pathname = "/c/channels/source/channel"
+    const frame = {...normalizeCommunityHref(mocks.pathname), revision: 0}
+    let navigation!: ReturnType<typeof useCommunityNavigationController>
+    function Scenario() {
+      const currentNavigation = useCommunityNavigationController(frame)
+      React.useLayoutEffect(() => { navigation = currentNavigation }, [currentNavigation])
+      return React.createElement(CommunityRouteContext, {value: {frame, navigation: currentNavigation, breakpoint: "desktop", ownerDeleteRouteScope: undefined}},
+        React.createElement(CommunityModuleRouteContext, {value: {href: currentNavigation.pendingHref ?? "/c/me/bots?keep=1", routeCommitted: false}}, React.createElement(Probe)))
+    }
+    rtlRender(React.createElement(Scenario))
+    act(() => navigation.pushImmediate("/c/me/bots?keep=1"))
+    const oldIntent = navigation.captureIntent()
+    act(() => latest.viewPlan())
+    expect(navigation.pendingHref).toBe("/c/me/bots?keep=1&settings=billing")
+    expect(oldIntent()).toBe(false)
+  })
+
+  it("opens billing from the pending target URL rather than the still-published module", () => {
+    window.history.replaceState(null, "", "/c/me/friends?tab=new")
+    rtlRender(React.createElement(CommunityModuleRouteContext, {value: {href: "/c/me/bots?keep=1", routeCommitted: false}}, React.createElement(Probe)))
+    act(() => latest.viewPlan())
+    expect(mocks.push).toHaveBeenCalledWith("/c/me/bots?keep=1&settings=billing")
+    expect(window.location.pathname).toBe("/c/me/friends")
+  })
+
+  it("renders cached target data without consuming audit or machine URL actions before commit", () => {
+    const node = (routeCommitted: boolean) => React.createElement(CommunityModuleRouteContext, {value: {href: "/c/me/bots?audit=b1&machineId=mac1&keep=1", routeCommitted}}, React.createElement(Probe))
+    const view = rtlRender(node(false))
+    expect(latest.isLoading).toBe(false)
+    expect(latest.bots.map(item => item.id)).toEqual(["b1"])
+    expect(latest.activityOpen).toBe(false)
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    view.rerender(node(true))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(scrollIntoView).toHaveBeenCalledOnce()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
+    mocks.pathname = "/c/me/bots"
     mocks.isFounder = true
     mocks.billingReturn = null
     mocks.hookOrder.length = 0

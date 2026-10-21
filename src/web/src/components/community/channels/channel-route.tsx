@@ -80,7 +80,7 @@ function MobileChannelRoutes(props: ChannelRouteProps) {
   const previous = retained.current !== props.channelId ? retained.current : retained.previous
   const backgroundId = mobileSeen || breakpoint === "mobile" ? parentId ?? (identity === undefined ? previous : null) : null
   const ids = backgroundId && backgroundId !== props.channelId ? [backgroundId, props.channelId] : [props.channelId]
-  return <>{ids.map(id => <ConversationActivityContext key={!mobileSeen && breakpoint !== "mobile" || id === initialId ? "initial" : id} value={id === props.channelId && (!mobileSeen && breakpoint !== "mobile" || props.routeCommitted !== false)}>
+  return <>{ids.map(id => <ConversationActivityContext key={!mobileSeen && breakpoint !== "mobile" || id === initialId ? "initial" : id} value={id === props.channelId && props.routeCommitted !== false}>
     <ChannelRouteLayer {...props} channelId={id} foreground={id === props.channelId} backgroundVisible={id === parentId} routeCommitted={id === props.channelId ? props.routeCommitted : true} targetHref={id === props.channelId ? props.targetHref : channelHref(props.serverParam, id)} />
   </ConversationActivityContext>)}</>
 }
@@ -318,7 +318,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   const channelReadReady =
     routeModel.routeLifecycle === "ready" &&
     routeModel.routeHydrated
-  const channelHydrated = !resolvingParent && (routeCommitted || resume) && channelReadReady &&
+  const channelHydrated = !resolvingParent && channelReadReady &&
     (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
   const clientReady = active && routeCommitted && channelHydrated && currentChannelId === channelId
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
@@ -367,7 +367,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
               parentChannelId={currentChannelMeta?.parentChannelId ?? null}
               parentMessageId={currentChannelMeta?.parentMessageId ?? null}
               parentIsForum={isForumPostChild}
-              routeLifecycle={routeModel.routeLifecycle}
+              routeLifecycle={routeCommitted ? routeModel.routeLifecycle : "pending"}
               childCreatorId={currentChannelMeta?.creatorId}
               canRenameThread={canManageServer(myRole)}
               onNavigateParent={navigateParent}

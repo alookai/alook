@@ -71,7 +71,7 @@ export type CommunityCheckpointPlan = {
     | { kind: "keep" }
     | { kind: "server-skeleton"; serverId: string }
     | { kind: "me-skeleton" }
-  main: { kind: "keep" } | { kind: "server-route"; href: string } | { kind: "dm-route"; href: string; dmId: string } | {
+  main: { kind: "keep" } | { kind: "server-route"; href: string } | { kind: "module-route"; href: string; module: "friends" | "bots" | "machines" } | { kind: "dm-route"; href: string; dmId: string } | {
     kind: "target-skeleton"
     href: string
     conversationSubtype?: "text" | "forum" | "thread"
@@ -302,7 +302,7 @@ export function resolveCommunityCheckpointPlan({
   targetConversationSubtype?: "text" | "forum" | "thread"
 }): CommunityCheckpointPlan {
   if (!pending || !targetHref) {
-    return committedPlan(committedFrame)
+    return committedPlan(committedFrame, targetHref && normalizeCommunityHref(targetHref).leafKey === committedFrame.leafKey ? targetHref : committedFrame.href)
   }
 
   const target = normalizeCommunityHref(targetHref)
@@ -321,6 +321,17 @@ export function resolveCommunityCheckpointPlan({
       rail: target.scope.kind === "me" && committedFrame.scope.kind !== "me" ? { kind: "target", view: "dm" } : plan.rail,
       sidebar: committedFrame.scope.kind !== "me" ? { kind: "me-skeleton" } : plan.sidebar,
       main: { kind: "dm-route", href: target.href, dmId: targetModule.main.dmId },
+    }
+  }
+  if (targetModule.main.kind === "friends" || targetModule.main.kind === "bots" || targetModule.main.kind === "machines") {
+    const sameScope = communityScopeEqual(committedFrame.scope, target.scope)
+    return {
+      mode: sameScope ? "same-scope-leaf" : targetReady ? "warm-scope" : "cold-scope",
+      surface: target.surface,
+      targetHref: target.href,
+      rail: sameScope ? { kind: "keep" } : { kind: "target", view: "dm" },
+      sidebar: sameScope ? { kind: "keep" } : { kind: "me-skeleton" },
+      main: { kind: "module-route", href: target.href, module: targetModule.main.kind },
     }
   }
   const targetMainKind = targetModule.main.kind
@@ -353,12 +364,12 @@ export function resolveCommunityCheckpointPlan({
       ...committedPlan(committedFrame, target.href),
       mode: "warm-scope",
       surface: target.surface,
+      ...(isConversationTarget && target.scope.kind === "server" ? {
+        rail: { kind: "target" as const, view: "server" as const, activeServerId: target.scope.serverId },
+        sidebar: { kind: "server-skeleton" as const, serverId: target.scope.serverId },
+      } : {}),
       main: isConversationTarget
-        ? {
-            kind: "target-skeleton",
-            href: target.href,
-            ...(targetConversationSubtype ? { conversationSubtype: targetConversationSubtype } : {}),
-          }
+        ? { kind: "server-route", href: target.href }
         : { kind: "keep" },
     }
   }
@@ -388,13 +399,17 @@ function committedPlan(
   targetHref = frame.href,
 ): CommunityCheckpointPlan {
   const main = resolveCommunityModulePlan(frame.href).main
+  const href = normalizeCommunityHref(targetHref).leafKey === frame.leafKey ? targetHref : frame.href
   return {
     mode: "committed",
     surface: frame.surface,
     targetHref,
     rail: { kind: "keep" },
     sidebar: { kind: "keep" },
-    main: main.kind === "dm" ? { kind: "dm-route", href: targetHref, dmId: main.dmId } : { kind: "keep" },
+    main: main.kind === "dm" ? { kind: "dm-route", href, dmId: main.dmId }
+      : main.kind === "server-conversation" ? { kind: "server-route", href }
+      : main.kind === "friends" || main.kind === "bots" || main.kind === "machines"
+        ? { kind: "module-route", href, module: main.kind } : { kind: "keep" },
   }
 }
 

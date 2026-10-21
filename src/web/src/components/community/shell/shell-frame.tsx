@@ -137,7 +137,8 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       : false
   const checkpoint = resolveCommunityCheckpointPlan({
     committedFrame,
-    targetHref: navigation.pendingHref,
+    targetHref: navigation.pendingHref ?? (normalizeCommunityHref(navigation.publishedHref).leafKey !== committedFrame.leafKey
+      ? navigation.entryIntent?.href ?? navigation.publishedHref : navigation.publishedHref),
     pending: navigation.navigationPending,
     targetReady,
     targetConversationSubtype,

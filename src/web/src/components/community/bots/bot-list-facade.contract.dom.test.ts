@@ -66,7 +66,9 @@ describe("BotList facade contract", () => {
   it("keeps the production page and existing regression on the original path", () => {
     const page = source("src/app/c/me/bots/page.tsx")
     const existingTest = source("src/components/community/bots/bot-list-card.dom.test.ts")
-    expect(page).toContain('from "@/components/community/bots/bot-list"')
+    const consumer = source("src/components/community/bots/me-bots-route.tsx")
+    expect(page).toContain('export { default } from "@/components/community/bots/me-bots-route"')
+    expect(consumer).toContain('from "@/components/community/bots/bot-list"')
     expect(existingTest).toContain('from "./bot-list"')
     expect(`${page}\n${existingTest}`).not.toMatch(
       /bot-list-(types|controller|view|machine-group|overlays)/,

@@ -4,6 +4,7 @@ import { CommunityTestProvider as QueryClientProvider } from "@/test/community-o
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import {
+  isPublishedNonStructuralCommit,
   normalizeCommunityHref,
   resolveCommunityCheckpointPlan,
   type CommunityCommittedFrame,
@@ -101,7 +102,8 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
     navigation = useCommunityNavigationController(committedFrame)
     const checkpoint = resolveCommunityCheckpointPlan({
       committedFrame,
-      targetHref: navigation.pendingHref,
+      targetHref: navigation.pendingHref ?? (normalizeCommunityHref(navigation.publishedHref).leafKey !== committedFrame.leafKey
+        ? navigation.entryIntent?.href ?? navigation.publishedHref : navigation.publishedHref),
       pending: navigation.navigationPending,
       targetReady: false,
     })
@@ -109,6 +111,7 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
       breakpoint,
       inboxOpening: false,
       checkpoint,
+      routeCommitted: isPublishedNonStructuralCommit(committedFrame, navigation.publishedHref, navigation.pendingHref ?? navigation.publishedHref),
       sidebar: () => createElement("span", null, "Sidebar"),
       rail: { railProps: { onHome: () => navigation.push(nextTarget) } } as never,
       profile: { currentUser: { id: "viewer", name: "Viewer", avatar: "V" } } as never,
@@ -146,8 +149,8 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
   }
 }
 
-function beginInboxNavigation(shell: ReturnType<typeof renderShell>) {
-  act(() => shell.navigation.pushImmediate(target))
+async function beginInboxNavigation(shell: ReturnType<typeof renderShell>) {
+  await act(async () => shell.navigation.pushImmediate(target))
 }
 
 function expectPendingTarget(shell: ReturnType<typeof renderShell>) {
@@ -170,25 +173,25 @@ beforeEach(() => {
 describe("Shell input and explicit navigation ownership", () => {
   it.each(["Target skeleton", "Blank area", "Draft input"])(
     "keeps the target checkpoint after clicking %s",
-    (label) => {
+    async (label) => {
       const shell = renderShell()
-      beginInboxNavigation(shell)
+      await beginInboxNavigation(shell)
       fireEvent.click(label === "Draft input" ? screen.getByLabelText(label) : screen.getByText(label))
       expectPendingTarget(shell)
       expect(mocks.push).toHaveBeenCalledTimes(1)
     },
   )
 
-  it.each(["Enter", " ", "ArrowDown"])("keeps pending target while typing %s", (key) => {
+  it.each(["Enter", " ", "ArrowDown"])("keeps pending target while typing %s", async (key) => {
     const shell = renderShell()
-    beginInboxNavigation(shell)
+    await beginInboxNavigation(shell)
     fireEvent.keyDown(screen.getByLabelText("Draft input"), { key })
     expectPendingTarget(shell)
   })
 
-  it("keeps pending target while opening and closing Inbox", () => {
+  it("keeps pending target while opening and closing Inbox", async () => {
     const shell = renderShell("desktop")
-    beginInboxNavigation(shell)
+    await beginInboxNavigation(shell)
     fireEvent.click(screen.getByRole("button", { name: "Inbox" }))
     expect(screen.getByRole("button", { name: "Inbox" }).getAttribute("aria-expanded")).toBe("true")
     expectPendingTarget(shell)
@@ -197,9 +200,9 @@ describe("Shell input and explicit navigation ownership", () => {
     expectPendingTarget(shell)
   })
 
-  it("supersedes a previous target at a real new navigation entry", () => {
+  it("supersedes a previous target at a real new navigation entry", async () => {
     const shell = renderShell("desktop")
-    beginInboxNavigation(shell)
+    await beginInboxNavigation(shell)
     fireEvent.click(screen.getByRole("button", { name: "New destination" }))
     expect(shell.navigation.pendingHref).toBe(nextTarget)
     expect(mocks.push.mock.calls.map(([href]) => href)).toEqual([target, nextTarget])
@@ -250,9 +253,9 @@ describe("Shell input and explicit navigation ownership", () => {
     expect(shell.navigation.navigationPending).toBe(true)
   })
 
-  it("settles an exact frame without an extra click", () => {
+  it("settles an exact frame without an extra click", async () => {
     const shell = renderShell()
-    beginInboxNavigation(shell)
+    await beginInboxNavigation(shell)
     shell.commit(target, 1)
     expect(shell.navigation.pendingHref).toBeNull()
     expect(shell.navigation.navigationPending).toBe(false)
@@ -260,9 +263,9 @@ describe("Shell input and explicit navigation ownership", () => {
     expect(screen.getByText("Committed content")).toBeTruthy()
   })
 
-  it("still clears pending target on popstate", () => {
+  it("still clears pending target on popstate", async () => {
     const shell = renderShell()
-    beginInboxNavigation(shell)
+    await beginInboxNavigation(shell)
     act(() => window.dispatchEvent(new Event("popstate")))
     expect(shell.navigation.pendingHref).toBeNull()
     expect(mocks.push).toHaveBeenCalledTimes(1)
@@ -270,6 +273,20 @@ describe("Shell input and explicit navigation ownership", () => {
   })
 
   describe("current pending-commit qualification", () => {
+    it.each(["friends", "bots", "machines"])("keeps the latest %s query selected when an older response publishes its shared pathname", module => {
+      const shell = renderShell("desktop")
+      const previous = `/c/me/${module}?target=old`
+      const target = `/c/me/${module}?target=new`
+      act(() => shell.navigation.push(previous))
+      act(() => shell.navigation.replace(target))
+      shell.commit(previous, 1)
+      expect(shell.navigation.pendingHref).toBe(target)
+      expect(shell.navigation.navigationPending).toBe(true)
+      shell.publish(target)
+      expect(shell.navigation.pendingHref).toBeNull()
+      expect(shell.navigation.navigationPending).toBe(false)
+    })
+
     it.each(["frame-first", "publication-first"])("retains the structural target with a complete query URL, %s", (order) => {
       const shell = renderShell("desktop")
       const href = "/c/channels/s1?from=inbox"

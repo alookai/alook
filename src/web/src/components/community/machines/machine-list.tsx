@@ -5,7 +5,7 @@ import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/run
 
 
 import { useCallback, useEffect, useRef, type ReactNode } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useCommunityModuleLocation } from "@/contexts/community/module-route"
 import { toast } from "sonner"
 import { ChevronLeft } from "lucide-react"
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query"
@@ -211,8 +211,7 @@ export function MachineUpdateDialog({
 }
 
 export function MachineList({ onBack }: { onBack?: () => void } = {}) {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const { router, searchParams, routeCommitted } = useCommunityModuleLocation()
   const communityRuntime = useCommunityRuntime()
   const queryClient = useQueryClient()
   const origin = useCommunityMutationOrigin()
@@ -223,11 +222,13 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const capacity = machinesData?.machineCapacity ?? null
   const [limitOpen, setLimitOpen] = useAtom(useCreateAtom(false))
   const viewPlan = useCallback(() => {
-    const next = new URL(window.location.href)
+    const next = new URL(routeCommitted ? window.location.href : `/c/me/machines?${searchParams.toString()}`, window.location.origin)
     next.searchParams.delete("billing")
     next.searchParams.set("settings", "billing")
-    window.history.pushState(null, "", `${next.pathname}${next.search}${next.hash}`)
-  }, [])
+    const href = `${next.pathname}${next.search}${next.hash}`
+    if (routeCommitted) window.history.pushState(null, "", href)
+    else router.push(href)
+  }, [routeCommitted, router, searchParams])
   const { bots } = useBots()
   const pendingMachineTokenId = usePendingMachineTokenId()
   const [pairOpen, setPairOpen] = useAtom(useCreateAtom(false))
@@ -319,14 +320,14 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const handledReconnectRef = useRef<string | null>(null)
   useEffect(() => {
     const reconnectId = searchParams.get("reconnect")
-    if (!reconnectId || handledReconnectRef.current === reconnectId || machinesLoading) return
+    if (!routeCommitted || !reconnectId || handledReconnectRef.current === reconnectId || machinesLoading) return
     handledReconnectRef.current = reconnectId
     const machine = machines.find((m) => m.id === reconnectId)
     if (machine) openReconnect(machine)
     const search = searchParams.toString()
     const href = `/c/me/machines${search ? `?${search}` : ""}`
     router.replace(removeCommunityParam(href, "reconnect"))
-  }, [searchParams, machines, machinesLoading, openReconnect, router])
+  }, [routeCommitted, searchParams, machines, machinesLoading, openReconnect, router])
 
   const closePair = useCallback((open: boolean) => {
     setPairOpen(open)

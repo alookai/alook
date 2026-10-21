@@ -597,8 +597,9 @@ describe("ChannelRoute message surface ownership", () => {
     mockRouteModel.currentChannelMeta!.id = "channel_3"
     Object.assign(mockRouteModel, { routeHydrated: true, routeLifecycle: "ready" })
     renderer.rerender(node())
-    expect(mockOpenerGate).not.toHaveBeenCalled()
-    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockOpenerGate).toHaveBeenLastCalledWith(expect.objectContaining({ childChannelId: "channel_3", lifecycle: "pending" }))
+    expect(mockedUseChannelMessageFeed).toHaveBeenLastCalledWith(expect.objectContaining({channelId: "channel_3", anchorMessageId: "mC"}))
+    mockOpenerGate.mockClear()
     mockPathname.value = "/c/channels/server_1/channel_3"
     mockSearchParams.value = "msg=mC&inboxThreadOpener=nonceC"
     renderer.rerender(node())
@@ -635,8 +636,10 @@ describe("ChannelRoute message surface ownership", () => {
     mockedUseChannelMessageFeed.mockClear()
     mockOpenerGate.mockClear()
     renderer.rerender(node())
-    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
-    expect(mockOpenerGate).not.toHaveBeenCalled()
+    expect(mockedUseChannelMessageFeed).toHaveBeenLastCalledWith(expect.objectContaining({channelId: "channel_2", anchorMessageId: "cancelled"}))
+    expect(mockOpenerGate).toHaveBeenLastCalledWith(expect.objectContaining({childChannelId: "channel_2", lifecycle: "pending"}))
+    expect(mockRouter.replace).not.toHaveBeenCalledWith(expect.stringContaining("cancelled"), expect.anything())
+    mockedUseChannelMessageFeed.mockClear()
     mockNavigation.navigationPending = false
     mockNavigation.pendingHref = null
     mockCurrentChannelId.value = "channel_1"
@@ -700,12 +703,29 @@ describe("ChannelRoute message surface ownership", () => {
       routeCommitted: false,
     }))
     expect(mockUseThreadSplitMode).toHaveBeenLastCalledWith({ breakpoint: "desktop", enabled: true, forceFullscreen: true })
-    expect(mockOpenerGate).not.toHaveBeenCalled()
-    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockOpenerGate).toHaveBeenLastCalledWith(expect.objectContaining({lifecycle: "pending"}))
+    expect(mockedUseChannelMessageFeed).toHaveBeenLastCalledWith(expect.objectContaining({channelId: "channel_1", anchorMessageId: "new"}))
     expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
     expect(mockRouter.replace).not.toHaveBeenCalled()
     expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "full")
     renderer.unmount()
+  })
+
+  it("shows the cached split parent without admitting member/subscription effects before commit", async () => {
+    await observeSecondary()
+    const { ThreadSplitParentSurface } = await vi.importActual<typeof import("./thread-split-parent-surface")>("./thread-split-parent-surface")
+    configureThreadRoute()
+    mockSplitMode.value = "split"
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    mockSplitParentSurface.mockImplementation(props => React.createElement(ThreadSplitParentSurface, props as never))
+    const node = (routeCommitted: boolean) => React.createElement(ChannelRoute, {serverParam: "server_1", channelId: "channel_1", routeCommitted})
+    const renderer = render(node(false))
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1"}))
+    expect(mockClaimSecondary).not.toHaveBeenCalled()
+    expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1", accessAllowed: false}))
+    renderer.rerender(node(true))
+    expect(mockClaimSecondary).toHaveBeenLastCalledWith(expect.anything(), expect.any(Symbol), "parent_1")
+    expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1", accessAllowed: true}))
   })
 
   it("lets the real parent surface read independently and retires it when its own proof is lost", async () => {

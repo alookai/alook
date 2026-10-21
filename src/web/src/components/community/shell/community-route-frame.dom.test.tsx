@@ -60,6 +60,8 @@ vi.mock("@/components/ui/resizable", () => {
 })
 vi.mock("./server-rail", () => ({ ServerRail: () => <div data-testid="rail"><button data-testid="home">Home</button><input data-testid="rail-state" /></div> }))
 vi.mock("./user-bar", () => ({ UserBar: () => <div data-testid="userbar">{mocks.userId}</div> }))
+vi.mock("@/components/community/social/friends-route", () => ({ default: () => <div data-testid="main">me/friends</div> }))
+vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({ AlookLoading: () => null }))
 vi.mock("./community-inbox-popover", () => ({ InboxPopover: () => null }))
 vi.mock("./shell-frame-overlays", () => ({ ShellFrameOverlays: () => null }))
 vi.mock("@/components/community/channels/dm-route", () => ({ DmRoute: ({ dmId, routeCommitted }: { dmId: string; routeCommitted: boolean }) => createElement("main", { "data-dm-target": dmId, "data-committed": String(routeCommitted) }) }))
@@ -111,8 +113,9 @@ describe("common committed community frame", () => {
     expect(html).not.toContain('data-testid="userbar"')
   })
 
-  it("retains global nodes and state across me/server and preserves same-server sidebar", () => {
+  it("retains global nodes and state across me/server and preserves same-server sidebar", async () => {
     const view = render(tree())
+    await act(async () => {})
     const rail = view.getByTestId("rail")
     const home = view.getByTestId("home")
     const userbar = view.getByTestId("userbar")
@@ -134,8 +137,9 @@ describe("common committed community frame", () => {
     expect(view.getByTestId("rail")).toBe(rail)
   })
 
-  it("ignores ahead-of-commit pathname and gates mismatched sidebar scope", () => {
+  it("ignores ahead-of-commit pathname and gates mismatched sidebar scope", async () => {
     const view = render(tree())
+    await act(async () => {})
     mocks.pathname = "/c/channels/b/two"
     view.rerender(tree("b"))
     expect(view.queryByTestId("sidebar")).toBeNull()
@@ -146,10 +150,11 @@ describe("common committed community frame", () => {
     expect(view.getByTestId("sidebar")).toHaveAttribute("data-server-id", "b")
   })
 
-  it.each(["url-first", "segments-first"])("gates DM query effects on exact publication in %s order", order => {
+  it.each(["url-first", "segments-first"])("gates DM query effects on exact publication in %s order", async order => {
     mocks.segments = ["me", "dm-a"]
     mocks.pathname = "/c/me/dm-a"
     const view = render(tree())
+    await act(async () => {})
     expect(view.container.querySelector('[data-dm-target="dm-a"]')).toHaveAttribute("data-committed", "true")
     act(() => owner.runtime.ui.get().uiHandlers.navigatePath?.("/c/me/dm-b?seq=7"))
     const body = view.container.querySelector('[data-dm-target="dm-b"]')!
@@ -172,6 +177,7 @@ describe("common committed community frame", () => {
     mocks.breakpoint = "mobile"
     mocks.segments = ["me"]
     const view = render(tree())
+    await act(async () => {})
     const home = view.getByTestId("home")
     const userbar = view.getByTestId("userbar")
     mocks.segments = ["me", "dm-a"]
