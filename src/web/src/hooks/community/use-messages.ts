@@ -193,7 +193,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     navigationBlocked: !entry.canRead,
     readSnapshot: entry.snapshot, readSnapshotFetching: entry.isPending,
     initialPositionKnown: !!selectedWindow && entry.snapshot !== null && !loading,
-    initialPositionMessageId: entry.initialPositionMessageId,
+    initialPositionMessageId: entry.initialPositionMessageId, positionEntry: entry.intent,
     retryInitialLoad, retryingInitialLoad: entry.isFetching || query.isFetching,
     entryCanRead: entry.canRead, entryDenied: entry.denied, entryAnchorMissing: entry.anchorMissing,
   }

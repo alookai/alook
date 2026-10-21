@@ -1,5 +1,5 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback, useLayoutEffect, useRef } from "react"
+import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { measureElement, useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
@@ -77,6 +77,7 @@ export function useScrollAnchor({
   initialScrollReady,
   scrollToMessageId,
   initialPositionMessageId,
+  positionEntry,
   onScrollTargetPositioned,
   onScrollTargetCancelled,
   hasMoreOlder,
@@ -93,6 +94,7 @@ export function useScrollAnchor({
   initialScrollReady: boolean
   scrollToMessageId?: string | null
   initialPositionMessageId?: string | null
+  positionEntry?: object | null
   onScrollTargetPositioned?: (id: string) => void
   onScrollTargetCancelled?: (id: string) => void
   hasMoreOlder?: boolean
@@ -133,6 +135,8 @@ export function useScrollAnchor({
   const scrollRef = useRef<HTMLDivElement>(null)
   const virtualizerRef = useRef<ReactVirtualizer<HTMLDivElement, Element> | null>(null)
   const positionOwnerRef = useRef({ epoch: 0, active: true })
+  const [committedEntry, setCommittedEntry] = useState(positionEntry)
+  const entryChanged = committedEntry !== positionEntry
   const positionKind = useCreateAtom<Kind>("initial")
   const [ownerKind, setOwnerKind] = useAtom(positionKind)
   const nativeOrigin = useCreateAtom<string | number | bigint | null>(null)
@@ -313,9 +317,9 @@ export function useScrollAnchor({
       : measureElement(element, entry, instance),
     getItemKey,
     scrollPaddingStart: scrollPaddingStartRef.current,
-    anchorTo: ownerKind === "idle" && !awaitingTarget && !pendingLocalSubmit
+    anchorTo: !entryChanged && ownerKind === "idle" && !awaitingTarget && !pendingLocalSubmit
       && (paginationDirection !== null || (readPositionReady && (nativeOriginKey === null || nativeOriginKey !== items[0]?.key))) ? "end" : "start",
-    followOnAppend: ownerKind === "idle" && readPositionReady && !awaitingTarget && hasMessages && hadMessagesRef.current
+    followOnAppend: !entryChanged && ownerKind === "idle" && readPositionReady && !awaitingTarget && hasMessages && hadMessagesRef.current
       && !pendingLocalSubmit && !followSuspended && !hasMoreNewer
       && !isFetchingOlder && !isFetchingNewer && paginationDirection === null
       && (nativeOriginKey === null || nativeOriginKey !== items[0]?.key) ? "auto" : false,
@@ -490,6 +494,21 @@ export function useScrollAnchor({
   }, [armBudget, cancelFrame, clearBudget, clearOlderMeasurementAnchor, positionKind, releasePosition, startIntent])
 
   useLayoutEffect(() => {
+    if (committedEntry === positionEntry) return
+    setCommittedEntry(() => positionEntry)
+    claimPosition("initial")
+    entryResolvedRef.current = false
+    initialRetiredRef.current = false
+    initialPositionSettledRef.current = false
+    targetIntentRef.current = null
+    positionedTargetRef.current = null
+    consumedPresentVersionRef.current = presentVersion ?? 0
+    consumedLocalSubmitVersionRef.current = localSubmitVersion ?? 0
+    userInputRef.current.handover = false
+    setFollowSuspended(false)
+  }, [claimPosition, committedEntry, localSubmitVersion, positionEntry, presentVersion, setFollowSuspended])
+
+  useLayoutEffect(() => {
     const target = scrollToMessageId ?? null
     if (targetIntentRef.current === target) return
     targetIntentRef.current = target
@@ -502,7 +521,7 @@ export function useScrollAnchor({
     retireInitialPosition()
     positionedTargetRef.current = null
     if (items.length > 0) startIntent("target", target, "auto", true)
-  }, [claimPosition, items.length, positionKind, releasePosition, retireInitialPosition, scrollToMessageId, startIntent])
+  }, [claimPosition, items.length, positionEntry, positionKind, releasePosition, retireInitialPosition, scrollToMessageId, startIntent])
 
   useLayoutEffect(() => {
     if (items.length === 0) return
@@ -880,7 +899,7 @@ export function useScrollAnchor({
       startIntent(initialPositionMessageId ? "target" : newDividerBefore ? "unread" : "end", initialPositionMessageId ?? newDividerBefore ?? null)
     } else if (!initialScrollReady && !hasMoreNewer && !semanticIntentRef.current) startIntent("end", null)
     else scheduleInitialPositionSettled()
-  }, [cancelFrame, hasMessages, hasMoreNewer, initialScrollReady, initialPositionMessageId, items, newDividerBefore, positionKind, releasePosition, scheduleInitialPositionSettled, startIntent, virtualItems])
+  }, [cancelFrame, hasMessages, hasMoreNewer, initialScrollReady, initialPositionMessageId, items, newDividerBefore, positionEntry, positionKind, releasePosition, scheduleInitialPositionSettled, startIntent, virtualItems])
 
   const requestPresentPosition = useCallback(() => {
     presentIntentRef.current = { epoch: claimPosition("present"), allowAttachedTail: false, fetching: false }
@@ -907,7 +926,7 @@ export function useScrollAnchor({
   const belowCount = root && virtualizer.isAtEnd(MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX)
     ? 0 : computeBelowCount(items, lastVisibleIndex)
   return {
-    scrollRef, virtualizer, readPositionReady, paginationEnabled: ownerKind === "idle" && !awaitingTarget, belowCount,
+    scrollRef, virtualizer, readPositionReady: !entryChanged && readPositionReady, paginationEnabled: !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,
     scrollToBottom, requestPresentPosition, jumpTo,
     captureOlderPageAnchor, captureNewerPageAnchor,
   }

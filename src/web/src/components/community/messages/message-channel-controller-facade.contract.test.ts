@@ -121,7 +121,7 @@ describe("MessageChannelController facade contract", () => {
       "const router = useRouter()",
       "const searchParams = useSearchParams()",
       "const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))",
-      "const [scrollTargetId, setScrollTargetId] = useAtom(useCreateAtom<string | null>(anchorMessageId))",
+      "const [scrollTargetId, setScrollTargetId] = useAtom(useMemo(() => createAtom<string | null>(anchorMessageId), [anchorMessageId, feed.positionEntry]))",
       "const [contextTarget, setContextTarget] = useAtom(useCreateAtom<MessageContextTarget | null>(null))",
       "useSendMessage()",
       "useToggleReactionApi()",
@@ -141,7 +141,8 @@ describe("MessageChannelController facade contract", () => {
       expect(position, token).toBeGreaterThan(cursor)
       cursor = position
     }
-    expect(body.match(/\buseCreateAtom(?:<[^>]+>)?\(/g)).toHaveLength(4)
+    expect(body.match(/\buseCreateAtom(?:<[^>]+>)?\(/g)).toHaveLength(3)
+    expect(body.match(/\bcreateAtom(?:<[^>]+>)?\(/g)).toHaveLength(1)
     expect(body).not.toMatch(/\buseState(?:<[^>]+>)?\(/)
     expect(actions).not.toMatch(/\buse[A-Z][A-Za-z]+\(/)
     expect(send).not.toMatch(/\buse[A-Z][A-Za-z]+\(/)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { createAtom, useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
@@ -16,6 +16,7 @@ export function useMessageListController({
   newDividerBefore,
   scrollToMessageId,
   initialPositionMessageId,
+  positionEntry,
   initialScrollReady,
   hasMore,
   hasMoreNewer,
@@ -33,7 +34,7 @@ export function useMessageListController({
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
-  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useCreateAtom(false))
+  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useMemo(() => createAtom(false), [positionEntry]))
 
   const items = useMemo(
     () => flattenMessageItems(messages, newDividerBefore, !!hasMore, !!hasMoreNewer),
@@ -101,6 +102,7 @@ export function useMessageListController({
     initialScrollReady,
     scrollToMessageId,
     initialPositionMessageId,
+    positionEntry,
     onScrollTargetCancelled: onScrollTargetConsumed,
     onScrollTargetPositioned: (id) => { setJumped(id); setJumpRevision((value) => value + 1); onScrollTargetConsumed?.(id) },
     hasMoreNewer,

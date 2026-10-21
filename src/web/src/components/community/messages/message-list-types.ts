@@ -32,6 +32,7 @@ export type MessageListProps = {
   resolveUserName?: (userId: string) => string
   scrollToMessageId?: string | null
   initialPositionMessageId?: string | null
+  positionEntry?: object | null
   hero?: ReactNode
   variant?: "channel" | "dm"
   onScrollRoot?: (el: HTMLDivElement | null) => void

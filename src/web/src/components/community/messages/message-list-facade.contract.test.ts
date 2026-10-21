@@ -32,6 +32,7 @@ type ExpectedMessageListProps = {
   resolveUserName?: (userId: string) => string
   scrollToMessageId?: string | null
   initialPositionMessageId?: string | null
+  positionEntry?: object | null
   hero?: ReactNode
   variant?: "channel" | "dm"
   onScrollRoot?: (element: HTMLDivElement | null) => void

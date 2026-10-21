@@ -1,5 +1,5 @@
 "use client"
-import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
+import { createAtom, createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -75,7 +75,7 @@ export function useMessageChannelController({
   const searchParams = useSearchParams()
   const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
   const [localSubmitVersion, setLocalSubmitVersion] = useAtom(useCreateAtom(0))
-  const [scrollTargetId, setScrollTargetId] = useAtom(useCreateAtom<string | null>(anchorMessageId))
+  const [scrollTargetId, setScrollTargetId] = useAtom(useMemo(() => createAtom<string | null>(anchorMessageId), [anchorMessageId, feed.positionEntry]))
   const [contextTarget, setContextTarget] = useAtom(useCreateAtom<MessageContextTarget | null>(null))
   const { mutateAsync: sendMessageAsync } = useSendMessage()
   const toggleReactionApi = useToggleReactionApi()

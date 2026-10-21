@@ -273,6 +273,7 @@ export function ThreadChannelSurface({
                   hasMore={controller.feed.hasMoreOlder}
                   historyStartKnown={controller.feed.historyStartKnown}
                   initialPositionMessageId={controller.feed.initialPositionMessageId}
+                  positionEntry={controller.feed.positionEntry}
                   isFetching={controller.feed.isFetching}
                   isFetchingOlder={controller.feed.isFetchingOlder}
                   onLoadOlder={controller.feed.fetchOlder}

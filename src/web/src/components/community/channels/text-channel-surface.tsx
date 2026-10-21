@@ -161,6 +161,7 @@ export function TextChannelSurface({
                   hasMore={feed.hasMoreOlder}
                   historyStartKnown={feed.historyStartKnown}
                   initialPositionMessageId={feed.initialPositionMessageId}
+                  positionEntry={feed.positionEntry}
                   isFetching={feed.isFetching}
                   isFetchingOlder={feed.isFetchingOlder}
                   onLoadOlder={feed.fetchOlder}
