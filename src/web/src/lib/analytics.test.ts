@@ -132,14 +132,14 @@ describe("analytics utility", () => {
       trackCommunityOnboardingStarted()
       trackCommunityOnboardingStageCompleted("harness")
       trackCommunityOnboardingCompleted()
-      trackCommunityOnboardingSkipped("complete")
+      trackCommunityOnboardingSkipped("initializing")
 
-      expect(mockSendGTMEvent.mock.calls).toEqual([
+      expect(mocks.product.mock.calls).toEqual([
         [{ event: "community_onboarding_started" }],
         [{ event: "community_onboarding_stage_completed", stage: "harness" }],
-        [{ event: "community_onboarding_completed" }],
-        [{ event: "community_onboarding_skipped", stage: "complete" }],
+        [{ event: "community_onboarding_skipped", stage: "initializing" }],
       ])
+      expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "community_onboarding_completed" }]])
     })
 
     it("fails open when the tag manager rejects a Community funnel event", () => {

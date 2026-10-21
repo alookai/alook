@@ -2,7 +2,7 @@
 
 import { isTauri } from "@alook/shared"
 import { googleCommand, isPublicAnalyticsPath, readAnalyticsConsent } from "@/lib/analytics-consent"
-import { LANDING_CTA_NAMES, PRODUCT_ANALYTICS_EVENTS } from "@/lib/product-analytics-contract"
+import { LANDING_CTA_NAMES, ONBOARDING_ANALYTICS_STAGES, PRODUCT_ANALYTICS_EVENTS } from "@/lib/product-analytics-contract"
 import { authFailureParams } from "@/lib/auth-failure"
 
 export type ProductAnalyticsInput =
@@ -11,7 +11,8 @@ export type ProductAnalyticsInput =
   | { event: "sign_up" | "sign_in_success"; method: string }
   | { event: "sign_in_failed"; method: string; failureStage: "send_code" | "verify_code" | "social_start" | "provider_callback"; error: unknown }
   | { event: "onboarding_enter_clicked"; serverId: string }
-  | { event: "onboarding_first_message" }
+  | { event: "onboarding_first_message" | "community_onboarding_started" }
+  | { event: "community_onboarding_stage_completed" | "community_onboarding_skipped"; stage: string }
   | { event: "invitation_link_visit"; token: string }
   | { event: "community_onboarding_completed" | "human_invitation_sent" | "human_invitation_copied" | "invited_human_joined" }
 
@@ -41,10 +42,14 @@ function prepareProductAnalytics(): HTMLIFrameElement | null {
 
 export async function captureProductAnalytics(input: ProductAnalyticsInput, assertCurrent?: () => void): Promise<void> {
   try {
-    if (typeof window === "undefined" || isTauri() || readAnalyticsConsent() === "denied") return
+    if (typeof window === "undefined" || window.location.origin !== "https://alook.ai" || isTauri() || readAnalyticsConsent() === "denied") return
     assertCurrent?.()
     if (!PRODUCT_ANALYTICS_EVENTS.some(event => event === input.event)) return
     const params: Record<string, string> = {}
+    if (input.event === "community_onboarding_stage_completed" || input.event === "community_onboarding_skipped") {
+      if (!ONBOARDING_ANALYTICS_STAGES.some(stage => stage === input.stage)) return
+      params.stage = input.stage
+    }
     if (input.event === "landing_cta_clicked" && LANDING_CTA_NAMES.some(name => name === input.ctaName)) params.cta_name = input.ctaName
     if ((input.event === "sign_up" || input.event === "sign_in_success" || input.event === "sign_in_failed") && ["email", "email_otp", "github", "google", "apple", "development_password"].includes(input.method)) params.method = input.method
     if (input.event === "sign_in_failed" && ["send_code", "verify_code", "social_start", "provider_callback"].includes(input.failureStage)) params.failure_stage = input.failureStage

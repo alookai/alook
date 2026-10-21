@@ -179,13 +179,13 @@ export type CommunityOnboardingStage =
   | "server";
 
 export function trackCommunityOnboardingStarted() {
-  sendConsentAwareGTMEvent({ event: "community_onboarding_started" });
+  void captureProductAnalytics({ event: "community_onboarding_started" });
 }
 
 export function trackCommunityOnboardingStageCompleted(
   stage: CommunityOnboardingStage,
 ) {
-  sendConsentAwareGTMEvent({ event: "community_onboarding_stage_completed", stage });
+  void captureProductAnalytics({ event: "community_onboarding_stage_completed", stage });
 }
 
 export function trackCommunityOnboardingCompleted() {
@@ -195,7 +195,7 @@ export function trackCommunityOnboardingCompleted() {
 export function trackCommunityOnboardingSkipped(
   stage: CommunityOnboardingStage | "complete",
 ) {
-  sendConsentAwareGTMEvent({ event: "community_onboarding_skipped", stage });
+  void captureProductAnalytics({ event: "community_onboarding_skipped", stage });
 }
 
 export type CommunityWsFrameDropReason =

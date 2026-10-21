@@ -1,8 +1,11 @@
 <!doctype html>
 <title>Alook</title>
 <script>
+(() => {
+if (location.origin !== 'https://alook.ai') return;
 window.dataLayer = [];
 function gtag() { window.dataLayer.push(arguments); }
+window.gtag = gtag;
 gtag('consent', 'default', { analytics_storage: 'granted', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
 gtag('js', new Date());
 const fields = { page_location: 'https://alook.ai/analytics/product', page_referrer: '', page_title: 'Alook' };
@@ -23,8 +26,12 @@ const authReasons = {
 };
 gtag('config', 'G-STBCL8F4ZY', { send_page_view: false, allow_google_signals: false, allow_ad_personalization_signals: false, ...fields });
 window.sendProductEvent = function ({ event, params }) {
-  if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit', 'community_onboarding_completed', 'human_invitation_sent', 'human_invitation_copied', 'invited_human_joined'].includes(event)) return;
+  if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit', 'community_onboarding_started', 'community_onboarding_stage_completed', 'community_onboarding_skipped', 'community_onboarding_completed', 'human_invitation_sent', 'human_invitation_copied', 'invited_human_joined'].includes(event)) return;
   const safe = {};
+  if (event === 'community_onboarding_stage_completed' || event === 'community_onboarding_skipped') {
+    if (!['harness', 'machine', 'model', 'identity', 'initializing'].includes(params?.stage)) return;
+    safe.stage = params.stage;
+  }
   if (event === 'landing_cta_clicked' && typeof params?.cta_name === 'string') safe.cta_name = params.cta_name;
   if (['sign_up', 'sign_in_success', 'sign_in_failed'].includes(event) && ['email', 'email_otp', 'github', 'google', 'apple', 'development_password'].includes(params?.method)) safe.method = params.method;
   if (event === 'sign_in_failed' && ['send_code', 'verify_code', 'social_start', 'provider_callback'].includes(params?.failure_stage)) safe.failure_stage = params.failure_stage;
@@ -39,5 +46,9 @@ window.sendProductEvent = function ({ event, params }) {
   }
   gtag('event', event, { ...safe, ...fields, send_to: 'G-STBCL8F4ZY' });
 };
+const sdk = document.createElement('script');
+sdk.async = true;
+sdk.src = 'https://www.googletagmanager.com/gtag/js?id=G-STBCL8F4ZY';
+document.head.appendChild(sdk);
+})();
 </script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-STBCL8F4ZY"></script>

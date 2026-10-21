@@ -117,7 +117,8 @@ export function useCommunityNavigationController(
     }
   }, [cancelPendingNavigation])
 
-  const submitNavigation = useCallback((submit: () => void) => {
+  const submitNavigation = useCallback((submit: () => void, isCurrent?: () => boolean) => {
+    if (isCurrent && !isCurrent()) return
     const revision = gateRef.current.revision
     try {
       submit()
@@ -134,6 +135,7 @@ export function useCommunityNavigationController(
     beginNavigation(href)
     void prepareNavigationMetadata(queryClient, href, "foreground")
     supersedeNavigationIntent(gateRef.current)
+    const isCurrent = captureIntent({ pendingCommitHref: href })
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
     // Publish the target checkpoint before Next starts the RSC transition.
@@ -143,8 +145,8 @@ export function useCommunityNavigationController(
       setNavigationPending(true)
       setPendingHref(href)
     })
-    submitNavigation(() => router.push(...args))
-  }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref, submitNavigation])
+    submitNavigation(() => router.push(...args), isCurrent)
+  }, [captureIntent, committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref, submitNavigation])
 
   const pushImmediate = useCallback((href: string, prepare?: (action?: Action) => void) => {
     setEntryIntent({ href })
@@ -153,6 +155,7 @@ export function useCommunityNavigationController(
     prepare?.(action)
     void prepareNavigationMetadata(queryClient, href, "foreground")
     supersedeNavigationIntent(gateRef.current)
+    const isCurrent = captureIntent({ pendingCommitHref: href })
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
     // Inbox promises a target checkpoint on the next paint. Publish it before
@@ -161,8 +164,8 @@ export function useCommunityNavigationController(
       setNavigationPending(true)
       setPendingHref(href)
     })
-    submitNavigation(() => router.push(href))
-  }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref, submitNavigation])
+    submitNavigation(() => router.push(href), isCurrent)
+  }, [captureIntent, committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref, submitNavigation])
 
   const replace = useCallback((href: string, options?: { resume?: boolean }) => {
     setEntryIntent({ href, ...(options?.resume ? { resume: true } : {}) })
