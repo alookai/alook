@@ -192,15 +192,53 @@ function isTargetRsc(request: Request, serverId: string): boolean {
     && new URL(request.url()).pathname.startsWith(`/c/channels/${serverId}/`)
 }
 
-function observeTargetRsc(
+type TargetRscBody = { bytes: number; done: boolean; error: boolean; restore: () => void }
+type TargetRscWindow = typeof window & { __communityTargetRscBody: TargetRscBody }
+
+async function observeTargetRsc(
   page: Page,
   serverId: string,
   timeoutMs: number, caseResources: CaseResources
-): {
-  finished: Promise<Error | null>
-  requests: () => string[]
-  stop: () => void
-} {
+) {
+  await page.evaluate((serverId) => {
+    const originalFetch = window.fetch
+    const state = { bytes: 0, done: false, error: false, readers: 0, restore: () => { window.fetch = originalFetch } }
+    Object.assign(window, { __communityTargetRscBody: state })
+    window.fetch = function (input, init) {
+      const pending = originalFetch.call(this, input, init)
+      const url = new URL(input instanceof Request ? input.url : String(input), location.href)
+      if (!url.pathname.startsWith(`/c/channels/${serverId}/`) || new Headers(init?.headers).get("rsc") !== "1") return pending
+      return pending.then((response) => {
+        if (!response.body) { state.error = true; return response }
+        response.body.getReader = new Proxy(response.body.getReader, {
+          apply(target, receiver, args) {
+            if (++state.readers !== 1) state.error = true
+            const reader = Reflect.apply(target, receiver, args)
+            reader.cancel = new Proxy(reader.cancel, {
+              apply(cancel, owner, cancelArgs) {
+                if (!state.done) state.error = true
+                return Reflect.apply(cancel, owner, cancelArgs)
+              },
+            })
+            reader.read = new Proxy(reader.read, {
+              apply(read, owner, readArgs) {
+                const reading = Reflect.apply(read, owner, readArgs) as Promise<ReadableStreamReadResult<Uint8Array>>
+                return reading.then((result) => {
+                  state.bytes += result.value?.byteLength ?? 0
+                  state.done = result.done
+                  return result
+                }, (error: unknown) => { state.error = true; throw error })
+              },
+            })
+            return reader
+          },
+        })
+        return response
+      }, (error: unknown) => { state.error = true; throw error })
+    }
+  }, serverId)
+  const deadline = Date.now() + timeoutMs
+  const responded = new Set<Request>()
   const requests: string[] = []
   let settled = false
   let resolveFinished!: (error: Error | null) => void
@@ -217,38 +255,45 @@ function observeTargetRsc(
     if (isTargetRsc(request, serverId)) requests.push(request.url())
   }
   const onRequestFailed = (request: Request) => {
-    if (!isTargetRsc(request, serverId)) return
+    if (!isTargetRsc(request, serverId) || responded.has(request)) return
     settle(new Error(
       `Target RSC request failed: ${request.failure()?.errorText ?? "unknown failure"}`,
     ))
   }
   const onResponse = (response: Response) => {
     if (!isTargetRsc(response.request(), serverId)) return
+    responded.add(response.request())
     if (response.status() !== 200) {
       settle(new Error(`Target RSC responded ${response.status()}: ${response.url()}`))
       return
     }
-    void response.finished().then((failure) => {
-      if (failure) {
-        settle(new Error(`Target RSC did not finish: ${failure.message}`))
-        return
-      }
-      settle()
-    }, (error: unknown) => {
-      settle(new Error(`Target RSC completion rejected: ${String(error)}`))
-    })
+    void page.waitForFunction(() => {
+      const body = (window as TargetRscWindow).__communityTargetRscBody
+      return body.error || body.done
+    }, undefined, { timeout: Math.max(1, deadline - Date.now()) }).then(async (handle) => {
+      await handle.dispose()
+      const body = await page.evaluate(() => {
+        const { bytes, done, error } = (window as TargetRscWindow).__communityTargetRscBody
+        return { bytes, done, error }
+      })
+      settle(body.error || !body.done || body.bytes === 0 ? new Error("Target RSC body did not reach a nonempty native EOF") : undefined)
+    }).catch((error: unknown) => { settle(new Error(`Target RSC body completion rejected: ${String(error)}`)) })
   }
   const timeout = setTimeout(() => {
     settle(new Error(`Target RSC did not finish within ${timeoutMs}ms for server ${serverId}`))
   }, timeoutMs)
-  const stop = () => {
+  let stopped = false
+  const stop = async () => {
+    if (stopped) return
+    stopped = true
     clearTimeout(timeout)
     page.off("request", onRequest)
     page.off("requestfailed", onRequestFailed)
     page.off("response", onResponse)
+    if (!page.isClosed()) await page.evaluate(() => (window as TargetRscWindow).__communityTargetRscBody.restore())
   }
   caseResources.own(stop, async (captured) => {
-    captured()
+    await captured()
     settle()
   })
   page.on("request", onRequest)
@@ -259,62 +304,6 @@ function observeTargetRsc(
     requests: () => [...requests],
     stop,
   }
-}
-
-async function installTargetRscDiagnostics(page: Page, serverId: string) {
-  await page.evaluate((serverId) => {
-    const events: unknown[] = []
-    const record = (event: string, data: object = {}) => {
-      if (events.length < 100) events.push({ event, time: performance.now(), pathname: location.pathname, ...data })
-    }
-    const originalFetch = window.fetch
-    window.fetch = function (input, init) {
-      const url = new URL(input instanceof Request ? input.url : String(input), location.href)
-      if (url.pathname.startsWith(`/c/channels/${serverId}/`)) {
-        record("fetch", { target: url.pathname, priority: init?.priority, stack: new Error().stack })
-        init?.signal?.addEventListener("abort", () => record("abort", { stack: new Error().stack }), { once: true })
-      }
-      const fetched = originalFetch.call(this, input, init)
-      if (!url.pathname.startsWith(`/c/channels/${serverId}/`)) return fetched
-      return fetched.then((response) => {
-        record("headers", { status: response.status, cacheControl: response.headers.get("cache-control") })
-        if (response.body) {
-          const originalGetReader = response.body.getReader
-          response.body.getReader = new Proxy(originalGetReader, {
-            apply(target, receiver, args) {
-              const reader = Reflect.apply(target, receiver, args)
-              reader.read = new Proxy(reader.read, {
-                apply(read, owner, readArgs) {
-                  const pending = Reflect.apply(read, owner, readArgs) as Promise<ReadableStreamReadResult<Uint8Array>>
-                  return pending.then((result) => {
-                    record("read", { done: result.done, bytes: result.value?.byteLength ?? 0 })
-                    return result
-                  }, (error: Error) => {
-                    record("read.error", { name: error.name })
-                    throw error
-                  })
-                },
-              })
-              return reader
-            },
-          })
-        }
-        return response
-      })
-    }
-    const originalCancel = ReadableStreamDefaultReader.prototype.cancel
-    ReadableStreamDefaultReader.prototype.cancel = function (reason) {
-      record("reader.cancel", { stack: new Error().stack })
-      return originalCancel.call(this, reason)
-    }
-    Object.assign(window, { __targetRscDiagnostics: {
-      events,
-      restore: () => {
-        window.fetch = originalFetch
-        ReadableStreamDefaultReader.prototype.cancel = originalCancel
-      },
-    } })
-  }, serverId)
 }
 
 async function activateServerIcon(page: Page, serverId: string) {
@@ -477,8 +466,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await page.reload()
   await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
   const structuralC = await holdServerTransition(page, serverC, caseResources)
-  await installTargetRscDiagnostics(page, serverC)
-  const targetRsc = observeTargetRsc(page, serverC, 30_000, caseResources)
+  const targetRsc = await observeTargetRsc(page, serverC, 30_000, caseResources)
   await clearSidebarFrames(page)
   await clearHistoryEvents(page)
   try {
@@ -510,13 +498,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
       pathname: rememberedCHref,
     })
   } finally {
-    targetRsc.stop()
-    const diagnostics = await page.evaluate(() => {
-      const state = (window as typeof window & { __targetRscDiagnostics: { events: unknown[]; restore: () => void } }).__targetRscDiagnostics
-      state.restore()
-      return state.events
-    })
-    await test.info().attach("target-rsc-diagnostics", { body: JSON.stringify({ browserVersion: page.context().browser()?.version(), events: diagnostics }), contentType: "application/json" })
+    await targetRsc.stop()
   }
 
   await clickServer(page, serverA)
