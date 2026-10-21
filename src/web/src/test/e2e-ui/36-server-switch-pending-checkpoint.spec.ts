@@ -238,6 +238,7 @@ async function observeTargetRsc(
     }
   }, serverId)
   const deadline = Date.now() + timeoutMs
+  const polling = new AbortController()
   const responded = new Set<Request>()
   const requests: string[] = []
   let settled = false
@@ -270,7 +271,7 @@ async function observeTargetRsc(
     void page.waitForFunction(() => {
       const body = (window as TargetRscWindow).__communityTargetRscBody
       return body.error || body.done
-    }, undefined, { timeout: Math.max(1, deadline - Date.now()) }).then(async (handle) => {
+    }, undefined, { timeout: Math.max(1, deadline - Date.now()), signal: polling.signal }).then(async (handle) => {
       await handle.dispose()
       const body = await page.evaluate(() => {
         const { bytes, done, error } = (window as TargetRscWindow).__communityTargetRscBody
@@ -286,11 +287,12 @@ async function observeTargetRsc(
   const stop = async () => {
     if (stopped) return
     stopped = true
+    polling.abort()
     clearTimeout(timeout)
     page.off("request", onRequest)
     page.off("requestfailed", onRequestFailed)
     page.off("response", onResponse)
-    if (!page.isClosed()) await page.evaluate(() => (window as TargetRscWindow).__communityTargetRscBody.restore())
+    if (!page.isClosed()) await page.evaluate(() => (window as Partial<TargetRscWindow>).__communityTargetRscBody?.restore())
   }
   caseResources.own(stop, async (captured) => {
     await captured()
