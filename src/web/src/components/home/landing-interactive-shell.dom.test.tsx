@@ -13,9 +13,15 @@ vi.mock("@/components/community/messages/composer", () => ({ Composer: ({ onAcce
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ messages, unreadCount, onJumpToPresent, typingUsers, onScrollRoot, newDividerBefore }: { newDividerBefore?: string; onScrollRoot?: (el: HTMLDivElement | null) => void; typingUsers?: string[]; messages: { id: string; content: string }[]; unreadCount: number; onJumpToPresent: () => void }) => <div ref={onScrollRoot} data-testid="mock-message-scroll"><span data-testid="new-divider">{newDividerBefore}</span><span data-testid="typing-names">{typingUsers?.join(", ")}</span>{messages.map((message) => <p key={message.id}>{message.content}</p>)}{unreadCount > 0 && <button onClick={onJumpToPresent}>Catch up {unreadCount}</button>}</div> }))
 
 beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }) })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("interactive landing workspace", () => {
+  it("announces readiness even when the hidden frame gets no animation callbacks", () => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
+    const post = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
+    render(<LandingInteractiveShell />)
+    expect(post).toHaveBeenCalledWith({ type: "alook-demo-ready" }, window.location.origin)
+  })
   it("has three populated spaces and people sharing agents with different owners", () => {
     expect(DEMO_SERVERS).toHaveLength(3)
     for (const server of DEMO_SERVERS) {

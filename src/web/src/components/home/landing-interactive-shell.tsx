@@ -36,11 +36,7 @@ import styles from "./landing-interactive-shell.module.css"
 
 export default function LandingInteractiveShell() {
   useEffect(() => {
-    let secondFrame = 0
-    const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => window.parent.postMessage({ type: "alook-demo-ready" }, window.location.origin))
-    })
-    return () => { cancelAnimationFrame(firstFrame); cancelAnimationFrame(secondFrame) }
+    window.parent.postMessage({ type: "alook-demo-ready" }, window.location.origin)
   }, [])
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false, staleTime: Infinity } } }))
   const [registry] = useState(() => createCommunityDbRegistry(queryClient, null))

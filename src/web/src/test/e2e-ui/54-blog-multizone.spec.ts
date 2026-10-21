@@ -4,7 +4,7 @@ import { tid } from "./_fixtures/testids"
 test("main and Blog navigate across Workers through one public origin", async ({ page }) => {
   const documentRequests: string[] = []
   page.on("request", (request) => {
-    if (request.isNavigationRequest() && request.resourceType() === "document") {
+    if (request.isNavigationRequest() && request.resourceType() === "document" && request.frame() === page.mainFrame()) {
       documentRequests.push(request.url())
     }
   })

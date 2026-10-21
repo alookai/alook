@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { AlookLoading } from "@/components/brand/alook-loading/AlookLoading"
+import { LandingWorkspaceSkeleton } from "./landing-workspace-skeleton"
 import styles from "./landing-interactive-shell.module.css"
 
 export function LandingInteractiveDemo() {
@@ -9,20 +9,10 @@ export function LandingInteractiveDemo() {
   const [ready, setReady] = useState(false)
   const frame = useRef<HTMLIFrameElement>(null)
   useEffect(() => {
-    let idle: number | undefined
-    let timer: number | undefined
-    const start = () => { idle = undefined; timer = undefined; setStarted(true) }
-    const schedule = () => {
-      if (typeof window.requestIdleCallback === "function") idle = window.requestIdleCallback(start, { timeout: 2000 })
-      else timer = window.setTimeout(start, 200)
-    }
-    if (document.readyState === "complete") schedule()
-    else window.addEventListener("load", schedule, { once: true })
-    return () => {
-      window.removeEventListener("load", schedule)
-      if (idle !== undefined) window.cancelIdleCallback(idle)
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
+    const start = () => setStarted(true)
+    if (document.readyState === "complete") start()
+    else window.addEventListener("load", start, { once: true })
+    return () => window.removeEventListener("load", start)
   }, [])
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -33,7 +23,7 @@ export function LandingInteractiveDemo() {
   }, [])
   return <section id="workspace" className={styles.section} aria-label="Explore Alook" data-testid="landing-interactive-section">
     <div className={styles.frame} aria-busy={!ready}>
-      {!ready && <div className={styles.loading}><AlookLoading size={96} label="Loading Alook workspace" paused={!started} /></div>}
+      {!ready && <LandingWorkspaceSkeleton />}
       {started && <iframe ref={frame} src="/demo" title="Alook workspace" className={styles.workspace} aria-hidden={!ready} tabIndex={ready ? undefined : -1} style={{ opacity: ready ? 1 : 0 }} />}
     </div>
   </section>

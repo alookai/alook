@@ -27,4 +27,31 @@
 :global(html):has(.previewRoot) :global([data-testid="community-user-bar"] button[aria-label="User settings"] > svg) { width: 16px; height: 16px; }
 
 .workspace { display: block; width: 100%; height: 100%; border: 0; }
-.loading { position: absolute; inset: 0; display: grid; place-items: center; }
+
+.workspaceSkeleton { position: absolute; inset: 0; container-type: inline-size; background: var(--background); }
+.skeletonLayout { display: flex; width: 100%; height: 100%; font-size: 14px; }
+.skeletonRail { display: flex; flex-direction: column; align-items: center; gap: 16px; flex: 0 0 56px; padding-block: 16px; background: var(--app-bg); }
+.skeletonSidebar { display: flex; flex-direction: column; flex: 0 0 240px; min-width: 0; background: var(--sidebar); border-right: 1px solid var(--border); }
+.skeletonHeader { display: flex; align-items: center; gap: 8px; flex: 0 0 48px; padding-inline: 16px; border-bottom: 1px solid var(--border); }
+.skeletonChannels { padding: 24px 16px; }
+.skeletonChannel { display: flex; align-items: center; gap: 8px; height: 36px; }
+.skeletonUser { position: absolute; bottom: 0; left: 0; width: 296px; padding: 0 8px 12px; }
+.skeletonUserInner { display: flex; align-items: center; gap: 8px; height: 48px; padding-inline: 8px; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--muted); }
+.skeletonUserAction { width: 28px; height: 28px; flex-shrink: 0; background: color-mix(in oklch, var(--background) 60%, transparent); }
+.skeletonChat { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.skeletonMessages { display: flex; flex: 1; flex-direction: column; gap: 32px; overflow: hidden; padding: 32px 24px; }
+.skeletonMessage { display: flex; gap: 16px; }
+.skeletonMessageText { flex: 1; min-width: 0; }
+.skeletonComposer { padding: 0 16px 12px; }
+@container (max-width: 639px) {
+  .skeletonSidebar { flex: 1; border-right: 0; }
+  .skeletonChat { display: none; }
+  .skeletonUser { width: 100%; padding-inline: 12px; }
+  .skeletonUserAction { width: 44px; height: 44px; }
+}
+
+:global(html):has(.previewRoot) :global(.chat-input-line-height),
+:global(html):has(.previewRoot) :global(.chat-composer .tiptap),
+:global(html):has(.previewRoot) :global(.chat-composer .tiptap p),
+:global(html):has(.previewRoot) :global(.chat-composer .tiptap li),
+:global(html):has(.previewRoot) :global(.chat-placeholder-overlay) { line-height: 1.5rem; }

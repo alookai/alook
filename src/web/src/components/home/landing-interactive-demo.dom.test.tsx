@@ -2,23 +2,16 @@ import { act, render, screen } from "@/test/react-dom-harness"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { LandingInteractiveDemo } from "./landing-interactive-demo"
 
-vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({ AlookLoading: ({ label }: { label: string }) => <span role="status">{label}</span> }))
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe("background workspace loading", () => {
-  it("waits for the homepage load and idle time, then keeps the loader until its own frame is ready", () => {
+  it("waits for the homepage load, then keeps the loader until its own frame is ready", () => {
     vi.spyOn(document, "readyState", "get").mockReturnValue("loading")
-    let idle!: IdleRequestCallback
-    const request = vi.fn((callback: IdleRequestCallback) => { idle = callback; return 7 })
-    vi.stubGlobal("requestIdleCallback", request)
-    vi.stubGlobal("cancelIdleCallback", vi.fn())
     render(<LandingInteractiveDemo />)
     expect(screen.queryByTitle("Alook workspace")).toBeNull()
-    expect(request).not.toHaveBeenCalled()
+    expect(screen.getByRole("status")).toHaveAttribute("aria-label", "Loading Alook workspace")
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(10)
     act(() => window.dispatchEvent(new Event("load")))
-    expect(request).toHaveBeenCalledOnce()
-    expect(screen.queryByTitle("Alook workspace")).toBeNull()
-    act(() => idle({ didTimeout: false, timeRemaining: () => 10 }))
     const frame = screen.getByTitle("Alook workspace") as HTMLIFrameElement
     expect(frame).toHaveAttribute("src", "/demo")
     expect(screen.getByRole("status")).toBeVisible()
@@ -31,23 +24,20 @@ describe("background workspace loading", () => {
     expect(frame).toHaveAttribute("aria-hidden", "false")
   })
 
-  it("cancels deferred work when unmounted", () => {
-    vi.spyOn(document, "readyState", "get").mockReturnValue("complete")
-    vi.stubGlobal("requestIdleCallback", vi.fn(() => 9))
-    const cancel = vi.fn()
-    vi.stubGlobal("cancelIdleCallback", cancel)
+  it("removes the pending load listener when unmounted", () => {
+    vi.spyOn(document, "readyState", "get").mockReturnValue("loading")
+    const remove = vi.spyOn(window, "removeEventListener")
     const view = render(<LandingInteractiveDemo />)
     view.unmount()
-    expect(cancel).toHaveBeenCalledWith(9)
+    expect(remove).toHaveBeenCalledWith("load", expect.any(Function))
   })
 
-  it("yields after load when idle callbacks are unavailable", () => {
-    vi.useFakeTimers()
+  it("starts immediately when the homepage has already loaded", () => {
     vi.spyOn(document, "readyState", "get").mockReturnValue("complete")
-    vi.stubGlobal("requestIdleCallback", undefined)
+    const idle = vi.fn()
+    vi.stubGlobal("requestIdleCallback", idle)
     render(<LandingInteractiveDemo />)
-    expect(screen.queryByTitle("Alook workspace")).toBeNull()
-    act(() => vi.advanceTimersByTime(200))
     expect(screen.getByTitle("Alook workspace")).toHaveAttribute("src", "/demo")
+    expect(idle).not.toHaveBeenCalled()
   })
 })

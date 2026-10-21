@@ -1,14 +1,14 @@
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 
-test("first-signup mobile skips automatic onboarding and does not backfill it on desktop", async ({ page }) => {
+test("first-signup mobile starts onboarding once and retains it on desktop", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/sign-in")
   await page.getByRole("textbox", { name: "Email" }).fill(
     `direct-onboarding-mobile-${process.pid}-${Date.now()}@example.com`,
   )
   await page.getByRole("button", { name: "Sign in", exact: true }).click()
-  await page.waitForURL("**/c/me", { waitUntil: "commit" })
+  await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
 
   await expect.poll(async () => {
     const cookies = await page.context().cookies()
@@ -16,14 +16,15 @@ test("first-signup mobile skips automatic onboarding and does not backfill it on
   }).toBe(false)
 
   const onboarding = page.getByTestId(tid.onboardingHarnessDialog)
-  await page.waitForTimeout(250)
-  await expect(page).toHaveURL(/\/c\/me$/)
-  await expect(onboarding).toHaveCount(0)
+  await expect(onboarding).toBeVisible()
+  await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
+  await page.getByTestId(tid.onboardingHarnessOption("grok")).click()
+  await onboarding.getByRole("button", { name: "Continue", exact: true }).click()
+  await expect(page.getByTestId(tid.onboardingMachineDialog)).toBeVisible()
 
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.waitForURL("**/c/me/friends", { waitUntil: "commit" })
-  await page.waitForTimeout(250)
-  await expect(page).toHaveURL(/\/c\/me\/friends$/)
+  await expect(page).toHaveURL(/\/c\/me\/machines$/)
+  await expect(page.getByTestId(tid.onboardingMachineDialog)).toBeVisible()
   await expect(onboarding).toHaveCount(0)
 })
 

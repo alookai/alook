@@ -268,7 +268,7 @@ Words are part of the interface. They should sound like the brand: **warm, sharp
 ## Interactive landing workspace
 
 - Keep the interactive second screen separate from the existing product story. Use native community views with local data; preview navigation and actions must not mutate a real account.
-- Reserve the workspace frame before loading. Mount its isolated document only after the homepage load event and an idle callback; show the existing centered Alook loading animation until that document reports readiness.
+- Reserve the workspace frame before loading. Mount its isolated document immediately after the homepage load event; show a responsive workspace skeleton until that document reports readiness. Readiness must not depend on animation callbacks in the hidden iframe.
 - Compact preview typography must preserve fixed-pixel rail, avatar, and Inbox geometry. Grouped messages and reply previews align with the first message's avatar column.
 - Bot logs use local fixed Thoughts and Marks. Preview Thoughts are static. Scroll-to-tail affects only the notebook scroller, never the surrounding landing page.
 - Production loading has no QA hold switch or test-only URL controls.

@@ -115,6 +115,7 @@ test.describe("mobile server header direct hierarchy", () => {
     const { page } = await actors.asUser("alice", { viewport: { width: 390, height: 844 }, hasTouch: true })
     await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
     const back = await expectMobileBack(page)
+    await expect(back).toBeEnabled()
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
     await expectRootListDuringCancelledSwipe(page, channelId)
     const historyLength = await page.evaluate(() => history.length)

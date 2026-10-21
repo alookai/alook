@@ -88,7 +88,7 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
       {ch.muted ? (
       <BellOff className="ml-auto size-4 shrink-0 opacity-70" />
       ) : unread.showDot ? (
-      <span className="ml-auto size-2 rounded-full bg-primary" />
+      <span className="ml-auto size-2 shrink-0 rounded-full bg-primary" />
       ) : null}
     </>
   )

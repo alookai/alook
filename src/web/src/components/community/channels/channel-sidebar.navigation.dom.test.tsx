@@ -6,7 +6,9 @@ import { useChannelTree } from "./use-channel-tree"
 
 vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))
 
-function Sidebar({ onPick, isAdmin = true, grouped = false, onReorder }: {
+function Sidebar({ onPick, isAdmin = true, grouped = false, onReorder, unread = false, muted = false }: {
+  unread?: boolean
+  muted?: boolean
   onPick: (id: string) => void
   isAdmin?: boolean
   grouped?: boolean
@@ -14,13 +16,25 @@ function Sidebar({ onPick, isAdmin = true, grouped = false, onReorder }: {
 }) {
   const tree = useChannelTree([{ id: grouped ? "group" : "none", name: grouped ? "Group" : "", channels: [
     { id: "one", name: "One", active: false, unread: false, type: "text" },
-    { id: "two", name: "Two", active: false, unread: false, type: "forum" },
+    { id: "two", name: unread ? "design-feedback-with-a-long-channel-name" : "Two", active: false, unread, muted, type: "forum" },
   ] }])
   return <ChannelSidebar tree={tree} serverId="server" serverName="Server" activeChannel="one"
     setActiveChannel={onPick} onReorderChannels={onReorder} noHeader isAdmin={isAdmin} />
 }
 
 describe("real sortable channel navigation surface", () => {
+  it("reserves a non-shrinking dot beside a long unread channel name", () => {
+    const view = render(<Sidebar onPick={vi.fn()} unread />)
+    const row = view.getByTestId(tid.channelRow("two"))
+    expect(row.querySelector(".truncate")).toHaveTextContent("design-feedback-with-a-long-channel-name")
+    expect(row.querySelector(".rounded-full.bg-primary")).toHaveClass("size-2", "shrink-0")
+  })
+
+  it("does not show an unread dot for a muted channel", () => {
+    const view = render(<Sidebar onPick={vi.fn()} unread muted />)
+    expect(view.getByTestId(tid.channelRow("two")).querySelector(".rounded-full.bg-primary")).toBeNull()
+  })
+
   it("keeps href and sortable attributes on the anchor and Enter activates once", async () => {
     const onPick = vi.fn()
     const view = render(<Sidebar onPick={onPick} />)
