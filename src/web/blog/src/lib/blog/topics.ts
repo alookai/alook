@@ -29,6 +29,7 @@ export const blogTopics = [
       { slug: "how-to-delegate-tasks-to-ai-agents", userJob: "Package a task so an agent can run it reliably" },
       { slug: "ai-agent-team", userJob: "Design a multi-agent team with roles and handoffs" },
       { slug: "ai-agent-orchestration", userJob: "Understand the coordination layer between agents" },
+      { slug: "ai-agent-collaboration-platforms", userJob: "Choose an agent collaboration platform by application, workflow, and workspace needs" },
       { slug: "multi-agent-workflow-patterns", userJob: "Pick a workflow pattern for my multi-agent setup" },
       { slug: "run-ai-agent-team-that-stays-on-track", userJob: "Keep a running agent team from drifting" },
     ],

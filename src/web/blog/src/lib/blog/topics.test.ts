@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 33 published slugs exactly once", () => {
+  it("covers all 34 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(33);
-    expect(new Set(slugs).size).toBe(33);
+    expect(slugs).toHaveLength(34);
+    expect(new Set(slugs).size).toBe(34);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -64,6 +64,7 @@ describe("blogTopics", () => {
         "how-to-delegate-tasks-to-ai-agents",
         "ai-agent-team",
         "ai-agent-orchestration",
+        "ai-agent-collaboration-platforms",
         "multi-agent-workflow-patterns",
         "run-ai-agent-team-that-stays-on-track",
       ],
@@ -130,6 +131,8 @@ describe("blogTopics", () => {
       "ai-agent-team": "Design a multi-agent team with roles and handoffs",
       "ai-agent-orchestration":
         "Understand the coordination layer between agents",
+      "ai-agent-collaboration-platforms":
+        "Choose an agent collaboration platform by application, workflow, and workspace needs",
       "multi-agent-workflow-patterns":
         "Pick a workflow pattern for my multi-agent setup",
       "run-ai-agent-team-that-stays-on-track":
@@ -215,7 +218,7 @@ describe("topic discovery", () => {
       )
     ).toEqual([
       "ai-agent-team",
-      "multi-agent-workflow-patterns",
+      "ai-agent-collaboration-platforms",
       "how-to-delegate-tasks-to-ai-agents",
     ]);
   });
