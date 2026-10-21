@@ -16,6 +16,7 @@ import {
   communityServerId,
   serverModalMarkerCleanupHref,
   resolveCommunityModulePlan,
+  normalizeCommunityHref,
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelSidebarRevealBoundary } from "@/components/community/channels/channel-sidebar-tree-owner"
@@ -25,7 +26,6 @@ import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { SettingsSection } from "@/components/community/settings/settings-types"
 import { canManageServer, isForum, notifLevelDisplay, type ChannelType } from "@alook/shared"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import { useCurrentChannelId, useCurrentChannelMeta } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   useServer,
@@ -80,24 +80,26 @@ import {
   useCanonicalProfilesByUserId,
   useOptionalCommunityDbRegistry,
   useTrustedRestoredPrimary,
+  useRouteChannelProjection,
 } from "@/lib/community-db/projections"
 
-export function ServerSidebarSlot({ serverId }: { serverId: string }) {
+export function ServerSidebarSlot({ serverId, href, routeCommitted = true }: { serverId: string; href?: string; routeCommitted?: boolean }) {
   const { frame, ownerDeleteRouteScope } = useCommunityRouteFrame()
-  if (frame.scope.kind !== "server" || frame.scope.serverId !== serverId
-    || ownerDeleteRouteScope?.serverId !== serverId) return null
-  return <ServerSidebar key={serverId} serverId={serverId} />
+  const target = normalizeCommunityHref(href ?? frame.href)
+  if (target.scope.kind !== "server" || target.scope.serverId !== serverId) return null
+  return <ServerSidebar key={serverId} serverId={serverId} href={target.href} routeCommitted={routeCommitted
+    && frame.scope.kind === "server" && frame.scope.serverId === serverId && ownerDeleteRouteScope?.serverId === serverId} />
 }
 
-function ServerSidebar({ serverId }: { serverId: string }) {
-  const { frame, navigation, ownerDeleteRouteScope } = useCommunityRouteFrame()
+function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; href: string; routeCommitted: boolean }) {
+  const { navigation, ownerDeleteRouteScope } = useCommunityRouteFrame()
   const searchParams = useSearchParams()
   const pathname = usePathname()
-  const modulePlan = resolveCommunityModulePlan(frame.pathname)
+  const modulePlan = resolveCommunityModulePlan(href)
   const routeChannelId = modulePlan.main.kind === "server-conversation" ? modulePlan.main.leafId : null
   const queryClient = useQueryClient()
-  const ownerDeleteRouteToken = ownerDeleteRouteScope!.token
-  const ownerDeleteRouteProtected = useSelector(getCommunityRuntime(queryClient).serverEject, (state) => state.transactions.has(serverId) || state.tombstones.get(ownerDeleteRouteToken) === serverId)
+  const ownerDeleteRouteToken = routeCommitted && ownerDeleteRouteScope?.serverId === serverId ? ownerDeleteRouteScope.token : undefined
+  const ownerDeleteRouteProtected = useSelector(getCommunityRuntime(queryClient).serverEject, (state) => state.transactions.has(serverId) || Boolean(ownerDeleteRouteToken && state.tombstones.get(ownerDeleteRouteToken) === serverId))
   const hasChannel = !!routeChannelId
   const breakpoint = useBreakpoint()
 
@@ -114,13 +116,13 @@ function ServerSidebar({ serverId }: { serverId: string }) {
   const {
     server: currentServer,
     data: authoritativeServer,
-  } = useServer(ownerDeleteRouteProtected ? null : serverId)
+  } = useServer(ownerDeleteRouteProtected || serverAccessRevoked ? null : serverId)
   const sidebarCategories = useMemo(
     () => currentServer?.categories ?? [],
     [currentServer],
   )
-  const sidebarHintOnly = Boolean(currentServer && !authoritativeServer)
-  const membersHook = useServerMembers(currentServer ? serverId : null)
+  const sidebarHintOnly = !routeCommitted || Boolean(currentServer && !authoritativeServer)
+  const membersHook = useServerMembers(routeCommitted && currentServer ? serverId : null)
   const profilesByUserId = useCanonicalProfilesByUserId()
   const enrichedMembers = useMemo(
     () =>
@@ -142,13 +144,14 @@ function ServerSidebar({ serverId }: { serverId: string }) {
       }),
     [currentUser.id, membersHook.members, profilesByUserId],
   )
-  const isAdmin = canManageServer(useViewerServerRole(serverId, currentUser.id))
-  usePresence(currentServer ? serverId : null)
+  const role = useViewerServerRole(serverId, currentUser.id)
+  const isAdmin = routeCommitted && canManageServer(role)
+  usePresence(routeCommitted && currentServer ? serverId : null)
   const notifs = useNotificationSettings()
   const notifLevel = resolveServerNotificationDisplayLevel(notifs.server[serverId])
   const channelNotif = notifs.channel
-  const currentChannelId = useCurrentChannelId()
-  const currentChannelMeta = useCurrentChannelMeta()
+  const currentChannelId = routeChannelId
+  const currentChannelMeta = useRouteChannelProjection(routeChannelId)
   const activeForumThreadId = useMemo(() => {
     if (!currentChannelId || !currentChannelMeta?.parentChannelId) return null
     const parent = sidebarCategories
@@ -212,7 +215,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
     onSuccess: ({ serverId: deletedServerId, isUiCurrent }, { needsNavigation }) => {
       if (isUiCurrent?.()) toast("Server deleted")
       clearLastChannel(deletedServerId)
-      if (!needsNavigation) return
+      if (!needsNavigation || !ownerDeleteRouteToken) return
       void (async () => {
         const allowed = new Set([...communityDb!.collections.serverMemberships.values()].filter((row) => row.viewer && row.userId === currentUser.id).map((row) => row.serverId))
         const survivor = [...communityDb!.collections.servers.values()].filter((server) => allowed.has(server.id)).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).find((server) => server.id !== deletedServerId)
@@ -254,7 +257,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
   // transient read failure. The ref prevents a re-fire during navigation.
   const ejectedRef = useRef(false)
   useEffect(() => {
-    if (ejectedRef.current) return
+    if (!routeCommitted || ejectedRef.current) return
     if (navigation.navigationPending
       && communityServerId(navigation.pendingHref ?? "") !== serverId) return
     if (typeof window !== "undefined"
@@ -281,7 +284,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
         router.replace(destination)
       },
     })
-  }, [cancelPendingNavigation, currentUser.id, navigation.navigationPending, navigation.pendingHref, pathname, serverAccessRevoked, serverId, serversList.isLiveAuthoritative, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams, queryClient])
+  }, [routeCommitted, cancelPendingNavigation, currentUser.id, navigation.navigationPending, navigation.pendingHref, pathname, serverAccessRevoked, serverId, serversList.isLiveAuthoritative, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams, queryClient])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.
@@ -290,7 +293,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
   }, [serverId])
 
   const [serverSettingsOpen, setServerSettingsOpen] = useAtom(useCreateAtom(false))
-  const settingsView = useCommunityViewSource("server-settings:" + serverId, serverSettingsOpen)
+  const settingsView = useCommunityViewSource("server-settings:" + serverId, routeCommitted && serverSettingsOpen)
   const [settingsSection, setSettingsSection] = useAtom(useCreateAtom<SettingsSection>("overview"))
   const [invitePopoverOpen, setInvitePopoverOpen] = useAtom(useCreateAtom(false))
   const [pendingIconCrop, setPendingIconCrop] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
@@ -311,10 +314,10 @@ function ServerSidebar({ serverId }: { serverId: string }) {
   // and the URL query string carrying it — was already gone by then, so the
   // dialog silently never opened.)
   useEffect(() => {
-    if (communityServerId(pathname) !== serverId) return
+    if (!routeCommitted || communityServerId(pathname) !== serverId) return
     if (searchParams.get("settings") === "1") setServerSettingsOpen(true)
     if (searchParams.get("invite") === "1") setInvitePopoverOpen(true)
-  }, [pathname, serverId, searchParams, setInvitePopoverOpen, setServerSettingsOpen])
+  }, [routeCommitted, pathname, serverId, searchParams, setInvitePopoverOpen, setServerSettingsOpen])
 
   useEffect(() => {
     // These flags land on the bare `/c/channels/:serverId` URL
@@ -326,7 +329,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
     // wins. Mobile intentionally remains on the server root and must consume
     // the one-shot marker there instead of waiting for a redirect that never
     // runs.
-    if (ownerDeleteRouteProtected || communityServerId(pathname) !== serverId) return
+    if (!routeCommitted || ownerDeleteRouteProtected || communityServerId(pathname) !== serverId) return
     const search = searchParams.toString()
     const currentHref = `${pathname}${search ? `?${search}` : ""}`
     const cleanupHref = serverModalMarkerCleanupHref(currentHref, {
@@ -350,6 +353,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
     hasChannel,
     currentServer,
     ownerDeleteRouteProtected,
+    routeCommitted,
   ])
 
   const categories = useMemo(() => sidebarCategories.map((category) => ({

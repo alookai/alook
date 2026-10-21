@@ -14,11 +14,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: mocks.userId }),
 }))
-vi.mock("@/components/community/shell/community-session-pending-frame", () => ({
-  CommunitySessionPendingFrame: (props: Record<string, unknown>) => (
+vi.mock("@/components/community/shell/community-pending-frame", () => ({
+  CommunityPendingFrame: (props: Record<string, unknown>) => (
     createElement("div", {
       "data-testid": "community-session-pending-frame",
-      "data-pathname": props.pathname,
+      "data-pathname": props.href,
     })
   ),
 }))

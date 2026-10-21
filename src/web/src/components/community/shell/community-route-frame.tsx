@@ -28,8 +28,6 @@ export function CommunityRouteFrame({ sidebar, children }: {
     getCommunityRuntime(queryClient).ui.actions.setCurrentServerId(serverId)
   }, [queryClient, serverId])
 
-  if (frameHref === "/c") return children
-
   return (
     <ShellFrame
       key={currentUser.id}

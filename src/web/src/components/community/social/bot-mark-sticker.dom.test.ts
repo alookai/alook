@@ -274,7 +274,7 @@ describe("BotMarkSticker", () => {
     mocks.activity.hasEarlierEvents = true
     const { renderer, props } = render()
 
-    expect(mocks.bottomAnchor.scrollIntoView).toHaveBeenCalledWith({ block: "end" })
+    expect(mocks.bottomAnchor.scrollIntoView).not.toHaveBeenCalled()
     expect(mocks.scrollNode.scrollTop).toBe(300)
 
     const scroller = renderer.container.querySelector('[data-testid="community-bot-audit-preview-scroll"]')!
@@ -332,7 +332,7 @@ describe("BotMarkSticker", () => {
     act(flushFrames)
     act(flushFrames)
 
-    expect(mocks.bottomAnchor.scrollIntoView).toHaveBeenCalledOnce()
+    expect(mocks.bottomAnchor.scrollIntoView).not.toHaveBeenCalled()
     expect(mocks.scrollNode.scrollTop).toBe(300)
   })
 

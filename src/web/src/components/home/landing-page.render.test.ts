@@ -74,3 +74,15 @@ describe("landing section calls to action", () => {
     }
   })
 })
+
+describe("standalone interactive second screen", () => {
+  it("inserts a pure workspace before the preserved product scene", () => {
+    const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn: false }))
+    expect(markup.indexOf('id="workspace"')).toBeLessThan(markup.indexOf('id="product"'))
+    expect(markup).not.toContain('src="/demo"')
+    expect(markup).toContain("Loading Alook workspace")
+    expect(markup).toContain('data-testid="landing-scene-server"')
+    expect(markup).not.toContain("Reset demo")
+    expect(markup).not.toContain("Sample conversations")
+  })
+})

@@ -9,8 +9,10 @@ import {
 } from "@/hooks/community/use-running-owned-bots"
 import { tid } from "@/lib/community/testids"
 
+type RunningBotCardItem = Pick<RunningOwnedBot, "id" | "name" | "image" | "activityEmoji" | "activityText">
+
 function BotRow({ bot, onOpenBotAudit }: {
-  bot: RunningOwnedBot
+  bot: RunningBotCardItem
   onOpenBotAudit?: (botId: string) => void
 }) {
   const content = (
@@ -65,8 +67,16 @@ export function ProfileRunningBotsCard({ onOpenBotAudit, showShadow = true }: {
   onOpenBotAudit?: (botId: string) => void
   showShadow?: boolean
 }) {
-  const titleId = useId()
   const { runningBots } = useRunningOwnedBots()
+  return <ProfileRunningBotsCardView runningBots={runningBots} onOpenBotAudit={onOpenBotAudit} showShadow={showShadow} />
+}
+
+export function ProfileRunningBotsCardView({ runningBots, onOpenBotAudit, showShadow = true }: {
+  runningBots: RunningBotCardItem[]
+  onOpenBotAudit?: (botId: string) => void
+  showShadow?: boolean
+}) {
+  const titleId = useId()
 
   if (runningBots.length === 0) return null
 

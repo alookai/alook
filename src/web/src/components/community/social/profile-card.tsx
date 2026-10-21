@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, type ComponentProps } from "react"
+import { useEffect, type ComponentProps, type ReactNode } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -88,6 +88,7 @@ type ProfileCardProps = {
   activityStatusText?: string | null
   // Static card surface for contexts such as product previews. The regular
   // profile interaction still uses the anchored popover / mobile sheet.
+  secondaryCard?: ReactNode
   embedded?: boolean
   extension?: boolean
 }
@@ -114,7 +115,7 @@ function SelfProfileCard(props: ProfileCardProps) {
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
 // Identity, about, status, and presence are read from the global profile map
 // whenever a userId is present. Static cards use their supplied display data.
-function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
+function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, secondaryCard, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
   hasSelfRunningBots: boolean
 }) {
   const registry = useOptionalCommunityDbRegistry()
@@ -155,7 +156,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
   const botIdentity = data.identity?.kind === "bot" ? data.identity : null
   const showOwnedBotCard = Boolean(botIdentity?.ownedByViewer && data.userId)
   const showSelfRunningBots = Boolean(isSelf && data.userId && hasSelfRunningBots)
-  const showSecondaryCards = showOwnedBotCard || showSelfRunningBots
+  const showSecondaryCards = Boolean(secondaryCard) || showOwnedBotCard || showSelfRunningBots
   const {
     popoverRef,
     cardRef,
@@ -346,7 +347,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
     </>
   )
 
-  const secondaryCards = showSelfRunningBots ? (
+  const secondaryCards = secondaryCard ?? (showSelfRunningBots ? (
     <ProfileRunningBotsCard
       onOpenBotAudit={onOpenBotAudit}
     />
@@ -360,7 +361,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
       onStop={interruptAgent}
       onOpenActivity={() => onOpenBotAudit?.(data.userId!)}
     />
-  ) : null
+  ) : null)
 
   if (extension)
     return <div data-testid={tid.profileCard} className={mobile ? "w-full overflow-hidden rounded-t-xl border-x border-t border-border/40 bg-popover p-2" : "w-full"}>{card}</div>

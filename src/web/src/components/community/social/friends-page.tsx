@@ -1,4 +1,5 @@
 "use client"
+import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 import { useObservedRegion } from "@/lib/observability/regions"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -69,6 +70,7 @@ export function FriendsPage({
   onDm?: (userId: string) => void
 }) {
   useObservedRegion("friends", !loading, friends.length + pending.length + blocked.length)
+  const previewProfiles = useCommunityPreviewProfiles()
   const profileQueryClient = useQueryClient()
   const [filter, setFilter] = useAtom(useCreateAtom(""))
   const filteredFriends = useMemo(() => {
@@ -119,6 +121,8 @@ export function FriendsPage({
     enabled: searchTerm.length >= MIN_SEARCH_LENGTH,
     retry: false,
     queryFn: async ({ signal }) => {
+      if (previewProfiles) return [...previewProfiles.values()].filter((profile) => profile.name?.toLowerCase().includes(searchTerm.toLowerCase())).map((profile) => profile.id)
+
       const token = captureCommunityLiveSnapshotToken(profileQueryClient)
       const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(profileQueryClient, token, signal)
       try {

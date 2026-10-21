@@ -38,6 +38,7 @@ import {
   desktopUserBarInitialOverlayCssWidth,
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
+import { useCommunityPreviewNavigation } from "./community-preview-navigation"
 import { Shell } from "./shell"
 import { useHydratedClient } from "./use-hydrated-client"
 
@@ -104,8 +105,9 @@ export function CommunityShellLayout({
   testId,
   preserveHiddenMobileModules = false,
 }: CommunityShellLayoutProps) {
+  const preview = useCommunityPreviewNavigation()
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: "community-shell",
+    id: preview ? "landing-workspace" : "community-shell",
     onlySaveAfterUserInteractions: true,
     storage: communityLayoutStorage,
   })

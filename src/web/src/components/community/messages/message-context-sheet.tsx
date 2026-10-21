@@ -3,7 +3,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store"
 
 
 import { useCallback, useEffect, useMemo, useRef } from "react"
-import { useRouter, useParams } from "next/navigation"
+import { useCommunityRouter } from "@/contexts/community/module-route"
 import { toast } from "sonner"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { deriveThreadName } from "@alook/shared"
@@ -158,6 +158,7 @@ export function MessageContextSheet({
   open,
   onOpenChange,
   channelId,
+  serverId,
   channelLabel,
   targetSeq,
   pinnedIds,
@@ -171,6 +172,7 @@ export function MessageContextSheet({
   open: boolean
   onOpenChange: (v: boolean) => void
   channelId: string
+  serverId?: string
   // Source channel's display name for the header — a message ref opens this
   // sheet to preview a (possibly other) channel's message in place, so the
   // header names which channel's context this is (Gus #417/#423, Alli #420).
@@ -190,8 +192,7 @@ export function MessageContextSheet({
   const currentUser = useCurrentUser()
   const uiHandlers = useUiHandlers()
   const queryClient = useQueryClient()
-  const router = useRouter()
-  const routeParams = useParams<{ serverId?: string }>()
+  const router = useCommunityRouter()
   const pinMessageMut = usePinMessage()
   const unpinMessageMut = useUnpinMessage()
   const createThreadMut = useCreateThread()
@@ -327,7 +328,6 @@ export function MessageContextSheet({
 
   const onCreateThreadId = useCallback(async (id: string) => {
     if (type === "dm") return
-    const serverId = routeParams?.serverId
     if (!serverId) return
     const m = findMessage(id)
     const content = m ? (m.content ?? "") : undefined
@@ -337,7 +337,7 @@ export function MessageContextSheet({
     } catch (e) {
       if (!isAbortError(e)) toastApiError(e, "Failed to create thread")
     }
-  }, [type, routeParams, channelId, findMessage, createThreadMut])
+  }, [type, serverId, channelId, findMessage, createThreadMut])
 
 
   const onOpenThreadId = useCallback((threadId: string) => {
@@ -346,7 +346,7 @@ export function MessageContextSheet({
     // case (threads live inside channels, not DMs).
     openMessageContextThread({
       type,
-      serverId: routeParams?.serverId,
+      serverId,
       threadId,
       push: (href) => {
         uiHandlers.cancelPendingNavigation?.()
@@ -354,7 +354,7 @@ export function MessageContextSheet({
       },
       close: () => onOpenChange(false),
     })
-  }, [type, router, routeParams, onOpenChange, uiHandlers])
+  }, [type, router, serverId, onOpenChange, uiHandlers])
 
   const onPreviewImage = useCallback((image: ImagePreview) => {
     uiHandlers.previewImage?.(image)

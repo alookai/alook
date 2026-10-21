@@ -18,6 +18,7 @@ import { LandingPage } from "./landing-page"
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
+  vi.stubGlobal("IntersectionObserver", class { observe() {} unobserve() {} disconnect() {} })
 })
 afterEach(() => vi.unstubAllGlobals())
 describe("landing closing funnel entrance", () => {

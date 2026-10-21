@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ serverId: "server_1" }),
+  useParams: () => ({ serverId: "wrong_published_server" }),
   useRouter: () => ({ push: mocks.push }),
 }))
 vi.mock("@tanstack/react-query", async (importOriginal) => ({ ...await importOriginal<typeof import("@tanstack/react-query")>(),
@@ -246,13 +246,14 @@ describe("MessageContextSheet thread navigation", () => {
       open: false,
       onOpenChange: mocks.close,
       channelId: "parent_1",
+      serverId: "target_server",
       targetSeq: 1,
     }))
     act(() => mocks.openThread?.("child_1"))
 
     expect(mocks.cancel).toHaveBeenCalledOnce()
     expect(mocks.cancel.mock.invocationCallOrder[0]).toBeLessThan(mocks.push.mock.invocationCallOrder[0]!)
-    expect(mocks.push).toHaveBeenCalledWith("/c/channels/server_1/child_1")
+    expect(mocks.push).toHaveBeenCalledWith("/c/channels/target_server/child_1")
     expect(mocks.close).toHaveBeenCalledWith(false)
   })
 

@@ -4,6 +4,9 @@ import { render, screen } from "@/test/react-dom-harness"
 import ServerDefaultPage from "./page"
 import { CommunityServerRouteContext } from "@/components/community/shell/community-route-context"
 
+import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
+import { CommunityRouteContext } from "@/contexts/community/route-frame"
+
 const mocks = vi.hoisted(() => ({
   breakpoint: { current: "mobile" as "mobile" | "desktop" | "unknown" },
   lastChannel: { current: null as string | null },
@@ -129,4 +132,16 @@ describe("ServerDefaultPage checkpoint route contract", () => {
     expect(screen.getByText("No channels yet")).toBeInTheDocument()
     expect(screen.getByText("Create a channel from the sidebar to get started.")).toBeInTheDocument()
   })
+})
+
+
+it("submits the pending target root destination through its intent owner with target search", () => {
+  mocks.breakpoint.current = "desktop"
+  mocks.search.current = "wrong=old"
+  const replace = vi.fn()
+  render(createElement(CommunityRouteContext, { value: { navigation: { replace } } as never },
+    createElement(CommunityModuleRouteContext, { value: { href: "/c/channels/server_1?invite=1", routeCommitted: false } },
+      createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))))
+  expect(replace).toHaveBeenCalledExactlyOnceWith("/c/channels/server_1/channel_1?invite=1")
+  expect(mocks.replace).not.toHaveBeenCalled()
 })

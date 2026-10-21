@@ -13,7 +13,7 @@ import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
 const mocks = vi.hoisted(() => ({ breakpoint: "unknown", props: vi.fn(), back: vi.fn(), realPage: false, pathname: "/c/channels/source/channel", search: "", push: vi.fn(), replace: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({push: mocks.push, replace: mocks.replace}), usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search) }))
-vi.mock("@/hooks/community/use-friends", () => ({ useFriends: () => ({ friends: [], pending: [], blocked: [], isLoading: !mocks.realPage }) }))
+vi.mock("@/hooks/community/use-friends", () => ({ useFriends: () => ({ friends: [], pending: [], blocked: [], isPending: !mocks.realPage }) }))
 vi.mock("@/stores/community", () => ({ useUiHandlers: () => ({ goBackMobile: mocks.back }) }))
 vi.mock("@/lib/community-db/projections", async original => ({...await original<typeof import("@/lib/community-db/projections")>(), useCanonicalProfilesByUserId: () => new Map()}))
 vi.mock("@/hooks/community/mutations", () => {

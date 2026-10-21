@@ -15,6 +15,7 @@ export const pageRoutes = [
   "/c/messages/[messageId]",
   "/c/onboarding-preview",
   "/contact",
+  "/demo",
   "/device",
   "/guides",
   "/landing-legacy",

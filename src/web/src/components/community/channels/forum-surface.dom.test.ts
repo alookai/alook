@@ -156,3 +156,14 @@ describe("ForumSurface generic read-row adapter", () => {
     rendered.unmount()
   })
 })
+
+
+it("passes native pending state to the forum view while restore has not started fetching", () => {
+  mocks.feed.isPending = true
+  mocks.feed.isLoading = false
+  mocks.feed.posts = []
+  mocks.feed.isError = false
+  mocks.feed.error = null
+  render(React.createElement(ForumSurface, { serverId: "server", forumChannelId: "forum", members: [], onOpenPost: () => {} }))
+  expect(ForumView).toHaveBeenLastCalledWith(expect.objectContaining({ loading: true }), undefined)
+})

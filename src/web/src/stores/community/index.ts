@@ -4,7 +4,6 @@ import { useSelector, shallow } from "@tanstack/react-store"
 import { useMemo } from "react"
 import type React from "react"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
-import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useCommunityRuntime } from "./runtime"
 import { createCommunityStore, type CommunityUiHandlers } from "./ui-store"
 
@@ -18,8 +17,6 @@ export function useCommunityStore<T>(selector: (state: ReturnType<ReturnType<typ
 
 export const useCurrentChannelId = () =>
   useCommunityStore((s) => s.currentChannelId)
-
-export const useCurrentChannelMeta = () => useRouteChannelProjection(useCurrentChannelId()) ?? null
 
 export function useUiHandlers() {
   const { ui } = useCommunityRuntime()

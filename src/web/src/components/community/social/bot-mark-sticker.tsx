@@ -40,29 +40,36 @@ function NotebookBinding({ front }: { front: boolean }) {
   )
 }
 
-export function BotMarkSticker({
-  botId,
-  active,
-  showStop,
-  stopPending,
-  onStop,
-  onOpenActivity,
-}: {
+type BotMarkStickerProps = {
   botId: string
   active: boolean
   showStop: boolean
   stopPending: boolean
   onStop: () => void
   onOpenActivity: () => void
+}
+
+export function BotMarkSticker(props: BotMarkStickerProps) {
+  const activity = useBotAuditPreview(props.botId, true)
+  const { marks, isLoading, isError } = useBotMarks(props.botId)
+  return <BotMarkStickerView {...props} activity={activity} marks={marks} isLoading={isLoading} isError={isError} />
+}
+
+export function BotMarkStickerView({
+  active, showStop, stopPending, onStop, onOpenActivity, activity, marks, isLoading, isError,
+}: Omit<BotMarkStickerProps, "botId" | "onOpenActivity"> & {
+  onOpenActivity?: () => void
+  activity: Pick<ReturnType<typeof useBotAuditPreview>, "events" | "isLoading" | "isError" | "isNotFound">
+  marks: ReturnType<typeof useBotMarks>["marks"]
+  isLoading: boolean
+  isError: boolean
 }) {
   const [view, setView] = useAtom(useCreateAtom<StickerView>("thoughts"))
   const activityScrollRef = useRef<HTMLDivElement>(null)
-  const activityBottomAnchorRef = useRef<HTMLDivElement>(null)
   const latestEventIdRef = useRef<string | undefined>(undefined)
   const didInitialTailScrollRef = useRef(false)
   const nearTailRef = useRef(true)
-  const activity = useBotAuditPreview(botId, true)
-  const { marks, isLoading, isError } = useBotMarks(botId)
+  const ThoughtTime = onOpenActivity ? "button" : "div"
   const visibleMarks = marks.slice(0, VISIBLE_MARKS)
   const hasOverflow = marks.length > VISIBLE_MARKS
   const visibleEvents = [...activity.events]
@@ -84,13 +91,11 @@ export function BotMarkSticker({
     if (view !== "thoughts") return
     if (didInitialTailScrollRef.current) return
     if (visibleEvents.length === 0) return
-    const anchor = activityBottomAnchorRef.current
     const scroller = activityScrollRef.current
-    if (!anchor || !scroller) return
+    if (!scroller) return
     let secondFrame = 0
     const firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
-        anchor.scrollIntoView({ block: "end" })
         scroller.scrollTop = scroller.scrollHeight
         latestEventIdRef.current = latestVisibleEventId
         didInitialTailScrollRef.current = true
@@ -149,20 +154,20 @@ export function BotMarkSticker({
               nearTailRef.current = currentTarget.scrollHeight - (currentTarget.scrollTop + currentTarget.clientHeight) < 80
             }}
             className={`thin-scrollbar ${styles.scrollbar} min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain`}>
-            <div ref={activityBottomAnchorRef} data-testid={tid.botAuditPreviewBottom} className={`flex min-h-full flex-col ${!activity.isLoading && (activity.isError || visibleEvents.length === 0) ? "justify-center" : "justify-end"}`}>
+            <div data-testid={tid.botAuditPreviewBottom} className={`flex min-h-full flex-col ${!activity.isLoading && (activity.isError || visibleEvents.length === 0) ? "justify-center" : "justify-end"}`}>
               {activity.isLoading ? <ThoughtsLoading /> : activity.isError ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
                 const parsed = AuditLogTextPayloadSchema.safeParse(event.payload)
                 return <div key={event.id} data-testid={tid.botAuditPreviewRow(event.id)} className={styles.entry}>
-                  <button type="button" onClick={onOpenActivity} title="Open full audit log"
+                  <ThoughtTime onClick={onOpenActivity} title={onOpenActivity ? "Open full audit log" : undefined}
                     className={styles.thoughtTime}>
                     <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
-                  </button>
-                  <div className={styles.thought} onClick={(event) => {
+                  </ThoughtTime>
+                  <div className={styles.thought} style={onOpenActivity ? undefined : { cursor: "text" }} onClick={onOpenActivity ? (event) => {
                     if (event.defaultPrevented || (event.target instanceof Element &&
                       event.target.closest("a, button, input, select, textarea, summary, [role='button']"))) return
                     if (window.getSelection()?.toString()) return
                     onOpenActivity()
-                  }}>
+                  } : undefined}>
                     <MessageBody text={parsed.success ? `${parsed.data.text}${parsed.data.truncated ? "…" : ""}` : "Text unavailable"} />
                   </div>
                 </div>

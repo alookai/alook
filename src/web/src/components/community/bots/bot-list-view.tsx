@@ -95,6 +95,7 @@ export function BotListSkeleton({
 export function renderBotListView(
   { onBack }: BotListProps,
   controller: BotListController,
+  overlaySlots?: ReturnType<typeof renderBotListOverlaySlots>,
 ) {
   const backBar = botBackBar(onBack)
 
@@ -148,7 +149,7 @@ export function renderBotListView(
     )
   }
 
-  const overlays = renderBotListOverlaySlots(controller)
+  const overlays = overlaySlots ?? renderBotListOverlaySlots(controller)
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {backBar}

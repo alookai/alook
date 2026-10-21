@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useCommunityPreviewNavigation } from "./community-preview-navigation"
 import { useLayoutEffect, type ComponentProps } from "react"
 import { createStore, useAtom, useCreateAtom, useSelector } from "@tanstack/react-store"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
@@ -21,6 +22,7 @@ export function CommunityNavigationLink({
   href, onActivate, prefetchMode = "intent", active = false, navigationDisabled = false,
   onPointerEnter, onFocus, onPointerDown, onClick, ...props
 }: Props) {
+  const preview = useCommunityPreviewNavigation()
   const registry = useOptionalCommunityDbRegistry()
   const lifecycle = useSelector(registry?.runtime.lifecycle ?? absentLifecycle, (state) => state)
   const [intent, setIntent] = useAtom(useCreateAtom<{
@@ -39,6 +41,13 @@ export function CommunityNavigationLink({
   }
   const prefetched = enabled && !active && (prefetchMode === "visible"
     || (intent?.href === href && intent.registry === registry && intent.generation === lifecycle.generation))
+  if (preview) return (
+    <a {...props} href="#product" aria-current={active ? "page" : props["aria-current"]}
+      onClick={(event) => {
+        event.preventDefault()
+        if (enabled) onActivate()
+      }} />
+  )
   return (
     <Link
       {...props}

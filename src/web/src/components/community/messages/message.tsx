@@ -646,7 +646,7 @@ function MessageImpl({
       )}
 
       {m.replyTo && (
-        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-2">
+        <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-2">
           <button onClick={onJumpReply} className="col-start-2 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
             <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
             {m.replyTo.deleted ? (
@@ -663,7 +663,7 @@ function MessageImpl({
 
       <div className="flex gap-2">
         {m.grouped ? (
-          <div className="w-10 shrink-0" />
+          <div className="w-[40px] shrink-0" />
         ) : (
           <button
             {...avatarMention}

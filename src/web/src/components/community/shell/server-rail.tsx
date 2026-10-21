@@ -1,4 +1,5 @@
 "use client"
+import { useCommunityPreviewNavigation } from "./community-preview-navigation"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -141,6 +142,7 @@ export const ServerRail = memo(function ServerRail({
   onOpenSettings?: (serverId: string) => void
   onOpenInvitePopover?: (serverId: string) => void
 }) {
+  const isPreview = useCommunityPreviewNavigation()
   const expandedAtom = useCreateAtom<string[]>([])
   const [expanded, setExpanded] = useAtom(expandedAtom)
   const collapsedAtom = useCreateAtom(new Set<string>())
@@ -178,17 +180,19 @@ export const ServerRail = memo(function ServerRail({
   const releaseMutation = useCallback(() => collapsedAtom.set(() => new Set()), [collapsedAtom])
   useEffect(() => {
     try {
+      if (isPreview) return
       const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]") as unknown
       if (Array.isArray(saved)) setExpanded(saved.filter((id): id is string => typeof id === "string"))
     } catch {}
-  }, [storageKey, setExpanded])
+  }, [isPreview, storageKey, setExpanded])
   useLayoutEffect(() => {
     serverActivationRef.current = { onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover }
   }, [onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover])
 
   useEffect(() => {
+    if (isPreview) return
     sessionStorage.setItem(storageKey, JSON.stringify(expanded))
-  }, [expanded, storageKey])
+  }, [isPreview, expanded, storageKey])
 
   useEffect(() => () => cleanupLiveRegion(), [])
 
@@ -244,6 +248,7 @@ export const ServerRail = memo(function ServerRail({
     before: RailState,
     focusTarget?: HTMLElement,
   ) => {
+    if (isPreview) return
     let instruction = rawInstruction
     if (
       instruction.operation === "combine"
@@ -288,7 +293,7 @@ export const ServerRail = memo(function ServerRail({
         },
       },
     )
-  }, [captureUI, claimMutation, collapsedAtom, focusEntity, folderNames, railMutation, releaseMutation, serverNames, setExpanded])
+  }, [isPreview, captureUI, claimMutation, collapsedAtom, focusEntity, folderNames, railMutation, releaseMutation, serverNames, setExpanded])
 
   const ungroupFolder = useCallback((folderId: string) => {
     const before = cloneRailState(renderState)
@@ -325,7 +330,7 @@ export const ServerRail = memo(function ServerRail({
   const { registerItem } = useServerRailPdd({
     scrollRef,
     getState: () => renderState,
-    canStart: () => !railMutation.isCommandPending(),
+    canStart: () => !isPreview && !railMutation.isCommandPending(),
     getEntityLabel: (entity) => entity.kind === "server"
       ? serverNames.get(entity.id) ?? "Server"
       : folderNames.get(entity.id) ?? "Group",

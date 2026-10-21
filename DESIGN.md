@@ -264,3 +264,11 @@ Words are part of the interface. They should sound like the brand: **warm, sharp
 - **Don't** animate to impress, run animations over ~300ms, or skip the `prefers-reduced-motion` fallback.
 - **Don't** hard-code colors, fonts, or radii in components — go through the tokens.
 - **Don't** add a feature that makes the interface more complicated without making it more powerful.
+
+## Interactive landing workspace
+
+- Keep the interactive second screen separate from the existing product story. Use native community views with local data; preview navigation and actions must not mutate a real account.
+- Reserve the workspace frame before loading. Mount its isolated document only after the homepage load event and an idle callback; show the existing centered Alook loading animation until that document reports readiness.
+- Compact preview typography must preserve fixed-pixel rail, avatar, and Inbox geometry. Grouped messages and reply previews align with the first message's avatar column.
+- Bot logs use local fixed Thoughts and Marks. Preview Thoughts are static. Scroll-to-tail affects only the notebook scroller, never the surrounding landing page.
+- Production loading has no QA hold switch or test-only URL controls.

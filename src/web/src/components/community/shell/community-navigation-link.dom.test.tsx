@@ -92,3 +92,19 @@ describe("community public Link bridge", () => {
     expect(anchor).toHaveAttribute("data-prefetch", "false")
   })
 })
+
+import { CommunityPreviewNavigation } from "./community-preview-navigation"
+
+it("keeps preview links local without prefetching real account routes", async () => {
+  const onActivate = vi.fn()
+  const view = render(<CommunityPreviewNavigation value={true}>
+    <CommunityNavigationLink href="/c/me/friends" prefetchMode="visible" onActivate={onActivate}>Friends</CommunityNavigationLink>
+  </CommunityPreviewNavigation>)
+  const anchor = view.getByRole("link")
+  expect(anchor).toHaveAttribute("href", "#product")
+  fireEvent.pointerEnter(anchor)
+  fireEvent.focus(anchor)
+  expect(anchor).not.toHaveAttribute("data-prefetch")
+  await setupUser().click(anchor)
+  expect(onActivate).toHaveBeenCalledOnce()
+})

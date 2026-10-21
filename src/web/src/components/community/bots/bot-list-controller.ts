@@ -45,7 +45,7 @@ export function useBotListController(): BotListController {
   const { router, searchParams, routeCommitted } = useCommunityModuleLocation()
   const botsQuery = useBots()
   const { bots } = botsQuery
-  const isLoading = botsQuery.isLoading || botsQuery.profilesPending === true
+  const isLoading = botsQuery.isPending || botsQuery.profilesPending === true
   const botsResolved = botsQuery.data !== undefined && botsQuery.profilesPending !== true
   const [billingOpen, setBillingOpen] = useAtom(useCreateAtom(false))
   const viewPlan = () => {
@@ -57,7 +57,7 @@ export function useBotListController(): BotListController {
     else router.push(href)
   }
   const machinesQuery = useMachines()
-  const { machines, isLoading: machinesLoading } = machinesQuery
+  const { machines, isPending: machinesLoading } = machinesQuery
   const machinesUnknown = machinesQuery.data?.observed === false
   useObservedRegion("bots", botsResolved, bots.length, { snapshot_source: botsQuery.data?.source ?? "unknown", target_coverage: botsResolved ? "covered" : "uncovered", wait_reason: botsQuery.profilesPending ? "identity" : botsResolved ? "none" : "entry" })
   const profilesByUserId = useCanonicalProfilesByUserId(bots.map((bot) => bot.id))

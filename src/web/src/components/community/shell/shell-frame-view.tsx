@@ -6,13 +6,14 @@ import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-
 import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
 import { CommunityPendingFrame } from "./community-pending-frame"
 import { CommunityModuleRoute } from "./community-module-route"
-import { communityServerId } from "@/lib/community/community-route"
+import { communityServerId, resolveCommunityModulePlan } from "@/lib/community/community-route"
 import { ServerRail } from "./server-rail"
 import { UserBar } from "./user-bar"
 import { InboxPopover } from "./community-inbox-popover"
 import { ShellFrameOverlays } from "./shell-frame-overlays"
 import { CommunityShellLayout } from "./community-shell-layout"
 import { DmSidebarSlot } from "./dm-sidebar-slot"
+import { ServerSidebarSlot } from "./server-sidebar-slot"
 import { ProfileCard } from "../social/profile-card"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import type { CommunityCheckpointPlan } from "@/lib/community/community-route"
@@ -62,6 +63,8 @@ export function ShellFrameView({
   dismissUserBarExtension,
 }: Props) {
   const { surface } = checkpoint
+  const contentHref = checkpoint.main.kind === "keep" ? checkpoint.targetHref : checkpoint.main.href
+  const targetSidebar = resolveCommunityModulePlan(contentHref).sidebar
   const { runningBots } = useRunningOwnedBots()
   const inboxElement = (
     <InboxPopover
@@ -125,7 +128,9 @@ export function ShellFrameView({
           aria-hidden={checkpoint.sidebar.kind !== "keep" || undefined}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <DmSidebarSlot visible={checkpoint.sidebar.kind === "keep"} />
+          <DmSidebarSlot visible={checkpoint.sidebar.kind === "keep"} href={contentHref} routeCommitted={routeCommitted} />
+          {targetSidebar.kind === "server" && <ServerSidebarSlot key={`${profile.currentUser.id}/${targetSidebar.serverId}`}
+            serverId={targetSidebar.serverId} href={contentHref} routeCommitted={routeCommitted} />}
           {breakpoint === "desktop" ? sidebar() : sidebar({ noHeader: false })}
         </div>
         {checkpoint.sidebar.kind === "server-skeleton"

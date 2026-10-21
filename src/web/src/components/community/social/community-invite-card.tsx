@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import { useCommunityRouter } from "@/contexts/community/module-route"
 import { useUiHandlers } from "@/stores/community"
 import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -47,7 +47,7 @@ export function CommunityInviteCard({
   token: string
   perspective: MessagePerspective
 }) {
-  const router = useRouter()
+  const router = useCommunityRouter()
   const uiHandlers = useUiHandlers()
   const { servers } = useServers()
   const joinServer = useJoinServer()

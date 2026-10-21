@@ -413,7 +413,7 @@ describe("ShellFrame orchestration", () => {
     expect(checkpoint()).toMatchObject({
       surface: "list",
       targetHref: "/c/channels/s1",
-      main: { kind: "keep" },
+      main: { kind: "module-route", module: "server-landing" },
     })
     expect(mocks.inboxOptions).toHaveBeenLastCalledWith(expect.objectContaining({
       publishedHref: "/c/channels/s1/c1",
@@ -442,7 +442,7 @@ describe("ShellFrame orchestration", () => {
       mode: "cold-scope",
       surface: "list",
       targetHref: "/c/channels/s2",
-      sidebar: { kind: "server-skeleton", serverId: "s2" },
+      sidebar: { kind: "keep" },
     })
     expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({
       activeServerId: "s1",
@@ -467,7 +467,7 @@ describe("ShellFrame orchestration", () => {
 
     expect(checkpoint()).toMatchObject({
       mode: "warm-scope",
-      main: { kind: "keep" },
+      main: { kind: "module-route", module: "server-landing" },
     })
   })
 
@@ -505,12 +505,12 @@ describe("ShellFrame orchestration", () => {
       mode: "warm-scope",
       surface: "list",
       targetHref: "/c/channels/s2",
-      main: { kind: "keep" },
+      main: { kind: "module-route", module: "server-landing" },
     })
     expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({
       activeServerId: "s1",
       projectedView: "server",
-      projectedActiveServerId: "s1",
+      projectedActiveServerId: "s2",
     }))
   })
 
@@ -781,7 +781,7 @@ describe("ShellFrame orchestration", () => {
       const shell = renderInboxLifecycle()
       fireEvent.click(screen.getByRole("button", { name: "Open Inbox" }))
       shell.update({ frameHref: "/c/me" })
-      expect(shell.context.navigation.navigationPending).toBe(false)
+      expect(shell.context.navigation.navigationPending).toBe(true)
       expect(mocks.openChanges).not.toHaveBeenCalled()
       shell.update({ publishedHref: "/c/me" })
       expectVisibleInbox()
@@ -948,5 +948,20 @@ describe("ShellFrame orchestration", () => {
       expect(screen.queryByTestId("return-leaf-forum")).toBeNull()
     })
   })
+
+it.each(["header", "native"])("cancels an ordinary pending cross-scope target through the same %s Back handler", mode => {
+  mocks.breakpoint.current = "mobile"
+  mocks.currentHref.current = "/c/channels/s1/c1"
+  mocks.pendingHref.current = "/c/me/friends?tab=new"
+  mocks.navigationPending.current = true
+  const view = render(createElement(ShellFrame, { ...baseProps, frameHref: "/c/channels/s1/c1" }))
+  act(() => {
+    if (mode === "native") window.dispatchEvent(new Event("alook:native-back", { cancelable: true }))
+    else mocks.registerUiHandlers.mock.calls.at(-1)?.[0].goBackMobile()
+  })
+  expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/s1/c1")
+  view.unmount()
+})
+
 
 })

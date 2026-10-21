@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./community-route-context", () => ({
   useCommunityRouteFrame: () => ({ frame: {
     scope: { kind: mocks.scope },
+    href: mocks.scope === "me" ? "/c/me/friends" : "/c/channels/server",
     pathname: mocks.scope === "me" ? "/c/me/friends" : "/c/channels/server",
   } }),
 }))
@@ -33,7 +34,7 @@ vi.mock("@/hooks/community/use-dms", () => ({
       mocks.subscribe()
       return () => { mocks.unsubscribe() }
     }, [])
-    return { dms: [{ userId: mocks.peer, avatar: mocks.avatar }], isLoading: false }
+    return { dms: [{ userId: mocks.peer, avatar: mocks.avatar }], isPending: false }
   },
 }))
 vi.mock("@/hooks/community/use-friends", () => ({
@@ -122,4 +123,16 @@ describe("account-scoped DM sidebar Activity", () => {
     expect(replacement).toHaveAttribute("src", "/other-peer?v=2")
     expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
   })
+})
+
+
+it("shows the selected Me sidebar before the committed server frame moves and keeps its original node", () => {
+  mocks.scope = "server"
+  const view = render(<DmSidebarSlot href="/c/me/friends" routeCommitted={false} />)
+  const input = view.getByRole("textbox") as HTMLInputElement
+  input.value = "Target sidebar state"
+  mocks.scope = "me"
+  view.rerender(<DmSidebarSlot href="/c/me/friends" routeCommitted />)
+  expect(view.getByRole("textbox")).toBe(input)
+  expect(input).toHaveValue("Target sidebar state")
 })

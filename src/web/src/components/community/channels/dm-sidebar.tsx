@@ -4,6 +4,7 @@ import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { dmHref } from "@/lib/community/community-route"
 import { memo } from "react"
 import { Users, Ban, Monitor, Bot } from "lucide-react"
+import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
@@ -15,11 +16,13 @@ export const DmSidebar = memo(function DmSidebar({
   dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots,
   friendsActive, machinesActive, botsActive,
   friendRequestCount = 0,
+  loadError,
 }: {
   dms: DM[]
   activeDm: string | null
   blockedUserIds?: Set<string>
   loading?: boolean
+  loadError?: { retrying: boolean; onRetry: () => void }
   onPickDm: (id: string) => void
   onShowFriends: () => void
   onShowMachines?: () => void
@@ -93,7 +96,9 @@ export const DmSidebar = memo(function DmSidebar({
         <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
           Direct Messages
         </div>
-        {loading && dms.length === 0 ? (
+        {loadError ? (
+          <ConversationResolutionErrorFrame as="div" title="Couldn't load direct messages" {...loadError} />
+        ) : loading && dms.length === 0 ? (
           <DmRowsSkeleton />
         ) : dms.length === 0 ? (
           <p className="px-2 py-4 text-center text-xs text-muted-foreground">Your direct messages will appear here.</p>

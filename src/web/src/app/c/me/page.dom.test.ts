@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
 }))
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }))
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }), useSearchParams: () => new URLSearchParams() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/lib/community-onboarding", () => ({
   useCommunityOnboarding: () => mocks.onboarding,

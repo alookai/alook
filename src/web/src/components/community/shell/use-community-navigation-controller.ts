@@ -17,7 +17,6 @@ import {
   isPublishedNonStructuralCommit,
   isStructuralFrameCommit,
   normalizeCommunityHref,
-  resolveCommunityModulePlan,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
 import type { CommunityNavigationController } from "@/contexts/community/route-frame"
@@ -61,7 +60,9 @@ export function useCommunityNavigationController(
       && target.leafKey !== committedFrameRef.current.leafKey ? 1 : 0)
     return () => {
       if (!mountedRef.current) return false
-      if (revision === gateRef.current.revision && frameRevision === committedFrameRef.current.revision) return true
+      if (revision === gateRef.current.revision && (frameRevision === committedFrameRef.current.revision
+        || target !== null && targetRevision === committedFrameRef.current.revision
+          && target?.leafKey === committedFrameRef.current.leafKey)) return true
       const settled = settledIntentRef.current
       return targetHref !== null && settled !== null
         && settled.revision === revision && gateRef.current.revision === revision + 1
@@ -78,7 +79,6 @@ export function useCommunityNavigationController(
   const [navigationPending, setNavigationPending] = useAtom(useCreateAtom(false))
   const [pendingHref, setPendingHref] = useAtom(useCreateAtom<string | null>(null))
   const [entryIntent, setEntryIntent] = useAtom(useCreateAtom<{ href: string; resume?: boolean } | null>(null))
-  const parentReturnPending = hasPendingParentReturn({ entryIntent, navigationPending, pendingHref })
 
   const cancelPendingNavigation = useCallback(() => {
     supersedeNavigationIntent(gateRef.current)
@@ -97,8 +97,7 @@ export function useCommunityNavigationController(
           targetHref: pendingHref,
           baselineRevision: pendingBaselineRevisionRef.current,
         })
-    const exactPublication = parentReturnPending || ["friends", "bots", "machines"].includes(resolveCommunityModulePlan(target.href).main.kind)
-    if (!settled || exactPublication && !isPublishedNonStructuralCommit(committedFrame, publishedHref, pendingHref)) return
+    if (!settled || !isPublishedNonStructuralCommit(committedFrame, publishedHref, pendingHref)) return
     settledIntentRef.current = {
       revision: gateRef.current.revision,
       frameRevision: committedFrame.revision,
@@ -107,7 +106,7 @@ export function useCommunityNavigationController(
     supersedeNavigationIntent(gateRef.current)
     setNavigationPending(false)
     setPendingHref(null)
-  }, [committedFrame, parentReturnPending, pendingHref, publishedHref, setNavigationPending, setPendingHref])
+  }, [committedFrame, pendingHref, publishedHref, setNavigationPending, setPendingHref])
 
   useEffect(() => {
     if (typeof window === "undefined") return

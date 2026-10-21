@@ -1559,11 +1559,13 @@ describe("ChannelRoute message surface ownership", () => {
     fireEvent.click(screen.getByTestId("community-thread-split-fullscreen"))
     expect(mockUiHandlers.cancelPendingNavigation).toHaveBeenCalledOnce()
     expect(mockUiHandlers.cancelPendingNavigation.mock.invocationCallOrder[0])
-      .toBeLessThan(mockRouter.push.mock.invocationCallOrder[0]!)
-    expect(mockRouter.push).toHaveBeenCalledWith(
+      .toBeLessThan(mockNavigation.push.mock.invocationCallOrder[0]!)
+    expect(mockNavigation.push).toHaveBeenCalledWith(
       "/c/channels/server_1/channel_1?keep=1&threadView=full",
       { scroll: false },
     )
+
+    expect(mockRouter.push).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByTestId("community-thread-split-close"))
     expect(mockUiHandlers.goBackMobile).toHaveBeenCalledWith("/c/channels/server_1/parent_1")

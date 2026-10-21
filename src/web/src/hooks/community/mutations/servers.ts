@@ -85,7 +85,7 @@ export function useJoinServer() {
 export type LeaveServerArgs = { serverId: string }
 type DeleteServerArgs = LeaveServerArgs & { isUiCurrent?: () => boolean }
 type DeleteServerCallbacks = {
-  routeToken: OwnerServerDeleteRouteToken
+  routeToken?: OwnerServerDeleteRouteToken
   onSuccess?: (
     args: DeleteServerArgs,
     result: { needsNavigation: boolean },
@@ -142,14 +142,16 @@ export function useLeaveServer() {
 export function useDeleteServer(callbacks: DeleteServerCallbacks) {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
-  return useCommunityCommandMutation<void, Error, DeleteServerArgs, { token: AccountUnreadScopeToken; proof: CommunityLiveSnapshotToken } & DeleteServerCallbacks>(origin, { meta: { observabilityAction: "server.delete" },
+  return useCommunityCommandMutation<void, Error, DeleteServerArgs, { token: AccountUnreadScopeToken; proof: CommunityLiveSnapshotToken } & DeleteServerCallbacks & { routeToken: OwnerServerDeleteRouteToken }>(origin, { meta: { observabilityAction: "server.delete" },
     scope: { id: "community-server-membership" },
     onMutate: async (args) => {
       const token = args.original
       await origin.registry?.ready
       origin.assert(token)
-      beginOwnerServerDelete(queryClient, args.serverId, callbacks.routeToken)
-      return { ...callbacks, proof: token, token: unreadProjection.beginScopeRetirement({ kind: "server", serverId: args.serverId }) }
+      const routeToken = callbacks.routeToken
+      if (!routeToken) throw new DOMException("Missing committed server route", "AbortError")
+      beginOwnerServerDelete(queryClient, args.serverId, routeToken)
+      return { ...callbacks, routeToken, proof: token, token: unreadProjection.beginScopeRetirement({ kind: "server", serverId: args.serverId }) }
     },
     mutationFn: async (args) => {
       const original = args.original, registry = origin.registry!
@@ -168,8 +170,8 @@ export function useDeleteServer(callbacks: DeleteServerCallbacks) {
       try { await transaction.when("settled") } catch (error) { origin.assert(token); throw error }
     },
     onError: (error, args, context) => {
-      cancelOwnerServerDelete(queryClient, args.serverId, context?.routeToken)
       if (!context) return
+      cancelOwnerServerDelete(queryClient, args.serverId, context.routeToken)
       try { origin.assert(context.proof) } catch { return }
       unreadProjection.rollbackScopeRetirement(context.token)
       context.onError?.(error, communityCommandInput(args))

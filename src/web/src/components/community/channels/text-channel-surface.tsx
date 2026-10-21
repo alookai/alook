@@ -219,6 +219,7 @@ export function TextChannelSurface({
                 open={controller.contextTarget !== null}
                 onOpenChange={(open) => { if (!open) controller.setContextTarget(null) }}
                 channelId={controller.contextTarget?.channelId ?? channelId}
+                serverId={controller.contextTarget?.serverId ?? serverId}
                 channelLabel={controller.contextTarget?.label}
                 targetSeq={controller.contextTarget?.seq ?? null}
                 pinnedIds={controller.pinnedIds}

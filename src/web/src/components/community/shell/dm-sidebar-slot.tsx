@@ -3,7 +3,7 @@ import { useObservedRegion } from "@/lib/observability/regions"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { dmHref } from "@/lib/community/community-route"
+import { dmHref, normalizeCommunityHref } from "@/lib/community/community-route"
 import { Activity, useCallback, useLayoutEffect, useMemo, useState } from "react"
 import { useCommunityRouteFrame } from "./community-route-context"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
@@ -13,33 +13,37 @@ import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { useInboxUnreads } from "@/hooks/community/use-inbox"
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
 // and no `[serverId]` param — everything is scoped to the current user.
-export function DmSidebarSlot({ visible = true }: { visible?: boolean }) {
+export function DmSidebarSlot({ visible = true, href, routeCommitted = true }: { visible?: boolean; href?: string; routeCommitted?: boolean }) {
   const { frame } = useCommunityRouteFrame()
-  const inMe = frame.scope.kind === "me"
+  const target = normalizeCommunityHref(href ?? frame.href)
+  const inMe = target.scope.kind === "me"
   const [visitedMe, setVisitedMe] = useState(inMe)
   useLayoutEffect(() => {
     if (inMe) setVisitedMe(true)
   }, [inMe])
   if (!inMe && !visitedMe) return null
-  return <Activity mode={inMe && visible ? "visible" : "hidden"}><MeSidebar /></Activity>
+  return <Activity mode={inMe && visible ? "visible" : "hidden"}><MeSidebar pathname={target.pathname} routeCommitted={routeCommitted} /></Activity>
 }
 
-function MeSidebar() {
+function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommitted: boolean }) {
   const communityRuntime = useCommunityRuntime()
-  const { frame } = useCommunityRouteFrame()
-  const pathname = frame.pathname
   const {
     dms,
-    isLoading: dmsLoading,
+    isPending: dmsLoading,
+    data,
+    isError,
+    isFetching,
+    refetch,
   } = useDms()
   const { blocked } = useFriends()
-  useObservedRegion("sidebar", !dmsLoading, dms.length)
+  const initialError = isError && data === undefined
+  useObservedRegion("sidebar", !dmsLoading && !initialError, dms.length)
   const friendRequestCount = useInboxUnreads().friendRequests.length
   const currentChannelId = useCurrentChannelId()
 
   // Seed online friends into the global profile map. The endpoint is a subset
   // of the full WS audience, so it only patches the ids it explicitly returns.
-  useFriendsPresence()
+  useFriendsPresence(routeCommitted)
 
   const machinesActive = pathname === "/c/me/machines"
   const botsActive = pathname === "/c/me/bots"
@@ -71,12 +75,15 @@ function MeSidebar() {
     [blocked],
   )
 
+  const retryDms = useCallback(() => { void refetch({ cancelRefetch: false }) }, [refetch])
+
   const sidebar = useCallback(() => (
     <DmSidebar
       dms={dms}
       activeDm={currentChannelId}
       blockedUserIds={blockedUserIds}
       loading={dmsLoading}
+      loadError={initialError ? { retrying: isFetching, onRetry: retryDms } : undefined}
       onPickDm={enterDm}
       onShowFriends={onShowFriends}
       friendRequestCount={friendRequestCount}
@@ -86,7 +93,7 @@ function MeSidebar() {
       machinesActive={machinesActive}
       botsActive={botsActive}
     />
-  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, onShowFriends, friendRequestCount, onShowMachines, onShowBots, friendsActive, machinesActive, botsActive])
+  ), [dms, currentChannelId, dmsLoading, initialError, isFetching, retryDms, blockedUserIds, enterDm, onShowFriends, friendRequestCount, onShowMachines, onShowBots, friendsActive, machinesActive, botsActive])
 
   return sidebar()
 }

@@ -38,6 +38,8 @@ vi.mock("./use-hydrated-client", () => ({ useHydratedClient: () => true }))
 vi.mock("@/hooks/community/use-running-owned-bots", () => ({
   useRunningOwnedBots: () => ({ runningBots: [] }),
 }))
+vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({ AlookLoading: () => null }))
+vi.mock("./server-sidebar-slot", () => ({ ServerSidebarSlot: () => null }))
 vi.mock("./server-rail", () => ({
   ServerRail: ({ onHome }: { onHome: () => void }) => createElement("button", {
     onClick: onHome,
@@ -384,7 +386,7 @@ describe("Shell input and explicit navigation ownership", () => {
       const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
       act(() => shell.navigation.push(target))
       shell.commit(target, 1, false)
-      expect(shell.navigation.navigationPending).toBe(false)
+      expect(shell.navigation.navigationPending).toBe(true)
       expect(shell.navigation.publishedHref).not.toBe(target)
       expect(ownCommit()).toBe(true)
       shell.publish(target)

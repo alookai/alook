@@ -85,7 +85,7 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
     {...props}
     posts={feed.posts}
     observation={feed.observation}
-    loading={feed.isLoading}
+    loading={feed.isPending}
     tag={feed.tag}
     availableTags={feed.availableTags}
     onTagChange={feed.selectTag}

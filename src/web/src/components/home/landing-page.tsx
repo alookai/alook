@@ -12,6 +12,7 @@ import { LandingTestimonials } from "./landing-testimonials"
 import { LandingReachMotion } from "./landing-reach-motion"
 import { DeferredShellMotion as LandingShellMotion, DeferredProfileCard } from "./deferred-landing-media"
 import { MarketingNav } from "./marketing-nav"
+import { LandingInteractiveDemo } from "./landing-interactive-demo"
 import { LandingFooter } from "./landing-footer"
 import {
   LANDING_CONTINUITY,
@@ -222,7 +223,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <HeroSection
         staticPaper
         desktopSplit
-        nextSectionId="product"
+        nextSectionId="workspace"
         isLoggedIn={isLoggedIn}
         headline={(
           <>
@@ -248,6 +249,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         highlightPrimaryCta
         backgroundDecoration={<HeroAvatarSwarm />}
       />
+
+      <LandingInteractiveDemo />
 
       <section id="product" tabIndex={-1} className={styles.productSection} data-testid="landing-product-proof">
         <div className={styles.productLayout} data-testid={tid.landingMainContainer}>

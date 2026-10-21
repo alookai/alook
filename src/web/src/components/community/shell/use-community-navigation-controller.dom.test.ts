@@ -72,6 +72,24 @@ describe("useCommunityNavigationController", () => {
 
   afterEach(() => vi.unstubAllGlobals())
 
+  it.each(["/c/channels/s2/c2", "/c/channels/s2", "/c/me/dm2", "/c/messages/message2", "/c/me/friends"])("keeps a newer complete target when an older query for %s publishes first", async pathname => {
+    const hook = await renderController()
+    const previous = `${pathname}?target=old`
+    const target = `${pathname}?target=new`
+    await act(async () => hook.current.push(previous))
+    await act(async () => hook.current.replace(target))
+    mocks.pathname.current = pathname
+    mocks.search.current = new URLSearchParams("target=old")
+    mocks.frame.current = { ...normalizeCommunityHref(pathname), revision: 1 }
+    await hook.rerender()
+    expect(hook.current.pendingHref).toBe(target)
+    expect(hook.current.navigationPending).toBe(true)
+    mocks.search.current = new URLSearchParams("target=new")
+    await hook.rerender()
+    expect(hook.current.pendingHref).toBeNull()
+    expect(hook.current.navigationPending).toBe(false)
+  })
+
   it("does not treat published pathname as commit and clears after frame evidence", async () => {
     const hook = await renderController()
     expect(hook.current.navigationPending).toBe(false)
@@ -113,6 +131,11 @@ describe("useCommunityNavigationController", () => {
 
     mocks.pathname.current = "/c/channels/s2/c2"
     mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s2"), revision: 2 }
+    await hook.rerender()
+    expect(hook.current.navigationPending).toBe(true)
+    expect(hook.current.pendingHref).toBe("/c/channels/s2")
+    await act(async () => hook.current.replace("/c/channels/s2/c2"))
+    mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s2/c2"), revision: 3 }
     await hook.rerender()
     expect(hook.current.navigationPending).toBe(false)
     expect(hook.current.pendingHref).toBeNull()

@@ -129,7 +129,6 @@ vi.mock("@/stores/community", async (importOriginal) => {
     ...actual,
     useCommunityStore: { getState: () => state },
     useCurrentChannelId: () => null,
-    useCurrentChannelMeta: () => null,
   }
 })
 vi.mock("@/contexts/community/current-user", () => ({

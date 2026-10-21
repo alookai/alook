@@ -8,7 +8,7 @@ import { clearAllPersistedCaches } from "@/lib/query-persister"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
-import { cancelOwnerServerDelete, claimOwnerServerDeleteNavigation, claimOwnerServerDeleteScopeFlush, completeOwnerServerDeleteScopeFlush, createOwnerServerDeleteRouteToken, isOwnerServerDeleteMeRootLanding, isOwnerServerDeleteRouteProtected, observeOwnerServerDeleteRouteCommit } from "@/lib/community/eject-server"
+import { beginOwnerServerDelete, cancelOwnerServerDelete, claimOwnerServerDeleteNavigation, claimOwnerServerDeleteScopeFlush, completeOwnerServerDeleteScopeFlush, createOwnerServerDeleteRouteToken, isOwnerServerDeleteMeRootLanding, isOwnerServerDeleteRouteProtected, observeOwnerServerDeleteRouteCommit } from "@/lib/community/eject-server"
 import { useDeleteServer } from "./servers"
 const mocks = vi.hoisted(() => ({ api: vi.fn(), flushOwnerServerDeleteAfterSuccess: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api }))
@@ -18,7 +18,7 @@ vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => nul
 vi.mock("@/hooks/community/community-ws/scope-eviction", async (original) => ({ ...await original<typeof import("@/hooks/community/community-ws/scope-eviction")>(), flushOwnerServerDeleteAfterSuccess: mocks.flushOwnerServerDeleteAfterSuccess }))
 type Callbacks = Parameters<typeof useDeleteServer>[0]
 async function setup(serverId: string, callbacks: Omit<Callbacks, "routeToken">) {
-  let client!: QueryClient, current!: ReturnType<typeof useDeleteServer>, originalToken!: Callbacks["routeToken"]
+  let client!: QueryClient, current!: ReturnType<typeof useDeleteServer>, originalToken!: NonNullable<Callbacks["routeToken"]>
   function Probe({ activeCallbacks }: { activeCallbacks: Omit<Callbacks, "routeToken"> & Partial<Pick<Callbacks, "routeToken">> }) {
     client = useQueryClient()
     const token = useMemo(() => createOwnerServerDeleteRouteToken(client), [])
@@ -100,4 +100,16 @@ describe("useDeleteServer — unmounted caller with original account provider re
     expect(mocks.flushOwnerServerDeleteAfterSuccess).toHaveBeenCalledWith(view.client, serverId)
     cancelOwnerServerDelete(view.client, serverId, view.routeToken)
   })
+})
+
+
+it.each([false, true])("rejects a delete without the committed route token without changing membership or another transaction (existing=%s)", async existing => {
+  const serverId = "target-not-committed"
+  const view = await setup(serverId, {})
+  if (existing) beginOwnerServerDelete(view.client, serverId, view.routeToken)
+  act(() => view.rerender({ activeCallbacks: { routeToken: undefined } }))
+  await expect(view.result.current.mutateAsync({ serverId })).rejects.toThrow("Missing committed server route")
+  expect(mocks.api).not.toHaveBeenCalled()
+  expect(isOwnerServerDeleteRouteProtected(view.client, serverId)).toBe(existing)
+  expect([...getCommunityDbRegistry(view.client)!.collections.serverMemberships.values()].some(row => row.serverId === serverId && row.viewer)).toBe(true)
 })

@@ -1,5 +1,6 @@
 "use client"
 
+import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { FriendsPage } from "@/components/community/social/friends-page"
 import { useMemo } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
@@ -23,7 +24,7 @@ import { toastApiError } from "@/lib/api/client"
 export default function MeFriendsPage() {
   const { router, searchParams } = useCommunityModuleLocation()
   const activeTab = searchParams.get("tab") === "new" ? "new" : "all"
-  const { friends: rawFriends, pending, blocked, isLoading } = useFriends()
+  const { friends: rawFriends, pending, blocked, isPending: isLoading, data, isError, isFetching, refetch } = useFriends()
   const uiHandlers = useUiHandlers()
   const profilesByUserId = useCanonicalProfilesByUserId()
   const friends = useMemo(
@@ -56,6 +57,10 @@ export default function MeFriendsPage() {
   const blockUser = useBlockUser()
   const unblockUser = useUnblockUser()
   const createOrGetDm = useCreateOrGetDm()
+
+  if (isError && data === undefined) {
+    return <ConversationResolutionErrorFrame title="Couldn't load friends" retrying={isFetching} onRetry={() => { void refetch({ cancelRefetch: false }) }} />
+  }
 
   return (
     <FriendsPage

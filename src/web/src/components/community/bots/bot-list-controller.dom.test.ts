@@ -87,7 +87,7 @@ vi.mock("@/hooks/community/use-bots", async (importOriginal) => {
     return {
       bots: mocks.bots,
       data: mocks.botsDataReady ? { bots: mocks.bots, ...mocks.planSummary, isFounder: mocks.isFounder } : undefined,
-      isLoading: mocks.botsLoading,
+      isPending: mocks.botsLoading,
     }
   },
   useDeleteBot: () => {
@@ -111,7 +111,7 @@ vi.mock("@/hooks/community/use-bots", async (importOriginal) => {
 vi.mock("@/hooks/community/use-machines", () => ({
   useMachines: () => {
     mocks.hookOrder.push("machines")
-    return { machines: mocks.machines, isLoading: mocks.machinesLoading }
+    return { machines: mocks.machines, isPending: mocks.machinesLoading }
   },
 }))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),

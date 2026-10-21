@@ -26,7 +26,8 @@ describe("ShellFrame public contract", () => {
     const shellView = readWeb("src/components/community/shell/shell-frame-view.tsx")
     expect(shellView.match(/<DmSidebarSlot\b/g)).toHaveLength(1)
     expect(readWeb("src/app/c/@sidebar/me/layout.tsx")).not.toContain("DmSidebarSlot")
-    expect(readWeb("src/app/c/@sidebar/channels/[serverId]/layout.tsx")).toContain("serverId={serverId}")
+    expect(shellView.match(/<ServerSidebarSlot\b/g)).toHaveLength(1)
+    expect(readWeb("src/app/c/@sidebar/channels/[serverId]/layout.tsx")).not.toContain("ServerSidebarSlot")
   })
 
   it("keeps shell-frame as orchestration with one public component", () => {

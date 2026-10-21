@@ -3,7 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useCallback, useEffect, type ComponentProps, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
+import { useCommunityRouter } from "@/contexts/community/module-route"
 import { toastApiError, apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
@@ -99,7 +99,7 @@ export function ThreadChannelSurface({
   splitActions?: { onFullscreen: () => void; onClose: () => void }
   layoutPending?: boolean
 }) {
-  const router = useRouter()
+  const router = useCommunityRouter()
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useAtom(useCreateAtom<RightPanel>(null))
   const [localName, setLocalName] = useAtom(useCreateAtom<string | null>(null))
@@ -331,6 +331,7 @@ export function ThreadChannelSurface({
                 open={controller.contextTarget !== null}
                 onOpenChange={(open) => { if (!open) controller.setContextTarget(null) }}
                 channelId={controller.contextTarget?.channelId ?? channelId}
+                serverId={controller.contextTarget?.serverId ?? serverId}
                 channelLabel={controller.contextTarget?.label}
                 targetSeq={controller.contextTarget?.seq ?? null}
                 pinnedIds={controller.pinnedIds}

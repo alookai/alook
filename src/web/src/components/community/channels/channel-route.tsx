@@ -199,6 +199,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   onOpenChild: (id: string) => void
 }) {
   const active = useConversationActivity()
+  const { navigation } = useCommunityRouteFrame()
   const router = useRouter()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const currentAnchorMessageId = anchorMessageId
@@ -308,8 +309,8 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     uiHandlers.cancelPendingNavigation?.()
     const params = new URLSearchParams(searchParams.toString())
     params.set(THREAD_VIEW_PARAM, "full")
-    router.push(`${channelHref(serverParam, channelId)}?${params.toString()}`, { scroll: false })
-  }, [channelId, router, searchParams, serverParam, uiHandlers])
+    navigation.push(`${channelHref(serverParam, channelId)}?${params.toString()}`, { scroll: false })
+  }, [channelId, navigation, searchParams, serverParam, uiHandlers])
 
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
     uiHandlers.openProfile?.(name, e, discriminator, userId)
