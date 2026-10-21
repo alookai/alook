@@ -2,13 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent } from "@/test/react-dom-harness"
 import { QueryClient } from "@tanstack/react-query"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
-import { advanceCommunityOnboarding, completeCommunityOnboarding, readCommunityOnboardingState, startCommunityOnboarding, updateCommunityOnboardingInitialization } from "./community-onboarding"
+import { advanceCommunityOnboarding, completeCommunityOnboarding, readCommunityOnboardingState, startCommunityOnboarding, updateCommunityOnboardingInitialization, skipCommunityOnboarding } from "./community-onboarding"
 const mocks = vi.hoisted(() => ({ native: false, consent: null as string | null }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), isTauri: () => mocks.native }))
 vi.mock("@/lib/analytics-consent", async original => ({ ...await original<typeof import("@/lib/analytics-consent")>(), readAnalyticsConsent: () => mocks.consent }))
+import { ONBOARDING_ANALYTICS_STAGES } from "./product-analytics-contract"
 import { beginOnboardingAnalytics, captureOnboardingFirstMessage, captureProductAnalytics, type ProductAnalyticsInput } from "./product-analytics"
 
+function setOrigin(origin: string) {
+  Reflect.get(globalThis, "jsdom").reconfigure({ url: origin })
+}
+
 beforeEach(() => {
+  setOrigin("https://alook.ai")
   window.history.replaceState(null, "", "/sign-in")
   window.dataLayer = []
   document.getElementById("alook-product-events")?.remove()
@@ -175,12 +181,8 @@ it.each(["active", "retired", "reactivated"] as const)("qualifies delayed onboar
     if (ownership !== "active") retire()
     if (ownership === "reactivated") registerCommunityDbRegistry(registry)
     const { send } = loadFrame()
-    if (ownership === "active") {
-      expect(send).toHaveBeenCalledOnce()
-      expect(send).toHaveBeenCalledWith({ event: "community_onboarding_completed", params: {} })
-    } else {
-      expect(send).not.toHaveBeenCalled()
-    }
+    const completions = send.mock.calls.filter(([input]) => input.event === "community_onboarding_completed")
+    expect(completions).toEqual(ownership === "active" ? [[{ event: "community_onboarding_completed", params: {} }]] : [])
   } finally {
     await registry.cleanup()
     client.clear()
@@ -206,4 +208,83 @@ it("does not send a detached event frame after consent is granted again", async 
   mocks.consent = "granted"
   fireEvent.load(frame)
   expect(send).not.toHaveBeenCalled()
+})
+
+
+it.each(["http://localhost:3000", "https://preview.alook.ai", "https://alook.ai.evil.test", "http://alook.ai", "https://alook.ai:444"])("does not attach or send product events on %s", async origin => {
+  setOrigin(origin)
+  for (const path of ["/", "/sign-in", "/c/me"]) {
+    window.history.replaceState(null, "", path)
+    await captureProductAnalytics({ event: "login_page_view" })
+    await captureProductAnalytics({ event: "community_onboarding_started" })
+    await captureProductAnalytics({ event: "community_onboarding_stage_completed", stage: "harness" })
+    await captureProductAnalytics({ event: "community_onboarding_skipped", stage: "machine" })
+  }
+  expect(document.getElementById("alook-product-events")).toBeNull()
+  expect(window.dataLayer).toEqual([])
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it.each(ONBOARDING_ANALYTICS_STAGES)("sends safe completed and skipped %s stage through both transports", async stage => {
+  for (const event of ["community_onboarding_stage_completed", "community_onboarding_skipped"] as const) {
+    await captureProductAnalytics({ event, stage, token: "private" } as ProductAnalyticsInput)
+  }
+  const { send } = loadFrame()
+  expect(send.mock.calls).toEqual([
+    [{ event: "community_onboarding_stage_completed", params: { stage } }],
+    [{ event: "community_onboarding_skipped", params: { stage } }],
+  ])
+  window.history.replaceState(null, "", "/")
+  await captureProductAnalytics({ event: "community_onboarding_stage_completed", stage })
+  expect(Array.from(window.dataLayer![0])).toEqual(["event", "community_onboarding_stage_completed", { stage, send_to: "G-STBCL8F4ZY" }])
+})
+
+it.each([undefined, "complete", "bot", "dm", "server", "private@example.test"])("drops unsupported or missing %s stage before either transport", async stage => {
+  for (const path of ["/c/me", "/"]) {
+    window.history.replaceState(null, "", path)
+    for (const event of ["community_onboarding_stage_completed", "community_onboarding_skipped"] as const) await captureProductAnalytics({ event, stage } as ProductAnalyticsInput)
+  }
+  expect(document.getElementById("alook-product-events")).toBeNull()
+  expect(window.dataLayer).toEqual([])
+})
+
+it("reports actual onboarding transitions through the private safe sender once per accepted action", async () => {
+  window.history.replaceState(null, "", "/c/me/machines")
+  const client = new QueryClient()
+  const registry = createCommunityDbRegistry(client, "stage-owner")
+  registerCommunityDbRegistry(registry)
+  try {
+    startCommunityOnboarding(registry.runtime)
+    startCommunityOnboarding(registry.runtime)
+    const { send } = loadFrame()
+    advanceCommunityOnboarding(registry.runtime, "harness", "machine")
+    advanceCommunityOnboarding(registry.runtime, "harness", "machine")
+    skipCommunityOnboarding(registry.runtime)
+    skipCommunityOnboarding(registry.runtime)
+    expect(readCommunityOnboardingState(registry.runtime)).toBeNull()
+    expect(send.mock.calls).toEqual([
+      [{ event: "community_onboarding_started", params: {} }],
+      [{ event: "community_onboarding_stage_completed", params: { stage: "harness" } }],
+      [{ event: "community_onboarding_skipped", params: { stage: "machine" } }],
+    ])
+    send.mockImplementation(() => { throw new Error("blocked collector") })
+    expect(startCommunityOnboarding(registry.runtime)?.stage).toBe("harness")
+    expect(advanceCommunityOnboarding(registry.runtime, "harness", "machine")?.stage).toBe("machine")
+    expect(skipCommunityOnboarding(registry.runtime)).toBeNull()
+  } finally {
+    await registry.cleanup()
+    client.clear()
+  }
+})
+
+it.each([
+  { event: "community_onboarding_started" },
+  { event: "community_onboarding_stage_completed", stage: "harness" },
+  { event: "community_onboarding_skipped", stage: "machine" },
+] as const)("excludes Native and denied browsers for $event", async input => {
+  mocks.native = true
+  await captureProductAnalytics(input)
+  mocks.native = false; mocks.consent = "denied"
+  await captureProductAnalytics(input)
+  expect(document.getElementById("alook-product-events")).toBeNull()
 })
