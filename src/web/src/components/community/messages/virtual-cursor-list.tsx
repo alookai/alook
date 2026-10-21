@@ -11,12 +11,16 @@ export function VirtualRows<T>({
   renderItem,
   rowRole,
   reactLayout = false,
+  children,
+  getRowAttributes,
 }: {
   items: T[]
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
   renderItem: (item: T, index: number) => ReactNode
   rowRole?: "listitem"
   reactLayout?: boolean
+  children?: ReactNode
+  getRowAttributes?: (item: T, index: number) => Record<`data-${string}`, string | number | undefined>
 }) {
   return (
     <div
@@ -27,10 +31,12 @@ export function VirtualRows<T>({
         ...(reactLayout ? { height: virtualizer.getTotalSize() } : {}),
       }}
     >
+      {children}
       {virtualizer.getVirtualItems().map((virtualRow) => {
         const item = items[virtualRow.index]
         return (
           <div
+            {...getRowAttributes?.(item, virtualRow.index)}
             key={virtualRow.key}
             role={rowRole}
             data-index={virtualRow.index}

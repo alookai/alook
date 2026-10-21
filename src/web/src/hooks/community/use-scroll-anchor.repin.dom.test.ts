@@ -116,13 +116,12 @@ describe("locked native adapter and existing message scroll owner", () => {
     if (position === "away") h.move(300)
     const before = bodyTop(h.root, position === "away" ? "m2" : "m13")
     const native = scrollFixture.latest.virtualizer
-    const rect = { ...native.scrollRect }
     expect(scrollFixture.frames.size).toBe(0)
     h.root.style.borderBottom = "100px solid transparent"
     expect(h.root.clientHeight).toBe(400)
     expect(h.root.offsetHeight).toBe(500)
     resize()
-    expect(native.scrollRect).toEqual(rect)
+    expect(native.scrollRect).toEqual({ width: h.root.clientWidth, height: h.root.clientHeight })
     if (position === "present") expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     else expect(bodyTop(h.root, "m2")).toBe(before)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
@@ -133,10 +132,9 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.update({ scrollToMessageId: "m4" })
     expect(positioned).toHaveBeenCalledWith("m4")
     const top = bodyTop(h.root, "m4")
-    const rect = { ...scrollFixture.latest.virtualizer.scrollRect }
     scrollFixture.scrollbarWidth = 11
     resize()
-    expect(scrollFixture.latest.virtualizer.scrollRect).toEqual(rect)
+    expect(scrollFixture.latest.virtualizer.scrollRect).toEqual({ width: h.root.clientWidth, height: h.root.clientHeight })
     expect(bodyTop(h.root, "m4")).toBe(top)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     h.move(0)
@@ -1269,7 +1267,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames(1)
     expect(offset).not.toHaveBeenCalled()
   })
-  it("keeps the content viewport anchor while native border-box delivery is pending with a scrollbar", () => {
+  it("keeps the client viewport anchor while native rectangle delivery is pending with a scrollbar", () => {
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => scrollFixture.width - 11)
     const h = mount()
     h.move(h.root.scrollHeight - scrollFixture.height - 2)

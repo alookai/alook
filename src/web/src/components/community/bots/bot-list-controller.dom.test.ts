@@ -215,7 +215,7 @@ describe("useBotListController", () => {
     scrollIntoView.mockReset()
   })
 
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
   const render = () => {
     let renderer!: ReturnType<typeof rtlRender>
@@ -414,18 +414,19 @@ describe("useBotListController", () => {
   })
 
   it("does nothing without a target or without bots", () => {
+    const schedule = vi.spyOn(globalThis, "setTimeout")
     mocks.target = null
     render()
     expect(scrollIntoView).not.toHaveBeenCalled()
     expect(latest.highlightId).toBeNull()
-    expect(vi.getTimerCount()).toBe(0)
+    expect(schedule.mock.calls.filter(([, delay]) => delay === 2000)).toHaveLength(0)
 
     mocks.target = "mac1"
     mocks.bots = []
     render()
     expect(scrollIntoView).not.toHaveBeenCalled()
     expect(latest.highlightId).toBeNull()
-    expect(vi.getTimerCount()).toBe(0)
+    expect(schedule.mock.calls.filter(([, delay]) => delay === 2000)).toHaveLength(0)
   })
 
   it("opens an owned audit deep link only after its bot is available", () => {
@@ -621,28 +622,36 @@ describe("useBotListController", () => {
   })
 
   it("clears a normally consumed target after exactly 2000ms", () => {
+    const schedule = vi.spyOn(globalThis, "setTimeout")
     render()
     expect(latest.highlightId).toBe("mac1")
-    expect(vi.getTimerCount()).toBe(1)
+    expect(schedule.mock.calls.filter(([, delay]) => delay === 2000)).toHaveLength(1)
     act(() => vi.advanceTimersByTime(1999))
     expect(latest.highlightId).toBe("mac1")
     act(() => vi.advanceTimersByTime(1))
     expect(latest.highlightId).toBeNull()
-    expect(vi.getTimerCount()).toBe(0)
+    expect(schedule.mock.calls.filter(([, delay]) => delay === 2000)).toHaveLength(1)
   })
 
   it("replaces A with B, cancels A's timer, and cleans the active timer on unmount", () => {
+    const schedule = vi.spyOn(globalThis, "setTimeout")
+    const cancel = vi.spyOn(globalThis, "clearTimeout")
     const renderer = render()
     expect(scrollIntoView).toHaveBeenCalledTimes(1)
-    expect(vi.getTimerCount()).toBe(1)
+    const first = schedule.mock.calls.findIndex(([, delay]) => delay === 2000)
+    expect(first).toBeGreaterThanOrEqual(0)
+    const firstTimer = schedule.mock.results[first].value
     mocks.target = "mac2"
     act(() => renderer.rerender(React.createElement(Probe)))
     expect(scrollIntoView).toHaveBeenCalledTimes(2)
     expect(latest.highlightId).toBe("mac2")
-    expect(vi.getTimerCount()).toBe(1)
+    const timers = schedule.mock.calls.flatMap(([, delay], index) => delay === 2000 ? [schedule.mock.results[index].value] : [])
+    expect(timers).toHaveLength(2)
+    expect(cancel).toHaveBeenCalledWith(firstTimer)
     act(() => vi.advanceTimersByTime(1999))
     expect(latest.highlightId).toBe("mac2")
     act(() => renderer.unmount())
+    expect(cancel).toHaveBeenCalledWith(timers[1])
     act(() => vi.advanceTimersByTime(2000))
     expect(scrollIntoView).toHaveBeenCalledTimes(2)
   })

@@ -34,7 +34,7 @@ const {
 }))
 let scrollDescriptor: PropertyDescriptor | undefined
 let bodyHeight = 300
-let deferScrollEvents = false
+let pendingScrollRoots = new Set<HTMLElement>()
 let rowHeights = new Map<string, number>()
 let bodyResizeObservers: Array<{ callback: ResizeObserverCallback; elements: Set<Element> }> = []
 
@@ -182,8 +182,8 @@ function resizeBody(height: number, settle = true) {
       } as unknown as ResizeObserverEntry))
       if (entries.length) observer.callback(entries, {} as ResizeObserver)
     }
-    if (settle) vi.advanceTimersByTime(500)
   })
+  if (settle) act(() => vi.advanceTimersByTime(500))
 }
 
 describe("BotActivityModal CommunitySheet contract", () => {
@@ -201,7 +201,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
     fetchNextPage.mockResolvedValue({ isError: false, data: { pages: [{ events: [] }] } })
     sheetProps.current = null
     bodyHeight = 300
-    deferScrollEvents = false
+    pendingScrollRoots = new Set()
     rowHeights = new Map()
     bodyResizeObservers = []
     vi.useFakeTimers()
@@ -245,9 +245,15 @@ describe("BotActivityModal CommunitySheet contract", () => {
     scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
     Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: function (this: HTMLElement, options: ScrollToOptions | number) {
       if (typeof options === "number") return
+      const previous = this.scrollTop
       this.scrollTop = Math.max(0, Math.min(options.top ?? this.scrollTop, this.scrollHeight - this.clientHeight))
-      if (deferScrollEvents) window.setTimeout(() => this.dispatchEvent(new Event("scroll")), 0)
-      else this.dispatchEvent(new Event("scroll"))
+      if (this.scrollTop !== previous && !pendingScrollRoots.has(this)) {
+        pendingScrollRoots.add(this)
+        window.setTimeout(() => {
+          pendingScrollRoots.delete(this)
+          if (this.isConnected) this.dispatchEvent(new Event("scroll"))
+        }, 0)
+      }
     } })
   })
   afterEach(() => {
@@ -256,6 +262,26 @@ describe("BotActivityModal CommunitySheet contract", () => {
     vi.useRealTimers()
     if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, "scrollTo", scrollDescriptor)
     else Reflect.deleteProperty(HTMLElement.prototype, "scrollTo")
+  })
+
+  it("queues one changed scroll delivery after synchronous writes and ignores no-op writes", () => {
+    auditState.events = events(50)
+    const { renderer } = renderModal()
+    act(() => vi.advanceTimersByTime(500))
+    const root = renderer.getByTestId("activity-body")
+    const delivered = vi.fn(() => root.scrollTop)
+    root.addEventListener("scroll", delivered)
+    act(() => {
+      root.scrollTo({ top: 100 })
+      root.scrollTo({ top: 120 })
+      expect(root.scrollTop).toBe(120)
+      expect(delivered).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(0)
+    })
+    expect(delivered).toHaveBeenCalledOnce()
+    expect(delivered.mock.results[0].value).toBe(120)
+    act(() => { root.scrollTo({ top: 120 }); vi.advanceTimersByTime(0) })
+    expect(delivered).toHaveBeenCalledOnce()
   })
 
   it("uses the resizable 672px shared shell and its one dismissal callback", () => {
@@ -526,7 +552,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(fetchNextPage).not.toHaveBeenCalled()
     const root = renderer.getByTestId("activity-body")
     expect(renderer.container.querySelector("[data-activity-sticky-date]")).toBeInTheDocument()
-    act(() => root.scrollTo({ top: 340 }))
+    act(() => { root.scrollTo({ top: 340 }); vi.advanceTimersByTime(0) })
     expect(root.scrollTop).toBeGreaterThan(160)
     expect(fetchNextPage).toHaveBeenCalledOnce()
     expect(fetchNextPage).toHaveBeenCalledWith({ cancelRefetch: false })
@@ -616,8 +642,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
     { crossDay: false, offset: 80, measuredHeight: 33 },
     { crossDay: true, offset: 0, measuredHeight: 33 },
     { crossDay: true, offset: 80, measuredHeight: 33 },
-  ])("keeps event Y with deferred scroll events at $offset, cross-day $crossDay, measured $measuredHeight", ({ crossDay, offset, measuredHeight }) => {
-    deferScrollEvents = true
+  ])("keeps event Y independently of pending Query completion at $offset, cross-day $crossDay, measured $measuredHeight", ({ crossDay, offset, measuredHeight }) => {
     auditState.events = events(50)
     for (const item of auditState.events) rowHeights.set(item.id, measuredHeight)
     const { renderer } = renderModal()
@@ -645,7 +670,6 @@ describe("BotActivityModal CommunitySheet contract", () => {
 
 
   it("updates the visible date at a payload boundary before the native range changes", () => {
-    deferScrollEvents = true
     auditState.events = [...events(10), ...events(40, "2026-08-28").map(item => ({ ...item, id: `next-${item.id}` }))]
     const { renderer } = renderModal()
     act(() => vi.advanceTimersByTime(500))

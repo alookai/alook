@@ -4,6 +4,8 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } f
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
+import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
+import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
 import { AgentAvatar } from "@/components/avatar"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
@@ -74,7 +76,7 @@ export function BotActivityModal({
   const notifyVisibleDate = useCallback(() => visibleDateListener.current?.(), [])
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const virtualizer = useVirtualizer({
-    directDomUpdates: true,
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     onChange: notifyVisibleDate,
     count: chronological.length,
     getScrollElement: () => scrollRoot,
@@ -114,14 +116,14 @@ export function BotActivityModal({
     return chronological[item?.index ?? 0]?.createdAt ?? ""
   }, [virtualizer, dateAfter, chronological])
   const visibleDate = useSyncExternalStore(subscribeVisibleDate, getVisibleDate, getVisibleDate)
-  const virtualItems = virtualizer.getVirtualItems()
   const loadOlder = useCallback(() => {
     void fetchNextPage({ cancelRefetch: false })
   }, [fetchNextPage])
   useVirtualCursorPagination({
     virtualizer,
     count: chronological.length,
-    enabled: open && initialized && Boolean(scrollRoot?.clientHeight),
+    enabled: open && initialized && Boolean(scrollRoot?.clientHeight)
+      && Math.abs((virtualizer.scrollOffset ?? 0) - (scrollRoot?.scrollTop ?? 0)) <= 1,
     hasMore: hasNextPage,
     isFetching: isFetching || isFetchingNextPage,
     isError: isFetchNextPageError,
@@ -173,33 +175,24 @@ export function BotActivityModal({
       ) : chronological.length === 0 ? (
         <EmptyState />
       ) : (
-        <div ref={virtualizer.containerRef} style={{ position: "relative", width: "100%" }}>
+        <VirtualRows
+          items={chronological}
+          virtualizer={virtualizer}
+          getRowAttributes={(event, index) => ({
+            "data-activity-row-key": getItemKey(index),
+            "data-activity-event-id": event.id,
+          })}
+          renderItem={(event, index) => (
+            <>
+              <BotActivityRow event={event} />
+              {dateAfter[index] && <DayDivider date={dateAfter[index]} />}
+            </>
+          )}
+        >
           <div className="sticky top-0 z-10" data-activity-sticky-date={dayKey(visibleDate)}>
             <DayDivider date={visibleDate} />
           </div>
-          {virtualItems.map((virtualRow) => {
-            const event = chronological[virtualRow.index]
-            const nextDate = dateAfter[virtualRow.index]
-            return (
-              <div
-                key={virtualRow.key}
-                ref={virtualizer.measureElement}
-                data-index={virtualRow.index}
-                data-activity-row-key={virtualRow.key}
-                data-activity-event-id={event.id}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                }}
-              >
-                <BotActivityRow event={event} />
-                {nextDate && <DayDivider date={nextDate} />}
-              </div>
-            )
-          })}
-        </div>
+        </VirtualRows>
       )}
     </CommunitySheet>
   )
