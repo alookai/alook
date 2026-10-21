@@ -11,6 +11,7 @@ export function VirtualRows<T>({
   renderItem,
   rowRole,
   reactLayout = false,
+  directDomUpdatesMode = "transform",
   children,
   getRowAttributes,
 }: {
@@ -19,6 +20,7 @@ export function VirtualRows<T>({
   renderItem: (item: T, index: number) => ReactNode
   rowRole?: "listitem"
   reactLayout?: boolean
+  directDomUpdatesMode?: "transform" | "position"
   children?: ReactNode
   getRowAttributes?: (item: T, index: number) => Record<`data-${string}`, string | number | undefined>
 }) {
@@ -43,7 +45,7 @@ export function VirtualRows<T>({
             ref={virtualizer.measureElement}
             style={{
               position: "absolute",
-              top: 0,
+              ...(reactLayout || directDomUpdatesMode === "transform" ? { top: 0 } : {}),
               left: 0,
               width: "100%",
               ...(reactLayout ? { transform: `translate3d(0, ${virtualRow.start - virtualizer.options.scrollMargin}px, 0)` } : {}),

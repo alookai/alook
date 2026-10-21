@@ -37,6 +37,7 @@ import {
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
+const FORUM_VIRTUALIZER_DOM_MODE = "position"
 
 export function shouldActivateForumRow(event: {
   key: string
@@ -187,6 +188,7 @@ export function ForumView({
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    directDomUpdatesMode: FORUM_VIRTUALIZER_DOM_MODE,
     count: posts.length,
     getScrollElement: () => scrollRef.current,
     estimateSize,
@@ -331,6 +333,7 @@ export function ForumView({
         ) : (
           <>
             <VirtualRows
+              directDomUpdatesMode={FORUM_VIRTUALIZER_DOM_MODE}
               items={posts}
               virtualizer={virtualizer}
               renderItem={(p, index) => {

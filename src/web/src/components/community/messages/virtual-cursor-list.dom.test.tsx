@@ -7,8 +7,9 @@ import { VirtualRows } from "./virtual-cursor-list"
 
 const items = Array.from({ length: 100 }, (_, index) => `row-${index}`)
 
-function List({ direct, ready }: {
+function List({ direct, mode, ready }: {
   direct: boolean
+  mode: "transform" | "position"
   ready: (virtualizer: ReactVirtualizer<HTMLDivElement, Element>) => void
 }) {
   const root = useRef<HTMLDivElement>(null)
@@ -27,6 +28,7 @@ function List({ direct, ready }: {
   const virtualizer = useVirtualizer<HTMLDivElement, Element>({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     directDomUpdates: direct,
+    directDomUpdatesMode: mode,
     count: items.length,
     getScrollElement: () => root.current,
     getItemKey: (index) => items[index],
@@ -41,6 +43,7 @@ function List({ direct, ready }: {
       items,
       virtualizer,
       reactLayout: !direct,
+      directDomUpdatesMode: mode,
       getRowAttributes: (item) => ({ "data-row-id": item }),
       renderItem: (item) => item,
     }, createElement("div", { "data-testid": "sticky-date" }, "Today")),
@@ -52,10 +55,14 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks() })
 
-describe.each([true, false])("native row shell with direct geometry=%s", (direct) => {
+describe.each([
+  { direct: true, mode: "transform" as const },
+  { direct: true, mode: "position" as const },
+  { direct: false, mode: "transform" as const },
+])("native row shell with direct geometry=$direct, mode=$mode", ({ direct, mode }) => {
   it("mounts the loaded range in the scroll dispatch and measures the visible client viewport", () => {
     let native!: ReactVirtualizer<HTMLDivElement, Element>
-    const view = render(createElement(List, { direct, ready: (instance) => { native = instance } }))
+    const view = render(createElement(List, { direct, mode, ready: (instance) => { native = instance } }))
     const root = view.getByTestId("viewport")
     expect(native.scrollRect).toEqual({ width: 320, height: 120 })
     expect(view.getByTestId("sticky-date").parentElement).toBe(root.firstElementChild)
@@ -66,8 +73,23 @@ describe.each([true, false])("native row shell with direct geometry=%s", (direct
       const row = root.querySelector<HTMLElement>('[data-row-id="row-25"]')
       expect(row).not.toBeNull()
       expect(row!.dataset.index).toBe("25")
-      expect(row!.style.transform).toBe("translate3d(0, 1032px, 0)")
+      if (direct && mode === "position") {
+        expect(row!.style.transform).toBe("")
+        expect(row!.style.top).toBe("1032px")
+      } else {
+        expect(row!.style.transform).toBe("translate3d(0, 1032px, 0)")
+      }
     })
     expect(root.firstElementChild).toHaveStyle({ height: "4032px" })
+    const row = root.querySelector<HTMLElement>('[data-row-id="row-26"]')!
+    act(() => { native.resizeItem(25, 80) })
+    expect(root.querySelector('[data-row-id="row-26"]')).toBe(row)
+    if (direct && mode === "position") {
+      expect(row.style.top).toBe("1112px")
+      expect(row.style.transform).toBe("")
+    } else {
+      expect(row.style.transform).toBe("translate3d(0, 1112px, 0)")
+    }
+    expect(root.firstElementChild).toHaveStyle({ height: "4072px" })
   })
 })
