@@ -1,7 +1,23 @@
 import { readFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
-import { expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
+
+vi.mock("@next/mdx", () => ({ default: () => (config: unknown) => config }))
+vi.mock("@opennextjs/cloudflare", () => ({ initOpenNextCloudflareForDev: vi.fn() }))
+vi.mock("node:module", async importOriginal => {
+  const original = await importOriginal<typeof import("node:module")>()
+  const build = await import("../../src/lib/observability/build")
+  return {
+    ...original,
+    createRequire: (filename: Parameters<typeof original.createRequire>[0]) => {
+      const require = original.createRequire(filename)
+      return Object.assign((id: string) => id === "../src/lib/observability/build.ts" ? build : require(id), require)
+    },
+  }
+})
+
+afterEach(() => { vi.unstubAllEnvs(); vi.resetModules() })
 
 function loadBuildConfigs(mode: string, source: string) {
   const output = execFileSync(process.execPath, ["-e", `
@@ -44,4 +60,21 @@ it.each([
   for (const config of loadBuildConfigs(mode, source)) {
     expect(config.env).toMatchObject({ NEXT_PUBLIC_FARO_RELEASE: release, NEXT_PUBLIC_FARO_ENVIRONMENT: environment })
   }
+})
+
+it.each([
+  { mode: "production", source: "a".repeat(40), release: "a".repeat(40), environment: "production" },
+  { mode: "test", source: "", release: "", environment: "" },
+])("executes the real Blog configuration with the shared resolver for $mode", async ({ mode, source, release, environment }) => {
+  vi.stubEnv("NODE_ENV", mode)
+  vi.stubEnv("WORKERS_CI_COMMIT_SHA", source)
+  vi.stubEnv("CF_PAGES_COMMIT_SHA", "")
+  vi.stubEnv("GITHUB_SHA", "")
+  vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", "c".repeat(40))
+  vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", "qa")
+  const { default: loadConfig } = await import("../next.config")
+  const config = await loadConfig()
+  const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"))
+  expect(config.env).toMatchObject({ NEXT_PUBLIC_APP_VERSION: pkg.version, NEXT_PUBLIC_FARO_RELEASE: release, NEXT_PUBLIC_FARO_ENVIRONMENT: environment })
+  expect(config.assetPrefix).toBe("/blog-static")
 })
