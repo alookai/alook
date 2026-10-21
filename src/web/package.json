@@ -49,6 +49,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
+    "@grafana/faro-transport-otlp-http": "2.12.1",
     "@grafana/faro-web-sdk": "2.12.1",
     "@grafana/faro-web-tracing": "2.12.1",
     "@gsap/react": "^2.1.2",

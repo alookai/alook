@@ -22,6 +22,7 @@ afterEach(async () => {
 })
 
 it("retains real ready time before a delayed SDK and records each later route once through native Faro", async () => {
+  vi.spyOn(document, "readyState", "get").mockReturnValue("loading")
   vi.useFakeTimers(); sessionStorage.clear()
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
   vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", undefined); vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", undefined)

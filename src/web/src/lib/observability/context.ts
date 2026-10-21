@@ -1,11 +1,11 @@
 import { isSpanContextValid, type Span, type HrTime, type Link, context, trace } from "@opentelemetry/api"
-import { recordDocumentTiming } from "./document-timing"
+import { documentTimingAttributes, recordDocumentTiming } from "./document-timing"
 import { observationTime, observationOrigin, observationOwnerGeneration, retireObservationSpan } from "./clock"
 import { routeTemplate, actionNames } from "./coverage"
 import { emitTelemetry, isTelemetryEligible, isNativeSessionContinuation, telemetryGeneration, notifyObservation, linkQueuedActionTrace } from "./telemetry"
 import { cleanAttributes, type Attributes } from "./schema"
 
-export type Action = { id: string; navigationId?: string; navigationKind?: "document" | "route"; name: string; route: string; start: number; origin: number; generation: number; done: boolean; end?: number; outcome?: Attributes["outcome"]; span?: Span; timer?: ReturnType<typeof setTimeout>; prefetch?: Action; parent?: Action; pageId?: string }
+export type Action = { id: string; navigationId?: string; navigationKind?: "document" | "document_observation" | "route"; documentFields?: Attributes; name: string; route: string; start: number; origin: number; generation: number; done: boolean; end?: number; outcome?: Attributes["outcome"]; span?: Span; timer?: ReturnType<typeof setTimeout>; prefetch?: Action; parent?: Action; pageId?: string }
 let makeSpan: ((name: string, attributes: Record<string, string>, startTime: HrTime, links: Link[], parent?: Span) => Span | undefined) | undefined
 const live = new Set<Action>()
 const deferred = new Set<Action | PageOperation>()
@@ -43,7 +43,7 @@ export function installActionSpans(factory: typeof makeSpan) {
     if (action.done && action.end !== undefined) {
       const outcome = cleanAttributes({ outcome: action.outcome }).outcome
       if (outcome !== undefined) { try { span?.setAttribute("outcome", outcome) } catch {} }
-      if (action.navigationKind === "document") { try { recordDocumentTiming(span, action.origin, action.end) } catch {} }
+      if (action.navigationKind === "document" || action.navigationKind === "document_observation") { try { recordDocumentTiming(span, action.origin, action.end, action.start) } catch {} }
       try { span?.end(observationTime(action.end, action.origin)) } catch {}
     }
   }
@@ -54,7 +54,14 @@ export function startAction(name: string, attributes: Attributes = {}, start = p
   if (live.size >= 64) finishAction(live.values().next().value, "cancelled")
   const parent = name === "navigation" ? undefined : currentPageObservation()
   const action: Action = { id: telemetryId(), name, route: String(attributes.route_template ?? currentRoute()), start, origin: parent?.origin ?? observationOrigin(), generation: telemetryGeneration(), done: false, prefetch: sourcePrefetch, parent, pageId: parent?.navigationId }
-  if (name === "navigation") { action.navigationId = telemetryId(); action.navigationKind = attributes.navigation_kind === "document" ? "document" : "route" }
+  if (name === "navigation") {
+    action.navigationId = telemetryId()
+    action.navigationKind = attributes.navigation_kind === "document" ? "document" : attributes.navigation_kind === "document_observation" ? "document_observation" : "route"
+    if (action.navigationKind !== "route") {
+      const observedAt = performance.now()
+      action.documentFields = { ...documentTimingAttributes(observedAt), observation_start_ms: observedAt }
+    }
+  }
   const fields = actionAttributes(action)
   try { action.span = parent && !parent.span ? undefined : makeSpan?.(name, cleanAttributes(fields), observationTime(action.start, action.origin), actionLinks(action), parent?.span)
     if (action.span) action.parent = undefined } catch {}
@@ -82,12 +89,13 @@ function actionLinks(action: Action): Link[] {
 export function actionAttributes(action?: Action): Attributes {
   let span
   try { span = action?.span?.spanContext() } catch {}
-  return action ? { trace_id: span?.traceId, span_id: span?.spanId, action_id: action.id, navigation_id: action.navigationId, page_id: action.pageId ?? action.navigationId, navigation_kind: action.navigationKind, prefetch_action_id: action.prefetch?.id, action_name: action.name, route_template: action.route, start_ms: action.start, observation_origin_ms: action.origin, clock_source: "operation_monotonic", clock_domain: "browser", clock_alignment: "unverified" } : {}
+  return action ? { ...action.documentFields, trace_id: span?.traceId, span_id: span?.spanId, action_id: action.id, navigation_id: action.navigationId, page_id: action.pageId ?? action.navigationId, navigation_kind: action.navigationKind, prefetch_action_id: action.prefetch?.id, action_name: action.name, route_template: action.route, start_ms: action.start, observation_origin_ms: action.origin, clock_source: "operation_monotonic", clock_domain: "browser", clock_alignment: "unverified" } : {}
 }
 export function finishAction(action: Action | undefined, outcome: Attributes["outcome"], fields: Attributes = {}) {
   if (!action || action.done) return
   action.done = true
   action.end = performance.now()
+  if (action.documentFields) action.documentFields = { ...action.documentFields, ...documentTimingAttributes(action.end), observed_duration_ms: action.end - Number(action.documentFields.observation_start_ms) }
   action.outcome = outcome
   clearTimeout(action.timer)
   live.delete(action)
@@ -96,15 +104,16 @@ export function finishAction(action: Action | undefined, outcome: Attributes["ou
     emitTelemetry("action.finish", attributes)
     if (action.navigationId && outcome === "success" && fields.phase === "primary") {
       if (action === navigation) { page = action; pageHref = navigationHref }
-      emitTelemetry("navigation.ready", attributes)
+      emitTelemetry(action.navigationKind === "document_observation" ? "document.observed" : "navigation.ready", attributes)
     }
     const safeOutcome = cleanAttributes({ outcome }).outcome
     if (safeOutcome !== undefined) {
       try { action.span?.setAttribute("outcome", safeOutcome) } catch {}
     }
     try { action.span?.setAttribute("clock_skew_ms", Math.abs(observationOrigin() - action.origin)) } catch {}
+    if (action.documentFields) for (const [key, value] of Object.entries(cleanAttributes(action.documentFields))) { try { action.span?.setAttribute(key, value) } catch {} }
   }
-  if (action.navigationKind === "document") { try { recordDocumentTiming(action.span, action.origin, action.end) } catch {} }
+  if (action.navigationKind === "document" || action.navigationKind === "document_observation") { try { recordDocumentTiming(action.span, action.origin, action.end, action.start) } catch {} }
   try { action.span?.end(observationTime(action.end, action.origin)) } catch {}
   if (action === navigation) notifyObservation()
 }
@@ -112,8 +121,11 @@ export function startRegionObservation(action: Action | undefined, region: Attri
   if (!action || action.done) return
   return startPageOperation("region.wait", { region, phase: "commit", source: "unknown", ...evidence }, action)
 }
-export function finishRegionObservation(operation: PageOperation | undefined, action: Action | undefined, outcome: Attributes["outcome"]) {
-  if (!action || operation?.page !== action) return
+export function finishRegionObservation(operation: PageOperation | undefined, action: Action | undefined, outcome: Attributes["outcome"], releaseReason: Attributes["release_reason"] = "unknown") {
+  if (!action || operation?.page !== action || operation.done) return
+  operation.fields = { ...operation.fields, release_reason: releaseReason }
+  const value = cleanAttributes({ release_reason: releaseReason }).release_reason
+  if (value) { try { operation.span?.setAttribute("release_reason", value) } catch {} }
   finishPageOperation(operation, outcome)
 }
 export function clearActions() {
@@ -143,7 +155,7 @@ export function beginNavigationPrefetch(href: string) {
 export function prefetchForHref(href: string) {
   return prefetch?.generation === telemetryGeneration() && prefetchHref === normalizedHref(href) ? prefetch : undefined
 }
-export function beginNavigation(href: string, phase: "intent" | "transport" | "gesture" | "document" = "intent") {
+export function beginNavigation(href: string, phase: "intent" | "transport" | "gesture" | "document" | "document_observation" = "intent") {
   if (!isTelemetryEligible()) return
   const target = normalizedHref(href)
   if (!target) return
@@ -153,13 +165,14 @@ export function beginNavigation(href: string, phase: "intent" | "transport" | "g
     return navigation
   }
   finishAction(navigation, "superseded")
-  navigation = startAction("navigation", { route_template: routeTemplate(href, typeof window === "undefined" ? "https://alook.ai" : window.location.origin), navigation_kind: phase === "document" ? "document" : "route" }, phase === "document" ? 0 : performance.now(), prefetchForHref(href))
+  const documentVisit = phase === "document" || phase === "document_observation"
+  navigation = startAction("navigation", { route_template: routeTemplate(href, typeof window === "undefined" ? "https://alook.ai" : window.location.origin), navigation_kind: documentVisit ? phase : "route" }, phase === "document" ? 0 : performance.now(), prefetchForHref(href))
   if (navigation?.prefetch) finishAction(navigation.prefetch, "observed")
   if (!navigation) return
   navigationHref = target
-  if (phase === "document") { page = navigation; pageHref = target }
+  if (documentVisit) { page = navigation; pageHref = target }
   gesturePending = phase === "gesture"
-  emitTelemetry("navigation.intent", { ...actionAttributes(navigation), phase: phase === "document" ? "hydrate" : phase === "gesture" ? "intent" : phase, request_reason: "router" })
+  emitTelemetry("navigation.intent", { ...actionAttributes(navigation), phase: documentVisit ? "hydrate" : phase === "gesture" ? "intent" : phase, request_reason: "router" })
   notifyObservation()
   return navigation
 }

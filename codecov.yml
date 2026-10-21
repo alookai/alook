@@ -23,6 +23,7 @@ coverage:
         threshold: 0%
 
 ignore:
+  - "src/observability/public/vendor/**"
   - "src/web/src/components/home/**"
   - "src/web/scripts/**"
   - "src/web/readme-capture/**"

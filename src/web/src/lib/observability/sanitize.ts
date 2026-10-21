@@ -59,7 +59,7 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string,
         const safeEvents = rawEvents.flatMap(raw => {
           const event = record(raw), timeUnixNano = nano(event.timeUnixNano)
           const qualifiedResource = fields.resource_status === "matched" && fields.network_event_source === "resource_identity" && networkEvents.has(String(event.name))
-          const qualifiedDocument = fields.navigation_kind === "document" && fields.network_event_source === "document_navigation" && ["matched", "partial"].includes(String(fields.document_timing)) && documentEvents.has(String(event.name))
+          const qualifiedDocument = ["document", "document_observation"].includes(String(fields.navigation_kind)) && fields.network_event_source === "document_navigation" && ["matched", "partial"].includes(String(fields.document_timing)) && documentEvents.has(String(event.name)) && timeUnixNano !== undefined && BigInt(timeUnixNano) >= BigInt(startTimeUnixNano) && BigInt(timeUnixNano) <= BigInt(endTimeUnixNano)
           return (qualifiedResource || qualifiedDocument) && timeUnixNano
             ? [{ name: String(event.name), timeUnixNano, attributes: [], droppedAttributesCount: count(event.droppedAttributesCount) + array(event.attributes).length }] : []
         })

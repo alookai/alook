@@ -347,6 +347,7 @@ jobs:
               scripts/ci) projects=(ci-scripts) ;;
               src/email-worker) projects=(email-worker-node email-worker-runtime) ;;
               src/queue-worker) projects=(queue-worker-node queue-worker-runtime) ;;
+              src/observability) projects=(observability-node observability-runtime) ;;
               src/web) projects=(web-node web-dom web-runtime auth-node auth-runtime) ;;
               src/ws-do) projects=(ws-do-node ws-do-runtime) ;;
               *) projects=("$(node -e 'console.log(require("./" + process.argv[1] + "/package.json").name)' "$root")") ;;

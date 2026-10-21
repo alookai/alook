@@ -27,7 +27,9 @@ export function MessageList({
   }
   const controller = useMessageListController(resolvedProps)
   const visible = visibleVirtualItems(controller.virtualizer).flatMap(item => { const row = controller.items[item.index]; return row?.kind === "message" ? [row.m] : [] })
-  useObservedRegion("messages", controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive && !resolvedProps.initialLoadError && (!props.messages.length || visible.length > 0), visible.length, { ...props.observation, wait_reason: props.observation?.wait_reason === "none" && !(controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive) ? "position" : props.observation?.wait_reason })
+  const contentReady = controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive
+  const virtualWindowReady = !props.messages.length || visible.length > 0
+  useObservedRegion("messages", contentReady && !resolvedProps.initialLoadError && virtualWindowReady, visible.length, { ...props.observation, wait_reason: props.observation?.wait_reason === "none" ? !contentReady ? "render" : !virtualWindowReady ? "virtual_window" : "none" : props.observation?.wait_reason })
   const footerSlot = useConversationFooterSlot()
   const setSelectionActive = footerSlot?.setSelectionActive
   useLayoutEffect(() => {

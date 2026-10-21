@@ -1,6 +1,8 @@
 import React from "react"
 import { renderToString } from "react-dom/server"
-import { QueryClientProvider } from "@tanstack/react-query"
+import { QueryClientProvider, useQuery } from "@tanstack/react-query"
+import { ROOT_CONTEXT, trace } from "@opentelemetry/api"
+import { InMemorySpanExporter, SimpleSpanProcessor, WebTracerProvider } from "@opentelemetry/sdk-trace-web"
 import { CommunityDbProvider, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { act, fireEvent, screen } from "@/test/react-dom-harness"
 import { renderCommunity as render, renderCommunityHook } from "@/test/community-owner-harness"
@@ -15,6 +17,9 @@ import type { ConversationNavigationTarget } from "@/lib/community/conversation-
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { runAuthoritativeServerEject } from "@/lib/community/eject-server"
 import ServerLayout from "@/app/c/channels/layout"
+import { beginNavigation, clearActions, installActionSpans } from "@/lib/observability/context"
+import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
+import { useObservedRegion } from "@/lib/observability/regions"
 import { channelSchema } from "@/lib/community-db/schema"
 import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
 
@@ -1808,5 +1813,227 @@ describe("ChannelRoute message surface ownership", () => {
       )
     })
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
+  })
+
+  describe("route-entry observations", () => {
+    let provider: WebTracerProvider
+    let exporter: InMemorySpanExporter
+    let now: number
+    let events: string[]
+
+    beforeEach(() => {
+      now = 100
+      events = []
+      mockSearchParams.value = ""
+      window.history.replaceState(null, "", "/c/channels/server_1/channel_1")
+      vi.spyOn(performance, "now").mockImplementation(() => now)
+      exporter = new InMemorySpanExporter()
+      provider = new WebTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+      configureTelemetry({ session_id: "route-entry" }, true)
+      installTelemetrySink(event => events.push(event.name))
+      installActionSpans((name, attributes, startTime, links, parent) => provider.getTracer("alook.frontend").startSpan(name, { attributes, startTime, links }, parent ? trace.setSpan(ROOT_CONTEXT, parent) : ROOT_CONTEXT))
+    })
+
+    afterEach(async () => {
+      retireTelemetry()
+      clearActions()
+      installActionSpans(undefined)
+      vi.mocked(useChannelRouteModel).mockImplementation(() => mockRouteModel as ReturnType<typeof useChannelRouteModel>)
+      mockedMessageList.mockImplementation(() => null)
+      mockedForumChannelSurface.mockImplementation(() => null)
+      window.history.replaceState(null, "", "/")
+      await provider.shutdown()
+    })
+
+    function retainedRoute(subtype: "text" | "forum" = "text") {
+      const registry = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
+      const parent = { ...mockRouteModel, isForum: subtype === "forum", channel: { id: "channel_1", name: "Parent", type: subtype } }
+      const child = { ...mockRouteModel, channel: null, parent: parent.channel,
+        currentChannelMeta: { id: "child_1", name: "Thread", parentChannelId: "channel_1", parentMessageId: "opener_1", creatorId: "viewer_1" },
+        routeLifecycle: "pending", routeHydrated: false, isChild: true, isNotifyUnit: true, skeletonSubtype: "thread",
+        layoutHint: { subtype: "thread", parentChannelId: "channel_1", parentSubtype: subtype },
+      }
+      vi.mocked(useChannelRouteModel).mockImplementation((_server, _param, id) => (id === "channel_1" ? parent : child) as ReturnType<typeof useChannelRouteModel>)
+      const base = conversationEntryFixture().channel
+      registry.collections.channels.utils.writeUpsert([
+        channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", type: subtype, muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+        channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+      ])
+      mockBreakpoint.value = "mobile"
+      mockedUseChannelMessageFeed.mockReturnValue(feed())
+      return { parent, node: (id: string, committed = true) => React.createElement(ChannelRoute, {
+        serverParam: "server_1", channelId: id, routeCommitted: committed,
+      }) }
+    }
+
+    it.each(["text", "forum"] as const)("does not let a retained inactive %s descendant finish the current same-href navigation", subtype => {
+      const { node } = retainedRoute(subtype)
+      mockedMessageList.mockImplementation(function ObservedList() {
+        useObservedRegion("messages", true, 1)
+        return React.createElement("p", { "data-testid": "retained-observation" }, "Cached messages")
+      })
+      mockedForumChannelSurface.mockImplementation(function ObservedForum() {
+        useObservedRegion("forum", true, 1)
+        return React.createElement("p", { "data-testid": "retained-observation" }, "Cached posts")
+      })
+      mockCurrentChannelId.value = "child_1"
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(node("child_1", false))
+      expect(window.location.pathname).toBe("/c/channels/server_1/channel_1")
+      expect(screen.getByTestId("retained-observation").closest('[data-mobile-page-active="false"]')).toHaveAttribute("inert")
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("region.ready_commit")
+      expect(events).not.toContain("navigation.ready")
+      view.unmount()
+      expect(exporter.getFinishedSpans().filter(span => span.name === "region.wait")).toHaveLength(0)
+    })
+
+    it("does not start an entry wait in an inactive retained skeleton with routeCommitted=true", () => {
+      const { parent, node } = retainedRoute()
+      Object.assign(parent, { routeLifecycle: "pending", routeHydrated: false, skeletonSubtype: "text" })
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(node("child_1", false))
+      expect(view.container.querySelector('[data-mobile-page-active="false"] [aria-label="Loading conversation"]')).not.toBeNull()
+      view.unmount()
+      expect(exporter.getFinishedSpans().filter(span => span.name === "region.wait")).toHaveLength(0)
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("navigation.ready")
+    })
+
+    it("closes a retained wait once as hidden and preserves its DOM, draft and scroll through uncommitted resume", async () => {
+      const { node } = retainedRoute()
+      let ready = false
+      mockedMessageList.mockImplementation(function ObservedList() {
+        useObservedRegion("messages", ready, 1, { wait_reason: ready ? "none" : "window" })
+        return React.createElement("p", { "data-testid": "retained-list" }, ready ? "Ready" : "Waiting")
+      })
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(node("channel_1"))
+      const list = screen.getByTestId("retained-list")
+      const composer = view.container.querySelector<HTMLTextAreaElement>('[data-draft-key="server_1/channel_1"]')!
+      const pane = composer.closest<HTMLElement>('[data-community-target-href]')!
+      pane.scrollTop = 184
+      fireEvent.change(composer, { target: { value: "Retained observed draft" } })
+      mockCommitLastCommunityRoute.mockClear()
+      mockDismissConversation.mockClear()
+      now = 200
+      mockCurrentChannelId.value = "child_1"
+      view.rerender(node("child_1", false))
+      const waits = () => exporter.getFinishedSpans().filter(span => span.name === "region.wait")
+      expect(waits()).toMatchObject([
+        { attributes: { region: "messages", wait_reason: "window", release_reason: "hidden", outcome: "cancelled" }, duration: [0, 100000000] },
+      ])
+      now = 300
+      ready = true
+      view.rerender(node("child_1", false))
+      expect(screen.getByTestId("retained-list")).toBe(list)
+      expect(view.container.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+      expect(composer).toHaveValue("Retained observed draft")
+      expect(pane.scrollTop).toBe(184)
+      expect(waits()).toHaveLength(1)
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("region.ready_commit")
+      expect(events).not.toContain("navigation.ready")
+      now = 400
+      mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1", resume: true }
+      mockCurrentChannelId.value = "channel_1"
+      view.rerender(node("channel_1", false))
+      expect(screen.getByTestId("retained-list")).toBe(list)
+      expect(view.container.querySelector('[data-draft-key="server_1/channel_1"]')).toBe(composer)
+      expect(composer).toHaveValue("Retained observed draft")
+      expect(pane.scrollTop).toBe(184)
+      expect(waits()).toHaveLength(1)
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("region.ready_commit")
+      expect(events).not.toContain("navigation.ready")
+      expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+      expect(mockDismissConversation.mock.calls.every(call => call[2] === false)).toBe(true)
+      now = 500
+      view.rerender(node("channel_1"))
+      expect(screen.getByTestId("retained-list")).toBe(list)
+      expect(composer).toHaveValue("Retained observed draft")
+      expect(pane.scrollTop).toBe(184)
+      expect(navigation.done).toBe(true)
+      expect(events.filter(name => name === "region.ready_commit")).toHaveLength(1)
+      expect(events.filter(name => name === "navigation.ready")).toHaveLength(1)
+      expect(waits().map(span => [span.attributes.release_reason, span.attributes.outcome])).toEqual([["hidden", "cancelled"], ["ready", "success"]])
+      expect(mockCommitLastCommunityRoute).toHaveBeenCalledTimes(1)
+      expect(mockDismissConversation).toHaveBeenLastCalledWith("viewer_1", { kind: "server", serverId: "server_1", channelId: "channel_1" }, true)
+      view.unmount()
+      expect(waits()).toHaveLength(2)
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    })
+
+    it("measures the skeleton entry request before the list mounts, then waits for the actual list phases", async () => {
+      let release!: () => void
+      const response = new Promise<void>(resolve => { release = resolve })
+      vi.mocked(useChannelRouteModel).mockImplementation(function useEntryRouteModel() {
+        const entry = useQuery({ queryKey: ["route-entry-observation"], queryFn: async () => { await response; return true }, staleTime: Infinity })
+        return { ...mockRouteModel, routeHydrated: !entry.isPending, routeLifecycle: entry.isPending ? "pending" : "ready", skeletonSubtype: entry.isPending ? "unknown" : "text" } as ReturnType<typeof useChannelRouteModel>
+      })
+      let observedFeed = feed({ isLoading: true, observation: { wait_reason: "window", snapshot_source: "network", target_coverage: "uncovered" } })
+      mockedUseChannelMessageFeed.mockImplementation(() => observedFeed)
+      mockedMessageList.mockImplementation(function ObservedList(props) {
+        useObservedRegion("messages", !props.loading, props.messages.length, props.observation)
+        return React.createElement("p", null, props.loading ? "Waiting for messages" : "Ready messages")
+      })
+      const navigation = beginNavigation(window.location.href)!
+      const node = () => React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" })
+      const view = render(node())
+      expect(view.container.querySelector('[aria-label="Resolving conversation"]')).not.toBeNull()
+      expect(mockedMessageList).not.toHaveBeenCalled()
+      now = 3500
+      await act(async () => { release(); await vi.advanceTimersByTimeAsync(0) })
+      expect(mockedMessageList).toHaveBeenCalled()
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("region.ready_commit")
+      expect(events).not.toContain("navigation.ready")
+      now = 3520
+      observedFeed = feed({ isLoading: true, observation: { wait_reason: "projection", snapshot_source: "network", target_coverage: "covered" } })
+      view.rerender(node())
+      now = 3550
+      observedFeed = feed({ isLoading: true, observation: { wait_reason: "virtual_window", snapshot_source: "network", target_coverage: "covered" } })
+      view.rerender(node())
+      now = 3590
+      observedFeed = feed({ isLoading: false, observation: { wait_reason: "none", snapshot_source: "network", target_coverage: "covered" } })
+      view.rerender(node())
+      const waits = exporter.getFinishedSpans().filter(span => span.name === "region.wait")
+      expect(waits.map(span => [span.attributes.wait_reason, span.attributes.release_reason, span.attributes.outcome])).toEqual([
+        ["entry", "condition_changed", "superseded"], ["window", "condition_changed", "superseded"],
+        ["projection", "condition_changed", "superseded"], ["virtual_window", "ready", "empty"],
+      ])
+      expect(waits.map(span => span.duration[0] * 1000 + span.duration[1] / 1e6)).toEqual([3400, 20, 30, 40])
+      expect(new Set(waits.map(span => span.parentSpanContext?.spanId))).toEqual(new Set([navigation.span!.spanContext().spanId]))
+      expect(navigation.done).toBe(true)
+      expect(events.filter(name => name === "navigation.ready")).toHaveLength(1)
+      view.unmount()
+    })
+
+    it.each(["uncommitted", "other-target"])("does not observe a retained %s pane as a foreground entry", reason => {
+      Object.assign(mockRouteModel, { routeLifecycle: "pending", routeHydrated: false, skeletonSubtype: "text" })
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(React.createElement(ChannelRoute, {
+        serverParam: "server_1", channelId: reason === "other-target" ? "background-parent" : "channel_1", routeCommitted: reason !== "uncommitted",
+      }))
+      now = 3500
+      view.unmount()
+      expect(exporter.getFinishedSpans().filter(span => span.name === "region.wait")).toHaveLength(0)
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("navigation.ready")
+    })
+
+    it.each(["text", "thread", "forum"] as const)("cancels a %s skeleton wait on unmount without claiming content ready", subtype => {
+      if (subtype === "thread") configureThreadRoute()
+      Object.assign(mockRouteModel, { routeLifecycle: "pending", routeHydrated: false, skeletonSubtype: subtype })
+      const navigation = beginNavigation(window.location.href)!
+      const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+      now = 3500
+      view.unmount()
+      expect(exporter.getFinishedSpans().filter(span => span.name === "region.wait")).toMatchObject([
+        { attributes: { wait_reason: "entry", release_reason: "unmounted", outcome: "cancelled" }, duration: [3, 400000000] },
+      ])
+      expect(navigation.done).toBe(false)
+      expect(events).not.toContain("navigation.ready")
+    })
   })
 })

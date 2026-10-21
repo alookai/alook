@@ -1,4 +1,4 @@
-import type { Faro, FetchTransport } from "@grafana/faro-web-sdk"
+import type { Faro, Transport } from "@grafana/faro-web-sdk"
 import type { getDefaultOTELInstrumentations } from "@grafana/faro-web-tracing"
 import { isMobile, isTauri } from "@alook/shared"
 import { ANALYTICS_CONSENT_CHANGE_EVENT, hasAnalyticsConsent } from "../analytics-consent"
@@ -6,7 +6,7 @@ import { capabilityLimits, routeTemplate } from "./coverage"
 import { ROOT_CONTEXT } from "@opentelemetry/api"
 import { actionSequence, beginNavigation, clearActions, installActionSpans, telemetryId, currentPageObservation, actionAttributes, startPageOperation, finishPageOperation } from "./context"
 import { alignInitialTelemetrySession, configureTelemetry, emitTelemetry, installTelemetrySink, isTelemetryEligible, telemetryGeneration, reportTelemetryDrops, retireTelemetry } from "./telemetry"
-import { cleanAttributes } from "./schema"
+import { cleanAttributes, type Attributes } from "./schema"
 import { sanitizeItem } from "./sanitize"
 import { installLongTaskObserver } from "./browser"
 import { resolveCommunityModulePlan } from "../community/community-route"
@@ -15,28 +15,25 @@ import { resolveFrontendIdentity } from "./runtime"
 import { resolveObservationLabels } from "./build"
 import { finishTransportClock } from "./clock"
 import { observeResourceResponse } from "./resource"
+import { resolveTransportProfile } from "./transport-profile"
 
-type BuildProfile = { url?: string; environment?: string; release?: string; release_status: string; environment_status: string }
-function validBuildProfile(profile: BuildProfile) {
-  try {
-    const url = new URL(profile.url ?? "")
-    return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash
-  } catch { return false }
-}
-const build: BuildProfile = {
+const build = {
   url: process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL,
   ...resolveObservationLabels({ environment: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT, release: process.env.NEXT_PUBLIC_FARO_RELEASE }),
 }
+const destination = resolveTransportProfile(process.env.NODE_ENV, process.env.NEXT_PUBLIC_FARO_OTLP_ENDPOINT, build.url)
 let started = false
 let documentSuspended = false
 let faro: Faro | undefined
-let transport: FetchTransport | undefined
+let transport: Transport | undefined
 let controller: AbortController | undefined
 let sessionId = ""
 let load: Promise<void> | undefined
 let pendingReconcile = false
+type ActivationReason = "bootstrap" | "identity" | "consent" | "restore" | "retry"
+let pendingReason: ActivationReason = "bootstrap"
 let pendingInitialNavigation = false
-let makeTransport: (() => FetchTransport) | undefined
+let makeTransport: (() => Transport) | undefined
 let stopNavigationFetch: (() => void) | undefined
 let stopBrowser: (() => void) | undefined
 let documentVitalsEligible = hasAnalyticsConsent()
@@ -50,6 +47,20 @@ let mayResumeNativeSession = hasAnalyticsConsent()
 let clearNativeSession: (() => void) | undefined
 let httpInstrumentations: ReturnType<typeof getDefaultOTELInstrumentations> = []
 const pageId = telemetryId()
+let bootstrapAt: number | undefined
+let bootstrapState: DocumentReadyState | undefined
+let identityAt: number | undefined
+let identityState: DocumentReadyState | undefined
+
+function lifecycleFields(): Attributes {
+  return {
+    identity_status: identityEstablished ? "established" : "pending",
+    visibility: document.visibilityState,
+    ...(bootstrapAt !== undefined && bootstrapAt >= eligibleSince ? { bootstrap_ms: bootstrapAt, bootstrap_document_state: bootstrapState } : {}),
+    ...(identityAt !== undefined && identityAt >= eligibleSince ? { identity_ms: identityAt, identity_document_state: identityState } : {}),
+    document_ready_state: document.readyState,
+  }
+}
 
 function deactivate() {
   stopNavigationFetch?.()
@@ -69,24 +80,32 @@ function deactivate() {
 function configure() {
   configureTelemetry({ release: build.release, environment: build.environment, release_status: build.release_status, environment_status: build.environment_status, ...identity, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
 }
-async function activate() {
-  if (documentSuspended || !hasAnalyticsConsent() || !validBuildProfile(build)) return
+async function activate(reason: ActivationReason) {
+  if (documentSuspended || !hasAnalyticsConsent() || !destination) return
   const route = routeTemplate(window.location.href, window.location.origin)
   const communityOwner = (route === "/c" || route.startsWith("/c/")) && resolveCommunityModulePlan(window.location.pathname).route !== "public-invite"
   if (!identityEstablished && communityOwner) return
   const mayResume = mayResumeNativeSession
   sessionId = telemetryId()
+  const activationAt = performance.now()
   configure()
-  if (pendingInitialNavigation) { pendingInitialNavigation = false; beginNavigation(window.location.href, "document") }
+  if (pendingInitialNavigation) {
+    pendingInitialNavigation = false
+    beginNavigation(window.location.href, document.readyState === "complete" ? "document_observation" : "document")
+  }
+  emitTelemetry("observation.lifecycle", { ...actionAttributes(currentPageObservation()), ...lifecycleFields(), phase: "activation", activation_reason: reason, activation_ms: activationAt })
   const capturedSession = sessionId
-  const [{ initializeFaro, FetchTransport: NativeFetchTransport, getWebInstrumentations, InternalLoggerLevel, VolatileSessionsManager }, { getDefaultOTELInstrumentations: createHttp }, { ObservationTracingInstrumentation }] = await Promise.all([
+  const [{ initializeFaro, FetchTransport: NativeFetchTransport, getWebInstrumentations, InternalLoggerLevel, VolatileSessionsManager }, { getDefaultOTELInstrumentations: createHttp }, { ObservationTracingInstrumentation }, localTransport] = await Promise.all([
     import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing"), import("./clock-tracing"),
+    destination.kind === "otlp" ? import("@grafana/faro-transport-otlp-http") : undefined,
   ])
   clearNativeSession = () => VolatileSessionsManager.removeUserSession()
   if (documentSuspended || !hasAnalyticsConsent() || capturedSession !== sessionId || !isTelemetryEligible()) return
+  const sdkImportEnd = performance.now()
   mayResumeNativeSession = false
   makeTransport = () => {
     controller = new AbortController()
+    if (localTransport) return new localTransport.OtlpHttpTransport({ tracesURL: destination.urls[0], logsURL: destination.urls[1], bufferSize: 16, concurrency: 2, requestOptions: { signal: controller.signal, credentials: "omit" } })
     return new NativeFetchTransport({ url: build.url!, bufferSize: 16, concurrency: 2, retry: { maxAttempts: 2, initialBackoffMs: 1000, maxBackoffMs: 5000 }, requestTimeoutMs: 5000, requestOptions: { signal: controller.signal, credentials: "omit" } })
   }
   transport = makeTransport()
@@ -95,7 +114,7 @@ async function activate() {
     let storedScope: string | undefined
     try { storedScope = VolatileSessionsManager.fetchUserSession()?.sessionMeta?.attributes?.alook_account } catch { clearNativeSession() }
     if (!mayResume || storedScope !== accountScope) clearNativeSession()
-    httpInstrumentations = createHttp({ fetchInstrumentationOptions: { ignoreNetworkEvents: false, requestHook: observeTransportSpan, applyCustomAttributesOnSpan: (span, _request, result) => finishTransportSpan(span, result) }, xhrInstrumentationOptions: { ignoreNetworkEvents: false, applyCustomAttributesOnSpan: (span, xhr) => { finishTransportClock(span); observeResourceResponse(span, xhr.getResponseHeader("server-timing") ?? "") } }, ignoreUrls: [build.url!], propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
+    httpInstrumentations = createHttp({ fetchInstrumentationOptions: { ignoreNetworkEvents: false, requestHook: observeTransportSpan, applyCustomAttributesOnSpan: (span, _request, result) => finishTransportSpan(span, result) }, xhrInstrumentationOptions: { ignoreNetworkEvents: false, applyCustomAttributesOnSpan: (span, xhr) => { finishTransportClock(span); observeResourceResponse(span, xhr.getResponseHeader("server-timing") ?? "") } }, ignoreUrls: destination.urls, propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
     const defaults = getWebInstrumentations({ captureConsole: false, enableContentSecurityPolicyInstrumentation: false, enablePerformanceInstrumentation: true })
     const initialTransport = transport
     faro = initializeFaro({
@@ -109,7 +128,7 @@ async function activate() {
       pageTracking: { generatePageId: () => pageId },
       trackGeolocation: false,
       trackResources: true,
-      ignoreUrls: [build.url!],
+      ignoreUrls: destination.urls,
       webVitalsInstrumentation: { trackAttributionSources: false },
       batching: { enabled: true, itemLimit: 40, sendTimeout: 1000 },
       beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin, identity, eligibleTimestamp, documentVitalsEligible, eligibleTimestamp, eligibleSince) : null,
@@ -140,6 +159,7 @@ async function activate() {
     return otel?.trace.getTracer("alook.frontend").startSpan(name, { attributes, startTime, links }, parent ? otel.trace.setSpan(otel.context.active(), parent) : ROOT_CONTEXT)
   })
   connectSink()
+  emitTelemetry("observation.lifecycle", { ...actionAttributes(currentPageObservation()), ...lifecycleFields(), phase: "sdk_ready", activation_reason: reason, activation_ms: activationAt, sdk_import_end_ms: sdkImportEnd, sdk_ready_ms: performance.now() })
   stopNavigationFetch = installNavigationFetchContext()
   stopBrowser = installLongTaskObserver(eligibleSince)
   if (!documentVitalsEligible) emitTelemetry("telemetry.coverage", { capability: "limited", request_kind: "document", phase: "background" })
@@ -162,27 +182,29 @@ function adoptNativeSession(next: string) {
   eligibleSince = performance.now()
   eligibleTimestamp = Date.now()
   configure()
+  emitTelemetry("observation.lifecycle", { ...lifecycleFields(), activation_reason: "native_session", phase: "activation", activation_ms: eligibleSince })
   transport = makeTransport?.()
   if (transport) faro?.transports.add(transport)
   connectSink()
   if (faro) stopBrowser = installLongTaskObserver(eligibleSince)
   emitTelemetry("telemetry.coverage", { eligibility: "eligible", capability: "available", phase: "auth" })
 }
-function reconcile() {
+function reconcile(reason: ActivationReason = "retry") {
   if (documentSuspended) return
   if (!hasAnalyticsConsent()) { documentVitalsEligible = false; mayResumeNativeSession = false; clearNativeSession?.(); deactivate(); return }
-  if (load) { pendingReconcile = true; return }
+  if (load) { pendingReconcile = true; pendingReason = reason; return }
   if (isTelemetryEligible()) return
-  load = activate().catch(() => { deactivate() }).finally(() => {
+  load = activate(reason).catch(() => { deactivate() }).finally(() => {
     load = undefined
-    if (pendingReconcile) { pendingReconcile = false; reconcile() }
+    if (pendingReconcile) { pendingReconcile = false; reconcile(pendingReason) }
   })
 }
 export function setTelemetryUser(key: string | null) {
   const next = key && /^[a-zA-Z0-9_-]{8,64}$/.test(key) ? key : undefined
   const firstIdentity = !identityEstablished
   identityEstablished = true
-  if (userKey === next) { if (firstIdentity && started) reconcile(); return }
+  if (firstIdentity || userKey !== next) { identityAt = performance.now(); identityState = typeof document === "undefined" ? undefined : document.readyState }
+  if (userKey === next) { if (firstIdentity && started) reconcile("identity"); return }
   identityRevision++
   if (!firstIdentity || faro) { mayResumeNativeSession = false; clearNativeSession?.() }
   const wasEligible = isTelemetryEligible()
@@ -190,7 +212,7 @@ export function setTelemetryUser(key: string | null) {
   if (!firstIdentity) { eligibleSince = performance.now(); eligibleTimestamp = Date.now() }
   userKey = next
   sessionId = telemetryId()
-  if (wasEligible || hasAnalyticsConsent()) reconcile()
+  if (wasEligible || hasAnalyticsConsent()) reconcile("identity")
 }
 export function captureTelemetryIdentityRetirement() {
   const original = userKey, revision = identityRevision
@@ -199,9 +221,11 @@ export function captureTelemetryIdentityRetirement() {
 export function bootstrapObservability(nextSurface: "web" | "blog") {
   if (started || typeof window === "undefined") return
   started = true
+  bootstrapAt = performance.now()
+  bootstrapState = document.readyState
   identity = resolveFrontendIdentity(nextSurface, isTauri(), isMobile(), process.env.NEXT_PUBLIC_APP_VERSION)
-  pendingInitialNavigation = hasAnalyticsConsent() && validBuildProfile(build)
-  window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, () => { eligibleSince = performance.now(); eligibleTimestamp = Date.now(); if (!hasAnalyticsConsent()) pendingInitialNavigation = false; reconcile() })
+  pendingInitialNavigation = hasAnalyticsConsent() && !!destination
+  window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, () => { eligibleSince = performance.now(); eligibleTimestamp = Date.now(); if (!hasAnalyticsConsent()) pendingInitialNavigation = false; reconcile("consent") })
   window.addEventListener("popstate", () => { if (isTelemetryEligible()) beginNavigation(window.location.href) })
   document.addEventListener("visibilitychange", () => {
     if (isTelemetryEligible()) { reportTelemetryDrops("transport_failure"); emitTelemetry("telemetry.coverage", { visibility: document.visibilityState, capability: "limited" }) }
@@ -221,7 +245,7 @@ export function bootstrapObservability(nextSurface: "web" | "blog") {
     eligibleSince = performance.now()
     eligibleTimestamp = Date.now()
     deactivate()
-    reconcile()
+    reconcile("restore")
   }, { capture: true })
   document.addEventListener("click", event => {
     if (!isTelemetryEligible() || !(event.target instanceof Element)) return
@@ -238,7 +262,7 @@ export function bootstrapObservability(nextSurface: "web" | "blog") {
       })
     }
   }, { capture: true, passive: true })
-  reconcile()
+  reconcile("bootstrap")
 }
 export function onObservedRouterTransition(url: string) {
   if (isTelemetryEligible()) beginNavigation(url, "transport")

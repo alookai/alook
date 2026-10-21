@@ -379,6 +379,11 @@ describe("canonical execution plan", () => {
 })
 
 describe("coverage name-status contract", () => {
+  it("excludes pinned third-party viewer code while requiring owned receiver, adapter and lifecycle code", () => {
+    const own = ["src/observability/src/index.ts", "src/observability/public/viewer-adapter.js", "src/observability/scripts/managed.mjs"]
+    const result = plan([...own, "src/observability/public/vendor/trace-waterfall-viewer/src/ui.js"])
+    expect(result.coverage.required_changed_files).toEqual([...own].sort())
+  })
   it("excludes E2E support files according to Web's Vitest project boundary", () => {
     const webConfig = readFileSync("src/web/vitest.config.ts", "utf8")
     expect(webConfig).toContain('"src/test/e2e/**"')

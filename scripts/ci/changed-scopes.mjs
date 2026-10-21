@@ -28,6 +28,7 @@ const GLOBAL_PATHS = new Set([
 ])
 const KNOWN_PREFIXES = [".claude/", ".openai/", "docs/"]
 const COVERAGE_EXCLUDES = [
+  /^src\/observability\/public\/vendor\//,
   /(?:^|\/)\w[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$/,
   // Project/workspace configs execute before coverage instrumentation and are
   // excluded by Vitest itself; their behavior is enforced by contract tests.

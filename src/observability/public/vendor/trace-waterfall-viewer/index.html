@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Trace Waterfall Viewer</title>
+    <meta
+      name="description"
+      content="Open a distributed trace export and read it as an interactive waterfall. Runs entirely in the browser."
+    />
+    <link rel="stylesheet" href="./styles/app.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%232f6feb'/%3E%3Crect x='3' y='4' width='9' height='2' rx='1' fill='white'/%3E%3Crect x='5' y='7' width='7' height='2' rx='1' fill='white' opacity='.8'/%3E%3Crect x='7' y='10' width='5' height='2' rx='1' fill='white' opacity='.6'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">trace waterfall viewer</span>
+        <span class="badge" id="format-badge"></span>
+      </div>
+      <div class="summary" id="summary"></div>
+      <div class="actions">
+        <button id="btn-open" type="button">Open file</button>
+        <input
+          id="file-input"
+          type="file"
+          accept=".json,.ndjson,.jsonl,.log,application/json,text/plain"
+          hidden
+        />
+        <button id="btn-paste" type="button">Paste / demo</button>
+        <span class="sep" role="separator"></span>
+        <button id="btn-export-svg" type="button" title="Download the current view as SVG">SVG</button>
+        <button id="btn-export-png" type="button" title="Download the current view as PNG">PNG</button>
+        <button id="btn-copy-json" type="button" title="Copy a structure-only JSON summary">
+          Copy summary
+        </button>
+        <span class="sep" role="separator"></span>
+        <button id="btn-theme" type="button">theme: auto</button>
+        <button id="btn-help" type="button" aria-label="Keyboard shortcuts">?</button>
+      </div>
+    </header>
+
+    <main id="app" hidden>
+      <div class="toolbar">
+        <label class="field">
+          <span class="visually-hidden">Search spans</span>
+          <input
+            id="search"
+            type="search"
+            placeholder="Search name, service, attribute or id  (press / )"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </label>
+        <label class="field">
+          <span class="field-label">service</span>
+          <select id="service-filter" multiple size="3"></select>
+        </label>
+        <label class="check">
+          <input id="errors-only" type="checkbox" /> errors only <kbd>e</kbd>
+        </label>
+        <label class="check">
+          <input id="critical-only" type="checkbox" /> critical path only
+        </label>
+        <label class="check">
+          <input id="critical-toggle" type="checkbox" checked /> highlight critical path
+          <kbd>c</kbd>
+        </label>
+        <span id="match-count" class="muted small"></span>
+        <span class="spacer"></span>
+        <div class="btn-group">
+          <button id="btn-collapse-all" type="button" title="Collapse all subtrees">collapse</button>
+          <button id="btn-expand-all" type="button" title="Expand all subtrees">expand</button>
+          <button id="btn-zoom-out" type="button" title="Zoom out (-)">−</button>
+          <button id="btn-zoom-in" type="button" title="Zoom in (+)">+</button>
+          <button id="btn-zoom-reset" type="button" title="Fit the whole trace (0)">fit</button>
+        </div>
+      </div>
+
+      <div id="warnings" class="warnings" hidden></div>
+
+      <div class="minimap-wrap">
+        <canvas id="minimap" height="52" aria-label="Trace minimap"></canvas>
+      </div>
+
+      <div class="waterfall" id="waterfall">
+        <div class="wf-head">
+          <div class="wf-head-label">span</div>
+          <div class="axis" data-role="axis"></div>
+        </div>
+        <div class="grid" data-role="grid" aria-hidden="true"></div>
+        <div class="wf-body" data-role="viewport" tabindex="0">
+          <div data-role="spacer"></div>
+          <div class="rows" data-role="rows"></div>
+        </div>
+      </div>
+
+      <aside id="detail" class="detail" tabindex="-1" aria-label="Span detail"></aside>
+
+      <section id="stats" class="stats"></section>
+    </main>
+
+    <div id="welcome" class="welcome">
+      <div class="welcome-card">
+        <button id="welcome-close" class="welcome-close" type="button" aria-label="Close" hidden>
+          ×
+        </button>
+        <h1>Trace waterfall viewer</h1>
+        <p class="lede">
+          Drop a trace export anywhere on this page, pick a file, or paste JSON below. Everything —
+          parsing, layout, critical path analysis, image export — happens in this tab.
+          <strong>The file is never uploaded and there is no server to upload it to.</strong>
+        </p>
+
+        <div class="formats">
+          <span class="badge">OTLP/JSON</span>
+          <span class="badge">Jaeger JSON</span>
+          <span class="badge">Zipkin v2</span>
+          <span class="badge">collector file exporter (NDJSON)</span>
+          <span class="muted small">detected automatically</span>
+        </div>
+
+        <div class="welcome-cols">
+          <div>
+            <h2>Paste JSON</h2>
+            <textarea
+              id="paste-area"
+              rows="8"
+              spellcheck="false"
+              placeholder='{"resourceSpans":[ ... ]}'
+            ></textarea>
+            <button id="paste-load" class="primary" type="button">Render this trace</button>
+          </div>
+          <div>
+            <h2>Or start with a sample</h2>
+            <div id="demo-list" class="demo-list"></div>
+            <details id="shortcuts" class="shortcuts">
+              <summary>Keyboard shortcuts</summary>
+              <dl>
+                <dt><kbd>j</kbd> / <kbd>k</kbd></dt><dd>move down / up a row</dd>
+                <dt><kbd>h</kbd> / <kbd>l</kbd></dt><dd>collapse subtree / expand or descend</dd>
+                <dt><kbd>Enter</kbd></dt><dd>open the span detail panel</dd>
+                <dt><kbd>/</kbd></dt><dd>focus the search box</dd>
+                <dt><kbd>z</kbd></dt><dd>zoom the time axis to the selected span</dd>
+                <dt><kbd>+</kbd> / <kbd>−</kbd> / <kbd>0</kbd></dt><dd>zoom in / out / fit</dd>
+                <dt><kbd>e</kbd> / <kbd>c</kbd></dt><dd>errors only / critical path highlight</dd>
+                <dt><kbd>Esc</kbd></dt><dd>close popover, clear search</dd>
+              </dl>
+              <p class="muted small">
+                On the time axis: drag to pan, <kbd>Shift</kbd>+wheel to pan, <kbd>Ctrl</kbd>+wheel
+                or a horizontal wheel to zoom, double-click a row to zoom to that span. Drag inside
+                the minimap to pan, drag outside the window to select a range.
+              </p>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="drop-hint" class="drop-hint"><span>Drop the trace file to render it</span></div>
+    <div id="popover" class="popover" role="dialog" hidden></div>
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <script type="module">
+      import { start } from './src/ui.js';
+      start();
+    </script>
+    <noscript>
+      <p style="padding: 2rem">
+        This viewer runs entirely in the browser and needs JavaScript enabled.
+      </p>
+    </noscript>
+  </body>
+</html>

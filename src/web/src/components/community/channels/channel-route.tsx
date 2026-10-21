@@ -41,6 +41,7 @@ import { MobilePage } from "@/components/community/shell/mobile-page"
 import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
+import { ObservedRegionVisibility, useObservedRegion } from "@/lib/observability/regions"
 
 const THREAD_VIEW_PARAM = "threadView"
 
@@ -93,6 +94,7 @@ function ChannelRouteLayer({ serverParam, channelId, targetHref, routeCommitted 
   backgroundVisible?: boolean
   foreground?: boolean
 }) {
+  const active = useConversationActivity()
   const committedSearch = useSearchParams()
   const search = targetHref === undefined ? committedSearch.toString() : normalizeCommunityHref(targetHref).search
   const searchParams = useMemo(() => new URLSearchParams(search), [search])
@@ -121,7 +123,7 @@ function ChannelRouteLayer({ serverParam, channelId, targetHref, routeCommitted 
     routeModel={routeModel} anchorMessageId={anchorMessageId} currentUser={currentUser} />
   return <MobilePage active={foreground} backgroundVisible={backgroundVisible}
     parentPath={routeModel.layoutHint.parentChannelId ? channelHref(serverParam, routeModel.layoutHint.parentChannelId) : serverRootHref(serverParam)}>
-    {content}
+    <ObservedRegionVisibility visible={active && routeCommitted}>{content}</ObservedRegionVisibility>
   </MobilePage>
 }
 
@@ -320,6 +322,14 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     routeModel.routeHydrated
   const channelHydrated = !resolvingParent && (routeCommitted || resume) && channelReadReady &&
     (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
+  useObservedRegion(isForum || routeModel.skeletonSubtype === "forum" ? "forum" : "messages", false, undefined, {
+    snapshot_source: "unknown", target_coverage: "unknown",
+    wait_reason: resolvingParent ? "identity" : routeModel.routeLifecycle !== "ready" ? "entry" : !routeModel.routeHydrated ? "projection" : "entry",
+  }, {
+    active: active && routeCommitted && !channelHydrated && !routeModel.metadataError && !openerError && routeModel.routeLifecycle !== "terminal-error",
+    primary: false,
+    href: `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`,
+  })
   const clientReady = active && routeCommitted && channelHydrated && currentChannelId === channelId
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",

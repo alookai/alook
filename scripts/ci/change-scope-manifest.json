@@ -9,10 +9,16 @@
       "build": false,
       "knip": true,
       "unit_root": "src/daemon/agent-driver",
-      "coverage_roots": ["src/daemon/agent-driver/**/*.{ts,tsx,js,jsx}"],
-      "windows_suites": ["agent-driver"],
+      "coverage_roots": [
+        "src/daemon/agent-driver/**/*.{ts,tsx,js,jsx}"
+      ],
+      "windows_suites": [
+        "agent-driver"
+      ],
       "integration_suites": [],
-      "linux_suites": ["agent-driver-packed"],
+      "linux_suites": [
+        "agent-driver-packed"
+      ],
       "ui": false,
       "lighthouse": false,
       "app_artifact": true
@@ -24,8 +30,12 @@
       "build": false,
       "knip": true,
       "unit_root": "src/app",
-      "coverage_roots": ["src/app/**/*.{ts,tsx,js,jsx}"],
-      "windows_suites": ["app"],
+      "coverage_roots": [
+        "src/app/**/*.{ts,tsx,js,jsx}"
+      ],
+      "windows_suites": [
+        "app"
+      ],
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
@@ -43,9 +53,16 @@
         "src/daemon/scripts/**/*.{ts,tsx,js,jsx}",
         "src/daemon/src/**/*.{ts,tsx,js,jsx}"
       ],
-      "windows_suites": ["daemon"],
-      "integration_suites": ["daemon"],
-      "linux_suites": ["daemon-packed", "daemon-real"],
+      "windows_suites": [
+        "daemon"
+      ],
+      "integration_suites": [
+        "daemon"
+      ],
+      "linux_suites": [
+        "daemon-packed",
+        "daemon-real"
+      ],
       "ui": false,
       "lighthouse": false,
       "app_artifact": true
@@ -73,10 +90,14 @@
       "build": true,
       "knip": true,
       "unit_root": "src/email-worker",
-      "coverage_roots": ["src/email-worker/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/email-worker/**/*.{ts,tsx,js,jsx}"
+      ],
       "codecov_target": "email-worker",
       "windows_suites": [],
-      "integration_suites": ["web"],
+      "integration_suites": [
+        "web"
+      ],
       "linux_suites": [],
       "ui": false,
       "lighthouse": false,
@@ -89,9 +110,13 @@
       "build": true,
       "knip": true,
       "unit_root": "src/shared",
-      "coverage_roots": ["src/shared/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/shared/**/*.{ts,tsx,js,jsx}"
+      ],
       "codecov_target": "shared",
-      "windows_suites": ["shared"],
+      "windows_suites": [
+        "shared"
+      ],
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
@@ -120,9 +145,13 @@
       "build": true,
       "knip": true,
       "unit_root": "src/queue-worker",
-      "coverage_roots": ["src/queue-worker/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/queue-worker/**/*.{ts,tsx,js,jsx}"
+      ],
       "windows_suites": [],
-      "integration_suites": ["web"],
+      "integration_suites": [
+        "web"
+      ],
       "linux_suites": [],
       "ui": false,
       "lighthouse": false,
@@ -135,10 +164,14 @@
       "build": true,
       "knip": true,
       "unit_root": "src/web",
-      "coverage_roots": ["src/web/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/web/**/*.{ts,tsx,js,jsx}"
+      ],
       "codecov_target": "web",
       "windows_suites": [],
-      "integration_suites": ["web"],
+      "integration_suites": [
+        "web"
+      ],
       "linux_suites": [],
       "ui": true,
       "lighthouse": true,
@@ -151,29 +184,69 @@
       "build": true,
       "knip": true,
       "unit_root": "src/ws-do",
-      "coverage_roots": ["src/ws-do/**/*.{ts,tsx,js,jsx}"],
+      "coverage_roots": [
+        "src/ws-do/**/*.{ts,tsx,js,jsx}"
+      ],
       "codecov_target": "ws-do",
       "windows_suites": [],
-      "integration_suites": ["web"],
+      "integration_suites": [
+        "web"
+      ],
       "linux_suites": [],
       "ui": true,
       "lighthouse": false,
       "app_artifact": true
+    },
+    {
+      "name": "@alook/observability",
+      "root": "src/observability",
+      "static": true,
+      "build": true,
+      "knip": true,
+      "unit_root": "src/observability",
+      "coverage_roots": [
+        "src/observability/**/*.{ts,tsx,js,jsx,mjs}"
+      ],
+      "windows_suites": [],
+      "integration_suites": [],
+      "linux_suites": [],
+      "ui": false,
+      "lighthouse": false,
+      "app_artifact": false
     }
   ],
   "suites": {
-    "windows": ["agent-driver", "app", "daemon", "shared"],
-    "integration": ["daemon", "web"],
-    "linux": ["agent-driver-packed", "daemon-packed", "daemon-real"]
+    "windows": [
+      "agent-driver",
+      "app",
+      "daemon",
+      "shared"
+    ],
+    "integration": [
+      "daemon",
+      "web"
+    ],
+    "linux": [
+      "agent-driver-packed",
+      "daemon-packed",
+      "daemon-real"
+    ]
   },
   "path_suites": [
-    { "root": "tests/integration/daemon", "integration_suites": ["daemon"] }
+    {
+      "root": "tests/integration/daemon",
+      "integration_suites": [
+        "daemon"
+      ]
+    }
   ],
   "ui": {
     "root": "src/web/src/test/e2e-ui",
     "all": "all",
     "contracts": {
-      "blog": ["54-blog-multizone.spec.ts"],
+      "blog": [
+        "54-blog-multizone.spec.ts"
+      ],
       "resizable_panels": [
         "53-mobile-inbox-surface.spec.ts",
         "60-desktop-default-user-bar-width.spec.ts"
@@ -181,10 +254,22 @@
     }
   },
   "codecov_targets": {
-    "shared": { "path": "src/shared", "target": 50 },
-    "email-worker": { "path": "src/email-worker", "target": 70 },
-    "ws-do": { "path": "src/ws-do", "target": 70 },
-    "web": { "path": "src/web", "target": 30 }
+    "shared": {
+      "path": "src/shared",
+      "target": 50
+    },
+    "email-worker": {
+      "path": "src/email-worker",
+      "target": 70
+    },
+    "ws-do": {
+      "path": "src/ws-do",
+      "target": 70
+    },
+    "web": {
+      "path": "src/web",
+      "target": 30
+    }
   },
   "integrity_paths": [
     ".github/workflows/ci.yml",
@@ -211,6 +296,7 @@
     "src/queue-worker/package.json",
     "src/web/package.json",
     "src/ws-do/package.json",
-    "tests/utils/package.json"
+    "tests/utils/package.json",
+    "src/observability/package.json"
   ]
 }
