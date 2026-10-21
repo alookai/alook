@@ -3,8 +3,8 @@
 import { useObservedRegion } from "@/lib/observability/regions"
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { memo, useCallback, useLayoutEffect, useRef } from "react"
-import { useVirtualizer } from "@tanstack/react-virtual"
+import { memo, useCallback, useLayoutEffect, useMemo, useRef } from "react"
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { Archive, ArchiveRestore, MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -38,6 +38,11 @@ import {
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
 const FORUM_VIRTUALIZER_DOM_MODE = "position"
+const FORUM_VIRTUALIZER_OVERSCAN = 5
+const forumRangeExtractor = (range: Range) => defaultRangeExtractor({
+  ...range,
+  overscan: range.overscan + range.endIndex - range.startIndex + 1,
+})
 
 export function shouldActivateForumRow(event: {
   key: string
@@ -193,9 +198,21 @@ export function ForumView({
     getScrollElement: () => scrollRef.current,
     estimateSize,
     getItemKey,
-    overscan: 5,
+    overscan: FORUM_VIRTUALIZER_OVERSCAN,
+    rangeExtractor: forumRangeExtractor,
     initialRect: { width: 0, height: 800 },
   })
+  const virtualItems = virtualizer.getVirtualItems()
+  const paginationRange = virtualizer.range
+  const paginationItems = useMemo(() => {
+    if (!paginationRange) return []
+    const indexes = new Set(defaultRangeExtractor({
+      ...paginationRange,
+      count: posts.length,
+      overscan: FORUM_VIRTUALIZER_OVERSCAN,
+    }))
+    return virtualItems.filter(item => indexes.has(item.index))
+  }, [paginationRange, posts.length, virtualItems])
   const observedPosts = visibleVirtualItems(virtualizer).flatMap(item => posts[item.index] ? [posts[item.index]] : [])
   useObservedRegion("forum", (!loading || posts.length > 0) && (!posts.length || observedPosts.length > 0), observedPosts.length, observation)
   const filterTags = availableTags.length > 0
@@ -223,7 +240,7 @@ export function ForumView({
     virtualizer.scrollToIndex(0, { align: "start" })
   }, [posts.length, tag, virtualizer])
   useVirtualCursorPagination({
-    virtualizer,
+    virtualizer: { getVirtualItems: () => paginationItems },
     count: posts.length,
     enabled: !loading,
     hasMore,

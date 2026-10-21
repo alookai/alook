@@ -40,8 +40,10 @@ vi.mock("@/lib/community-db/projections", async (load) => ({
   ...await load<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => new Map(),
 }))
-vi.mock("@tanstack/react-virtual", () => ({
+vi.mock("@tanstack/react-virtual", async (load) => ({
+  ...await load<typeof import("@tanstack/react-virtual")>(),
   useVirtualizer: ({ count, getItemKey }: { count: number; getItemKey: (index: number) => string | number }) => ({
+    range: count ? { startIndex: 0, endIndex: count - 1 } : null,
     options: { scrollMargin: 0 }, scrollToIndex: vi.fn(), getTotalSize: () => count * 160,
     getVirtualItems: () => Array.from({ length: count }, (_, index) => ({
       key: getItemKey(index), index, start: index * 160, end: (index + 1) * 160, size: 160, lane: 0,

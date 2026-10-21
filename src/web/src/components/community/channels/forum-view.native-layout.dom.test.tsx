@@ -22,9 +22,11 @@ const posts: ForumThread[] = Array.from({ length: 100 }, (_, index) => ({
   participantCount: 1,
 }))
 const observers = new Map<ResizeObserverCallback, Set<Element>>()
+let rowHeight = (index: number) => 128 + index % 3 * 8
 
 beforeEach(() => {
   observers.clear()
+  rowHeight = (index: number) => 128 + index % 3 * 8
   vi.stubGlobal("ResizeObserver", class {
     private nodes = new Set<Element>()
     constructor(callback: ResizeObserverCallback) { observers.set(callback, this.nodes) }
@@ -33,7 +35,7 @@ beforeEach(() => {
     disconnect() { this.nodes.clear() }
   })
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
-    return this.hasAttribute("data-index") ? 128 + Number(this.dataset.index) % 3 * 8 : 0
+    return this.hasAttribute("data-index") ? rowHeight(Number(this.dataset.index)) : 0
   })
 })
 
@@ -100,4 +102,67 @@ it("keeps native forum rows positioned without individual transforms across scro
   expect(readRows()).toEqual(previousRows)
   expect(readRows().map(row => row.style.top)).toEqual(positions)
   expect(onLoadMore).not.toHaveBeenCalled()
+})
+
+
+function renderUniformForum(clientHeight: number, count = posts.length) {
+  rowHeight = () => 128
+  const onLoadMore = vi.fn()
+  const props = {
+    forumChannelId: "forum-native-reserve",
+    members: [],
+    posts: posts.slice(0, count),
+    tag: "All",
+    hasMore: true,
+    onTagChange: () => {},
+    onOpenPost: () => {},
+    onLoadMore,
+    onScrollRoot: (node: HTMLDivElement | null) => {
+      if (!node) return
+      mockElementGeometry(node, { clientHeight, clientWidth: 390, scrollHeight: count * 128 })
+      Object.defineProperty(node, "scrollTo", {
+        configurable: true,
+        value: ({ top = 0 }: ScrollToOptions) => { node.scrollTop = top },
+      })
+    },
+  }
+  const view = render(createElement(ForumView, props))
+  return { view, props, onLoadMore, root: view.getByTestId(tid.forumPostList) }
+}
+
+it.each([320, 751, 1500])("keeps mounted rows over a %ipx viewport advance before scroll delivery", (height) => {
+  const { root, onLoadMore } = renderUniformForum(height)
+  const offset = 30 * 128
+  for (const direction of [-1, 1]) {
+    act(() => {
+      root.scrollTop = offset
+      root.dispatchEvent(new Event("scroll"))
+    })
+    const rows = [...root.querySelectorAll<HTMLElement>("[data-index]")]
+    expect(rows.length).toBeLessThan(posts.length)
+    root.scrollTop = offset + direction * height
+    const first = rows[0]
+    const last = rows.at(-1)!
+    expect(Number.parseFloat(first.style.top)).toBeLessThanOrEqual(root.scrollTop)
+    expect(Number.parseFloat(last.style.top) + last.offsetHeight).toBeGreaterThanOrEqual(root.scrollTop + height)
+  }
+  expect(onLoadMore).not.toHaveBeenCalled()
+})
+
+it("keeps the original paging boundary while rendering a larger reserve", () => {
+  const { view, props, root, onLoadMore } = renderUniformForum(751, 20)
+  expect(onLoadMore).not.toHaveBeenCalled()
+  act(() => {
+    root.scrollTop = 8 * 128
+    root.dispatchEvent(new Event("scroll"))
+  })
+  expect(view.queryByTestId(tid.forumThreadCard("post-19"))).not.toBeNull()
+  expect(onLoadMore).not.toHaveBeenCalled()
+  act(() => {
+    root.scrollTop = 9 * 128
+    root.dispatchEvent(new Event("scroll"))
+  })
+  expect(onLoadMore).toHaveBeenCalledTimes(1)
+  view.rerender(createElement(ForumView, props))
+  expect(onLoadMore).toHaveBeenCalledTimes(1)
 })
