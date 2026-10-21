@@ -28,45 +28,43 @@ function mount(redirectTo?: string) {
 }
 
 describe("SignupTracker account-owned initiation", () => {
-  it("does not consume the signup cookie while the breakpoint is unknown", () => {
-    mocks.breakpoint = "unknown"
+  it.each(["unknown", "mobile", "desktop"])("starts ordinary signup once before navigation with a %s breakpoint", (breakpoint) => {
+    mocks.breakpoint = breakpoint
     document.cookie = "is_new_signup=email; path=/"
-    const { registry } = mount("/c/me/machines")
-    expect(document.cookie).toContain("is_new_signup=email")
-    expect(mocks.track).not.toHaveBeenCalled()
-    expect(registry.runtime.ui.get().onboardingState).toBeNull()
-    expect(mocks.replace).not.toHaveBeenCalled()
-  })
-
-  it("consumes unknown to mobile once without automatic onboarding or redirect", () => {
-    mocks.breakpoint = "unknown"
-    document.cookie = "is_new_signup=email; path=/"
-    const { registry, rerender } = mount("/c/me/machines")
-    mocks.breakpoint = "mobile"; rerender()
-    mocks.breakpoint = "desktop"; rerender()
-    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" })
-    expect(registry.runtime.ui.get().onboardingState).toBeNull()
-    expect(mocks.replace).not.toHaveBeenCalled()
-  })
-
-  it("consumes unknown to desktop through the actual owner before navigation", () => {
-    mocks.breakpoint = "unknown"
-    document.cookie = "is_new_signup=email; path=/"
-    const { registry, rerender } = mount("/c/me/machines")
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(client, "viewer")
     mocks.replace.mockImplementation(() => expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" }))
-    mocks.breakpoint = "desktop"; rerender()
-    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" })
+    render(<CommunityTestProvider client={client}><SignupTracker redirectTo="/c/me/machines" /></CommunityTestProvider>)
+    expect(document.cookie).not.toContain("is_new_signup=")
+    expect(mocks.track).toHaveBeenCalledExactlyOnceWith({ event: "sign_up", method: "email" })
     expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" })
-    expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines")
   })
 
-  it("handles a directly resolved mobile signup without automatic navigation", () => {
+  it("does not restart mobile onboarding when the viewport changes", () => {
     mocks.breakpoint = "mobile"
     document.cookie = "is_new_signup=email; path=/"
-    const { registry } = mount("/c/me/machines")
-    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" })
+    const { registry, rerender } = mount("/c/me/machines")
+    mocks.breakpoint = "desktop"; rerender()
+    mocks.breakpoint = "mobile"; rerender()
+    expect(mocks.track).toHaveBeenCalledExactlyOnceWith({ event: "sign_up", method: "email" })
+    expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" })
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines")
+  })
+
+  it.each(["unknown", "mobile", "desktop"])("consumes invitation signup before leaving a public page with a %s breakpoint", (breakpoint) => {
+    mocks.breakpoint = breakpoint
+    document.cookie = "is_new_signup=email; path=/"
+    const view = render(<SignupTracker />)
+    expect(document.cookie).not.toContain("is_new_signup=")
+    expect(mocks.track).toHaveBeenCalledExactlyOnceWith({ event: "sign_up", method: "email" })
+    expect(mocks.replace).not.toHaveBeenCalled()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(client, "viewer")
+    view.rerender(<CommunityTestProvider client={client}><SignupTracker redirectTo="/c/me/machines" /></CommunityTestProvider>)
     expect(registry.runtime.ui.get().onboardingState).toBeNull()
     expect(mocks.replace).not.toHaveBeenCalled()
+    expect(mocks.track).toHaveBeenCalledOnce()
   })
 
   it("deduplicates repeated resolved renders through cookie consumption", () => {
