@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useLayoutEffect } from "react"
-import { QueryClientProvider } from "@tanstack/react-query"
+import { IsRestoringProvider, QueryClientProvider } from "@tanstack/react-query"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { CommunityRouteContext } from "./community-route-context"
@@ -41,7 +41,7 @@ vi.mock("@/hooks/community/mutations", () => ({
   useToggleMark: () => vi.fn(), useEditMessage: () => ({mutate: vi.fn()}),
   useCreateThread: () => ({mutateAsync: vi.fn()}), useUploadFile: () => ({mutateAsync: vi.fn()}),
 }))
-vi.mock("@/components/community/messages/composer", () => ({ Composer: () => null, ComposerSkeleton: () => null }))
+vi.mock("@/components/community/messages/composer", () => ({ Composer: () => <div data-testid="qualified-composer" />, ComposerSkeleton: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/channels/channel-header", () => ({ ChannelHeader: ({channel}: {channel: string}) => <header>{channel}</header>, ChannelHeaderSkeleton: () => null }))
 
@@ -74,18 +74,18 @@ afterEach(() => {
 
 const href = "/c/channels/s1/c1"
 const entryIntent = {href}
-function node(routeCommitted: boolean) {
+function node(routeCommitted: boolean, restoring = false, target = href) {
   return <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>
     <CurrentUserProvider initialUser={{id: "viewer", name: "Viewer", avatar: "V", email: "viewer@example.test"}}>
       <CommunityRouteContext value={{breakpoint: "desktop", frame: {revision: 1}, navigation: {entryIntent, pendingHref: routeCommitted ? null : href, publishedHref: mocks.href}} as never}>
-        <CommunityModuleRoute href={href} routeCommitted={routeCommitted} />
+        <IsRestoringProvider value={restoring}><CommunityModuleRoute href={target} routeCommitted={routeCommitted} /></IsRestoringProvider>
       </CommunityRouteContext>
     </CurrentUserProvider>
   </CommunityDbProvider></QueryClientProvider>
 }
-async function mount() {
+async function mount(restoring = false, target = href) {
   await act(async () => {
-    view = render(node(false))
+    view = render(node(false, restoring, target))
     await import("../channels/server-conversation-route")
   })
   resize()
@@ -94,6 +94,53 @@ async function mount() {
 }
 
 describe("cached target through the real route, entry and message consumers", () => {
+  it("keeps a cold forum opener unknown through restore instead of mounting then removing the composer", async () => {
+    const entry = conversationEntryFixture()
+    entry.channel = { ...entry.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+    entry.surfaceReceipt = { channelId: entry.channelId, surfaceKind: "thread" }
+    entry.parent = { ...conversationEntryFixture().channel, id: "parent", type: "forum", name: "Forum" }
+    entry.selection = { reason: "tail", anchorMessageId: null }
+    entry.page = { ...entry.page, olderCursor: null, hasMoreOlder: false }
+    await seedConversationEntry(owner.client, entry)
+    mocks.load.mockImplementation((url: string) => {
+      if (url === "/api/community/messages/opener") return new Promise(() => {})
+      if (url === "/api/community/users/me/attention") return Promise.resolve({ scopes: [], items: [], limit: 100, truncated: false })
+      throw new Error(`Unexpected cold-opener request: ${url}`)
+    })
+    const target = `${href}?threadView=full`
+    const mounted = await mount(true, target)
+    expect(mounted.queryByTestId("qualified-composer")).toBeNull()
+    mounted.rerender(node(false, false, target))
+    await act(async () => {})
+    expect(mounted.queryByTestId("qualified-composer")).toBeNull()
+  })
+
+  it("keeps a canonical cached forum opener and composer through restore and route commit", async () => {
+    const entry = conversationEntryFixture()
+    entry.channel = { ...entry.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+    entry.surfaceReceipt = { channelId: entry.channelId, surfaceKind: "thread" }
+    entry.parent = { ...conversationEntryFixture().channel, id: "parent", type: "forum", name: "Forum" }
+    entry.opener = { ...entry.messages[0], id: "opener", channelId: "parent", content: "Cached post title" }
+    entry.selection = { reason: "tail", anchorMessageId: null }
+    entry.page = { ...entry.page, olderCursor: null, hasMoreOlder: false }
+    await seedConversationEntry(owner.client, entry)
+    mocks.load.mockImplementation((url: string) => {
+      if (url === "/api/community/messages/opener") return Promise.resolve(entry.opener)
+      if (url === "/api/community/users/me/attention") return Promise.resolve({ scopes: [], items: [], limit: 100, truncated: false })
+      throw new Error(`Unexpected cached-opener request: ${url}`)
+    })
+    const target = `${href}?threadView=full`
+    const mounted = await mount(true, target)
+    const composer = mounted.getByTestId("qualified-composer")
+    expect(composer).toBeVisible()
+    mounted.rerender(node(false, false, target))
+    await act(async () => {})
+    expect(mounted.getByTestId("qualified-composer")).toBe(composer)
+    mocks.href = target
+    mounted.rerender(node(true, false, target))
+    expect(mounted.getByTestId("qualified-composer")).toBe(composer)
+  })
+
   it("shows qualified messages before publication and keeps the same scroller through commit", async () => {
     const entry = conversationEntryFixture()
     entry.messages[0].content = "Cached target body"

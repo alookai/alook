@@ -319,7 +319,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     routeModel.routeLifecycle === "ready" &&
     routeModel.routeHydrated
   const channelHydrated = !resolvingParent && channelReadReady &&
-    (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
+    (!isForumPostChild || (Boolean(forumPostOpener.data) && !openerError))
   const clientReady = active && routeCommitted && channelHydrated && currentChannelId === channelId
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",

@@ -99,7 +99,7 @@ vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: ({ open, onLimitReach
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
 vi.mock("@/hooks/community/use-machines", async (importOriginal) => ({ ...await importOriginal<typeof import("@/hooks/community/use-machines")>(),
   machinesQueryFn: mocks.query,
-  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, isError: mocks.machinesError.current, isFetching: false, capacityPending: mocks.capacityPending.current, refetch: mocks.retryMachines, data: mocks.machinesError.current ? undefined : { machineCapacity: mocks.capacityPending.current ? undefined : mocks.capacity.current } }),
+  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, isPending: mocks.machinesLoading.current, isError: mocks.machinesError.current, isFetching: false, capacityPending: mocks.capacityPending.current, refetch: mocks.retryMachines, data: mocks.machinesError.current ? undefined : { machineCapacity: mocks.capacityPending.current ? undefined : mocks.capacity.current } }),
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),

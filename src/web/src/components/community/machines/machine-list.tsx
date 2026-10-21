@@ -216,7 +216,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const queryClient = useQueryClient()
   const origin = useCommunityMutationOrigin()
   const source = useCommunityViewSource("machine-list")
-  const { machines, capacityPending, data: machinesData, isLoading: queryLoading, isError: queryError, isFetching: retryingMachines, refetch: retryMachines } = useMachines()
+  const { machines, capacityPending, data: machinesData, isPending: queryLoading, isError: queryError, isFetching: retryingMachines, refetch: retryMachines } = useMachines()
   const machinesLoading = queryLoading || machinesData?.complete === false && machines.length === 0
   useObservedRegion("machines", machinesData !== undefined && machinesData.complete !== false, machines.length, { snapshot_source: machinesData?.source ?? "unknown", target_coverage: machinesData ? "covered" : "uncovered", wait_reason: machinesLoading ? "entry" : "none" })
   const capacity = machinesData?.machineCapacity ?? null
