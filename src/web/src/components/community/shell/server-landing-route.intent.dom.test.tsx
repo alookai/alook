@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest"
+import { useLayoutEffect } from "react"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -8,8 +9,10 @@ import { CommunityRouteContext, CommunityServerRouteContext } from "@/contexts/c
 import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
-import { serversProjectedQueryFn } from "@/hooks/community/use-servers"
+import { serversProjectedQueryFn, useServer } from "@/hooks/community/use-servers"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import { beginOwnerServerDelete, commitOwnerServerDelete, createOwnerServerDeleteRouteToken, observeOwnerServerDeleteRouteCommit } from "@/lib/community/eject-server"
+import { flushOwnerServerDeleteRouteCommit } from "@/hooks/community/community-ws/scope-eviction"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import ServerLandingRoute from "./server-landing-route"
 
@@ -19,6 +22,11 @@ vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({ AlookLoading: () => null }))
 beforeEach(() => { vi.clearAllMocks(); mocks.breakpoint = "desktop"; mocks.load.mockImplementation(() => new Promise(() => {})) })
+
+function ServerRead({ enabled }: { enabled: boolean }) {
+  useServer(enabled ? "target" : null)
+  return null
+}
 
 async function setup(method: "push" | "pushImmediate", { cold = false, empty = false, mobile = false } = {}) {
   const { client, registry } = await createCommunityQueryOwner()
@@ -48,11 +56,13 @@ async function setup(method: "push" | "pushImmediate", { cold = false, empty = f
   const frame = { ...normalizeCommunityHref("/c/me"), revision: 0 }
   let navigation!: ReturnType<typeof useCommunityNavigationController>
   function Harness() {
-    navigation = useCommunityNavigationController(frame)
-    const href = navigation.pendingHref ?? frame.href
-    return <CommunityRouteContext value={{ breakpoint: "desktop", frame, navigation, ownerDeleteRouteScope: undefined }}>
-      <button onClick={() => navigation[method]("/c/channels/target")}>Open server</button>
+    const current = useCommunityNavigationController(frame)
+    useLayoutEffect(() => { navigation = current }, [current])
+    const href = current.pendingHref ?? frame.href
+    return <CommunityRouteContext value={{ breakpoint: "desktop", frame, navigation: current, ownerDeleteRouteScope: undefined }}>
+      <button onClick={() => current[method]("/c/channels/target")}>Open server</button>
       <output data-testid="pending">{href}</output>
+      <ServerRead enabled={href.startsWith("/c/channels/target")} />
       {href === "/c/channels/target" && <CommunityModuleRouteContext value={{ href, routeCommitted: false }}>
         <CommunityServerRouteContext value={{ serverId: server.id, serverParam: server.id }}><ServerLandingRoute /></CommunityServerRouteContext>
       </CommunityModuleRouteContext>}
@@ -61,7 +71,7 @@ async function setup(method: "push" | "pushImmediate", { cold = false, empty = f
   const view = render(<CommunityTestProvider client={client} registry={registry}>
     <CurrentUserProvider initialUser={{ id: "viewer", name: "Viewer", avatar: "V", email: "viewer@example.test" }}><Harness /></CurrentUserProvider>
   </CommunityTestProvider>)
-  return { view, calls, release, get navigation() { return navigation } }
+  return { view, calls, release, client, registry, get navigation() { return navigation } }
 }
 
 it.each(["push", "pushImmediate"] as const)("keeps the actual landing consumer's leaf as the final native dispatch during %s", async method => {
@@ -95,4 +105,36 @@ it.each([{ empty: true }, { mobile: true }])("retains the root when the real lan
   expect(calls).toEqual(["/c/channels/target"])
   expect(mocks.replace).not.toHaveBeenCalled()
   if (options.empty) expect(view.getByText("No channels yet")).toBeVisible()
+})
+
+it("finishes the current root after an older server deletion retires its in-flight detail proof", async () => {
+  const { view, calls, release, client, registry } = await setup("push", { cold: true })
+  const token = createOwnerServerDeleteRouteToken(client)
+  act(() => {
+    publishCommunityLiveSnapshot(client, {
+      snapshot: { kind: "server-detail", data: { id: "deleted", name: "Deleted", discriminator: "0002", description: "", icon: null, ownerId: "viewer", categories: [{ id: "old-category", name: "", private: 0, channels: [{ id: "old-channel", name: "Old", active: false, unread: false }] }] } },
+      proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
+    })
+    beginOwnerServerDelete(client, "deleted", token)
+    expect(commitOwnerServerDelete(client, "deleted", token)).toBe(false)
+  })
+  fireEvent.click(view.getByRole("button", { name: "Open server" }))
+  await waitFor(() => expect(mocks.load.mock.calls.some(([path]) => String(path).endsWith("/target/channels"))).toBe(true))
+  const original = client.getQueryCache().find({ queryKey: communityKeys.server("target"), exact: true })!
+  expect(original.state.fetchStatus).toBe("fetching")
+  await act(async () => {
+    observeOwnerServerDeleteRouteCommit(client, "/c/channels/target")
+    expect(flushOwnerServerDeleteRouteCommit(client)).toEqual(["deleted"])
+    release()
+  })
+  await waitFor(() => expect(calls.at(-1)).toBe("/c/channels/target/channel"))
+  await waitFor(() => {
+    expect(original.state.fetchStatus).toBe("idle")
+    expect(original.state.error).toBeNull()
+  })
+  expect(client.getQueryCache().find({ queryKey: communityKeys.server("target"), exact: true })).toBe(original)
+  expect(registry.collections.servers.get("deleted")).toBeUndefined()
+  expect(registry.collections.servers.get("target")?.detailComplete).toBe(true)
+  expect(original.state.error).toBeNull()
+  expect(mocks.load.mock.calls.filter(([path]) => String(path).endsWith("/target/categories"))).toHaveLength(2)
 })

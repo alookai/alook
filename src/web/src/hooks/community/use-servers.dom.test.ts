@@ -2,7 +2,7 @@ import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider, CancelledError } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
-import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, publishAccountAttentionSnapshot, publishCommunityLiveSnapshot, projectCommunityWsEventToDb, publishCommunityChannelDirectory } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
@@ -234,6 +234,54 @@ describe("useServers / serversQueryFn", () => {
 })
 
 describe("useServer / projected canonical detail", () => {
+  it.each(["account", "owner"])("rechecks %s ownership after structural retirement rejects and before the hook restarts", async retirement => {
+    seedList()
+    let release!: () => void
+    const response = new Promise<void>(resolve => { release = resolve })
+    apiFetchMock.mockImplementation(async (url: string) => { await response; return detailApi(url) })
+    const retireOwner = registerCommunityDbRegistry(registry)
+    const unsubscribe = client.getQueryCache().subscribe(event => {
+      if (event.type !== "updated" || event.action.type !== "error" || event.query.queryKey !== client.getQueryCache().find({ queryKey: communityKeys.server(identity.id), exact: true })?.queryKey) return
+      if (retirement === "account") registry.runtime.ws.actions.activateProfileAccount("replacement")
+      else retireOwner()
+    })
+    try {
+      const view = renderHook(() => useServer(identity.id), { wrapper: Owner })
+      await waitFor(() => expect(apiFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/channels"))).toHaveLength(1))
+      await act(async () => { registry.runtime.ws.actions.revokeServerAccess("other"); release() })
+      await waitFor(() => expect(retirement === "owner" ? !registry.runtime.lifecycle.get().active : registry.runtime.ws.get().profileViewerId === "replacement").toBe(true))
+      await waitFor(() => expect(view.result.current.fetchStatus).toBe("idle"))
+      expect(view.result.current.server).toBeNull()
+      expect(registry.collections.servers.get(identity.id)?.detailComplete).toBe(false)
+      expect(apiFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/categories"))).toHaveLength(1)
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it.each(["target", "account", "signal", "generic-abort"])("does not restart a current detail read after %s retirement", async retirement => {
+    seedList()
+    let release!: () => void
+    const response = new Promise<void>(resolve => { release = resolve })
+    apiFetchMock.mockImplementation(async (url: string) => {
+      await response
+      if (retirement === "generic-abort") throw new DOMException("Transport aborted", "AbortError")
+      return detailApi(url)
+    })
+    const view = renderHook(() => useServer(identity.id), { wrapper: Owner })
+    await waitFor(() => expect(apiFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/channels"))).toHaveLength(1))
+    await act(async () => {
+      if (retirement === "target") registry.runtime.ws.actions.revokeServerAccess(identity.id)
+      if (retirement === "account") registry.runtime.ws.actions.activateProfileAccount("replacement")
+      if (retirement === "signal") await client.cancelQueries({ queryKey: communityKeys.server(identity.id), exact: true })
+      release()
+    })
+    await waitFor(() => expect(view.result.current.fetchStatus).toBe("idle"))
+    expect(view.result.current.server).toBeNull()
+    expect(apiFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/categories"))).toHaveLength(1)
+    if (retirement !== "signal") expect(view.result.current.error?.name).toBe("AbortError")
+  })
+
   it("retains a current server deadline failure across another native consumer and recovers on explicit retry", async () => {
     seedList()
     const key = communityKeys.server(identity.id)

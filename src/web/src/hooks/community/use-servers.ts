@@ -13,7 +13,7 @@ type QueryClient,
 type QueryFunctionContext,
 type UseQueryResult,
 } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { createStore } from "@tanstack/store"
 import type { ServerRow } from "@/lib/community-db/schema"
 import { apiFetch } from "@/lib/api/client"
@@ -30,7 +30,8 @@ type AccountUnreadSource,
 } from "./account-unread-projection"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCommunityRuntime } from "@/stores/community/runtime"
-import { ApiError } from "@/lib/errors"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { ApiError, isAbortError } from "@/lib/errors"
 import { evictServerChannelScopes } from "./community-ws/scope-eviction"
 import {
 useAttentionScopes,
@@ -323,6 +324,22 @@ const serverQueryFn = (
   }
 }
 
+function serverDetailReadSuperseded(queryClient: QueryClient, serverId: string, token: CommunityLiveSnapshotToken, signal?: AbortSignal) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry || registry !== token.registry) return false
+  const state = registry.runtime.ws.get()
+  const lifecycle = registry.runtime.lifecycle.get()
+  return !signal?.aborted && lifecycle.active && lifecycle.generation === token.ownerGeneration
+    && state.profileViewerId === token.viewerId && state.profileAccountEpoch === token.accountEpoch
+    && state.accessEpoch !== token.accessEpoch && !state.revokedServerIds.has(serverId)
+}
+
+class SupersededServerDetailRead extends DOMException {
+  constructor(readonly token: CommunityLiveSnapshotToken, readonly signal: AbortSignal | undefined) {
+    super("Superseded server detail read", "AbortError")
+  }
+}
+
 export const serverProjectedQueryFn = (
   queryClient: QueryClient,
   serverId: string,
@@ -367,6 +384,9 @@ export const serverProjectedQueryFn = (
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
       evictServerChannelScopes(queryClient, serverId)
     }
+    if (isAbortError(error) && serverDetailReadSuperseded(queryClient, serverId, structuralToken, signal)) {
+      throw new SupersededServerDetailRead(structuralToken, signal)
+    }
     throw error
   }
 }
@@ -399,6 +419,13 @@ export function useServer(
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.server(serverId ?? "__none__") }).retry),
     networkMode: "always",
   })
+  const restart = query.refetch
+  useEffect(() => {
+    const error = query.error
+    if (serverId && error instanceof SupersededServerDetailRead && serverDetailReadSuperseded(queryClient, serverId, error.token, error.signal)) {
+      void restart({ cancelRefetch: false })
+    }
+  }, [query.error, queryClient, serverId, restart])
   const projectedServer = useMemo(() => {
     const source = dbServer
     if (!source || !serverId) return null
