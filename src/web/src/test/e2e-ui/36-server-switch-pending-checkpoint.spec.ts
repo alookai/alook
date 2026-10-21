@@ -197,24 +197,21 @@ function observeTargetRsc(
   serverId: string,
   timeoutMs: number, caseResources: CaseResources
 ): {
-  finished: Promise<void>
+  finished: Promise<Error | null>
   requests: () => string[]
   stop: () => void
 } {
   const requests: string[] = []
   let settled = false
-  let resolveFinished!: () => void
-  let rejectFinished!: (error: Error) => void
-  const finished = new Promise<void>((resolve, reject) => {
+  let resolveFinished!: (error: Error | null) => void
+  const finished = new Promise<Error | null>((resolve) => {
     resolveFinished = resolve
-    rejectFinished = reject
   })
   const settle = (error?: Error) => {
     if (settled) return
     settled = true
     clearTimeout(timeout)
-    if (error) rejectFinished(error)
-    else resolveFinished()
+    resolveFinished(error ?? null)
   }
   const onRequest = (request: Request) => {
     if (isTargetRsc(request, serverId)) requests.push(request.url())
@@ -431,7 +428,8 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     await clickServer(page, serverC)
     await expect.poll(structuralC.heldNavigation).toBeGreaterThan(0)
     await structuralC.release()
-    await targetRsc.finished
+    const rscFailure = await targetRsc.finished
+    if (rscFailure) throw rscFailure
     expect(targetRsc.requests()).toHaveLength(1)
     await expectDesktopServerDetail(page, serverC)
     await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })

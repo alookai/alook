@@ -1,6 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
+import { waitForElementMotion } from "./_fixtures/actions"
 
 import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
 
@@ -174,6 +175,7 @@ test.setTimeout(180_000)
     await page.getByRole("button", { name: "Invite to server" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.getByText("Couldn't load friends.", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await waitForElementMotion(dialog)
     const copyBeforeRetry = await dialog.getByRole("button", { name: "Copy", exact: true }).boundingBox()
     const failedChainGets = acceptedGets
     expect(failedChainGets).toBeGreaterThanOrEqual(2)
@@ -181,6 +183,7 @@ test.setTimeout(180_000)
     await dialog.getByRole("button", { name: "Retry" }).click()
     await expect(dialog.getByText("No friends to invite — everyone you know is already here.", { exact: true }))
       .toBeVisible({ timeout: 20_000 })
+    await waitForElementMotion(dialog)
     expect(acceptedGets).toBeGreaterThan(failedChainGets)
     expect(await dialog.getByRole("button", { name: "Copy", exact: true }).boundingBox()).toEqual(copyBeforeRetry)
     await expectTitleClearOfClose(dialog, 390)

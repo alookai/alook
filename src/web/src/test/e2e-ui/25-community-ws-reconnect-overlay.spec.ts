@@ -273,9 +273,7 @@ let caseJourneyFailure1Present = false
       `guide-reconnect-${process.pid}-${Date.now()}@example.com`,
     )
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
-    await page.waitForURL("**/c/me", { waitUntil: "commit" })
-    await page.goto("/c/me/machines")
-    await page.getByTestId(tid.onboardingStart).click()
+    await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
     const onboarding = page.getByTestId(tid.onboardingHarnessDialog)
     await expect(onboarding).toBeVisible()
     await expect(page.locator("html")).toHaveAttribute(
