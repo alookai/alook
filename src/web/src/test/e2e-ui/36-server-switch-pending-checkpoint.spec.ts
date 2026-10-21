@@ -261,6 +261,36 @@ function observeTargetRsc(
   }
 }
 
+async function installTargetRscDiagnostics(page: Page, serverId: string) {
+  await page.evaluate((serverId) => {
+    const events: unknown[] = []
+    const record = (event: string, data: object = {}) => {
+      if (events.length < 100) events.push({ event, time: performance.now(), pathname: location.pathname, ...data })
+    }
+    const originalFetch = window.fetch
+    window.fetch = function (input, init) {
+      const url = new URL(input instanceof Request ? input.url : String(input), location.href)
+      if (url.pathname.startsWith(`/c/channels/${serverId}/`)) {
+        record("fetch", { target: url.pathname, priority: init?.priority, stack: new Error().stack })
+        init?.signal?.addEventListener("abort", () => record("abort", { stack: new Error().stack }), { once: true })
+      }
+      return originalFetch.call(this, input, init)
+    }
+    const originalCancel = ReadableStreamDefaultReader.prototype.cancel
+    ReadableStreamDefaultReader.prototype.cancel = function (reason) {
+      record("reader.cancel", { stack: new Error().stack })
+      return originalCancel.call(this, reason)
+    }
+    Object.assign(window, { __targetRscDiagnostics: {
+      events,
+      restore: () => {
+        window.fetch = originalFetch
+        ReadableStreamDefaultReader.prototype.cancel = originalCancel
+      },
+    } })
+  }, serverId)
+}
+
 async function activateServerIcon(page: Page, serverId: string) {
   const icon = page.getByTestId(tid.serverIcon(serverId))
   // Focus activates the accessible menu path and starts Server-root prefetch.
@@ -421,6 +451,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await page.reload()
   await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
   const structuralC = await holdServerTransition(page, serverC, caseResources)
+  await installTargetRscDiagnostics(page, serverC)
   const targetRsc = observeTargetRsc(page, serverC, 30_000, caseResources)
   await clearSidebarFrames(page)
   await clearHistoryEvents(page)
@@ -454,6 +485,12 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     })
   } finally {
     targetRsc.stop()
+    const diagnostics = await page.evaluate(() => {
+      const state = (window as typeof window & { __targetRscDiagnostics: { events: unknown[]; restore: () => void } }).__targetRscDiagnostics
+      state.restore()
+      return state.events
+    })
+    await test.info().attach("target-rsc-diagnostics", { body: JSON.stringify(diagnostics), contentType: "application/json" })
   }
 
   await clickServer(page, serverA)
