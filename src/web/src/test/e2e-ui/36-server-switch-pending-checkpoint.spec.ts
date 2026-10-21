@@ -274,7 +274,33 @@ async function installTargetRscDiagnostics(page: Page, serverId: string) {
         record("fetch", { target: url.pathname, priority: init?.priority, stack: new Error().stack })
         init?.signal?.addEventListener("abort", () => record("abort", { stack: new Error().stack }), { once: true })
       }
-      return originalFetch.call(this, input, init)
+      const fetched = originalFetch.call(this, input, init)
+      if (!url.pathname.startsWith(`/c/channels/${serverId}/`)) return fetched
+      return fetched.then((response) => {
+        record("headers", { status: response.status, cacheControl: response.headers.get("cache-control") })
+        if (response.body) {
+          const originalGetReader = response.body.getReader
+          response.body.getReader = new Proxy(originalGetReader, {
+            apply(target, receiver, args) {
+              const reader = Reflect.apply(target, receiver, args)
+              reader.read = new Proxy(reader.read, {
+                apply(read, owner, readArgs) {
+                  const pending = Reflect.apply(read, owner, readArgs) as Promise<ReadableStreamReadResult<Uint8Array>>
+                  return pending.then((result) => {
+                    record("read", { done: result.done, bytes: result.value?.byteLength ?? 0 })
+                    return result
+                  }, (error: Error) => {
+                    record("read.error", { name: error.name })
+                    throw error
+                  })
+                },
+              })
+              return reader
+            },
+          })
+        }
+        return response
+      })
     }
     const originalCancel = ReadableStreamDefaultReader.prototype.cancel
     ReadableStreamDefaultReader.prototype.cancel = function (reason) {
@@ -490,7 +516,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
       state.restore()
       return state.events
     })
-    await test.info().attach("target-rsc-diagnostics", { body: JSON.stringify(diagnostics), contentType: "application/json" })
+    await test.info().attach("target-rsc-diagnostics", { body: JSON.stringify({ browserVersion: page.context().browser()?.version(), events: diagnostics }), contentType: "application/json" })
   }
 
   await clickServer(page, serverA)
