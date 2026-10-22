@@ -88,6 +88,7 @@ export function useMessageListController({
   const {
     scrollRef,
     virtualizer,
+    onRowsLayoutCommit,
     belowCount,
     scrollToBottom,
     requestPresentPosition,
@@ -232,6 +233,7 @@ export function useMessageListController({
     onToggleSelectId,
     scrollRef,
     virtualizer,
+    onRowsLayoutCommit,
     readPositionReady,
     paginationEnabled,
     jumpTo,

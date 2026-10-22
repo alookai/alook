@@ -327,6 +327,7 @@ describe("conversation entry return during accepted reading", () => {
           createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(controller.readPositionReady) },
             createElement(VirtualRows<FlatItem>, {
               items: controller.items, virtualizer: controller.virtualizer, reactLayout: true,
+              onLayoutCommit: controller.onRowsLayoutCommit,
               renderItem: (item, index) => item.kind === "leading" ? renderMessageListRow(item, props, controller, index) : createElement("div", {
                 "data-message-row-key": item.key, "data-fixture-kind": item.kind,
                 "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),

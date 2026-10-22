@@ -39,6 +39,7 @@ export function MessageList({
       reactLayout
       items={controller.items}
       virtualizer={controller.virtualizer}
+      onLayoutCommit={controller.onRowsLayoutCommit}
       renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}
     />
   ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null)

@@ -1,7 +1,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { measureElement, useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
-import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
+import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS, type VirtualRowsLayoutSnapshot } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
@@ -116,6 +116,7 @@ export function useScrollAnchor({
     notifyTarget: boolean
     loadedTailPresent: boolean
     viewport: { width: number; height: number }
+    pendingInitialEnd: { root: HTMLDivElement | null; scrollTop: number } | null
   }
   type Geometry = {
     epoch: number
@@ -152,27 +153,37 @@ export function useScrollAnchor({
   const olderMeasurementAnchorRef = useRef<{ key: string; epoch: number } | null>(null)
   const entryResolvedRef = useRef(false)
   const initialRetiredRef = useRef(false)
+  const initialEndIssuedRef = useRef(false)
   const initialPositionSettledRef = useRef(false)
   const initialDeadlineRef = useRef<{ handle: number; at: number } | null>(null)
   const initialSettleFrameRef = useRef<number | null>(null)
   const semanticIntentRef = useRef<Intent | null>(null)
+  const committedRowsRef = useRef<{
+    layout: VirtualRowsLayoutSnapshot
+    native: ReactVirtualizer<HTMLDivElement, Element>
+    entry: typeof positionEntry
+    items: FlatItem[]
+  } | null>(null)
   const targetIntentRef = useRef<string | null>(null)
   const positionedTargetRef = useRef<string | null>(null)
   const presentIntentRef = useRef<{ epoch: number; allowAttachedTail: boolean; fetching: boolean } | null>(null)
   const consumedPresentVersionRef = useRef(presentVersion ?? 0)
   const consumedLocalSubmitVersionRef = useRef(localSubmitVersion ?? 0)
   const currentItemsRef = useRef(items)
+  const positionEntryRef = useRef(positionEntry)
+  const [, setInitialLayoutViewport] = useState<{ root: HTMLDivElement; width: number; height: number } | null>(null)
   const initialScrollReadyRef = useRef(initialScrollReady)
   const onTargetPositionedRef = useRef(onScrollTargetPositioned)
   const onTargetCancelledRef = useRef(onScrollTargetCancelled)
   const settleCallbackRef = useRef(onInitialPositionSettled)
   useLayoutEffect(() => {
     currentItemsRef.current = items
+    positionEntryRef.current = positionEntry
     initialScrollReadyRef.current = initialScrollReady
     onTargetPositionedRef.current = onScrollTargetPositioned
     onTargetCancelledRef.current = onScrollTargetCancelled
     settleCallbackRef.current = onInitialPositionSettled
-  }, [items, initialScrollReady, onScrollTargetPositioned, onScrollTargetCancelled, onInitialPositionSettled])
+  }, [items, positionEntry, initialScrollReady, onScrollTargetPositioned, onScrollTargetCancelled, onInitialPositionSettled])
   const followSuspension = useCreateAtom(false)
   const [followSuspended, setFollowSuspended] = useAtom(followSuspension)
   const acceptedGeometryRef = useRef<Geometry | null>(null)
@@ -386,6 +397,46 @@ export function useScrollAnchor({
       const root = scrollRef.current
       const native = virtualizerRef.current
       if (!intent || intent.epoch !== owner.epoch || !root || !native) return
+      const pendingEnd = intent.pendingInitialEnd
+      if (pendingEnd) {
+        const deadline = initialDeadlineRef.current
+        if (!deadline || Date.now() >= deadline.at) return
+        if (pendingEnd.root !== root || Math.abs(root.scrollTop - pendingEnd.scrollTop) > 1) {
+          releasePosition()
+          return
+        }
+        const committed = committedRowsRef.current
+        const layout = committed?.layout
+        const rect = native.scrollRect
+        const rows = native.getVirtualItems()
+        const matches = committed?.native === native && committed.entry === positionEntryRef.current
+          && committed.items === currentItemsRef.current && native.scrollElement === root && root.isConnected
+          && layout?.rect && rect && root.clientHeight > 0
+          && layout.rect.width === root.clientWidth && layout.rect.height === root.clientHeight
+          && rect.width === root.clientWidth && rect.height === root.clientHeight
+          && layout.totalSize === native.getTotalSize() && layout.scrollMargin === native.options.scrollMargin
+          && layout.rows.length === rows.length && rows.length > 0
+          && layout.rows.every((row, index) => {
+            const current = rows[index]
+            return row.key === current.key && row.index === current.index
+              && row.start === current.start && row.size === current.size
+              && row.end === current.end && row.lane === current.lane
+          })
+        if (!matches) {
+          if (layout?.rect && rect && root.clientHeight > 0
+            && rect.width === root.clientWidth && rect.height === root.clientHeight
+            && (layout.rect.width !== rect.width || layout.rect.height !== rect.height)) {
+            setInitialLayoutViewport(previous => previous?.root === root
+              && previous.width === rect.width && previous.height === rect.height ? previous
+              : { root, width: rect.width, height: rect.height })
+          }
+          initialSettleFrameRef.current = window.requestAnimationFrame(settle)
+          return
+        }
+        intent.pendingInitialEnd = null
+        initialEndIssuedRef.current = true
+        native.scrollToEnd({ behavior: intent.behavior })
+      }
       const viewport = root.getBoundingClientRect()
       if (root.clientHeight <= 0 || viewport.height <= 0) return
       let landed = false
@@ -446,7 +497,12 @@ export function useScrollAnchor({
       }
     }
     initialSettleFrameRef.current = window.requestAnimationFrame(settle)
-  }, [clearBudget, holdNativeOrigin, positionKind, readGeometry, retireInitialPosition, setOwnerKind, setReadPositionReady, settlePresentation])
+  }, [clearBudget, holdNativeOrigin, positionKind, readGeometry, releasePosition, retireInitialPosition, setOwnerKind, setReadPositionReady, settlePresentation])
+
+  const onRowsLayoutCommit = useCallback((layout: VirtualRowsLayoutSnapshot | null) => {
+    committedRowsRef.current = layout ? { layout, native: virtualizer, entry: positionEntry, items } : null
+    if (layout && positionOwnerRef.current.active && semanticIntentRef.current?.pendingInitialEnd) scheduleInitialPositionSettled()
+  }, [items, positionEntry, scheduleInitialPositionSettled, virtualizer])
 
   const startIntent = useCallback((type: Intent["type"], id: string | null, behavior: ScrollBehavior = "auto", notifyTarget = false, loadedTailPresent = false) => {
     const owner = positionOwnerRef.current
@@ -456,16 +512,18 @@ export function useScrollAnchor({
     semanticIntentRef.current = {
       epoch: owner.epoch, type, id, index, behavior, notifyTarget, loadedTailPresent,
       viewport: { width: scrollRef.current?.clientWidth ?? 0, height: scrollRef.current?.clientHeight ?? 0 },
+      pendingInitialEnd: type === "end" && positionKind.get() === "initial" && !loadedTailPresent && !initialEndIssuedRef.current
+        ? { root: scrollRef.current, scrollTop: scrollRef.current?.scrollTop ?? 0 } : null,
     }
     if (type === "end") {
-      virtualizerRef.current?.scrollToEnd({ behavior })
+      if (!semanticIntentRef.current.pendingInitialEnd) virtualizerRef.current?.scrollToEnd({ behavior })
     }
     else if (index !== null) {
       virtualizerRef.current?.scrollToIndex(index, { align: "center", behavior })
     }
     if (!loadedTailPresent) armBudget()
     scheduleInitialPositionSettled()
-  }, [armBudget, scheduleInitialPositionSettled])
+  }, [armBudget, positionKind, scheduleInitialPositionSettled])
 
   useLayoutEffect(() => {
     const owner = positionOwnerRef.current
@@ -496,6 +554,7 @@ export function useScrollAnchor({
     claimPosition("initial")
     entryResolvedRef.current = false
     initialRetiredRef.current = false
+    initialEndIssuedRef.current = false
     initialPositionSettledRef.current = false
     targetIntentRef.current = null
     positionedTargetRef.current = null
@@ -671,6 +730,8 @@ export function useScrollAnchor({
     if (!root) return
     const inputOwner = userInputRef.current
     const onScroll = () => {
+      const pendingEnd = semanticIntentRef.current?.pendingInitialEnd
+      if (pendingEnd?.root === root && Math.abs(root.scrollTop - pendingEnd.scrollTop) > 1) releasePosition()
       const previous = acceptedGeometryRef.current
       const native = virtualizerRef.current
       if (positionKind.get() === "idle" && readReady.get()
@@ -923,7 +984,7 @@ export function useScrollAnchor({
   const belowCount = root && virtualizer.isAtEnd(MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX)
     ? 0 : computeBelowCount(items, lastVisibleIndex)
   return {
-    scrollRef, virtualizer, readPositionReady: !entryChanged && readPositionReady, paginationEnabled: !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,
+    scrollRef, virtualizer, onRowsLayoutCommit, readPositionReady: !entryChanged && readPositionReady, paginationEnabled: !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,
     scrollToBottom, requestPresentPosition, jumpTo,
     captureOlderPageAnchor, captureNewerPageAnchor,
   }
