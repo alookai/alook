@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { GeneratedAvatar } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
@@ -207,6 +207,8 @@ function IdentityProof() {
 }
 
 export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
+  const [heroReady, setHeroReady] = useState(false)
+  const handleHeroReady = useCallback(() => setHeroReady(true), [])
   return (
     <main className={`landing ${styles.page}`}>
       <MarketingNav
@@ -221,6 +223,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         containerTestId={tid.landingHeaderContainer}
       />
       <HeroSection
+        onReady={handleHeroReady}
         staticPaper
         desktopSplit
         nextSectionId="workspace"
@@ -250,7 +253,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         backgroundDecoration={<HeroAvatarSwarm />}
       />
 
-      <LandingInteractiveDemo />
+      <LandingInteractiveDemo heroReady={heroReady} />
 
       <section id="product" tabIndex={-1} className={styles.productSection} data-testid="landing-product-proof">
         <div className={styles.productLayout} data-testid={tid.landingMainContainer}>

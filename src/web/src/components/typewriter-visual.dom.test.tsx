@@ -1,14 +1,38 @@
 import React from "react";
 import { renderToString } from "react-dom/server";
-import { render, screen } from "@/test/react-dom-harness";
-import { describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@/test/react-dom-harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@gsap/react", () => ({ useGSAP: vi.fn() }));
 
 import { TypewriterVisual } from "./typewriter-visual";
 import { TYPEWRITER_CITY_ART } from "./typewriter-city-art-data";
 
+const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  if (originalFonts) Object.defineProperty(document, "fonts", originalFonts);
+  else Reflect.deleteProperty(document, "fonts");
+});
+
 describe("typewriter paper", () => {
+  it("waits for the paper font and committed canvas before releasing the hero", async () => {
+    let resolveFont!: () => void;
+    const font = new Promise<void>((resolve) => { resolveFont = resolve; });
+    Object.defineProperty(document, "fonts", { configurable: true, value: { load: () => font } });
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage, fillText: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const settled = vi.fn();
+    const { container } = render(<TypewriterVisual animateEntrance={false} onPaperSettled={settled} />);
+    expect(settled).not.toHaveBeenCalled();
+    await act(async () => { resolveFont(); await font; });
+    expect(drawImage).toHaveBeenCalled();
+    expect(container.querySelector("pre")?.className).toContain("rendered");
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
   it("announces the paper font in server HTML before hydration", () => {
     const html = renderToString(<TypewriterVisual animateEntrance={false} />);
     expect(html).toContain('rel="preload"');

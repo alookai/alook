@@ -6,9 +6,11 @@ import { tid } from "@/lib/community/testids"
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { renderMessageListHero } from "./message-list-row"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
-import { MessageShareDialog } from "./message-share-dialog"
+import dynamic from "next/dynamic"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
+
+const MessageShareDialog = dynamic(() => import("./message-share-dialog").then((module) => module.MessageShareDialog), { loading: () => null })
 
 export function renderMessageListView(
   props: ResolvedMessageListProps,

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
@@ -31,8 +32,11 @@ import type { Marked, Mention, UnreadServer } from "@/lib/community/models/inbox
 import type { NotifLevel } from "@alook/shared"
 import { DEMO_CHANNELS, DEMO_DMS, DEMO_MESSAGES, DEMO_PROFILES, DEMO_SERVERS, DEMO_UNREADS, DEMO_MENTIONS } from "./landing-interactive-shell-data"
 import { LandingBotLog } from "./landing-bot-log"
-import { WorkspaceHome } from "./landing-workspace-home"
 import styles from "./landing-interactive-shell.module.css"
+
+const WorkspaceHome = dynamic(() => import("./landing-workspace-home").then((module) => module.WorkspaceHome), {
+  loading: () => <p role="status" className="p-6 text-sm text-muted-foreground">Loading Home…</p>,
+})
 
 export default function LandingInteractiveShell() {
   useEffect(() => {

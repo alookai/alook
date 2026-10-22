@@ -120,10 +120,10 @@ describe("interactive landing workspace", () => {
     await setupUser().click(screen.getByRole("button", { name: "Profile" }))
     expect(screen.queryByRole("region", { name: "Running bots" })).toBeNull()
   })
-  it("opens Friends, My Bots and Machines as populated pages", () => {
+  it("opens Friends, My Bots and Machines as populated pages", async () => {
     render(<LandingInteractiveShell />)
     fireEvent.click(screen.getAllByRole("link", { name: "Home" })[0])
-    expect(screen.getByPlaceholderText("Search friends")).toBeVisible()
+    expect(await screen.findByPlaceholderText("Search friends")).toBeVisible()
     expect(screen.getByRole("link", { name: "Alli" })).toHaveTextContent(/^Alli$/)
     fireEvent.click(screen.getByRole("link", { name: "My Bots" }))
     expect(screen.getByRole("heading", { name: "My Bots" })).toBeVisible()

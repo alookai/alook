@@ -5,7 +5,12 @@ import { renderCommunity as render } from "@/test/community-owner-harness"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { MessageBody } from "./message-body"
+import fullMessagePlugins from "./message-body-full"
+import { MessageBodyView } from "./message-body-view"
+
+function MessageBody(props: Omit<React.ComponentProps<typeof MessageBodyView>, "plugins">) {
+  return React.createElement(MessageBodyView, { ...props, plugins: fullMessagePlugins })
+}
 
 const componentDirectory = dirname(fileURLToPath(import.meta.url))
 

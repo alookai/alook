@@ -5,9 +5,10 @@ import { useEffect, useRef } from "react";
 import { TYPEWRITER_CITY_ART } from "./typewriter-city-art-data";
 import styles from "./typewriter-city-art.module.css";
 
-export function TypewriterCityArt() {
+export function TypewriterCityArt({ onSettled }: { onSettled?: () => void }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [settled, setSettled] = useAtom(useCreateAtom(false));
   const [ready, setReady] = useAtom(useCreateAtom(false));
 
   useEffect(() => {
@@ -29,27 +30,29 @@ export function TypewriterCityArt() {
         smaller.width = image.width / 2;
         smaller.height = image.height / 2;
         const smallerContext = smaller.getContext("2d");
-        if (!smallerContext) return;
+        if (!smallerContext) { setSettled(true); return; }
         smallerContext.drawImage(image, 0, 0, smaller.width, smaller.height);
         image = smaller;
       }
       canvas.width = width;
       canvas.height = Math.round(width * 9 / 16);
       const output = canvas.getContext("2d");
-      if (!output) return;
+      if (!output) { setSettled(true); return; }
       output.imageSmoothingQuality = "high";
       output.drawImage(image, 0, 0, canvas.width, canvas.height);
       setReady(true);
+      setSettled(true);
     };
     const scheduleDraw = () => {
       cancelAnimationFrame(animationFrame);
       animationFrame = requestAnimationFrame(draw);
     };
 
-    void document.fonts?.load('20px "Alook Jgs5"').then(() => {
+    if (!document.fonts) { setSettled(true); return; }
+    void document.fonts.load('20px "Alook Jgs5"').then(() => {
       if (disposed) return;
       const context = source.getContext("2d");
-      if (!context) return;
+      if (!context) { setSettled(true); return; }
       context.font = '20px "Alook Jgs5"';
       context.fillStyle = getComputedStyle(frame).color;
       context.textBaseline = "top";
@@ -60,14 +63,18 @@ export function TypewriterCityArt() {
       observer = new ResizeObserver(scheduleDraw);
       observer.observe(frame);
       window.addEventListener("resize", scheduleDraw);
-    }).catch(() => {});
+    }).catch(() => { if (!disposed) setSettled(true); });
     return () => {
       disposed = true;
       observer?.disconnect();
       cancelAnimationFrame(animationFrame);
       window.removeEventListener("resize", scheduleDraw);
     };
-  }, [setReady]);
+  }, [setReady, setSettled]);
+
+  useEffect(() => {
+    if (settled) onSettled?.();
+  }, [settled, onSettled]);
 
   return (
     <div ref={frameRef} className={styles.frame} role="img" aria-label="A giant Alook sculpture in an ASCII city, surrounded by buildings, a park, and streets.">

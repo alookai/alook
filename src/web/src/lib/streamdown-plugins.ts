@@ -1,7 +1,7 @@
-import { createMermaidPlugin } from "@streamdown/mermaid";
+import type { DiagramPlugin, MermaidConfig, MermaidInstance, MermaidPluginOptions } from "@streamdown/mermaid";
 export { cjk, math } from "./streamdown-remark-plugins";
 
-export const mermaid = createMermaidPlugin({
+const options: MermaidPluginOptions = {
   config: {
     theme: "base",
     themeVariables: {
@@ -24,4 +24,43 @@ export const mermaid = createMermaidPlugin({
     },
     fontFamily: "ui-sans-serif, system-ui, sans-serif",
   },
-});
+};
+
+let engine: Promise<DiagramPlugin> | undefined;
+let configuration: MermaidConfig | undefined;
+let revision = 0;
+let appliedRevision = -1;
+
+const instance: MermaidInstance = {
+  initialize(next) {
+    configuration = next;
+    revision += 1;
+  },
+  async render(id, source) {
+    const renderConfiguration = configuration;
+    const renderRevision = revision;
+    engine ??= import("@streamdown/mermaid")
+      .then(({ createMermaidPlugin }) => createMermaidPlugin(options))
+      .catch((error: unknown) => {
+        engine = undefined;
+        throw error;
+      });
+    const plugin = await engine;
+    const renderer = plugin.getMermaid();
+    if (renderConfiguration && appliedRevision !== renderRevision) {
+      renderer.initialize(renderConfiguration);
+      appliedRevision = renderRevision;
+    }
+    return renderer.render(id, source);
+  },
+};
+
+export const mermaid: DiagramPlugin = {
+  name: "mermaid",
+  type: "diagram",
+  language: "mermaid",
+  getMermaid(config) {
+    if (config) instance.initialize(config);
+    return instance;
+  },
+};

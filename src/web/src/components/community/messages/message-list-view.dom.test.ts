@@ -1,6 +1,6 @@
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render } from "@/test/react-dom-harness"
+import { fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { MessageListSkeleton, renderMessageListView as renderView } from "./message-list-view"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
@@ -251,7 +251,7 @@ describe("renderMessageListView", () => {
     expect(content()).not.toHaveClass("pb-4", "sm:pb-6")
   })
 
-  it("wires selection actions through the footer slot and closes the share dialog", () => {
+  it("wires selection actions through the footer slot and closes the share dialog", async () => {
     const exitSelect = vi.fn()
     const setShareOpen = vi.fn()
     const closeShare = vi.fn()
@@ -284,6 +284,7 @@ describe("renderMessageListView", () => {
     expect(exitSelect).toHaveBeenCalledOnce()
     share.click()
     expect(setShareOpen).toHaveBeenCalledWith(true)
+    await waitFor(() => expect(mockedShareDialog).toHaveBeenCalled())
     expect(mockedShareDialog).toHaveBeenCalledWith(expect.objectContaining({
       m: state.selectedMessages,
       open: true,
