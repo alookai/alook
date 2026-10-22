@@ -56,6 +56,15 @@ describe("native navigation warming and DM consumer mounting", () => {
     },
   )
 
+  it.each(["dm with server", "server without server"] as const)("rejects a cached %s without looking up a target", async combination => {
+    const owner = await createCommunityQueryOwner()
+    await seedConversationEntry(owner.client, combination === "dm with server" ? dmConversationEntryFixture() : conversationEntryFixture())
+    const channel = owner.registry.collections.channels.get("c1")!
+    await writeCommunityCollectionRows(owner.registry, "channels", [{ ...channel, serverId: combination === "dm with server" ? "s1" : null }], row => row.id)
+    expect(cachedConversationNavigationHref(owner.client, "viewer", "c1")).toBeUndefined()
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it.each([
     [false, "held"], [true, "held"],
     [false, "resolved"], [true, "resolved"],
