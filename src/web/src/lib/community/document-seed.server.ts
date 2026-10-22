@@ -70,6 +70,8 @@ export async function readCommunityDocumentSeed(db: Database, viewerId: string, 
       communityCollectionQuery(registry, "profiles", () => eq(1, 1)),
       communityCollectionQuery(registry, "channels"),
     ]
+    const authorIds = new Set(Array.from(registry.collections.messages.values()).flatMap(message => message.authorId ? [message.authorId] : []))
+    for (const authorId of authorIds) descriptors.push(communityCollectionQuery(registry, "profiles", ({ row }) => eq(row.id, authorId)))
     for (const { target, data } of seed.entries) {
       const channelId = target.channelId
       descriptors.push(communityCollectionQuery(registry, "channels", ({ row }) => eq(row.id, channelId)))

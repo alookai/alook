@@ -297,9 +297,9 @@ export function ForumView({
               className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
             >
               {!tagsKnown ? tagsError ? (
-                <button type="button" className="shrink-0 rounded-lg px-2.75 py-1 text-[13px] text-muted-foreground hover:text-foreground" onClick={onRetryTags}>Retry tags</button>
+                <button type="button" className="h-7 shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 text-muted-foreground hover:text-foreground" onClick={onRetryTags}>Retry tags</button>
               ) : (
-                <div role="status" aria-label="Loading tag filters" className="flex h-8 shrink-0 items-center gap-2">
+                <div role="status" aria-label="Loading tag filters" className="flex h-7 shrink-0 items-center gap-2">
                   <Skeleton className="h-7 w-16 rounded-lg" /><Skeleton className="h-7 w-20 rounded-lg" /><Skeleton className="h-7 w-16 rounded-lg" />
                 </div>
               ) : (

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { Suspense, use, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useIsRestoring, type QueryClient } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
@@ -30,6 +30,8 @@ import {
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { useSelector } from "@tanstack/react-store"
+import { HydrationBoundary } from "@tanstack/react-db"
+import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 import { useSession, currentSessionViewer } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
 import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecycle"
@@ -41,7 +43,51 @@ import { avatarInitial } from "@/lib/community/avatar"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
 import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
-import { installCommunityDocumentSeed, type CommunityDocumentSeedInput } from "@/lib/community/document-seed"
+import { installCommunityDocumentSeed, type CommunityDocumentSeed, type CommunityDocumentSeedInput } from "@/lib/community/document-seed"
+
+type DeferredDocumentSeed = {
+  promise: Promise<CommunityDocumentSeed | null>
+  rendering: Promise<CommunityDocumentSeed | null>
+  settled: boolean
+  installed: boolean | undefined
+  token: ReturnType<typeof captureCommunityLiveSnapshotToken>
+  presence: ReturnType<CommunityDbRegistry["runtime"]["ws"]["actions"]["beginPresenceSnapshot"]>
+}
+
+function receiveDocumentSeed(seed: CommunityDocumentSeed | null, delivery: DeferredDocumentSeed, client: QueryClient, registry: CommunityDbRegistry) {
+  if (!seed || !registry.runtime.lifecycle.get().active) return false
+  if (delivery.installed !== undefined) return delivery.installed
+  delivery.installed = false
+  try {
+    delivery.installed = installCommunityDocumentSeed(client, registry, seed, registry.sessionViewer(), typeof window === "undefined" ? undefined : delivery)
+    return delivery.installed
+  } catch (error) {
+    if (!isAbortError(error)) console.error("Community document seed installation failed", error)
+    return false
+  }
+}
+
+function SeededDocument({ delivery, client, registry, children }: { delivery: DeferredDocumentSeed; client: QueryClient; registry: CommunityDbRegistry; children: ReactNode }) {
+  const seed = use(delivery.rendering)
+  const hydrated = useHydratedClient()
+  const [snapshot] = useState(() => {
+    const installed = !hydrated && receiveDocumentSeed(seed, delivery, client, registry)
+    return installed && seed ? seed.db : { collections: [] }
+  })
+  return <HydrationBoundary state={snapshot}>{children}</HydrationBoundary>
+}
+
+function DocumentSeedContent({ delivery, client, registry, children }: { delivery: DeferredDocumentSeed; client: QueryClient; registry: CommunityDbRegistry; children: ReactNode }) {
+  const restoring = useIsRestoring()
+  const hydrated = useHydratedClient()
+  const [clientDocument, setClientDocument] = useState(hydrated)
+  useLayoutEffect(() => {
+    if (!restoring && !delivery.settled) setClientDocument(true)
+  }, [delivery, restoring])
+  return clientDocument ? children : <Suspense fallback={children}>
+    <SeededDocument delivery={delivery} client={client} registry={registry}>{children}</SeededDocument>
+  </Suspense>
+}
 
 function createRestoreGate() {
   let release!: () => void
@@ -148,13 +194,21 @@ function ScopedQueryProvider({
     if (initialSeed && !("then" in initialSeed)) installCommunityDocumentSeed(queryClient, registry, initialSeed, viewer)
     return registry
   })
-  const [deferredSeed] = useState(() => initialSeed && "then" in initialSeed
-    ? { promise: initialSeed, token: captureCommunityLiveSnapshotToken(queryClient), presence: communityDb.runtime.ws.actions.beginPresenceSnapshot() } : null)
+  const [deferredSeed] = useState<DeferredDocumentSeed | null>(() => {
+    if (!initialSeed || !("then" in initialSeed)) return null
+    const promise = Promise.resolve(initialSeed)
+    const delivery: DeferredDocumentSeed = {
+      promise, rendering: initialSeed,
+      settled: false, installed: undefined, token: captureCommunityLiveSnapshotToken(queryClient), presence: communityDb.runtime.ws.actions.beginPresenceSnapshot(),
+    }
+    void promise.then(() => { delivery.settled = true }, () => { delivery.settled = true })
+    return delivery
+  })
   useEffect(() => {
     if (!deferredSeed) return
     let current = true
     void Promise.resolve(deferredSeed.promise).then((seed) => {
-      if (current && seed) installCommunityDocumentSeed(queryClient, communityDb, seed, communityDb.sessionViewer(), deferredSeed)
+      if (current) receiveDocumentSeed(seed, deferredSeed, queryClient, communityDb)
     }).catch((error: unknown) => {
       if (current && !isAbortError(error)) console.error("Community document seed installation failed", error)
     })
@@ -266,7 +320,7 @@ function ScopedQueryProvider({
         queryClient={queryClient}
         registry={communityDb}
       >
-        {children}
+        {deferredSeed ? <DocumentSeedContent delivery={deferredSeed} client={queryClient} registry={communityDb}>{children}</DocumentSeedContent> : children}
         {isDev ? <ReactQueryDevtools initialIsOpen={false} /> : null}
       </CommunityDbRuntime> : null}
     </PersistQueryClientProvider>

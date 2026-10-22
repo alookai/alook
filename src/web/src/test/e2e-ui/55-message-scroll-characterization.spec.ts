@@ -832,7 +832,7 @@ test.describe("message scroll characterization", () => {
     await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
     const anchored = await anchorResponse
     expect(anchored.status()).toBe(200)
-    const anchorPage = readCommunityDocumentSeedFromHtml(await anchored.text()).entries.find(entry => entry.target.channelId === channelId)
+    const anchorPage = (await readCommunityDocumentSeedFromHtml(await anchored.text())).entries.find(entry => entry.target.channelId === channelId)
     expect(anchorPage?.data.selection.reason).toBe("read_pointer")
     expect(anchorPage?.data.page.hasMoreNewer).toBe(true)
     let newestGets = 0

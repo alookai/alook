@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto"
 import { createRequire } from "node:module"
-import React from "react"
+import React, { Suspense } from "react"
 import { renderToString } from "react-dom/server"
 import { hydrateRoot } from "react-dom/client"
 import { dehydrate, QueryClient, useIsRestoring } from "@tanstack/react-query"
@@ -80,7 +80,8 @@ describe("initial document seed in the actual native account provider", () => {
     const flight = flightSeed()
     expect(flight.promise.then(vi.fn(), vi.fn())).toBeUndefined()
     if (fulfilled) { flight.resolve(seed); await Promise.resolve(flight.promise) }
-    const view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>)
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>) })
     try {
       await waitFor(() => expect(restoring).toBe(false))
       if (!fulfilled) {
@@ -88,29 +89,32 @@ describe("initial document seed in the actual native account provider", () => {
         await act(async () => { flight.resolve(seed); await Promise.resolve(flight.promise) })
       }
       await waitFor(() => expect(screen.getByTestId("main")).toHaveTextContent("Server viewer:Body"))
-    } finally { view.unmount() }
+    } finally { await act(async () => { view.unmount() }) }
   })
 
   it.each([false, true])("handles a rejected Flight seed with cancelled=%s and keeps its cache consumer mounted", async (cancelled) => {
     const flight = flightSeed()
     const error = cancelled ? new DOMException("Flight seed cancelled", "AbortError") : new Error("Flight seed unavailable")
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
-    const view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>)
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>) })
     try {
       await act(async () => { flight.reject(error); await Promise.resolve(flight.promise).catch(() => {}) })
       if (cancelled) expect(logged).not.toHaveBeenCalled()
       else await waitFor(() => expect(logged).toHaveBeenCalledWith("Community document seed installation failed", error))
       expect(screen.getByTestId("main")).toBeInTheDocument()
-    } finally { view.unmount(); logged.mockRestore() }
+    } finally { await act(async () => { view.unmount() }); logged.mockRestore() }
   })
 
   it.each(["resolve", "reject"] as const)("ignores a Flight %s after the account provider unmounts", async (settlement) => {
     const seed = await makeSeed()
     const flight = flightSeed()
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
-    const view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>)
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>) })
+    await waitFor(() => expect(restoring).toBe(false))
     const owned = registry
-    view.unmount()
+    await act(async () => { view.unmount() })
     const hydrate = vi.spyOn(owned.dbClient, "hydrate")
     try {
       await act(async () => {
@@ -130,40 +134,50 @@ describe("initial document seed in the actual native account provider", () => {
     const error = new Error("Profile installation failed")
     const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     flight.promise.then((value) => { Object.defineProperty(value!, "selfProfile", { get() { throw error } }) })
-    const view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>)
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>) })
     try {
       await act(async () => { flight.resolve(seed); await Promise.resolve(flight.promise) })
       await waitFor(() => expect(logged).toHaveBeenCalledWith("Community document seed installation failed", error))
       expect(screen.getByTestId("main")).toBeInTheDocument()
-    } finally { view.unmount(); logged.mockRestore() }
+    } finally { await act(async () => { view.unmount() }); logged.mockRestore() }
   })
 
-  it("keeps the first hydrated DM body consistent and publishes its canonical author with deferred data", async () => {
+  it("hydrates the native SSR snapshot and canonical author through fulfilled Flight input", async () => {
     mocks.door.mockResolvedValue({ ok: true, value: { access: { channel: { serverId: null } } } })
     mocks.entry.mockResolvedValue({ ok: true, entry: dmConversationEntryFixture() })
     mocks.api.mockImplementation(() => new Promise(() => {}))
     const seed = await readCommunityDocumentSeed({} as Database, "viewer", "/c/me/c1", profile)
-    let release!: (value: CommunityDocumentSeed) => void
-    const pending = new Promise<CommunityDocumentSeed>(resolve => { release = resolve })
+    const flight = flightSeed()
+    flight.resolve(seed)
+    await Promise.resolve(flight.promise)
+    const captureRegistry = vi.fn<(registry: CommunityDbRegistry) => void>()
     function DmBody() {
+      captureRegistry(useOptionalCommunityDbRegistry()!)
       const feed = useDmMessages("c1", { viewerUserId: "viewer" })
       return <main>{feed.isLoading ? "Loading DM" : feed.messages.map(message => <Message key={message.id} m={{ ...message, grouped: false }} onOpenThread={() => {}} />)}</main>
     }
-    const tree = <QueryProvider userId="viewer" initialSeed={pending}><DmBody /></QueryProvider>
+    const html = renderToString(<QueryProvider userId="viewer" initialSeed={seed}><Suspense fallback={null}><DmBody /></Suspense></QueryProvider>)
+    const serverOwner = captureRegistry.mock.lastCall![0]
+    await serverOwner.cleanup()
+    serverOwner.queryClient.clear()
+    const tree = <QueryProvider userId="viewer" initialSeed={flight.promise}><DmBody /></QueryProvider>
     const container = document.createElement("div")
-    container.innerHTML = renderToString(tree)
+    container.innerHTML = html
     document.body.appendChild(container)
-    expect(container.textContent).toBe("Loading DM")
+    const row = container.querySelector("[data-message-author-line]")
+    expect(row).toHaveTextContent("Peer")
+    expect(container.textContent).not.toContain("Loading DM")
+    expect(container.textContent).not.toContain("Deleted user")
     const recoveries: unknown[] = []
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
     let root!: ReturnType<typeof hydrateRoot>
     try {
       await act(async () => { root = hydrateRoot(container, tree, { onRecoverableError: error => { recoveries.push(error) } }) })
-      expect(container.textContent).toBe("Loading DM")
-      await act(async () => { release(seed); await pending })
       await waitFor(() => expect(container.querySelector("[data-message-author-line]")).toHaveTextContent("Peer"))
       expect(container.textContent).not.toContain("Deleted user")
-      expect(recoveries).toEqual([])
-    } finally { await act(async () => { root?.unmount() }); container.remove() }
+      expect({ same: container.querySelector("[data-message-author-line]") === row, recoveries: recoveries.map(String), errors: logged.mock.calls }).toEqual({ same: true, recoveries: [], errors: [] })
+    } finally { await act(async () => { root?.unmount() }); container.remove(); logged.mockRestore() }
   })
 
   it("mounts the consumer before deferred seed and fills its missing entry after restore", async () => {
@@ -175,9 +189,11 @@ describe("initial document seed in the actual native account provider", () => {
     await act(async () => { view = render(<QueryProvider userId="viewer" initialSeed={pending}><Probe /></QueryProvider>) })
     await waitFor(() => expect(restoring).toBe(false))
     expect(screen.getByTestId("main")).toHaveTextContent("loading")
+    const mounted = screen.getByTestId("main")
     const hydrate = vi.spyOn(registry.dbClient, "hydrate")
     await act(async () => { release(seed); await pending })
     await waitFor(() => expect(screen.getByTestId("main")).toHaveTextContent("Server viewer:Body"))
+    expect(screen.getByTestId("main")).toBe(mounted)
     expect(hydrate).not.toHaveBeenCalled()
     view.unmount()
   })
