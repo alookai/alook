@@ -1,3 +1,50 @@
+export const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Why does memory work in one project but not another?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Compare the actual save destination with the memory folder shown in the second project before changing the note. Our experiment used one Git project and one configuration directory; it did not test transfer to another repository or machine."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Should I add an index entry when recall fails?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Check first. Our 2.1.304 run created its own index. The older 2.1.185 custom-directory run needed a manual pointer before recall succeeded. That earlier repair is evidence for that setup, not a universal installation step."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which should I correct: memory or project instructions?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Correct the source that owns the fact. A standing project rule belongs in maintained instructions; a retired preference needs its stale memory updated. If both mention it, inspect both and repeat the fresh-session check. Adding another contradictory note leaves the conflict in place."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does compaction delete saved memory files?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Compaction reduces conversation context. A missing answer does not prove a saved file was deleted. Inspect the file and check whether the session can access it."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can subagents use the main session's auto memory?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Do not assume they inherit it. The official subagent guide describes separate memory configuration and context behavior; forks have different inheritance behavior. Check the agent type and version. For the broader distinction, see Claude Code subagents and independent agents."
+      }
+    }
+  ]
+};
+
 export const metadata = {
   slug: "claude-code-memory",
   title: "Claude Code Memory: Persistent Memory Across Sessions",
