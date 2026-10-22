@@ -9,7 +9,7 @@ const mockPushBotEventToMachine = vi.fn()
 const mockListBotsForOwner = vi.fn()
 const mockGetBotDailyActivityForOwner = vi.fn()
 const mockGetBotDailyTokenUsageForOwner = vi.fn()
-const mockEnsureSiblingBotFriendship = vi.fn()
+const mockEnsureNewSiblingBotFriendships = vi.fn()
 const mockGetBotCapacitySummary = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -36,7 +36,7 @@ vi.mock("@alook/shared", async () => {
         getBotCapacitySummary: (...a: unknown[]) => mockGetBotCapacitySummary(...a),
       },
       communityFriendship: {
-        ensureSiblingBotFriendship: (...a: unknown[]) => mockEnsureSiblingBotFriendship(...a),
+        ensureNewSiblingBotFriendships: (...a: unknown[]) => mockEnsureNewSiblingBotFriendships(...a),
       },
       user: {
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
@@ -106,7 +106,7 @@ describe("POST /api/community/bots — model", () => {
     mockCreateBot.mockResolvedValue({ botId: "b1", name: "MyBot", discriminator: "0001", description: "", image: null })
     mockGetUserPublic.mockResolvedValue({ id: "u1", name: "Owner", discriminator: "9999" })
     mockListBotsForOwner.mockResolvedValue([{ id: "b1" }])
-    mockEnsureSiblingBotFriendship.mockResolvedValue({ blocked: false })
+    mockEnsureNewSiblingBotFriendships.mockResolvedValue({ blocked: false })
   })
 
   it("rejects an offline machine on the existing human create path", async () => {
@@ -185,16 +185,17 @@ describe("POST /api/community/bots — model", () => {
     const res = await POST(postReq(base()), ctx)
 
     expect(res.status).toBe(201)
-    expect(mockEnsureSiblingBotFriendship).toHaveBeenCalledOnce()
-    expect(mockEnsureSiblingBotFriendship).toHaveBeenCalledWith(
+    expect(mockEnsureNewSiblingBotFriendships).toHaveBeenCalledOnce()
+    expect(mockEnsureNewSiblingBotFriendships).toHaveBeenCalledWith(
       expect.anything(),
-      { botA: "b1", botB: "b2" },
+      "u1",
+      ["b1"],
     )
   })
 
   it("still returns 201 when sibling auto-friendship fails", async () => {
     mockListBotsForOwner.mockResolvedValue([{ id: "b1" }, { id: "b2" }])
-    mockEnsureSiblingBotFriendship.mockRejectedValue(new Error("D1 unavailable"))
+    mockEnsureNewSiblingBotFriendships.mockRejectedValue(new Error("D1 unavailable"))
 
     const res = await POST(postReq(base()), ctx)
 
