@@ -153,12 +153,21 @@ function captureCommunityTraffic(page: Page) {
 async function expectHeldMessage(page: Page, originalHtml: Promise<string>, conversationId: string, messageId: string, body: string, authorName: string) {
   const original = await page.evaluate(({ html, messageTestId }) => {
     const document = new DOMParser().parseFromString(html, "text/html")
-    const rows = document.querySelectorAll(`[data-testid="${messageTestId}"]`)
-    return { count: rows.length, text: rows[0]?.textContent ?? "" }
+    const rows = Array.from(document.querySelectorAll(`[data-testid="${messageTestId}"]`)).map(row => {
+      const transportAncestors: Array<{ id: string; tag: string }> = []
+      for (let parent = row.parentElement; parent; parent = parent.parentElement) {
+        if (parent.hasAttribute("hidden") && parent.id.startsWith("S:")) transportAncestors.push({ id: parent.id, tag: parent.tagName })
+      }
+      return { text: row.textContent ?? "", transportAncestors }
+    })
+    return { primary: rows.filter(row => row.transportAncestors.length === 0), transport: rows.filter(row => row.transportAncestors.length > 0) }
   }, { html: await originalHtml, messageTestId: tid.message(messageId) })
-  expect(original.count).toBe(1)
-  expect(original.text).toContain(body)
-  expect(original.text).toContain(authorName)
+  expect(original.primary.length + original.transport.length, JSON.stringify(original)).toBeGreaterThan(0)
+  expect(original.primary.length, JSON.stringify(original)).toBeLessThanOrEqual(1)
+  for (const row of [...original.primary, ...original.transport]) {
+    expect(row.text).toContain(body)
+    expect(row.text).toContain(authorName)
+  }
   const root = page.getByTestId(tid.messageScroller)
   const content = root.locator("[data-message-list-content]")
   const row = root.getByTestId(tid.message(messageId))
@@ -195,7 +204,7 @@ async function expectHeldMessage(page: Page, originalHtml: Promise<string>, conv
     content: node.querySelector<HTMLElement>("[data-message-list-content]")!,
     row: node.querySelector<HTMLElement>(`[data-testid="${messageTestId}"]`)!,
   }), tid.message(messageId))
-  return { root, content, row, refs, conversationId, messageId, authorName }
+  return { root, content, row, refs, conversationId, messageId, authorName, original }
 }
 
 async function expectReleasedMessage(page: Page, gate: { release: () => void }, held: Awaited<ReturnType<typeof expectHeldMessage>>, traffic: ReturnType<typeof captureCommunityTraffic>, testInfo: TestInfo, label: string) {
@@ -258,7 +267,7 @@ async function expectReleasedMessage(page: Page, gate: { release: () => void }, 
   } finally {
     const observation = await probe.evaluate(probe => { probe.stop(); return probe.state })
     try {
-      await testInfo.attach(label, { body: JSON.stringify({ evidence: "bounded DOM RAF sample, not compositor proof", conversationId: held.conversationId, messageId: held.messageId, authorName: held.authorName, observation, requests: traffic.requests, sockets: traffic.sockets(), url: page.url() }), contentType: "application/json" })
+      await testInfo.attach(label, { body: JSON.stringify({ evidence: "bounded DOM RAF sample, not compositor proof", conversationId: held.conversationId, messageId: held.messageId, authorName: held.authorName, originalSsr: held.original, observation, requests: traffic.requests, sockets: traffic.sockets(), url: page.url() }), contentType: "application/json" })
     } finally {
       await probe.dispose()
       await held.refs.dispose()
