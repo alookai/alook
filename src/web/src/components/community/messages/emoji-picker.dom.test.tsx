@@ -31,9 +31,10 @@ describe("native emoji picker", () => {
     const pick = vi.fn()
     const open = vi.fn()
     render(<EmojiPickerPopover onPick={pick} onOpenChange={open}><button>Emoji</button></EmojiPickerPopover>)
-    await waitFor(() => expect(screen.getByRole("button", { name: "Emoji" })).toBeTruthy(), { timeout: 5000 })
+    expect(screen.getByRole("button", { name: "Emoji" })).toBeVisible()
     act(() => screen.getByRole("button", { name: "Emoji" }).click())
-    await waitFor(() => expect(mocks.picker).toHaveBeenCalled())
+    expect(open).toHaveBeenLastCalledWith(true)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Choose emoji" })).toBeVisible())
     const props = mocks.picker.mock.lastCall![0]
     expect(props).toMatchObject({ theme: "dark", set: "native", previewPosition: "none", skinTonePosition: "none" })
     expect(props.data).toEqual({ emojis: { tada: { skins: [{ native: "🎉" }] } } })

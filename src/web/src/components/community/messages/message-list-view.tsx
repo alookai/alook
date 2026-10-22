@@ -10,7 +10,7 @@ import dynamic from "next/dynamic"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
-const MessageShareDialog = dynamic(() => import("./message-share-dialog").then((module) => module.MessageShareDialog))
+const MessageShareDialog = dynamic(() => import("./message-share-dialog").then((module) => module.MessageShareDialog), { loading: () => null })
 
 export function renderMessageListView(
   props: ResolvedMessageListProps,

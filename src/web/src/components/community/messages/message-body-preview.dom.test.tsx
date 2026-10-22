@@ -13,6 +13,15 @@ describe("demo message rendering", () => {
     expect(view.container.querySelector(".katex, svg[aria-roledescription]")).toBeNull()
   })
 
+  it("preserves ordinary text nodes while native plugins load", async () => {
+    const view = render(<MessageBody text={"**Keep selected text**\n\n$x^2$"} />)
+    const text = view.container.querySelector('[data-streamdown="strong"]')!
+    expect(text.textContent).toBe("Keep selected text")
+    await waitFor(() => expect(view.container.querySelector(".katex")).not.toBeNull())
+    expect(text.isConnected).toBe(true)
+    expect(view.container.querySelector('[data-streamdown="strong"]')).toBe(text)
+  })
+
   it("keeps native plain text visible while plugins load", () => {
     const view = render(<MessageBody text="Immediate plain message" />)
     expect(view.container.textContent).toContain("Immediate plain message")
