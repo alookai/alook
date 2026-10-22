@@ -58,6 +58,10 @@ export const blogTopics = [
         userJob: "Carry decisions across coding agent sessions",
       },
       {
+        slug: "claude-code-memory",
+        userJob: "Verify Claude Code memory across fresh sessions and fix stale notes",
+      },
+      {
         slug: "share-claude-code-session",
         userJob: "Share a Claude Code session or transcript so a teammate can review or continue the work",
       },
