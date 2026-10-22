@@ -63,6 +63,17 @@ async function resumeActivation(page: Page, activation: Activation) {
   }, activation)
 }
 
+async function foregroundActivation(page: Page, activation: Activation) {
+  await expect.poll(() => page.evaluate(() => Boolean((
+    window as typeof window & { __mobileNotificationQa: Bridge }
+  ).__mobileNotificationQa.listener))).toBe(true)
+  await page.evaluate((value) => {
+    const state = (window as typeof window & { __mobileNotificationQa: Bridge }).__mobileNotificationQa
+    state.pending = value
+    ;(state.listener as { onmessage: (value: unknown) => void }).onmessage({})
+  }, activation)
+}
+
 type MessageDoorEvidence = {
   status: number
   payload: { id?: string; channelId?: string }
@@ -75,19 +86,24 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
       expect(response.ok, `${path}: ${response.status}`).toBeTruthy()
     }
     async function captureMessageDoor(page: Page, targetId: string, messageId: string) {
+      let observed: MessageDoorEvidence | undefined
+      let requests = 0
       let capture!: (evidence: MessageDoorEvidence) => void
       let fail!: (error: unknown) => void
       const result = new Promise<MessageDoorEvidence>((resolve, reject) => {
         capture = resolve
         fail = reject
       })
+      void result.catch(() => undefined)
       await page.route((url) => url.pathname === `/api/community/messages/${messageId}`, async (route) => {
+        requests += 1
         try {
           const response = await route.fetch()
           const payload = await response.json()
           const evidence = { status: response.status(), payload }
           if (response.ok())
             expect(payload.channelId).toBe(targetId)
+          observed = evidence
           await route.fulfill({ response })
           capture(evidence)
         }
@@ -96,7 +112,7 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
           await route.abort()
         }
       })
-      return { result }
+      return { result, evidence: () => observed, requestCount: () => requests }
     }
     const { sessionCookie, userId } = actors
     const { seedChannel, seedDm, seedDmMessage, seedFriendship, seedJoinServer, seedMessage, seedServer } = actors.seed
@@ -137,10 +153,6 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
         const door = await captureMessageDoor(page, targetId, messageId)
         await page.goto("/c/me/friends")
         if (mode === "resume") await resumeActivation(page, activation)
-        const { status, payload } = await door.result
-        expect(status).toBe(200)
-        expect(payload.id).toBe(messageId)
-        expect(payload.channelId).toBe(targetId)
         const path = surface === "dm" ? `/c/me/${targetId}` : `/c/channels/${serverId}/${targetId}`
         await expect(page).toHaveURL(`${WEB_URL}${path}`)
         await expect.poll(() => page.evaluate(() => (
@@ -150,7 +162,51 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
         await expect(composerEditable(page)).toBeVisible({ timeout: 30_000 })
         await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
         await expect(page.locator('[data-slot="sheet-content"]')).toHaveCount(0)
-        await testInfo.attach("message-door-evidence", { body: JSON.stringify({ simulation: "iPhone UA + Tauri command shim + browser visibility events", status, channelId: payload.channelId, messageId, url: page.url() }), contentType: "application/json" })
+        const evidence = door.evidence()
+        if (evidence) {
+          expect(evidence.status).toBe(200)
+          expect(evidence.payload.id).toBe(messageId)
+          expect(evidence.payload.channelId).toBe(targetId)
+        }
+        else expect(door.requestCount()).toBe(0)
+        await testInfo.attach("message-door-evidence", { body: JSON.stringify({ simulation: "iPhone UA + Tauri command shim + browser visibility events", navigation: evidence ? "message resolution" : "cached conversation", evidence, messageDoorRequests: door.requestCount(), targetId, messageId, url: page.url() }), contentType: "application/json" })
+        await testInfo.attach("chat", { body: await page.screenshot(), contentType: "image/png" })
+      })
+    }
+  }
+
+  for (const mode of ["foreground", "resume"] as const) {
+    for (const surface of ["dm", "channel"] as const) {
+      test(`cached ${mode} ${surface} opens directly in the same document`, async ({ caseActors }, testInfo) => {
+        const actors = await caseActors(["alice", "bob"])
+        const { serverId, channelId, channelMessageId, dmId, dmMessageId, captureMessageDoor } = await prepareCase1(actors)
+        const { page } = await actors.asUser("bob", devices["iPhone 13"])
+        const targetId = surface === "dm" ? dmId : channelId
+        const messageId = surface === "dm" ? dmMessageId : channelMessageId
+        const path = surface === "dm" ? `/c/me/${targetId}` : `/c/channels/${serverId}/${targetId}`
+        const parent = surface === "dm" ? "/c/me" : `/c/channels/${serverId}`
+        const activation = { notificationId: crypto.randomUUID(), targetId, messageId }
+        await installMobileBridge(page, null)
+        const door = await captureMessageDoor(page, targetId, messageId)
+        await page.goto(path)
+        await expect(composerEditable(page)).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+        const timeOrigin = await page.evaluate(() => performance.timeOrigin)
+        await page.getByRole("button", { name: "Back", exact: true }).click()
+        await expect(page).toHaveURL(`${WEB_URL}${parent}`)
+        if (mode === "foreground") await foregroundActivation(page, activation)
+        else await resumeActivation(page, activation)
+        await expect(page).toHaveURL(`${WEB_URL}${path}`)
+        await expect(composerEditable(page)).toBeVisible()
+        await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+        await expect.poll(() => page.evaluate(() => (
+          window as typeof window & { __mobileNotificationQa: Bridge }
+        ).__mobileNotificationQa.dismissed)).toEqual([activation.notificationId])
+        expect(door.requestCount()).toBe(0)
+        expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin)
+        expect(await page.evaluate(() => (window as typeof window & { __mobileNotificationQa: Bridge }).__mobileNotificationQa.documentLoads)).toBe(1)
+        await expect(page.locator('[data-slot="sheet-content"]')).toHaveCount(0)
+        await testInfo.attach("cached-navigation-evidence", { body: JSON.stringify({ simulation: "iPhone UA + Tauri command shim", mode, surface, targetId, messageId, messageDoorRequests: door.requestCount(), timeOrigin, documentLoads: 1, url: page.url() }), contentType: "application/json" })
         await testInfo.attach("chat", { body: await page.screenshot(), contentType: "image/png" })
       })
     }

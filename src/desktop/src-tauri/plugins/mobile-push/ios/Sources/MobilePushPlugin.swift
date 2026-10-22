@@ -119,9 +119,11 @@ struct MobilePushRegistrationState: Equatable {
 final class MobilePushStore {
   private let defaults: UserDefaults
   private let lock = NSLock()
+  private var currentToken: String?
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+    defaults.removeObject(forKey: Keys.currentToken)
   }
 
   func installationId() -> String {
@@ -147,7 +149,7 @@ final class MobilePushStore {
     let current = unlockedRegistration()
     let next = current.withCurrentToken(token)
     guard next != current else { return false }
-    defaults.set(next.currentToken, forKey: Keys.currentToken)
+    currentToken = next.currentToken
     return true
   }
 
@@ -212,7 +214,7 @@ final class MobilePushStore {
 
   private func unlockedRegistration() -> MobilePushRegistrationState {
     MobilePushRegistrationState(
-      currentToken: defaults.string(forKey: Keys.currentToken),
+      currentToken: currentToken,
       acknowledgedToken: defaults.string(forKey: Keys.acknowledgedToken)
     )
   }

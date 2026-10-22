@@ -196,4 +196,37 @@ final class MobilePushPluginTests: XCTestCase {
     store.completeDeliveredNotificationIdentifier(for: route.notificationId)
     XCTAssertNil(store.deliveredNotificationIdentifier(for: route.notificationId))
   }
+
+  func testRelaunchRequiresASystemTokenAndRetainsInstallationAndOwnershipProof() {
+    let suite = "mobile-push-tests-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let old = "token-00000000000"
+    let current = "token-11111111111"
+    let newer = "token-22222222222"
+    defaults.set(old, forKey: "alook.mobilePush.currentToken")
+    defaults.set(old, forKey: "alook.mobilePush.acknowledgedToken")
+    let store = MobilePushStore(defaults: defaults)
+    let installation = store.installationId()
+    XCTAssertNil(store.registration().currentToken)
+    XCTAssertNil(defaults.string(forKey: "alook.mobilePush.currentToken"))
+    XCTAssertEqual(store.registration().acknowledgedToken, old)
+
+    XCTAssertTrue(store.updateCurrentToken(current))
+    XCTAssertFalse(store.updateCurrentToken(current))
+    XCTAssertEqual(store.registration().currentToken, current)
+    XCTAssertEqual(store.registration().previousToken, old)
+    XCTAssertTrue(store.updateCurrentToken(newer))
+    XCTAssertTrue(store.acknowledge(current))
+    XCTAssertEqual(store.registration().currentToken, newer)
+    XCTAssertEqual(store.registration().previousToken, current)
+
+    let relaunched = MobilePushStore(defaults: defaults)
+    XCTAssertEqual(relaunched.installationId(), installation)
+    XCTAssertNil(relaunched.registration().currentToken)
+    XCTAssertEqual(relaunched.registration().acknowledgedToken, current)
+    XCTAssertTrue(relaunched.updateCurrentToken(newer))
+    XCTAssertEqual(relaunched.registration().currentToken, newer)
+    XCTAssertEqual(relaunched.registration().previousToken, current)
+  }
 }

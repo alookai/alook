@@ -7,6 +7,7 @@ import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurr
 import { useCommunityViewSource } from "./use-community-view-source"
 import { isAbortError } from "@/lib/errors"
 import { normalizeCommunityHref, type CommunityCommittedFrame } from "@/lib/community/community-route"
+import { cachedConversationNavigationHref } from "@/lib/community/navigation-metadata"
 import { useCommunityRouteFrame, type NativeNotificationConversationConsumer, type CommunityNavigationController } from "@/contexts/community/route-frame"
 import { isDesktop, isMobile } from "@alook/shared"
 import {
@@ -369,12 +370,13 @@ export function useNativeSystemNotifications(
       register: (snapshot) => nativeCommand(client, key("mobile", "register"), original, () => postMobileSystemNotificationRegistration(snapshot, fetch, { signal: original.signal, assertActive: original }), true),
       acknowledge: (token) => nativeCommand(client, key("mobile", "acknowledge"), original, () => acknowledgeMobileSystemNotificationRegistration(token), true),
       unregister: (id) => nativeCommand(client, key("mobile", "unregister", id), original, () => deleteMobileSystemNotificationRegistration(id, fetch, { signal: original.signal, assertActive: original }), true),
-      retryDelaysMs: [],
-      schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
-      cancel: (handle) => window.clearTimeout(handle as number),
     })
     const activation = createMobileSystemNotificationActivationController({
       take: () => nativeCommand(client, key("mobile", "take"), original, takeMobileSystemNotificationActivation),
+      resolveHref: (activation) => {
+        original()
+        return cachedConversationNavigationHref(client, viewerUserId, activation.targetId)
+      },
       queueDismiss: (notificationId, href) => {
         original(); dismissal.queue("mobile", viewerUserId, notificationId, href)
       },

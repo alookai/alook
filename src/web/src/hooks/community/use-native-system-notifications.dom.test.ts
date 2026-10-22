@@ -11,6 +11,7 @@ import {
 } from "./use-native-system-notifications"
 import type { DesktopSystemNotificationActivation } from "@/lib/community/system-notification-route"
 import { createNativeSystemNotificationDismissalQueue } from "@/lib/community/native-system-notification-dismissal"
+import { conversationEntryFixture, dmConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 
 
 const hookMocks = vi.hoisted(() => ({
@@ -205,6 +206,26 @@ describe("notification activation",()=>{
     expect(route.navigation.pushImmediate).not.toHaveBeenCalled()
     expect(window.sessionStorage.length).toBe(0)
     expect(hookMocks.mobileDismiss).not.toHaveBeenCalled()
+  })
+  it.each(["dm", "channel"] as const)("navigates a cached mobile %s directly and clears only after route commit", async kind => {
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    setRoute("/c/me/friends")
+    const owner = await createCommunityQueryOwner()
+    await seedConversationEntry(owner.client, kind === "dm" ? dmConversationEntryFixture() : conversationEntryFixture())
+    const clicked = { notificationId: activation.notificationId, messageId: "m1", targetId: "c1" }
+    hookMocks.mobileTake.mockResolvedValueOnce(clicked)
+    const wrapped = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
+      { client: owner.client, registry: owner.registry, retainOwner: true }, createElement(wrapper, null, children))
+    const rendered = renderOwnedHook(useNotifications, { wrapper: wrapped })
+    const href = kind === "dm" ? "/c/me/c1" : "/c/channels/s1/c1"
+    await waitFor(() => expect(route.navigation.pushImmediate).toHaveBeenCalledExactlyOnceWith(href))
+    expect(hookMocks.mobileRevalidate).not.toHaveBeenCalled()
+    expect(hookMocks.mobileDismiss).not.toHaveBeenCalled()
+    setRoute(href)
+    rendered.rerender()
+    await waitFor(() => expect(hookMocks.mobileDismiss).toHaveBeenCalledExactlyOnceWith(clicked.notificationId))
+    rendered.unmount()
   })
 })
 describe("current native conversation",()=>{
