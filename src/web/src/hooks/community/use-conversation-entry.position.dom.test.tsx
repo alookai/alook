@@ -12,10 +12,10 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, resize } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, scrollFixture } from "@/test/message-scroll-fixture"
 import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot, publishAccountAttentionSnapshot } from "@/lib/community-db/sync"
 import { currentConversationReadState } from "@/lib/community/conversation-entry"
-import { disposeReadCoordinator, getLocalReadingPosition, getReadCoordinator } from "./read-coordinator"
+import { disposeReadCoordinator, getLocalReadingPosition, getReadCoordinator, READ_COORDINATOR_DEBOUNCE_MS } from "./read-coordinator"
 import { disposeAccountReadStateReconciliation, type AccountReadStateSnapshot } from "./community-ws/read-state-reconciliation"
 
 const navigationMock = vi.hoisted(() => ({ href: "/c/channels/s1/c1", replace: vi.fn() }))
@@ -225,6 +225,34 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
+  it.each(["inactive", "document-hidden"])("opens the real read transport after a laid-out short entry becomes visible from %s", async mode => {
+    scrollFixture.firstPrefix = 120
+    if (mode === "document-hidden") visibility = "hidden"
+    const cached = entry("channel")
+    cached.messages = cached.messages.slice(0, 1)
+    cached.channel.messageCount = 1
+    cached.page.latestSeq = 1
+    cached.readState = { channelId: "c1", lastReadMessageId: null, lastReadSeq: 0, lastReadAt: null }
+    cached.selection = { reason: "tail", anchorMessageId: null }
+    const view = await setup("channel", false, false, { cached, initialActive: mode !== "inactive" })
+    expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "false")
+    expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    if (mode === "document-hidden") {
+      visibility = "visible"
+      fireEvent(document, new Event("visibilitychange"))
+      resize()
+    } else await view.setActivity(true)
+    expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "true")
+    const row = view.root().querySelector('[data-msg-id="m1"]')!
+    const observer = boundObserver(row)
+    act(() => observer.callback([intersection(row)], {} as IntersectionObserver))
+    expect(getReadCoordinator(owner.client, viewer.id).state.get().scopes.get("timeline:c1")?.accepted?.intent.seq).toBe(1)
+    await act(async () => vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS))
+    expect(load).toHaveBeenCalledWith("/api/community/channels/c1/read", expect.objectContaining({
+      method: "PUT", body: JSON.stringify({ lastReadMessageId: "m1" }),
+    }))
+  })
+
   it("keeps a precommitted entry unread while inactive and admits its real observer on first activation", async () => {
     const view = await setup("channel", false, false, { initialActive: false })
     const entry = latest.feed.positionEntry

@@ -1007,6 +1007,10 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const navigationDraft = `navigation draft ${stamp}`
   const navigationEditable = composerEditable(alice.page)
   await navigationEditable.fill(navigationDraft)
+  await expect(scroller.locator("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
+  await expect.poll(() => scroller.evaluate((element) => (
+    element.scrollHeight - element.clientHeight
+  ))).toBeGreaterThanOrEqual(2200)
   const readingSample = await scroller.evaluate((element) => {
     const before = { time: performance.now(), top: element.scrollTop, height: element.scrollHeight, client: element.clientHeight }
     const target = Math.min(2200, Math.max(0, element.scrollHeight - element.clientHeight))

@@ -13,6 +13,41 @@ function request() {
 }
 
 describe("qualified positioning lifecycle", () => {
+  it.each(["visible", "inactive", "document-hidden", "size-change"])("measures a laid-out row on first activation from %s", mode => {
+    scrollFixture.firstPrefix = 120
+    const visibility = vi.spyOn(document, "visibilityState", "get")
+    visibility.mockReturnValue(mode === "document-hidden" ? "hidden" : "visible")
+    if (mode === "size-change") scrollFixture.firstPrefix = 0
+    const h = mount({ active: mode !== "inactive" && mode !== "size-change", hasMoreOlder: false,
+      items: [{ ...message("first"), newDivider: true }], newDividerBefore: "first" })
+    if (mode === "document-hidden") {
+      visibility.mockReturnValue("visible")
+      fireEvent(document, new Event("visibilitychange"))
+      resize()
+    } else if (mode !== "visible") {
+      if (mode === "size-change") scrollFixture.firstPrefix = 120
+      h.update({ active: true })
+    }
+    expect({
+      measured: scrollFixture.latest.virtualizer.getVirtualItems().find(item => item.key === "rail:leading")?.size,
+      ready: scrollFixture.latest.readPositionReady,
+    }).toEqual({ measured: 120, ready: true })
+    expect(h.root.scrollTop).toBe(0)
+  })
+
+  it("preserves native cached measurements when a hidden row has no physical box", () => {
+    const h = mount({ items: [message("first")], hasMoreOlder: false })
+    const native = scrollFixture.latest.virtualizer
+    const row = h.root.querySelector<HTMLElement>('[data-message-row-key="rail:leading"]')!.closest<HTMLElement>('[data-index]')!
+    const measured = native.getVirtualItems().find(item => item.key === "rail:leading")!.size
+    h.stage({ active: false })
+    vi.spyOn(row, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect())
+    const entry = { target: row, borderBoxSize: [{ blockSize: 0, inlineSize: 0 }] } as unknown as ResizeObserverEntry
+    expect(native.options.measureElement(row, entry, native)).toBe(measured)
+    expect(native.options.measureElement(row, undefined, native)).toBe(measured)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+  })
+
   it.each(["end", "target"])("admits an initially inactive %s only on its first visible commit", target => {
     const positioned = vi.fn(), cancelled = vi.fn()
     const h = mount({ active: false, ...(target === "target" ? { scrollToMessageId: "m5" } : {}),

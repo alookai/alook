@@ -340,9 +340,12 @@ export function useScrollAnchor({
     getScrollElement: () => scrollRef.current,
     estimateSize,
     useCachedMeasurements: !visible,
-    measureElement: (element, entry, instance) => !instance.options.useCachedMeasurements && element.querySelector("[data-msg-id]")
-      ? measureMessageRow(element)
-      : measureElement(element, entry, instance),
+    measureElement: (element, entry, instance) => {
+      const rect = element.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return measureElement(element, entry, instance)
+      return element.querySelector("[data-msg-id]") ? measureMessageRow(element)
+        : Math.round(entry?.borderBoxSize?.[0]?.blockSize ?? rect.height)
+    },
     getItemKey,
     scrollPaddingStart: scrollPaddingStartRef.current,
     anchorTo: !entryChanged && ownerKind === "idle" && !awaitingTarget && !pendingLocalSubmit
