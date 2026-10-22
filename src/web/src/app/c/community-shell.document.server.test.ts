@@ -28,7 +28,7 @@ import { CommunityShell } from "./community-shell"
 import { MessageList } from "@/components/community/messages/message-list"
 
 describe("document HTML through the actual account and profile boundaries", () => {
-  it.each(["channel", "dm"])("emits actual %s message rows through the real message list before mount effects", async (kind) => {
+  it.each(["channel", "dm"])("emits laid-out %s rows beneath the positioning skeleton before mount effects", async (kind) => {
     documentTarget.dm = kind === "dm"
     const profile = { id: "viewer", name: "Viewer", discriminator: "0042", avatar: "/avatar", avatarVersion: 8, aboutMe: "", bannerColor: null, statusEmoji: null, statusText: "" }
     const seed = await readCommunityDocumentSeed({} as Database, "viewer", documentTarget.dm ? "/c/me/c1" : "/c/channels/s1/c1", profile)
@@ -44,7 +44,10 @@ describe("document HTML through the actual account and profile boundaries", () =
       const html = renderToString(createElement(CommunityShell, { currentUser: { ...profile, email: "viewer@example.test" }, initialSeed: seed }, createElement(Conversation)))
       expect(html).toContain('data-testid="community-message-m1"')
       expect(html).toContain("Body")
-      expect(html).not.toMatch(/data-message-list-content[^>]*aria-hidden="true"/)
+      expect(html).toMatch(/data-message-list-content[^>]*aria-hidden="true"/)
+      expect(html).toMatch(/data-message-list-content[^>]*style="visibility:hidden"/)
+      expect(html).toContain("data-message-positioning-skeleton")
+      expect(html).toContain('aria-busy="true"')
       expect(html).toMatch(/transform:translate3d\(0, [1-9]\d*(?:\.\d+)?px, 0\)/)
       expect(html).toContain('data-read-position-ready="false"')
     } finally {

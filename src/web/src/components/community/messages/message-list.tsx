@@ -3,7 +3,7 @@
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useObservedRegion } from "@/lib/observability/regions"
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
-import { useLayoutEffect } from "react"
+import { useContext, useLayoutEffect } from "react"
 import { useMessageListController } from "./message-list-controller"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
@@ -11,7 +11,7 @@ import type { MessageListProps, ResolvedMessageListProps } from "./message-list-
 import { renderMessageListRow } from "./message-list-row"
 import { renderMessageListView } from "./message-list-view"
 import { VirtualRows } from "./virtual-cursor-list"
-import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { ConversationPresentationContext, useConversationActivity } from "@/contexts/community/conversation-activity"
 
 export function MessageList({
   variant = "channel",
@@ -20,6 +20,7 @@ export function MessageList({
 }: MessageListProps) {
   const hoverCapable = useHoverCapable()
   const conversationActive = useConversationActivity()
+  const conversationPresented = useContext(ConversationPresentationContext) ?? conversationActive
   const resolvedProps: ResolvedMessageListProps = {
     ...props,
     messages: isConversationAccessError(props.initialLoadError) ? [] : props.messages,
@@ -27,6 +28,7 @@ export function MessageList({
     initialScrollReady,
     hoverCapable,
     active: conversationActive && props.active !== false,
+    positioningActive: conversationPresented && (props.positioningActive ?? props.active) !== false,
   }
   const controller = useMessageListController(resolvedProps)
   const visible = visibleVirtualItems(controller.virtualizer).flatMap(item => { const row = controller.items[item.index]; return row?.kind === "message" ? [row.m] : [] })

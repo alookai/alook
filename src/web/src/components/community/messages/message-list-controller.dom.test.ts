@@ -323,12 +323,15 @@ describe("useMessageListController", () => {
   })
 
   it("waits for the hook-owned post-action settlement callback on ordinary windows", () => {
+    let view: ReturnType<typeof rtlRender>
     act(() => {
-      rtlRender(React.createElement(Probe, { value: props() }))
+      view = rtlRender(React.createElement(Probe, { value: props() }))
     })
     expect(latest.initialPosition).toMatchObject({
       phase: "positioning",
-      contentVisible: true,
+      showSkeleton: true,
+      contentVisible: false,
+      contentInteractive: false,
     })
     const settle = (mocks.scrollInputs.at(-1) as {
       onInitialPositionSettled: () => void
@@ -339,6 +342,9 @@ describe("useMessageListController", () => {
       contentVisible: true,
     })
     expect(latest.initialPosition.phase).toBe("revealed")
+    expect(latest.readPositionReady).toBe(false)
+    act(() => view.rerender(React.createElement(Probe, { value: props({ loading: true }) })))
+    expect(latest.initialPosition).toMatchObject({ phase: "revealed", showSkeleton: false })
   })
 
   it("passes every pagination/anchor input through and gives jump mode server-count precedence", () => {

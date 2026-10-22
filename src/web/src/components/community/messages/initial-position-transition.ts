@@ -15,8 +15,8 @@ export function useInitialPositionTransition({
     : authoritativeEmpty || positionSettled ? "revealed" : "positioning"
   return {
     phase,
-    showSkeleton: !firstWindowReady,
-    contentVisible: firstWindowReady,
-    contentInteractive: firstWindowReady,
+    showSkeleton: phase !== "revealed",
+    contentVisible: phase === "revealed",
+    contentInteractive: phase === "revealed",
   }
 }

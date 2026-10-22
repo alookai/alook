@@ -77,6 +77,56 @@ describe("qualified positioning lifecycle", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
+  it.each(["end", "unread", "local", "target"])("positions a presented %s before commit without granting read or pagination", target => {
+    const settled = vi.fn()
+    const positioned = vi.fn()
+    const h = mount({ active: false, positioningActive: true,
+      ...(target === "unread" ? { newDividerBefore: "m5" }
+        : target === "local" ? { initialPositionMessageId: "m5" }
+        : target === "target" ? { scrollToMessageId: "m5" } : {}),
+      onInitialPositionSettled: settled,
+      onScrollTargetPositioned: positioned,
+    })
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
+    const index = vi.spyOn(native, "scrollToIndex")
+    if (target === "end") expect(native.isAtEnd(1)).toBe(true)
+    else {
+      expect(bodyTop(h.root, "m5")).toBeGreaterThan(0)
+      expect(bodyTop(h.root, "m5")).toBeLessThan(h.root.clientHeight)
+    }
+    expect(settled).toHaveBeenCalledOnce()
+    if (target === "target") expect(positioned).toHaveBeenCalledExactlyOnceWith("m5")
+    else expect(positioned).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.paginationEnabled).toBe(false)
+    const offset = h.root.scrollTop
+    h.update({ active: true })
+    expect(h.root.scrollTop).toBe(offset)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
+    expect(end).not.toHaveBeenCalled()
+    expect(index).not.toHaveBeenCalled()
+    expect(settled).toHaveBeenCalledOnce()
+    expect(positioned).toHaveBeenCalledTimes(target === "target" ? 1 : 0)
+  })
+
+  it("keeps precommit user takeover after data and route commit arrive", () => {
+    const settled = vi.fn()
+    const h = mount({ active: false, positioningActive: true, initialScrollReady: false,
+      onInitialPositionSettled: settled,
+    })
+    h.move(320)
+    const offset = h.root.scrollTop
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    expect(settled).toHaveBeenCalledOnce()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    h.update({ active: true, initialScrollReady: true })
+    expect(end).not.toHaveBeenCalled()
+    expect(h.root.scrollTop).toBe(offset)
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
   it.each(["end", "unread", "local"])("waits beyond five seconds for data before choosing %s", target => {
     const h = mount({ initialScrollReady: false })
     const native = scrollFixture.latest.virtualizer

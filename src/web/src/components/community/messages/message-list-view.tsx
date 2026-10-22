@@ -19,6 +19,9 @@ export function renderMessageListView(
   footerSlot: HTMLDivElement | null = null,
   accessoryFooterSlot: HTMLDivElement | null = null,
 ) {
+  const showError = props.messages.length === 0 && !!props.initialLoadError
+  const showSkeleton = controller.initialPosition.showSkeleton && !showError
+  const hideContent = showSkeleton && controller.initialPosition.phase === "positioning"
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {controller.selectMode && footerSlot && createPortal(
@@ -50,20 +53,23 @@ export function renderMessageListView(
           ref={controller.scrollRef}
           data-testid={tid.messageScroller}
           data-pagination-enabled={controller.paginationEnabled ? "true" : "false"}
+          aria-busy={showSkeleton}
+          tabIndex={showSkeleton ? 0 : undefined}
           className="relative z-10 h-full overflow-x-clip overflow-y-auto thin-scrollbar"
         >
           <div
             data-message-list-content
             data-initial-position-phase={controller.initialPosition.phase}
             data-read-position-ready={controller.readPositionReady ? "true" : "false"}
-            aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
-            inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
+            aria-hidden={hideContent}
+            inert={hideContent}
+            style={{ visibility: hideContent ? "hidden" : undefined }}
             className={`${props.messages.length === 0 ? "flex min-h-full flex-col justify-end pt-8" : ""} pl-(--community-composer-inline-start) pr-(--community-composer-inline-end)`}
           >
-          {props.messages.length === 0 && props.initialLoadError ? (
+          {showError ? (
             <ConversationResolutionErrorFrame as="div" retrying={!!props.retryingInitialLoad}
               onRetry={props.onRetryInitialLoad ?? (() => {})} />
-          ) : controller.initialPosition.showSkeleton ? (
+          ) : controller.initialPosition.phase === "skeleton" ? (
             <MessageListSkeletonContent variant={props.variant} />
           ) : (
             <>
@@ -77,7 +83,18 @@ export function renderMessageListView(
           )}
           </div>
         </div>
-
+        {hideContent && (
+          <div
+            data-message-list-skeleton
+            data-message-positioning-skeleton
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-20 overflow-hidden bg-background"
+          >
+            <div className="flex min-h-full flex-col justify-end pt-8 pl-(--community-composer-inline-start) pr-(--community-composer-inline-end)">
+              <MessageListSkeletonContent variant={props.variant} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

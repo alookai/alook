@@ -37,6 +37,7 @@ export type MessageListProps = {
   positionDataState?: MessagePositionState
   messageWindow?: object
   active?: boolean
+  positioningActive?: boolean
   hero?: ReactNode
   variant?: "channel" | "dm"
   onScrollRoot?: (el: HTMLDivElement | null) => void
