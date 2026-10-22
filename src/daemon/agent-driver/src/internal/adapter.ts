@@ -203,6 +203,7 @@ export interface VendorSessionHandle {
 }
 
 export interface BackendAdapter<Id extends string = BuiltinBackendId, Config = BackendConfig> {
+  readonly modelCatalogOrigin?: "native_report" | "adapter_suggestions";
   readonly id: Id;
   readonly instructionDelivery:
     | { readonly kind: "native" }

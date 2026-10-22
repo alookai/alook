@@ -726,6 +726,8 @@ export type {
 } from "./community-server-rail";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
+export { BotCreationError, resolveBotCreationConfiguration, BotCreationProposalSchema, BotCreationSubmitSchema, BotCreationPayloadSchema, BotCreationDecisionSchema, BOT_CREATION_MAX_ITEMS, BOT_CREATION_BODY_MAX_BYTES } from "./community-bot-creation";
+export type { BotCreationProposal, BotCreationSubmit, BotCreationItem, BotCreationPayload } from "./community-bot-creation";
 export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity, communityPushDevice } from "./db/community-schema";
 
 // Logger
@@ -828,3 +830,5 @@ export * from "./community-resources";
 export * from "./runtime-models-contract";
 
 export { readBoundedJsonRequest } from "./http-json";
+
+export type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";

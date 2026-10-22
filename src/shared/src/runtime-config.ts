@@ -45,6 +45,7 @@ export type ReasoningEffortOption = {
  * models with no effort metadata use an empty options array.
  */
 export type RuntimeReasoningCatalog = {
+  readonly catalogOrigin?: "native_report" | "adapter_suggestions";
   readonly updateMode: "live_next_turn" | "context_preserving_restart" | "unsupported";
   readonly defaultModelId?: string;
   readonly models: readonly {

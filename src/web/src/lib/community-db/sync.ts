@@ -2714,16 +2714,21 @@ export function projectCommunityWsEventToDb(
       patchMessageFirstPreview(registry, event.channelId, event.messageId, event.content)
       return
     }
-    case "community:message.updated":
+    case "community:message.updated": {
+      const changes = {
+        ...(event.approval !== undefined ? { approval: event.approval } : {}),
+        ...(event.botCreation !== undefined ? { botCreation: event.botCreation } : {}),
+      }
       patchRows(
         registry,
         "messages",
-        (row) => ({ ...row, approval: event.approval }),
-        (row) => row.id === event.messageId,
+        (row) => row.channelId === event.channelId ? { ...row, ...changes } : row,
+        (row) => row.id === event.messageId && row.channelId === event.channelId,
         [event.messageId],
-        ["approval"],
+        Object.keys(changes),
       )
       return
+    }
     case "community:reaction.add":
     case "community:reaction.remove":
       patchRows(

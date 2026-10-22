@@ -36,6 +36,7 @@ it("keeps existing mutation owners inventoried and semantic variants on the whit
 })
 
 const mutationCoverage = [
+  { "file": "src/web/src/hooks/community/mutations/bot-creation.ts", "owner": "useBotCreationDecision", "action": "bot.creation.decision" },
   {
     "file": "src/web/src/app/c/invite/[token]/invite-accept-client.tsx",
     "owner": "InviteAcceptInner",

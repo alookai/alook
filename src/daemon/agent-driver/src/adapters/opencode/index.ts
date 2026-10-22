@@ -38,6 +38,7 @@ function createOpenCodeMessageId(): string {
 
 export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFactory {
   readonly id = "opencode";
+  readonly modelCatalogOrigin = "native_report" as const;
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
     lifetime: "session",

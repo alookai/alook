@@ -56,6 +56,7 @@ function isCodexMissingRolloutError(message: string): boolean {
 
 export class CodexDriver implements BackendAdapter {
   readonly id = "codex";
+  readonly modelCatalogOrigin = "native_report" as const;
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
     lifetime: "session",

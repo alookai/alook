@@ -63,9 +63,10 @@ export function applyMessageReaction(source: Msg["reactions"], emoji: string, us
   return rows.filter((row) => row.userIds.length).map((row) => ({ ...row, count: row.userIds.length, me: viewerId !== null && row.userIds.includes(viewerId) }))
 }
 
-export function messageProfileIds(message: Pick<CommunityMessagePreview, "authorId" | "replyTo" | "thread" | "approval">): string[] {
+export function messageProfileIds(message: Pick<CommunityMessagePreview, "authorId" | "replyTo" | "thread" | "approval" | "botCreation">): string[] {
   return [
     ...(message.authorId ? [message.authorId] : []),
+    ...(message.botCreation ? [message.botCreation.requesterId, ...message.botCreation.bots.flatMap((bot) => bot.createdBot ? [bot.createdBot.id] : [])] : []),
     ...(message.replyTo?.authorId ? [message.replyTo.authorId] : []),
     ...(message.thread?.participants ?? []).map((participant) => participant.id),
     ...[message.approval?.otherProfile, message.approval?.botProfile, message.approval?.waitingOnProfile]

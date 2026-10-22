@@ -22,6 +22,7 @@ type GrokSpawn = (
 
 export class GrokDriver implements BackendAdapter, GrokAcpProcessFactory {
   readonly id = "grok";
+  readonly modelCatalogOrigin = "native_report" as const;
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
     lifetime: "session",

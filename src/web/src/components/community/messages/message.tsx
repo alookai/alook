@@ -21,6 +21,7 @@ import {
   type MessageExternalLinkTarget,
 } from "./message-external-link"
 import { BotApprovalCard } from "../social/bot-approval-card"
+import { BotCreationRequestCard } from "../social/bot-creation-request-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
@@ -59,6 +60,7 @@ import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-ima
 export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
   return !compact
     && !m.approval
+    && !m.botCreation
     && (
       !!(m.content ?? "")
       || !!m.attachments?.some((attachment) => attachment.kind === "image")
@@ -311,7 +313,7 @@ function MessageImpl({
     || (!desktopMenuInputActive && touchInputCapable)
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
-  const swipePointerEnabled = interactive && touchInputCapable && !selectMode
+  const swipePointerEnabled = interactive && touchInputCapable && !selectMode && !m.botCreation
   const swipeReplyEnabled = swipePointerEnabled && !!onReply
   const activateOverlays = interactive && !selectMode && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
@@ -395,7 +397,7 @@ function MessageImpl({
       data-base-ui-swipe-ignore={pageSwipe.page ? "y" : ""}
       data-page-swipe-reply-row=""
       className={[
-        "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
+        "group relative -mx-2 -my-1 flex gap-2 rounded px-2 py-1 transition-colors",
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
         swipeVisual.active ? "transition-none" : "transition-transform duration-150 ease-out",
         selectable ? "cursor-pointer" : "",
@@ -609,7 +611,7 @@ function MessageImpl({
     >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
       {interactive && activated && !selectMode && (
-        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-2" : "-top-3"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-1" : "-top-2"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
             <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
               <span className="opacity-60">#</span>{m.seq}
@@ -711,7 +713,9 @@ function MessageImpl({
               )}
             </div>
           )}
-          {m.approval ? (
+          {m.botCreation ? (
+            <BotCreationRequestCard key={m.botCreation.requestId} request={m.botCreation} messageId={m.id} viewerUserId={viewerUserId} onOpenProfile={onOpenProfile} />
+          ) : m.approval ? (
             <BotApprovalCard approval={m.approval} />
           ) : (
             visibleContent && (
@@ -1010,6 +1014,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
       a.content !== b.content ||
       a.grouped !== b.grouped ||
       a.failed !== b.failed ||
+      a.botCreation !== b.botCreation ||
       a.authorId !== b.authorId ||
       a.color !== b.color ||
       a.createdAt !== b.createdAt ||

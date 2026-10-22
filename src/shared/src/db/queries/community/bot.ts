@@ -18,7 +18,7 @@
  * return null / 404 at the route. The victim's state must be untouched.
  */
 
-import { aliasedTable, and, count, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
+import { type SQL, aliasedTable, and, count, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
 import { user } from "../../schema";
 import {
   communityBotBinding,
@@ -1013,12 +1013,46 @@ export type CreateBotInput = {
  * statements together so the binding/profile rows always land alongside the
  * user row that actually won the discriminator. Returns the bot row.
  */
+export function buildBotCreationStatements(
+  db: Database,
+  data: CreateBotInput,
+  identity: { botId: string; discriminator: string; nowIso: string },
+  guard?: SQL,
+) {
+  const { botId, discriminator, nowIso } = identity;
+  const description = data.description ?? "";
+  return [
+    db.insert(user).values({
+      id: botId,
+      name: guard ? sql<string>`CASE WHEN ${guard} THEN ${data.name} ELSE NULL END` : data.name,
+      email: communityBotSyntheticEmail(botId),
+      emailVerified: true,
+      image: data.image ?? null,
+      isBot: true,
+      ownerUserId: data.ownerId,
+      discriminator,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    }),
+    db.insert(communityBotBinding).values({
+      userId: botId,
+      machineId: data.machineId,
+      runtime: data.runtime,
+      instruction: description,
+      modelName: data.modelName ?? null,
+      reasoningEffort: data.reasoningEffort ?? null,
+      createdAt: nowIso,
+    }),
+    db.insert(communityUserProfile).values({ userId: botId, aboutMe: description })
+      .onConflictDoUpdate({ target: communityUserProfile.userId, set: { aboutMe: description } }),
+  ];
+}
+
 export async function createBot(
   db: Database,
   data: CreateBotInput
 ): Promise<{ botId: string; name: string; discriminator: string; description: string; image: string | null }> {
   const botId = nanoid();
-  const email = communityBotSyntheticEmail(botId);
   const nowIso = new Date().toISOString();
   const description = data.description ?? "";
 
@@ -1027,38 +1061,7 @@ export async function createBot(
     { id: botId, name: data.name },
     async (discriminator) => {
       // Three-statement batch. D1 rolls back all on any error.
-      const stmt1 = db.insert(user).values({
-        id: botId,
-        name: data.name,
-        email,
-        emailVerified: true,
-        image: data.image ?? null,
-        isBot: true,
-        ownerUserId: data.ownerId,
-        discriminator,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      });
-      const stmt2 = db.insert(communityBotBinding).values({
-        userId: botId,
-        machineId: data.machineId,
-        runtime: data.runtime,
-        instruction: description,
-        modelName: data.modelName ?? null,
-        reasoningEffort: data.reasoningEffort ?? null,
-        createdAt: nowIso,
-      });
-      // Match updateBot's upsert semantics — reincarnation paths (nanoid collision
-      // aside, future flows that recycle a botId) shouldn't roll the batch back on
-      // a profile PK conflict.
-      const stmt3 = db
-        .insert(communityUserProfile)
-        .values({ userId: botId, aboutMe: description })
-        .onConflictDoUpdate({
-          target: communityUserProfile.userId,
-          set: { aboutMe: description },
-        });
-      await db.batch([stmt1, stmt2, stmt3] as any);
+      await db.batch(buildBotCreationStatements(db, data, { botId, discriminator, nowIso }) as never);
       return discriminator;
     }
   );
@@ -1547,11 +1550,15 @@ export async function getMachineForOwner(
   ownerId: string
 ): Promise<{
   id: string;
+  displayName: string;
+  status: string;
   availableRuntimes: CommunityMachineRuntime[];
 } | null> {
   const rows = await db
     .select({
       id: communityMachine.id,
+      displayName: communityMachine.displayName,
+      status: communityMachine.status,
       availableRuntimes: communityMachine.availableRuntimes,
     })
     .from(communityMachine)
@@ -1572,5 +1579,5 @@ export async function getMachineForOwner(
       if (parsed.success) normalized.push(parsed.data);
     }
   }
-  return { id: r.id, availableRuntimes: normalized };
+  return { id: r.id, displayName: r.displayName, status: r.status, availableRuntimes: normalized };
 }

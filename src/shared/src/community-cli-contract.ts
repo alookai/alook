@@ -1,3 +1,4 @@
+import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
  * Server API contract — the agent ⇄ server boundary.
  *
@@ -629,6 +630,8 @@ export interface FriendCard {
  * messages by channel + seq. No structured Target or message id crosses the wire.
  */
 export interface ServerApi {
+  platformMachine?(req: PlatformMachineRequest): Promise<Record<string, unknown>>;
+  platformBot?(req: PlatformBotRequest): Promise<Record<string, unknown>>;
   /** Which servers/workspaces this agent participates in. */
   listServers(req: { agentId: AgentId }): Promise<{ servers: Server[] }>;
 

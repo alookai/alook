@@ -17,6 +17,7 @@ function nativeId(value: unknown): string | undefined {
 
 export class AgyDriver implements BackendAdapter<"agy"> {
   readonly id = "agy";
+  readonly modelCatalogOrigin = "native_report" as const;
   readonly instructionDelivery = { kind: "native" } as const;
   readonly execution = {
     lifetime: "session", transport: { kind: "stdio_stream", protocol: "agy.stream-json.v1" },

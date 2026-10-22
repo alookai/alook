@@ -118,7 +118,7 @@ export function createAgentDriverSdkWithRegistry<Specs>(
             status: "healthy",
             version: result.version,
             capabilities,
-            reasoning: result.reasoning,
+            reasoning: result.reasoning && adapter.modelCatalogOrigin ? { ...result.reasoning, catalogOrigin: adapter.modelCatalogOrigin } : result.reasoning,
           };
         }
         return {
@@ -130,7 +130,7 @@ export function createAgentDriverSdkWithRegistry<Specs>(
             retryable: true,
           },
           capabilities,
-          reasoning: result.reasoning,
+          reasoning: result.reasoning && adapter.modelCatalogOrigin ? { ...result.reasoning, catalogOrigin: adapter.modelCatalogOrigin } : result.reasoning,
         };
       } catch (error) {
         const contractInvalid = error instanceof Error && (

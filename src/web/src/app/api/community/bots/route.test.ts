@@ -16,7 +16,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -100,7 +100,7 @@ describe("POST /api/community/bots — model", () => {
       activeCount: 0,
     })
     mockGetMachineForOwner.mockResolvedValue({
-      id: "mac1",
+      id: "mac1", status: "online",
       availableRuntimes: [{ id: "claude", status: "healthy" }, { id: "codex", status: "healthy" }],
     })
     mockCreateBot.mockResolvedValue({ botId: "b1", name: "MyBot", discriminator: "0001", description: "", image: null })
@@ -109,6 +109,13 @@ describe("POST /api/community/bots — model", () => {
     mockEnsureSiblingBotFriendship.mockResolvedValue({ blocked: false })
   })
 
+  it("rejects an offline machine on the existing human create path", async () => {
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "offline", availableRuntimes: [{ id: "claude", status: "healthy" }] })
+    const response = await POST(postReq(base()), ctx)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: "MACHINE_OFFLINE", machineId: "mac1" })
+    expect(mockCreateBot).not.toHaveBeenCalled()
+  })
   it("persists model_name and returns it in the 201 body", async () => {
     const res = await POST(postReq(base("claude-opus-4-6")), ctx)
     expect(res.status).toBe(201)
@@ -139,7 +146,7 @@ describe("POST /api/community/bots — model", () => {
   })
 
   it("creates the separately reported agy backend with its own default model", async () => {
-    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", availableRuntimes: [{ id: "agy", status: "healthy" }] })
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "online", availableRuntimes: [{ id: "agy", status: "healthy" }] })
     const res = await POST(postReq(base(undefined, "agy")), ctx)
     expect(res.status).toBe(201)
     expect(mockCreateBot).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ runtime: "agy", modelName: null }))
@@ -165,7 +172,7 @@ describe("POST /api/community/bots — model", () => {
   })
 
   it("creates OpenCode with an explicit custom model absent from its catalog", async () => {
-    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", availableRuntimes: [{ id: "opencode", status: "healthy" }] })
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "online", availableRuntimes: [{ id: "opencode", status: "healthy" }] })
     const res = await POST(postReq(base("provider/custom", "opencode")), ctx)
     expect(res.status).toBe(201)
     expect((await res.json()).bot.modelName).toBe("provider/custom")
@@ -259,7 +266,7 @@ describe("POST /api/community/bots — model", () => {
 
   it("persists a supported capability-backed reasoning effort", async () => {
     mockGetMachineForOwner.mockResolvedValue({
-      id: "mac1",
+      id: "mac1", status: "online",
       availableRuntimes: [{
         id: "codex",
         status: "healthy",
@@ -291,7 +298,7 @@ describe("POST /api/community/bots — model", () => {
 
   it("rejects an explicit effort the selected model did not report", async () => {
     mockGetMachineForOwner.mockResolvedValue({
-      id: "mac1",
+      id: "mac1", status: "online",
       availableRuntimes: [{
         id: "codex",
         status: "healthy",

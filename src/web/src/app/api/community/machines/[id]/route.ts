@@ -1,3 +1,6 @@
+import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { getPrimaryDb } from "@/lib/db"
+import { requiresExplicitModel } from "@alook/shared"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, WS_EVENTS } from "@alook/shared"
@@ -108,4 +111,16 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   broadcastToUserSafe(ctx.userId, event)
 
   return new NextResponse(null, { status: 204 })
+})
+
+export const GET = withCommunityActor(async (_req, ctx) => {
+  const db = getPrimaryDb(ctx.env.DB)
+  const ownerId = ctx.actor.kind === "bot" ? ctx.actor.ownerUserId : ctx.actor.userId
+  const machine = await queries.communityBot.getMachineForOwner(db, ctx.params?.id as string, ownerId)
+  if (!machine) return writeJSON({ error: "machine not found", code: "MACHINE_NOT_FOUND", machineId: ctx.params?.id }, 404)
+  if (machine.status !== "online") return writeJSON({ error: "Target machine is offline", code: "MACHINE_OFFLINE", machineId: machine.id }, 409)
+  return writeJSON({ machineId: machine.id, status: machine.status, backends: machine.availableRuntimes.map((runtime) => ({
+    id: runtime.id, version: runtime.version, health: runtime.status, modelRequired: requiresExplicitModel(runtime.id),
+    catalogState: runtime.reasoning ? "reported" : "not_reported", catalogOrigin: runtime.reasoning?.catalogOrigin ?? "unknown",
+  })) })
 })

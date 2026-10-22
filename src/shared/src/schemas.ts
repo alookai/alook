@@ -875,6 +875,7 @@ const RuntimeReasoningModelSchema = z.object({
 });
 
 export const RuntimeReasoningCatalogSchema = z.object({
+  catalogOrigin: z.enum(["native_report", "adapter_suggestions"]).optional().catch(undefined),
   updateMode: z.enum(["live_next_turn", "context_preserving_restart", "unsupported"]),
   defaultModelId: z.string().min(1).max(100).optional().catch(undefined),
   models: z

@@ -23,6 +23,7 @@ export type RuntimeSettingsUpdateResult =
   | { readonly status: "failed"; readonly error: AgentDriverError };
 
 export type RuntimeReasoningCatalog = {
+  readonly catalogOrigin?: "native_report" | "adapter_suggestions";
   readonly updateMode: "live_next_turn" | "context_preserving_restart" | "unsupported";
   readonly defaultModelId?: string;
   readonly models: readonly {
