@@ -142,7 +142,7 @@ export function ModelField({
         </SelectTrigger>
         <BotSelectMenuContent
           alignItemWithTrigger={false}
-          className="flex flex-col overflow-y-hidden [&>[role=listbox]]:flex [&>[role=listbox]]:min-h-0 [&>[role=listbox]]:flex-col"
+          className="flex flex-col overflow-y-hidden *:[[role=listbox]]:flex *:[[role=listbox]]:min-h-0 *:[[role=listbox]]:flex-col"
         >
           {discovery?.isPending && (
             <p role="status" className="flex shrink-0 items-center gap-2 px-2 py-2 text-xs text-muted-foreground">

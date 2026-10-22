@@ -146,6 +146,7 @@ export function useScrollAnchor({
   const positionOwnerRef = useRef({ epoch: 0, active: true })
   const [documentVisible, setDocumentVisible] = useState(() => typeof document === "undefined" || document.visibilityState !== "hidden")
   const visible = active && documentVisible
+  const entryActivationRef = useRef({ entry: positionEntry, seen: visible })
   const dataState = positionDataState ?? (initialScrollReady ? items.some(item => item.kind === "message") ? "ready" : "empty" : "pending")
   const contextRef = useRef({ dataState, messageWindow, isFetchingOlder, isFetchingNewer, visible })
   const [requestRevision, setRequestRevision] = useState(0)
@@ -192,6 +193,8 @@ export function useScrollAnchor({
   const onTargetCancelledRef = useRef(onScrollTargetCancelled)
   const settleCallbackRef = useRef(onInitialPositionSettled)
   useLayoutEffect(() => {
+    if (entryActivationRef.current.entry !== positionEntry) entryActivationRef.current = { entry: positionEntry, seen: visible }
+    else if (visible) entryActivationRef.current.seen = true
     currentItemsRef.current = items
     positionEntryRef.current = positionEntry
     onTargetPositionedRef.current = onScrollTargetPositioned
@@ -577,7 +580,7 @@ export function useScrollAnchor({
   useLayoutEffect(() => {
     if (!visible) {
       setResumeValidated(false)
-      if (positionKind.get() !== "idle") releasePosition()
+      if (entryActivationRef.current.seen && positionKind.get() !== "idle") releasePosition()
       positionOwnerRef.current.active = false
       virtualizerRef.current?.cancelScroll()
       cancelFrame()
@@ -607,21 +610,16 @@ export function useScrollAnchor({
     consumedLocalSubmitVersionRef.current = localSubmitVersion ?? 0
     userInputRef.current.handover = false
     setFollowSuspended(false)
-    if (!visible) releasePosition()
-  }, [claimPosition, committedEntry, localSubmitVersion, positionEntry, presentVersion, releasePosition, setFollowSuspended, visible])
+  }, [claimPosition, committedEntry, localSubmitVersion, positionEntry, presentVersion, setFollowSuspended])
 
   useLayoutEffect(() => {
     const target = scrollToMessageId ?? null
+    if (!visible && target) return
     if (targetIntentRef.current === target) return
     targetIntentRef.current = target
     if (!target) {
       if (positionKind.get() === "target") releasePosition()
       positionedTargetRef.current = null
-      return
-    }
-    if (!visible) {
-      positionedTargetRef.current = target
-      onTargetCancelledRef.current?.(target)
       return
     }
     claimPosition("target")

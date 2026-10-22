@@ -103,6 +103,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   refresh?: Promise<ReturnType<typeof entry>>
   refreshWindow?: Promise<ReturnType<typeof entry>>
   readPointer?: AccountReadStateSnapshot["readStates"][number]
+  initialActive?: boolean
 } = {}) {
   owner = await createCommunityQueryOwner()
   await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail))
@@ -133,7 +134,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     if (url === "/api/community/users/me/attention") return Promise.resolve({ scopes: [], items: [], limit: 100, truncated: false })
     throw new Error(`Unexpected entry-position transport: ${url}`)
   })
-  let channelId = "c1", active = true, anchorMessageId: string | null = null
+  let channelId = "c1", active = options.initialActive ?? true, anchorMessageId: string | null = null
   const navigation = { entryIntent: { href: "/c/channels/s1/c1" } as { href: string; resume?: boolean } }
   const content = () => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>
     <CurrentUserProvider initialUser={viewer}>
@@ -178,7 +179,13 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     await act(async () => {})
     expect(visible("m42")).toBe(true)
   }
-  return { root, visible, navigate, canonical, tail }
+  const setActivity = async (next: boolean) => {
+    active = next
+    mounted!.rerender(element())
+    resize()
+    await act(async () => {})
+  }
+  return { root, visible, navigate, canonical, tail, setActivity }
 }
 
 function intersection(row: Element, ratio = 1): IntersectionObserverEntry {
@@ -218,6 +225,21 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
+  it("keeps a precommitted entry unread while inactive and admits its real observer on first activation", async () => {
+    const view = await setup("channel", false, false, { initialActive: false })
+    const entry = latest.feed.positionEntry
+    expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "false")
+    expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    await view.setActivity(true)
+    expect(latest.feed.positionEntry).toBe(entry)
+    expect(view.visible("m31")).toBe(true)
+    expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "true")
+    const row = view.root().querySelector('[data-msg-id="m31"]')!
+    const observer = boundObserver(row)
+    act(() => observer.callback([intersection(row)], {} as IntersectionObserver))
+    expect(getReadCoordinator(owner.client, viewer.id).state.get().scopes.get("timeline:c1")?.accepted?.intent.seq).toBe(31)
+  })
+
   it.each([{ delayCanonical: false, previousTail: false }, { delayCanonical: true, previousTail: false }, { delayCanonical: false, previousTail: true }])("keeps a cached read tail visible until native data is complete, delayed canonical=$delayCanonical, previous tail=$previousTail", async ({ delayCanonical, previousTail }) => {
     const fresh = entry("channel")
     fresh.messages = fresh.messages.slice(0, 13)

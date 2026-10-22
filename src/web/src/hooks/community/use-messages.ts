@@ -221,8 +221,6 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     void request.then(result => {
       if (!current()) return
       retries.setState(() => ({ attempt, pending: false, error: result.error }))
-    }, () => {
-      if (current()) retries.setState(() => ({ attempt, pending: false, error: INITIAL_ENTRY_ERROR }))
     })
   }, [channelId, client, entryWindow, retryEntry, refetchWindow, retries])
   const positionDataState: MessagePositionState = retrySelection.pending ? "pending"

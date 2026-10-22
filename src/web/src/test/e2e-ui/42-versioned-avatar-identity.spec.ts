@@ -8,10 +8,9 @@ import {
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
-import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+import type { CaseResources } from "./_fixtures/case-fixture"
 
-async function prepareCase(actors: CaseActors) {
-  const { userId } = actors
+function prepareCase() {
   function identityEvents(frames: CapturedCommunityFrame[], subjectId: string) {
     return frames.flatMap(communityFrameEvents).filter((event) => (event.type === "community:identity.update"
       && event.userId === subjectId))
@@ -80,7 +79,7 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   const actors = await caseActors(["alice", "bob", "dave"])
   const { asUser, userId, userName } = actors
   const { seedChannel, seedDm, seedDmMessage, seedFriendship, seedJoinServer, seedMessage, seedServer } = actors.seed
-  const { identityEvents } = await prepareCase(actors)
+  const { identityEvents } = prepareCase()
 
   const stamp = Date.now()
   const aliceId = userId("alice")

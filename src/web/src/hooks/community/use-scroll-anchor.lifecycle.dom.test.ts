@@ -13,6 +13,35 @@ function request() {
 }
 
 describe("qualified positioning lifecycle", () => {
+  it.each(["end", "target"])("admits an initially inactive %s only on its first visible commit", target => {
+    const positioned = vi.fn(), cancelled = vi.fn()
+    const h = mount({ active: false, ...(target === "target" ? { scrollToMessageId: "m5" } : {}),
+      onScrollTargetPositioned: positioned, onScrollTargetCancelled: cancelled })
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    act(() => vi.advanceTimersByTime(6500))
+    expect(h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(cancelled).not.toHaveBeenCalled()
+    h.update({ active: true })
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    if (target === "end") expect(end).toHaveBeenCalledOnce()
+    else {
+      expect(index).toHaveBeenCalled()
+      expect(positioned).toHaveBeenCalledExactlyOnceWith("m5")
+    }
+  })
+
+  it("admits a fresh entry staged while its retained pane is inactive", () => {
+    const h = mount({ positionEntry: {}, initialPositionMessageId: "m4" })
+    h.update({ active: false })
+    h.update({ positionEntry: {}, initialPositionMessageId: "m10" })
+    h.update({ active: true })
+    expect(bodyTop(h.root, "m10")).toBeGreaterThan(0)
+    expect(bodyTop(h.root, "m10")).toBeLessThan(h.root.clientHeight)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+
   it.each(["end", "unread", "local"])("waits beyond five seconds for data before choosing %s", target => {
     const h = mount({ initialScrollReady: false })
     const native = scrollFixture.latest.virtualizer
@@ -216,6 +245,31 @@ describe("qualified positioning lifecycle", () => {
     else expect(h.root.scrollTop).toBe(before)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
     expect(scrollFixture.latest.readPositionReady).toBe(status === "success")
+  })
+
+  it("finishes a Present request that commits an authorized empty window without scrolling", async () => {
+    const previous = {}, next = {}
+    const h = mount({ messageWindow: previous, hasMoreNewer: true })
+    h.move(300)
+    const pending = request()
+    act(() => scrollFixture.latest.requestPresentPosition(pending.value))
+    await act(async () => pending.finish({ status: "success", window: next }))
+    const scroll = vi.spyOn(h.root, "scrollTo")
+    h.update({ items: [], messageWindow: next, positionDataState: "empty", hasMoreNewer: false })
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(scroll).not.toHaveBeenCalled()
+    expect(h.root.querySelector("[data-msg-id]")).toBeNull()
+  })
+
+  it.each([null, { accepted: false } as const])("releases local submission when its Present request is not accepted: %s", presentRequest => {
+    const h = mount({ hasMoreNewer: true, presentRequest: null })
+    h.move(300)
+    const before = h.root.scrollTop
+    h.update({ localSubmitVersion: 1, presentRequest })
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
+    expect(scrollFixture.latest.readPositionReady).toBe(presentRequest !== null)
+    expect(h.root.scrollTop).toBe(before)
   })
 
   it("does not let a superseded Present receipt consume a new target", async () => {

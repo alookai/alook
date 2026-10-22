@@ -663,7 +663,7 @@ function MessageImpl({
 
       <div className="flex gap-2">
         {m.grouped ? (
-          <div className="w-[40px] shrink-0" />
+          <div className="w-10 shrink-0" />
         ) : (
           <button
             {...avatarMention}

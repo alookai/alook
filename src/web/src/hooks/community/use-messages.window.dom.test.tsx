@@ -83,6 +83,56 @@ describe("native conversation windows", () => {
     hook.unmount()
   })
 
+  it("returns an older-page failure and accepts a later request on the same window", async () => {
+    const { wrapper } = await setup()
+    load.mockResolvedValue(fixture())
+    const hook = renderHook(() => useMessages("c1", options), { wrapper })
+    await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+    const original = hook.result.current.data
+    load.mockRejectedValue(new ConversationReadTimeoutError())
+    const failed = hook.result.current.fetchOlder()
+    expect(failed.accepted).toBe(true)
+    if (!failed.accepted) throw new Error("Older request was rejected")
+    await act(async () => expect(await failed.completed).toEqual({ status: "error" }))
+    expect(hook.result.current.data).toBe(original)
+    expect(hook.result.current.messages.map(row => row.id)).toEqual(["m1"])
+    load.mockResolvedValue(page("m0", 0))
+    const retried = hook.result.current.fetchOlder()
+    expect(retried.accepted).toBe(true)
+    if (!retried.accepted) throw new Error("Older retry was rejected")
+    await act(async () => expect((await retried.completed).status).toBe("success"))
+    await waitFor(() => expect(hook.result.current.messages.map(row => row.id)).toEqual(["m0", "m1"]))
+    hook.unmount()
+  })
+
+  it.each(["success", "error"] as const)("returns a real newer cursor request's %s receipt", async status => {
+    const { wrapper } = await setup()
+    const packet = fixture()
+    packet.page.hasMoreNewer = true
+    packet.page.newerCursor = "newer"
+    load.mockResolvedValue(packet)
+    const hook = renderHook(() => useMessages("c1", options), { wrapper })
+    await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+    const original = hook.result.current.data
+    load.mockImplementation(() => status === "success" ? Promise.resolve(page("m2", 2)) : Promise.reject(new ConversationReadTimeoutError()))
+    let accepted!: ReturnType<typeof hook.result.current.fetchNewer>
+    await act(async () => { accepted = hook.result.current.fetchNewer() })
+    const pending = accepted
+    expect(pending.accepted).toBe(true)
+    if (!pending.accepted) throw new Error("Newer request was rejected")
+    await act(async () => expect((await pending.completed).status).toBe(status))
+    expect(load.mock.calls.at(-1)?.[0]).toBe("/api/community/channels/c1/messages?since=newer")
+    if (status === "success") {
+      await waitFor(() => expect(hook.result.current.messages.map(row => row.id)).toEqual(["m1", "m2"]))
+      expect(hook.result.current.data?.pageParams).toEqual([{ mode: "newer", cursor: "newer" }, { mode: "anchor", anchor: "m1" }])
+      expect(hook.result.current.hasMoreNewer).toBe(false)
+    } else {
+      expect(hook.result.current.data).toBe(original)
+      expect(hook.result.current.messages.map(row => row.id)).toEqual(["m1"])
+    }
+    hook.unmount()
+  })
+
   it("keeps the old window during Jump, preserves it on failure, and switches only after a successful tail read", async () => {
     const { wrapper, client } = await setup()
     const first = deferred<MessagesPage>()

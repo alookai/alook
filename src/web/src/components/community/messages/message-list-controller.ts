@@ -38,7 +38,8 @@ export function useMessageListController({
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
-  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useMemo(() => createAtom(false), [positionEntry]))
+  const settledEntry = useMemo(() => ({ entry: positionEntry, atom: createAtom(false) }), [positionEntry])
+  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(settledEntry.atom)
 
   const items = useMemo(
     () => flattenMessageItems(messages, newDividerBefore, !!hasMore, !!hasMoreNewer),

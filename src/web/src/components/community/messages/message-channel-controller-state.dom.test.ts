@@ -401,6 +401,18 @@ describe("useMessageChannelController", () => {
     expect(latest.contextTarget).toMatchObject({ channelId: "channel_1", seq: 1 })
   })
 
+  it("renews the same consumed anchor only when the feed admits a fresh entry", () => {
+    const entry = {}, nextEntry = {}
+    const value = props({ feed: { ...feed, positionEntry: entry } })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    act(() => latest.consumeScrollTarget("m1"))
+    expect(latest.scrollTargetId).toBeNull()
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...value.feed } } }))
+    expect(latest.scrollTargetId).toBeNull()
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...value.feed, positionEntry: nextEntry } } }))
+    expect(latest.scrollTargetId).toBe("m1")
+  })
+
   it("clears missing anchors only on authoritative error and consumes only the matching target", () => {
     const missingFeed = { ...feed, messages: [], isError: false }
     let renderer: ReturnType<typeof rtlRender>

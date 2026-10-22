@@ -84,7 +84,7 @@ test.describe("mentions — candidate scope", () => {
   test("public top-level channel → whole server roster (bob AND carol), backed by servers/:id/members", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, publicChannelId, alice, bob, carol, openMentionPopup } = await prepareCase1(actors)
+    const { serverId, publicChannelId, alice, openMentionPopup } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
     // The channel-members endpoint must NOT be hit for a public channel — the
@@ -119,7 +119,7 @@ test.describe("mentions — candidate scope", () => {
   test("private channel → audience only (bob present, carol absent), backed by channels/:id/members", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, privateChannelId, bob, carol, openMentionPopup } = await prepareCase1(actors)
+    const { serverId, privateChannelId, openMentionPopup } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
     const channelMembersReq = page.waitForRequest(
@@ -145,7 +145,7 @@ test.describe("mentions — candidate scope", () => {
   test("thread in private channel → PARENT channel audience (bob mentionable though not a participant)", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, threadId, bob, carol, openMentionPopup } = await prepareCase1(actors)
+    const { serverId, threadId, openMentionPopup } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${threadId}`)
@@ -206,7 +206,7 @@ test.describe("mentions — candidate scope", () => {
   test("forum post reply → post audience (bob present, carol absent)", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, privatePostId, bob, carol, openMentionPopup } = await prepareCase1(actors)
+    const { serverId, privatePostId, openMentionPopup } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${privatePostId}`)
