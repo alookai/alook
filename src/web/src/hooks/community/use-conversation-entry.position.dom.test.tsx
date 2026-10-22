@@ -64,6 +64,7 @@ function Conversation({ channelId, kind, anchorMessageId }: { channelId: string;
     newDividerBefore: feed.newDividerBefore, initialPositionMessageId: feed.initialPositionMessageId,
     initialScrollReady: !feed.readSnapshotFetching && feed.anchorInCache,
     positionEntry: feed.positionEntry,
+    positionDataState: feed.positionDataState, messageWindow: feed.messageWindow, presentRequest: feed.presentRequest,
     scrollToMessageId: channel.scrollTargetId, onScrollTargetConsumed: channel.consumeScrollTarget,
     hasMore: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer, historyStartKnown: feed.historyStartKnown,
     isFetching: feed.isFetching, isFetchingOlder: feed.isFetchingOlder, isFetchingNewer: feed.isFetchingNewer,
@@ -256,6 +257,8 @@ describe("conversation entry positioning through real reading owners", () => {
       await act(async () => { finishRefresh(fresh); await vi.advanceTimersByTimeAsync(0) })
       resize()
       if (delayCanonical) {
+        await act(async () => vi.advanceTimersByTimeAsync(6000))
+        resize()
         expect({ latestSeq: latest.feed.latestSeq, messages: latest.feed.messages.map(message => message.id),
           fetching: latest.feed.isFetching, readSnapshotFetching: latest.feed.readSnapshotFetching,
           readReady: view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready"),

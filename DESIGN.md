@@ -270,5 +270,8 @@ Words are part of the interface. They should sound like the brand: **warm, sharp
 - Keep the interactive second screen separate from the existing product story. Use native community views with local data; preview navigation and actions must not mutate a real account.
 - Reserve the workspace frame before loading. Mount its isolated document immediately after the homepage load event; show a responsive workspace skeleton until that document reports readiness. Readiness must not depend on animation callbacks in the hidden iframe.
 - Compact preview typography must preserve fixed-pixel rail, avatar, and Inbox geometry. Grouped messages and reply previews align with the first message's avatar column.
+- Mobile landing bot profiles retain the Bot log companion but hide its footer row to give the notebook body more space. Desktop retains the full notebook.
 - Bot logs use local fixed Thoughts and Marks. Preview Thoughts are static. Scroll-to-tail affects only the notebook scroller, never the surrounding landing page.
 - Production loading has no QA hold switch or test-only URL controls.
+
+- The mobile landing Bot log retains 8px of visible paper below its content: 16px content padding minus its 8px paper inset.

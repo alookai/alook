@@ -274,6 +274,8 @@ export function ThreadChannelSurface({
                   historyStartKnown={controller.feed.historyStartKnown}
                   initialPositionMessageId={controller.feed.initialPositionMessageId}
                   positionEntry={controller.feed.positionEntry}
+                  positionDataState={controller.feed.positionDataState}
+                  messageWindow={controller.feed.messageWindow}
                   isFetching={controller.feed.isFetching}
                   isFetchingOlder={controller.feed.isFetchingOlder}
                   onLoadOlder={controller.feed.fetchOlder}
@@ -282,6 +284,7 @@ export function ThreadChannelSurface({
                   onLoadNewer={controller.feed.fetchNewer}
                   onJumpToPresent={controller.feed.jumpToPresent}
                   presentVersion={controller.feed.presentVersion}
+                  presentRequest={controller.feed.presentRequest}
                   localSubmitVersion={controller.localSubmitVersion}
                   unreadCount={controller.feed.unreadCount}
                   typingUsers={controller.typingUsers}

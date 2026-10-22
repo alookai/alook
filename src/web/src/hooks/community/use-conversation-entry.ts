@@ -144,7 +144,7 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   }, [canRead, client, input.channelId, input.serverId, resource, window])
   const activeQuery = needsCanonicalWindow ? canonicalQuery : query
   const refetch = activeQuery.refetch
-  const retry = useCallback(() => { void refetch({ cancelRefetch: false }) }, [refetch])
+  const retry = useCallback(() => refetch({ cancelRefetch: false }), [refetch])
   return { ...activeQuery, intent, resource, canonical, canRead, window, snapshot, revoked, denied, anchorMissing,
     initialPositionMessageId: window && localPosition && snapshot && snapshot.lastReadSeq < localPosition.seq ? localPosition.messageId : null,
     isPending: !!target && !window && !denied && !anchorMissing && !activeQuery.isError && activeQuery.errorUpdatedAt === 0,

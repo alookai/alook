@@ -32,6 +32,22 @@ async function setup() {
 const options = { serverId: target.serverId, viewerUserId: "viewer" }
 
 describe("native conversation windows", () => {
+  it("bounds missing canonical rows with the existing conversation read deadline", async () => {
+    const { wrapper, registry } = await setup()
+    load.mockResolvedValue(fixture())
+    const hook = renderHook(() => useMessages("c1", options), { wrapper })
+    await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+    vi.useFakeTimers()
+    try {
+      await act(async () => registry.collections.messages.utils.writeDelete("m1"))
+      await act(async () => vi.advanceTimersByTimeAsync(14999))
+      expect(hook.result.current.positionDataState).toBe("pending")
+      await act(async () => vi.advanceTimersByTimeAsync(1))
+      expect(hook.result.current.positionDataState).toBe("error")
+      expect(hook.result.current.initialLoadError).toBeTruthy()
+      expect(hook.result.current.readSnapshot?.lastReadMessageId).toBe("m1")
+    } finally { hook.unmount(); vi.useRealTimers() }
+  })
   it("renders the cold entry window without a second GET and keeps only references in Query", async () => {
     const { wrapper, client } = await setup()
     load.mockResolvedValue(fixture())

@@ -162,6 +162,8 @@ export function TextChannelSurface({
                   historyStartKnown={feed.historyStartKnown}
                   initialPositionMessageId={feed.initialPositionMessageId}
                   positionEntry={feed.positionEntry}
+                  positionDataState={feed.positionDataState}
+                  messageWindow={feed.messageWindow}
                   isFetching={feed.isFetching}
                   isFetchingOlder={feed.isFetchingOlder}
                   onLoadOlder={feed.fetchOlder}
@@ -170,6 +172,7 @@ export function TextChannelSurface({
                   onLoadNewer={feed.fetchNewer}
                   onJumpToPresent={feed.jumpToPresent}
                   presentVersion={feed.presentVersion}
+                  presentRequest={feed.presentRequest}
                   localSubmitVersion={controller.localSubmitVersion}
                   unreadCount={feed.unreadCount}
                   typingUsers={controller.typingUsers}

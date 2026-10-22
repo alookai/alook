@@ -14,6 +14,9 @@
 
 @media (max-width: 639px) {
   :global(html):has(.previewRoot) :global([data-slot="sheet-content"][data-side="bottom"]) { max-height: calc(100dvh - 12px); overflow-y: auto; }
+  :global(html):has(.previewRoot) :global([aria-label="Bot log"] footer) { display: none; }
+  :global(html):has(.previewRoot) :global([aria-label="Bot log"] div:has(> time)) { min-height: 16px; }
+  :global(html):has(.previewRoot) :global([aria-label="Bot log"] > div:has(> footer)) { padding-bottom: 16px; }
   :global(html):has(.previewRoot) :global([aria-label="Bot log"]) { height: clamp(160px, 40dvh, 300px); flex-shrink: 0; }
 }
 

@@ -6,13 +6,13 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { DmView } from "./dm-view"
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), failed: true, breakpoint: "mobile" }))
+const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), list: vi.fn(), positionEntry: null as object | null, failed: true, breakpoint: "mobile" }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api, toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "u_me", name: "Me", avatar: "M" }) }))
 vi.mock("@/hooks/community/use-dms", () => ({ useDms: () => ({ dms: ["dm_1", "dm_2"].map(id => ({ id, userId: "peer", name: "Peer", avatar: "P" })), isLoading: false, isFetching: false }) }))
 vi.mock("@/hooks/community/use-friends", () => ({ useFriends: () => ({ friends: [], blocked: [] }) }))
-vi.mock("@/hooks/community/use-messages", () => ({ useDmMessages: () => ({ messages: mocks.failed ? [{ id: "failed", clientNonce: "retry_nonce", authorId: "u_me", type: "chat", content: "retry" }] : [], isLoading: false, isPending: false, isError: false, latestSeq: 0 }) }))
+vi.mock("@/hooks/community/use-messages", () => ({ useDmMessages: () => ({ messages: mocks.failed ? [{ id: "failed", clientNonce: "retry_nonce", authorId: "u_me", type: "chat", content: "retry" }] : [], positionEntry: mocks.positionEntry, positionDataState: "ready", isLoading: false, isPending: false, isError: false, latestSeq: 0 }) }))
 vi.mock("@/hooks/community/use-channel-metadata", () => ({ useChannelMetadata: () => ({ canRead: true, status: "readable" }) }))
 vi.mock("@/hooks/community/use-dm-watermark", () => ({ useDmWatermark: vi.fn() }))
 vi.mock("@/hooks/community/use-channel-ref-directory", () => ({ useChannelRefDirectory: () => ({ directory: [], isResolved: true }) }))
@@ -28,11 +28,31 @@ vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/conversation-footer-shell", () => ({ ConversationFooterSlotProvider: ({ children }: PropsWithChildren) => children, ConversationFooterShell: ({ children }: PropsWithChildren) => children }))
 vi.mock("@/components/community/messages/composer", () => ({ ComposerSkeleton: () => null, Composer: ({ onAcceptSend }: { onAcceptSend: (text: string) => boolean }) => React.createElement("button", { onClick: () => onAcceptSend("hello") }, "Send") }))
-vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ onRetry }: { onRetry: (id: string) => void }) => React.createElement("button", { onClick: () => onRetry("failed") }, "Retry") }))
+vi.mock("@/components/community/messages/message-list", () => ({ MessageList: (props: { onRetry: (id: string) => void }) => {
+  mocks.list(props)
+  return React.createElement("button", { onClick: () => props.onRetry("failed") }, "Retry")
+} }))
 
-beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.failed = true; mocks.breakpoint = "mobile" })
+beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.list.mockReset(); mocks.positionEntry = null; mocks.failed = true; mocks.breakpoint = "mobile" })
 
 describe("real DmView accepted send UI lifecycle", () => {
+  it("passes a fresh same-DM position attempt and route activity to the retained message list", async () => {
+    const owner = await createCommunityQueryOwner("u_me")
+    const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
+    mocks.positionEntry = {}
+    const first = mocks.positionEntry
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
+    expect(mocks.list.mock.lastCall?.[0]).toMatchObject({ positionEntry: first, active: true, positionDataState: "ready" })
+    view.rerender(React.createElement(DmView, { dmId: "dm_1", routeCommitted: false }))
+    expect(mocks.list.mock.lastCall?.[0]).toMatchObject({ positionEntry: first, active: false })
+    view.rerender(React.createElement(DmView, { dmId: "dm_1", routeCommitted: true }))
+    expect(mocks.list.mock.lastCall?.[0].positionEntry).toBe(first)
+    mocks.positionEntry = {}
+    view.rerender(React.createElement(DmView, { dmId: "dm_1" }))
+    expect(mocks.list.mock.lastCall?.[0].positionEntry).toBe(mocks.positionEntry)
+    expect(mocks.list.mock.lastCall?.[0].positionEntry).not.toBe(first)
+    view.unmount()
+  })
   it.each(["send", "retry"] as const)("continues %s after target view retires without advancing old onboarding", async action => {
     const owner = await createCommunityQueryOwner("u_me")
     owner.runtime.messageStream.actions.accept({ kind: "dm", id: "dm_1" }, { nonce: "retry_nonce", tempId: "temp_retry", message: { type: "chat", authorId: "u_me", content: "retry" }, localUploads: [] })

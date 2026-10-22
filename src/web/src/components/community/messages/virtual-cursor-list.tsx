@@ -30,11 +30,9 @@ export function VirtualRows<T>({
   const totalSize = reactLayout ? virtualizer.getTotalSize() : null
   const virtualRows = virtualizer.getVirtualItems()
   const rows = onLayoutCommit && reactLayout ? virtualRows.map(row => ({ ...row })) : virtualRows
-  const rect = virtualizer.scrollRect ?? virtualizer.options.initialRect
   const layout: VirtualRowsLayoutSnapshot | null = onLayoutCommit && reactLayout ? {
     totalSize: totalSize!,
     scrollMargin: virtualizer.options.scrollMargin,
-    rect: rect ? { width: rect.width, height: rect.height } : null,
     rows,
   } : null
   useLayoutEffect(() => {

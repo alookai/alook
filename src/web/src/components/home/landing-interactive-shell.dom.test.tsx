@@ -1,3 +1,4 @@
+import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { ReactNode } from "react"
 import type { UnreadServer } from "@/lib/community/models/inbox"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -5,17 +6,26 @@ import { fireEvent, render, screen, setupUser } from "@/test/react-dom-harness"
 import LandingInteractiveShell from "./landing-interactive-shell"
 import { DEMO_CHANNELS, DEMO_MESSAGES, DEMO_PROFILES, DEMO_SERVERS, DEMO_MENTIONS, DEMO_UNREADS } from "./landing-interactive-shell-data"
 
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop", useIsMobile: () => false }))
+const viewport = vi.hoisted(() => ({ breakpoint: "desktop" as "desktop" | "mobile" }))
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => viewport.breakpoint, useIsMobile: () => viewport.breakpoint === "mobile" }))
 vi.mock("@/components/community/shell/community-shell-layout", () => ({ CommunityShellLayout: ({ rail, sidebar, main, userBar, overlays }: Record<string, ReactNode>) => <div>{rail}{sidebar}{main}{userBar}{overlays}</div> }))
 vi.mock("@/components/community/shell/community-inbox-popover", () => ({ InboxPopover: ({ unreads, onOpenChannel }: { unreads: UnreadServer[]; onOpenChannel: (server: UnreadServer, channel: UnreadServer["channels"][number]) => void }) => <div>{unreads.flatMap((server) => server.channels.map((channel) => <button key={channel.channelId} onClick={() => onOpenChannel(server, channel)}>{channel.channelName} {channel.mentionCount}</button>))}</div> }))
 vi.mock("@/components/community/shell/user-bar", () => ({ UserBar: ({ unreadCount, inbox, inboxOpen, onInboxOpenChange, onOpenProfile, extension }: { onOpenProfile: () => void; extension: { active: string; profile: ReactNode; profileCompanion: ReactNode }; unreadCount: number; inbox: ReactNode; inboxOpen: boolean; onInboxOpenChange: (open: boolean) => void }) => <div><button onClick={onOpenProfile}>Profile</button>{extension.active === "profile" && <>{extension.profileCompanion}{extension.profile}</>}<span>{unreadCount} unread conversations or requests</span><button onClick={() => onInboxOpenChange(!inboxOpen)}>Inbox</button>{inboxOpen && inbox}</div> }))
 vi.mock("@/components/community/messages/composer", () => ({ Composer: ({ onAcceptSend }: { onAcceptSend: (text: string) => boolean }) => <button onClick={() => onAcceptSend("A local test message")}>Send test message</button> }))
-vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ messages, unreadCount, onJumpToPresent, typingUsers, onScrollRoot, newDividerBefore }: { newDividerBefore?: string; onScrollRoot?: (el: HTMLDivElement | null) => void; typingUsers?: string[]; messages: { id: string; content: string }[]; unreadCount: number; onJumpToPresent: () => void }) => <div ref={onScrollRoot} data-testid="mock-message-scroll"><span data-testid="new-divider">{newDividerBefore}</span><span data-testid="typing-names">{typingUsers?.join(", ")}</span>{messages.map((message) => <p key={message.id}>{message.content}</p>)}{unreadCount > 0 && <button onClick={onJumpToPresent}>Catch up {unreadCount}</button>}</div> }))
+vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ onOpenProfile, messages, unreadCount, onJumpToPresent, typingUsers, onScrollRoot, newDividerBefore }: { onOpenProfile?: OpenProfile; newDividerBefore?: string; onScrollRoot?: (el: HTMLDivElement | null) => void; typingUsers?: string[]; messages: { id: string; content: string }[]; unreadCount: number; onJumpToPresent: () => void }) => <div ref={onScrollRoot} data-testid="mock-message-scroll"><button onClick={(event) => onOpenProfile?.("Alli", event, undefined, "demo-alli")}>Open Alli profile</button><span data-testid="new-divider">{newDividerBefore}</span><span data-testid="typing-names">{typingUsers?.join(", ")}</span>{messages.map((message) => <p key={message.id}>{message.content}</p>)}{unreadCount > 0 && <button onClick={onJumpToPresent}>Catch up {unreadCount}</button>}</div> }))
 
-beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }) })
+beforeEach(() => { viewport.breakpoint = "desktop"; vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }) })
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("interactive landing workspace", () => {
+  it.each(["mobile", "desktop"] as const)("opens a bot profile with the expected %s companion", async (breakpoint) => {
+    viewport.breakpoint = breakpoint
+    render(<LandingInteractiveShell />)
+    fireEvent.click(screen.getByRole("button", { name: "Open Alli profile" }))
+    expect(await screen.findByPlaceholderText("Message @Alli")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Open owner profile/ })).toBeInTheDocument()
+    expect(screen.getByText("Bot log")).toBeInTheDocument()
+  })
   it("announces readiness even when the hidden frame gets no animation callbacks", () => {
     vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
     const post = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})

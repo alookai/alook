@@ -254,8 +254,8 @@ export function useMessageChannelController({
       clearReply: () => setReplyTo(null),
     })
     if (accepted) {
-      setLocalSubmitVersion((version) => version + 1)
       if (feed.hasMoreNewer) feed.jumpToPresent()
+      setLocalSubmitVersion((version) => version + 1)
     }
     return accepted
   }, [captureSendCommand, channelId, communityRuntime, feed.hasMoreNewer, feed.jumpToPresent, messageScope, replyTo, runAcceptedIntent, setLocalSubmitVersion, setReplyTo, viewer.avatar, viewer.id, viewer.name])
