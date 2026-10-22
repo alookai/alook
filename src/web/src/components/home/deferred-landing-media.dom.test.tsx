@@ -2,7 +2,7 @@ import React, { lazy } from "react"
 import { renderToString } from "react-dom/server"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { DeferredLandingMedia } from "./deferred-landing-media"
+import { DeferredLandingMedia, DeferredShellMotion } from "./deferred-landing-media"
 
 const props = { poster: "/landing/posters/server.webp", darkPoster: "/landing/posters/server-dark.webp", width: 1120, height: 660 }
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
@@ -86,4 +86,12 @@ describe("deferred landing media", () => {
     expect(container.querySelector("img")?.getAttribute("src")).toBe(props.poster)
     error.mockRestore()
   })
+})
+
+
+it("keeps the below-workspace product poster below hero and interactive Shell priority", () => {
+  const html = renderToString(<DeferredShellMotion scene="server" />)
+  expect(html).toContain('loading="lazy"')
+  expect(html).not.toContain('fetchPriority="high"')
+  expect(html).not.toContain('loading="eager"')
 })

@@ -72,7 +72,7 @@ export function DeferredLandingMedia({ poster, darkPoster, width, height, childr
 }
 
 export function DeferredShellMotion(props: ComponentProps<typeof LandingShellMotion>) {
-  return <DeferredLandingMedia poster={`/landing/posters/${props.scene}.webp`} darkPoster={`/landing/posters/${props.scene}-dark.webp`} width={1120} height={660} priority={props.scene === "server"}><Shell {...props} /></DeferredLandingMedia>
+  return <DeferredLandingMedia poster={`/landing/posters/${props.scene}.webp`} darkPoster={`/landing/posters/${props.scene}-dark.webp`} width={1120} height={660}><Shell {...props} /></DeferredLandingMedia>
 }
 
 export function DeferredMobileChatMotion(props: { beat: number }) {

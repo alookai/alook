@@ -5,7 +5,7 @@ import { renderCommunity as render } from "@/test/community-owner-harness"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { MessageBody } from "./message-body"
+import MessageBody from "./message-body-full"
 
 const componentDirectory = dirname(fileURLToPath(import.meta.url))
 

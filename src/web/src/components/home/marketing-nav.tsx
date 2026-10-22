@@ -37,6 +37,7 @@ export function MarketingNav({
   containerTestId?: string;
 }) {
   const [revealed, setRevealed] = useAtom(useCreateAtom(false));
+  const prefetch = revealAfterHero && !revealed ? false : undefined;
 
   useEffect(() => {
     if (!revealAfterHero) return;
@@ -64,7 +65,7 @@ export function MarketingNav({
         className={`${containerClassName ?? "mx-auto w-full max-w-5xl px-6"} flex items-center justify-between py-2`}
         data-testid={containerTestId}
       >
-        <Link href={homeHref} className="flex items-center gap-1">
+        <Link prefetch={prefetch} href={homeHref} className="flex items-center gap-1">
           <Image src="/alook.svg" alt="Alook" width={22} height={22} />
           <span
             className="text-lg tracking-tight"
@@ -85,11 +86,12 @@ export function MarketingNav({
             return link.usesDocumentNavigation ? (
               <a key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
             ) : (
-              <Link key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
+              <Link prefetch={prefetch} key={link.href} href={link.href} className={className} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
             );
           })}
           {showTemplates && (
             <Link
+              prefetch={prefetch}
               href="/templates"
               className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
               style={{
@@ -159,9 +161,9 @@ export function MarketingNav({
                 {MARKETING_SITE_LINKS.map((link) => link.usesDocumentNavigation ? (
                   <a key={link.href} href={link.href} className={`marketing-mobile-site-link block ${MARKETING_SITE_LINK_CLASS_NAME}`} style={MARKETING_SITE_LINK_STYLE}>{link.label}</a>
                 ) : (
-                  <Link key={link.href} href={link.href} className={`marketing-mobile-site-link block ${MARKETING_SITE_LINK_CLASS_NAME}`} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
+                  <Link prefetch={prefetch} key={link.href} href={link.href} className={`marketing-mobile-site-link block ${MARKETING_SITE_LINK_CLASS_NAME}`} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
                 ))}
-                {showTemplates && <Link href="/templates" className="block px-3 py-2 text-xs uppercase tracking-widest">Templates</Link>}
+                {showTemplates && <Link prefetch={prefetch} href="/templates" className="block px-3 py-2 text-xs uppercase tracking-widest">Templates</Link>}
                 <GithubOutboundLink surface="public_nav" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">GitHub</GithubOutboundLink>
                 <a href="https://discord.alook.ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">Discord</a>
                 <a href="https://x.com/alook_ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">X</a>

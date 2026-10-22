@@ -26,6 +26,7 @@ interface TypewriterVisualProps {
   paper?: React.ReactNode;
   blobScale?: number;
   blobBottom?: string;
+  onPaperSettled?: () => void;
 }
 
 export function TypewriterVisual({
@@ -35,6 +36,7 @@ export function TypewriterVisual({
   paper,
   blobScale = 1,
   blobBottom,
+  onPaperSettled,
 }: TypewriterVisualProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const handleMouseMove = useCallback(
@@ -78,7 +80,7 @@ export function TypewriterVisual({
   const paperTrack = (
     <div className="tw-paper-track">
       <div className={`tw-paper${paper == null ? " tw-paper-city" : ""}`} style={animateEntrance ? undefined : { opacity: 1 }}>
-        {paper ?? <TypewriterCityArt />}
+        {paper ?? <TypewriterCityArt onSettled={onPaperSettled} />}
       </div>
     </div>
   );

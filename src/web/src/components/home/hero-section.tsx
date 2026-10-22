@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { TypewriterVisual } from "@/components/typewriter-visual";
 import { trackLandingCtaClicked } from "@/lib/analytics";
@@ -35,6 +35,7 @@ export function HeroSection({
   backgroundDecoration,
   desktopSplit = false,
   nextSectionId,
+  onReady,
 }: {
   isLoggedIn: boolean;
   kicker?: string;
@@ -55,7 +56,31 @@ export function HeroSection({
   backgroundDecoration?: ReactNode;
   desktopSplit?: boolean;
   nextSectionId?: string;
+  onReady?: () => void;
 }) {
+  const [paperSettled, setPaperSettled] = useState(false);
+  const handlePaperSettled = useCallback(() => setPaperSettled(true), []);
+  const heroRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!onReady || !paperSettled || !heroRef.current) return;
+    const pending = new Set(Array.from(heroRef.current.querySelectorAll("img")).filter((image) => !image.complete));
+    const images = [...pending];
+    const finish = (event: Event) => {
+      if (!pending.delete(event.currentTarget as HTMLImageElement)) return;
+      if (pending.size === 0) onReady();
+    };
+    for (const image of images) {
+      image.addEventListener("load", finish, { once: true });
+      image.addEventListener("error", finish, { once: true });
+    }
+    if (pending.size === 0) onReady();
+    return () => {
+      for (const image of images) {
+        image.removeEventListener("load", finish);
+        image.removeEventListener("error", finish);
+      }
+    };
+  }, [onReady, paperSettled]);
   const [copied, setCopied] = useAtom(useCreateAtom(false));
   const ctaSizingClassName = largeCtas
     ? "px-3 py-3 text-[clamp(0.6875rem,3vw,1rem)] whitespace-nowrap sm:px-8"
@@ -63,6 +88,7 @@ export function HeroSection({
 
   return (
     <section
+      ref={heroRef}
       data-testid={testId}
       className={`hero-section relative flex h-screen items-center justify-center overflow-hidden${desktopSplit ? " hero-section-split" : ""}${nextSectionId ? " hero-section-scrollable" : ""}`}
       style={{ backgroundColor: "var(--landing-bg)" }}
@@ -145,6 +171,7 @@ export function HeroSection({
           {/* Full Typewriter */}
           <div data-static-paper={staticPaper || undefined} className={`hero-artwork absolute inset-0 ${typewriterClassName ?? ""}`}>
             <TypewriterVisual
+              onPaperSettled={onReady ? handlePaperSettled : undefined}
               animateEntrance={!staticPaper}
               entranceDelay={1.2}
               className="absolute! inset-0"

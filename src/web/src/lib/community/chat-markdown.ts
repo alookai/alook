@@ -4,7 +4,8 @@ import remarkGfm from "remark-gfm"
 import remarkBreaks from "remark-breaks"
 import type { Root } from "mdast"
 import { formatHandle, type MentionCandidate, type MentionType } from "@alook/shared"
-import { cjk, math } from "../streamdown-remark-plugins"
+import { cjk } from "@streamdown/cjk"
+import remarkMath from "remark-math"
 import { chatSyntaxPlugin, type MentionNode } from "./chat-syntax-plugin"
 
 export const CHAT_REMARK_PLUGINS: PluggableList = [remarkGfm, chatSyntaxPlugin, remarkBreaks]
@@ -14,7 +15,7 @@ const processor = unified()
   .use(cjk.remarkPluginsBefore)
   .use(CHAT_REMARK_PLUGINS)
   .use(cjk.remarkPluginsAfter)
-  .use([math.remarkPlugin])
+  .use(remarkMath, { singleDollarTextMath: true })
   .freeze()
 
 function parsedMentions(content: string): MentionNode[] {
