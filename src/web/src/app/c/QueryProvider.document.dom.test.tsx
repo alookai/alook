@@ -37,6 +37,9 @@ import type { Database } from "@alook/shared"
 import { QueryProvider } from "./QueryProvider"
 import { installCommunityDocumentSeed, type CommunityDocumentSeed } from "@/lib/community/document-seed"
 import { Message } from "@/components/community/messages/message"
+import { Avatar } from "@/components/community/avatar"
+import { CurrentUserProvider, useCurrentUser } from "@/contexts/community/current-user"
+import { profileSchema } from "@/lib/community-db/schema"
 
 const profile = { id: "viewer", name: "Server viewer", discriminator: "0042", avatar: "/avatar", avatarVersion: 7, aboutMe: "About", bannerColor: null, statusEmoji: null, statusText: "" }
 const makeSeed = () => readCommunityDocumentSeed({} as Database, "viewer", "/c/channels/s1/c1", profile)
@@ -74,6 +77,57 @@ beforeEach(() => {
 })
 
 describe("initial document seed in the actual native account provider", () => {
+  it.each([
+    { kind: "optional failure", diskVersion: 5, winner: 6 },
+    { kind: "late seed", diskVersion: 5, winner: 6 },
+    { kind: "newer disk", diskVersion: 7, winner: 7 },
+    { kind: "early seed", diskVersion: 7, winner: 7 },
+    { kind: "newer WS", diskVersion: 5, winner: 8 },
+  ])("preserves the qualified avatar across restoration and $kind while business seed waits", async ({ kind, diskVersion, winner }) => {
+    const initial = { ...profile, avatar: "/avatar?v=6", avatarVersion: 6 }
+    const currentUser = { ...initial, email: "viewer@example.test" }
+    const seed = await readCommunityDocumentSeed({} as Database, "viewer", null, initial)
+    let releaseSeed!: (value: CommunityDocumentSeed | null) => void
+    const pending = new Promise<CommunityDocumentSeed | null>(resolve => { releaseSeed = resolve })
+    const disk = new QueryClient()
+    disk.setQueryData(communityKeys.communityDbCollection("viewer", "profiles"), [profileSchema.parse({ ...initial, identityComplete: true, avatar: `/avatar?v=${diskVersion}`, avatarVersion: diskVersion, aboutMe: "Cached about" })], { updatedAt: Date.now() - 10_000 })
+    let releaseRestore!: (value: unknown) => void
+    mocks.restore.mockReturnValue(new Promise(resolve => { releaseRestore = resolve }))
+    const capture = vi.fn<(registry: CommunityDbRegistry, restoring: boolean) => void>()
+    function Self() {
+      const self = useCurrentUser()
+      capture(useOptionalCommunityDbRegistry()!, useIsRestoring())
+      return <section><output data-testid="avatar-version">{self.avatarVersion}</output><span data-testid="profile-about">{self.aboutMe}</span><Avatar label={self.avatar} seed={self.id} /></section>
+    }
+    let view!: ReturnType<typeof render>
+    try {
+      await act(async () => { view = render(<QueryProvider userId="viewer" initialUser={currentUser} initialSeed={pending}><CurrentUserProvider initialUser={currentUser}><Self /></CurrentUserProvider></QueryProvider>) })
+      await waitFor(() => expect(screen.getByTestId("avatar-version")).toHaveTextContent("6"))
+      const output = screen.getByTestId("avatar-version")
+      const image = view.container.querySelector("img")
+      expect(image).toHaveAttribute("src", "/avatar?v=6")
+      if (kind === "early seed") await act(async () => { installCommunityDocumentSeed(capture.mock.lastCall![0].queryClient, capture.mock.lastCall![0], seed, "viewer") })
+      if (kind === "newer WS") await act(async () => { projectCommunityWsEventToDb(capture.mock.lastCall![0].queryClient, { type: "community:identity.update", userId: "viewer", avatar: "/avatar?v=8", avatarVersion: 8 }) })
+      await act(async () => { releaseRestore({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(disk) }) })
+      await waitFor(() => expect(capture.mock.lastCall![1]).toBe(false))
+      const canonical = () => capture.mock.lastCall![0].queryClient.getQueryData<Array<{ id: string; avatarVersion?: number; avatar?: string | null }>>(communityKeys.communityDbCollection("viewer", "profiles"))?.find(row => row.id === "viewer")
+      expect(canonical()).toMatchObject({ avatarVersion: winner, avatar: `/avatar?v=${winner}` })
+      expect(output).toHaveTextContent(String(winner))
+      expect(image).toHaveAttribute("src", `/avatar?v=${winner}`)
+      expect(screen.getByTestId("profile-about")).toHaveTextContent("Cached about")
+      await act(async () => { releaseSeed(kind === "optional failure" ? null : seed); await pending })
+      expect(canonical()).toMatchObject({ avatarVersion: winner, avatar: `/avatar?v=${winner}` })
+      expect(screen.getByTestId("avatar-version")).toBe(output)
+      expect(view.container.querySelector("img")).toBe(image)
+      expect(output).toHaveTextContent(String(winner))
+      expect(image).toHaveAttribute("src", `/avatar?v=${winner}`)
+    } finally {
+      releaseSeed(null)
+      await act(async () => { await pending; view?.unmount() })
+      disk.clear()
+    }
+  })
+
   it.each([false, true])("accepts the production Flight thenable when already fulfilled=%s", async (fulfilled) => {
     const seed = await makeSeed()
     mocks.api.mockImplementation(() => new Promise(() => {}))

@@ -77,6 +77,7 @@ type ChannelRow,
 type FolderItemRow,
 type FolderRow,
 type MessageRow,
+type ProfileRow,
 type FriendshipRow,
 type NotificationSettingRow,
 type ReadStateClockRow,
@@ -459,7 +460,16 @@ export async function restoreCommunityCollections(registry: CommunityDbRegistry,
       if (!eligible(name, row)) continue
       if (current) {
         const present = Object.fromEntries(Object.entries(current).filter(([, value]) => value !== undefined))
-        next.set(id, schema.parse(state && state.dataUpdatedAt > 0 ? { ...row, ...present } : { ...present, ...row }))
+        const merged = state && state.dataUpdatedAt > 0 ? { ...row, ...present } : { ...present, ...row }
+        if (name === "profiles") {
+          const currentProfile = current as ProfileRow
+          const diskProfile = row as ProfileRow
+          const currentVersion = currentProfile.avatarVersion ?? -1
+          const diskVersion = diskProfile.avatarVersion ?? -1
+          const newer = currentVersion > diskVersion ? currentProfile : diskVersion > currentVersion ? diskProfile : undefined
+          if (newer) Object.assign(merged, { avatar: newer.avatar, avatarVersion: newer.avatarVersion })
+        }
+        next.set(id, schema.parse(merged))
       } else if (!excluded(name, row)) {
         const merged = withCanonicalWriteContext(client, { kind: "query", requestRevision: 0, profileSnapshot: token.profileSnapshot }, () => (
           isProtectedFromQueryWrite(registry, name, id) ? mergePendingOperationsIntoQueryRow(registry, name, id, schema, row) : row
