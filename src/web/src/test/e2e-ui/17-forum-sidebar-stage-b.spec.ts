@@ -568,9 +568,11 @@ test.describe("forum sidebar archived opener projection", () => {
     })
     await viewer.page.reload({ waitUntil: "commit" })
     for (const id of initialIds.filter((id) => id !== archivedId).concat(refillId)) {
-      await expect(viewer.page.getByTestId(tid.forumSidebarThread(id))).toBeVisible({
-        timeout: 20_000,
-      })
+      const sidebarThread = viewer.page.getByTestId(tid.forumSidebarThread(id))
+      await expect(async () => {
+        expect(await sidebarThread.count()).toBe(1)
+        expect(await sidebarThread.isVisible()).toBe(true)
+      }).toPass({ timeout: 20_000 })
     }
     await expect(viewer.page.getByTestId(tid.forumSidebarThread(archivedId))).toHaveCount(0)
   })

@@ -9,7 +9,10 @@ test.use({ viewport: { width: 390, height: 844 } })
 
 async function expectMobileBack(page: Page) {
   const control = page.getByRole("banner").getByRole("button", { name: "Back" })
-  await expect(control).toBeVisible()
+  await expect(async () => {
+    expect(await control.count()).toBe(1)
+    expect(await control.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
   const controlBox = await control.boundingBox()
   expect(controlBox).toMatchObject({ width: 44, height: 44 })
   return control

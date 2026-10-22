@@ -562,10 +562,21 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await ignoreNextDevToolsPointerCapture(bob.page)
   const aliceThread = alice.page.getByTestId(tid.threadSplitPanel)
   const bobThread = bob.page.getByTestId(tid.threadSplitPanel)
-  await expect(composerEditable(alice.page, aliceThread)).toBeVisible()
-  await expect(composerEditable(bob.page, bobThread)).toBeVisible()
+  const aliceThreadComposer = composerEditable(alice.page, aliceThread)
+  await expect(async () => {
+    expect(await aliceThreadComposer.count()).toBe(1)
+    expect(await aliceThreadComposer.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
+  const bobThreadComposer = composerEditable(bob.page, bobThread)
+  await expect(async () => {
+    expect(await bobThreadComposer.count()).toBe(1)
+    expect(await bobThreadComposer.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
   const threadTarget = alice.page.getByTestId(tid.message(threadBobMessageId))
-  await expect(threadTarget).toBeVisible()
+  await expect(async () => {
+    expect(await threadTarget.count()).toBe(1)
+    expect(await threadTarget.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
   const restingThreadGap = await alice.page.evaluate(({ targetId, composerId, threadPanelTestId }) => {
     const target = document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector(`[data-testid="${targetId}"]`)?.getBoundingClientRect()
     const composer = document.querySelector(`[data-testid="${threadPanelTestId}"]`)?.querySelector(`[data-testid="${composerId}"]`)?.getBoundingClientRect()
@@ -667,9 +678,21 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await Promise.all([waitForCurrentCommunityAuth(aliceProxy, aliceBeforeReturn), waitForCurrentCommunityAuth(bobProxy, bobBeforeReturn)])
   await ignoreNextDevToolsPointerCapture(alice.page)
   await ignoreNextDevToolsPointerCapture(bob.page)
-  await expect(composerEditable(alice.page)).toBeVisible()
-  await expect(composerEditable(bob.page)).toBeVisible()
-  await expect(alice.page.getByTestId(tid.message(replyPayload.message.id))).toBeVisible()
+  const aliceReturnedComposer = composerEditable(alice.page)
+  await expect(async () => {
+    expect(await aliceReturnedComposer.count()).toBe(1)
+    expect(await aliceReturnedComposer.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
+  const bobReturnedComposer = composerEditable(bob.page)
+  await expect(async () => {
+    expect(await bobReturnedComposer.count()).toBe(1)
+    expect(await bobReturnedComposer.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
+  const returnedReply = alice.page.getByTestId(tid.message(replyPayload.message.id))
+  await expect(async () => {
+    expect(await returnedReply.count()).toBe(1)
+    expect(await returnedReply.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
   const typingWsReadyId = await seedMessage("bob", channelId, `typing ws ready ${stamp}`)
   await expect.poll(() => aliceProxy.frames.some((frame) => (
     frameHasMessage(frame, channelId, typingWsReadyId)
@@ -842,7 +865,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await ignoreNextDevToolsPointerCapture(alice.page)
   await ignoreNextDevToolsPointerCapture(bob.page)
   await expect(composerEditable(alice.page)).toBeVisible()
-  await expect(composerEditable(bob.page)).toBeVisible()
+  const bobColdDmComposer = composerEditable(bob.page)
+  await expect(async () => {
+    expect(await bobColdDmComposer.count()).toBe(1)
+    expect(await bobColdDmComposer.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
   const dmWsReadyId = await seedMessage("bob", dmId, `dm **reply target** ${stamp}`)
   await expect.poll(() => aliceProxy.frames.some((frame) => (
     frameHasMessage(frame, dmId, dmWsReadyId)
@@ -973,7 +1000,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const dmReloadGets = trackSurfaceGets(alice.page, dmId)
   await alice.page.reload({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
-  await expect(alice.page.getByTestId(tid.message(dmReloadReadState.lastReadMessageId!))).toBeVisible()
+  const reloadedDmReadMessage = alice.page.getByTestId(tid.message(dmReloadReadState.lastReadMessageId!))
+  await expect(async () => {
+    expect(await reloadedDmReadMessage.count()).toBe(1)
+    expect(await reloadedDmReadMessage.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
   await expectRetainedMountGets(alice.page, dmId, dmReloadReadState, dmReloadGets)
   expect(Math.abs(
     await dmScroller.evaluate((element) => element.scrollTop) - departedDmReloadScrollTop,
@@ -1073,7 +1104,10 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   await ignoreNextDevToolsPointerCapture(alice.page)
   const editable = composerEditable(alice.page)
   const scroller = alice.page.getByTestId(tid.messageScroller)
-  await expect(editable).toBeVisible()
+  await expect(async () => {
+    expect(await editable.count()).toBe(1)
+    expect(await editable.isVisible()).toBe(true)
+  }).toPass({ timeout: 10_000 })
   await scroller.hover()
   await expect.poll(async () => {
     if (await alice.page.getByTestId(tid.message(longMessageId)).count()) return true
