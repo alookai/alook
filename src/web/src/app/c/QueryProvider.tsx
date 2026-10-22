@@ -153,7 +153,7 @@ function ScopedQueryProvider({
   useEffect(() => {
     if (!deferredSeed) return
     let current = true
-    void deferredSeed.promise.then((seed) => {
+    void Promise.resolve(deferredSeed.promise).then((seed) => {
       if (current && seed) installCommunityDocumentSeed(queryClient, communityDb, seed, communityDb.sessionViewer(), deferredSeed)
     }).catch((error: unknown) => {
       if (current && !isAbortError(error)) console.error("Community document seed installation failed", error)

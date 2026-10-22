@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto"
+import { createRequire } from "node:module"
 import React from "react"
 import { renderToString } from "react-dom/server"
 import { hydrateRoot } from "react-dom/client"
@@ -39,6 +40,20 @@ import { Message } from "@/components/community/messages/message"
 
 const profile = { id: "viewer", name: "Server viewer", discriminator: "0042", avatar: "/avatar", avatarVersion: 7, aboutMe: "About", bannerColor: null, statusEmoji: null, statusText: "" }
 const makeSeed = () => readCommunityDocumentSeed({} as Database, "viewer", "/c/channels/s1/c1", profile)
+const { createFromReadableStream } = createRequire(import.meta.url)("next/dist/compiled/react-server-dom-webpack/cjs/react-server-dom-webpack-client.edge.production.js") as {
+  createFromReadableStream<T>(stream: ReadableStream<Uint8Array>, options: { serverConsumerManifest: { moduleMap: object; serverModuleMap: object; moduleLoading: null } }): Promise<T>
+}
+function flightSeed() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  const promise = createFromReadableStream<CommunityDocumentSeed | null>(new ReadableStream<Uint8Array>({ start(value) { controller = value } }), {
+    serverConsumerManifest: { moduleMap: {}, serverModuleMap: {}, moduleLoading: null },
+  })
+  return {
+    promise,
+    resolve(seed: CommunityDocumentSeed | null) { controller.enqueue(new TextEncoder().encode(`0:${JSON.stringify(seed)}\n`)); controller.close() },
+    reject(error: Error) { controller.error(error) },
+  }
+}
 let registry: CommunityDbRegistry
 let restoring: boolean
 function Probe() {
@@ -59,6 +74,70 @@ beforeEach(() => {
 })
 
 describe("initial document seed in the actual native account provider", () => {
+  it.each([false, true])("accepts the production Flight thenable when already fulfilled=%s", async (fulfilled) => {
+    const seed = await makeSeed()
+    mocks.api.mockImplementation(() => new Promise(() => {}))
+    const flight = flightSeed()
+    expect(flight.promise.then(vi.fn(), vi.fn())).toBeUndefined()
+    if (fulfilled) { flight.resolve(seed); await Promise.resolve(flight.promise) }
+    const view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>)
+    try {
+      await waitFor(() => expect(restoring).toBe(false))
+      if (!fulfilled) {
+        expect(screen.getByTestId("main")).toHaveTextContent("loading")
+        await act(async () => { flight.resolve(seed); await Promise.resolve(flight.promise) })
+      }
+      await waitFor(() => expect(screen.getByTestId("main")).toHaveTextContent("Server viewer:Body"))
+    } finally { view.unmount() }
+  })
+
+  it.each([false, true])("handles a rejected Flight seed with cancelled=%s and keeps its cache consumer mounted", async (cancelled) => {
+    const flight = flightSeed()
+    const error = cancelled ? new DOMException("Flight seed cancelled", "AbortError") : new Error("Flight seed unavailable")
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    const view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>)
+    try {
+      await act(async () => { flight.reject(error); await Promise.resolve(flight.promise).catch(() => {}) })
+      if (cancelled) expect(logged).not.toHaveBeenCalled()
+      else await waitFor(() => expect(logged).toHaveBeenCalledWith("Community document seed installation failed", error))
+      expect(screen.getByTestId("main")).toBeInTheDocument()
+    } finally { view.unmount(); logged.mockRestore() }
+  })
+
+  it.each(["resolve", "reject"] as const)("ignores a Flight %s after the account provider unmounts", async (settlement) => {
+    const seed = await makeSeed()
+    const flight = flightSeed()
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    const view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>)
+    const owned = registry
+    view.unmount()
+    const hydrate = vi.spyOn(owned.dbClient, "hydrate")
+    try {
+      await act(async () => {
+        if (settlement === "resolve") flight.resolve(seed)
+        else flight.reject(new Error("Retired Flight"))
+        await Promise.resolve(flight.promise).catch(() => {})
+      })
+      expect(hydrate).not.toHaveBeenCalled()
+      expect(logged).not.toHaveBeenCalled()
+      expect(owned.queryClient.getQueryData(communityKeys.selfProfile())).toBeUndefined()
+    } finally { logged.mockRestore() }
+  })
+
+  it("catches an installation exception after a Flight seed resolves", async () => {
+    const seed = await makeSeed()
+    const flight = flightSeed()
+    const error = new Error("Profile installation failed")
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+    flight.promise.then((value) => { Object.defineProperty(value!, "selfProfile", { get() { throw error } }) })
+    const view = render(<QueryProvider userId="viewer" initialSeed={flight.promise}><Probe /></QueryProvider>)
+    try {
+      await act(async () => { flight.resolve(seed); await Promise.resolve(flight.promise) })
+      await waitFor(() => expect(logged).toHaveBeenCalledWith("Community document seed installation failed", error))
+      expect(screen.getByTestId("main")).toBeInTheDocument()
+    } finally { view.unmount(); logged.mockRestore() }
+  })
+
   it("keeps the first hydrated DM body consistent and publishes its canonical author with deferred data", async () => {
     mocks.door.mockResolvedValue({ ok: true, value: { access: { channel: { serverId: null } } } })
     mocks.entry.mockResolvedValue({ ok: true, entry: dmConversationEntryFixture() })
@@ -279,11 +358,13 @@ describe("initial document seed in the actual native account provider", () => {
     view.unmount()
   })
 
-  it("rejects another viewer's document before the native DB hydrate call", async () => {
+  it.each([false, true])("rejects another viewer's document before native DB hydrate with Flight=%s", async (deferred) => {
     const seed = await makeSeed()
+    const flight = flightSeed()
     mocks.viewer = "other"
     function AccountProbe() { const owned = useOptionalCommunityDbRegistry()!; React.useLayoutEffect(() => { registry = owned }, [owned]); return null }
-    const view = render(<QueryProvider userId="other" initialSeed={seed}><AccountProbe /></QueryProvider>)
+    const view = render(<QueryProvider userId="other" initialSeed={deferred ? flight.promise : seed}><AccountProbe /></QueryProvider>)
+    await act(async () => { flight.resolve(seed); await Promise.resolve(flight.promise) })
     expect(registry.queryClient.getQueryData(communityKeys.selfProfile())).toBeUndefined()
     expect(registry.queryClient.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries("c1") })).toEqual([])
     expect(registry.collections.profiles.get("viewer")).toBeUndefined()
