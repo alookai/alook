@@ -243,7 +243,11 @@ test.describe("mobile server header direct hierarchy", () => {
     }
     await page.setViewportSize({ width: 639, height: 844 })
     await page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
-    await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toBeVisible({ timeout: 20_000 })
+    const threadComposer = page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)
+    await expect(async () => {
+      expect(await threadComposer.count()).toBe(1)
+      expect(await threadComposer.isVisible()).toBe(true)
+    }).toPass({ timeout: 20_000 })
     await expectMobileBack(page)
     // RULE: Cold HTTP reads and first-auth read-state/directory reconciliation
     // must finish before the all-community resize measurement begins.

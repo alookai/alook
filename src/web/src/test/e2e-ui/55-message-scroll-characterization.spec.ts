@@ -692,7 +692,11 @@ test.describe("message scroll characterization", () => {
     await anchored.page.setViewportSize(VIEWPORT)
     await installScrollTrace(anchored.page)
     await anchored.page.goto(`/c/channels/${serverId}/${loadingChannelId}`, { waitUntil: "commit" })
-    await expect(anchored.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
+    const anchoredNewDivider = anchored.page.getByTestId(tid.newDivider)
+    await expect(async () => {
+      expect(await anchoredNewDivider.count()).toBe(1)
+      expect(await anchoredNewDivider.isVisible()).toBe(true)
+    }).toPass({ timeout: 30_000 })
     await expect(anchored.page.getByTestId(tid.messageScroller)).toHaveAttribute("data-pagination-enabled", "true")
     const older = await holdNextRequest(actors,
       anchored.page,
