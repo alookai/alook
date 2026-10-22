@@ -34,7 +34,7 @@ export function useCreateOrGetDm() {
         assertActive,
       })
       origin.assert(original)
-      for (const resource of resources) if (queryClient.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) await queryClient.invalidateQueries({ queryKey: resource.queryKey, exact: true }, { cancelRefetch: false })
+      for (const resource of resources) if (queryClient.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) void queryClient.invalidateQueries({ queryKey: resource.queryKey, exact: true }, { cancelRefetch: false })
       origin.assert(original)
       assertActive?.()
       return result

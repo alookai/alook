@@ -1,14 +1,16 @@
 import "fake-indexeddb/auto"
 import React from "react"
+import { renderToString } from "react-dom/server"
+import { hydrateRoot } from "react-dom/client"
 import { dehydrate, QueryClient, useIsRestoring } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, screen, waitFor } from "@/test/react-dom-harness"
-import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
+import { conversationEntryFixture, dmConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { useCanonicalCommunityProfile, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { PERSIST_BUSTER, type QualifiedPersister } from "@/lib/query-persister"
-import { useMessages } from "@/hooks/community/use-messages"
+import { useDmMessages, useMessages } from "@/hooks/community/use-messages"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import type { CommunityDbRegistry } from "@/lib/community-db/collections"
@@ -32,6 +34,8 @@ vi.mock("@/lib/community/conversation-entry.server", () => ({ readCommunityConve
 import { readCommunityDocumentSeed } from "@/lib/community/document-seed.server"
 import type { Database } from "@alook/shared"
 import { QueryProvider } from "./QueryProvider"
+import { installCommunityDocumentSeed, type CommunityDocumentSeed } from "@/lib/community/document-seed"
+import { Message } from "@/components/community/messages/message"
 
 const profile = { id: "viewer", name: "Server viewer", discriminator: "0042", avatar: "/avatar", avatarVersion: 7, aboutMe: "About", bannerColor: null, statusEmoji: null, statusText: "" }
 const makeSeed = () => readCommunityDocumentSeed({} as Database, "viewer", "/c/channels/s1/c1", profile)
@@ -55,6 +59,86 @@ beforeEach(() => {
 })
 
 describe("initial document seed in the actual native account provider", () => {
+  it("keeps the first hydrated DM body consistent and publishes its canonical author with deferred data", async () => {
+    mocks.door.mockResolvedValue({ ok: true, value: { access: { channel: { serverId: null } } } })
+    mocks.entry.mockResolvedValue({ ok: true, entry: dmConversationEntryFixture() })
+    mocks.api.mockImplementation(() => new Promise(() => {}))
+    const seed = await readCommunityDocumentSeed({} as Database, "viewer", "/c/me/c1", profile)
+    let release!: (value: CommunityDocumentSeed) => void
+    const pending = new Promise<CommunityDocumentSeed>(resolve => { release = resolve })
+    function DmBody() {
+      const feed = useDmMessages("c1", { viewerUserId: "viewer" })
+      return <main>{feed.isLoading ? "Loading DM" : feed.messages.map(message => <Message key={message.id} m={{ ...message, grouped: false }} onOpenThread={() => {}} />)}</main>
+    }
+    const tree = <QueryProvider userId="viewer" initialSeed={pending}><DmBody /></QueryProvider>
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(tree)
+    document.body.appendChild(container)
+    expect(container.textContent).toBe("Loading DM")
+    const recoveries: unknown[] = []
+    let root!: ReturnType<typeof hydrateRoot>
+    try {
+      await act(async () => { root = hydrateRoot(container, tree, { onRecoverableError: error => { recoveries.push(error) } }) })
+      expect(container.textContent).toBe("Loading DM")
+      await act(async () => { release(seed); await pending })
+      await waitFor(() => expect(container.querySelector("[data-message-author-line]")).toHaveTextContent("Peer"))
+      expect(container.textContent).not.toContain("Deleted user")
+      expect(recoveries).toEqual([])
+    } finally { await act(async () => { root?.unmount() }); container.remove() }
+  })
+
+  it("mounts the consumer before deferred seed and fills its missing entry after restore", async () => {
+    const seed = await makeSeed()
+    mocks.api.mockImplementation(() => new Promise(() => {}))
+    let release!: (value: CommunityDocumentSeed) => void
+    const pending = new Promise<CommunityDocumentSeed>(resolve => { release = resolve })
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<QueryProvider userId="viewer" initialSeed={pending}><Probe /></QueryProvider>) })
+    await waitFor(() => expect(restoring).toBe(false))
+    expect(screen.getByTestId("main")).toHaveTextContent("loading")
+    const hydrate = vi.spyOn(registry.dbClient, "hydrate")
+    await act(async () => { release(seed); await pending })
+    await waitFor(() => expect(screen.getByTestId("main")).toHaveTextContent("Server viewer:Body"))
+    expect(hydrate).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it("keeps newer canonical content and an existing entry when deferred seed arrives", async () => {
+    const seed = await makeSeed()
+    mocks.api.mockImplementation(() => new Promise(() => {}))
+    let release!: (value: CommunityDocumentSeed) => void
+    const pending = new Promise<CommunityDocumentSeed>(resolve => { release = resolve })
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<QueryProvider userId="viewer" initialSeed={pending}><Probe /></QueryProvider>) })
+    await waitFor(() => expect(restoring).toBe(false))
+    await act(async () => { installCommunityDocumentSeed(registry.queryClient, registry, seed, "viewer") })
+    await waitFor(() => expect(screen.getByTestId("main")).toHaveTextContent("Body"))
+    const entry = registry.queryClient.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries("c1") }).find(query => query.state.data)
+    const resource = entry?.state.data
+    const hydrate = vi.spyOn(registry.dbClient, "hydrate")
+    await act(async () => projectCommunityWsEventToDb(registry.queryClient, { type: "community:message.edited", serverId: "s1", channelId: "c1", messageId: "m1", content: "New WS content" }))
+    await act(async () => { release(seed); await pending })
+    await waitFor(() => expect(screen.getByTestId("main")).toHaveTextContent("New WS content"))
+    expect(entry?.state.data).toBe(resource)
+    expect(hydrate).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it("does not re-grant revoked access from a deferred document", async () => {
+    const seed = await makeSeed()
+    mocks.api.mockImplementation(() => new Promise(() => {}))
+    let release!: (value: CommunityDocumentSeed) => void
+    const pending = new Promise<CommunityDocumentSeed>(resolve => { release = resolve })
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<QueryProvider userId="viewer" initialSeed={pending}><Probe /></QueryProvider>) })
+    await waitFor(() => expect(restoring).toBe(false))
+    await act(async () => { registry.runtime.ws.actions.revokeChannelAccess("s1", "c1") })
+    await act(async () => { release(seed); await pending })
+    expect(registry.runtime.ws.actions.isChannelAccessRevoked("c1", "s1")).toBe(true)
+    expect(screen.getByTestId("main")).not.toHaveTextContent("Body")
+    view.unmount()
+  })
+
   it("hydrates the persisted machine list into an already mounted native query while live list waits", async () => {
     const actual = await vi.importActual<typeof import("@/lib/query-persister")>("@/lib/query-persister")
     const disk = new QueryClient()

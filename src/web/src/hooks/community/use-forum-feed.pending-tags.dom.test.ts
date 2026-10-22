@@ -24,7 +24,17 @@ async function setup(selected = "archived") {
     included: { parentMessages: [{ id: "opener", channelId: "forum_1", seq: 1, content: "Post", authorId: "author", authorName: "Author", authorImage: null, authorAvatarVersion: 0 }], firstMessages: [], participants: [], tags: backendTags.map((tag) => ({ messageId: "opener", tag })) },
   })
   api.mockImplementation((path: string, options?: { method?: string }) => {
-    if (path.includes("/messages?entry=1")) return Promise.resolve(forumConversationEntryFixture("forum_1", "server_1", true))
+    if (path.includes("/messages?entry=1")) {
+      const filter = new URL(path, "https://local").searchParams.get("tag")
+      const empty = filter === "archived" ? !backendTags.includes("archived") : backendTags.includes("archived") || !!filter && !backendTags.includes(filter)
+      const entry = forumConversationEntryFixture("forum_1", "server_1", empty)
+      if (!empty && entry.forumFeed) {
+        entry.forumFeed.threads[0] = { ...entry.forumFeed.threads[0], id: "post", parentMessageId: "opener" }
+        entry.forumFeed.included.messages[0] = { ...entry.forumFeed.included.messages[0], id: "opener" }
+        entry.forumFeed.included.tags = backendTags.map(tag => ({ messageId: "opener", tag }))
+      }
+      return Promise.resolve(entry)
+    }
     if (options?.method === "PUT") return held
     if (path.endsWith("/messages/tags")) return Promise.resolve({ tags: [...backendTags] })
     if (path.includes("/threads?")) return Promise.resolve(page())

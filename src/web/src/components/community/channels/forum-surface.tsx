@@ -14,9 +14,11 @@ import { useTimelineReadObserver } from "@/hooks/community/use-read-observer"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 
-export function ForumSurface({ serverId, forumChannelId, ...props }: {
+export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, ...props }: {
   serverId: string
   forumChannelId: string
+  routeTag?: string | null
+  onSelectTag?: (tag: string) => void
   members: Member[]
   mentionCandidates?: ComposerProps["mentionCandidates"]
   onOpenPost: (id: string) => void
@@ -28,8 +30,8 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
   canDeletePost?: (post: ForumThread) => boolean
   deletingPost?: string | null
 }) {
-  const feed = useForumFeed(serverId, forumChannelId)
-  const readState = useConversationEntry({ channelId: forumChannelId, serverId })
+  const feed = useForumFeed(serverId, forumChannelId, { routeTag, onSelectTag })
+  const readState = useConversationEntry(feed.selectionReady ? { channelId: forumChannelId, serverId, tag: feed.tag === "All" ? null : feed.tag } : null)
   const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   const retryScope = JSON.stringify([forumChannelId, feed.tag])
   const [retryAttempt, setRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))
@@ -85,9 +87,12 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
     {...props}
     posts={feed.posts}
     observation={feed.observation}
-    loading={feed.isPending}
-    tag={feed.tag}
+    loading={!feed.selectionReady || feed.isPending}
+    tag={feed.selectionReady ? feed.tag : ""}
     availableTags={feed.availableTags}
+    tagsKnown={feed.tagsKnown}
+    tagsError={feed.tagsError}
+    onRetryTags={() => { void feed.retryTags() }}
     onTagChange={feed.selectTag}
     hasMore={feed.hasMoreOlder}
     loadingMore={feed.isFetchingOlder}

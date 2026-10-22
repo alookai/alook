@@ -410,6 +410,12 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
           serverId={serverId}
           channelId={channelId}
           channelName={channelName}
+          routeTag={searchParams.get("tag")}
+          onSelectTag={(tag) => {
+            const next = new URLSearchParams(searchParams)
+            next.set("tag", tag === "All" ? "" : tag)
+            navigation.replace(`${channelHref(serverParam, channelId)}?${next}`)
+          }}
           viewer={currentUser}
           viewerRole={myRole}
           onNavigateParent={navigateServerRoot}

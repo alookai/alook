@@ -45,14 +45,29 @@ function Probe() {
 }
 
 describe("document resource handoff", () => {
+  it("leaves an unresolved Forum selection to the client instead of seeding All", async () => {
+    mocks.door.mockResolvedValue({ ok: true, value: { access: { channel: { serverId: "s1", type: "forum" } } } })
+    const seed = await readCommunityDocumentSeed(db, "viewer", "/c/channels/s1/c1", selfProfile)
+    expect(seed.entries).toEqual([])
+    expect(mocks.entry).not.toHaveBeenCalled()
+  })
+
+  it.each([["", undefined], ["BUG", "bug"]])("uses explicit Forum tag=%s for its seed window", async (tag, expected) => {
+    mocks.door.mockResolvedValue({ ok: true, value: { access: { channel: { serverId: "s1", type: "forum" } } } })
+    mocks.entry.mockResolvedValue({ ok: true, entry: forumConversationEntryFixture() })
+    const seed = await readCommunityDocumentSeed(db, "viewer", `/c/channels/s1/c1?tag=${tag}`, selfProfile)
+    expect(mocks.entry).toHaveBeenCalledWith(db, expect.objectContaining({ tag: expected }))
+    expect(seed.entries[0].target.tag).toBe(expected ?? null)
+  })
+
   it.each(["forum", "server"])("renders the actual %s projection from its document snapshot while source restore is pending", async kind => {
     if (kind === "forum") mocks.entry.mockResolvedValue({ ok: true, entry: forumConversationEntryFixture() })
-    const seed = await readCommunityDocumentSeed(db, "viewer", kind === "forum" ? "/c/channels/s1/c1" : "/c/channels/s1", selfProfile)
+    const seed = await readCommunityDocumentSeed(db, "viewer", kind === "forum" ? "/c/channels/s1/c1?tag=" : "/c/channels/s1", selfProfile)
     const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
     let release!: () => void
     const registry = createCommunityDbRegistry(client, "viewer", { waitForRestore: new Promise<void>(resolve => { release = resolve }) })
     installCommunityDocumentSeed(client, registry, seed, "viewer")
-    function Forum() { const feed = useForumFeed("s1", "c1"); return createElement("span", null, feed.posts.map(post => post.name).join("|")) }
+    function Forum() { const feed = useForumFeed("s1", "c1", { routeTag: "" }); return createElement("span", null, feed.posts.map(post => post.name).join("|")) }
     function Server() { const tree = useServerTreeProjection("s1"); return createElement("span", null, `${tree?.name}:${tree?.categories[0]?.channels[0]?.name}`) }
     try {
       const html = renderToString(createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, createElement(kind === "forum" ? Forum : Server))))

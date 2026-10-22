@@ -25,7 +25,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-server-delete-route-guard"
 import { CommunityRestoreBoundary } from "@/components/community/shell/community-restore-bootstrap"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
-import type { CommunityDocumentSeed } from "@/lib/community/document-seed"
+import type { CommunityDocumentSeedInput } from "@/lib/community/document-seed"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -47,7 +47,7 @@ export function CommunityShell({
 }: {
   currentUser: CurrentUser
   children: ReactNode
-  initialSeed?: CommunityDocumentSeed
+  initialSeed?: CommunityDocumentSeedInput
 }) {
   return (
     <QueryProvider userId={currentUser.id} initialUser={currentUser} initialSeed={initialSeed}>

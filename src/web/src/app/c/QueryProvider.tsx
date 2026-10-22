@@ -35,13 +35,13 @@ import { useRouter } from "next/navigation"
 import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecycle"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { discardCommunityRestoreReplacements, installCommunityDbSync, restoreCommunityCollections } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, discardCommunityRestoreReplacements, installCommunityDbSync, restoreCommunityCollections } from "@/lib/community-db/sync"
 import { profileSchema } from "@/lib/community-db/schema"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
 import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
-import { installCommunityDocumentSeed, type CommunityDocumentSeed } from "@/lib/community/document-seed"
+import { installCommunityDocumentSeed, type CommunityDocumentSeedInput } from "@/lib/community/document-seed"
 
 function createRestoreGate() {
   let release!: () => void
@@ -108,7 +108,7 @@ function CommunityDbRuntime({
  * the previous session's cached message list. Passing `null` (pre-auth) hits
  * an "anon" namespace that never carries real content.
  */
-export function QueryProvider(props: { children: ReactNode; userId: string | null; initialUser?: CurrentUser; initialSeed?: CommunityDocumentSeed }) {
+export function QueryProvider(props: { children: ReactNode; userId: string | null; initialUser?: CurrentUser; initialSeed?: CommunityDocumentSeedInput }) {
   const session = useSession()
   return <ScopedQueryProvider key={props.userId ?? "anon"} {...props} session={session} sessionViewer={currentSessionViewer} />
 }
@@ -124,7 +124,7 @@ function ScopedQueryProvider({
   children: ReactNode
   userId: string | null
   initialUser?: CurrentUser
-  initialSeed?: CommunityDocumentSeed
+  initialSeed?: CommunityDocumentSeedInput
   session: ReturnType<typeof useSession>
   sessionViewer: () => string | null | undefined
 }) {
@@ -145,9 +145,21 @@ function ScopedQueryProvider({
   const [communityDb] = useState(() => {
     const registry = createCommunityDbRegistry(queryClient, userId, { waitForRestore: restoreGate.ready })
     const viewer = !session.isPending && !session.error ? session.data?.user.id ?? null : sessionViewer()
-    if (initialSeed) installCommunityDocumentSeed(queryClient, registry, initialSeed, viewer)
+    if (initialSeed && !("then" in initialSeed)) installCommunityDocumentSeed(queryClient, registry, initialSeed, viewer)
     return registry
   })
+  const [deferredSeed] = useState(() => initialSeed && "then" in initialSeed
+    ? { promise: initialSeed, token: captureCommunityLiveSnapshotToken(queryClient), presence: communityDb.runtime.ws.actions.beginPresenceSnapshot() } : null)
+  useEffect(() => {
+    if (!deferredSeed) return
+    let current = true
+    void deferredSeed.promise.then((seed) => {
+      if (current && seed) installCommunityDocumentSeed(queryClient, communityDb, seed, communityDb.sessionViewer(), deferredSeed)
+    }).catch((error: unknown) => {
+      if (current && !isAbortError(error)) console.error("Community document seed installation failed", error)
+    })
+    return () => { current = false }
+  }, [deferredSeed, queryClient, communityDb])
   const unreadProjection = useMemo(
     () => userId ? getAccountUnreadProjection(queryClient, userId) : null,
     [queryClient, userId],

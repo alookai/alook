@@ -39,6 +39,7 @@ const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
 const FORUM_VIRTUALIZER_DOM_MODE = "position"
 const FORUM_VIRTUALIZER_OVERSCAN = 5
+const POST_ACTION_CLASS = "grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 sm:opacity-0 sm:group-focus-within/card:opacity-100 sm:group-hover/card:opacity-100 sm:data-popup-open:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
 const forumRangeExtractor = (range: Range) => defaultRangeExtractor({
   ...range,
   overscan: range.overscan + range.endIndex - range.startIndex + 1,
@@ -129,16 +130,12 @@ const ForumPostTitle = memo(function ForumPostTitle({ name, postId, seq }: { nam
   )
 })
 
-// Forum channel body — rendered under the shared ChannelHeader. A feed of posts;
-// each post opens as a thread. The filter bar's tag chips are DERIVED from the
-// posts themselves (the deduped union of every post's tags) — there is no
-// forum-level tag vocabulary. Per-post tags are edited from a hover icon on each
-// card (creator + server managers), not a forum-wide manage mode.
 export function ForumView({
   forumChannelId,
   members,
   mentionCandidates,
   posts, loading, observation, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
+  tagsKnown = true, tagsError = false, onRetryTags,
   hasMore, loadingMore, isFetching, isError, onLoadMore,
   onDeletePost, canDeletePost, deletingPost,
   onScrollRoot,
@@ -151,6 +148,9 @@ export function ForumView({
   loading?: boolean
   tag: string
   availableTags?: string[]
+  tagsKnown?: boolean
+  tagsError?: boolean
+  onRetryTags?: () => void
   onTagChange: (tag: string) => void
   hasMore?: boolean
   loadingMore?: boolean
@@ -215,9 +215,7 @@ export function ForumView({
   }, [paginationRange, posts.length, virtualItems])
   const observedPosts = visibleVirtualItems(virtualizer).flatMap(item => posts[item.index] ? [posts[item.index]] : [])
   useObservedRegion("forum", (!loading || posts.length > 0) && (!posts.length || observedPosts.length > 0), observedPosts.length, observation)
-  const filterTags = availableTags.length > 0
-    ? availableTags
-    : [...new Set(posts.flatMap((post) => post.tags))]
+  const filterTags = [...new Set(availableTags)]
   const hasArchivedPosts = filterTags.includes(FORUM_ARCHIVE_TAG)
   const displayFilterTags = [
     ...filterTags.filter((candidate) => candidate !== FORUM_ARCHIVE_TAG),
@@ -291,7 +289,13 @@ export function ForumView({
               onKeyDown={onTagRailKeyDown}
               className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
             >
-              {filterTags.length > 0 && (
+              {!tagsKnown ? tagsError ? (
+                <button type="button" className="shrink-0 rounded-lg px-2.75 py-1 text-[13px] text-muted-foreground hover:text-foreground" onClick={onRetryTags}>Retry tags</button>
+              ) : (
+                <div role="status" aria-label="Loading tag filters" className="flex h-8 shrink-0 items-center gap-2">
+                  <Skeleton className="h-7 w-16 rounded-lg" /><Skeleton className="h-7 w-20 rounded-lg" /><Skeleton className="h-7 w-16 rounded-lg" />
+                </div>
+              ) : (
                 <>
                   <button
                     ref={tag === "All" ? activeFilterRef : undefined}
@@ -341,7 +345,7 @@ export function ForumView({
         ref={bindScrollRoot}
         role="main"
         data-testid={tid.forumPostList}
-        className="flex-1 overflow-y-auto thin-scrollbar px-0 py-2 sm:px-4"
+        className="flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] px-0 py-2 sm:px-4"
       >
         {loading && posts.length === 0 ? (
           <ForumListSkeleton />
@@ -399,7 +403,7 @@ export function ForumView({
                               type="button"
                               data-testid={tid.forumThreadTagBtn(p.id)}
                               onClick={(event) => event.stopPropagation()}
-                              className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-accent hover:text-foreground sm:size-6 sm:opacity-0 sm:focus-visible:opacity-100 sm:data-popup-open:opacity-100 sm:group-hover/card:opacity-100"
+                              className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-foreground")}
                               aria-label="Edit tags"
                             >
                               <Tag className="size-4" />
@@ -423,7 +427,7 @@ export function ForumView({
                               onEditPostTags?.(p.id, toggleForumArchivedStatus(p.tags)),
                             ).catch(() => undefined)
                           }}
-                          className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-accent hover:text-foreground sm:size-6 sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-foreground")}
                           aria-label={archived ? "Unarchive post" : "Archive post"}
                           aria-pressed={archived}
                         >
@@ -438,7 +442,7 @@ export function ForumView({
                         data-testid={tid.forumThreadDeleteBtn(p.id)}
                         disabled={deletingPost === p.id}
                         onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
-                        className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-accent hover:text-destructive sm:size-6 sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-destructive")}
                         aria-label="Delete post"
                       >
                         <Trash2 className="size-4" />
@@ -448,9 +452,9 @@ export function ForumView({
                   )}
 
                   <div className={cn(
-                    actionCount === 3 && "min-h-8 pr-28 sm:min-h-0 sm:pr-22",
-                    actionCount === 2 && "min-h-8 pr-20 sm:min-h-0 sm:pr-16",
-                    actionCount === 1 && "min-h-8 pr-12 sm:min-h-0 sm:pr-8",
+                    actionCount === 3 && "min-h-8 pr-28",
+                    actionCount === 2 && "min-h-8 pr-20",
+                    actionCount === 1 && "min-h-8 pr-12",
                     actionCount === 0 && "pr-0",
                   )}>
                     <ForumPostTitle name={p.name} postId={p.id} seq={p.parentSeq} />
@@ -460,7 +464,7 @@ export function ForumView({
                     <Avatar label={author.avatar} seed={p.authorId} size={20} />
                     <span className="shrink-0 font-medium text-foreground" suppressHydrationWarning>{author.name}</span>
                     <span className="shrink-0" aria-hidden>·</span>
-                    <span className="shrink-0" suppressHydrationWarning>{formatRelativeTime(p.lastMessageAt)}</span>
+                    <span className="shrink-0" suppressHydrationWarning>Active {formatRelativeTime(p.lastMessageAt)}</span>
                     {hasOrdinaryTags && <span className="shrink-0 max-sm:hidden" aria-hidden>·</span>}
                     <ForumTagSummary tags={p.tags} />
                     <span className="ml-auto flex shrink-0 items-center gap-2">
