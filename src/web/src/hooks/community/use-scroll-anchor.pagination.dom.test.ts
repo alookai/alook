@@ -200,7 +200,7 @@ describe("native pagination and original semantic epoch", () => {
     h.update({ scrollToMessageId: "not-loaded" })
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(consumed).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(2000))
+    act(() => vi.advanceTimersByTime(5000))
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     h.update({ items: [...h.input.items, message("not-loaded")] })
     expect(consumed).not.toHaveBeenCalled()

@@ -226,6 +226,26 @@ describe("conversation entry selection", () => {
     expect(load).not.toHaveBeenCalled()
     hook.unmount()
   })
+  it("verifies a newly selected revoked target but does not retry a later access withdrawal", async () => {
+    const { wrapper, registry } = await setup()
+    const request = deferred<ReturnType<typeof fixture>>()
+    load.mockReturnValue(request.promise)
+    const hook = renderHook(({ selected }) => useConversationEntry(selected), {
+      wrapper, initialProps: { selected: null as typeof target | null },
+    })
+    await act(async () => registry.runtime.ws.actions.revokeChannelAccess("s1", "c1"))
+    hook.rerender({ selected: target })
+    expect(hook.result.current.denied).toBe(false)
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    await act(async () => request.resolve(fixture()))
+    await waitFor(() => expect(hook.result.current.canRead).toBe(true))
+    await act(async () => registry.runtime.ws.actions.revokeChannelAccess("s1", "c1"))
+    expect(hook.result.current.canRead).toBe(false)
+    expect(hook.result.current.denied).toBe(true)
+    expect(load).toHaveBeenCalledOnce()
+    hook.unmount()
+  })
+
   it("withdraws a completed proof and exactly refetches after its real registry registration retires", async () => {
     const { wrapper, publish, registry, client } = await setup()
     const original = publish()
@@ -327,6 +347,7 @@ describe("conversation entry return during accepted reading", () => {
           createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(controller.readPositionReady) },
             createElement(VirtualRows<FlatItem>, {
               items: controller.items, virtualizer: controller.virtualizer, reactLayout: true,
+              onLayoutCommit: controller.onRowsLayoutCommit,
               renderItem: (item, index) => item.kind === "leading" ? renderMessageListRow(item, props, controller, index) : createElement("div", {
                 "data-message-row-key": item.key, "data-fixture-kind": item.kind,
                 "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),

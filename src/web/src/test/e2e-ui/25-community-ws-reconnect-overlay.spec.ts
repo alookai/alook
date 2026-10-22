@@ -249,7 +249,7 @@ test("a real WebSocket outage keeps cached content interactive and Retry reconne
   }
 })
 
-test("an active onboarding form keeps focus priority during a reconnect", async ({ browser, caseResources }) => {
+test("an active onboarding form keeps focus priority during a reconnect", async ({ caseResources }) => {
   test.setTimeout(90_000)
   const context = await caseResources.newContext({ viewport: { width: 390, height: 844 } })
   const page = await context.newPage()

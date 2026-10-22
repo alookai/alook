@@ -84,7 +84,7 @@ async function expectCenteredNativeOauthState(
 // global-setup, so this journey re-verifies the redirect/auth contract with a
 // FRESH context (no saved session) plus an authenticated landing.
 test.describe("auth & first screen", () => {
-  test("unauthenticated /c deep-link redirects to /sign-in with redirect param", async ({ browser, caseResources }) => {
+  test("unauthenticated /c deep-link redirects to /sign-in with redirect param", async ({ caseResources }) => {
     const context = await caseResources.newContext() // no storageState — anonymous
     const page = await context.newPage()
     await page.goto("/c/channels/does-not-matter/whatever")

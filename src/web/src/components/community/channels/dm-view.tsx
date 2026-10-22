@@ -133,7 +133,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     fetchOlder: fetchOlderMessages,
     fetchNewer: fetchNewerMessages,
     jumpToPresent,
-    presentVersion,
+    presentVersion, presentRequest,
     latestSeq,
     isPending: messagesPending,
     isError: messagesError,
@@ -142,7 +142,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     navigationBlocked,
     anchorReconciled,
     readSnapshot, readSnapshotFetching, initialPositionKnown,
-    initialLoadError, retryInitialLoad, retryingInitialLoad, observation,
+    initialLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionDataState, messageWindow,
   } = useDmMessages(dmId, {
     enabled: !dmBlocked && !metadata.revoked && !metadata.denied,
     viewerUserId: currentUser.id,
@@ -379,8 +379,8 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
       },
     })
     if (!receipt.accepted) return false
-    setLocalSubmitVersion((version) => version + 1)
     if (hasMoreNewerMessages) jumpToPresent()
+    setLocalSubmitVersion((version) => version + 1)
     void receipt.committed.then((result) => {
       try { assertActive() } catch { return }
       if (result.ok) advanceOnboardingAfterSend()
@@ -472,6 +472,10 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             hasMore={hasMoreMessages}
             historyStartKnown={historyStartKnown}
             initialPositionMessageId={initialPositionMessageId}
+            positionEntry={positionEntry}
+            positionDataState={positionDataState}
+            messageWindow={messageWindow}
+            active={routeCommitted}
             isFetching={messagesFetching}
             isFetchingOlder={isFetchingOlderMessages}
             onLoadOlder={fetchOlderMessages}
@@ -480,6 +484,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             onLoadNewer={fetchNewerMessages}
             onJumpToPresent={jumpToPresent}
             presentVersion={presentVersion}
+            presentRequest={presentRequest}
             localSubmitVersion={localSubmitVersion}
             unreadCount={unreadCount}
             typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}

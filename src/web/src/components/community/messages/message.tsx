@@ -395,7 +395,7 @@ function MessageImpl({
       data-base-ui-swipe-ignore={pageSwipe.page ? "y" : ""}
       data-page-swipe-reply-row=""
       className={[
-        "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
+        "group relative -mx-2 -my-1 flex gap-2 rounded px-2 py-1 transition-colors",
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
         swipeVisual.active ? "transition-none" : "transition-transform duration-150 ease-out",
         selectable ? "cursor-pointer" : "",
@@ -609,7 +609,7 @@ function MessageImpl({
     >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
       {interactive && activated && !selectMode && (
-        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-2" : "-top-3"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-1" : "-top-2"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
             <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
               <span className="opacity-60">#</span>{m.seq}
@@ -663,7 +663,7 @@ function MessageImpl({
 
       <div className="flex gap-2">
         {m.grouped ? (
-          <div className="w-[40px] shrink-0" />
+          <div className="w-10 shrink-0" />
         ) : (
           <button
             {...avatarMention}

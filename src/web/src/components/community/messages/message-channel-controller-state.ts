@@ -75,7 +75,8 @@ export function useMessageChannelController({
   const searchParams = useSearchParams()
   const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
   const [localSubmitVersion, setLocalSubmitVersion] = useAtom(useCreateAtom(0))
-  const [scrollTargetId, setScrollTargetId] = useAtom(useMemo(() => createAtom<string | null>(anchorMessageId), [anchorMessageId, feed.positionEntry]))
+  const targetEntry = useMemo(() => ({ entry: feed.positionEntry, atom: createAtom<string | null>(anchorMessageId) }), [anchorMessageId, feed.positionEntry])
+  const [scrollTargetId, setScrollTargetId] = useAtom(targetEntry.atom)
   const [contextTarget, setContextTarget] = useAtom(useCreateAtom<MessageContextTarget | null>(null))
   const { mutateAsync: sendMessageAsync } = useSendMessage()
   const toggleReactionApi = useToggleReactionApi()
@@ -235,6 +236,7 @@ export function useMessageChannelController({
     runAcceptedIntent,
   }), [communityRuntime, actionContext, getMessage, source.capture, serverId, channelId, viewer.id, setReplyTo, toggleReactionApi, addReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, editMessage, messageScope, runAcceptedIntent])
 
+  const { hasMoreNewer, jumpToPresent } = feed
   const acceptMessage = useCallback((
     markdown: string,
     attachments?: SendAttachment[],
@@ -254,11 +256,11 @@ export function useMessageChannelController({
       clearReply: () => setReplyTo(null),
     })
     if (accepted) {
+      if (hasMoreNewer) jumpToPresent()
       setLocalSubmitVersion((version) => version + 1)
-      if (feed.hasMoreNewer) feed.jumpToPresent()
     }
     return accepted
-  }, [captureSendCommand, channelId, communityRuntime, feed.hasMoreNewer, feed.jumpToPresent, messageScope, replyTo, runAcceptedIntent, setLocalSubmitVersion, setReplyTo, viewer.avatar, viewer.id, viewer.name])
+  }, [captureSendCommand, channelId, communityRuntime, hasMoreNewer, jumpToPresent, messageScope, replyTo, runAcceptedIntent, setLocalSubmitVersion, setReplyTo, viewer.avatar, viewer.id, viewer.name])
 
   return useMemo<MessageChannelControllerValue>(() => ({
     feed,

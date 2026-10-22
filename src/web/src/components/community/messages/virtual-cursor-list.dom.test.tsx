@@ -25,6 +25,7 @@ function List({ direct, mode, ready }: {
       scrollTo: { configurable: true, value: ({ top = 0 }: ScrollToOptions) => { node.scrollTop = top } },
     })
   }, [])
+  // eslint-disable-next-line react-hooks/incompatible-library -- Native mutable Virtualizer cannot be safely memoized; this fixture tests its actual React adapter.
   const virtualizer = useVirtualizer<HTMLDivElement, Element>({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     directDomUpdates: direct,

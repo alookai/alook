@@ -34,10 +34,13 @@ describe("entry failure and explicit recovery", () => {
     await act(async () => { onlineManager.setOnline(false); onlineManager.setOnline(true) })
     expect(load).toHaveBeenCalledTimes(kind === "dm" ? 1 : 2)
     load.mockResolvedValue(kind === "channel" ? conversationEntryFixture() : dmConversationEntryFixture())
+    const failedAttempt = returned.result.current.positionEntry
     await act(async () => returned.result.current.retryInitialLoad())
     await waitFor(() => expect(returned.result.current.initialPositionKnown).toBe(true))
     expect(returned.result.current.messages.map(row => row.id)).toEqual(["m1"])
     expect(returned.result.current.readSnapshot?.lastReadMessageId).toBe("m1")
+    expect(returned.result.current.positionEntry).not.toBe(failedAttempt)
+    expect(returned.result.current.positionDataState).toBe("ready")
     expect(load).toHaveBeenCalledTimes(kind === "dm" ? 2 : 3)
     returned.unmount()
   })
@@ -50,13 +53,39 @@ describe("entry failure and explicit recovery", () => {
     const hook = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
     await waitFor(() => expect(hook.result.current.initialPositionKnown).toBe(true))
     const pointer = hook.result.current.readSnapshot
+    const positionEntry = hook.result.current.positionEntry
     load.mockRejectedValue(new ConversationReadTimeoutError())
     await act(async () => { await hook.result.current.refetch() })
     expect(hook.result.current.isLoading).toBe(false)
     expect(hook.result.current.initialLoadError).toBeNull()
     expect(hook.result.current.initialPositionKnown).toBe(true)
     expect(hook.result.current.readSnapshot).toBe(pointer)
+    expect(hook.result.current.positionEntry).toBe(positionEntry)
+    expect(hook.result.current.positionDataState).toBe(empty ? "empty" : "ready")
     expect(hook.result.current.messages).toHaveLength(empty ? 0 : 1)
+    hook.unmount()
+  })
+
+  it("binds an explicit Retry to its own result even when a prior valid window remains", async () => {
+    const { wrapper } = await setup()
+    load.mockResolvedValue(conversationEntryFixture())
+    const hook = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
+    await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+    const first = hook.result.current.positionEntry
+    let fail!: (error: Error) => void
+    load.mockReturnValue(new Promise((_, reject) => { fail = reject }))
+    await act(async () => hook.result.current.retryInitialLoad())
+    const retry = hook.result.current.positionEntry
+    expect(retry).not.toBe(first)
+    expect(hook.result.current.positionDataState).toBe("pending")
+    await act(async () => fail(new ConversationReadTimeoutError()))
+    await waitFor(() => expect(hook.result.current.positionDataState).toBe("error"))
+    expect(hook.result.current.messages.map(row => row.id)).toEqual(["m1"])
+    expect(hook.result.current.positionEntry).toBe(retry)
+    load.mockResolvedValue({ messages: conversationEntryFixture().messages, latestSeq: 1, hasMoreOlder: false, hasMoreNewer: false })
+    await act(async () => hook.result.current.retryInitialLoad())
+    await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+    expect(hook.result.current.positionEntry).not.toBe(retry)
     hook.unmount()
   })
 

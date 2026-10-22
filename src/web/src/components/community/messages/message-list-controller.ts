@@ -17,6 +17,9 @@ export function useMessageListController({
   scrollToMessageId,
   initialPositionMessageId,
   positionEntry,
+  positionDataState,
+  messageWindow,
+  active,
   initialScrollReady,
   hasMore,
   hasMoreNewer,
@@ -27,6 +30,7 @@ export function useMessageListController({
   onLoadNewer,
   onJumpToPresent,
   presentVersion,
+  presentRequest,
   localSubmitVersion,
   unreadCount,
   onScrollRoot,
@@ -34,7 +38,8 @@ export function useMessageListController({
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
-  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useMemo(() => createAtom(false), [positionEntry]))
+  const settledEntry = useMemo(() => ({ entry: positionEntry, atom: createAtom(false) }), [positionEntry])
+  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(settledEntry.atom)
 
   const items = useMemo(
     () => flattenMessageItems(messages, newDividerBefore, !!hasMore, !!hasMoreNewer),
@@ -88,12 +93,14 @@ export function useMessageListController({
   const {
     scrollRef,
     virtualizer,
+    onRowsLayoutCommit,
     belowCount,
     scrollToBottom,
     requestPresentPosition,
     jumpTo: jumpToIndex,
     readPositionReady,
     paginationEnabled,
+    paginationRequestPending,
     captureOlderPageAnchor,
     captureNewerPageAnchor,
   } = useScrollAnchor({
@@ -103,12 +110,16 @@ export function useMessageListController({
     scrollToMessageId,
     initialPositionMessageId,
     positionEntry,
+    positionDataState: positionDataState ?? (initialLoadError ? "error" : loading ? "pending" : undefined),
+    messageWindow,
+    active,
     onScrollTargetCancelled: onScrollTargetConsumed,
     onScrollTargetPositioned: (id) => { setJumped(id); setJumpRevision((value) => value + 1); onScrollTargetConsumed?.(id) },
     hasMoreNewer,
     isFetchingOlder,
     isFetchingNewer,
     presentVersion,
+    presentRequest,
     localSubmitVersion,
     hasMoreOlder: hasMore,
     onInitialPositionSettled: settleAnchorPosition,
@@ -128,18 +139,19 @@ export function useMessageListController({
   useVirtualCursorPagination({
     virtualizer,
     count: items.length,
-    enabled: paginationEnabled,
+    enabled: paginationEnabled && !paginationRequestPending,
     hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
     isError: !!initialLoadError,
     onBeforeLoad: captureOlderPageAnchor,
     onLoad: onLoadOlder,
     edge: "start",
+    requestKey: messageWindow,
   })
   useVirtualCursorPagination({
     virtualizer,
     count: items.length,
-    enabled: paginationEnabled,
+    enabled: paginationEnabled && !paginationRequestPending,
     hasMore: hasMoreNewer,
     hasMoreAtStart: hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
@@ -147,6 +159,7 @@ export function useMessageListController({
     onBeforeLoad: captureNewerPageAnchor,
     onLoad: onLoadNewer,
     edge: "end",
+    requestKey: messageWindow,
   })
 
   const jumpClearTimerRef = useRef<number | null>(null)
@@ -206,8 +219,7 @@ export function useMessageListController({
   const jumpMode = !!hasMoreNewer
   const pillCount = jumpMode ? ((unreadCount ?? belowCount) || 0) : belowCount
   const jumpToPresent = useCallback(() => {
-    requestPresentPosition()
-    onJumpToPresent?.()
+    requestPresentPosition(onJumpToPresent?.())
   }, [onJumpToPresent, requestPresentPosition])
   const pillOnClick = jumpMode && onJumpToPresent ? jumpToPresent : scrollToBottom
 
@@ -232,6 +244,7 @@ export function useMessageListController({
     onToggleSelectId,
     scrollRef,
     virtualizer,
+    onRowsLayoutCommit,
     readPositionReady,
     paginationEnabled,
     jumpTo,

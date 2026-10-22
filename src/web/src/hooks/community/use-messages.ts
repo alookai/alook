@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { hashKey, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
@@ -15,6 +15,8 @@ import { materializeMessageStream, type MessageScope } from "@/lib/community/mes
 import { messageWindowOptions, type InitialMessageWindow, type MessageWindowData } from "@/lib/community/message-window"
 import { knownConversationLatestSeq, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
 import type { Msg } from "@/lib/community/models/message"
+import type { MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
+import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { messageReconcileOptions } from "./community-ws/reconnect-messages"
 
 export { channelMessagesQueryFn } from "@/lib/community/message-window"
@@ -69,7 +71,7 @@ type MessagesOpts = {
 
 type ChannelMessagesOpts = MessagesOpts & { serverId: string }
 type DisplayWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
-type PresentSelection = { attempt: number; pending: boolean; window: DisplayWindow | null; version: number; error: Error | null }
+type PresentSelection = { attempt: number; pending: boolean; window: DisplayWindow | null; version: number; error: Error | null; request: MessageRequest | null }
 
 export function useMessages(channelId: string | null, opts: ChannelMessagesOpts) {
   return useMessageSurface(channelId, opts, opts.serverId)
@@ -88,9 +90,15 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const viewKey = hashKey([channelId, serverId, anchorMessageId, tag, proof?.accountEpoch ?? -1, proof?.accessEpoch ?? -1,
     channelId ? proof?.channelScopes.get(channelId)?.generation ?? 0 : 0])
   const present = useMemo(() => ({ viewKey, intent: entry.intent,
-    state: createStore<PresentSelection>({ attempt: 0, pending: false, window: null, version: 0, error: null }),
+    state: createStore<PresentSelection>({ attempt: 0, pending: false, window: null, version: 0, error: null, request: null }),
   }), [viewKey, entry.intent]).state
   const selection = useSelector(present, (state) => state)
+  const retries = useMemo(() => ({ client, channelId, serverId, anchorMessageId, tag, intent: entry.intent,
+    state: createStore<{ attempt: object | null; pending: boolean; error: Error | null }>({ attempt: null, pending: false, error: null }),
+  }), [client, channelId, serverId, anchorMessageId, tag, entry.intent]).state
+  const retrySelection = useSelector(retries, state => state)
+  const positionEntry = useMemo(() => retrySelection.attempt ? { intent: entry.intent, retry: retrySelection.attempt } : entry.intent,
+    [entry.intent, retrySelection.attempt])
   const selectedWindow = entry.canRead ? selection.window ?? entry.window : null
   const enabled = !!channelId && !!selectedWindow && entry.canRead
   const initial: InitialMessageWindow = selectedWindow?.initial ?? { mode: "newest" }
@@ -106,7 +114,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const query = useInfiniteQuery({ ...options, queryKey, enabled, subscribed: enabled })
   const reconciliation = useQuery({ ...messageReconcileOptions(client, { kind: serverId === null ? "dm" : "channel", scopeId: channelId ?? "__none__", serverId: serverId ?? undefined }, queryKey), enabled: false, subscribed: enabled })
   const originalQuery = client.getQueryCache().find({ queryKey, exact: true })
-  const owner = useMemo(() => ({ present, query: originalQuery, enabled }), [present, originalQuery, enabled])
+  const owner = useMemo(() => ({ present, retries, query: originalQuery, enabled }), [present, retries, originalQuery, enabled])
   const committed = useRef<typeof owner | null>(null)
   useLayoutEffect(() => {
     committed.current = owner
@@ -120,6 +128,18 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const projection = useMessageWindowProjection(entry.canRead ? channelId : null, ids, overlay.liveIds)
   const canonicalById = useMemo(() => new Map((projection.canonicalMessages ?? []).flatMap((message) =>
     typeof message.seq === "number" ? [[message.id, { ...message, seq: message.seq }] as const] : [])), [projection.canonicalMessages])
+  const missingCanonical = ids.some(id => !canonicalById.has(id))
+  const projectionFailed = projection.status === "error"
+  const [projectionFailure, setProjectionFailure] = useState<{ window: object; attempt: object | null; viewKey: string } | null>(null)
+  useEffect(() => {
+    if (!entry.canRead || !query.data || !missingCanonical || projectionFailed) return
+    const window = query.data, attempt = retrySelection.attempt
+    const controller = new AbortController()
+    void withConversationReadDeadline(controller.signal, () => new Promise<never>(() => {})).catch(error => {
+      if (!controller.signal.aborted && error instanceof ConversationReadTimeoutError) setProjectionFailure({ window, attempt, viewKey })
+    })
+    return () => controller.abort()
+  }, [entry.canRead, missingCanonical, projectionFailed, query.data, retrySelection.attempt, viewKey])
   const canonicalBase = useMemo(() => projection.windowIds.flatMap((id) => {
     const message = canonicalById.get(id)
     return message ? [message] : []
@@ -141,26 +161,28 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const hasMoreOlder = (oldest?.hasMoreOlder ?? oldest?.hasMore) ?? false
   const historyStartKnown = !!selectedWindow && (oldest?.hasMoreOlder ?? oldest?.hasMore) === false
   const hasMoreNewer = newest?.hasMoreNewer ?? false
-  const fetchPage = useCallback((direction: "older" | "newer") => {
+  const fetchPage = useCallback((direction: "older" | "newer"): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || !original.query || original !== owner) return
-    if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) return
+    if (!channelId || !original?.enabled || !original.query || original !== owner) return { accepted: false }
+    if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) return { accepted: false }
     const token = captureChannelMetadataToken(client, channelId)
     const isCurrent = () => committed.current === original && isChannelMetadataTokenCurrent(token)
       && client.getQueryCache().get(original.query!.queryHash) === original.query
-    const fetch = async () => {
+    const fetch = async (): Promise<MessageRequestResult> => {
       while (isCurrent() && original.query!.state.fetchStatus !== "idle") await query.refetch({ cancelRefetch: false })
-      if (!isCurrent()) return
-      if (direction === "older") await query.fetchNextPage({ cancelRefetch: false })
-      else await query.fetchPreviousPage({ cancelRefetch: false })
+      if (!isCurrent()) return { status: "retired" }
+      const result = direction === "older" ? await query.fetchNextPage({ cancelRefetch: false })
+        : await query.fetchPreviousPage({ cancelRefetch: false })
+      if (!isCurrent()) return { status: "retired" }
+      return result.isError || !result.data ? { status: "error" } : { status: "success", window: result.data }
     }
-    void fetch().catch(() => {})
+    return { accepted: true, completed: fetch().catch(() => ({ status: "error" })) }
   }, [channelId, client, owner, query])
   const fetchOlder = useCallback(() => fetchPage("older"), [fetchPage])
   const fetchNewer = useCallback(() => fetchPage("newer"), [fetchPage])
-  const jumpToPresent = useCallback(() => {
+  const jumpToPresent = useCallback((): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || original !== owner || present.get().pending) return
+    if (!channelId || !original?.enabled || original !== owner || present.get().pending) return { accepted: false }
     const token = captureChannelMetadataToken(client, channelId)
     const tail = messageWindowOptions(client, channelId, { mode: "newest" }, tag, { observation })
     const captured = client.getQueryCache().build<unknown, Error, unknown>(client, { queryKey: tail.queryKey })
@@ -168,24 +190,43 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     const attempt = present.get().attempt
     const isCurrent = () => committed.current === original && isChannelMetadataTokenCurrent(token)
       && client.getQueryCache().get(captured.queryHash) === captured
-    void client.infiniteQuery({ ...tail, staleTime: 0, select: undefined }).then(() => {
-      if (!isCurrent()) return
+    const completed = client.infiniteQuery({ ...tail, staleTime: 0, select: undefined }).then((data): MessageRequestResult => {
+      if (!isCurrent()) return { status: "retired" }
       present.setState((state) => ({ ...state, pending: false, version: attempt,
         window: { key: tail.queryKey, initial: { mode: "newest" }, tag } }))
+      return { status: "success", window: data }
     }, (error: unknown) => {
-      if (!isCurrent()) return
+      if (!isCurrent()) return { status: "retired" } as const
       present.setState((state) => ({ ...state, pending: false, error: error instanceof Error ? error : new Error("Could not load recent messages") }))
+      return { status: "error" } as const
     })
+    const request: MessageRequest = { accepted: true, completed }
+    present.setState(state => ({ ...state, request }))
+    return request
   }, [channelId, client, observation, owner, present, tag])
   const error = query.error ?? entry.error
   const windowAvailable = !!selectedWindow && query.data !== undefined
-  const initialLoadError = windowAvailable ? null : error ?? (entry.failed ? INITIAL_ENTRY_ERROR : null)
+  const projectionError = projectionFailed || missingCanonical && !!projectionFailure && projectionFailure.window === query.data
+    && projectionFailure.attempt === retrySelection.attempt && projectionFailure.viewKey === viewKey ? INITIAL_ENTRY_ERROR : null
+  const initialLoadError = windowAvailable ? projectionError : retrySelection.error ?? error ?? (entry.failed ? INITIAL_ENTRY_ERROR : null)
   const loading = !!channelId && (windowAvailable ? projection.canonicalMessages === undefined : !initialLoadError && !entry.denied && !entry.anchorMissing)
   const entryWindow = entry.window, retryEntry = entry.retry, refetchWindow = query.refetch
   const retryInitialLoad = useCallback(() => {
-    if (entryWindow) void refetchWindow({ cancelRefetch: false })
-    else retryEntry()
-  }, [entryWindow, retryEntry, refetchWindow])
+    if (committed.current?.retries !== retries || retries.get().pending) return
+    const attempt = {}
+    const token = channelId ? captureChannelMetadataToken(client, channelId) : null
+    const current = () => committed.current?.retries === retries && retries.get().attempt === attempt && !!token && isChannelMetadataTokenCurrent(token)
+    retries.setState(() => ({ attempt, pending: true, error: null }))
+    const request = entryWindow ? refetchWindow({ cancelRefetch: false }) : retryEntry()
+    void request.then(result => {
+      if (!current()) return
+      retries.setState(() => ({ attempt, pending: false, error: result.error }))
+    })
+  }, [channelId, client, entryWindow, retryEntry, refetchWindow, retries])
+  const positionDataState: MessagePositionState = retrySelection.pending ? "pending"
+    : initialLoadError || retrySelection.error || entry.denied || !windowAvailable && entry.anchorMissing && !entry.isFetching ? "error"
+      : !windowAvailable || !entry.snapshot || loading || readSnapshotFetching ? "pending"
+        : messages.length ? "ready" : "empty"
   return {
     ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: windowAvailable ? "covered" as const : "uncovered" as const,
       wait_reason: !entry.canRead ? "entry" as const : !windowAvailable ? "window" as const : loading ? "projection" as const : "none" as const },
@@ -195,12 +236,12 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     error, initialLoadError, isFetching: entry.isFetching || query.isFetching,
     isFetchingOlder: query.isFetchingNextPage,
     isFetchingNewer: query.isFetchingPreviousPage || selection.pending,
-    fetchOlder, fetchNewer, jumpToPresent, presentVersion: selection.version,
+    fetchOlder, fetchNewer, jumpToPresent, presentVersion: selection.version, presentRequest: selection.request,
     anchorReconciled: !!selectedWindow,
     navigationBlocked: !entry.canRead,
     readSnapshot: entry.snapshot, readSnapshotFetching,
     initialPositionKnown: !!selectedWindow && entry.snapshot !== null && !loading && !readSnapshotFetching,
-    initialPositionMessageId: entry.initialPositionMessageId, positionEntry: entry.intent,
+    initialPositionMessageId: entry.initialPositionMessageId, positionEntry, positionDataState, messageWindow: query.data,
     retryInitialLoad, retryingInitialLoad: entry.isFetching || query.isFetching,
     entryCanRead: entry.canRead, entryDenied: entry.denied, entryAnchorMissing: entry.anchorMissing,
   }

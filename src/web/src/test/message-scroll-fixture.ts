@@ -85,6 +85,7 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
       createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(result.readPositionReady) },
         createElement(VirtualRows<FlatItem>, {
           items, virtualizer: result.virtualizer, reactLayout: true,
+          onLayoutCommit: result.onRowsLayoutCommit,
           renderItem: (item) => createElement("div", {
             "data-message-row-key": item.key,
             "data-fixture-kind": item.kind,
@@ -152,12 +153,12 @@ export function resize(frameCount = 26) {
   })
   runFrames(frameCount)
 }
-export function mount(overrides: Partial<Input> = {}, strict = false, onLayout?: (result: Result) => void, wrapper?: RenderOptions["wrapper"]) {
+export function mount(overrides: Partial<Input> = {}, strict = false, onLayout?: (result: Result) => void, wrapper?: RenderOptions["wrapper"], initialFrames = 26) {
   const input: Input = { items: Array.from({ length: 14 }, (_, i) => message(`m${i}`)), initialScrollReady: true, hasMoreOlder: true, ...overrides }
   const element = () => strict ? createElement(StrictMode, null, createElement(Probe, { input, onLayout })) : createElement(Probe, { input, onLayout })
   const view = render(element(), { wrapper })
   const root = view.getByTestId("scroll") as HTMLElement
-  resize()
+  resize(initialFrames)
   const stage = (next: Partial<Input>) => { Object.assign(input, next); view.rerender(element()) }
   const update = (next: Partial<Input>) => { stage(next); resize() }
   const move = (offset: number) => {
