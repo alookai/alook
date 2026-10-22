@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
+import type { MessagePositionState, MessageRequest } from "@/lib/community/message-position"
 
 export type MessageListProps = {
   observation?: import("@/lib/observability/regions").ResourceObservation
@@ -33,6 +34,9 @@ export type MessageListProps = {
   scrollToMessageId?: string | null
   initialPositionMessageId?: string | null
   positionEntry?: object | null
+  positionDataState?: MessagePositionState
+  messageWindow?: object
+  active?: boolean
   hero?: ReactNode
   variant?: "channel" | "dm"
   onScrollRoot?: (el: HTMLDivElement | null) => void
@@ -43,12 +47,13 @@ export type MessageListProps = {
   historyStartKnown?: boolean
   isFetching?: boolean
   isFetchingOlder?: boolean
-  onLoadOlder?: () => void
+  onLoadOlder?: () => MessageRequest | void
   hasMoreNewer?: boolean
   isFetchingNewer?: boolean
-  onLoadNewer?: () => void
-  onJumpToPresent?: () => void
+  onLoadNewer?: () => MessageRequest | void
+  onJumpToPresent?: () => MessageRequest | void
   presentVersion?: number
+  presentRequest?: MessageRequest | null
   localSubmitVersion?: number
   unreadCount?: number
 }

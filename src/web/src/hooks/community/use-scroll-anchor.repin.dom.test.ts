@@ -6,7 +6,187 @@ import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, mess
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
+function retiredInitialReader(onInitialPositionSettled?: () => void) {
+  const h = mount({ hasMoreNewer: true, onInitialPositionSettled }, false, undefined, undefined, 0)
+  runFrames(1)
+  act(() => h.root.scrollTo({ top: 0 }))
+  runFrames(320)
+  expect(scrollFixture.latest.readPositionReady).toBe(false)
+  expect(scrollFixture.latest.paginationEnabled).toBe(true)
+  return h
+}
+
 describe("locked native adapter and existing message scroll owner", () => {
+  it("sends the first initial end only against the measured React sizer and accepts a long final message", () => {
+    scrollFixture.bodyHeights.set("m0", 1200)
+    scrollFixture.bodyHeights.set("m13", 1000)
+    const writes: Array<{ target: number; height: number; client: number }> = []
+    const scrollTo = HTMLElement.prototype.scrollTo
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options: ScrollToOptions) {
+      if ((options.top ?? 0) > 0) writes.push({
+        target: options.top!,
+        height: Number.parseFloat(this.querySelector<HTMLElement>('[data-message-list-content] > div')!.style.height),
+        client: this.clientHeight,
+      })
+      scrollTo.call(this, options)
+    })
+    const h = mount({}, false, undefined, undefined, 0)
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
+    expect(writes).toHaveLength(0)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    runFrames()
+    expect(end).toHaveBeenCalledOnce()
+    expect(writes[0].height).toBe(native.getTotalSize())
+    expect(writes[0].target).toBe(writes[0].height - writes[0].client)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    const tail = h.root.querySelector<HTMLElement>('[data-msg-id="m13"]')!.getBoundingClientRect()
+    expect(tail.height).toBeGreaterThan(h.root.clientHeight)
+    expect(tail.bottom).toBeGreaterThan(1)
+    expect(tail.top).toBeLessThan(h.root.clientHeight - 1)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    runFrames(140)
+    expect(end).toHaveBeenCalledOnce()
+  })
+  it("lands against a changed client rect without requiring a rect-only React commit", () => {
+    scrollFixture.bodyHeights.set("m0", 3000)
+    let layouts = 0
+    const h = mount({ items: [message("m0")], hasMoreOlder: false }, false, () => { layouts++ }, undefined, 0)
+    const native = scrollFixture.latest.virtualizer
+    const scrollToEnd = native.scrollToEnd.bind(native)
+    const end = vi.spyOn(native, "scrollToEnd").mockImplementation(options => {
+      expect(layouts).toBe(committed)
+      scrollToEnd(options)
+    })
+    const range = { ...native.range }
+    const committed = layouts
+    scrollFixture.height += 40
+    resize(0)
+    expect(native.range).toEqual(range)
+    expect(layouts).toBe(committed)
+    expect(end).not.toHaveBeenCalled()
+    runFrames()
+    expect(end).toHaveBeenCalledOnce()
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+  it.each(["wheel", "key", "pointer", "touch", "unlabelled"])("does not send a pending initial end after %s takeover or an old frame", input => {
+    const h = mount({}, false, undefined, undefined, 0)
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    const pending = [...scrollFixture.frames.values()]
+    if (input === "wheel") fireEvent.wheel(h.root, { deltaY: -20 })
+    else if (input === "key") fireEvent.keyDown(h.root, { key: "PageUp" })
+    else if (input === "pointer") fireEvent.pointerDown(h.root, { pointerId: 19 })
+    else if (input === "touch") fireEvent.touchStart(h.root, { touches: [{ identifier: 19 }] })
+    act(() => h.root.scrollTo({ top: 300 }))
+    runFrames(1)
+    act(() => { for (const frame of pending) frame(performance.now()) })
+    runFrames()
+    expect(end).not.toHaveBeenCalled()
+    expect(h.root.scrollTop).toBe(300)
+  })
+  it("does not let a delayed frame send after the original nonempty-list budget expires", () => {
+    const started = Date.now()
+    scrollFixture.height = 0
+    const shown = vi.fn()
+    const h = mount({ onInitialPositionSettled: shown }, false, undefined, undefined, 0)
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    act(() => vi.advanceTimersByTime(4900))
+    scrollFixture.height = 500
+    resize(0)
+    expect(shown).not.toHaveBeenCalled()
+    vi.setSystemTime(started + 5001)
+    runFrames(1)
+    expect(end).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    act(() => vi.advanceTimersByTime(100))
+    expect(shown).toHaveBeenCalledOnce()
+    resize()
+    expect(end).not.toHaveBeenCalled()
+    expect(h.root.scrollTop).toBe(0)
+  })
+  it("does not reissue an initial end after an external scroll retires its first native command", () => {
+    const h = mount({ items: Array.from({ length: 50 }, (_, index) => message(`m${index}`)) }, false, undefined, undefined, 0)
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    runFrames(1)
+    expect(end).toHaveBeenCalledOnce()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    const interrupted = h.root.scrollTop - 56
+    act(() => h.root.scrollTo({ top: interrupted }))
+    runFrames()
+    expect(h.root.scrollTop).toBe(interrupted)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(end).toHaveBeenCalledOnce()
+    runFrames(140)
+    expect(h.root.scrollTop).toBe(interrupted)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(end).toHaveBeenCalledOnce()
+  })
+  it("waits for warm data qualification and issues the selected end once", () => {
+    const h = mount({ initialScrollReady: false, items: Array.from({ length: 50 }, (_, index) => message(`m${index}`)) }, false, undefined, undefined, 0)
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
+    runFrames(1)
+    expect(end).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    h.stage({ initialScrollReady: true })
+    expect(end).not.toHaveBeenCalled()
+    resize()
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    runFrames(140)
+    expect(end).toHaveBeenCalledOnce()
+  })
+  it.each(["entry", "unmount"])("invalidates an old pending first-end frame on %s", change => {
+    const h = mount({ positionEntry: {} }, false, undefined, undefined, 0)
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    const pending = [...scrollFixture.frames.values()]
+    if (change === "entry") h.stage({ positionEntry: {} })
+    else h.view.unmount()
+    act(() => { for (const frame of pending) frame(performance.now()) })
+    expect(end).not.toHaveBeenCalled()
+    runFrames()
+    expect(end).toHaveBeenCalledTimes(change === "entry" ? 1 : 0)
+  })
+  it.each(["commit", "discard"])("keeps an uncommitted equal-total row layout out of the first end before %s", async outcome => {
+    let resume!: () => void
+    let suspended = false
+    const pending = new Promise<void>(resolve => { resume = resolve })
+    function Gate() { if (suspended) use(pending); return null }
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(Suspense, { fallback: createElement("div", { "data-testid": "pending-first-layout" }) }, children, createElement(Gate))
+    }
+    const h = mount({}, false, undefined, Wrapper, 0)
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
+    const original = h.input.items
+    const total = native.getTotalSize()
+    const rows = native.getVirtualItems()
+    const first = rows.find(row => row.key === "msg:m0")!
+    const second = rows.find(row => row.key === "msg:m1")!
+    const secondStart = second.start
+    suspended = true
+    await act(async () => {
+      startTransition(() => {
+        native.resizeItem(first.index, first.size + 40)
+        native.resizeItem(second.index, second.size - 40)
+        h.stage({ items: [...original] })
+      })
+    })
+    expect(native.getTotalSize()).toBe(total)
+    expect(native.getVirtualItems().find(row => row.key === second.key)!.start).toBe(secondStart + 40)
+    runFrames(2)
+    expect(end).not.toHaveBeenCalled()
+    await act(async () => {
+      suspended = false
+      if (outcome === "discard") h.stage({ items: original })
+      resume()
+    })
+    resize()
+    expect(end).toHaveBeenCalledOnce()
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
   it("writes and clamps immediately, then coalesces native scroll delivery before frame callbacks", () => {
     const h = mount()
     const delivered = vi.fn(() => h.root.scrollTop)
@@ -232,8 +412,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames(3)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    runFrames(400)
-    expect(scrollFixture.frames.size).toBe(0)
+    runFrames(20)
     bounds.mockImplementation(originalBounds)
     act(() => {
       if (event === "scroll") fireEvent.scroll(h.root)
@@ -247,7 +426,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
   })
-  it("uses auto for loaded-tail Present without the old timeout or pure viewport end reissue", () => {
+  it("uses auto for loaded-tail Present and retires once at its finite deadline without reissue", () => {
     const h = mount()
     h.move(0)
     const native = scrollFixture.latest.virtualizer
@@ -267,6 +446,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     act(() => vi.advanceTimersByTime(2100))
     expect(offset).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(cancel).toHaveBeenCalledOnce()
+    cancel.mockClear()
     fireEvent.wheel(h.root, { deltaY: -20 })
     expect(cancel).toHaveBeenCalledOnce()
     expect(offset).not.toHaveBeenCalled()
@@ -444,11 +625,9 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(bodyTop(h.root, "first")).toBeLessThan(scrollFixture.height)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
-  it("shows after the original deadline while keeping read and peer follow closed", () => {
+  it("retires failed qualified positioning while keeping read and peer follow closed", () => {
     const shown = vi.fn()
-    const h = mount({ initialScrollReady: false, hasMoreNewer: true, onInitialPositionSettled: shown })
-    act(() => vi.advanceTimersByTime(2000))
-    runFrames()
+    const h = retiredInitialReader(shown)
     expect(shown).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
@@ -461,9 +640,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
   it.each([0, 2, 100, 300])("preserves a retired unconfirmed reader through composer shrink and grow at %ipx", distance => {
-    const h = mount({ initialScrollReady: false, hasMoreNewer: true })
-    act(() => vi.advanceTimersByTime(2000))
-    runFrames()
+    const h = retiredInitialReader()
     const native = scrollFixture.latest.virtualizer
     const end = vi.spyOn(native, "scrollToEnd")
     const index = vi.spyOn(native, "scrollToIndex")
@@ -491,9 +668,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(index).not.toHaveBeenCalled()
   })
   it.each(["rectangle", "row"])("rejects an invalid %s during an unconfirmed reader resize", async invalid => {
-    const h = mount({ initialScrollReady: false, hasMoreNewer: true })
-    act(() => vi.advanceTimersByTime(2000))
-    runFrames()
+    const h = retiredInitialReader()
     act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight }))
     runFrames()
     const native = scrollFixture.latest.virtualizer
@@ -521,10 +696,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(native.options.followOnAppend).toBe(false)
   })
   it("preserves and settles a prefix page after deadline retirement without opening read or peer follow", () => {
-    const h = mount({ initialScrollReady: false, hasMoreNewer: true })
-    expect(scrollFixture.latest.paginationEnabled).toBe(false)
-    act(() => vi.advanceTimersByTime(2000))
-    runFrames()
+    const h = retiredInitialReader()
     act(() => h.root.scrollTo({ top: 0 }))
     resize()
     act(() => scrollFixture.latest.captureOlderPageAnchor())
@@ -539,9 +711,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "start", followOnAppend: false })
   })
   it.each(["m0", "m1"])("uses native row anchoring when the pending page reaches %s with an unchanged body inset", id => {
-    const h = mount({ initialScrollReady: false, hasMoreNewer: true })
-    act(() => vi.advanceTimersByTime(2000))
-    runFrames()
+    const h = retiredInitialReader()
     act(() => h.root.scrollTo({ top: 0 }))
     resize()
     act(() => scrollFixture.latest.captureOlderPageAnchor())
@@ -563,15 +733,15 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.scrollTop).toBe(settledOffset)
     expect(scrollFixture.latest.readPositionReady).toBe(false)
   })
-  it("does not let pagination retire an unresolved initial intent or its deadline", () => {
+  it("does not let pagination consume a data-waiting initial intent", () => {
     const shown = vi.fn()
     const h = mount({ initialScrollReady: false, hasMoreNewer: true, onInitialPositionSettled: shown })
     act(() => scrollFixture.latest.captureOlderPageAnchor())
     h.update({ isFetchingOlder: true })
     h.update({ isFetchingOlder: false })
     expect(scrollFixture.latest.virtualizer.options.anchorTo).toBe("start")
-    act(() => vi.advanceTimersByTime(2000))
-    expect(shown).toHaveBeenCalledOnce()
+    act(() => vi.advanceTimersByTime(6000))
+    expect(shown).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
   })
   it("uses stable native keys for ordinary prepend without a business index restore", () => {
@@ -1388,10 +1558,10 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(end).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.virtualizer.getVirtualItems().at(-1)?.key).toBe("client:send-1")
   })
-  it("keeps read closed at the early warm tail until the original unread boundary is proven", () => {
+  it("keeps a warm position unchanged until the original unread boundary is qualified", () => {
     const h = mount({ initialScrollReady: false })
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    expect(h.root.scrollTop).toBe(h.root.scrollHeight - scrollFixture.height)
+    expect(h.root.scrollTop).toBe(0)
     h.update({ initialScrollReady: true, newDividerBefore: "m4", items: h.input.items.map(item => ({ ...item, newDivider: item.m.id === "m4" })) })
     const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
     expect((marker.top + marker.bottom) / 2).toBeCloseTo(scrollFixture.height / 2, 0)

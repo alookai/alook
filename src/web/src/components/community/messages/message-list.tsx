@@ -11,6 +11,7 @@ import type { MessageListProps, ResolvedMessageListProps } from "./message-list-
 import { renderMessageListRow } from "./message-list-row"
 import { renderMessageListView } from "./message-list-view"
 import { VirtualRows } from "./virtual-cursor-list"
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
 
 export function MessageList({
   variant = "channel",
@@ -18,12 +19,14 @@ export function MessageList({
   ...props
 }: MessageListProps) {
   const hoverCapable = useHoverCapable()
+  const conversationActive = useConversationActivity()
   const resolvedProps: ResolvedMessageListProps = {
     ...props,
     messages: isConversationAccessError(props.initialLoadError) ? [] : props.messages,
     variant,
     initialScrollReady,
     hoverCapable,
+    active: conversationActive && props.active !== false,
   }
   const controller = useMessageListController(resolvedProps)
   const visible = visibleVirtualItems(controller.virtualizer).flatMap(item => { const row = controller.items[item.index]; return row?.kind === "message" ? [row.m] : [] })
@@ -39,6 +42,7 @@ export function MessageList({
       reactLayout
       items={controller.items}
       virtualizer={controller.virtualizer}
+      onLayoutCommit={controller.onRowsLayoutCommit}
       renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}
     />
   ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null)

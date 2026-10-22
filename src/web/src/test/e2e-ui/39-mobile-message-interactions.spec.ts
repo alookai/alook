@@ -422,7 +422,7 @@ test("same message row recovers its action menu from mouse to touch", async ({ c
   ))).toHaveLength(messageCreatesBefore)
 })
 
-test("mobile reply, avatar mention, and typing rail keep exact backend and WS identity", async ({ caseActors }) => {
+test("mobile reply, avatar mention, and typing rail keep exact backend and WS identity", async ({ caseActors }, testInfo) => {
   test.setTimeout(240_000)
   const actors = await caseActors(["alice", "bob"])
   const { asUser, userId } = actors
@@ -1007,10 +1007,22 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const navigationDraft = `navigation draft ${stamp}`
   const navigationEditable = composerEditable(alice.page)
   await navigationEditable.fill(navigationDraft)
-  const readingPosition = await scroller.evaluate((element) => {
-    element.scrollTop = Math.min(2200, Math.max(0, element.scrollHeight - element.clientHeight))
+  await expect(scroller.locator("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
+  await expect.poll(() => scroller.evaluate((element) => (
+    element.scrollHeight - element.clientHeight
+  ))).toBeGreaterThanOrEqual(2200)
+  const readingSample = await scroller.evaluate((element) => {
+    const before = { time: performance.now(), top: element.scrollTop, height: element.scrollHeight, client: element.clientHeight }
+    const target = Math.min(2200, Math.max(0, element.scrollHeight - element.clientHeight))
+    element.scrollTop = target
+    const assigned = element.scrollTop
     element.dispatchEvent(new Event("scroll"))
-    return element.scrollTop
+    const after = { time: performance.now(), top: element.scrollTop, height: element.scrollHeight, client: element.clientHeight }
+    return { before, target, assigned, after }
+  })
+  const readingPosition = readingSample.after.top
+  if (readingPosition !== 2200) await testInfo.attach("channel-reading-position", {
+    body: JSON.stringify(readingSample), contentType: "application/json",
   })
   expect(readingPosition).toBe(2200)
   const channelReadState = await settledReadState(alice.page, channelId)

@@ -2,8 +2,9 @@
 
 /* eslint-disable react-hooks/refs -- TanStack Virtual exposes an imperative instance whose render-time getters and ref callbacks are its supported React API. */
 
-import type { ReactNode } from "react"
+import { useLayoutEffect, type ReactNode } from "react"
 import type { ReactVirtualizer } from "@tanstack/react-virtual"
+import type { VirtualRowsLayoutSnapshot } from "@/hooks/community/virtualizer-react-options"
 
 export function VirtualRows<T>({
   items,
@@ -14,6 +15,7 @@ export function VirtualRows<T>({
   directDomUpdatesMode = "transform",
   children,
   getRowAttributes,
+  onLayoutCommit,
 }: {
   items: T[]
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
@@ -23,18 +25,32 @@ export function VirtualRows<T>({
   directDomUpdatesMode?: "transform" | "position"
   children?: ReactNode
   getRowAttributes?: (item: T, index: number) => Record<`data-${string}`, string | number | undefined>
+  onLayoutCommit?: (snapshot: VirtualRowsLayoutSnapshot | null) => void
 }) {
+  const totalSize = reactLayout ? virtualizer.getTotalSize() : null
+  const virtualRows = virtualizer.getVirtualItems()
+  const rows = onLayoutCommit && reactLayout ? virtualRows.map(row => ({ ...row })) : virtualRows
+  const layout: VirtualRowsLayoutSnapshot | null = onLayoutCommit && reactLayout ? {
+    totalSize: totalSize!,
+    scrollMargin: virtualizer.options.scrollMargin,
+    rows,
+  } : null
+  useLayoutEffect(() => {
+    if (!layout || !onLayoutCommit) return
+    onLayoutCommit(layout)
+    return () => onLayoutCommit(null)
+  })
   return (
     <div
       ref={virtualizer.containerRef}
       style={{
         position: "relative",
         width: "100%",
-        ...(reactLayout ? { height: virtualizer.getTotalSize() } : {}),
+        ...(reactLayout ? { height: totalSize! } : {}),
       }}
     >
       {children}
-      {virtualizer.getVirtualItems().map((virtualRow) => {
+      {rows.map((virtualRow) => {
         const item = items[virtualRow.index]
         return (
           <div
@@ -48,7 +64,7 @@ export function VirtualRows<T>({
               ...(reactLayout || directDomUpdatesMode === "transform" ? { top: 0 } : {}),
               left: 0,
               width: "100%",
-              ...(reactLayout ? { transform: `translate3d(0, ${virtualRow.start - virtualizer.options.scrollMargin}px, 0)` } : {}),
+              ...(reactLayout ? { transform: `translate3d(0, ${virtualRow.start - (layout?.scrollMargin ?? virtualizer.options.scrollMargin)}px, 0)` } : {}),
             }}
           >
             {renderItem(item, virtualRow.index)}

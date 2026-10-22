@@ -16,7 +16,7 @@ const unrelated = { ...target, id: "m_other", content: "Other" }
 const newer = { ...target, id: "m_newer", content: "Newer", createdAt: new Date(1).toISOString() }
 const consumed = vi.fn()
 function view(messages: typeof target[], scrollToMessageId: string | null) {
-  return React.createElement(MessageList, { channel: "general", messages, loading: false, initialScrollReady: false, hasMoreNewer: true, scrollToMessageId, onScrollTargetConsumed: consumed, onOpenThread: vi.fn() })
+  return React.createElement(MessageList, { channel: "general", messages, loading: false, initialScrollReady: false, positionDataState: "ready", hasMoreNewer: true, scrollToMessageId, onScrollTargetConsumed: consumed, onOpenThread: vi.fn() })
 }
 function highlighted(container: HTMLElement) {
   return container.querySelector('[data-row-id="m_target"]')?.getAttribute("data-highlighted") === "true"

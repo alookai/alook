@@ -12,10 +12,10 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, resize } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, scrollFixture } from "@/test/message-scroll-fixture"
 import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot, publishAccountAttentionSnapshot } from "@/lib/community-db/sync"
 import { currentConversationReadState } from "@/lib/community/conversation-entry"
-import { disposeReadCoordinator, getLocalReadingPosition, getReadCoordinator } from "./read-coordinator"
+import { disposeReadCoordinator, getLocalReadingPosition, getReadCoordinator, READ_COORDINATOR_DEBOUNCE_MS } from "./read-coordinator"
 import { disposeAccountReadStateReconciliation, type AccountReadStateSnapshot } from "./community-ws/read-state-reconciliation"
 
 const navigationMock = vi.hoisted(() => ({ href: "/c/channels/s1/c1", replace: vi.fn() }))
@@ -64,6 +64,7 @@ function Conversation({ channelId, kind, anchorMessageId }: { channelId: string;
     newDividerBefore: feed.newDividerBefore, initialPositionMessageId: feed.initialPositionMessageId,
     initialScrollReady: !feed.readSnapshotFetching && feed.anchorInCache,
     positionEntry: feed.positionEntry,
+    positionDataState: feed.positionDataState, messageWindow: feed.messageWindow, presentRequest: feed.presentRequest,
     scrollToMessageId: channel.scrollTargetId, onScrollTargetConsumed: channel.consumeScrollTarget,
     hasMore: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer, historyStartKnown: feed.historyStartKnown,
     isFetching: feed.isFetching, isFetchingOlder: feed.isFetchingOlder, isFetchingNewer: feed.isFetchingNewer,
@@ -102,6 +103,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   refresh?: Promise<ReturnType<typeof entry>>
   refreshWindow?: Promise<ReturnType<typeof entry>>
   readPointer?: AccountReadStateSnapshot["readStates"][number]
+  initialActive?: boolean
 } = {}) {
   owner = await createCommunityQueryOwner()
   await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail))
@@ -132,7 +134,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     if (url === "/api/community/users/me/attention") return Promise.resolve({ scopes: [], items: [], limit: 100, truncated: false })
     throw new Error(`Unexpected entry-position transport: ${url}`)
   })
-  let channelId = "c1", active = true, anchorMessageId: string | null = null
+  let channelId = "c1", active = options.initialActive ?? true, anchorMessageId: string | null = null
   const navigation = { entryIntent: { href: "/c/channels/s1/c1" } as { href: string; resume?: boolean } }
   const content = () => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>
     <CurrentUserProvider initialUser={viewer}>
@@ -177,7 +179,13 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     await act(async () => {})
     expect(visible("m42")).toBe(true)
   }
-  return { root, visible, navigate, canonical, tail }
+  const setActivity = async (next: boolean) => {
+    active = next
+    mounted!.rerender(element())
+    resize()
+    await act(async () => {})
+  }
+  return { root, visible, navigate, canonical, tail, setActivity }
 }
 
 function intersection(row: Element, ratio = 1): IntersectionObserverEntry {
@@ -217,6 +225,49 @@ afterEach(async () => {
 })
 
 describe("conversation entry positioning through real reading owners", () => {
+  it.each(["inactive", "document-hidden"])("opens the real read transport after a laid-out short entry becomes visible from %s", async mode => {
+    scrollFixture.firstPrefix = 120
+    if (mode === "document-hidden") visibility = "hidden"
+    const cached = entry("channel")
+    cached.messages = cached.messages.slice(0, 1)
+    cached.channel.messageCount = 1
+    cached.page.latestSeq = 1
+    cached.readState = { channelId: "c1", lastReadMessageId: null, lastReadSeq: 0, lastReadAt: null }
+    cached.selection = { reason: "tail", anchorMessageId: null }
+    const view = await setup("channel", false, false, { cached, initialActive: mode !== "inactive" })
+    expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "false")
+    expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    if (mode === "document-hidden") {
+      visibility = "visible"
+      fireEvent(document, new Event("visibilitychange"))
+      resize()
+    } else await view.setActivity(true)
+    expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "true")
+    const row = view.root().querySelector('[data-msg-id="m1"]')!
+    const observer = boundObserver(row)
+    act(() => observer.callback([intersection(row)], {} as IntersectionObserver))
+    expect(getReadCoordinator(owner.client, viewer.id).state.get().scopes.get("timeline:c1")?.accepted?.intent.seq).toBe(1)
+    await act(async () => vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS))
+    expect(load).toHaveBeenCalledWith("/api/community/channels/c1/read", expect.objectContaining({
+      method: "PUT", body: JSON.stringify({ lastReadMessageId: "m1" }),
+    }))
+  })
+
+  it("keeps a precommitted entry unread while inactive and admits its real observer on first activation", async () => {
+    const view = await setup("channel", false, false, { initialActive: false })
+    const entry = latest.feed.positionEntry
+    expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "false")
+    expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    await view.setActivity(true)
+    expect(latest.feed.positionEntry).toBe(entry)
+    expect(view.visible("m31")).toBe(true)
+    expect(view.root().querySelector('[data-read-position-ready]')).toHaveAttribute("data-read-position-ready", "true")
+    const row = view.root().querySelector('[data-msg-id="m31"]')!
+    const observer = boundObserver(row)
+    act(() => observer.callback([intersection(row)], {} as IntersectionObserver))
+    expect(getReadCoordinator(owner.client, viewer.id).state.get().scopes.get("timeline:c1")?.accepted?.intent.seq).toBe(31)
+  })
+
   it.each([{ delayCanonical: false, previousTail: false }, { delayCanonical: true, previousTail: false }, { delayCanonical: false, previousTail: true }])("keeps a cached read tail visible until native data is complete, delayed canonical=$delayCanonical, previous tail=$previousTail", async ({ delayCanonical, previousTail }) => {
     const fresh = entry("channel")
     fresh.messages = fresh.messages.slice(0, 13)
@@ -256,6 +307,8 @@ describe("conversation entry positioning through real reading owners", () => {
       await act(async () => { finishRefresh(fresh); await vi.advanceTimersByTimeAsync(0) })
       resize()
       if (delayCanonical) {
+        await act(async () => vi.advanceTimersByTimeAsync(6000))
+        resize()
         expect({ latestSeq: latest.feed.latestSeq, messages: latest.feed.messages.map(message => message.id),
           fetching: latest.feed.isFetching, readSnapshotFetching: latest.feed.readSnapshotFetching,
           readReady: view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready"),

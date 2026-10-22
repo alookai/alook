@@ -173,6 +173,20 @@ describe("useMessageListController", () => {
     return entry[0]
   }
 
+  it("requires a new positioning settlement for a fresh entry on the retained list", () => {
+    const value = props({ positionEntry: {} })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    const settled = () => (mocks.scrollInputs.at(-1) as { onInitialPositionSettled: () => void }).onInitialPositionSettled()
+    act(settled)
+    expect(latest.initialPosition.phase).toBe("revealed")
+    view.rerender(React.createElement(Probe, { value: { ...value } }))
+    expect(latest.initialPosition.phase).toBe("revealed")
+    view.rerender(React.createElement(Probe, { value: { ...value, positionEntry: {} } }))
+    expect(latest.initialPosition.phase).toBe("positioning")
+    act(settled)
+    expect(latest.initialPosition.phase).toBe("revealed")
+  })
+
   it("passes only the current composer acceptance version through loading and loaded commits", () => {
     const value = props({ messages: [], loading: true, localSubmitVersion: 7, presentVersion: 3 })
     const view = rtlRender(React.createElement(Probe, { value }))
@@ -205,6 +219,11 @@ describe("useMessageListController", () => {
       items: expect.any(Array),
       newDividerBefore: undefined,
       initialScrollReady: true,
+      positionDataState: "pending",
+      positionEntry: undefined,
+      initialPositionMessageId: undefined,
+      messageWindow: undefined,
+      active: undefined,
       hasMoreNewer: undefined,
       isFetchingOlder: undefined,
       isFetchingNewer: undefined,
