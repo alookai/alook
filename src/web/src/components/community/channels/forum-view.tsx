@@ -4,7 +4,7 @@ import { useObservedRegion } from "@/lib/observability/regions"
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { memo, useCallback, useLayoutEffect, useMemo, useRef } from "react"
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual"
+import { defaultRangeExtractor, measureElement, useVirtualizer, type Range } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { Archive, ArchiveRestore, MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -197,6 +197,13 @@ export function ForumView({
     count: posts.length,
     getScrollElement: () => scrollRef.current,
     estimateSize,
+    measureElement: (element, entry, instance) => {
+      const size = measureElement(element, entry, instance)
+      if (size > 0) return size
+      const index = instance.indexFromElement(element)
+      const cached = instance.itemSizeCache.get(instance.options.getItemKey(index))
+      return cached && cached > 0 ? cached : instance.options.estimateSize(index)
+    },
     getItemKey,
     overscan: FORUM_VIRTUALIZER_OVERSCAN,
     rangeExtractor: forumRangeExtractor,

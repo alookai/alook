@@ -166,3 +166,71 @@ it("keeps the original paging boundary while rendering a larger reserve", () => 
   view.rerender(createElement(ForumView, props))
   expect(onLoadMore).toHaveBeenCalledTimes(1)
 })
+
+it("keeps a new Forum instance at the start through hidden mounting and positive-size delivery", () => {
+  let visible = false
+  rowHeight = () => visible ? 160 : 0
+  const writes: number[] = []
+  const frames = new Map<number, FrameRequestCallback>()
+  let frameId = 0
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { frames.set(++frameId, callback); return frameId })
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation(id => { frames.delete(id) })
+  const props = {
+    forumChannelId: "forum-hidden-return", members: [], posts: posts.slice(0, 15), tag: "All",
+    onTagChange: () => {}, onOpenPost: () => {},
+    onScrollRoot: (node: HTMLDivElement | null) => {
+      if (!node) return
+      Object.defineProperties(node, {
+        clientWidth: { configurable: true, get: () => visible ? 390 : 0 },
+        clientHeight: { configurable: true, get: () => visible ? 751 : 0 },
+        scrollHeight: { configurable: true, get: () => visible ? Math.max(node.clientHeight, (Number.parseFloat((node.firstElementChild as HTMLElement)?.style.height ?? "0") || 0) + 16) : 0 },
+        scrollTo: { configurable: true, value: ({ top = 0 }: ScrollToOptions) => {
+          node.scrollTop = Math.max(0, Math.min(top, node.scrollHeight - node.clientHeight))
+          writes.push(node.scrollTop)
+        } },
+      })
+    },
+  }
+  const enter = () => {
+    const view = render(createElement(ForumView, props))
+    const root = view.getByTestId(tid.forumPostList)
+    visible = true
+    for (let pass = 0; pass < 4; pass++) act(() => {
+      for (const [callback, nodes] of [...observers]) {
+        const entries = [...nodes].map<ResizeObserverEntry>(node => {
+          const height = node.hasAttribute("data-index") ? rowHeight(Number((node as HTMLElement).dataset.index)) : 751
+          return { target: node, borderBoxSize: [{ blockSize: height, inlineSize: 390 }], contentBoxSize: [{ blockSize: height, inlineSize: 390 }], devicePixelContentBoxSize: [], contentRect: new DOMRect(0, 0, 390, height) }
+        })
+        if (entries.length) callback(entries, {} as ResizeObserver)
+      }
+      root.dispatchEvent(new Event("scroll"))
+      const pending = [...frames.values()]
+      frames.clear()
+      for (const callback of pending) callback(performance.now())
+    })
+    expect(root.scrollHeight).toBeGreaterThan(root.clientHeight)
+    expect(root.scrollTop).toBe(0)
+    expect(root.querySelector("[data-index]")).toHaveAttribute("data-index", "0")
+    expect(writes.every(offset => offset === 0)).toBe(true)
+    return { view, root }
+  }
+  const first = enter()
+  act(() => { first.root.scrollTop = 700; first.root.dispatchEvent(new Event("scroll")) })
+  const measuredHeight = first.root.scrollHeight
+  act(() => {
+    for (const [callback, nodes] of [...observers]) {
+      const entries = [...nodes].filter(node => node.hasAttribute("data-index")).map<ResizeObserverEntry>(node => ({
+        target: node, borderBoxSize: [{ blockSize: 0, inlineSize: 0 }], contentBoxSize: [{ blockSize: 0, inlineSize: 0 }], devicePixelContentBoxSize: [], contentRect: new DOMRect(),
+      }))
+      if (entries.length) callback(entries, {} as ResizeObserver)
+    }
+  })
+  expect(first.root.scrollHeight).toBe(measuredHeight)
+  expect(first.root.scrollTop).toBe(700)
+  first.view.unmount()
+  visible = false
+  writes.length = 0
+  const returned = enter()
+  expect(returned.root).not.toBe(first.root)
+  returned.view.unmount()
+})
