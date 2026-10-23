@@ -2333,6 +2333,10 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   color: var(--shiki-dark) !important;
 }
 
+[data-community-message-body] .katex:not(.katex-display > .katex) {
+  font-size: 1em;
+}
+
 /* Community Markdown images keep Streamdown's wrapper/actions while matching
    the stable shared remote-image frame and 300px attachment cap. */
 [data-community-message-body] [data-streamdown="image-wrapper"] {
