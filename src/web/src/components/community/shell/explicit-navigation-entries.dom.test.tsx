@@ -102,12 +102,13 @@ function renderEntries() {
       createElement(MeFriendsPage),
     )
   }
-  render(createElement(QueryClientProvider, { client: queryClient },
-    createElement(CurrentUserProvider, {
-      initialUser: { id: "viewer", name: "Viewer", email: "viewer@test.local", avatar: "" },
-      children: createElement(Capture),
-    }),
-  ))
+  render(
+    <QueryClientProvider client={queryClient}>
+      <CurrentUserProvider initialUser={{ id: "viewer", name: "Viewer", email: "viewer@test.local", avatar: "" }}>
+        <Capture />
+      </CurrentUserProvider>
+    </QueryClientProvider>,
+  )
   return { queryClient, get navigation() { return navigation }, get bots() { return bots } }
 }
 
