@@ -751,11 +751,11 @@ test.describe("desktop default User Bar width", () => {
           )
           const rowButton = activeBody.getByRole("button", { name: new RegExp(content) })
           const row = rowButton.locator("..")
-          const more = row.getByRole("button", { name: "More", exact: true })
+          const action = row.getByRole("button", { name: tab === "Mentions" ? "Mark mention as read" : "More", exact: true })
           await expect(row).toHaveCount(1)
-          await expect(more).toHaveCount(1)
+          await expect(action).toHaveCount(1)
           await row.hover()
-          await expect(more).toBeVisible()
+          await expect(action).toBeVisible()
         }
 
         const sample = await extension.evaluate((element, ids) => {
