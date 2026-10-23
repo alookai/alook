@@ -160,11 +160,12 @@ describe("mobile system notification contract", () => {
     expect(androidRoute).toContain("mobilePushNotificationTagMatchesConversation")
     expect(androidPlugin).toContain("manager.activeNotifications")
     expect(androidPlugin).toContain(
-      "mobilePushNotificationTagMatchesNotification(notification.tag, args.notificationId)",
+      "mobilePushNotificationTagMatchesNotification(tag, args.notificationId)",
     )
     expect(androidPlugin).toContain("fun dismissConversation")
     expect(androidPlugin).toContain("mobilePushNotificationTagMatchesConversation(")
     expect(androidPlugin).toContain("manager.cancel(it.tag, it.id)")
+    expect(androidPlugin).toContain("manager.activeNotifications.any { matches(it.tag) }")
   })
 
   it("locks iOS APNs callbacks, foreground/tap handling, and production entitlement", () => {

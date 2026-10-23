@@ -4,14 +4,15 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { dmConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
+import { conversationEntryFixture, dmConversationEntryFixture, forumConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
 import { retireCommunityChannelReading, publishCommunityLiveSnapshot, captureCommunityLiveSnapshotToken, ingestReadStateSnapshot } from "@/lib/community-db/sync"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { useDmMessages } from "@/hooks/community/use-messages"
-import { prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
+import { cachedConversationNavigationHref, prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: async (path: string, options?: ApiRequestOptions) => { options?.assertActive?.(); const result = await load(path, options); options?.assertActive?.(); return result } }))
@@ -22,6 +23,48 @@ function deferred<T>() {
   return { promise, resolve }
 }
 describe("native navigation warming and DM consumer mounting", () => {
+  it.each(["dm", "text", "forum", "thread"] as const)("resolves an eligible cached %s with no target lookup", async kind => {
+    const owner = await createCommunityQueryOwner()
+    const entry = kind === "dm" ? dmConversationEntryFixture()
+      : kind === "forum" ? forumConversationEntryFixture() : conversationEntryFixture()
+    if (kind === "thread") {
+      entry.channel = { ...entry.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+      entry.surfaceReceipt = { channelId: "c1", surfaceKind: "thread" }
+    }
+    await seedConversationEntry(owner.client, entry)
+    expect(cachedConversationNavigationHref(owner.client, "viewer", "c1"))
+      .toBe(kind === "dm" ? "/c/me/c1" : "/c/channels/s1/c1")
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it.each(["missing", "account", "session", "pending", "archived", "access", "revoked", "retired"] as const)(
+    "declines the cached fast path when %s and leaves ordinary resolution available", async reason => {
+      const owner = await createCommunityQueryOwner()
+      await seedConversationEntry(owner.client, conversationEntryFixture())
+      expect(cachedConversationNavigationHref(owner.client, "viewer", "c1")).toBe("/c/channels/s1/c1")
+      if (reason === "session") owner.registry.bindAuthentication(() => "other", async () => {})
+      if (reason === "pending" || reason === "archived") {
+        const channel = owner.registry.collections.channels.get("c1")!
+        await writeCommunityCollectionRows(owner.registry, "channels", [{ ...channel, [reason]: true }], row => row.id)
+      }
+      if (reason === "access") await writeCommunityCollectionRows(owner.registry, "channelMemberships", [], row => String(row))
+      if (reason === "revoked") owner.runtime.ws.actions.revokeChannelAccess("s1", "c1")
+      if (reason === "retired") retireCommunityAccount(owner.registry)
+      expect(cachedConversationNavigationHref(owner.client, reason === "account" ? "other" : "viewer", reason === "missing" ? "unknown" : "c1"))
+        .toBeUndefined()
+      expect(load).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["dm with server", "server without server"] as const)("rejects a cached %s without looking up a target", async combination => {
+    const owner = await createCommunityQueryOwner()
+    await seedConversationEntry(owner.client, combination === "dm with server" ? dmConversationEntryFixture() : conversationEntryFixture())
+    const channel = owner.registry.collections.channels.get("c1")!
+    await writeCommunityCollectionRows(owner.registry, "channels", [{ ...channel, serverId: combination === "dm with server" ? "s1" : null }], row => row.id)
+    expect(cachedConversationNavigationHref(owner.client, "viewer", "c1")).toBeUndefined()
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it.each([
     [false, "held"], [true, "held"],
     [false, "resolved"], [true, "resolved"],

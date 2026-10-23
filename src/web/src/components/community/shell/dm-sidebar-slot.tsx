@@ -3,11 +3,10 @@ import { useObservedRegion } from "@/lib/observability/regions"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { dmHref, normalizeCommunityHref } from "@/lib/community/community-route"
+import { dmHref, normalizeCommunityHref, resolveCommunityModulePlan } from "@/lib/community/community-route"
 import { Activity, useCallback, useLayoutEffect, useMemo, useState } from "react"
 import { useCommunityRouteFrame } from "./community-route-context"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
-import { useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { useInboxUnreads } from "@/hooks/community/use-inbox"
@@ -39,7 +38,8 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
   const initialError = isError && data === undefined
   useObservedRegion("sidebar", !dmsLoading && !initialError, dms.length)
   const friendRequestCount = useInboxUnreads().friendRequests.length
-  const currentChannelId = useCurrentChannelId()
+  const main = resolveCommunityModulePlan(pathname).main
+  const currentChannelId = main.kind === "dm" ? main.dmId : null
 
   // Seed online friends into the global profile map. The endpoint is a subset
   // of the full WS audience, so it only patches the ids it explicitly returns.

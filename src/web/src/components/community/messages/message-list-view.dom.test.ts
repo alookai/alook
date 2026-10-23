@@ -159,13 +159,15 @@ describe("renderMessageListView", () => {
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
     expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveClass("shrink-0")
     expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveStyle({ height: "40px" })
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
+    expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
   })
 
-  it("shows real rows during positioning while retaining separate read eligibility", () => {
+  it("keeps real rows mounted beneath an independent skeleton while positioning", () => {
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
     const renderer = render(renderMessageListView(
       props({ loading: false }),
-      controller({ readPositionReady: false, initialPosition: initialPosition({ phase: "positioning" }) }),
+      controller({ readPositionReady: false, initialPosition: initialPosition({ phase: "positioning", showSkeleton: true, contentVisible: false, contentInteractive: false }) }),
       renderRows,
     ))
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
@@ -173,10 +175,20 @@ describe("renderMessageListView", () => {
     expect(renderer.container.querySelector("virtual-rows")).toBeInTheDocument()
     expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
     expect(content).toHaveAttribute("data-read-position-ready", "false")
-    expect(content).toHaveAttribute("aria-hidden", "false")
-    expect(content).not.toHaveAttribute("inert")
+    expect(content).toHaveAttribute("aria-hidden", "true")
+    expect(content).toHaveAttribute("inert")
+    expect(content).toHaveStyle({ visibility: "hidden" })
     expect(content).not.toHaveClass("opacity-0", "transition-opacity", "duration-300")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
+    const scroller = renderer.getByTestId("community-message-scroller")
+    const skeleton = renderer.container.querySelector("[data-message-positioning-skeleton]")!
+    expect(scroller.contains(skeleton)).toBe(false)
+    expect(scroller.parentElement).toBe(skeleton.parentElement)
+    expect(skeleton).toHaveClass("pointer-events-none", "absolute", "inset-0", "bg-background")
+    expect(skeleton).toHaveAttribute("aria-hidden", "true")
+    expect(scroller).toHaveAttribute("aria-busy", "true")
+    expect(scroller).not.toHaveAttribute("inert")
+    expect(scroller.tabIndex).toBe(0)
+    expect(mockedRail).not.toHaveBeenCalled()
   })
 
   it("reserves the shared 40px rail tail in the standalone skeleton", () => {
@@ -191,21 +203,41 @@ describe("renderMessageListView", () => {
     expect(content).toHaveClass("pl-(--community-composer-inline-start)", "pr-(--community-composer-inline-end)")
   })
 
-  it("updates read readiness without an opacity overlay or fade", () => {
+  it("reveals the same rows without waiting for read readiness or replaying skeleton on later data", () => {
+    const mounted = vi.fn()
+    const unmounted = vi.fn()
+    function Rows() {
+      React.useLayoutEffect(() => { mounted(); return unmounted }, [])
+      return React.createElement("virtual-rows")
+    }
+    const renderRows = () => React.createElement(Rows)
     const renderer = render(renderMessageListView(
       props({ loading: false }),
-      controller({ readPositionReady: false, initialPosition: initialPosition({ phase: "positioning" }) }),
-      () => React.createElement("virtual-rows"),
+      controller({ readPositionReady: false, initialPosition: initialPosition({ phase: "positioning", showSkeleton: true, contentVisible: false, contentInteractive: false }) }),
+      renderRows,
     ))
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
+    const scroller = renderer.getByTestId("community-message-scroller")
+    const rows = content.querySelector("virtual-rows")
     expect(content).toHaveAttribute("data-read-position-ready", "false")
     renderer.rerender(renderMessageListView(
-      props({ loading: false }), controller(), () => React.createElement("virtual-rows"),
+      props({ loading: false }), controller({ readPositionReady: false }), renderRows,
     ))
+    expect(content).toHaveAttribute("data-read-position-ready", "false")
+    expect(content.style.visibility).toBe("")
+    expect(content).toHaveAttribute("aria-hidden", "false")
+    expect(content).not.toHaveAttribute("inert")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
+    renderer.rerender(renderMessageListView(props({ loading: true }), controller(), renderRows))
     expect(content).toHaveAttribute("data-read-position-ready", "true")
     expect(content).not.toHaveClass("opacity-0", "transition-opacity", "duration-300")
     expect(content).not.toHaveAttribute("inert")
     expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
+    expect(renderer.getByTestId("community-message-scroller")).toBe(scroller)
+    expect(content.querySelector("virtual-rows")).toBe(rows)
+    expect(scroller).toHaveAttribute("aria-busy", "false")
+    expect(mounted).toHaveBeenCalledOnce()
+    expect(unmounted).not.toHaveBeenCalled()
   })
 
   it("routes typing through the rail without adding a dynamic flex sibling", () => {
@@ -323,6 +355,9 @@ describe("renderMessageListView", () => {
     fireEvent.click(view.getByRole("button", { name: "Retry" }))
     expect(retry).toHaveBeenCalledOnce()
     expect(renderRows).not.toHaveBeenCalled()
+    expect(view.getByRole("alert")).toBeVisible()
+    expect(view.container.querySelector("[data-message-list-content]")).not.toHaveAttribute("inert")
+    expect(view.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
     expect(view.queryByText(/Beginning of the channel/)).toBeNull()
     view.rerender(renderMessageListView({ ...input, retryingInitialLoad: true }, state, renderRows))
     expect(view.getByRole("button", { name: "Retrying…" })).toBeDisabled()

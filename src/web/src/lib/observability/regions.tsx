@@ -59,6 +59,7 @@ export function useObservedRegion(region: Attributes["region"], ready: boolean, 
 function RouteCommit() {
   const pathname = usePathname(), search = useSearchParams().toString()
   useEffect(() => {
+    void import("./client").then(({ onObservedRouteCommit }) => onObservedRouteCommit())
     if (pathname.startsWith("/c")) return
     commitNavigation(pathname + (search ? "?" + search : ""), "page")
   }, [pathname, search])

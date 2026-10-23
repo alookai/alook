@@ -21,7 +21,6 @@ export type MobileSystemNotificationActivation = {
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const RETRY_DELAYS_MS = [1_000, 5_000, 30_000, 60_000] as const
 const registrationClient = new QueryClient()
 const registrationPolicy = createStore({ suppressed: false })
 
@@ -269,35 +268,12 @@ export type MobileSystemNotificationRegistrationDeps = {
   register: (snapshot: MobileSystemNotificationRegistration) => Promise<void>
   acknowledge: (providerToken: string) => Promise<void>
   unregister: (installationId: string) => Promise<void>
-  schedule: (callback: () => void, delayMs: number) => unknown
-  cancel: (handle: unknown) => void
-  retryDelaysMs?: readonly number[]
 }
 
 export function createMobileSystemNotificationRegistrationController(
   deps: MobileSystemNotificationRegistrationDeps,
 ) {
-    const protocol = createStore({ disposed: false, active: null as Promise<void> | null, rerun: false, pendingPrompt: false, retryAttempt: 0, retryTimer: undefined as unknown | undefined });
-    function clearRetry() {
-        if (protocol.get().retryTimer === undefined)
-            return;
-        deps.cancel(protocol.get().retryTimer);
-        protocol.setState(state => ({ ...state, retryTimer: undefined }));
-    }
-    function scheduleRetry(allowPrompt: boolean) {
-        if (protocol.get().disposed || protocol.get().retryTimer !== undefined)
-            return;
-        const delays = deps.retryDelaysMs ?? RETRY_DELAYS_MS;
-        const delay = delays[protocol.get().retryAttempt];
-        if (delay === undefined)
-            return;
-        protocol.setState(state => ({ ...state, retryAttempt: protocol.get().retryAttempt + 1 }));
-        const retryTimer = deps.schedule(() => {
-                protocol.setState(state => ({ ...state, retryTimer: undefined }));
-                void sync(allowPrompt);
-            }, delay);
-        protocol.setState(state => ({ ...state, retryTimer }));
-    }
+    const protocol = createStore({ disposed: false, active: null as Promise<void> | null, rerun: false, pendingPrompt: false });
     async function runOnce(allowPrompt: boolean) {
         const assert = () => { if (protocol.get().disposed) throw new DOMException("Retired notification registration", "AbortError") }
         assert()
@@ -327,7 +303,6 @@ export function createMobileSystemNotificationRegistrationController(
             return Promise.resolve();
         protocol.setState(state => ({ ...state, pendingPrompt: protocol.get().pendingPrompt || allowPrompt }));
         protocol.setState(state => ({ ...state, rerun: true }));
-        clearRetry();
         const inFlight = protocol.get().active
         if (inFlight) return inFlight
         const active = Promise.resolve().then(async () => {
@@ -337,14 +312,12 @@ export function createMobileSystemNotificationRegistrationController(
                     protocol.setState(state => ({ ...state, pendingPrompt: false }));
                     try {
                         await runOnce(promptThisRun);
-                        protocol.setState(state => ({ ...state, retryAttempt: 0 }));
                     }
                     catch {
                         if (protocol.get().rerun) {
                             protocol.setState(state => ({ ...state, pendingPrompt: protocol.get().pendingPrompt || promptThisRun }));
                             continue;
                         }
-                        scheduleRetry(promptThisRun);
                     }
                 }
             }).finally(() => {
@@ -359,13 +332,13 @@ export function createMobileSystemNotificationRegistrationController(
             if (protocol.get().disposed)
                 return;
             protocol.setState(state => ({ ...state, disposed: true }));
-            clearRetry();
         },
     };
 }
 
 export type MobileSystemNotificationActivationDeps = {
   take: () => Promise<MobileSystemNotificationActivation | null>
+  resolveHref?: (activation: MobileSystemNotificationActivation) => string | undefined
   queueDismiss: (notificationId: string, href: string) => void
   navigate: (href: string) => void
 }
@@ -394,7 +367,7 @@ export function createMobileSystemNotificationActivationController(
                 }
                 if (!activation || protocol.get().disposed)
                     continue;
-                const href = mobileSystemNotificationHref(activation);
+                const href = deps.resolveHref?.(activation) ?? mobileSystemNotificationHref(activation);
                 try {
                     deps.queueDismiss(activation.notificationId, href);
                 }

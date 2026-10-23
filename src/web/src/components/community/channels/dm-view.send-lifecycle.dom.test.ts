@@ -42,10 +42,11 @@ describe("real DmView accepted send UI lifecycle", () => {
     mocks.positionEntry = {}
     const first = mocks.positionEntry
     const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
-    expect(mocks.list.mock.lastCall?.[0]).toMatchObject({ positionEntry: first, active: true, positionDataState: "ready" })
+    expect(mocks.list.mock.lastCall?.[0]).toMatchObject({ positionEntry: first, active: true, positioningActive: true, positionDataState: "ready" })
     view.rerender(React.createElement(DmView, { dmId: "dm_1", routeCommitted: false }))
-    expect(mocks.list.mock.lastCall?.[0]).toMatchObject({ positionEntry: first, active: false })
+    expect(mocks.list.mock.lastCall?.[0]).toMatchObject({ positionEntry: first, active: false, positioningActive: true })
     view.rerender(React.createElement(DmView, { dmId: "dm_1", routeCommitted: true }))
+    expect(mocks.list.mock.lastCall?.[0]).toMatchObject({ active: true, positioningActive: true })
     expect(mocks.list.mock.lastCall?.[0].positionEntry).toBe(first)
     mocks.positionEntry = {}
     view.rerender(React.createElement(DmView, { dmId: "dm_1" }))

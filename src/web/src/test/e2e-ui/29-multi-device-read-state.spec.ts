@@ -344,13 +344,47 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
   const channelId = await seedChannel("alice", serverId, `hidden-eager-${stamp}`)
   await seedJoinServer("alice", "bob", serverId)
   const channelBody = `hidden eager channel ${stamp}`
-  await seedMessage("alice", channelId, channelBody)
+  const channelMessageId = await seedMessage("alice", channelId, channelBody)
   const dmId = await seedDm("alice", userId("bob"))
   const dmBody = `hidden eager dm ${stamp}`
-  await seedDmMessage("alice", dmId, dmBody)
+  const dmMessageId = await seedDmMessage("alice", dmId, dmBody)
 
   const deviceA = await asUser("bob")
   const deviceB = await asUser("bob")
+  const expectHiddenTarget = async (messageId: string, body: string, targetId: string) => {
+    const row = deviceA.page.getByTestId(tid.message(messageId))
+    const root = row.locator(`xpath=ancestor::*[@data-testid="${tid.messageScroller}"][1]`)
+    const content = root.locator("[data-message-list-content]")
+    const skeleton = root.locator("xpath=..").locator("[data-message-positioning-skeleton]")
+    await expect(row).toHaveCount(1)
+    await expect(row.getByText(body, { exact: true })).toHaveCount(1)
+    await expect(root).toBeVisible()
+    await expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
+    await expect(content).toHaveAttribute("data-read-position-ready", "false")
+    await expect(content).toHaveAttribute("aria-hidden", "true")
+    await expect(content).toHaveAttribute("inert", "")
+    await expect(content).toHaveCSS("visibility", "hidden")
+    await expect(skeleton).toBeVisible()
+    expect(await row.evaluate((node, scrollerId) => {
+      const root = node.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)!
+      const content = root.querySelector("[data-message-list-content]")!
+      const rects = [root, content, node].map(element => element.getBoundingClientRect())
+      return { positiveLayout: rects.every(rect => rect.width > 0 && rect.height > 0), targetId: root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')?.dataset.channelId }
+    }, tid.messageScroller)).toEqual({ positiveLayout: true, targetId })
+    return { row, root, content, skeleton }
+  }
+  const expectRestoredTarget = async (held: Awaited<ReturnType<typeof expectHiddenTarget>>) => {
+    await expect(held.row).toBeVisible()
+    await expect(held.content).toHaveAttribute("data-initial-position-phase", "revealed")
+    await expect(held.content).toHaveAttribute("data-read-position-ready", "true")
+    await expect(held.skeleton).toHaveCount(0)
+    expect(await held.row.evaluate((node, scrollerId) => {
+      const root = node.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)!
+      const viewport = root.getBoundingClientRect()
+      const rect = node.getBoundingClientRect()
+      return rect.width > 0 && rect.height > 0 && rect.top >= viewport.top && rect.bottom <= viewport.bottom
+    }, tid.messageScroller)).toBe(true)
+  }
   await gotoAfterUserWsAuth(deviceA.page, "/c/me")
   await gotoAfterUserWsAuth(deviceB.page, "/c/me")
   await deviceA.page.evaluate(() => {
@@ -411,7 +445,7 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
   await expect.poll(() => new URL(deviceA.page.url()).pathname, { timeout: 20_000 })
     .toBe(`/c/channels/${serverId}/${channelId}`)
   await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState)).toBe("hidden")
-  await expect(deviceA.page.getByText(channelBody, { exact: true })).toBeVisible()
+  const hiddenChannelTarget = await expectHiddenTarget(channelMessageId, channelBody, channelId)
   await deviceA.page.waitForTimeout(1_000) // hidden-tab channel-read exclusion window
   expect(channelReadResponses).toEqual([])
   const hiddenChannel = await accountSnapshot()
@@ -424,6 +458,7 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
   )
   await setDeviceAVisibility("visible")
+  await expectRestoredTarget(hiddenChannelTarget)
   expect((await visibleChannelRead).status()).toBe(200)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
   deviceA.page.off("response", trackChannelReads)
@@ -445,7 +480,7 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
   await expect.poll(() => new URL(deviceA.page.url()).pathname, { timeout: 20_000 })
     .toBe(`/c/me/${dmId}`)
   await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState)).toBe("hidden")
-  await expect(deviceA.page.getByText(dmBody, { exact: true })).toBeVisible()
+  const hiddenDmTarget = await expectHiddenTarget(dmMessageId, dmBody, dmId)
   await deviceA.page.waitForTimeout(1_000) // hidden-tab DM-read exclusion window
   expect(dmReadResponses).toEqual([])
   const hiddenDm = await accountSnapshot()
@@ -458,6 +493,7 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
     && new URL(response.url()).pathname === `/api/community/channels/${dmId}/read`,
   )
   await setDeviceAVisibility("visible")
+  await expectRestoredTarget(hiddenDmTarget)
   expect((await visibleDmRead).status()).toBe(200)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
   deviceA.page.off("response", trackDmReads)

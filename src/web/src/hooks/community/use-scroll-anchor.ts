@@ -79,6 +79,7 @@ export function useScrollAnchor({
   positionDataState,
   messageWindow,
   active = true,
+  positioningActive = active,
   scrollToMessageId,
   initialPositionMessageId,
   positionEntry,
@@ -100,6 +101,7 @@ export function useScrollAnchor({
   positionDataState?: MessagePositionState
   messageWindow?: object
   active?: boolean
+  positioningActive?: boolean
   scrollToMessageId?: string | null
   initialPositionMessageId?: string | null
   positionEntry?: object | null
@@ -145,7 +147,7 @@ export function useScrollAnchor({
   const virtualizerRef = useRef<ReactVirtualizer<HTMLDivElement, Element> | null>(null)
   const positionOwnerRef = useRef({ epoch: 0, active: true })
   const [documentVisible, setDocumentVisible] = useState(() => typeof document === "undefined" || document.visibilityState !== "hidden")
-  const visible = active && documentVisible
+  const visible = positioningActive && documentVisible
   const entryActivationRef = useRef({ entry: positionEntry, seen: visible })
   const dataState = positionDataState ?? (initialScrollReady ? items.some(item => item.kind === "message") ? "ready" : "empty" : "pending")
   const contextRef = useRef({ dataState, messageWindow, isFetchingOlder, isFetchingNewer, visible })
@@ -1118,7 +1120,7 @@ export function useScrollAnchor({
   const pageReceipt = paginationRef.current?.receipt
   const paginationRequestPending = !!pageReceipt && (!pageReceipt.result || pageReceipt.result.status === "success" && messageWindow !== pageReceipt.result.window)
   return {
-    scrollRef, virtualizer, onRowsLayoutCommit, readPositionReady: visible && resumeValidated && !entryChanged && readPositionReady, paginationEnabled: visible && dataState !== "pending" && dataState !== "error" && !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,
+    scrollRef, virtualizer, onRowsLayoutCommit, readPositionReady: active && visible && resumeValidated && !entryChanged && readPositionReady, paginationEnabled: active && visible && dataState !== "pending" && dataState !== "error" && !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,
     paginationRequestPending,
     scrollToBottom, requestPresentPosition, jumpTo,
     captureOlderPageAnchor, captureNewerPageAnchor,

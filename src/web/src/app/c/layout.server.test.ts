@@ -139,7 +139,7 @@ describe("CommunityLayout server session streaming", () => {
       expect(mocks.client).toHaveBeenCalledTimes(1)
       expect(mocks.client).toHaveBeenCalledWith({
         currentUser,
-        initialSeed: seed,
+        initialSeed: expect.any(Promise),
         children,
         sidebar,
       })
@@ -159,7 +159,7 @@ describe("CommunityLayout server session streaming", () => {
     await rendering.finished
     expect(mocks.client).toHaveBeenCalledWith({
       currentUser,
-      initialSeed: seed,
+      initialSeed: expect.any(Promise),
       children,
       sidebar,
     })
@@ -174,20 +174,22 @@ describe("CommunityLayout server session streaming", () => {
     expect(rendering.errors).toEqual([])
   })
 
-  it("keeps streaming the public skeleton while authenticated document data is held", async () => {
+  it("streams the authenticated client before optional document data settles", async () => {
     mocks.getSession.mockResolvedValue(session)
     let release!: (value: typeof seed) => void
     mocks.seed.mockReturnValue(new Promise(resolve => { release = resolve }))
     const rendering = renderLayout()
     try {
-      const first = await rendering.publicFrame
-      expect(first).toContain("community-initial-frame")
-      expect(first).not.toContain("Canonical Ada")
-      expect(first).not.toContain("private-child")
-      expect(mocks.client).not.toHaveBeenCalled()
+      const html = await rendering.finished
+      expect(html).toContain("private-child")
+      expect(mocks.client).toHaveBeenCalledWith(expect.objectContaining({ currentUser, initialSeed: expect.any(Promise) }))
+      const pending = mocks.client.mock.calls[0]![0].initialSeed
+      let settled = false
+      void pending.then(() => { settled = true })
+      await Promise.resolve()
+      expect(settled).toBe(false)
       release(seed)
-      await rendering.finished
-      expect(mocks.client).toHaveBeenCalledWith(expect.objectContaining({ currentUser, initialSeed: seed }))
+      await expect(pending).resolves.toBe(seed)
       expect(rendering.errors).toEqual([])
     } finally { rendering.abort() }
   })
@@ -228,7 +230,7 @@ describe("Bots document Machine-list primary connection", () => {
     expect(mocks.self).toHaveBeenCalledWith(selected, "account-a")
     expect(mocks.bots).toHaveBeenCalledWith(selected, "account-a")
     expect(mocks.machines).toHaveBeenCalledWith(selected, "account-a")
-    expect(mocks.client.mock.calls[0]![0].initialSeed).toMatchObject({ viewerId: "account-a", machines: { machines: [] }, bots: { bots: [] } })
+    expect(await mocks.client.mock.calls[0]![0].initialSeed).toMatchObject({ viewerId: "account-a", machines: { machines: [] }, bots: { bots: [] } })
   })
   it("preserves first-unconstrained for an unrelated server document", async () => {
     mocks.documentHref = "/c/channels/server-a/channel-a"
@@ -283,7 +285,7 @@ describe("document session eligibility before profile and seed reads", () => {
     expect(mocks.cloudflareContext).toHaveBeenCalledOnce()
     expect(mocks.self).toHaveBeenCalledOnce()
     expect(mocks.seed).toHaveBeenCalledOnce()
-    expect(mocks.client).toHaveBeenCalledExactlyOnceWith({ currentUser, initialSeed: seed, children, sidebar })
+    expect(mocks.client).toHaveBeenCalledExactlyOnceWith({ currentUser, initialSeed: expect.any(Promise), children, sidebar })
     expect(rendering.errors).toEqual([])
   })
 })

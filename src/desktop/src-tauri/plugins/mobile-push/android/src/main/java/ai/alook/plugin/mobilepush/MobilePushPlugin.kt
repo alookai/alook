@@ -174,22 +174,8 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.reject("Notification dismissal is invalid", "invalid_request")
             return
         }
-        val manager = activity.getSystemService(NotificationManager::class.java)
-        if (manager == null) {
-            invoke.reject("Notification manager is unavailable", "notification_unavailable")
-            return
-        }
-        val matches = manager.activeNotifications.filter { notification ->
-            mobilePushNotificationTagMatchesNotification(notification.tag, args.notificationId)
-        }
-        matches.forEach { manager.cancel(it.tag, it.id) }
-        val remains = manager.activeNotifications.any { notification ->
-            mobilePushNotificationTagMatchesNotification(notification.tag, args.notificationId)
-        }
-        if (remains) {
-            invoke.reject("Notification remains delivered", "notification_unavailable")
-        } else {
-            invoke.resolve()
+        dismissMatchingNotifications(invoke, "Notification remains delivered") { tag ->
+            mobilePushNotificationTagMatchesNotification(tag, args.notificationId)
         }
     }
 
@@ -207,28 +193,25 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.reject("Conversation dismissal is invalid", "invalid_request")
             return
         }
+        dismissMatchingNotifications(invoke, "Conversation notifications remain delivered") { tag ->
+            mobilePushNotificationTagMatchesConversation(tag, args.viewerUserId, args.targetId)
+        }
+    }
+
+    private fun dismissMatchingNotifications(
+        invoke: Invoke,
+        remainsMessage: String,
+        matches: (String?) -> Boolean,
+    ) {
         val manager = activity.getSystemService(NotificationManager::class.java)
         if (manager == null) {
             invoke.reject("Notification manager is unavailable", "notification_unavailable")
             return
         }
-        manager.activeNotifications
-            .filter {
-                mobilePushNotificationTagMatchesConversation(
-                    it.tag,
-                    args.viewerUserId,
-                    args.targetId,
-                )
-            }
+        manager.activeNotifications.filter { matches(it.tag) }
             .forEach { manager.cancel(it.tag, it.id) }
-        if (manager.activeNotifications.any {
-            mobilePushNotificationTagMatchesConversation(
-                it.tag,
-                args.viewerUserId,
-                args.targetId,
-            )
-        }) {
-            invoke.reject("Conversation notifications remain delivered", "notification_unavailable")
+        if (manager.activeNotifications.any { matches(it.tag) }) {
+            invoke.reject(remainsMessage, "notification_unavailable")
         } else {
             invoke.resolve()
         }

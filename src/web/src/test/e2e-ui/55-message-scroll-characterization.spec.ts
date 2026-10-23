@@ -692,7 +692,11 @@ test.describe("message scroll characterization", () => {
     await anchored.page.setViewportSize(VIEWPORT)
     await installScrollTrace(anchored.page)
     await anchored.page.goto(`/c/channels/${serverId}/${loadingChannelId}`, { waitUntil: "commit" })
-    await expect(anchored.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
+    const anchoredNewDivider = anchored.page.getByTestId(tid.newDivider)
+    await expect(async () => {
+      expect(await anchoredNewDivider.count()).toBe(1)
+      expect(await anchoredNewDivider.isVisible()).toBe(true)
+    }).toPass({ timeout: 30_000 })
     await expect(anchored.page.getByTestId(tid.messageScroller)).toHaveAttribute("data-pagination-enabled", "true")
     const older = await holdNextRequest(actors,
       anchored.page,
@@ -832,7 +836,7 @@ test.describe("message scroll characterization", () => {
     await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
     const anchored = await anchorResponse
     expect(anchored.status()).toBe(200)
-    const anchorPage = readCommunityDocumentSeedFromHtml(await anchored.text()).entries.find(entry => entry.target.channelId === channelId)
+    const anchorPage = (await readCommunityDocumentSeedFromHtml(await anchored.text())).entries.find(entry => entry.target.channelId === channelId)
     expect(anchorPage?.data.selection.reason).toBe("read_pointer")
     expect(anchorPage?.data.page.hasMoreNewer).toBe(true)
     let newestGets = 0

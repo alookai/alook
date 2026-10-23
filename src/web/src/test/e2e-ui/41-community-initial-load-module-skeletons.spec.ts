@@ -1,4 +1,4 @@
-import type { BrowserContext, Page, Route } from "@playwright/test"
+import type { BrowserContext, Page, Route, TestInfo } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
@@ -150,6 +150,131 @@ function captureCommunityTraffic(page: Page) {
   return { requests, responses, failures, sockets: () => sockets }
 }
 
+async function expectHeldMessage(page: Page, originalHtml: Promise<string>, conversationId: string, messageId: string, body: string, authorName: string) {
+  const original = await page.evaluate(({ html, messageTestId }) => {
+    const document = new DOMParser().parseFromString(html, "text/html")
+    const rows = Array.from(document.querySelectorAll(`[data-testid="${messageTestId}"]`)).map(row => {
+      const transportAncestors: Array<{ id: string; tag: string }> = []
+      for (let parent = row.parentElement; parent; parent = parent.parentElement) {
+        if (parent.hasAttribute("hidden") && parent.id.startsWith("S:")) transportAncestors.push({ id: parent.id, tag: parent.tagName })
+      }
+      return { text: row.textContent ?? "", transportAncestors }
+    })
+    return { primary: rows.filter(row => row.transportAncestors.length === 0), transport: rows.filter(row => row.transportAncestors.length > 0) }
+  }, { html: await originalHtml, messageTestId: tid.message(messageId) })
+  expect(original.primary.length + original.transport.length, JSON.stringify(original)).toBeGreaterThan(0)
+  expect(original.primary.length, JSON.stringify(original)).toBeLessThanOrEqual(1)
+  for (const row of [...original.primary, ...original.transport]) {
+    expect(row.text).toContain(body)
+    expect(row.text).toContain(authorName)
+  }
+  const root = page.getByTestId(tid.messageScroller)
+  const content = root.locator("[data-message-list-content]")
+  const row = root.getByTestId(tid.message(messageId))
+  await expect(root).toHaveCount(1)
+  await expect(root).toBeVisible()
+  await expect(root).toHaveAttribute("aria-busy", "true")
+  await expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
+  await expect(content).toHaveAttribute("data-read-position-ready", "false")
+  await expect(content).toHaveAttribute("aria-hidden", "true")
+  await expect(content).toHaveAttribute("inert", "")
+  await expect(content).toHaveCSS("visibility", "hidden")
+  await expect(row).toHaveCount(1)
+  await expect(row.getByText(body, { exact: true })).toHaveCount(1)
+  await expect(row.getByText(authorName, { exact: true })).toHaveCount(1)
+  const geometry = await row.evaluate((node, scrollerId) => {
+    const root = node.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)!
+    const content = root.querySelector<HTMLElement>("[data-message-list-content]")!
+    const main = root.closest<HTMLElement>('[data-slot="community-main-panel-content"]')
+    const surface = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
+    const rects = [root, content, node, main].map(element => element?.getBoundingClientRect())
+    const skeleton = root.parentElement?.querySelector("[data-message-positioning-skeleton]")
+    return {
+      positiveLayout: rects.every(rect => !!rect && rect.width > 0 && rect.height > 0),
+      positiveScroll: root.scrollHeight > 0 && root.clientHeight > 0,
+      conversationId: surface?.dataset.channelId,
+      inStreamContainer: !!node.closest('[hidden][id^="S:"]'),
+      skeletonOutsideScroller: !!skeleton && !root.contains(skeleton),
+    }
+  }, tid.messageScroller)
+  expect(geometry).toEqual({ positiveLayout: true, positiveScroll: true, conversationId, inStreamContainer: false, skeletonOutsideScroller: true })
+  await expect(page.locator("[data-message-positioning-skeleton]")).toBeVisible()
+  const refs = await root.evaluateHandle((node, messageTestId) => ({
+    root: node,
+    content: node.querySelector<HTMLElement>("[data-message-list-content]")!,
+    row: node.querySelector<HTMLElement>(`[data-testid="${messageTestId}"]`)!,
+  }), tid.message(messageId))
+  return { root, content, row, refs, conversationId, messageId, authorName, original }
+}
+
+async function expectReleasedMessage(page: Page, gate: { release: () => void }, held: Awaited<ReturnType<typeof expectHeldMessage>>, traffic: ReturnType<typeof captureCommunityTraffic>, testInfo: TestInfo, label: string) {
+  const probe = await held.refs.evaluateHandle(saved => {
+    type Sample = { phase: string | null; firstVisibleId: string | null; targetInView: boolean; distanceToEnd: number; sameRoot: boolean; sameContent: boolean; sameRow: boolean; positioningSkeleton: boolean; readReady: string | null }
+    const state = { first: null as Sample | null, frames: 0, expired: false }
+    const deadline = performance.now() + 30_000
+    let raf = 0
+    const sample = () => {
+      if (performance.now() >= deadline) { state.expired = true; return }
+      state.frames += 1
+      const root = document.querySelector<HTMLElement>(`[data-testid="${saved.root.getAttribute("data-testid")}"]`)
+      const content = root?.querySelector<HTMLElement>("[data-message-list-content]")
+      const viewport = root?.getBoundingClientRect()
+      const visibleRows = root && viewport && viewport.width > 0 && viewport.height > 0 && getComputedStyle(root).visibility === "visible" ? Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]")).filter(row => {
+        const rect = row.getBoundingClientRect()
+        return getComputedStyle(row).visibility === "visible" && rect.width > 0 && rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom
+      }) : []
+      if (root && content && viewport && visibleRows.length > 0) {
+        const row = root.querySelector<HTMLElement>(`[data-testid="${saved.row.getAttribute("data-testid")}"]`)
+        const rect = row?.getBoundingClientRect()
+        state.first = {
+          phase: content.getAttribute("data-initial-position-phase"),
+          firstVisibleId: visibleRows[0].dataset.msgId ?? null,
+          targetInView: !!rect && rect.width > 0 && rect.height > 0 && rect.top >= viewport.top && rect.bottom <= viewport.bottom,
+          distanceToEnd: Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop),
+          sameRoot: root === saved.root, sameContent: content === saved.content, sameRow: row === saved.row,
+          positioningSkeleton: !!root.parentElement?.querySelector("[data-message-positioning-skeleton]"),
+          readReady: content.getAttribute("data-read-position-ready"),
+        }
+        return
+      }
+      raf = requestAnimationFrame(sample)
+    }
+    raf = requestAnimationFrame(sample)
+    return { state, stop: () => cancelAnimationFrame(raf) }
+  })
+  try {
+    gate.release()
+    await expect.poll(() => probe.evaluate(probe => probe.state.first)).toMatchObject({
+      phase: "revealed", firstVisibleId: held.messageId, targetInView: true,
+      sameRoot: true, sameContent: true, sameRow: true, positioningSkeleton: false,
+    })
+    const observation = await probe.evaluate(probe => probe.state)
+    expect(observation.expired).toBe(false)
+    expect(observation.first!.distanceToEnd).toBeLessThanOrEqual(1)
+    await expect(held.row).toBeVisible()
+    await expect(held.row.getByText(held.authorName, { exact: true })).toBeVisible()
+    await expect(held.content).toHaveAttribute("data-initial-position-phase", "revealed")
+    await expect(held.content).toHaveAttribute("data-read-position-ready", "true")
+    expect(await held.refs.evaluate(saved => saved.root.isConnected && saved.content.parentElement === saved.root && saved.row.isConnected && saved.root.contains(saved.row))).toBe(true)
+    await expect.poll(traffic.sockets).toBe(1)
+    const targetPaths = new Set([
+      `/api/community/channels/${held.conversationId}`,
+      `/api/community/channels/${held.conversationId}/read-state`,
+      `/api/community/channels/${held.conversationId}/messages`,
+    ])
+    expect(traffic.requests.filter(({ method, pathname }) => method === "GET" && targetPaths.has(pathname))).toEqual([])
+    expect(traffic.failures.filter(({ pathname }) => targetPaths.has(pathname))).toEqual([])
+  } finally {
+    const observation = await probe.evaluate(probe => { probe.stop(); return probe.state })
+    try {
+      await testInfo.attach(label, { body: JSON.stringify({ evidence: "bounded DOM RAF sample, not compositor proof", conversationId: held.conversationId, messageId: held.messageId, authorName: held.authorName, originalSsr: held.original, observation, requests: traffic.requests, sockets: traffic.sockets(), url: page.url() }), contentType: "application/json" })
+    } finally {
+      await probe.dispose()
+      await held.refs.dispose()
+    }
+  }
+}
+
 async function expectDocumentRouteFallback(
   page: Page,
   expected: ExpectedFrame,
@@ -206,8 +331,8 @@ test.describe("community initial-load module skeletons", () => {
     const channelId: string = await seedChannel("alice", serverId, channelName)
     const channelMessageId: string = await seedMessage("alice", channelId, privateMessage)
     const dmId: string = await seedDm("alice", userId("bob"))
-    await seedDmMessage("alice", dmId, privateMessage)
-    return { coldRootStorageKey, installColdRootProbe, closeHeldContext, serverId, channelId, dmId, serverName, channelName, channelMessageId, privateMessage }
+    const dmMessageId: string = await seedDmMessage("alice", dmId, privateMessage)
+    return { coldRootStorageKey, installColdRootProbe, closeHeldContext, serverId, channelId, dmId, serverName, channelName, channelMessageId, dmMessageId, privateMessage }
   }
 
   test("cold mobile documents retain URL-owned fallbacks and authorized RSC content", async ({ caseActors, caseResources }, testInfo) => {
@@ -215,7 +340,7 @@ test.describe("community initial-load module skeletons", () => {
 
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { closeHeldContext, serverId, channelId, dmId, serverName, channelName, privateMessage } = await prepareCase1(actors, caseResources)
+    const { closeHeldContext, serverId, channelId, dmId, serverName, channelName, channelMessageId, dmMessageId, privateMessage } = await prepareCase1(actors, caseResources)
 
     const cases: Array<[string, ExpectedFrame]> = [
       ["/c", { route: "community-root-redirect", surface: "neutral", sidebar: "none", main: "route-resolution" }],
@@ -239,10 +364,9 @@ test.describe("community initial-load module skeletons", () => {
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
       await expectDocumentRouteFallback(page, expected, [serverName, channelName, privateMessage], gate.documentHtml())
-      if (expected.main === "dm" || expected.main === "server-conversation") {
-        await expect(page.getByText(privateMessage, { exact: true }).filter({ visible: true })).toHaveCount(1)
-        await expect(page.getByTestId(tid.messageScroller).filter({ visible: true })).toHaveCount(1)
-      }
+      const held = expected.main === "dm" || expected.main === "server-conversation"
+        ? await expectHeldMessage(page, gate.documentHtml(), expected.main === "dm" ? dmId : channelId, expected.main === "dm" ? dmMessageId : channelMessageId, privateMessage, actors.userName("alice"))
+        : null
       if (pathname === "/c") {
         await testInfo.attach("community-root-neutral-390x844", {
           body: await page.screenshot(),
@@ -251,6 +375,7 @@ test.describe("community initial-load module skeletons", () => {
       }
       expect(traffic.requests).toEqual([])
       expect(traffic.sockets()).toBe(0)
+      if (held) await expectReleasedMessage(page, gate, held, traffic, testInfo, `first-visible-dom-${expected.main}-${page.viewportSize()!.width}`)
       await closeHeldContext(context, gate)
     }
   })
@@ -260,7 +385,7 @@ test.describe("community initial-load module skeletons", () => {
 
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { closeHeldContext, serverId, channelId, dmId, serverName, channelName, privateMessage } = await prepareCase1(actors, caseResources)
+    const { closeHeldContext, serverId, channelId, dmId, serverName, channelName, channelMessageId, dmMessageId, privateMessage } = await prepareCase1(actors, caseResources)
 
     for (const [pathname, expected] of [
       ["/c", { route: "community-root-redirect", surface: "neutral", sidebar: "none", main: "route-resolution" }],
@@ -276,10 +401,9 @@ test.describe("community initial-load module skeletons", () => {
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
       await expectDocumentRouteFallback(page, expected, [serverName, channelName, privateMessage], gate.documentHtml())
-      if (expected.main === "dm" || expected.main === "server-conversation") {
-        await expect(page.getByText(privateMessage, { exact: true }).filter({ visible: true })).toHaveCount(1)
-        await expect(page.getByTestId(tid.messageScroller).filter({ visible: true })).toHaveCount(1)
-      }
+      const held = expected.main === "dm" || expected.main === "server-conversation"
+        ? await expectHeldMessage(page, gate.documentHtml(), expected.main === "dm" ? dmId : channelId, expected.main === "dm" ? dmMessageId : channelMessageId, privateMessage, actors.userName("alice"))
+        : null
       if (pathname === "/c") {
         await testInfo.attach("community-root-neutral-1280x900", {
           body: await page.screenshot(),
@@ -288,6 +412,7 @@ test.describe("community initial-load module skeletons", () => {
       }
       expect(traffic.requests).toEqual([])
       expect(traffic.sockets()).toBe(0)
+      if (held) await expectReleasedMessage(page, gate, held, traffic, testInfo, `first-visible-dom-${expected.main}-${page.viewportSize()!.width}`)
       await closeHeldContext(context, gate)
     }
   })
@@ -395,12 +520,12 @@ test.describe("community initial-load module skeletons", () => {
       .toBe("/c/me/machines")
   })
 
-  test("639↔640 preserves one RSC main node with zero request or socket delta", async ({ caseActors, caseResources }) => {
+  test("639↔640 preserves one RSC main node with zero request or socket delta", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(120_000)
 
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
-    const { closeHeldContext, serverId, channelId, dmId, privateMessage } = await prepareCase1(actors, caseResources)
+    const { closeHeldContext, serverId, channelId, dmId, channelMessageId, dmMessageId, privateMessage } = await prepareCase1(actors, caseResources)
 
     for (const pathname of [
       `/c/me/${dmId}`,
@@ -412,7 +537,8 @@ test.describe("community initial-load module skeletons", () => {
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
-      await expect(page.getByText(privateMessage, { exact: true }).filter({ visible: true })).toHaveCount(1)
+      const isDm = pathname === `/c/me/${dmId}`
+      const held = await expectHeldMessage(page, gate.documentHtml(), isDm ? dmId : channelId, isDm ? dmMessageId : channelMessageId, privateMessage, actors.userName("alice"))
       const main = page.locator('[data-slot="community-main-panel-content"]').filter({ visible: true })
       await expect(main).toBeVisible()
       await main.evaluate((node) => { Reflect.set(window, "__communityInitialMain", node) })
@@ -420,6 +546,8 @@ test.describe("community initial-load module skeletons", () => {
       const traffic = captureCommunityTraffic(page)
       await page.setViewportSize({ width: 640, height: 844 })
       await expect(main).toBeVisible()
+      const wide = await expectHeldMessage(page, gate.documentHtml(), held.conversationId, held.messageId, privateMessage, actors.userName("alice"))
+      await wide.refs.dispose()
       expect(await main.evaluate((node) => (
         Reflect.get(window, "__communityInitialMain") === node
       ))).toBe(true)
@@ -430,11 +558,15 @@ test.describe("community initial-load module skeletons", () => {
       ))).toBe(true)
       expect(traffic.requests).toEqual([])
       expect(traffic.sockets()).toBe(0)
+      const narrow = await expectHeldMessage(page, gate.documentHtml(), held.conversationId, held.messageId, privateMessage, actors.userName("alice"))
+      await narrow.refs.dispose()
+      await expectReleasedMessage(page, gate, held, traffic, testInfo, `first-visible-dom-resize-${isDm ? "dm" : "channel"}`)
+      expect(await main.evaluate(node => Reflect.get(window, "__communityInitialMain") === node)).toBe(true)
       await closeHeldContext(context, gate)
     }
   })
 
-  test("releasing scripts mounts one server-seeded user shell without duplicate route work", async ({ caseActors, caseResources }) => {
+  test("releasing scripts mounts one server-seeded user shell without duplicate route work", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(120_000)
 
     const actors = await caseActors(["alice", "bob"])
@@ -458,9 +590,8 @@ test.describe("community initial-load module skeletons", () => {
     expect(traffic.requests).toEqual([])
     expect(traffic.sockets()).toBe(0)
 
-    await expect(page.getByTestId(tid.message(channelMessageId)).filter({ visible: true })).toHaveCount(1)
-    await expect(page.getByTestId(tid.message(channelMessageId)).filter({ visible: true }).getByText(privateMessage, { exact: true })).toBeVisible()
-    gate.release()
+    const held = await expectHeldMessage(page, gate.documentHtml(), channelId, channelMessageId, privateMessage, actors.userName("alice"))
+    await expectReleasedMessage(page, gate, held, traffic, testInfo, "first-visible-dom-server-release")
     await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
     await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 30_000 })
     await expect.poll(traffic.sockets).toBe(1)

@@ -12,12 +12,12 @@ function Probe(input: Input) {
 }
 const pending: Input = { firstWindowReady: true, authoritativeEmpty: false, positionSettled: false }
 
-describe("immediate initial message presentation", () => {
+describe("initial message positioning presentation", () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
-  it("shows a qualified first window and accepts user takeover before position settles", () => {
+  it("holds a qualified first window beneath the skeleton until position settles or releases", () => {
     render(React.createElement(Probe, pending))
-    expect(latest).toEqual({ phase: "positioning", showSkeleton: false, contentVisible: true, contentInteractive: true })
+    expect(latest).toEqual({ phase: "positioning", showSkeleton: true, contentVisible: false, contentInteractive: false })
     expect(vi.getTimerCount()).toBe(0)
   })
   it("holds the skeleton until the first window is qualified and reveals an empty window immediately", () => {

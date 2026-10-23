@@ -77,8 +77,6 @@ function registrationDeps(
     register: vi.fn(async () => undefined),
     acknowledge: vi.fn(async () => undefined),
     unregister: vi.fn(async () => undefined),
-    schedule: vi.fn(() => 1),
-    cancel: vi.fn(),
     ...overrides,
   }
 }
@@ -381,7 +379,6 @@ describe("mobile notification registration controller", () => {
     })
     await createMobileSystemNotificationRegistrationController(tokenless).sync()
     expect(tokenless.register).not.toHaveBeenCalled()
-    expect(tokenless.schedule).not.toHaveBeenCalled()
   })
 
   it("serializes concurrent signals and coalesces them into one rerun", async () => {
@@ -414,7 +411,6 @@ describe("mobile notification registration controller", () => {
     let currentToken = token0
     let acknowledgedToken: string | undefined
     const posted: MobileSystemNotificationRegistration[] = []
-    let retry: (() => void) | undefined
     const deps = registrationDeps({
       snapshot: vi.fn(async () => snapshot({
         providerToken: currentToken,
@@ -428,13 +424,12 @@ describe("mobile notification registration controller", () => {
         if (token !== currentToken) throw new Error("stale")
         acknowledgedToken = token
       }),
-      schedule: vi.fn((callback) => { retry = callback; return 7 }),
     })
     const controller = createMobileSystemNotificationRegistrationController(deps)
     await controller.sync()
     currentToken = token1
     await controller.sync()
-    expect(retry).toBeTypeOf("function")
+    expect(acknowledgedToken).toBe(token0)
     currentToken = token2
     await controller.sync()
     expect(posted.map(({ providerToken, previousProviderToken }) => ({
@@ -446,27 +441,22 @@ describe("mobile notification registration controller", () => {
       { providerToken: token2, previousProviderToken: token0 },
     ])
     expect(acknowledgedToken).toBe(token2)
-    expect(deps.cancel).toHaveBeenCalledWith(7)
   })
 
-  it("uses bounded retry delays and cancels a pending retry on disposal", async () => {
-    const scheduled: Array<{ callback: () => void; delay: number }> = []
+  it("leaves failed work unacknowledged until the next signal and stays retired after disposal", async () => {
     const deps = registrationDeps({
-      checkPermission: vi.fn(async () => { throw new Error("offline") }),
-      schedule: vi.fn((callback, delay) => {
-        scheduled.push({ callback, delay })
-        return scheduled.length
-      }),
-      retryDelaysMs: [10, 20],
+      register: vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(undefined),
     })
     const controller = createMobileSystemNotificationRegistrationController(deps)
     await controller.sync(true)
-    expect(scheduled.map(({ delay }) => delay)).toEqual([10])
-    scheduled.shift()?.callback()
-    await vi.waitFor(() => expect(scheduled.map(({ delay }) => delay)).toEqual([20]))
-    scheduled.shift()?.callback()
-    await vi.waitFor(() => expect(deps.checkPermission).toHaveBeenCalledTimes(3))
-    expect(scheduled).toHaveLength(0)
+    expect(deps.register).toHaveBeenCalledOnce()
+    expect(deps.acknowledge).not.toHaveBeenCalled()
+    await controller.sync()
+    expect(deps.register).toHaveBeenCalledTimes(2)
+    expect(deps.acknowledge).toHaveBeenCalledExactlyOnceWith(token0)
+    controller.dispose()
+    await controller.sync()
+    expect(deps.register).toHaveBeenCalledTimes(2)
 
     const disposableDeps = registrationDeps({
       checkPermission: vi.fn(async () => { throw new Error("offline") }),

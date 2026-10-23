@@ -149,8 +149,11 @@ test("real bot avatars become unreadable after single delete and authenticated m
   expect(await avatarFrame.boundingBox()).toEqual(pendingFrame)
 
   failAvatar = false
+  const requestsBeforeReload = avatarRequests
   await alice.page.reload({ waitUntil: "commit" })
-  await expect.poll(() => avatarRequests).toBeGreaterThan(1)
+  await expect(alice.page.getByText(botName, { exact: true })).toBeVisible()
+  await expect.poll(() => avatarRequests).toBeGreaterThan(requestsBeforeReload)
+  await expect(avatar).toHaveCount(1)
   await expect(avatar).toHaveAttribute("data-remote-image-state", "ready")
   const readyFrame = await avatarFrame.boundingBox()
   expect(readyFrame).toEqual(pendingFrame)

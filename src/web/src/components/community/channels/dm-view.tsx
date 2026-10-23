@@ -476,6 +476,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             positionDataState={positionDataState}
             messageWindow={messageWindow}
             active={routeCommitted}
+            positioningActive
             isFetching={messagesFetching}
             isFetchingOlder={isFetchingOlderMessages}
             onLoadOlder={fetchOlderMessages}

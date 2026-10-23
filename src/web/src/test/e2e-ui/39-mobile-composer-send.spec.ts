@@ -96,7 +96,11 @@ async function expectHoverKeyboardSend({
   await expect.poll(() => hasMessageFrame(frames, channelId, payload.message.id)).toBe(true)
 
   await page.reload({ waitUntil: "commit" })
-  await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
+  const reloadedComposer = composerEditable(page)
+  await expect(async () => {
+    expect(await reloadedComposer.count()).toBe(1)
+    expect(await reloadedComposer.isVisible()).toBe(true)
+  }).toPass({ timeout: 20_000 })
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(firstLine)
   expect(messagePosts).toBe(1)
 }
@@ -240,7 +244,11 @@ async function expectExplicitTouchSend({
   await expect.poll(() => hasMessageFrame(frames, channelId, payload.message.id)).toBe(true)
 
   await page.reload({ waitUntil: "commit" })
-  await expect(composerEditable(page, root)).toBeVisible({ timeout: 20_000 })
+  const reloadedComposer = composerEditable(page, root)
+  await expect(async () => {
+    expect(await reloadedComposer.count()).toBe(1)
+    expect(await reloadedComposer.isVisible()).toBe(true)
+  }).toPass({ timeout: 20_000 })
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(firstLine)
   expect(messagePosts).toBe(1)
 }

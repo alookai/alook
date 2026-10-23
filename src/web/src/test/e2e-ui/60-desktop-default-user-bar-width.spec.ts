@@ -219,10 +219,28 @@ async function readShellGeometry(page: Page): Promise<ShellGeometry> {
   }, { sidebar: "sidebar", main: "main", userBar: tid.userBar })
 }
 
-async function expectDesktopGeometry(page: Page, sidebarWidth: number) {
-  await expect(page.getByTestId(tid.userBar)).toBeVisible()
-  await expect(shellPanel(page, "sidebar")).toBeVisible()
-  await expect(page.locator('[data-slot="community-user-bar-overlay"]')).toBeVisible()
+async function expectDesktopGeometry(page: Page, sidebarWidth: number, options: { coldEntry?: boolean } = {}) {
+  if (options.coldEntry) {
+    const userBar = page.getByTestId(tid.userBar)
+    await expect(async () => {
+      expect(await userBar.count()).toBe(1)
+      expect(await userBar.isVisible()).toBe(true)
+    }).toPass({ timeout: 10_000 })
+    const sidebar = shellPanel(page, "sidebar")
+    await expect(async () => {
+      expect(await sidebar.count()).toBe(1)
+      expect(await sidebar.isVisible()).toBe(true)
+    }).toPass({ timeout: 10_000 })
+    const overlay = page.locator('[data-slot="community-user-bar-overlay"]')
+    await expect(async () => {
+      expect(await overlay.count()).toBe(1)
+      expect(await overlay.isVisible()).toBe(true)
+    }).toPass({ timeout: 10_000 })
+  } else {
+    await expect(page.getByTestId(tid.userBar)).toBeVisible()
+    await expect(shellPanel(page, "sidebar")).toBeVisible()
+    await expect(page.locator('[data-slot="community-user-bar-overlay"]')).toBeVisible()
+  }
   await expect.poll(async () => {
     const geometry = await readShellGeometry(page)
     return {
@@ -617,7 +635,7 @@ test.describe("desktop default User Bar width", () => {
       main: expect.any(Number),
     })
     await interaction.page.reload({ waitUntil: "commit" })
-    await expectDesktopGeometry(interaction.page, resizedWidth)
+    await expectDesktopGeometry(interaction.page, resizedWidth, { coldEntry: true })
     const resetHandle = interaction.page.locator('[data-slot="resizable-handle"]')
     await resetHandle.dblclick({ force: true })
     await expectDesktopGeometry(interaction.page, expectedDefaultSidebarWidth)
@@ -630,7 +648,7 @@ test.describe("desktop default User Bar width", () => {
       layoutStorageKey,
     )) as Record<string, unknown>
     await interaction.page.reload({ waitUntil: "commit" })
-    await expectDesktopGeometry(interaction.page, expectedDefaultSidebarWidth)
+    await expectDesktopGeometry(interaction.page, expectedDefaultSidebarWidth, { coldEntry: true })
     await attachJson(testInfo, "desktop-width-layout-evidence", {
       hydrationSamples,
       mobileGeometry,
