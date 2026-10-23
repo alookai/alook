@@ -55,6 +55,39 @@ describe("WebSocketDurableObject", () => {
   beforeEach(() => resetHarness())
   afterEach(() => cleanupHarness())
 
+  describe("machine Stop dispatch", () => {
+    it("sends only to authenticated stop-capable machines without force-closing or clearing state", async () => {
+      const { durable, store, getWebSockets } = createDO()
+      const identity = { userId: "u_1", machineId: "cm_1", credentialHash: "epoch" }
+      store.set("community-machine-identity", identity)
+      const supported = createMockWebSocket()
+      const legacy = createMockWebSocket()
+      const unauthed = createMockWebSocket()
+      const user = createMockWebSocket()
+      supported.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "cm_1", userId: "u_1", machineStop: true })
+      legacy.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "cm_1", userId: "u_1" })
+      unauthed.serializeAttachment({ type: "community-machine", authenticated: false, machineId: "cm_1", userId: "u_1", machineStop: true })
+      user.serializeAttachment({ type: "user", authenticated: true, userId: "u_1" })
+      getWebSockets.mockReturnValue([supported, legacy, unauthed, user])
+      const response = await durable.fetch(new Request("http://internal/stop", { method: "POST" }))
+      expect(await response.json()).toEqual({ sent: 1, unsupported: 1 })
+      expect(supported.send).toHaveBeenCalledWith(JSON.stringify({ type: "machine:stop" }))
+      expect(supported.close).not.toHaveBeenCalled()
+      for (const socket of [legacy, unauthed, user]) expect(socket.send).not.toHaveBeenCalled()
+      expect(store.get("community-machine-identity")).toEqual(identity)
+    })
+
+    it("does not count a thrown send as dispatch success", async () => {
+      const { durable, getWebSockets } = createDO()
+      const socket = createMockWebSocket()
+      socket.serializeAttachment({ type: "community-machine", authenticated: true, machineStop: true })
+      socket.send.mockImplementation(() => { throw new Error("socket closed") })
+      getWebSockets.mockReturnValue([socket])
+      const response = await durable.fetch(new Request("http://internal/stop", { method: "POST" }))
+      expect(await response.json()).toEqual({ sent: 0, unsupported: 0 })
+    })
+  })
+
   describe("community-machine — session.error overlay + optimistic clear", () => {
     beforeEach(() => {
           mockFindCredentialByHash.mockReset()

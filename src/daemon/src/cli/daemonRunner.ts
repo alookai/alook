@@ -361,6 +361,7 @@ export async function runPreparedDaemon(
       daemonVersion: prepared.daemonVersion,
       logger: log,
       handleSelfUpdate,
+      onStopRequested: () => { void shutdown(0); },
       handleDiagnosticCommand,
       reportDiagnosticFailure,
       onDiagnosticSources: ({ fsmTraceSource, statusFilePath }) => {

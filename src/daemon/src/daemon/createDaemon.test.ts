@@ -1489,6 +1489,31 @@ for await (const line of createInterface({ input: process.stdin })) {
     await daemon.stop();
   });
 
+  it("advertises and consumes machine:stop before bot observers and AgentRouter", async () => {
+    const sockets: FakeSocket[] = [];
+    const routerEntry = spyOnRouterCommandEntry();
+    const onStopRequested = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [] })));
+    const daemon = await createDaemon({
+      machineKey: "cmk_remote_stop",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets),
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      onStopRequested,
+    } as Parameters<typeof createDaemon>[0]);
+    sockets[0].emit("open");
+    await vi.waitFor(() => expect(sockets[0].sent.map((frame) => JSON.parse(frame)))
+      .toContainEqual(expect.objectContaining({ type: "ready", capabilities: expect.arrayContaining(["machine-stop-v1"]) })));
+    sockets[0].emit("message", JSON.stringify({ type: "machine:stop" }));
+    await vi.waitFor(() => expect(onStopRequested).toHaveBeenCalledOnce());
+    expect(routerEntry).not.toHaveBeenCalledWith(expect.objectContaining({ type: "machine:stop" }));
+    expect(fakeDriver.start).not.toHaveBeenCalled();
+    await daemon.stop();
+  });
+
   it("consumes machine:update before bot observers and AgentRouter", async () => {
     const sockets: FakeSocket[] = [];
     const routerEntry = spyOnRouterCommandEntry();

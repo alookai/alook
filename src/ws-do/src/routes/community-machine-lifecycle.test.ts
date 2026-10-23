@@ -43,6 +43,40 @@ describe("ws-do router", () => {
     handler = undefined as unknown as RouterHandler
   })
 
+  describe("POST /community-machine/by-id/:machineId/forward-stop", () => {
+    beforeEach(() => mockGetActiveDoNamesForMachine.mockReset().mockResolvedValue([]))
+    const stopRequest = () => new Request("http://localhost/community-machine/by-id/machine-1/forward-stop", {
+      method: "POST", body: JSON.stringify({ type: "machine:update", command: "ignored" }),
+    })
+
+    it("returns zero when there is no active credential without changing records", async () => {
+      const response = await handler.fetch(stopRequest(), env as any)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ sent: 0, unsupported: 0 })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("constructs the stop frame and preserves supported/unsupported socket counts", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b"])
+      doMock.stubFetch.mockResolvedValueOnce(Response.json({ sent: 1, unsupported: 0 }))
+        .mockResolvedValueOnce(Response.json({ sent: 0, unsupported: 1 }))
+      const response = await handler.fetch(stopRequest(), env as any)
+      expect(await response.json()).toEqual({ sent: 1, unsupported: 1 })
+      for (const [request] of doMock.stubFetch.mock.calls) {
+        expect((request as Request).url).toBe("http://internal/stop")
+        expect(await (request as Request).clone().json()).toEqual({ type: "machine:stop" })
+      }
+    })
+
+    it("does not claim success for malformed receipts or a failed lookup", async () => {
+      mockGetActiveDoNamesForMachine.mockRejectedValueOnce(new Error("D1 unavailable"))
+      expect((await handler.fetch(stopRequest(), env as any)).status).toBe(503)
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a"])
+      doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1 }))
+      expect((await handler.fetch(stopRequest(), env as any)).status).toBe(503)
+    })
+  })
+
   describe("POST /community-machine/by-id/:machineId/forward-update", () => {
     beforeEach(() => {
       mockGetActiveDoNamesForMachine.mockReset().mockResolvedValue([])
