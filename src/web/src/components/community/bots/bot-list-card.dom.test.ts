@@ -32,6 +32,8 @@ vi.mock("@/hooks/community/use-bots", () => ({
   useResetBotSession: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useResetMachineAgents: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
+vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "viewer", name: "Viewer", avatar: "V" }) }))
+vi.mock("@/hooks/community/use-dm-message-sender", () => ({ useDmMessageSender: () => ({ accept: vi.fn() }) }))
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateOrGetDm: () => ({ mutateAsync: vi.fn() }),
 }))

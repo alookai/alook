@@ -157,7 +157,7 @@ export function renderBotListView(
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 flex-1 basis-64 flex-col gap-1">
             <h1 className="text-xl font-medium text-foreground">My Bots</h1>
-            <p className="text-sm text-muted-foreground">Ask your bot to create more bots.</p>
+            <button type="button" onClick={() => void controller.askBotToCreate()} disabled={controller.startingBotChat} aria-busy={controller.startingBotChat} className="w-fit max-w-full rounded-sm text-left text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50">Ask your bot to create more bots.</button>
             <BotActiveSummary onViewPlan={controller.viewPlan} summary={controller.planSummary} isFounder={controller.planSummary?.isFounder} />
           </div>
           <div className="flex items-center gap-1">

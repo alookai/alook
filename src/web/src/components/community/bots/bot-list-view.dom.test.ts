@@ -95,6 +95,8 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     highlightId: null,
     groupRefs: { current: {} },
     chatWithBot: noop,
+    askBotToCreate: noop,
+    startingBotChat: false,
     onBotCreated: noop,
     openGuidedCreate: noop,
     openMachines: noop,
@@ -119,6 +121,23 @@ function withClassFragment(container: HTMLElement, className: string): HTMLEleme
 
 describe("renderBotListView", () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it("hides the creation chat action without bots and disables it during a send", () => {
+    const askBotToCreate = vi.fn()
+    const empty = render(renderBotListView({}, controller()))
+    expect(empty.queryByRole("button", { name: "Ask your bot to create more bots." })).toBeNull()
+    empty.unmount()
+    const state = controller({ bots: [{ id: "b1" }] as BotListController["bots"], groups: [], askBotToCreate })
+    const view = render(renderBotListView({}, state))
+    fireEvent.click(view.getByRole("button", { name: "Ask your bot to create more bots." }))
+    expect(askBotToCreate).toHaveBeenCalledOnce()
+    view.rerender(renderBotListView({}, { ...state, startingBotChat: true }))
+    const button = view.getByRole("button", { name: "Ask your bot to create more bots." })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute("aria-busy", "true")
+    fireEvent.click(button)
+    expect(askBotToCreate).toHaveBeenCalledOnce()
+  })
 
   it("shows Retry for an unconfirmed cold failure without claiming an empty bots list", () => {
     const retry = vi.fn()

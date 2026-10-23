@@ -102,6 +102,8 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     machineName: () => "My Mac",
     bringMachineOnline: noop,
     chatWithBot: noop,
+    askBotToCreate: noop,
+    startingBotChat: false,
     ...overrides,
   } as BotListController
 }
