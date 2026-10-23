@@ -1,0 +1,22 @@
+name = "alook-discord"
+main = "../src/lib/discord-redirect.ts"
+compatibility_date = "2026-05-13"
+workers_dev = true
+preview_urls = false
+
+[[routes]]
+pattern = "discord.alook.ai"
+custom_domain = true
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
+
+[observability.traces]
+enabled = false
+head_sampling_rate = 1

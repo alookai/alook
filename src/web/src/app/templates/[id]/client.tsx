@@ -1,9 +1,7 @@
 "use client";
 
-/* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
-
 import Link from "next/link";
-import { trackLandingCtaClicked } from "@/lib/analytics"
+import { TemplateAccountLink } from "../_components/template-account-link"
 
 import { Check } from "lucide-react";
 import { PublicLayout } from "@/components/public-layout";
@@ -19,10 +17,8 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function TemplateDetailClient({
   template,
-  isLoggedIn,
 }: {
   template: TemplatePreset;
-  isLoggedIn: boolean;
 }) {
   return (
     <PublicLayout
@@ -41,23 +37,7 @@ export function TemplateDetailClient({
           >
             Blog
           </a>
-          {isLoggedIn ? (
-            <a
-              href="/c/me"
-              onClick={() => trackLandingCtaClicked({ cta_name: "templates_open_app" })}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono border border-current transition-opacity hover:opacity-70"
-            >
-              App
-            </a>
-          ) : (
-            <a
-              href="/sign-in"
-              onClick={() => trackLandingCtaClicked({ cta_name: "templates_get_started" })}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono bg-foreground text-background transition-opacity hover:opacity-70"
-            >
-              Get Started
-            </a>
-          )}
+          <TemplateAccountLink />
         </>
       }
     >

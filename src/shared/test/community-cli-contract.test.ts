@@ -398,3 +398,15 @@ describe("HostCommand machine update contract", () => {
     },
   );
 });
+
+
+describe("HostCommand machine stop contract", () => {
+  it("accepts only the payload-free stop command", () => {
+    expectTypeOf<Extract<HostCommand, { type: "machine:stop" }>>()
+      .toEqualTypeOf<{ type: "machine:stop" }>();
+    expect(HostCommandSchema.parse({ type: "machine:stop" })).toEqual({ type: "machine:stop" });
+    for (const field of ["machineId", "command", "force", "delete", "credential"]) {
+      expect(HostCommandSchema.safeParse({ type: "machine:stop", [field]: "extra" }).success).toBe(false);
+    }
+  });
+});

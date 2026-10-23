@@ -38,8 +38,13 @@ export async function handleMachineControlFetch(
     const input = await readBoundedJsonRequest(request, 4096)
     const command = RuntimeModelDiscoveryCommandSchema.safeParse(input.ok ? input.value : null)
     if (!command.success) return new Response(JSON.stringify({ error: "invalid request" }), { status: 400, headers: { "Content-Type": "application/json" } })
-    const { sent, unsupported } = forwardToCommunityMachine(context, JSON.stringify(command.data), true)
+    const { sent, unsupported } = forwardToCommunityMachine(context, JSON.stringify(command.data), "modelDiscovery")
     return new Response(JSON.stringify({ sent, unsupported }), { headers: { "Content-Type": "application/json" } })
+  }
+
+  if (url.pathname === "/stop" && request.method === "POST") {
+    const result = forwardToCommunityMachine(context, JSON.stringify({ type: "machine:stop" }), "machineStop")
+    return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } })
   }
 
   if (url.pathname === "/push" && request.method === "POST") {
@@ -272,13 +277,13 @@ function rejectCommunityMachine(ws: WebSocket, reason: string): void {
   try { ws.close(1008, "Unauthorized") } catch { /* ok */ }
 }
 
-function forwardToCommunityMachine(context: WsDurableContext, message: string, requireModelDiscovery = false): { sent: number; unsupported: number } {
+function forwardToCommunityMachine(context: WsDurableContext, message: string, capability?: "modelDiscovery" | "machineStop"): { sent: number; unsupported: number } {
   let sent = 0
   let unsupported = 0
   for (const ws of context.ctx.getWebSockets()) {
     const state = ws.deserializeAttachment() as ConnectionState
     if (state?.type === "community-machine" && state.authenticated) {
-      if (requireModelDiscovery && !state.modelDiscovery) { unsupported++; continue }
+      if (capability && !state[capability]) { unsupported++; continue }
       try {
         ws.send(message)
         sent++

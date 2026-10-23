@@ -4,6 +4,8 @@ import { TEMPLATES } from "@/lib/templates"
 import { TemplateCard } from "./_components/template-card"
 import { TemplateDetailClient } from "./[id]/client"
 
+vi.mock("./_components/template-account-link", () => ({ TemplateAccountLink: () => <a href="/sign-in">Get Started</a> }))
+
 vi.mock("@/components/public-layout", () => ({ PublicLayout: ({ children, rightSlot }: { children: React.ReactNode; rightSlot: React.ReactNode }) => <main>{rightSlot}{children}</main> }))
 vi.mock("next/link", () => ({ default: ({ children, href, ...props }: React.ComponentProps<"a">) => <a href={href} {...props}>{children}</a> }))
 
@@ -14,9 +16,9 @@ it("keeps public template content and canonical detail navigation", () => {
   expect(view.getByRole("link")).toHaveAttribute("href", `/templates/${template.id}`)
   expect(view.queryByRole("button", { name: "Use" })).toBeNull()
 })
-it.each([true, false])("retains readable details and public entry links for logged-in=%s without a Studio CTA", isLoggedIn => {
+it("retains readable details and public entry links without a Studio CTA", () => {
   const template = TEMPLATES[0]!
-  const view = render(<TemplateDetailClient template={template} isLoggedIn={isLoggedIn} />)
+  const view = render(<TemplateDetailClient template={template} />)
   expect(view.getByRole("heading", { name: template.name })).toBeVisible()
   expect(view.getByText(template.longDescription)).toBeVisible()
   expect(view.getAllByRole("link").map(link => link.getAttribute("href"))).not.toEqual(expect.arrayContaining([expect.stringContaining("/studio/new")]))

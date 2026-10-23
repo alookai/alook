@@ -20,6 +20,29 @@ export type MachineUpdatePushResult =
   | { sent: number; deliveryError: false }
   | { sent: 0; deliveryError: true }
 
+export type MachineStopPushResult =
+  | { sent: number; unsupported: number; deliveryError: false }
+  | { sent: 0; unsupported: 0; deliveryError: true }
+
+export async function pushMachineStop(env: Env, machineId: string): Promise<MachineStopPushResult> {
+  try {
+    const response = await wsDoFetch(env,
+      `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-stop`,
+      { method: "POST" }, { label: machineId, type: "machine:stop" })
+    if (!response.ok) return { sent: 0, unsupported: 0, deliveryError: true }
+    const data: unknown = await response.json()
+    if (
+      typeof data !== "object" || data === null || !("sent" in data) || !("unsupported" in data)
+      || typeof data.sent !== "number" || !Number.isSafeInteger(data.sent) || data.sent < 0
+      || typeof data.unsupported !== "number" || !Number.isSafeInteger(data.unsupported) || data.unsupported < 0
+    ) return { sent: 0, unsupported: 0, deliveryError: true }
+    return { sent: data.sent, unsupported: data.unsupported, deliveryError: false }
+  } catch (err) {
+    log.warn("machine:stop push failed", { machineId, err: String(err) })
+    return { sent: 0, unsupported: 0, deliveryError: true }
+  }
+}
+
 export async function pushMachineUpdate(
   env: Env,
   machineId: string,

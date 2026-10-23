@@ -5,7 +5,7 @@ export const devopsMonitor: TemplatePreset = {
   name: "DevOps Monitor",
   category: "Developer",
   icon: "📡",
-  description: "Monitor services, handle alert emails, coordinate incident response, and automate deployments.",
+  description: "Use the Alook DevOps Monitor template to triage service alerts, investigate incidents, run diagnostics, and coordinate fixes with your AI team.",
   longDescription:
     "Keep your infrastructure healthy around the clock. Your leader processes incoming alert emails and decides how to respond, while your engineer investigates issues, runs diagnostics, and executes fixes. Together they handle the on-call burden — triaging alerts, investigating incidents, and coordinating deployments so you can sleep.",
   tags: ["DevOps", "monitoring", "incidents", "deployment"],

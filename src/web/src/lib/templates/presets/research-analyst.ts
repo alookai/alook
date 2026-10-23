@@ -5,7 +5,7 @@ export const researchAnalyst: TemplatePreset = {
   name: "Research Analyst",
   category: "Knowledge Worker",
   icon: "🔬",
-  description: "Monitor competitors, analyze industry trends, and deliver weekly research digests via email.",
+  description: "Use the Alook Research Analyst template to monitor competitors, investigate industry trends, and turn findings into weekly research digests by email.",
   longDescription:
     "Stay ahead of your market with an AI research team. Your researcher continuously monitors competitors, tracks industry trends, and gathers intelligence from public sources. Your leader synthesizes findings into actionable insights and delivers structured reports via email. From daily monitoring to weekly deep-dives — systematic intelligence gathering on autopilot.",
   tags: ["research", "competitive intelligence", "analysis", "reports"],

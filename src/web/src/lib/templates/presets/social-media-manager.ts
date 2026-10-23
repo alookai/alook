@@ -5,7 +5,7 @@ export const socialMediaManager: TemplatePreset = {
   name: "Social Media Manager",
   category: "Content Creator",
   icon: "📱",
-  description: "Write posts, track trends, schedule publishing reminders, and maintain your social presence.",
+  description: "Use the Alook Social Media Manager template to plan content, write posts, track trends, and schedule publishing reminders for your social channels.",
   longDescription:
     "Keep your social media presence active and engaging without spending hours on it. Your leader develops content strategy and shapes your voice, while your assistant writes posts, tracks trending topics, and sets up calendar reminders for optimal publishing times. Consistent social presence — handled by your AI team.",
   tags: ["social media", "Twitter", "LinkedIn", "content"],

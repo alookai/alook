@@ -49,6 +49,7 @@ import {
   type DiagnosticFailureReport,
 } from "./diagnosticsCommand.js";
 import { createSelfUpdateCommandListener } from "./selfUpdateCommand.js";
+import { createMachineStopCommandListener } from "./machineStopCommand.js";
 import {
   MessageReminderScheduler,
   type MessageReminderSchedulerOptions,
@@ -327,6 +328,7 @@ export interface CreateDaemonOptions {
   handleDiagnosticCommand?: (command: DiagnosticCollectCommand) => void | Promise<void>;
   /** Machine-level lifecycle command; consumed before bot observers/router. */
   handleSelfUpdate?: () => void | Promise<void>;
+  onStopRequested?: () => void;
   /** Fixed-code failure callback used when diagnostics is not available. */
   reportDiagnosticFailure?: (failure: DiagnosticFailureReport) => void | Promise<void>;
   /** Injectable daemon-local reminder clock; tests only, defaults to Node timers. */
@@ -1113,6 +1115,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     manager,
     channel,
     runtimeReport: opts.runtimeReport,
+    supportsMachineStop: typeof opts.onStopRequested === "function",
     hostname: opts.hostname,
     platform: opts.platform,
     arch: opts.arch,
@@ -1168,6 +1171,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // Machine lifecycle commands are claimed before diagnostics, bot observers,
   // and AgentRouter; updates never enter agent lifecycle routing.
   channel.onCommand(createSelfUpdateCommandListener(opts.handleSelfUpdate));
+  channel.onCommand(createMachineStopCommandListener(opts.onStopRequested));
   // Diagnostics likewise claims its machine-level command before bot/router.
   channel.onCommand(createDiagnosticsCommandListener({
     handleDiagnosticCommand: opts.handleDiagnosticCommand,

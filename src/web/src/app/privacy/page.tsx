@@ -1,25 +1,15 @@
 import { ObservedStaticContent } from "@/lib/observability/regions";
-import type { Metadata } from "next"
+import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata"
 import {
   PRIVACY_POLICY,
   PrivacyPolicyContent,
 } from "@/components/privacy/privacy-policy-content"
 
-export const metadata: Metadata = {
-  title: PRIVACY_POLICY.title,
-  description: PRIVACY_POLICY.description,
-  alternates: { canonical: "https://alook.ai/privacy" },
-  openGraph: {
-    title: `${PRIVACY_POLICY.title} — Alook`,
-    description: PRIVACY_POLICY.description,
-    url: "https://alook.ai/privacy",
-  },
-  twitter: {
-    card: "summary",
-    title: `${PRIVACY_POLICY.title} — Alook`,
-    description: PRIVACY_POLICY.description,
-  },
-}
+export const metadata = buildPublicPageMetadata({
+  title: `${PRIVACY_POLICY.title} — Alook`,
+  description: "Read how Alook collects, uses, stores, and protects personal information, including account data, cookies, analytics choices, and your privacy rights.",
+  path: "/privacy",
+})
 
 export default function PrivacyPage() {
   return (

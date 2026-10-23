@@ -1,6 +1,5 @@
 import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
-import { getSession } from "@/lib/session";
 import { TEMPLATES, TEMPLATE_CATEGORIES } from "@/lib/templates";
 import { TemplatesClient } from "./client";
 
@@ -12,6 +11,7 @@ export const metadata: Metadata = {
   description,
   alternates: { canonical: "https://alook.ai/templates" },
   openGraph: {
+    type: "website",
     title: "AI Company Templates — Alook",
     description,
     url: "https://alook.ai/templates",
@@ -39,7 +39,6 @@ const itemListJsonLd = {
 };
 
 export default async function TemplatesPage() {
-  const session = await getSession();
   return (
     <><ObservedStaticContent /><>
       <script
@@ -49,7 +48,6 @@ export default async function TemplatesPage() {
       <TemplatesClient
         templates={TEMPLATES}
         categories={TEMPLATE_CATEGORIES}
-        isLoggedIn={!!session}
       />
     </></>
   );

@@ -20,7 +20,7 @@
  */
 import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId, HostAgentActivity } from "../server/contract.js";
 import type { ProviderQuotaSnapshot } from "@alook/shared";
-import { CONTROL_HEARTBEAT_CAPABILITY, RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "../server/contract.js";
+import { CONTROL_HEARTBEAT_CAPABILITY, MACHINE_STOP_CAPABILITY, RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "../server/contract.js";
 import { getDriver, type AgentBackend } from "../drivers/index.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
 import type { TypingScopeTracker } from "./typingScopeTracker.js";
@@ -83,6 +83,7 @@ export interface AgentRouterOpts {
   /** Runtime descriptors reported in the ready handshake. Copied into a live mutable map. */
   runtimeReport: HostReadyRuntime[];
   discoverModels?: (runtimeId: string) => ReturnType<AgentBackend["discoverModels"]>;
+  supportsMachineStop?: boolean;
   hostname?: string;
   platform?: string;
   arch?: string;
@@ -251,7 +252,7 @@ export class AgentRouter {
       : this.opts.timeZone;
     return {
       runtimeReport: [...this.runtimes.values()],
-      capabilities: [CONTROL_HEARTBEAT_CAPABILITY, ...(this.opts.channel.reportRuntimeModels ? [RUNTIME_MODEL_DISCOVERY_CAPABILITY] : [])],
+      capabilities: [CONTROL_HEARTBEAT_CAPABILITY, ...(this.opts.supportsMachineStop ? [MACHINE_STOP_CAPABILITY] : []), ...(this.opts.channel.reportRuntimeModels ? [RUNTIME_MODEL_DISCOVERY_CAPABILITY] : [])],
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
       platform: this.opts.platform,

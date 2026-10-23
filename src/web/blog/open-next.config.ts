@@ -2,9 +2,11 @@ import {
 	defineCloudflareConfig,
 	type OpenNextConfig,
 } from "@opennextjs/cloudflare";
+import staticAssetsIncrementalCache from "@opennextjs/cloudflare/overrides/incremental-cache/static-assets-incremental-cache";
 
 const cloudflare = defineCloudflareConfig({
-	incrementalCache: "dummy",
+	incrementalCache: staticAssetsIncrementalCache,
+	enableCacheInterception: true,
 	tagCache: "dummy",
 	queue: "direct",
 });
@@ -17,7 +19,6 @@ export default {
 	buildCommand: "pnpm --dir .. build:blog:next",
 	dangerous: {
 		...cloudflare.dangerous,
-		disableIncrementalCache: true,
 		disableTagCache: true,
 	},
 } satisfies OpenNextConfig;

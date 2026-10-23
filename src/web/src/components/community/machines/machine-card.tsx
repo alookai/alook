@@ -27,11 +27,15 @@ export function MachineCard({
   onDelete,
   onReconnect,
   onUpdate,
+  onStop,
+  stopping = false,
 }: {
   machine: MachineSummary
   onDelete: () => void
   onReconnect: () => void
   onUpdate?: () => void
+  onStop?: () => void
+  stopping?: boolean
 }) {
   const isOnline = isPresenceOnline(machine.status)
   const lastSeenLabel = useMemo(
@@ -116,6 +120,11 @@ export function MachineCard({
                 onClick={onUpdate}
               >
                 Update daemon…
+              </DropdownMenuItem>
+            )}
+            {isOnline && onStop && (
+              <DropdownMenuItem data-testid={tid.machineStop(machine.id)} onClick={onStop} disabled={stopping}>
+                {stopping ? "Sending stop…" : "Stop"}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={onReconnect}>

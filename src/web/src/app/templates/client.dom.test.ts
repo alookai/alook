@@ -27,7 +27,6 @@ describe("TemplatesClient heading outline", () => {
     const rendered = render(createElement(TemplatesClient, {
       templates: [devopsMonitor],
       categories: ["Developer"],
-      isLoggedIn: false,
     }))
 
     const levels = Array.from(

@@ -468,6 +468,22 @@ describe("WebSocketDurableObject", () => {
         )
       })
 
+      it.each([true, false])("retains the advertised machine Stop support=%s in the socket attachment", async (supported) => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", { userId: "u_1", machineId: "cm_1", credentialHash: "epoch" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+        mockUpsertMachineByMachineId.mockResolvedValueOnce({
+          machine: { id: "cm_1", hostname: "host", availableRuntimes: [], status: "online", lastSeenAt: "now" },
+          priorLastSeenAt: "before", priorAvailableRuntimes: [], priorDaemonVersion: "0.1.0", priorStatus: "online",
+        })
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "ready", runtimeReport: [], runningAgents: [],
+          capabilities: ["control-heartbeat-v1", ...(supported ? ["machine-stop-v1"] : [])],
+        }))
+        expect(ws._attachment).toMatchObject({ machineStop: supported })
+      })
+
       it.each([
         ["legacy ready", undefined, false],
         ["heartbeat-capable ready", ["control-heartbeat-v1"], true],

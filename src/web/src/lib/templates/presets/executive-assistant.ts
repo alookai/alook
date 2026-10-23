@@ -5,7 +5,7 @@ export const executiveAssistant: TemplatePreset = {
   name: "Executive Assistant",
   category: "Knowledge Worker",
   icon: "💼",
-  description: "Filter and prioritize emails, manage calendar reminders, and prepare meeting briefs.",
+  description: "Use the Alook Executive Assistant template to prioritize email, draft replies, track follow-ups, manage calendar reminders, and prepare meeting briefs.",
   longDescription:
     "Reclaim your time with an AI executive assistant team. Your leader triages incoming emails by priority and urgency, while your assistant handles responses, sets calendar reminders, and prepares briefing documents before meetings. Think of it as a chief of staff that keeps your information flow organized and your schedule on track.",
   tags: ["email", "calendar", "meetings", "productivity"],

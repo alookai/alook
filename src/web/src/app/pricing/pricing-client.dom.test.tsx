@@ -1,18 +1,20 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { render, setupUser, waitFor } from "@/test/react-dom-harness"
 import PricingClient from "./pricing-client"
+import { renderToString } from "react-dom/server"
 
 vi.mock("./pricing.module.css", () => ({ default: new Proxy({}, { get: (_target, key) => String(key) }) }))
 
 const state = vi.hoisted(() => ({
   session: { data: null as null | { user: { id: string } }, isPending: false, error: null },
   search: new URLSearchParams(),
+  suspendSearch: false,
   assign: vi.fn(), api: vi.fn(), checkout: vi.fn(), portal: vi.fn(), refresh: vi.fn(),
   billing: {} as Record<string, unknown>,
   landing: vi.fn(), pricingView: vi.fn(), pricingCta: vi.fn(),
 }))
 vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => state.session }; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
-vi.mock("next/navigation", () => ({ useSearchParams: () => state.search }))
+vi.mock("next/navigation", () => ({ useSearchParams: () => { if (state.suspendSearch) throw new Promise(() => {}); return state.search } }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: state.api }))
 vi.mock("@/hooks/community/use-billing", () => ({ useBilling: () => ({ ...state.billing, checkout: state.checkout, portal: state.portal, refresh: state.refresh }) }))
 vi.mock("@/lib/analytics", async (importOriginal) => {
@@ -39,6 +41,7 @@ beforeEach(() => {
   }))
   vi.clearAllMocks()
   state.session = { data: null, isPending: false, error: null }
+  state.suspendSearch = false
   state.search = new URLSearchParams()
   state.api.mockResolvedValue(catalog)
   state.billing = { data: undefined, isPending: false, isBusy: false, isError: false, actionError: null }
@@ -190,4 +193,17 @@ it("shows machine allowances supplied by the catalog", async () => {
   const ui = render(<PricingClient />)
   expect(await ui.findByText((_text, el) => el?.tagName === "P" && el.textContent === "Up to 7 online machines")).toBeInTheDocument()
   expect(ui.getByText((_text, el) => el?.tagName === "P" && el.textContent === "Up to 1 online machine")).toBeInTheDocument()
+})
+
+
+it("renders the pricing document even while search parameters suspend", () => {
+  state.suspendSearch = true
+  const html = renderToString(<PricingClient />)
+  const document = new DOMParser().parseFromString(html, "text/html")
+  expect(document.querySelectorAll("h1")).toHaveLength(1)
+  expect(document.querySelector("h1")?.textContent).toBe("Choose the right space for your bots.")
+  expect(document.body.textContent).toContain("Does Alook include AI model or runtime costs?")
+  expect(document.querySelectorAll("article")).toHaveLength(3)
+  expect(document.querySelectorAll("button:disabled")).toHaveLength(3)
+  expect(state.checkout).not.toHaveBeenCalled()
 })

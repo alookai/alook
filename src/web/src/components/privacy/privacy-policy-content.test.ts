@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { metadata } from "@/app/privacy/page"
+
+vi.mock("@/lib/observability/regions", () => ({ ObservedStaticContent: () => null }))
 import {
   PRIVACY_POLICY,
   PrivacyPolicyContent,
@@ -51,6 +54,11 @@ describe("shared Privacy policy", () => {
       expect(source).not.toContain("iframe")
     }
     expect(publicPage).toContain("PRIVACY_POLICY.title")
-    expect(publicPage).toContain("openGraph")
+    expect(metadata.openGraph).toMatchObject({
+      type: "website",
+      url: "https://alook.ai/privacy",
+      title: `${PRIVACY_POLICY.title} — Alook`,
+      images: expect.any(Array),
+    })
   })
 })

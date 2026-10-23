@@ -232,6 +232,8 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const [connectedHostname, setConnectedHostname] = useAtom(useCreateAtom<string | null>(null))
   const [deleteMachineId, setDeleteMachineId] = useAtom(useCreateAtom<string | null>(null))
   const [updateMachineId, setUpdateMachineId] = useAtom(useCreateAtom<string | null>(null))
+  const pendingStopsAtom = useCreateAtom(new Set<string>())
+  const [pendingStops, setPendingStops] = useAtom(pendingStopsAtom)
   const confirmDelete = machines.find((machine) => machine.id === deleteMachineId) ?? null
   const confirmUpdate = machines.find((machine) => machine.id === updateMachineId) ?? null
   const setConfirmDelete = (machine: MachineSummary | null) => setDeleteMachineId(machine?.id ?? null)
@@ -246,11 +248,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   })
   const latestVersion = versionQuery.data?.version ?? null
   const machineCommand = useMutation({ meta: { observabilityAction: "machine.command" }, mutationKey: ["community", "machine-command"], scope: { id: "community-machine-command" },
-    mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
+    mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update" | "stop"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       origin.assert(token)
       const key = communityKeys.machines()
       const original = captureMachinesPublication(queryClient)
-      await origin.request(token, `/api/community/machines/${id}${kind === "update" ? "/update" : ""}`, { method: kind === "delete" ? "DELETE" : "POST", assertActive: assert })
+      await origin.request(token, `/api/community/machines/${id}${kind === "delete" ? "" : `/${kind}`}`, { method: kind === "delete" ? "DELETE" : "POST", assertActive: assert })
       origin.assert(token)
       if (kind === "delete" && !await publishMachines(queryClient, original, (current) => current ? replaceMachines(current, current.machines.filter((row) => row.id !== id)) : current)) return
       if (queryClient.getQueryCache().get(original.query.queryHash) !== original.query) return
@@ -363,6 +365,23 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     } catch (error) {
       try { assert() } catch { return }
       if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(getErrorMessage(error, "Couldn't request the daemon update"))
+    }
+  }
+
+  const stopMachine = async (machine: MachineSummary) => {
+    if (!isPresenceOnline(machine.status) || pendingStopsAtom.get().has(machine.id)) return
+    const assert = source.capture(), token = origin.begin().token
+    assert()
+    setPendingStops((current) => new Set(current).add(machine.id))
+    try {
+      await machineCommand.mutateAsync({ kind: "stop", id: machine.id, token, assert })
+      assert()
+      toast.success("Stop requested")
+    } catch (error) {
+      try { assert() } catch { return }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(getErrorMessage(error, "Couldn't request the daemon stop"))
+    } finally {
+      setPendingStops((current) => { const next = new Set(current); next.delete(machine.id); return next })
     }
   }
 
@@ -489,6 +508,8 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
             machine={m}
             onDelete={() => setConfirmDelete(m)}
             onReconnect={() => openReconnect(m)}
+            onStop={isPresenceOnline(m.status) ? () => void stopMachine(m) : undefined}
+            stopping={pendingStops.has(m.id)}
             onUpdate={
               canUpdateMachine(m, latestVersion, controllerMode)
                 ? () => setConfirmUpdate(m)

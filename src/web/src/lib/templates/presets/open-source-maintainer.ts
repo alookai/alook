@@ -5,7 +5,7 @@ export const openSourceMaintainer: TemplatePreset = {
   name: "Open Source Maintainer",
   category: "Developer",
   icon: "🛠",
-  description: "Triage issues, review PRs, write changelogs, and manage releases for your open source projects.",
+  description: "Use the Alook Open Source Maintainer template to triage issues, review pull requests, investigate bugs, write changelogs, and coordinate releases.",
   longDescription:
     "Run your open source project like a well-oiled machine. Your leader coordinates incoming issues and PRs, your engineer reviews code and verifies implementations, and your researcher investigates bugs and gathers context from docs and discussions. Together they triage, review, document, and ship — so you can focus on architecture decisions.",
   tags: ["GitHub", "open source", "code review", "releases"],

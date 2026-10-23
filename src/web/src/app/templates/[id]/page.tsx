@@ -1,7 +1,6 @@
 import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getSession } from "@/lib/session";
 import { TEMPLATES, getTemplateById } from "@/lib/templates";
 import { TemplateDetailClient } from "./client";
 
@@ -30,6 +29,7 @@ export async function generateMetadata({
     keywords: template.tags,
     alternates: { canonical: url },
     openGraph: {
+      type: "website",
       title,
       description: template.description,
       url,
@@ -51,17 +51,15 @@ export default async function TemplateDetailPage({
   const template = getTemplateById(id);
   if (!template) notFound();
 
-  const session = await getSession();
-
   const jsonLd = [
     {
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
+      "@type": "CreativeWork",
+      url: `${SITE_URL}/templates/${id}`,
       name: template.name,
       description: template.longDescription,
-      applicationCategory: "BusinessApplication",
-      operatingSystem: "All",
-      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      genre: "AI agent team template",
+      inLanguage: "en",
       keywords: template.tags.join(", "),
     },
     {
@@ -83,7 +81,6 @@ export default async function TemplateDetailPage({
       />
       <TemplateDetailClient
         template={template}
-        isLoggedIn={!!session}
       />
     </></>
   );

@@ -1,5 +1,4 @@
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata"
-import { Suspense } from "react"
 import PricingClient from "./pricing-client"
 
 export const metadata = buildPublicPageMetadata({
@@ -10,5 +9,5 @@ export const metadata = buildPublicPageMetadata({
 });
 
 export default function PricingPage() {
-  return <Suspense fallback={<p role="status" className="p-8">Loading plans…</p>}><PricingClient /></Suspense>
+  return <PricingClient />
 }

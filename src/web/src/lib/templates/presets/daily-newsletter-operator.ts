@@ -5,7 +5,7 @@ export const dailyNewsletterOperator: TemplatePreset = {
   name: "Daily Newsletter Operator",
   category: "Content Creator",
   icon: "📰",
-  description: "Curate trending topics, write newsletter issues, and send daily emails to your subscribers.",
+  description: "Use the Alook Daily Newsletter Operator template to research topics, curate stories, draft issues, and prepare daily emails for your subscribers.",
   longDescription:
     "Run a daily newsletter on autopilot. Your researcher scans sources for trending topics and curates the best stories, your assistant formats and prepares the email, and your leader shapes the editorial voice and coordinates the daily publishing cycle. From topic selection to subscriber delivery — all handled by your AI team.",
   tags: ["newsletter", "email", "content", "curation"],

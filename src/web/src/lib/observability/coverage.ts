@@ -96,6 +96,7 @@ export const apiRoutes = [
   "/api/community/machines/[id]/models",
   "/api/community/machines/[id]/reconnect",
   "/api/community/machines/[id]/reset-agents",
+  "/api/community/machines/[id]/stop",
   "/api/community/machines/[id]/update",
   "/api/community/machines/pair",
   "/api/community/messages/[id]",

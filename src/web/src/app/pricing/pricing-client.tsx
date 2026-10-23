@@ -4,7 +4,7 @@
 
 import { useObservedRegion } from "@/lib/observability/regions"
 
-import { useEffect, useRef, type RefObject } from "react"
+import { Suspense, useEffect, useRef, type ReactNode, type RefObject } from "react"
 import { useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { PublicPricingSchema, type PublicPricing, type BillingOffer } from "@alook/shared"
@@ -17,13 +17,21 @@ import { FounderPlanChangeDialog } from "@/components/community/billing/founder-
 import { trackLandingCtaClicked, toAnalyticsCurrentPlan, toAnalyticsPlanId, trackPricingCtaClick, trackPricingView, type PricingCtaAction } from "@/lib/analytics"
 import { PricingView } from "./pricing-view"
 
+function SelectedPlanMessage({ offer, fallback }: {
+  offer: (plan: string) => BillingOffer | undefined
+  fallback: string
+}) {
+  const search = useSearchParams()
+  const selected = offer(search.get("plan") ?? "")
+  return selected ? `${selected.plan.displayName} selected. Choose it below to continue.` : fallback
+}
+
 function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef }: {
   signedIn: boolean
   sessionPending: boolean
   sessionError: boolean
   viewTrackedRef: RefObject<boolean>
 }) {
-  const search = useSearchParams()
   const catalog = useQuery({
     queryKey: ["public-pricing"],
     queryFn: async ({ signal }) => PublicPricingSchema.parse(await apiFetch<unknown>("/api/pricing", { signal })),
@@ -38,7 +46,6 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
   const setFounderOffer = (offer: BillingOffer | null) => setFounderOfferId(offer?.priceId ?? null)
   const paymentOffer = (plan: string) => summary?.offers.find((item) => item.plan.id === plan)
   const offer = (plan: string) => paymentOffer(plan) ?? catalog.data?.offers.find((item) => item.plan.id === plan)
-  const selected = offer(search.get("plan") ?? "")
   const busy = sessionPending || billing.isBusy || catalog.isPending || (signedIn && billing.isPending)
   useObservedRegion("billing", !busy && !catalog.isError && !sessionError, 1)
   const unavailable = sessionError || catalog.isError || (signedIn && billing.isError)
@@ -90,10 +97,10 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
     if (summary?.isFounder) { setFounderOffer(item); return }
     void (summary?.subscription ? billing.portal(item.priceId) : billing.checkout(item.priceId, false, "pricing_page"))
   }
+  const fallbackMessage = summary ? `Your current plan: ${summary.plan.displayName}.` : ""
   const message = summary?.isFounder
     ? `Your Founder plan includes permanent ${summary.plan.displayName} access.`
-    : selected ? `${selected.plan.displayName} selected. Choose it below to continue.`
-    : summary ? `Your current plan: ${summary.plan.displayName}.` : ""
+    : <Suspense fallback={fallbackMessage}><SelectedPlanMessage offer={offer} fallback={fallbackMessage} /></Suspense>
   const error = sessionError ? "Couldn't check your sign-in status. Reload this page to try again."
     : unavailable ? "Couldn't load plans. Try again before choosing a plan."
     : billing.actionError
@@ -120,7 +127,7 @@ export type PricingController = {
   disabled: (plan: string) => boolean
   label: (plan: string) => string
   choose: (plan: string) => void
-  message: string
+  message: ReactNode
   error: string | null
   retry: () => void
 }

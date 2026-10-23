@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata"
 import Image from "next/image"
 import Link from "next/link"
 import { ArrowUpRight, CalendarDays, Mail } from "lucide-react"
@@ -7,11 +7,11 @@ import { LandingFooter } from "@/components/home/landing-footer"
 import landing from "@/components/home/landing-page.module.css"
 import styles from "./contact.module.css"
 
-export const metadata: Metadata = {
-  title: { absolute: "Contact — Alook" },
-  description: "Get in touch with Gus, book a conversation, or reach Alook Support.",
-  alternates: { canonical: "/contact" },
-}
+export const metadata = buildPublicPageMetadata({
+  title: "Contact — Alook",
+  description: "Contact Gus, the builder of Alook, by email or book a 15-minute conversation. Find the Alook Support community and Discord for questions and feedback.",
+  path: "/contact",
+})
 
 const contacts = [
   { icon: Mail, label: "Email", text: "gus@memodb.io", href: "mailto:gus@memodb.io" },
