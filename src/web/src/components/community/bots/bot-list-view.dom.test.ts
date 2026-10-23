@@ -122,21 +122,12 @@ function withClassFragment(container: HTMLElement, className: string): HTMLEleme
 describe("renderBotListView", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("hides the creation chat action without bots and disables it during a send", () => {
-    const askBotToCreate = vi.fn()
-    const empty = render(renderBotListView({}, controller()))
-    expect(empty.queryByRole("button", { name: "Ask your bot to create more bots." })).toBeNull()
-    empty.unmount()
-    const state = controller({ bots: [{ id: "b1" }] as BotListController["bots"], groups: [], askBotToCreate })
-    const view = render(renderBotListView({}, state))
-    fireEvent.click(view.getByRole("button", { name: "Ask your bot to create more bots." }))
-    expect(askBotToCreate).toHaveBeenCalledOnce()
-    view.rerender(renderBotListView({}, { ...state, startingBotChat: true }))
-    const button = view.getByRole("button", { name: "Ask your bot to create more bots." })
-    expect(button).toBeDisabled()
-    expect(button).toHaveAttribute("aria-busy", "true")
-    fireEvent.click(button)
-    expect(askBotToCreate).toHaveBeenCalledOnce()
+  it("keeps the creation chat action out of the list header", () => {
+    for (const bots of [[], [{ id: "b1" }]]) {
+      const view = render(renderBotListView({}, controller({ bots: bots as BotListController["bots"], groups: [] })))
+      expect(view.queryByRole("button", { name: "Ask your bot to create more bots." })).toBeNull()
+      view.unmount()
+    }
   })
 
   it("shows Retry for an unconfirmed cold failure without claiming an empty bots list", () => {
@@ -267,9 +258,8 @@ describe("renderBotListView", () => {
     expect(withExactClass(renderer.container,
       "flex flex-1 flex-col gap-6 overflow-y-auto thin-scrollbar p-6")).toHaveLength(1)
     expect(withExactClass(renderer.container,
-      "flex flex-wrap items-center justify-between gap-4")).toHaveLength(1)
+      "flex items-center justify-between gap-4")).toHaveLength(1)
     expect(renderer.getByText("My Bots")).toHaveClass("text-xl", "font-medium", "text-foreground")
-    expect(renderer.getByText("Ask your bot to create more bots.")).toBeTruthy()
     expect(renderer.getByRole("button", { name: "Active Bots loading" })).toBeDisabled()
     expect(withExactClass(renderer.container, "flex items-center gap-1")).toHaveLength(1)
     expect(withExactClass(renderer.container, "flex flex-col gap-6")).toHaveLength(1)

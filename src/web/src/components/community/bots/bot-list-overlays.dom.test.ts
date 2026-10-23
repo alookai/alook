@@ -56,6 +56,9 @@ import { renderBotListOverlaySlots } from "./bot-list-overlays"
 function controller(overrides: Partial<BotListController> = {}): BotListController {
   const noop = vi.fn()
   return {
+    bots: [],
+    askBotToCreate: noop,
+    startingBotChat: false,
     createOpen: false,
     setCreateOpen: noop,
     onBotCreated: noop,
@@ -91,6 +94,12 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
 
 describe("renderBotListOverlaySlots", () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it("passes chat creation to the sheet only when bots exist", () => {
+    const state = controller({ bots: [{ id: "b1" }] as BotListController["bots"], startingBotChat: true })
+    expect(renderBotListOverlaySlots(state).create.props).toMatchObject({ onAskBotToCreate: state.askBotToCreate, askingBotToCreate: true })
+    expect(renderBotListOverlaySlots(controller()).create.props.onAskBotToCreate).toBeUndefined()
+  })
 
   it("returns all named elements without an aggregate reconciliation boundary", () => {
     const emptySlots = renderBotListOverlaySlots(controller())
@@ -159,6 +168,8 @@ describe("renderBotListOverlaySlots", () => {
       onCreated: state.onBotCreated,
       guided: true,
       avatarSeed: "seed",
+      onAskBotToCreate: undefined,
+      askingBotToCreate: false,
     })
     expect(slots.edit.props).toEqual({ bot, open: true, onOpenChange: setEditOpen })
     expect(slots.activity.key).toBe("7")

@@ -159,6 +159,7 @@ export function useBotListController(): BotListController {
         assertActive: assert,
       })
       if (!receipt.accepted) throw new Error("Failed to send message")
+      setCreateOpen(false)
       router.push(`/c/me/${data.conversation.id}`)
       await receipt.committed
     } catch (error) {

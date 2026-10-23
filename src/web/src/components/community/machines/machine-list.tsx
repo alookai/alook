@@ -56,7 +56,6 @@ const MACHINE_LIST_HEADING_CLASS =
   "flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between"
 const MACHINE_LIST_HEADING_COPY_CLASS = "flex min-w-0 flex-col gap-1"
 const MACHINE_LIST_HEADING_ACTION_CLASS = "w-full sm:w-fit sm:shrink-0"
-const MACHINE_LIST_DESCRIPTION = "Your computers running the alook daemon."
 
 // Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
 // name row + meta lines + trailing kebab slot) so the list doesn't reflow when
@@ -124,10 +123,6 @@ export function MachineListSkeleton({
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <Skeleton className="h-7 w-24 rounded" />
               <Skeleton aria-hidden className="h-11 w-36 max-w-full rounded-sm sm:h-6" />
-              <div aria-hidden className="relative w-fit max-w-full">
-                <p className="invisible text-sm">{MACHINE_LIST_DESCRIPTION}</p>
-                <Skeleton className="absolute inset-0 rounded" />
-              </div>
             </div>
             <div data-slot="community-machines-heading-action" className={MACHINE_LIST_HEADING_ACTION_CLASS}>
               <Skeleton className="h-11 w-full rounded-md sm:h-9 sm:w-36" />
@@ -471,9 +466,6 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <h1 className="text-xl font-medium text-foreground">Machines</h1>
               {usage}
-              <p className="text-sm text-muted-foreground">
-                {MACHINE_LIST_DESCRIPTION}
-              </p>
             </div>
             <div
               data-slot="community-machines-heading-action"

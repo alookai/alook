@@ -798,7 +798,9 @@ describe("useBotListController", () => {
     mocks.bots = [bot("offline", "mac1"), { ...bot("inactive", "mac1"), isActive: false }, bot("online", "mac2"), bot("later", "mac2")]
     mocks.online = new Set(["inactive", "online", "later"])
     render()
+    act(() => latest.setCreateOpen(true))
     await act(async () => { await latest.askBotToCreate() })
+    expect(latest.createOpen).toBe(false)
     expect(mocks.createDm).toHaveBeenCalledWith({ userId: "online", assertActive: expect.any(Function) })
     expect(mocks.acceptDm).toHaveBeenCalledWith(expect.objectContaining({ dmId: "dm1", content: "Help me create a bot. Ask me what I need.", author: expect.objectContaining({ id: expect.any(String) }) }))
     expect(mocks.acceptDm.mock.invocationCallOrder[0]).toBeLessThan(mocks.push.mock.invocationCallOrder[0])
@@ -835,7 +837,9 @@ describe("useBotListController", () => {
   it("allows a new attempt after DM failure without sending or navigating", async () => {
     mocks.createDm.mockRejectedValueOnce(new Error("offline"))
     render()
+    act(() => latest.setCreateOpen(true))
     await act(async () => { await latest.askBotToCreate() })
+    expect(latest.createOpen).toBe(true)
     expect(mocks.acceptDm).not.toHaveBeenCalled()
     expect(mocks.push).not.toHaveBeenCalled()
     expect(mocks.toastApiError).toHaveBeenCalledWith(expect.any(Error), "Failed to start bot creation chat", expect.any(Function))

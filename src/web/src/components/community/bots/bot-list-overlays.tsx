@@ -28,6 +28,8 @@ export function renderBotListOverlaySlots(
         onCreated={controller.onBotCreated}
         guided={controller.guidedActive}
         avatarSeed={controller.guidedAvatarSeed}
+        onAskBotToCreate={controller.bots.length ? controller.askBotToCreate : undefined}
+        askingBotToCreate={controller.startingBotChat}
       />
     ),
     help: (
