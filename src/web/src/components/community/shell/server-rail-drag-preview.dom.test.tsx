@@ -82,10 +82,14 @@ describe("server rail moving preview", () => {
 
   it("reuses folder collection thumbnails and its name without a base indicator", () => {
     drag.entity = { kind: "folder", id: "f" }; drag.offset = { x: 20, y: 80 }
-    render(<ServerRailDragPreview {...props} />)
+    const view = render(<ServerRailDragPreview {...props} />)
     const preview = document.querySelector('[data-rail-floating-preview="folder"]')!
     expect(preview.querySelector('[data-slot="community-server-rail-drag-name"]')).toHaveTextContent("Team")
     expect(preview.querySelector('[role="img"]')).toHaveAttribute("aria-label", "Alpha")
     expect(preview.querySelector('[data-slot="community-server-rail-indicator"]')).toBeNull()
+    expect(preview.querySelector('[data-slot="community-server-rail-drag-folder"]')).toHaveClass("size-10", "rounded-xl")
+    expect(preview.firstElementChild).toHaveClass("size-11")
+    view.rerender(<ServerRailDragPreview {...props} activeServerId="other" />)
+    expect(preview.querySelector('[data-slot="community-server-rail-drag-folder"]')).toHaveClass("size-10", "rounded-[18px]")
   })
 })

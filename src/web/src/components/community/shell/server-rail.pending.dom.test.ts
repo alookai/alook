@@ -573,8 +573,17 @@ describe("ServerRail one-in-flight structural guard", () => {
     const view = renderRail()
     expect(latestFolderProps().onUngroup).toBeUndefined()
     const background = view.container.querySelector('[data-slot="community-rail-folder-backdrop"]')
+    expect(background).toHaveClass("size-10", "rounded-[18px]", "group-hover/folder:rounded-xl")
     await act(async () => (latestFolderProps().onToggle as () => void)())
     expect(view.container.querySelector('[data-slot="community-rail-folder-backdrop"]')).toBe(background)
+    expect(background).toHaveClass("inset-x-1", "inset-y-0", "rounded-[12px]")
+    expect(background).not.toHaveClass("size-10")
+    await act(async () => (latestFolderProps().onToggle as () => void)())
+    view.rerender(railElement([{ ...folders[0]!, servers: [{ id: "a", name: "A", initial: "A" }] }]))
+    expect(latestFolderProps().active).toBe(true)
+    expect(background).toHaveClass("size-10", "rounded-xl")
+    expect(background).not.toHaveClass("rounded-[18px]")
+    expect(mocks.mutate).not.toHaveBeenCalled()
   })
 
   it("keeps folder expansion unchanged while hovering and cancelling without a mutation", async () => {

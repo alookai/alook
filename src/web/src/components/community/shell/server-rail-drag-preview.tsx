@@ -53,7 +53,7 @@ export function ServerRailDragPreview({ dnd, servers, folderNames, state, active
       <div ref={anchor} className="absolute left-0 top-0 grid size-11 place-items-center" style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}>
         <span data-slot="community-server-rail-drag-glyph" className="relative grid size-11 place-items-center opacity-50">
           {server ? <RailServerIcon server={server} active={activeServerId === server.id} /> : (
-            <span className="grid size-12 shrink-0 place-items-center rounded-[12px] bg-accent/50 text-muted-foreground dark:bg-accent">
+            <span data-slot="community-server-rail-drag-folder" className={`grid size-10 shrink-0 place-items-center bg-accent/50 text-muted-foreground dark:bg-accent ${children.some((child) => child.id === activeServerId) ? "rounded-xl" : "rounded-[18px]"}`}>
               <RailFolderIcon open={false} folderServers={children} />
             </span>
           )}
