@@ -22,7 +22,7 @@ import {
 } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
-import { readCommunityDocumentSeedFromHtml } from "./_fixtures/community-ssr-frame"
+import { expectUniqueSsrCommunityFrame, readCommunityDocumentSeedFromHtml } from "./_fixtures/community-ssr-frame"
 
 const VIEWPORT = { width: 1280, height: 800 }
 
@@ -1514,10 +1514,12 @@ test.describe("message scroll characterization", () => {
       event.type === "community:message.create" && event.channelId === composerChannelId)).toHaveLength(0)
 
     await alice.page.goto(`/c/channels/${serverId}/${splitThreadId}`, { waitUntil: "commit" })
-    const split = alice.page.getByTestId(tid.threadSplit)
+    const frame = await expectUniqueSsrCommunityFrame(alice.page)
+    const split = frame.getByTestId(tid.threadSplit)
+    await expect(split).toHaveCount(1)
     await expect(split).toHaveAttribute("data-layout", "split", { timeout: 30_000 })
-    const parentPanel = alice.page.getByTestId(tid.threadSplitParent)
-    const threadPanel = alice.page.getByTestId(tid.threadSplitPanel)
+    const parentPanel = split.getByTestId(tid.threadSplitParent)
+    const threadPanel = split.getByTestId(tid.threadSplitPanel)
     const parentSurface = parentPanel.locator('[data-slot="community-conversation-surface"]')
     const threadSurface = threadPanel.locator('[data-slot="community-conversation-surface"]')
     await expect(parentSurface).toHaveAttribute("data-channel-id", composerChannelId)
