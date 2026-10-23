@@ -106,6 +106,12 @@ describe("bot creation request gallery", () => {
     expect(view.getByRole("status")).toHaveTextContent("Waiting for your owner")
     view.rerender(<BotCreationRequestCard request={{ ...request, status: "declined" }} messageId="message-1" viewerUserId="viewer" />)
     expect(view.getByRole("status")).toHaveTextContent("Declined")
+    expect(view.queryByRole("img", { name: "Approved" })).toBeNull()
+    const first = request.bots[0]!
+    view.rerender(<BotCreationRequestCard request={{ ...request, status: "approved", bots: [first, { ...first, itemId: "item-2" }] }} messageId="message-1" viewerUserId="viewer" />)
+    expect(view.getAllByRole("img", { name: "Approved" })).toHaveLength(2)
+    expect(view.queryByRole("status")).toBeNull()
+    expect(view.queryByTestId(tid.botCreationApprove)).toBeNull()
     command.error = new DOMException("Retired account", "AbortError")
     view.rerender(<BotCreationRequestCard request={{ ...request }} messageId="message-1" viewerUserId="viewer" />)
     expect(view.queryByRole("alert")).toBeNull()
