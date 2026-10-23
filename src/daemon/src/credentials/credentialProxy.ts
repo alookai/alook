@@ -250,6 +250,9 @@ function parseBearer(authHeader: string | undefined): string | null {
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
 export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname) => {
+  if (pathname.startsWith("/api/community/machines")) return "read";
+  if (pathname === "/api/community/bots" && method === "GET") return "read";
+  if (pathname === "/api/community/bots/creation-requests" && method === "POST") return "send";
   if (
     ((method === "GET" || method === "PATCH") && pathname === "/api/community/users/me/profile")
     || (method === "POST" && pathname === "/api/community/users/me/avatar")
@@ -586,7 +589,14 @@ export async function startCredentialProxy(
     // Bot traffic has one canonical REST namespace. The deleted flat
     // `/api/<verb>` surface must fail at this boundary rather than reaching an
     // upstream that might accidentally grow a matching route later.
-    const canonicalCommunityDoor = /^\/api\/community\/(channels|messages|servers|invites|friends|users|bots)(\/|$)/.test(pathname);
+    if (pathname.startsWith("/api/community/machines") && !(
+      (req.method === "GET" && /^\/api\/community\/machines(?:\/[^/]+(?:\/models)?)?$/.test(pathname))
+      || (req.method === "POST" && /^\/api\/community\/machines\/[^/]+\/discover-models$/.test(pathname))
+    )) {
+      writeJson(res, 403, { error: "Machine management is not available to bots", code: "forbidden" });
+      return;
+    }
+    const canonicalCommunityDoor = /^\/api\/community\/(channels|messages|servers|invites|friends|users|bots|machines)(\/|$)/.test(pathname);
     if (pathname === "/api" || (pathname.startsWith("/api/") && !canonicalCommunityDoor)) {
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "unknown API route", code: "not_found" }));

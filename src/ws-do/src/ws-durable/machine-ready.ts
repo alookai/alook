@@ -1,5 +1,6 @@
 import {
   CONTROL_HEARTBEAT_CAPABILITY,
+  MACHINE_STOP_CAPABILITY,
   RUNTIME_MODEL_DISCOVERY_CAPABILITY,
   createDb,
   HostReadyMessageSchema,
@@ -96,6 +97,7 @@ export async function handleReadyFrame(
       ...state,
       controlHeartbeat,
       modelDiscovery: ready.capabilities.includes(RUNTIME_MODEL_DISCOVERY_CAPABILITY),
+      machineStop: ready.capabilities.includes(MACHINE_STOP_CAPABILITY),
       ...(controlHeartbeat ? { lastHeartbeatAckAt: Date.now() } : {}),
       pendingHeartbeatNonce: undefined,
     })

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import * as shared from "@alook/shared"
 import { NextRequest } from "next/server"
+
+const mockResolveBotActor = vi.fn()
+vi.mock("@/lib/middleware/community-agent-runner-auth", () => ({ resolveBotActor: (...args: unknown[]) => mockResolveBotActor(...args) }))
 
 const mockCountLiveBotsForOwner = vi.fn()
 const mockGetMachineForOwner = vi.fn()
@@ -9,14 +13,14 @@ const mockPushBotEventToMachine = vi.fn()
 const mockListBotsForOwner = vi.fn()
 const mockGetBotDailyActivityForOwner = vi.fn()
 const mockGetBotDailyTokenUsageForOwner = vi.fn()
-const mockEnsureSiblingBotFriendship = vi.fn()
+const mockEnsureNewSiblingBotFriendships = vi.fn()
 const mockGetBotCapacitySummary = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -36,7 +40,7 @@ vi.mock("@alook/shared", async () => {
         getBotCapacitySummary: (...a: unknown[]) => mockGetBotCapacitySummary(...a),
       },
       communityFriendship: {
-        ensureSiblingBotFriendship: (...a: unknown[]) => mockEnsureSiblingBotFriendship(...a),
+        ensureNewSiblingBotFriendships: (...a: unknown[]) => mockEnsureNewSiblingBotFriendships(...a),
       },
       user: {
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
@@ -100,15 +104,28 @@ describe("POST /api/community/bots — model", () => {
       activeCount: 0,
     })
     mockGetMachineForOwner.mockResolvedValue({
-      id: "mac1",
+      id: "mac1", status: "online",
       availableRuntimes: [{ id: "claude", status: "healthy" }, { id: "codex", status: "healthy" }],
     })
     mockCreateBot.mockResolvedValue({ botId: "b1", name: "MyBot", discriminator: "0001", description: "", image: null })
     mockGetUserPublic.mockResolvedValue({ id: "u1", name: "Owner", discriminator: "9999" })
     mockListBotsForOwner.mockResolvedValue([{ id: "b1" }])
-    mockEnsureSiblingBotFriendship.mockResolvedValue({ blocked: false })
+    mockEnsureNewSiblingBotFriendships.mockResolvedValue({ blocked: false })
   })
 
+  it("propagates unexpected configuration failures before creating a bot", async () => {
+    const error = new Error("configuration unavailable")
+    vi.spyOn(shared, "resolveBotCreationConfiguration").mockImplementationOnce(() => { throw error })
+    await expect(POST(postReq(base()), ctx)).rejects.toThrow(error)
+    expect(mockCreateBot).not.toHaveBeenCalled()
+  })
+  it("rejects an offline machine on the existing human create path", async () => {
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "offline", availableRuntimes: [{ id: "claude", status: "healthy" }] })
+    const response = await POST(postReq(base()), ctx)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: "MACHINE_OFFLINE", machineId: "mac1" })
+    expect(mockCreateBot).not.toHaveBeenCalled()
+  })
   it("persists model_name and returns it in the 201 body", async () => {
     const res = await POST(postReq(base("claude-opus-4-6")), ctx)
     expect(res.status).toBe(201)
@@ -139,7 +156,7 @@ describe("POST /api/community/bots — model", () => {
   })
 
   it("creates the separately reported agy backend with its own default model", async () => {
-    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", availableRuntimes: [{ id: "agy", status: "healthy" }] })
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "online", availableRuntimes: [{ id: "agy", status: "healthy" }] })
     const res = await POST(postReq(base(undefined, "agy")), ctx)
     expect(res.status).toBe(201)
     expect(mockCreateBot).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ runtime: "agy", modelName: null }))
@@ -165,7 +182,7 @@ describe("POST /api/community/bots — model", () => {
   })
 
   it("creates OpenCode with an explicit custom model absent from its catalog", async () => {
-    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", availableRuntimes: [{ id: "opencode", status: "healthy" }] })
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "online", availableRuntimes: [{ id: "opencode", status: "healthy" }] })
     const res = await POST(postReq(base("provider/custom", "opencode")), ctx)
     expect(res.status).toBe(201)
     expect((await res.json()).bot.modelName).toBe("provider/custom")
@@ -178,16 +195,17 @@ describe("POST /api/community/bots — model", () => {
     const res = await POST(postReq(base()), ctx)
 
     expect(res.status).toBe(201)
-    expect(mockEnsureSiblingBotFriendship).toHaveBeenCalledOnce()
-    expect(mockEnsureSiblingBotFriendship).toHaveBeenCalledWith(
+    expect(mockEnsureNewSiblingBotFriendships).toHaveBeenCalledOnce()
+    expect(mockEnsureNewSiblingBotFriendships).toHaveBeenCalledWith(
       expect.anything(),
-      { botA: "b1", botB: "b2" },
+      "u1",
+      ["b1"],
     )
   })
 
   it("still returns 201 when sibling auto-friendship fails", async () => {
     mockListBotsForOwner.mockResolvedValue([{ id: "b1" }, { id: "b2" }])
-    mockEnsureSiblingBotFriendship.mockRejectedValue(new Error("D1 unavailable"))
+    mockEnsureNewSiblingBotFriendships.mockRejectedValue(new Error("D1 unavailable"))
 
     const res = await POST(postReq(base()), ctx)
 
@@ -259,7 +277,7 @@ describe("POST /api/community/bots — model", () => {
 
   it("persists a supported capability-backed reasoning effort", async () => {
     mockGetMachineForOwner.mockResolvedValue({
-      id: "mac1",
+      id: "mac1", status: "online",
       availableRuntimes: [{
         id: "codex",
         status: "healthy",
@@ -291,7 +309,7 @@ describe("POST /api/community/bots — model", () => {
 
   it("rejects an explicit effort the selected model did not report", async () => {
     mockGetMachineForOwner.mockResolvedValue({
-      id: "mac1",
+      id: "mac1", status: "online",
       availableRuntimes: [{
         id: "codex",
         status: "healthy",
@@ -321,6 +339,16 @@ describe("GET /api/community/bots — heatmap activity", () => {
     })
   })
 
+  it("projects the owner's bots for a runner without exposing private owner usage", async () => {
+    mockResolveBotActor.mockResolvedValueOnce({ kind: "bot", actor: { botUserId: "requester", ownerUserId: "owner", machineId: "m1", isActive: true } })
+    mockListBotsForOwner.mockResolvedValueOnce([{ id: "sibling", name: "Reviewer", discriminator: "0042", machineId: "m2", runtime: "codex", modelName: "custom/model", reasoningEffort: "high", isActive: true, presence: "online", dailyActivity: ["private"], description: "private" }])
+    const response = await GET(new NextRequest("http://localhost/api/community/bots", { headers: { Authorization: "Bearer crk_test_fixture" } }), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ bots: [{ id: "sibling", handle: "Reviewer#0042", name: "Reviewer", machineId: "m2", backendId: "codex", model: "custom/model", reasoningEffort: "high", isActive: true, presence: "online" }] })
+    expect(mockListBotsForOwner).toHaveBeenCalledWith({}, "owner")
+    expect(mockGetBotDailyActivityForOwner).not.toHaveBeenCalled()
+    expect(mockGetBotCapacitySummary).not.toHaveBeenCalled()
+  })
   it("attaches each bot's 30-day dailyActivity from the batched owner read", async () => {
     mockListBotsForOwner.mockResolvedValue([
       { id: "bot_1", name: "A", machineId: "m1", runtime: "claude", modelName: null },

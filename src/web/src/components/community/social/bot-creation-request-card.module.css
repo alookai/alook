@@ -1,0 +1,13 @@
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .card:hover {
+    animation: sway 300ms ease-in-out;
+    transform-origin: center 70%;
+  }
+}
+
+@keyframes sway {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-1deg); }
+  60% { transform: rotate(0.8deg); }
+  85% { transform: rotate(-0.3deg); }
+}

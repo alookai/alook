@@ -33,6 +33,7 @@ const CLAUDE_MODEL_CATALOG = {
 
 export class ClaudeDriver implements BackendAdapter {
   readonly id = "claude";
+  readonly modelCatalogOrigin = "adapter_suggestions" as const;
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
     lifetime: "session",

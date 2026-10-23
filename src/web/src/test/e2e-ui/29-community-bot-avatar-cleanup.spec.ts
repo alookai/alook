@@ -1,6 +1,7 @@
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { WEB_URL } from "./_setup/paths"
+import { connectMachine } from "./_fixtures/community-machine"
 import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
 
 async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
@@ -42,6 +43,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     expect(activate.status).toBe(200)
     const body = await activate.json() as {
       machineId: string
+      credential: string
     }
     const machineId = body.machineId
     caseResources.own(machineId, async (id) => {
@@ -51,6 +53,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     activationProof.response = activate
     activationProof.machineId = machineId
     await pairingToken.close()
+    await connectMachine(body.credential, caseResources, { machineId, headers: aliceHeaders() }).opened
     return machineId
   }
   async function createBot(machineId: string, name: string): Promise<string> {

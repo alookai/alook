@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest"
-import { mapMessageForApi, mapMessageForWs, type MessageRow } from "./message-payload"
+import { beforeEach, describe, it, expect, vi } from "vitest"
+const creationMocks = vi.hoisted(() => ({ hydrate: vi.fn(), attachments: vi.fn(), reactions: vi.fn() }))
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return { ...actual, queries: { ...actual.queries, communityBotCreation: { hydrateCreationRequestsForDmMessages: creationMocks.hydrate }, communityAttachment: { listByMessageIds: creationMocks.attachments }, communityReaction: { listReactionsByMessageIds: creationMocks.reactions } } }
+})
+import { botCreationFixture } from "@/test/bot-creation-fixtures"
+import { readCommunityMessageResource, mapMessageForApi, mapMessageForWs, type MessageRow } from "./message-payload"
 
 const baseRow: MessageRow = {
   id: "m1",
@@ -206,5 +212,26 @@ describe("attachment contract selection", () => {
       expect(value.attachments).toEqual([{ kind: "file", name: "file.bin", url: "/file" }])
     }
     expect(mapMessageForApi({ ...baseRow, authorAvatarVersion: 2 }, ctx, 3, "channel").attachments).toEqual([attachment])
+  })
+})
+
+
+describe("single-message creation payload hydration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    creationMocks.attachments.mockResolvedValue([])
+    creationMocks.reactions.mockResolvedValue([])
+  })
+  it.each(["default", "friend_approval"])("does not query creation requests for %s", async type => {
+    await readCommunityMessageResource({} as never, "viewer", { ...baseRow, type, channelId: "dm" }, 3)
+    expect(creationMocks.hydrate).not.toHaveBeenCalled()
+  })
+  it("hydrates a creation card with the same immutable owner identity", async () => {
+    const payload = botCreationFixture()
+    creationMocks.hydrate.mockResolvedValue(new Map([[baseRow.id, payload]]))
+    const message = await readCommunityMessageResource({} as never, "viewer", { ...baseRow, type: "bot_creation_request", channelId: "dm" }, 3)
+    expect(creationMocks.hydrate).toHaveBeenCalledExactlyOnceWith({}, [baseRow.id], "viewer")
+    expect(message.botCreation).toEqual(payload)
+    expect(message.botCreation).not.toHaveProperty("canDecide")
   })
 })

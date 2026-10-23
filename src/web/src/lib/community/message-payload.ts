@@ -15,7 +15,7 @@
  * field on the wire is one edit, not four.
  */
 import { CommunityMessageResourceSchema, queries, truncateMessagePreview, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment, type CommunityLegacyMessageCreate } from "@alook/shared"
-import type { FriendApprovalPayload } from "@alook/shared"
+import type { BotCreationPayload, FriendApprovalPayload } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectMessageWireType } from "@/lib/community/message-wire-type"
@@ -85,6 +85,7 @@ export type ApiMessageContext = {
   threadByMessageId?: Map<string, ThreadPreview>
   /** Optional: only the DM messages route hydrates friend-approval cards. */
   approvalByMessageId?: Map<string, FriendApprovalPayload>
+  botCreationByMessageId?: Map<string, BotCreationPayload>
 }
 
 export async function loadApiMessageContext(db: Database, userId: string, ids: string[], readReplies: () => ReturnType<typeof queries.communityMessage.getMessagesByIdsInChannels>, skipEmpty = false) {
@@ -102,7 +103,8 @@ export async function loadApiMessageContext(db: Database, userId: string, ids: s
 export async function readCommunityMessageResource(db: Database, userId: string, message: Parameters<typeof mapMessageForApi>[0] & { channelId: string }, contract: CommunityContract) {
   const context = await loadApiMessageContext(db, userId, [message.id], () => message.replyToId
     ? queries.communityMessage.getMessagesByIdsInScope(db, [message.replyToId], { channelId: message.channelId }) : Promise.resolve([]))
-  return mapMessageForApi(message, context(message.channelId), contract, message.channelId)
+  const botCreationByMessageId = message.type === "bot_creation_request" ? await queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, [message.id], userId) : new Map<string, BotCreationPayload>()
+  return mapMessageForApi(message, { ...context(message.channelId), botCreationByMessageId }, contract, message.channelId)
 }
 
 // Splits the DB's `type` column value into the wire's `{ type, systemKind }`
@@ -128,6 +130,7 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext, contra
     ...(Array.isArray(row.embeds) ? { embeds: row.embeds } : {}),
     reactions: ctx.reactionsByMessage[row.id], thread: ctx.threadByMessageId?.get(row.id),
     approval: ctx.approvalByMessageId?.get(row.id),
+    botCreation: ctx.botCreationByMessageId?.get(row.id),
   })
   return {
     ...coreFields(row, ctx.replyMap),
@@ -139,6 +142,7 @@ export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext, contra
     reactions: ctx.reactionsByMessage[row.id]?.length ? ctx.reactionsByMessage[row.id] : undefined,
     thread: ctx.threadByMessageId?.get(row.id),
     approval: ctx.approvalByMessageId?.get(row.id),
+    botCreation: ctx.botCreationByMessageId?.get(row.id),
   }
 }
 
@@ -165,11 +169,13 @@ export type WsMessageContext = {
    * is filtered out below so a content fingerprint never reaches the wire.
    */
   clientNonce?: string
+  botCreation?: BotCreationPayload
 }
 
 export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext, contract: CommunityContract = 2, channelId?: string) {
   if (contract === 3) return CommunityMessageResourceSchema.required({ authorName: true, authorAvatarVersion: true }).parse({
     ...coreFields(row, ctx.replyMap, ctx.clientNonce ?? null),
+    botCreation: ctx.botCreation,
     channelId,
     authorAvatar: canonicalUserImage(row.authorId, row.authorImage, row.authorAvatarVersion),
     clientNonce: ctx.clientNonce && !ctx.clientNonce.startsWith("srv:") ? ctx.clientNonce : null,
@@ -183,6 +189,7 @@ export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext, contract
   // nonce, but if a `srv:` value ever reaches here it is dropped, not fanned.
   return {
     ...coreFields(row, ctx.replyMap, ctx.clientNonce ?? null),
+    botCreation: ctx.botCreation,
     // The shared CommunityMessageCreate.embeds is `unknown[]` — narrow here
     // rather than widening the wire type.
     embeds: Array.isArray(row.embeds) ? row.embeds : undefined,

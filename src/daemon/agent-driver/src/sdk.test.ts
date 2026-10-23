@@ -71,6 +71,13 @@ describe("createAgentDriverSdk", () => {
     expect(probe).toHaveBeenLastCalledWith(undefined);
   });
 
+  it.each(["healthy", "unhealthy"] as const)("labels Claude %s model suggestions at the producer boundary", async (status) => {
+    vi.spyOn(ClaudeDriver.prototype, "probe").mockResolvedValue({ status, reasoning: { models: [{ id: "sonnet", supportedReasoningEfforts: [] }], updateMode: "unsupported" } });
+    await expect(createAgentDriverSdk().probe({ backend: "claude" })).resolves.toMatchObject({
+      reasoning: { catalogOrigin: "adapter_suggestions", models: [{ id: "sonnet" }] },
+    });
+  });
+
   it("maps healthy, unhealthy, and thrown adapter probes", async () => {
     const sdk = createAgentDriverSdk();
     const probe = vi.spyOn(ClaudeDriver.prototype, "probe");
@@ -115,7 +122,7 @@ describe("createAgentDriverSdk", () => {
       if (process.platform !== "win32") chmodSync(command, 0o755);
       await expect(createAgentDriverSdk().probe({ backend: "opencode", command })).resolves.toMatchObject({
         status: "healthy", version: "opencode v2.0.28",
-        reasoning: { models: [{ id: "opencode/space-bunny-free" }] },
+        reasoning: { catalogOrigin: "native_report", models: [{ id: "opencode/space-bunny-free" }] },
       });
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });

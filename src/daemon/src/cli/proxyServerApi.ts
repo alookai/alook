@@ -1,3 +1,4 @@
+import { type PlatformMachineRequest, type PlatformBotRequest } from "@alook/shared";
 /**
  * Proxy-routed `ServerApi` client — the agent's REAL data-plane path.
  *
@@ -128,6 +129,8 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       // without this the owner-mismatch hint never leaves this file (see
       // plan's "Hint propagation" note).
       if (json?.hint !== undefined) (e as { hint?: string }).hint = json.hint;
+      const safeFields = ["requestId", "machineId", "backendId", "itemIndex", "field", "required", "available", "status", "allowedValues"];
+      (e as Error & { platformDetails?: Record<string, unknown> }).platformDetails = Object.fromEntries(Object.entries(json ?? {}).filter(([key]) => safeFields.includes(key)));
       throw e;
     }
     return json as T;
@@ -680,7 +683,29 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return { left: req.server, scope: "server" };
   }
 
+  async function platformCall(path: string, method = "GET", body?: unknown): Promise<Record<string, unknown>> {
+    const response = await fetchImpl(`${base}/api/community${path}`, { method,
+      headers: { authorization: `Bearer ${config.voucher}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    return parseJsonResponse<Record<string, unknown>>(response, "platform");
+  }
+
+  async function callPlatformMachine(req: PlatformMachineRequest): Promise<Record<string, unknown>> {
+    if (req.action === "list") return platformCall("/machines?view=list");
+    const machine = `/machines/${encodeURIComponent(req.machineId)}`;
+    if (req.action === "backends") return platformCall(machine);
+    if (req.refresh) return platformCall(`${machine}/discover-models`, "POST", { requestId: req.requestId ?? crypto.randomUUID(), runtimeId: req.backendId });
+    return platformCall(`${machine}/models?backend=${encodeURIComponent(req.backendId)}${req.model ? `&model=${encodeURIComponent(req.model)}` : ""}`);
+  }
+
+  async function callPlatformBot(req: PlatformBotRequest): Promise<Record<string, unknown>> {
+    if (req.action === "list") return platformCall("/bots");
+    return platformCall("/bots/creation-requests", "POST", { requestId: req.requestId, bots: req.bots });
+  }
+
   return {
+    platformMachine: callPlatformMachine,
+    platformBot: callPlatformBot,
     listServers: (_r: { agentId: AgentId }) => callListServers(),
     joinServer: callJoinServer,
     leaveServer: callLeaveServer,

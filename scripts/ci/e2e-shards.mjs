@@ -84,6 +84,7 @@ export const SPEC_SECONDS = {
   "60-desktop-default-user-bar-width.spec.ts": 83.700,
   "63-mobile-notification-chat-route.spec.ts": DEFAULT_SPEC_SECONDS,
   "64-billing-contact.spec.ts": 6,
+  "64-mobile-parent-return.spec.ts": DEFAULT_SPEC_SECONDS,
   "65-analytics-document-boundary.spec.ts": DEFAULT_SPEC_SECONDS,
   "66-public-static-resource-cache.spec.ts": DEFAULT_SPEC_SECONDS,
 }

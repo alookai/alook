@@ -6,6 +6,7 @@ import { calendarDayKeyDaysAgo, dayKeyInTimeZone } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
+import { connectMachine } from "./_fixtures/community-machine"
 import { REPO_ROOT, WEB_URL } from "./_setup/paths"
 import type { CaseActors } from "./_fixtures/case-fixture"
 
@@ -516,6 +517,7 @@ test("My Bots renders Pi usage through real D1 and the unmocked bots API", async
   const ownerId = userId("alice")
   let machineId: string | undefined
   let botId: string | undefined
+  let machine: ReturnType<typeof connectMachine> | undefined
   const ownedD1 = caseResources.own(ownerId, async () => {
       executeLocalD1([
         botId ? `DELETE FROM community_bot_daily_token_usage WHERE bot_id = ${sqlLiteral(botId)}` : "",
@@ -549,7 +551,10 @@ let caseJourneyFailure1Present = false
       }),
     })
     expect(activateResponse.ok).toBe(true)
-    machineId = ((await activateResponse.json()) as { machineId: string }).machineId
+    const activation = await activateResponse.json() as { machineId: string; credential: string }
+    machineId = activation.machineId
+    machine = connectMachine(activation.credential, caseResources, { machineId, headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } })
+    await machine.opened
 
     const createResponse = await postAsAlice("/api/community/bots", {
       name: `Local Day ${randomUUID().slice(0, 8)}`,
@@ -672,6 +677,7 @@ let caseJourneyFailure1Present = false
   } catch (error) { caseJourneyFailure1 = error; caseJourneyFailure1Present = true; throw error } finally {
     try {
 
+      await machine?.close()
       await ownedD1.close()
 
     } catch (cleanupError) { if (caseJourneyFailure1Present) throw new AggregateError([caseJourneyFailure1, cleanupError], "Journey and resource exit both failed"); throw cleanupError }

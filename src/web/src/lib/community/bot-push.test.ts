@@ -12,6 +12,7 @@ import {
   pushAgentProviderSwitchToMachine,
   pushAgentRuntimeConfigUpdateToMachine,
   pushMachineUpdate,
+  pushMachineStop,
 } from "./bot-push"
 
 const FAKE_ENV = { WS_DO_WORKER: {}, DEV_WS_DO_URL: undefined } as unknown as Env
@@ -57,6 +58,31 @@ describe("pushBotEventToMachine agent:event", () => {
 
     wsDoFetch.mockRejectedValueOnce(new Error("network"))
     await expect(pushBotEventToMachine(FAKE_ENV, "m", event)).resolves.toEqual({ sent: 0 })
+  })
+})
+
+describe("pushMachineStop", () => {
+  beforeEach(() => wsDoFetch.mockReset())
+
+  it.each([{ sent: 1, unsupported: 0 }, { sent: 0, unsupported: 1 }, { sent: 0, unsupported: 0 }])("preserves the supported socket receipt %j", async (receipt) => {
+    wsDoFetch.mockResolvedValue(Response.json(receipt))
+    await expect(pushMachineStop(FAKE_ENV, "machine/1")).resolves.toEqual({ ...receipt, deliveryError: false })
+    const [, path, init, meta] = wsDoFetch.mock.calls[0]!
+    expect(path).toBe("/community-machine/by-id/machine%2F1/forward-stop")
+    expect(init).toEqual({ method: "POST" })
+    expect(meta).toEqual({ label: "machine/1", type: "machine:stop" })
+  })
+
+  it.each([null, {}, { sent: 1 }, { sent: -1, unsupported: 0 }, { sent: 1, unsupported: "unknown" }, { sent: 1.5, unsupported: 0 }])("rejects malformed receipt %j", async (receipt) => {
+    wsDoFetch.mockResolvedValue(Response.json(receipt))
+    await expect(pushMachineStop(FAKE_ENV, "m")).resolves.toEqual({ sent: 0, unsupported: 0, deliveryError: true })
+  })
+
+  it("reports a service error or thrown request as delivery failure", async () => {
+    wsDoFetch.mockResolvedValueOnce(new Response("down", { status: 503 })).mockRejectedValueOnce(new Error("network"))
+    for (let index = 0; index < 2; index++) {
+      await expect(pushMachineStop(FAKE_ENV, "m")).resolves.toEqual({ sent: 0, unsupported: 0, deliveryError: true })
+    }
   })
 })
 

@@ -1,11 +1,10 @@
-import { createRequire } from "module"
-import { resolve } from "path"
 import type { Locator, Page, Route, TestInfo, WebSocket as BrowserSocket } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 
 import { tid } from "./_fixtures/testids"
-import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
+import { WEB_URL } from "./_setup/paths"
+import { connectMachine } from "./_fixtures/community-machine"
 import type { CaseActors, CaseResources, OwnedCaseResource } from "./_fixtures/case-fixture"
 
 async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
@@ -369,43 +368,6 @@ async function setBotMark(
   await expect(response.json()).resolves.toMatchObject({ type: "mark", value: true })
 }
 
-type MachineSocket = {
-  send: (data: string) => void
-  close: () => void
-  readonly readyState: number
-  once(event: "close", listener: () => void): void
-  once(event: "open", listener: () => void): void
-  once(event: "error", listener: (error: Error) => void): void
-  once(event: "message", listener: (data: unknown) => void): void
-  on(event: "message", listener: (data: unknown) => void): void
-  off(event: "message", listener: (data: unknown) => void): void
-}
-
-function connectMachine(credential: string, caseResources: CaseResources) {
-  const requireFromDaemon = createRequire(resolve(REPO_ROOT, "src/daemon/package.json"))
-  const Ws = requireFromDaemon("ws") as {
-    WebSocket: new (url: string, options: { headers: Record<string, string> }) => MachineSocket
-  }
-  const socket = new Ws.WebSocket(MACHINE_WS_URL.replace(/^http/, "ws"), {
-    headers: { Authorization: `Bearer ${credential}` },
-  })
-  const ownedSocket = caseResources.own(socket, async (captured) => {
-    await new Promise<void>((resolve) => {
-      if (captured.readyState === 3) { resolve(); return }
-      captured.once("close", resolve)
-      captured.close()
-    })
-  })
-  return {
-    socket,
-    close: () => ownedSocket.close(),
-    opened: new Promise<void>((resolveOpen, reject) => {
-      socket.once("open", () => resolveOpen())
-      socket.once("error", reject)
-    }),
-  }
-}
-
 async function openBotProfile(page: Page, botName: string): Promise<void> {
   await page.getByRole("button", { name: botName, exact: true }).click()
   await expect(page.getByTestId(tid.profileCard)).toBeVisible()
@@ -543,9 +505,9 @@ test("full audit log reveals a truncated row by hover and touch", async ({ caseA
   const longAuditTarget = `/Users/alice/workspace/${"deeply-nested-audit-target/".repeat(5)}result-${suffix}.md`
   const fullAuditText = `read · ${longAuditTarget}`
   const { credential, machineId } = await pairMachine()
-  const botId = await createBot(machineId, `Tooltip bot ${suffix}`)
-  const machine = connectMachine(credential, caseResources)
+  const machine = connectMachine(credential, caseResources, { machineId, headers: headersFor("alice") })
   await machine.opened
+  const botId = await createBot(machineId, `Tooltip bot ${suffix}`)
 
   let caseJourneyFailure1: unknown
 let caseJourneyFailure1Present = false
@@ -625,7 +587,7 @@ test("owned bot profile preview stays root-bounded from its first visible frame"
   const actors = await caseActors(["alice", "bob"])
   const { asUser } = actors
   const { seedChannel, seedForumThread, seedJoinServer, seedServer } = actors.seed
-  const { jsonRequest, pairMachine, createBot, joinBotToServer } = await prepareCase(actors, caseResources)
+  const { jsonRequest, pairMachine, createBot, joinBotToServer, headersFor } = await prepareCase(actors, caseResources)
 
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `preview-overflow-${suffix}`)
@@ -642,6 +604,8 @@ test("owned bot profile preview stays root-bounded from its first visible frame"
   await seedJoinServer("alice", "bob", serverId)
 
   const { credential, machineId } = await pairMachine()
+  const machine = connectMachine(credential, caseResources, { machineId, headers: headersFor("alice") })
+  await machine.opened
   const botName = `Overflow bot ${suffix}`
   const botId = await createBot(machineId, botName)
   const runnerKey = await enrollBot(credential, botId)
@@ -738,6 +702,8 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
   await seedJoinServer("alice", "bob", serverId)
 
   const { credential, machineId } = await pairMachine()
+  const machine = connectMachine(credential, caseResources, { machineId, headers: headersFor("alice") })
+  await machine.opened
   const botName = `Preview bot ${suffix} long-name`
   const botId = await createBot(machineId, botName)
   const runnerKey = await enrollBot(credential, botId)
@@ -794,8 +760,6 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
   )
   expect(removeStaleBot.status).toBe(204)
 
-  const machine = connectMachine(credential, caseResources)
-  await machine.opened
   let caseJourneyFailure2: unknown
 let caseJourneyFailure2Present = false
   try {
@@ -928,7 +892,14 @@ let caseJourneyFailure2Present = false
     await attachPageScreenshot(testInfo, "bot-work-sticker-activity-running-desktop", alice.page)
     await marksTab.click()
     const interruptFrame = new Promise<unknown>((resolveFrame) => {
-      machine.socket.once("message", (data) => resolveFrame(JSON.parse(String(data))))
+      const onMessage = (data: unknown) => {
+        const frame = JSON.parse(String(data)) as { type: string }
+        if (frame.type === "machine:heartbeat") return
+        machine.socket.off("message", onMessage)
+        resolveFrame(frame)
+      }
+      caseResources.own(onMessage, async captured => { machine.socket.off("message", captured) })
+      machine.socket.on("message", onMessage)
     })
     await stop.click()
     await expect(stop).toContainText("Stopping…")
@@ -1057,9 +1028,11 @@ test("CommunitySheet footers keep four consumers horizontal and intrinsic at 390
   const actors = await caseActors(["alice"])
   const { asUser } = actors
   const { seedChannel, seedServer } = actors.seed
-  const { cleanupCreatedResources, jsonRequest, pairMachine, createBot } = await prepareCase(actors, caseResources)
+  const { cleanupCreatedResources, jsonRequest, pairMachine, createBot, headersFor } = await prepareCase(actors, caseResources)
 
-  const { machineId } = await pairMachine()
+  const { credential, machineId } = await pairMachine()
+  const machine = connectMachine(credential, caseResources, { machineId, headers: headersFor("alice") })
+  await machine.opened
   const botName = `Footer bot ${Date.now().toString(36)}`
   await createBot(machineId, botName)
   const { page } = await asUser("alice")
@@ -1334,12 +1307,12 @@ for (const scenario of ["same-day", "cross-day"] as const) {
     test(`Activity ${scenario} older pages preserve real event positions at ${width}`, async ({ caseActors, caseResources }, testInfo) => {
       test.setTimeout(120_000)
       const actors = await caseActors(["alice"])
-      const { pairMachine, createBot, jsonRequest } = await prepareCase(actors, caseResources)
+      const { pairMachine, createBot, jsonRequest, headersFor } = await prepareCase(actors, caseResources)
       const { credential, machineId } = await pairMachine()
+      const machine = connectMachine(credential, caseResources, { machineId, headers: headersFor("alice") })
+      await machine.opened
       const suffix = Date.now().toString(36)
       const botId = await createBot(machineId, `Anchor ${scenario} ${width} ${suffix}`)
-      const machine = connectMachine(credential, caseResources)
-      await machine.opened
       let gate: Awaited<ReturnType<typeof gateOlderActivityPages>> | undefined
       let journeyFailure: unknown
       let journeyFailurePresent = false
@@ -1434,17 +1407,17 @@ for (const width of [1280, 390] as const) {
   test(`Activity recovery, live reading and reopen preserve event ownership at ${width}`, async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(120_000)
     const actors = await caseActors(["alice"])
-    const { pairMachine, createBot, jsonRequest } = await prepareCase(actors, caseResources)
+    const { pairMachine, createBot, jsonRequest, headersFor } = await prepareCase(actors, caseResources)
     const suffix = Date.now().toString(36)
     const { credential, machineId } = await pairMachine()
+    const machine = connectMachine(credential, caseResources, { machineId, headers: headersFor("alice") })
+    await machine.opened
     const botId = await createBot(machineId, `Recovery ${width} ${suffix}`)
-    const machine = connectMachine(credential, caseResources)
     let gate: Awaited<ReturnType<typeof gateOlderActivityPages>> | undefined
     let journeyFailure: unknown
     let journeyFailurePresent = false
     const steps: Array<Record<string, unknown>> = []
     try {
-      await machine.opened
       const history = await seedActivityHistory({ machine, botId, suffix, scenario: "same-day", caseResources, jsonRequest, testInfo })
       const { page } = await actors.asUser("alice", { viewport: { width, height: 900 }, colorScheme: width === 390 ? "dark" : "light" })
       const frames = observeActivityFrames(page, caseResources)

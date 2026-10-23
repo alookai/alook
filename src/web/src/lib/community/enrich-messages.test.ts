@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getFirstMessages: vi.fn(),
   listParticipants: vi.fn(),
   hydrateApprovals: vi.fn(),
+  hydrateCreation: vi.fn(),
   getLatestSeq: vi.fn(),
 }))
 
@@ -47,6 +48,7 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityThread,
         listParticipantsForChannels: (...args: unknown[]) => mocks.listParticipants(...args),
       },
+      communityBotCreation: { hydrateCreationRequestsForDmMessages: (...args: unknown[]) => mocks.hydrateCreation(...args) },
       communityFriendship: {
         ...actual.queries.communityFriendship,
         hydrateApprovalsForDmMessages: (...args: unknown[]) => mocks.hydrateApprovals(...args),
@@ -56,6 +58,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 import { enrichMessages } from "./enrich-messages"
+import { botCreationFixture } from "@/test/bot-creation-fixtures"
 
 describe("enrichMessages attachment projection", () => {
   beforeEach(() => {
@@ -67,6 +70,7 @@ describe("enrichMessages attachment projection", () => {
     mocks.getFirstMessages.mockResolvedValue([])
     mocks.listParticipants.mockResolvedValue([])
     mocks.hydrateApprovals.mockResolvedValue(new Map())
+    mocks.hydrateCreation.mockResolvedValue(new Map())
     mocks.getLatestSeq.mockResolvedValue(9)
   })
 
@@ -79,6 +83,20 @@ describe("enrichMessages attachment projection", () => {
     expect(mocks.hydrateApprovals).not.toHaveBeenCalled()
     expect(mocks.listChildren).not.toHaveBeenCalled()
     expect(mocks.getLatestSeq).toHaveBeenCalledWith(db, { channelId: "dm1" })
+  })
+
+  it("hydrates only creation IDs in a mixed DM and does no creation lookup for ordinary/friend messages", async () => {
+    mocks.listAttachments.mockResolvedValue([])
+    const base = { seq: 1, authorId: "u1", authorName: "Alice", authorImage: null, content: "hello", mentionType: null, replyToId: null, embeds: null, createdAt: "2026-08-13T00:00:00.000Z", channelId: "dm1" }
+    const ordinary = [{ ...base, id: "chat", type: "default" }, { ...base, id: "friend", type: "friend_approval" }]
+    await enrichMessages({} as never, "u1", { channelId: "dm1", isDm: true }, ordinary)
+    expect(mocks.hydrateCreation).not.toHaveBeenCalled()
+    const payload = botCreationFixture()
+    mocks.hydrateCreation.mockResolvedValue(new Map([["creation", payload]]))
+    const result = await enrichMessages({} as never, "u1", { channelId: "dm1", isDm: true }, [...ordinary, { ...base, id: "creation", type: "bot_creation_request" }])
+    expect(mocks.hydrateCreation).toHaveBeenCalledExactlyOnceWith({}, ["creation"], "u1")
+    expect(result.messages.find(message => message.id === "creation")?.botCreation).toEqual(payload)
+    expect(result.messages.find(message => message.id === "chat")?.botCreation).toBeUndefined()
   })
 
   it("projects a canonical thumbnail beside reply enrichment", async () => {

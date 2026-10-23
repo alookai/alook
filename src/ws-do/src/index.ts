@@ -15,7 +15,7 @@ import {
   handleMachineForceClose,
   handleMachineNap,
   handleMachineReset,
-  handleMachineUpdate,
+  handleMachineLifecycleCommand,
 } from "./routes/community-machine-lifecycle"
 import {
   handleMachineModelSwitch,
@@ -77,7 +77,7 @@ export default {
     if (response) return response
     response = await handleMachineReset(context)
     if (response) return response
-    response = await handleMachineUpdate(context)
+    response = await handleMachineLifecycleCommand(context)
     if (response) return response
     response = await handleMachineBatchReset(context)
     if (response) return response

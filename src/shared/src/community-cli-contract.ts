@@ -1,3 +1,4 @@
+import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
  * Server API contract — the agent ⇄ server boundary.
  *
@@ -629,6 +630,8 @@ export interface FriendCard {
  * messages by channel + seq. No structured Target or message id crosses the wire.
  */
 export interface ServerApi {
+  platformMachine?(req: PlatformMachineRequest): Promise<Record<string, unknown>>;
+  platformBot?(req: PlatformBotRequest): Promise<Record<string, unknown>>;
   /** Which servers/workspaces this agent participates in. */
   listServers(req: { agentId: AgentId }): Promise<{ servers: Server[] }>;
 
@@ -755,6 +758,7 @@ export interface UnreadNotice {
 /* ------------------------------------------------------------------ */
 
 export const CONTROL_HEARTBEAT_CAPABILITY = "control-heartbeat-v1";
+export const MACHINE_STOP_CAPABILITY = "machine-stop-v1";
 
 export const AgentInterruptRequestSchema = z.strictObject({
   type: z.literal("agent:interrupt"),
@@ -851,6 +855,7 @@ export type HostCommand =
    */
   | { type: "machine:reset_all"; resets: Array<{ agentId: AgentId; config: RuntimeConfig; launchId: string }> }
   | { type: "machine:update" }
+  | { type: "machine:stop" }
   // ─── Bot lifecycle events (server → daemon) ────────────────────────────
   // Colon-namespaced to match the agent:* naming convention. Delivered to
   // the specific machine's daemon connection via the WS DO. On the daemon,
@@ -1549,6 +1554,9 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({
     type: z.literal("machine:update"),
+  }),
+  z.strictObject({
+    type: z.literal("machine:stop"),
   }),
   // The `bot:*` arms are NOT what #6 targets — the daemon acts on `agent:*`;
   // `bot:*` merely mutate/evict the `botsById` cache at the createDaemon layer.

@@ -8,6 +8,7 @@ import { antigravitySpawnSpec, probeAntigravity } from "./probe.js";
 
 export class AntigravityDriver implements BackendAdapter {
   readonly id = "antigravity";
+  readonly modelCatalogOrigin = "native_report" as const;
   readonly instructionDelivery = { kind: "native" } as const;
   readonly execution = {
     lifetime: "session",

@@ -497,7 +497,7 @@ describe("daemon runner logger", () => {
     }
   });
 
-  it("routes self-sleep through the existing ordered successful shutdown", async () => {
+  it.each(["onSelfSleep", "onStopRequested"] as const)("routes %s through the existing ordered successful shutdown", async (callback) => {
     resetDiagnosticHarness();
     vi.useFakeTimers();
     const listenersBefore = processListenerSnapshot();
@@ -521,9 +521,10 @@ describe("daemon runner logger", () => {
       });
       await readyPromise;
 
-      const onSelfSleep = daemonHarness.state.options?.onSelfSleep as (() => void) | undefined;
-      expect(onSelfSleep).toEqual(expect.any(Function));
-      onSelfSleep!();
+      const requestStop = daemonHarness.state.options?.[callback] as (() => void) | undefined;
+      expect(requestStop).toEqual(expect.any(Function));
+      requestStop!();
+      if (callback === "onStopRequested") requestStop!();
       await vi.waitFor(() => {
         expect(events).toEqual([
           "coordinator-shutdown",
@@ -537,10 +538,14 @@ describe("daemon runner logger", () => {
         .trimEnd()
         .split("\n")
         .map((line) => JSON.parse(line));
-      expect(records).toContainEqual(expect.objectContaining({
-        level: "info",
-        message: "daemon self-sleep threshold reached",
-      }));
+      if (callback === "onSelfSleep") {
+        expect(records).toContainEqual(expect.objectContaining({
+          level: "info",
+          message: "daemon self-sleep threshold reached",
+        }));
+      }
+      expect(runnerDiagnosticHarness.shutdown).toHaveBeenCalledOnce();
+      expect(releaseOwnership).toHaveBeenCalledOnce();
     } finally {
       removeNewProcessListeners(listenersBefore);
       vi.clearAllTimers();

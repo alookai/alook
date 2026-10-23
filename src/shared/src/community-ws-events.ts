@@ -2,6 +2,7 @@ import { z } from "zod"
 import type { CommunityContract } from "./community-contract"
 import { CommunityMachineSummarySchema, RuntimeModelDiscoveryResultSchema } from "./schemas"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
+import { BotCreationPayloadSchema } from "./community-bot-creation"
 import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "./community-resources"
 
 export { FriendApprovalPayloadSchema } from "./community-friend-approval"
@@ -24,7 +25,7 @@ const messageAttachmentSchema = z.strictObject({
 
 const messageSchema = CommunityMessageResourceSchema.pick({
   content: true, type: true, systemKind: true, authorAvatar: true, authorAvatarVersion: true,
-  mentionType: true, embeds: true, createdAt: true, approval: true,
+  mentionType: true, embeds: true, createdAt: true, approval: true, botCreation: true,
 }).extend({
   id: string,
   seq: z.number(),
@@ -53,8 +54,9 @@ const communityMessageUpdatedSchema = z.strictObject({
   type: z.literal("community:message.updated"),
   channelId: string,
   messageId: string,
-  approval: FriendApprovalPayloadSchema,
-})
+  approval: FriendApprovalPayloadSchema.optional(),
+  botCreation: BotCreationPayloadSchema.optional(),
+}).refine((event) => event.approval !== undefined || event.botCreation !== undefined)
 
 const communityMessageEditedSchema = z.strictObject({
   type: z.literal("community:message.edited"),

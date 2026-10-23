@@ -249,6 +249,33 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     upstreamClose = undefined;
   });
 
+  it("permits platform discovery and proposals but rejects machine management before forwarding", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker);
+    const reg = broker.mint("requester", "launch", ["read", "send"], REAL_KEY);
+    const allowed = [
+      ["GET", "/api/community/machines"],
+      ["GET", "/api/community/machines/m1"],
+      ["GET", "/api/community/machines/m1/models?runtimeId=codex"],
+      ["POST", "/api/community/machines/m1/discover-models"],
+      ["POST", "/api/community/bots/creation-requests"],
+    ];
+    for (const [method, path] of allowed) {
+      const response = await fetch(`${proxy.url}${path}`, { method, headers: { authorization: `Bearer ${reg.voucher}` } });
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+    for (const [method, path] of [["DELETE", "/api/community/machines/m1"], ["POST", "/api/community/machines"], ["PATCH", "/api/community/machines/m1"], ["POST", "/api/community/machines/m1/restart"], ["GET", "/api/community/machines/m1/keys"]]) {
+      const response = await fetch(`${proxy.url}${path}`, { method, headers: { authorization: `Bearer ${reg.voucher}` } });
+      expect(response.status).toBe(403);
+      await response.text();
+    }
+    expect(upstream.seen).toHaveLength(allowed.length);
+    expect(upstream.seen.every(request => request.authorization === `Bearer ${REAL_KEY}`)).toBe(true);
+  });
+
   it("consumes a valid reminder locally with voucher-derived identity and no audit/forward", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;

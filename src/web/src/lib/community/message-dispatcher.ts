@@ -182,6 +182,9 @@ export async function planCommittedMessage(
       content: replyTarget.content,
     })
   }
+  const creationRequest = channel.type === "dm" && message.type === "bot_creation_request"
+    ? (await queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, [message.id], message.authorId)).get(message.id)
+    : undefined
   const messageInput = {
     type: WS_EVENTS.MESSAGE_CREATE,
     channelId: message.channelId,
@@ -189,6 +192,7 @@ export async function planCommittedMessage(
     ...(channel.parentChannelId ? { parentChannelId: channel.parentChannelId } : {}),
     message: mapMessageForWs(message, {
       replyMap,
+      botCreation: creationRequest,
       clientNonce: clientNonce ?? undefined,
       ...(contract === 3 ? { resourceAttachments: groupAttachments(attachments)[message.id] ?? [] } : {}),
       attachments: attachments.map((attachment) => ({

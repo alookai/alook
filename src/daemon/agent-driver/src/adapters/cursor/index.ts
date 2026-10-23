@@ -28,6 +28,7 @@ import { discoverCursorRecentContext } from "./recent-context.js";
 
 export class CursorDriver implements BackendAdapter, CursorAcpProcessFactory {
   readonly id = "cursor";
+  readonly modelCatalogOrigin = "native_report" as const;
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
     lifetime: "session",

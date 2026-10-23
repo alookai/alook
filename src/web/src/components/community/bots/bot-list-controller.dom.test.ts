@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   createDm: vi.fn(),
+  acceptDm: vi.fn(),
   del: vi.fn(),
   resetBot: vi.fn(),
   resetMachine: vi.fn(),
@@ -126,6 +127,8 @@ vi.mock("@/hooks/community/mutations", () => ({
     return { mutateAsync: mocks.createDm }
   },
 }))
+vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "viewer", name: "Viewer", avatar: "V" }) }))
+vi.mock("@/hooks/community/use-dm-message-sender", () => ({ useDmMessageSender: () => ({ accept: mocks.acceptDm }) }))
 vi.mock("@/lib/community-onboarding", () => ({
   useCommunityOnboarding: () => {
     mocks.hookOrder.push("onboarding")
@@ -256,6 +259,7 @@ describe("useBotListController", () => {
     mocks.actionState = null
     mocks.onProbeLayout = null
     mocks.createDm.mockResolvedValue({ conversation: { id: "dm1" } })
+    mocks.acceptDm.mockReturnValue({ accepted: true, committed: Promise.resolve({ ok: true, message: { id: "msg1", seq: 1 } }) })
     mocks.del.mockResolvedValue(undefined)
     mocks.resetBot.mockResolvedValue({ ok: true })
     mocks.resetMachine.mockResolvedValue({ dispatched: 2 })
@@ -788,6 +792,100 @@ describe("useBotListController", () => {
     expect(mocks.push).toHaveBeenCalledWith("/c/me/machines")
     expect(mocks.createDm).not.toHaveBeenCalled()
     expect(latest.createOpen).toBe(false)
+  })
+
+  it("asks the first online active bot and accepts the message before navigation", async () => {
+    mocks.bots = [bot("offline", "mac1"), { ...bot("inactive", "mac1"), isActive: false }, bot("online", "mac2"), bot("later", "mac2")]
+    mocks.online = new Set(["inactive", "online", "later"])
+    render()
+    act(() => latest.setCreateOpen(true))
+    await act(async () => { await latest.askBotToCreate() })
+    expect(latest.createOpen).toBe(false)
+    expect(mocks.createDm).toHaveBeenCalledWith({ userId: "online", assertActive: expect.any(Function) })
+    expect(mocks.acceptDm).toHaveBeenCalledWith(expect.objectContaining({ dmId: "dm1", content: "Help me create a bot. Ask me what I need.", author: expect.objectContaining({ id: expect.any(String) }) }))
+    expect(mocks.acceptDm.mock.invocationCallOrder[0]).toBeLessThan(mocks.push.mock.invocationCallOrder[0])
+    expect(mocks.push).toHaveBeenCalledWith("/c/me/dm1")
+    expect(latest.startingBotChat).toBe(false)
+  })
+
+  it("falls back to the first offline bot and does nothing with no bots", async () => {
+    mocks.bots = [bot("first", "mac1"), bot("second", "mac1")]
+    render()
+    await act(async () => { await latest.askBotToCreate() })
+    expect(mocks.createDm).toHaveBeenCalledWith(expect.objectContaining({ userId: "first" }))
+    mocks.bots = []
+    render()
+    await act(async () => { await latest.askBotToCreate() })
+    expect(mocks.createDm).toHaveBeenCalledOnce()
+    expect(mocks.acceptDm).toHaveBeenCalledOnce()
+  })
+
+  it("blocks rapid repeat clicks until the accepted send settles", async () => {
+    let finish!: (value: unknown) => void
+    mocks.acceptDm.mockReturnValue({ accepted: true, committed: new Promise(resolve => { finish = resolve }) })
+    render()
+    let first!: Promise<void>
+    await act(async () => { first = latest.askBotToCreate(); await latest.askBotToCreate() })
+    expect(latest.startingBotChat).toBe(true)
+    expect(mocks.createDm).toHaveBeenCalledOnce()
+    expect(mocks.acceptDm).toHaveBeenCalledOnce()
+    await act(async () => { await latest.askBotToCreate(); finish({ ok: true }); await first })
+    expect(mocks.createDm).toHaveBeenCalledOnce()
+    expect(latest.startingBotChat).toBe(false)
+  })
+
+  it("allows a new attempt after DM failure without sending or navigating", async () => {
+    mocks.createDm.mockRejectedValueOnce(new Error("offline"))
+    render()
+    act(() => latest.setCreateOpen(true))
+    await act(async () => { await latest.askBotToCreate() })
+    expect(latest.createOpen).toBe(true)
+    expect(mocks.acceptDm).not.toHaveBeenCalled()
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.toastApiError).toHaveBeenCalledWith(expect.any(Error), "Failed to start bot creation chat", expect.any(Function))
+    expect(latest.startingBotChat).toBe(false)
+    await act(async () => { await latest.askBotToCreate() })
+    expect(mocks.acceptDm).toHaveBeenCalledOnce()
+  })
+
+  it("does not navigate if the send intent is rejected", async () => {
+    mocks.acceptDm.mockReturnValueOnce({ accepted: false })
+    render()
+    await act(async () => { await latest.askBotToCreate() })
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.toastApiError).toHaveBeenCalled()
+    expect(latest.startingBotChat).toBe(false)
+  })
+
+  it("does not send when another navigation starts while the DM opens", async () => {
+    let finish!: (value: unknown) => void
+    mocks.createDm.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    let navigation!: ReturnType<typeof useCommunityNavigationController>
+    const frame = { ...normalizeCommunityHref("/c/me/bots"), revision: 0 }
+    function Scenario() {
+      const currentNavigation = useCommunityNavigationController(frame)
+      React.useLayoutEffect(() => { navigation = currentNavigation }, [currentNavigation])
+      return React.createElement(CommunityRouteContext, { value: { frame, navigation: currentNavigation, breakpoint: "desktop", ownerDeleteRouteScope: undefined } }, React.createElement(Probe))
+    }
+    rtlRender(React.createElement(Scenario))
+    let task!: Promise<void>
+    act(() => { task = latest.askBotToCreate() })
+    act(() => navigation.pushImmediate("/c/me/friends"))
+    await act(async () => { finish({ conversation: { id: "dm1" } }); await task })
+    expect(mocks.acceptDm).not.toHaveBeenCalled()
+    expect(navigation.pendingHref).toBe("/c/me/friends")
+  })
+
+  it("does not accept or navigate when the source view retires during DM creation", async () => {
+    let finish!: (value: unknown) => void
+    mocks.createDm.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const view = render()
+    let task!: Promise<void>
+    act(() => { task = latest.askBotToCreate() })
+    view.unmount()
+    await act(async () => { finish({ conversation: { id: "dm1" } }); await task })
+    expect(mocks.acceptDm).not.toHaveBeenCalled()
+    expect(mocks.push).not.toHaveBeenCalled()
   })
 
   it("opens normal chat on success and reports exact failure without navigation", async () => {

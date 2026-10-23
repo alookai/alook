@@ -68,7 +68,7 @@ export function renderBotMachineGroup(
           <Button
             variant="ghost"
             size="sm"
-            className="ml-auto h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            className="ml-auto h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => controller.setConfirmResetMachine(machineId)}
           >
             <RotateCcw className="size-3.5" />
@@ -90,9 +90,9 @@ export function renderBotMachineGroup(
               <div className="flex items-start justify-between gap-3">
                 <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
                 <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5">
-                  <div className="flex min-w-55 flex-1 flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-[15px] font-medium text-foreground">
+                  <div className="flex min-w-0 basis-55 grow flex-col gap-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span title={bot.name} className="min-w-0 max-w-full truncate text-[15px] font-medium text-foreground">
                         {bot.name}
                       </span>
                       <span
@@ -131,14 +131,14 @@ export function renderBotMachineGroup(
                         </Button>
                       )}
                     </div>
-                    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1.5">
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                      <span className="flex min-w-0 max-w-full items-center gap-1.5">
                         <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
-                        <span>{runtimeLabel(bot.runtime)}</span>
+                        <span className="truncate" title={runtimeLabel(bot.runtime)}>{runtimeLabel(bot.runtime)}</span>
                       </span>
                       <span aria-hidden className="shrink-0">·</span>
                       {formatModelLabel(bot.runtime, bot.modelName) ? (
-                        <span data-testid={tid.botCardModel} className="font-mono">
+                        <span data-testid={tid.botCardModel} title={bot.modelName ?? undefined} className="min-w-0 max-w-full truncate font-mono">
                           {formatModelLabel(bot.runtime, bot.modelName)}
                         </span>
                       ) : (

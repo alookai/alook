@@ -102,6 +102,8 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     machineName: () => "My Mac",
     bringMachineOnline: noop,
     chatWithBot: noop,
+    askBotToCreate: noop,
+    startingBotChat: false,
     ...overrides,
   } as BotListController
 }
@@ -233,6 +235,16 @@ describe("renderBotMachineGroup", () => {
     expect(activeSwitch).toHaveFocus()
     await setupUser().keyboard(" ")
     expect(setBotActive).toHaveBeenCalledWith(item, true)
+  })
+
+  it("keeps full long names and model values available with bot actions", () => {
+    const name = "Long name " + "W".repeat(100)
+    const modelName = "provider/" + "W".repeat(180)
+    const view = render(renderBotMachineGroup(group({ bots: [bot({ name, modelName })] }), controller()))
+    expect(view.getByTitle(name)).toHaveTextContent(name)
+    expect(view.getByTestId(tid.botCardModel)).toHaveAttribute("title", modelName)
+    expect(view.getByTestId(tid.botCardModel)).toHaveTextContent(modelName)
+    expect(view.getByRole("button", { name: "Bot actions" })).toBeEnabled()
   })
 
   it("projects bot-owned fixed-scale heatmaps and machine-scoped quota once", () => {

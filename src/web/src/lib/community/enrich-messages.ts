@@ -26,9 +26,10 @@ export async function enrichMessages(
 ): Promise<{ messages: unknown[]; latestSeq: number }> {
   const isDm = scope.isDm === true
   const messageIds = items.map((m) => m.id)
+  const creationMessageIds = items.filter((message) => message.type === "bot_creation_request").map((message) => message.id)
   const replyToIds = items.flatMap((row) => row.replyToId ? [row.replyToId] : [])
 
-  const [contextForChannel, childChannels, latestSeq, approvalByMessageId] = await Promise.all([
+  const [contextForChannel, childChannels, latestSeq, approvalByMessageId, botCreationByMessageId] = await Promise.all([
     loadApiMessageContext(db, userId, messageIds, () => replyToIds.length > 0
       ? withD1Retry(
         () => queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId }),
@@ -46,6 +47,9 @@ export async function enrichMessages(
     // for non-DM channel scope entirely.
     isDm && messageIds.length > 0
       ? queries.communityFriendship.hydrateApprovalsForDmMessages(db, messageIds, userId)
+      : Promise.resolve(new Map()),
+    isDm && creationMessageIds.length > 0
+      ? queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, creationMessageIds, userId)
       : Promise.resolve(new Map()),
   ])
 
@@ -107,6 +111,7 @@ export async function enrichMessages(
     mapMessageForApi(r, {
       ...context,
       threadByMessageId,
+      botCreationByMessageId,
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
     }, scope.contract, scope.channelId),
   )

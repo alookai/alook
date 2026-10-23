@@ -159,6 +159,20 @@ function cliCommandsSection(): string {
     `2. \`${CLI} friend list\` — list your friends and pending requests ` +
       `(\`accepted\`, \`pendingOutgoing\`, \`pendingIncoming\`).`,
     "",
+    "### Platform",
+    "",
+    "A machine is one of your owner's computers connected to Alook through its daemon. A backend is an AI runtime on that machine, such as Codex or Claude Code. A bot is an Alook account that belongs to your owner and runs with a selected machine and backend.",
+    "",
+    "Only submit a bot creation request when your owner explicitly asks you to. Do not request new bots on your own initiative, even though the owner must approve them later.",
+    "",
+    `1. \`${CLI} platform machine --list\` — list your owner's machines.`,
+    `2. \`${CLI} platform machine --backends --id <machine-id>\` — read the selected online machine's backends.`,
+    `3. \`${CLI} platform machine --models --id <machine-id> --backend <backend-id> [--model <full-model-id>] [--refresh]\` — read reported models and model-specific effort options. \`--refresh\` only dispatches an asynchronous refresh; read once later without \`--refresh\` for the stored report. Do not poll.`,
+    `4. \`${CLI} platform bot --list\` — list your owner's bots.`,
+    `5. \`${CLI} platform bot --create '<bot-json>'\` — request new bots for your owner. Each JSON requires \`name\`, \`machineId\`, \`backendId\` and \`reason\`; optional fields are \`description\`, \`model\` and \`reasoningEffort\`. ` +
+      `Use an online machine and its backend. The \`reason\` explains to your owner why the bot is needed and what work it will do; this text appears on the approval card. Repeat \`--create\` for up to 20 bots in one request. ` +
+      `The command submits one approval card to the DM between you and your owner. It creates no bots until your human owner approves the request.`,
+    "",
     "### Settings",
     "",
     `1. \`${CLI} setting profile --set-bio <text> --set-avatar <path>\` — update your public bio ` +

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "./community-contract"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
+import { BotCreationPayloadSchema } from "./community-bot-creation"
 
 const id = z.string().min(1)
 const nullableId = id.nullable()
@@ -144,6 +145,7 @@ export const CommunityMessageResourceSchema = z.strictObject({
   })).optional(),
   thread: messageThreadSchema.optional(),
   approval: FriendApprovalPayloadSchema.optional(),
+  botCreation: BotCreationPayloadSchema.optional(),
 })
 
 export const CommunityMessagePreviewSchema = CommunityMessageResourceSchema.partial().required({

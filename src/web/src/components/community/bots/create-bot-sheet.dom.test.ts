@@ -126,12 +126,14 @@ vi.mock("@/hooks/community/use-bots", () => ({
 
 vi.mock("@/components/community/shell/community-sheet", () => {
   return {
-    CommunitySheet: ({ children, footer }: {
+    CommunitySheet: ({ children, footer, description }: {
+      description?: React.ReactNode
       children?: React.ReactNode
       footer?: React.ReactNode | ((requestClose: () => void) => React.ReactNode)
     }) => React.createElement(
       "div",
       { "data-mock": "sheet" },
+      React.createElement("div", { "data-testid": "sheet-description" }, description),
       children,
       typeof footer === "function" ? footer(vi.fn()) : footer,
     ),
@@ -188,7 +190,7 @@ function checkedValue(renderer: ReturnType<typeof rtlRender>, name: string): str
   return radios(renderer, name).find((r) => r.checked)?.value ?? null
 }
 
-function render(props: { avatarSeed?: string; guided?: boolean } = {}) {
+function render(props: Partial<React.ComponentProps<typeof CreateBotSheet>> = {}) {
   return rtlRender(
     React.createElement(CreateBotSheet, { open: true, onOpenChange: vi.fn(), ...props }),
   )
@@ -201,6 +203,23 @@ describe("CreateBotSheet — auto-select defaults", () => {
     createMutateAsync.mockResolvedValue({ bot: { id: "b1", name: "MyBot" } })
     botFormFieldsRenders.length = 0
     reasoningDaemonVersionRenders.length = 0
+  })
+
+  it("shows the optional chat action only in the sheet subheader and respects busy state", () => {
+    useMachinesMock.mockReturnValue({ machines: [] })
+    const onAskBotToCreate = vi.fn()
+    const view = render({ onAskBotToCreate })
+    const button = view.getByRole("button", { name: "Ask your bot to create more bots." })
+    expect(view.getByTestId("sheet-description").contains(button)).toBe(true)
+    fireEvent.click(button)
+    expect(onAskBotToCreate).toHaveBeenCalledOnce()
+    view.rerender(React.createElement(CreateBotSheet, { open: true, onOpenChange: vi.fn(), onAskBotToCreate, askingBotToCreate: true }))
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute("aria-busy", "true")
+    fireEvent.click(button)
+    expect(onAskBotToCreate).toHaveBeenCalledOnce()
+    view.rerender(React.createElement(CreateBotSheet, { open: true, onOpenChange: vi.fn() }))
+    expect(view.queryByRole("button", { name: "Ask your bot to create more bots." })).toBeNull()
   })
 
   it("uses the guide companion seed for a guided bot avatar", () => {

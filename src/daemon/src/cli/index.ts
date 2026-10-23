@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { registerPlatformCommands } from "./platform.js";
 /**
  * `alook` — the agent-facing CLI.
  *
@@ -51,6 +52,7 @@ interface Envelope {
   /** Stable machine code carried up from an upstream error body (e.g.
    *  `already_friends`, `blocked`). Present only on the error envelope. */
   code?: string;
+  platformDetails?: Record<string, unknown>;
 }
 
 /** A command failure with a human-readable message destined for `error`. */
@@ -68,6 +70,7 @@ function printEnvelope(env: Envelope): void {
   if (env.error !== undefined && env.error !== null) out.error = env.error;
   if (env.code !== undefined && env.code !== null) out.code = env.code;
   if (env.hint !== undefined && env.hint !== null) out.hint = env.hint;
+  if (env.platformDetails) Object.assign(out, env.platformDetails);
   process.stdout.write(JSON.stringify(out) + "\n");
 }
 
@@ -808,6 +811,8 @@ function buildProgram(stdin: CliInputStream): Command {
     })
     .option("--agent <id>", "agent identity (or ALOOK_AGENT_ID env)");
 
+  registerPlatformCommands(program, getApi, printEnvelope);
+
   const message = program.command("message").description("message operations").exitOverride();
   message.configureOutput({ writeOut: () => {}, writeErr: () => {} });
 
@@ -1301,6 +1306,7 @@ export async function main(argv = process.argv.slice(2), io: CliIo = {}): Promis
         error: (err as Error).message,
         code: (err as { code?: string }).code,
         hint: (err as { hint?: string }).hint,
+        platformDetails: (err as { platformDetails?: Record<string, unknown> }).platformDetails,
       });
     }
     // Public agent-facing commands keep their JSON-only result contract. The

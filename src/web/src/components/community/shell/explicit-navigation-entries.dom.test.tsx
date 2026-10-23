@@ -11,6 +11,7 @@ import { useBotListController } from "../bots/bot-list-controller"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import { CommunityInviteCard } from "../social/community-invite-card"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
+import { CurrentUserProvider } from "@/contexts/community/current-user"
 import MeFriendsPage from "@/app/c/me/friends/page"
 
 const mocks = vi.hoisted(() => ({
@@ -37,7 +38,8 @@ vi.mock("@/hooks/community/use-machines", () => ({
   useMachines: () => ({ machines: [{ id: "machine", status: "online" }], isLoading: false }),
 }))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(), useCanonicalProfilesByUserId: () => new Map() }))
-vi.mock("@/hooks/community/mutations", () => ({
+vi.mock("@/hooks/community/mutations", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/hooks/community/mutations")>(),
   useCreateOrGetDm: () => ({ mutateAsync: mocks.createDm }),
   useSendFriendRequest: () => ({}),
   useAcceptFriendRequest: () => ({}),
@@ -100,7 +102,13 @@ function renderEntries() {
       createElement(MeFriendsPage),
     )
   }
-  render(createElement(QueryClientProvider, { client: queryClient }, createElement(Capture)))
+  render(
+    <QueryClientProvider client={queryClient}>
+      <CurrentUserProvider initialUser={{ id: "viewer", name: "Viewer", email: "viewer@test.local", avatar: "" }}>
+        <Capture />
+      </CurrentUserProvider>
+    </QueryClientProvider>,
+  )
   return { queryClient, get navigation() { return navigation }, get bots() { return bots } }
 }
 

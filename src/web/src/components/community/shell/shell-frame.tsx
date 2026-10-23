@@ -299,8 +299,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   }, [breakpoint, checkpoint.surface, dismissUserBarExtension, userBarExtension.active])
   const parentReturnPending = hasPendingParentReturn(navigation)
   const dismissNativeBackShellOverlay = useCallback(() => {
-    if (navigation.navigationPending) {
-      if (parentReturnPending) return true
+    if (navigation.navigationPending && !parentReturnPending) {
       replacePath(committedFrame.href)
       return true
     }
@@ -318,10 +317,12 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     if (!target) return
     if (breakpoint === "mobile") {
       if (requestNativeBack(document) !== "none" || dismissNativeBackShellOverlay()) return
+      if (parentReturnPending && navigation.pendingHref
+        && normalizeCommunityHref(target).href === normalizeCommunityHref(navigation.pendingHref).href) return
       if (pageBack.current?.(target)) return
       navigation.replace(target, { resume: true })
     } else navigation.replace(target)
-  }, [breakpoint, dismissNativeBackShellOverlay, mobileParentPath, navigation])
+  }, [breakpoint, dismissNativeBackShellOverlay, mobileParentPath, navigation, parentReturnPending])
 
   useNativeMobileBack({
     dismissShellOverlay: dismissNativeBackShellOverlay,

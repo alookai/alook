@@ -250,6 +250,7 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: PiEventState
 
 export class PiDriver implements BackendAdapter {
   readonly id = "pi";
+  readonly modelCatalogOrigin = "native_report" as const;
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
     lifetime: "session",

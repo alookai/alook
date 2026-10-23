@@ -81,12 +81,16 @@ export function CreateBotSheet({
   onCreated,
   guided = false,
   avatarSeed,
+  onAskBotToCreate,
+  askingBotToCreate = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated?: (bot: BotSummary) => void | Promise<void>
   guided?: boolean
   avatarSeed?: string
+  onAskBotToCreate?: () => void | Promise<void>
+  askingBotToCreate?: boolean
 }) {
   const source = useCommunityViewSource("create-bot", open)
   const client = useQueryClient()
@@ -233,6 +237,9 @@ export function CreateBotSheet({
       open={open}
       onOpenChange={handleOpenChange}
       title="Create a bot"
+      description={onAskBotToCreate ? (
+        <button type="button" onClick={() => void onAskBotToCreate()} disabled={askingBotToCreate} aria-busy={askingBotToCreate} className="w-fit max-w-full rounded-sm text-left text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"><span aria-hidden="true">👉 </span>Ask your bot to create more bots.</button>
+      ) : undefined}
       bodyClassName="flex flex-col gap-6"
       footer={(requestClose) => (
         <>

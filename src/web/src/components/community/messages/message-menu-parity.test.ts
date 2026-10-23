@@ -50,6 +50,7 @@ describe("messageCanShare — the derivation that gives every surface Share", ()
       attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
     }), false)).toBe(false)
     expect(messageCanShare(msg({ approval: {} as RenderMsg["approval"] }), false)).toBe(false)
+    expect(messageCanShare(msg({ botCreation: {} as RenderMsg["botCreation"] }), false)).toBe(false)
     expect(messageCanShare(msg(), true)).toBe(false) // compact rows opt out
   })
 })

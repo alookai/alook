@@ -1,3 +1,4 @@
+import { botCreationFixture } from "@/test/bot-creation-fixtures"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { seedCanonicalFocusedChannel } from "./test-harness"
 import { act } from "@/test/react-dom-harness"
@@ -10,7 +11,7 @@ import type {
   CommunityReactionAdd,
 } from "@alook/shared"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { beginCommunityProfileSeed } from "@/lib/community/profile-seed"
+import { writeCommunityProfilePatches, beginCommunityProfileSeed } from "@/lib/community/profile-seed"
 import { getMessageStreamState } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
@@ -980,6 +981,24 @@ describe("useCommunityWs — reactions", () => {
 })
 
 describe("useCommunityWs — message.updated", () => {
+  it("projects gallery resolution without erasing friendship approval or overwriting a renamed identity", async () => {
+    getCapturedRuntime().ui.actions.subscribe({ dmConversationId: "dm_1" })
+    await mountHook()
+    const profile = { id: "friend", name: "Friend", discriminator: "0001", image: null, avatarVersion: 0 }
+    const approval = { friendshipId: "friendship", status: "pending" as const, waitingOn: "you" as const, otherProfile: profile, botProfile: { ...profile, id: "bot" }, waitingOnProfile: null }
+    seedCanonicalStream({ kind: "dm", id: "dm_1" }, { type: "wsMessage", message: { id: "gallery-message", seq: 4, type: "chat", content: "", approval, botCreation: botCreationFixture() } })
+    capturedQueryClient.setQueryData(communityKeys.bots(), { bots: [] })
+    const request = botCreationFixture({ status: "approved" })
+    request.bots[0]!.createdBot = { id: "new-bot", name: "Researcher", discriminator: "0042", image: null, avatarVersion: 0 }
+    writeCommunityProfilePatches([{ id: "new-bot", identityAbout: { name: "Renamed Bot", discriminator: "0042" } }], getCommunityDbRegistry(capturedQueryClient), { command: true })
+    capturedOnMessage!({ type: "community:message.updated", channelId: "dm_1", messageId: "gallery-message", botCreation: request })
+    expect(canonicalMessage("gallery-message")).toMatchObject({ approval, botCreation: request })
+    expect(getCommunityDbRegistry(capturedQueryClient)!.collections.profiles.get("new-bot")).toMatchObject({ name: "Renamed Bot", discriminator: "0042" })
+    expect(capturedQueryClient.getQueryState(communityKeys.bots())?.isInvalidated).toBe(true)
+    capturedOnMessage!({ type: "community:message.updated", channelId: "dm_1", messageId: "gallery-message", approval: { ...approval, status: "denied", waitingOn: null } })
+    expect(canonicalMessage("gallery-message")?.botCreation).toEqual(request)
+  })
+
   it("refreshes approval fields on a focused DM row that exists only in the overlay", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     getCapturedRuntime().ui.actions.subscribe({ dmConversationId: "dm_1" })

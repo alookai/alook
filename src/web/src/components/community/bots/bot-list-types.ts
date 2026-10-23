@@ -64,6 +64,8 @@ export type BotListController = {
   groups: BotMachineGroup[]
   highlightId: string | null
   groupRefs: { current: Record<string, HTMLDivElement | null> }
+  startingBotChat: boolean
+  askBotToCreate: () => Promise<void>
   chatWithBot: (bot: BotSummary) => Promise<void>
   onBotCreated: (bot: BotSummary) => Promise<void>
   openGuidedCreate: () => void

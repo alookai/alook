@@ -91,7 +91,7 @@ vi.mock("./guide-me-avatar-motion", () => ({
   },
 }))
 vi.mock("./machine-card", () => ({
-  MachineCard: () => null,
+  MachineCard: ({ machine, onStop, stopping }: { machine: { id: string; status: string }; onStop?: () => void; stopping?: boolean }) => React.createElement("div", { "data-testid": `machine-row-${machine.id}`, "data-status": machine.status }, onStop ? React.createElement("button", { onClick: onStop, disabled: stopping }, "Stop") : null),
   MachineCardFrame: ({ children }: React.PropsWithChildren) =>
     React.createElement("machine-card-frame", {}, children),
 }))
@@ -230,6 +230,39 @@ describe("machine daemon update UI", () => {
     fireEvent.click(view.getByRole("button", {name: "View plan"}))
     expect(navigation.pendingHref).toBe("/c/me/machines?keep=1&settings=billing")
     expect(oldIntent()).toBe(false)
+  })
+
+  it("dispatches Stop once while pending and waits for observed offline status", async () => {
+    mocks.machines.current = [machine()]
+    let finish!: (value: unknown) => void
+    mocks.apiFetch.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Stop" }))
+    fireEvent.click(view.getByRole("button", { name: "Stop" }))
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce())
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/community/machines/machine-1/stop", expect.objectContaining({ method: "POST" }))
+    expect(view.getByRole("button", { name: "Stop" })).toBeDisabled()
+    await act(async () => { finish({ dispatched: true }) })
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Stop requested"))
+    expect(view.getByTestId("machine-row-machine-1")).toHaveAttribute("data-status", "online")
+    expect(view.getByRole("button", { name: "Stop" })).toBeEnabled()
+    mocks.machines.current = [machine({ status: "offline" })]
+    view.rerender(React.createElement(MachineList))
+    expect(view.getByTestId("machine-row-machine-1")).toHaveAttribute("data-status", "offline")
+    expect(view.queryByRole("button", { name: "Stop" })).toBeNull()
+  })
+
+  it.each(["update this daemon before remote Stop is available", "could not deliver the daemon stop command"])("keeps machine state and permits retry after %s", async message => {
+    mocks.machines.current = [machine()]
+    mocks.apiFetch.mockRejectedValueOnce(new Error(message)).mockResolvedValueOnce({ dispatched: true })
+    const view = render(React.createElement(MachineList))
+    fireEvent.click(view.getByRole("button", { name: "Stop" }))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(message))
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    expect(view.getByTestId("machine-row-machine-1")).toHaveAttribute("data-status", "online")
+    fireEvent.click(view.getByRole("button", { name: "Stop" }))
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Stop requested"))
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2)
   })
 
   it("shows Retry when the list is unknown rather than claiming no machines exist", () => {

@@ -16,6 +16,7 @@ const mockResolveNotificationRecipients = vi.fn()
 const mockResolveEligibility = vi.fn()
 const mockFindWakeCandidates = vi.fn()
 const mockLogWarn = vi.fn()
+const mockHydrateCreation = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -56,6 +57,7 @@ vi.mock("@alook/shared", async () => {
       communityNotificationSetting: {
         policyAllows: actual.queries.communityNotificationSetting.policyAllows,
       },
+      communityBotCreation: { hydrateCreationRequestsForDmMessages: (...args: unknown[]) => mockHydrateCreation(...args) },
       communityBot: {
         findWakeCandidates: (...args: unknown[]) => mockFindWakeCandidates(...args),
       },
@@ -157,6 +159,7 @@ describe("planCommittedMessage", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetMessage.mockResolvedValue(message)
+    mockHydrateCreation.mockResolvedValue(new Map())
     mockGetWakeContextMessageInScope.mockResolvedValue(null)
     mockGetMessageClientNonceForDelivery.mockResolvedValue("nonce_1")
     mockGetChannel.mockResolvedValue(channel)
@@ -397,6 +400,19 @@ describe("planCommittedMessage", () => {
     expect(plan.pushUserIds).toEqual(["private_member"])
   })
 
+  it("carries the same owner identity in requester realtime and canonical REST projections", async () => {
+    const botCreation = { requestId: "request", requesterId: "author_1", ownerUserId: "owner", status: "pending", createdAt: message.createdAt, resolvedAt: null,
+      bots: [{ itemId: "item", name: "Reviewer", machineId: "machine", machineName: "Work Mac", backendId: "codex", model: "custom/model", reasoningEffort: null, description: "Review sources", reason: "Independent review", createdBot: null }] }
+    mockGetMessage.mockResolvedValue({ ...message, type: "bot_creation_request" })
+    mockGetChannel.mockResolvedValue({ ...channel, type: "dm", serverId: null })
+    mockResolveRecipients.mockResolvedValue(["author_1", "owner"])
+    mockHydrateCreation.mockResolvedValue(new Map([[message.id, botCreation]]))
+    const plan = await planCommittedMessage({} as never, message.id)
+    expect(plan.messageEvent.message.botCreation).toEqual(botCreation)
+    expect(plan.messageEvent.message.botCreation).not.toHaveProperty("canDecide")
+    expect(mockHydrateCreation).toHaveBeenCalledWith(expect.anything(), [message.id], "author_1")
+  })
+
   it("plans a DM from its two resolved members without server projections", async () => {
     mockGetChannel.mockResolvedValue({
       ...channel,
@@ -417,6 +433,7 @@ describe("planCommittedMessage", () => {
     expect(plan.pushUserIds).toEqual(["dm_peer"])
     expect(plan.messageEvent).not.toHaveProperty("serverId")
     expect(plan).not.toHaveProperty("parentProjection")
+    expect(mockHydrateCreation).not.toHaveBeenCalled()
   })
 
   it("keeps the author in content while excluding them from every side effect", async () => {

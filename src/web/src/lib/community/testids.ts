@@ -2,6 +2,9 @@
 // product components (so the attribute strings are never hand-typed) and the
 // Playwright specs (via _fixtures/testids). Naming: community-<区域>-<元素>[-<标识>].
 export const tid = {
+  botCreationRequestCard: "community-bot-creation-request-card",
+  botCreationApprove: "community-bot-creation-approve",
+  botCreationDecline: "community-bot-creation-decline",
   composerInput: "community-composer-input",
   channelComposerShell: "community-composer-shell",
   composerFileInput: "community-composer-file-input",
@@ -124,6 +127,7 @@ export const tid = {
   onboardingStart: "community-onboarding-start",
   machineActions: (id: string) => `machine-actions-${id}`,
   machineUpdate: (id: string) => `machine-update-${id}`,
+  machineStop: (id: string) => `machine-stop-${id}`,
   machineUpdateConfirm: "machine-update-confirm",
   daemonUpdateNotice: "daemon-update-notice",
   daemonUpdateAction: "daemon-update-action",

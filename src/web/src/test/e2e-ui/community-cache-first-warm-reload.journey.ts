@@ -6,6 +6,7 @@ import { HostCommandSchema } from "@alook/shared/community-cli-contract"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 import type { APIResponse, Page, Request, TestInfo } from "@playwright/test"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
+import { expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
 import { PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { expect, test } from "./_fixtures/case-fixture"
 
@@ -331,20 +332,23 @@ test("a warm DM reload shows qualified RSC identity and history before browser r
   ])
 
   await expectCacheFirstReload(page, async () => {
-    await expect(page.getByTestId(tid.dmRow(dmId))).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByTestId(tid.dmHeader)).toBeVisible()
-    await expect(page.getByTestId(tid.dmHeader)).toContainText(userName("bob"))
-    await expect(page.locator(`main[data-slot="community-conversation-surface"][data-channel-id="${dmId}"]`)).toBeVisible()
-    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
-    await expect(page.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
-    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+    const frame = await expectUniqueSsrCommunityFrame(page)
+    await expect(frame.getByTestId(tid.dmRow(dmId))).toBeVisible({ timeout: 10_000 })
+    await expect(frame.getByTestId(tid.dmHeader)).toBeVisible()
+    await expect(frame.getByTestId(tid.dmHeader)).toContainText(userName("bob"))
+    await expect(frame.locator(`main[data-slot="community-conversation-surface"][data-channel-id="${dmId}"]`)).toBeVisible()
+    await expect(frame.getByTestId(tid.message(messageId))).toBeVisible()
+    await expect(frame.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
+    await expect(frame.getByTestId(tid.composerInput)).toBeVisible()
   }, async () => {
-    await expect(page.getByTestId(tid.dmHeader)).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
-    await expect(page.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
+    const frame = await expectUniqueSsrCommunityFrame(page)
+    await expect(frame.getByTestId(tid.dmHeader)).toBeVisible({ timeout: 20_000 })
+    await expect(frame.getByTestId(tid.message(messageId))).toBeVisible()
+    await expect(frame.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
   }, async () => {
-    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
-    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+    const frame = await expectUniqueSsrCommunityFrame(page)
+    await expect(frame.getByTestId(tid.message(messageId))).toBeVisible()
+    await expect(frame.getByTestId(tid.composerInput)).toBeVisible()
   }, caseResources)
 })
 

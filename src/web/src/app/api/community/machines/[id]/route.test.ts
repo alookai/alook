@@ -5,6 +5,7 @@ const mockGetCloudflareContext = vi.fn()
 const mockWaitUntil = vi.fn()
 const mockMediaDelete = vi.fn()
 const mockGetMachineByIdForUser = vi.fn()
+const mockGetMachineForOwner = vi.fn()
 const mockListBotsBoundToMachine = vi.fn()
 const mockGetBotOwnedBy = vi.fn()
 const mockListBotServerMemberships = vi.fn()
@@ -20,7 +21,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: (...args: unknown[]) => mockGetCloudflareContext(...args),
 }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -28,6 +29,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityBot: {
+        getMachineForOwner: (...args: unknown[]) => mockGetMachineForOwner(...args),
         getBotOwnedBy: (...args: unknown[]) => mockGetBotOwnedBy(...args),
         listBotsBoundToMachine: (...args: unknown[]) => mockListBotsBoundToMachine(...args),
         listBotServerMemberships: (...args: unknown[]) => mockListBotServerMemberships(...args),
@@ -74,7 +76,8 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { DELETE } from "./route"
+import { DELETE, GET } from "./route"
+import { GET as modelOptionsGET } from "./models/route"
 
 function request(cascade?: boolean) {
   return new NextRequest("http://localhost/api/community/machines/m1", {
@@ -216,5 +219,35 @@ describe("DELETE /api/community/machines/[id]", () => {
       type: "community:machine.removed",
       machineId: "m1",
     })
+  })
+})
+
+
+describe("platform target machine queries", () => {
+  it("returns a scoped 404 when the target does not belong to the caller", async () => {
+    mockGetMachineForOwner.mockResolvedValueOnce(null)
+    const response = await GET(new NextRequest("http://localhost/api/community/machines/m1"), ctx)
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "machine not found", code: "MACHINE_NOT_FOUND", machineId: "m1" })
+    expect(mockGetMachineForOwner).toHaveBeenLastCalledWith({}, "m1", "u1")
+  })
+  it("projects backend health and catalog provenance only for an online owned machine", async () => {
+    mockGetMachineForOwner.mockResolvedValueOnce({ id: "m1", status: "online", availableRuntimes: [{ id: "codex", version: "1.0", status: "healthy", reasoning: { catalogOrigin: "native_report" } }, { id: "opencode", status: "unhealthy" }] })
+    const response = await GET(new NextRequest("http://localhost/api/community/machines/m1"), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ machineId: "m1", status: "online", backends: [{ id: "codex", version: "1.0", health: "healthy", modelRequired: false, catalogState: "reported", catalogOrigin: "native_report" }, { id: "opencode", health: "unhealthy", modelRequired: true, catalogState: "not_reported", catalogOrigin: "unknown" }] })
+  })
+  it.each([GET, modelOptionsGET])("rejects an offline target instead of returning cached capabilities", async (handler) => {
+    mockGetMachineForOwner.mockResolvedValue({ id: "m1", status: "offline", availableRuntimes: [{ id: "codex", status: "healthy" }] })
+    const response = await handler(new NextRequest("http://localhost/api/community/machines/m1/models?backend=codex"), ctx)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "Target machine is offline", code: "MACHINE_OFFLINE", machineId: "m1" })
+    expect(mockGetMachineForOwner).toHaveBeenLastCalledWith({}, "m1", "u1")
+  })
+  it("reads model-specific effort from an owned online machine without replacing custom IDs", async () => {
+    mockGetMachineForOwner.mockResolvedValue({ id: "m1", status: "online", availableRuntimes: [{ id: "codex", status: "healthy", reasoning: { catalogOrigin: "native_report", models: [{ id: "provider/model", supportedReasoningEfforts: [{ value: "high" }] }] } }] })
+    const response = await modelOptionsGET(new NextRequest("http://localhost/api/community/machines/m1/models?backend=codex&model=provider%2Fmodel"), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ catalogOrigin: "native_report", inCatalog: true, model: { id: "provider/model", reasoningEfforts: [{ value: "high" }] } })
   })
 })

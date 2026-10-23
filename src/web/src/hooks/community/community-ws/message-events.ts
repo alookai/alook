@@ -1,3 +1,4 @@
+import { invalidateBotSurfaces } from "@/hooks/community/use-bots"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
 import type {
@@ -174,11 +175,12 @@ export function handleMessageUpdated(
   context: CommunityWsHandlerContext,
 ) {
   writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true })
+  if (event.botCreation?.status === "approved") invalidateBotSurfaces(context.queryClient)
   // When a card resolves (accepted/denied/superseded), the friend graph
   // changed — invalidate friends + pending so the owner's lists reflect
   // it. This is the owner's only signal in the J2 tail (Alice's accept
   // dead-letters FRIEND_ACCEPT to the bot).
-  if (event.approval.status !== "pending" || event.approval.waitingOn !== "you") {
+  if (event.approval && (event.approval.status !== "pending" || event.approval.waitingOn !== "you")) {
     invalidateFriends(context.projection)
   }
 }

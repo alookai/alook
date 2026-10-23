@@ -92,6 +92,7 @@ export { RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "@alook/shared/community-cli-
 
 export {
   CONTROL_HEARTBEAT_CAPABILITY,
+  MACHINE_STOP_CAPABILITY,
   DM_SERVER,
   parseRef,
   formatRef,

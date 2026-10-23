@@ -2235,3 +2235,16 @@ describe("nap", () => {
     expect(help).not.toContain("--text");
   });
 });
+
+describe("platform main CLI envelopes", () => {
+  it("prints batch field errors as one JSON line through main", async () => {
+    setApiForTesting(stubApi({ platformBot: async () => { throw Object.assign(new Error("Unsupported effort"), { code: "INVALID_REASONING_EFFORT", platformDetails: { itemIndex: 2, field: "reasoningEffort", allowedValues: ["low"] } }) } }))
+    await main(["platform", "bot", "--create", JSON.stringify({ name: "Reviewer", machineId: "machine", backendId: "codex", reason: "Independent check" })])
+    expect(parseEnvelope(cap.lines())).toEqual({ error: "Unsupported effort", code: "INVALID_REASONING_EFFORT", itemIndex: 2, field: "reasoningEffort", allowedValues: ["low"] })
+  })
+  it("prints refresh failures directly through the real main error path", async () => {
+    setApiForTesting(stubApi({ platformMachine: async () => { throw Object.assign(new Error("Target machine is offline"), { code: "MACHINE_OFFLINE", platformDetails: { machineId: "machine" } }) } }))
+    await main(["platform", "machine", "--models", "--id", "machine", "--backend", "codex", "--refresh"])
+    expect(parseEnvelope(cap.lines())).toEqual({ error: "Target machine is offline", code: "MACHINE_OFFLINE", machineId: "machine" })
+  })
+})

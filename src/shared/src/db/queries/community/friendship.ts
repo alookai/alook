@@ -6,6 +6,7 @@ import {
   communityChannelMember,
 } from "../../community-schema";
 import { user } from "../../schema";
+import { communityBotBinding } from "../../community-machine-schema";
 import type { Database } from "../../index";
 import { isAccepted, isBlocked as isBlockedStatus } from "../../../utils/friendship";
 import { WS_EVENTS } from "../../../community-ws-events";
@@ -18,6 +19,7 @@ import { createOrGetDM } from "./dm";
 import { createMessage, listMessagesReferencingFriendship } from "./message";
 import { nanoid } from "nanoid";
 import { jsonTextSet } from "../_json-set";
+import { chunk, maxRowsPerInsert } from "../_chunk";
 
 function newFriendshipId(): string {
   return "fr_" + nanoid();
@@ -1305,6 +1307,30 @@ export async function cancelPendingRequest(
 }
 
 // ─── Sibling-bot auto-friendship ─────────────────────────────────────────────
+
+export async function ensureNewSiblingBotFriendships(db: Database, ownerId: string, newBotIds: readonly string[]) {
+  if (!newBotIds.length) return;
+  const siblings = await db.select({ id: user.id }).from(user).innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id)).where(and(eq(user.ownerUserId, ownerId), eq(user.isBot, true), isNull(user.deletedAt)));
+  const ids = siblings.map((bot) => bot.id);
+  const created = new Set(newBotIds);
+  if (!ids.some((id) => created.has(id))) return;
+  const existing = await db.select({ requesterId: communityFriendship.requesterId, addresseeId: communityFriendship.addresseeId }).from(communityFriendship).where(and(
+    inArray(communityFriendship.requesterId, jsonTextSet(db, ids)),
+    inArray(communityFriendship.addresseeId, jsonTextSet(db, ids)),
+    inArray(communityFriendship.status, ["pending", "accepted", "blocked"]),
+  ));
+  const connected = new Set(existing.map((pair) => [pair.requesterId, pair.addresseeId].sort().join(":")));
+  const now = nowIso();
+  const rows: (typeof communityFriendship.$inferInsert)[] = [];
+  for (const [index, a] of ids.entries()) for (const b of ids.slice(index + 1)) {
+    if ((!created.has(a) && !created.has(b)) || connected.has([a, b].sort().join(":"))) continue;
+    rows.push({ id: newFriendshipId(), requesterId: a, addresseeId: b, status: "accepted", needsOwnerApproval: null, resolvedAt: now, createdAt: now, updatedAt: now });
+  }
+  if (!rows.length) return;
+  const paramsPerRow = db.insert(communityFriendship).values(rows[0]!).onConflictDoNothing().toSQL().params.length;
+  const [first, ...rest] = chunk(rows, maxRowsPerInsert(paramsPerRow)).map((part) => db.insert(communityFriendship).values(part).onConflictDoNothing());
+  if (first) await db.batch([first, ...rest]);
+}
 
 export type EnsureSiblingResult =
   | { blocked: true }

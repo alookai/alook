@@ -22,6 +22,7 @@ vi.mock("@/components/community/billing/billing-sheet", () => ({ BillingSheet: (
 vi.mock("@/components/community/onboarding-tiles/create-tile", () => ({ CreateTile: () => React.createElement("div") }))
 import { readCommunityDocumentSeed } from "@/lib/community/document-seed.server"
 import { QueryProvider } from "@/app/c/QueryProvider"
+import { CurrentUserProvider } from "@/contexts/community/current-user"
 import { BotList } from "@/components/community/bots/bot-list"
 const profile = { id: "viewer", name: "Viewer", discriminator: "0042", avatar: "/avatar", avatarVersion: 1, aboutMe: "", bannerColor: null, statusEmoji: null, statusText: "" }
 const bots = { bots: [], plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, activeCount: 0 }
@@ -46,7 +47,7 @@ it("keeps actual empty Bots heading and CTA stable through native provider resto
     React.useLayoutEffect(() => { registry = owner; restoring = phase }, [owner, phase])
     return <BotList />
   }
-  const view = render(<QueryProvider userId="viewer" initialSeed={seed}><Probe /></QueryProvider>)
+  const view = render(<QueryProvider userId="viewer" initialSeed={seed}><CurrentUserProvider initialUser={{ ...profile, email: "viewer@test.local" }}><Probe /></CurrentUserProvider></QueryProvider>)
   const sample = () => ({ heading: view.container.querySelector("h2")?.textContent, button: Array.from(view.container.querySelectorAll("button")).find(button => /machine|bot/i.test(button.textContent ?? ""))?.textContent })
   try {
     expect(restoring).toBe(true)

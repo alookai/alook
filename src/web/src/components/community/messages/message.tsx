@@ -21,6 +21,7 @@ import {
   type MessageExternalLinkTarget,
 } from "./message-external-link"
 import { BotApprovalCard } from "../social/bot-approval-card"
+import { BotCreationRequestCard } from "../social/bot-creation-request-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
@@ -59,6 +60,7 @@ import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-ima
 export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
   return !compact
     && !m.approval
+    && !m.botCreation
     && (
       !!(m.content ?? "")
       || !!m.attachments?.some((attachment) => attachment.kind === "image")
@@ -311,7 +313,7 @@ function MessageImpl({
     || (!desktopMenuInputActive && touchInputCapable)
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
-  const swipePointerEnabled = interactive && touchInputCapable && !selectMode
+  const swipePointerEnabled = interactive && touchInputCapable && !selectMode && !m.botCreation
   const swipeReplyEnabled = swipePointerEnabled && !!onReply
   const activateOverlays = interactive && !selectMode && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
@@ -711,7 +713,9 @@ function MessageImpl({
               )}
             </div>
           )}
-          {m.approval ? (
+          {m.botCreation ? (
+            <BotCreationRequestCard key={m.botCreation.requestId} request={m.botCreation} messageId={m.id} viewerUserId={viewerUserId} onOpenProfile={onOpenProfile} />
+          ) : m.approval ? (
             <BotApprovalCard approval={m.approval} />
           ) : (
             visibleContent && (
@@ -1010,6 +1014,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
       a.content !== b.content ||
       a.grouped !== b.grouped ||
       a.failed !== b.failed ||
+      a.botCreation !== b.botCreation ||
       a.authorId !== b.authorId ||
       a.color !== b.color ||
       a.createdAt !== b.createdAt ||

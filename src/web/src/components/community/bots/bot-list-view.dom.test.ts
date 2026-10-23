@@ -95,6 +95,8 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     highlightId: null,
     groupRefs: { current: {} },
     chatWithBot: noop,
+    askBotToCreate: noop,
+    startingBotChat: false,
     onBotCreated: noop,
     openGuidedCreate: noop,
     openMachines: noop,
@@ -119,6 +121,14 @@ function withClassFragment(container: HTMLElement, className: string): HTMLEleme
 
 describe("renderBotListView", () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it("keeps the creation chat action out of the list header", () => {
+    for (const bots of [[], [{ id: "b1" }]]) {
+      const view = render(renderBotListView({}, controller({ bots: bots as BotListController["bots"], groups: [] })))
+      expect(view.queryByRole("button", { name: "Ask your bot to create more bots." })).toBeNull()
+      view.unmount()
+    }
+  })
 
   it("shows Retry for an unconfirmed cold failure without claiming an empty bots list", () => {
     const retry = vi.fn()

@@ -155,7 +155,7 @@ export function renderBotListView(
       {backBar}
       <div className="flex flex-1 flex-col gap-6 overflow-y-auto thin-scrollbar p-6">
         <header className="flex items-center justify-between gap-4">
-          <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
             <h1 className="text-xl font-medium text-foreground">My Bots</h1>
             <BotActiveSummary onViewPlan={controller.viewPlan} summary={controller.planSummary} isFounder={controller.planSummary?.isFounder} />
           </div>
