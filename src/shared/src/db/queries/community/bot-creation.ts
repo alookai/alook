@@ -94,7 +94,7 @@ export async function decideCreationRequest(db: Database, ownerId: string, reque
   await assertCapacity(db, ownerId, row.bots.length)
   const configured = await validateBotConfigurations(db, ownerId, row.bots)
   const decisionNonce = nanoid()
-  const ids = row.bots.map(() => nanoid())
+  const ids = row.bots.map((item) => item.itemId)
   const initialSalt = computeDiscriminator(requestId)
   try {
     return await withUniqueDiscriminator(db, { id: requestId, name: "bot creation request" }, async (salt) => {
