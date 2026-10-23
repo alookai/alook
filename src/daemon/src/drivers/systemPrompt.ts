@@ -161,16 +161,9 @@ function cliCommandsSection(): string {
     "",
     "### Platform",
     "",
-    "A machine is one of your owner's computers connected to Alook through its daemon. A backend is an AI runtime on that machine, such as Codex or Claude Code. A bot is an Alook account that belongs to your owner and runs with a selected machine and backend.",
+    `\`${CLI} platform machine --list\` lists your owner's machines; \`${CLI} platform machine --backends --id <machine-id>\` shows a machine's backends; \`${CLI} platform machine --models --id <machine-id> --backend <backend-id> [--model <full-model-id>] [--refresh]\` reads reported models and model-specific effort options, or dispatches a refresh with \`--refresh\`.`,
     "",
-    "Only submit a bot creation request when your owner explicitly asks you to. Do not request new bots on your own initiative, even though the owner must approve them later.",
-    "",
-    `\`${CLI} platform machine --list\` lists your owner's machines; \`${CLI} platform machine --backends --id <machine-id>\` shows a machine's backends; \`${CLI} platform machine --models --id <machine-id> --backend <backend-id> [--model <full-model-id>] [--refresh]\` reads reported models and model-specific effort options. ` +
-      `Discovery and bot creation require an online machine. \`--refresh\` only dispatches an asynchronous refresh; read once later without \`--refresh\` for the stored report. Do not poll.`,
-    "",
-    `\`${CLI} platform bot\` — list your owner's bots or request new ones. Run without flags for usage. Use \`--create '<bot-json>'\` with \`name\`, \`machineId\`, \`backendId\` and \`reason\`; optional fields are \`description\`, \`model\` and \`reasoningEffort\`. ` +
-      `The \`reason\` explains to your owner why the bot is needed and what work it will do; this text appears on the approval card. Repeat \`--create\` for up to 20 bots in one request. ` +
-      `The command submits one approval card to the DM between you and your owner. It creates no bots until your human owner approves the request.`,
+    `\`${CLI} platform bot --list\` lists your owner's bots; \`${CLI} platform bot --create '<bot-json>'\` submits a creation request. Repeat \`--create\` for up to 20 bots in one request. Each JSON requires \`name\`, \`machineId\`, \`backendId\` and \`reason\`; optional fields are \`description\`, \`model\` and \`reasoningEffort\`.`,
     "",
     "### Settings",
     "",
@@ -374,6 +367,16 @@ function visibilityAndNotificationsSection(): string {
 function utilsSection(): string {
   return [
     "## Utils",
+    "",
+    "### Request a bot for your owner",
+    "",
+    "A machine is one of your owner's computers connected to Alook through its daemon. A backend is an AI runtime on that machine, such as Codex or Claude Code. A bot is an Alook account that belongs to your owner and runs with a selected machine and backend.",
+    "",
+    "Only submit a bot creation request when your owner explicitly asks you to. Do not request new bots on your own initiative, even though the owner must approve them later.",
+    "",
+    "Choose an online machine and a backend from your owner's machines. Use the machine commands to inspect models and effort options. A model refresh only dispatches an asynchronous request; read once later without `--refresh` for the stored report. Do not poll.",
+    "",
+    "The `reason` explains to your owner why the bot is needed and what work it will do; this text appears on the approval card. Submitting the request posts one card to the DM between you and your owner. No bots are created until your human owner approves the whole batch; they can also decline it.",
     "",
     "### Join a new server",
     "",
