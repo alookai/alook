@@ -30,7 +30,7 @@ function fixture() {
     resolveAndPush: vi.fn(async () => true), cancelPendingNavigation: vi.fn(),
   }
   const frame = { ...normalizeCommunityHref(navigation.publishedHref), revision: 0 }
-  function Fixture({ active = true, children = <input aria-label="Page draft" /> }: { active?: boolean; children?: ReactNode }) {
+  function Fixture({ active = true, parentPath = "/c/me", children = <input aria-label="Page draft" /> }: { active?: boolean; parentPath?: string; children?: ReactNode }) {
     runtime = useCommunityRuntime()
     const registry = useMemo(() => ({ register: (next: MobilePageBack) => {
       request = next
@@ -38,7 +38,7 @@ function fixture() {
     } }), [])
     return <CommunityRouteContext value={{ breakpoint, navigation, frame, ownerDeleteRouteScope: undefined }}>
       <MobilePageBackContext value={registry}>
-        <MobilePage active={active} parentPath="/c/me">{children}</MobilePage>
+        <MobilePage active={active} parentPath={parentPath}>{children}</MobilePage>
       </MobilePageBackContext>
     </CommunityRouteContext>
   }
@@ -57,9 +57,17 @@ function holdExit(popup: HTMLElement) {
 }
 
 describe("mobile page dismissal", () => {
-  it.each([{ userAgent: "iPhone", start: 8 }, { userAgent: "Android WebView", start: 80 }])("follows an inline $userAgent page touch inside a vertical scroller, cancels, then commits one parent Back", async ({ userAgent, start }) => {
+  it.each([
+    { userAgent: "iPhone", start: 8 },
+    { userAgent: "Android WebView", start: 80 },
+  ].flatMap(device => ["none", "parent", "forward"].map(pending => ({ ...device, pending }))))("follows an inline $userAgent page touch (pending=$pending) with the current navigation authority", async ({ userAgent, start, pending }) => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(userAgent)
     const task = fixture()
+    if (pending !== "none") {
+      task.navigation.navigationPending = true
+      task.navigation.pendingHref = task.navigation.publishedHref
+      task.navigation.entryIntent = { href: task.navigation.publishedHref, resume: pending === "parent" }
+    }
     render(<task.Fixture><div style={{ overflowY: "auto" }} data-testid="page-scroll"><div data-testid="page-touch">Page body</div></div></task.Fixture>)
     const area = screen.getByTestId("page-touch")
     const popup = area.closest<HTMLElement>('[data-slot="mobile-page"]')!
@@ -81,6 +89,12 @@ describe("mobile page dismissal", () => {
       touch("touchstart", start, 100)
       touch("touchmove", 170, 300)
       touch("touchmove", 220, 500)
+      if (pending === "forward") {
+        expect(popup).not.toHaveAttribute("data-swiping")
+        expect(popup).toHaveAttribute("data-open")
+        expect(task.replace).not.toHaveBeenCalled()
+        return
+      }
       expect(popup).toHaveAttribute("data-swiping")
       expect(popup.style.transform).toContain("50px")
       touch("touchcancel", 220, 700)
@@ -292,5 +306,31 @@ describe("mobile page dismissal", () => {
     view.rerender(<task.Fixture active={false} />)
     expect(popup.closest('[data-mobile-page-active="false"]')).toHaveAttribute("inert")
     expect(task.back()).toBeUndefined()
+  })
+
+  it("retires a closing callback when the page becomes an inactive background", async () => {
+    const task = fixture()
+    const view = render(<task.Fixture />)
+    const popup = screen.getByLabelText("Page draft").closest<HTMLElement>('[data-slot="mobile-page"]')!
+    const animation = holdExit(popup)
+    act(() => { task.back() })
+    await waitFor(() => expect(animation.animations).toHaveBeenCalled())
+    view.rerender(<task.Fixture active={false} />)
+    await act(async () => animation.finish())
+    expect(task.replace).not.toHaveBeenCalled()
+    expect(task.back()).toBeUndefined()
+  })
+
+  it("retires a closing callback when the verified parent changes", async () => {
+    const task = fixture()
+    const view = render(<task.Fixture />)
+    const popup = screen.getByLabelText("Page draft").closest<HTMLElement>('[data-slot="mobile-page"]')!
+    const animation = holdExit(popup)
+    act(() => { task.back() })
+    await waitFor(() => expect(animation.animations).toHaveBeenCalled())
+    view.rerender(<task.Fixture parentPath="/c/channels/s1" />)
+    await act(async () => animation.finish())
+    expect(task.replace).not.toHaveBeenCalled()
+    expect(popup).toHaveAttribute("data-open")
   })
 })
