@@ -1,7 +1,7 @@
 import type { Faro, FetchTransport } from "@grafana/faro-web-sdk"
 import type { getDefaultOTELInstrumentations } from "@grafana/faro-web-tracing"
 import { isMobile, isTauri } from "@alook/shared"
-import { ANALYTICS_CONSENT_CHANGE_EVENT, hasAnalyticsConsent } from "../analytics-consent"
+import { ANALYTICS_CONSENT_CHANGE_EVENT, isPublicAnalyticsPath, readAnalyticsConsent } from "../analytics-consent"
 import { capabilityLimits, routeTemplate } from "./coverage"
 import { ROOT_CONTEXT } from "@opentelemetry/api"
 import { actionSequence, beginNavigation, clearActions, installActionSpans, telemetryId, currentPageObservation, actionAttributes, startPageOperation, finishPageOperation } from "./context"
@@ -15,6 +15,14 @@ import { resolveFrontendIdentity } from "./runtime"
 import { resolveObservationLabels } from "./build"
 import { finishTransportClock } from "./clock"
 import { observeResourceResponse } from "./resource"
+
+function hasObservationConsent(href = typeof window === "undefined" ? undefined : window.location.href) {
+  const decision = readAnalyticsConsent()
+  if (decision !== null) return decision === "granted"
+  if (isTauri() || typeof window === "undefined" || !href) return false
+  const url = new URL(href, window.location.origin)
+  return url.origin === window.location.origin && isPublicAnalyticsPath(url.pathname)
+}
 
 type BuildProfile = { url?: string; environment?: string; release?: string; release_status: string; environment_status: string }
 function validBuildProfile(profile: BuildProfile) {
@@ -39,14 +47,14 @@ let pendingInitialNavigation = false
 let makeTransport: (() => FetchTransport) | undefined
 let stopNavigationFetch: (() => void) | undefined
 let stopBrowser: (() => void) | undefined
-let documentVitalsEligible = hasAnalyticsConsent()
+let documentVitalsEligible = hasObservationConsent()
 let eligibleSince = 0
 let eligibleTimestamp = Date.now() - (typeof performance === "undefined" ? 0 : performance.now())
 let identity = resolveFrontendIdentity("web", false, false, process.env.NEXT_PUBLIC_APP_VERSION)
 let userKey: string | undefined
 let identityEstablished = false
 let identityRevision = 0
-let mayResumeNativeSession = hasAnalyticsConsent()
+let mayResumeNativeSession = hasObservationConsent()
 let clearNativeSession: (() => void) | undefined
 let httpInstrumentations: ReturnType<typeof getDefaultOTELInstrumentations> = []
 const pageId = telemetryId()
@@ -70,7 +78,7 @@ function configure() {
   configureTelemetry({ release: build.release, environment: build.environment, release_status: build.release_status, environment_status: build.environment_status, ...identity, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
 }
 async function activate() {
-  if (documentSuspended || !hasAnalyticsConsent() || !validBuildProfile(build)) return
+  if (documentSuspended || !hasObservationConsent() || !validBuildProfile(build)) return
   const route = routeTemplate(window.location.href, window.location.origin)
   const communityOwner = (route === "/c" || route.startsWith("/c/")) && resolveCommunityModulePlan(window.location.pathname).route !== "public-invite"
   if (!identityEstablished && communityOwner) return
@@ -83,7 +91,7 @@ async function activate() {
     import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing"), import("./clock-tracing"),
   ])
   clearNativeSession = () => VolatileSessionsManager.removeUserSession()
-  if (documentSuspended || !hasAnalyticsConsent() || capturedSession !== sessionId || !isTelemetryEligible()) return
+  if (documentSuspended || !hasObservationConsent() || capturedSession !== sessionId || !isTelemetryEligible()) return
   mayResumeNativeSession = false
   makeTransport = () => {
     controller = new AbortController()
@@ -112,7 +120,7 @@ async function activate() {
       ignoreUrls: [build.url!],
       webVitalsInstrumentation: { trackAttributionSources: false },
       batching: { enabled: true, itemLimit: 40, sendTimeout: 1000 },
-      beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin, identity, eligibleTimestamp, documentVitalsEligible, eligibleTimestamp, eligibleSince) : null,
+      beforeSend: item => hasObservationConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin, identity, eligibleTimestamp, documentVitalsEligible, eligibleTimestamp, eligibleSince) : null,
     })
     const initialized = faro?.api.getSession()
     if (!faro || !initialized?.id || !/^[a-zA-Z0-9_-]{1,80}$/.test(initialized.id) || initialized.attributes?.alook_account !== accountScope) { deactivate(); return }
@@ -147,12 +155,12 @@ async function activate() {
 }
 function connectSink() {
   installTelemetrySink(event => {
-    if (!hasAnalyticsConsent() || !isTelemetryEligible()) return
+    if (!hasObservationConsent() || !isTelemetryEligible()) return
     faro?.api.pushEvent(event.name, event.attributes, "alook.frontend", { skipDedupe: true, timestampOverwriteMs: event.timestamp })
   })
 }
 function adoptNativeSession(next: string) {
-  if (next === sessionId || !/^[a-zA-Z0-9_-]{1,80}$/.test(next) || !hasAnalyticsConsent() || !isTelemetryEligible()) return
+  if (next === sessionId || !/^[a-zA-Z0-9_-]{1,80}$/.test(next) || !hasObservationConsent() || !isTelemetryEligible()) return
   retireTelemetry("native_session")
   clearActions()
   stopBrowser?.()
@@ -170,7 +178,7 @@ function adoptNativeSession(next: string) {
 }
 function reconcile() {
   if (documentSuspended) return
-  if (!hasAnalyticsConsent()) { documentVitalsEligible = false; mayResumeNativeSession = false; clearNativeSession?.(); deactivate(); return }
+  if (!hasObservationConsent()) { documentVitalsEligible = false; mayResumeNativeSession = false; clearNativeSession?.(); deactivate(); return }
   if (load) { pendingReconcile = true; return }
   if (isTelemetryEligible()) return
   load = activate().catch(() => { deactivate() }).finally(() => {
@@ -190,7 +198,7 @@ export function setTelemetryUser(key: string | null) {
   if (!firstIdentity) { eligibleSince = performance.now(); eligibleTimestamp = Date.now() }
   userKey = next
   sessionId = telemetryId()
-  if (wasEligible || hasAnalyticsConsent()) reconcile()
+  if (wasEligible || hasObservationConsent()) reconcile()
 }
 export function captureTelemetryIdentityRetirement() {
   const original = userKey, revision = identityRevision
@@ -200,9 +208,9 @@ export function bootstrapObservability(nextSurface: "web" | "blog") {
   if (started || typeof window === "undefined") return
   started = true
   identity = resolveFrontendIdentity(nextSurface, isTauri(), isMobile(), process.env.NEXT_PUBLIC_APP_VERSION)
-  pendingInitialNavigation = hasAnalyticsConsent() && validBuildProfile(build)
-  window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, () => { eligibleSince = performance.now(); eligibleTimestamp = Date.now(); if (!hasAnalyticsConsent()) pendingInitialNavigation = false; reconcile() })
-  window.addEventListener("popstate", () => { if (isTelemetryEligible()) beginNavigation(window.location.href) })
+  pendingInitialNavigation = hasObservationConsent() && validBuildProfile(build)
+  window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, () => { eligibleSince = performance.now(); eligibleTimestamp = Date.now(); if (!hasObservationConsent()) pendingInitialNavigation = false; reconcile() })
+  window.addEventListener("popstate", () => { onObservedRouteCommit(); if (isTelemetryEligible()) beginNavigation(window.location.href) })
   document.addEventListener("visibilitychange", () => {
     if (isTelemetryEligible()) { reportTelemetryDrops("transport_failure"); emitTelemetry("telemetry.coverage", { visibility: document.visibilityState, capability: "limited" }) }
   })
@@ -227,6 +235,7 @@ export function bootstrapObservability(nextSurface: "web" | "blog") {
     if (!isTelemetryEligible() || !(event.target instanceof Element)) return
     const control = event.target.closest("a,button,[role=button],input[type=checkbox],select")
     if (!control) return
+    if (control instanceof HTMLAnchorElement && !hasObservationConsent(control.href)) return
     if (control instanceof HTMLAnchorElement && control.href && control.origin === window.location.origin && !control.download && control.target !== "_blank" && !(event instanceof MouseEvent && (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)) && routeTemplate(control.href, window.location.origin) !== "/unmapped") beginNavigation(control.href, "gesture")
     else {
       const before = actionSequence(), generation = telemetryGeneration(), owner = currentPageObservation(), interactionStart = performance.now()
@@ -240,6 +249,19 @@ export function bootstrapObservability(nextSurface: "web" | "blog") {
   }, { capture: true, passive: true })
   reconcile()
 }
+export function onObservedRouteCommit() {
+  if (!started) return
+  if (!isTelemetryEligible()) { eligibleSince = performance.now(); eligibleTimestamp = Date.now() }
+  reconcile()
+}
 export function onObservedRouterTransition(url: string) {
+  if (!hasObservationConsent(url)) {
+    documentVitalsEligible = false
+    pendingInitialNavigation = false
+    mayResumeNativeSession = false
+    clearNativeSession?.()
+    deactivate()
+    return
+  }
   if (isTelemetryEligible()) beginNavigation(url, "transport")
 }

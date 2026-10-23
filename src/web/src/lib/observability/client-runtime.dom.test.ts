@@ -23,10 +23,15 @@ it("exports canonical native entry and frontend version on real SDK and business
     if (options?.body) sent.push(JSON.parse(String(options.body)))
     return new Response(null, { status: 204 })
   }))
-  document.cookie = "alook_analytics_consent=v1.granted; path=/"
+  document.cookie = "alook_analytics_consent=; max-age=0; path=/"
   const { bootstrapObservability } = await import("./client")
   const { emitTelemetry, isTelemetryEligible } = await import("./telemetry")
   await act(async () => { bootstrapObservability("web"); await Promise.resolve() })
+  await vi.advanceTimersByTimeAsync(1500)
+  expect(isTelemetryEligible()).toBe(false)
+  expect(sent).toEqual([])
+  document.cookie = "alook_analytics_consent=v1.granted; path=/"
+  announceAnalyticsConsent("granted")
   await vi.waitFor(() => expect(isTelemetryEligible()).toBe(true))
   emitTelemetry("business.result", { outcome: "success", frontend_surface: "web", client_platform: "browser", app_version: "9.9.9" })
   await vi.advanceTimersByTimeAsync(1500)
