@@ -31,16 +31,16 @@ export function BotCreationRequestCard({ request, messageId, viewerUserId, onOpe
   }
 
   return (
-    <section className={`flex w-full min-w-0 flex-col gap-4 ${count > 1 ? "max-w-lg" : "max-w-64"}`}
+    <section className={`flex w-full min-w-0 flex-col ${count > 1 ? "max-w-lg" : "max-w-64"}`}
       aria-label="Bot creation request" data-testid={tid.botCreationRequestCard} data-request-status={request.status}>
-      <ScrollArea.Root className="min-w-0 pb-11 sm:pb-6" data-swipe-ignore="">
+      <ScrollArea.Root className={count > 1 ? "min-w-0 pb-4" : "min-w-0"} data-swipe-ignore="">
         <ScrollArea.Viewport role="group" aria-label="Proposed bots" tabIndex={0}
           className="min-w-0 snap-x snap-mandatory overscroll-x-contain rounded-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
           <ScrollArea.Content className="flex gap-4 p-2">
             {request.bots.map((bot) => <BotProposal key={bot.itemId} bot={bot} onOpenProfile={onOpenProfile} />)}
           </ScrollArea.Content>
         </ScrollArea.Viewport>
-        <ScrollArea.Scrollbar orientation="horizontal" className="mx-2 flex h-11 items-center px-1 sm:h-6">
+        <ScrollArea.Scrollbar orientation="horizontal" className="mx-2 flex h-6 items-center px-1">
           <ScrollArea.Thumb className="relative h-full after:pointer-events-none after:absolute after:inset-x-0 after:top-1/2 after:h-1 after:-translate-y-1/2 after:rounded-full after:bg-border hover:after:bg-muted-foreground active:after:bg-muted-foreground" />
         </ScrollArea.Scrollbar>
       </ScrollArea.Root>
