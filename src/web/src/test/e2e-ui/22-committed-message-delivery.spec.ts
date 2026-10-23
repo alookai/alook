@@ -1,5 +1,6 @@
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, expectMessageVisible, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
+import type { Frame, Request } from "@playwright/test"
 
 import {
   communityFrameEvents,
@@ -247,10 +248,58 @@ test.describe("committed message delivery QA", () => {
     await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
 
     const requestsBeforeReload = serverRequests.length
-    await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
-    await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
-    await expect.poll(() => serverRequests.length, { timeout: 20_000 })
-      .toBeGreaterThan(requestsBeforeReload)
+    const pendingReloadRequests = new Set<Request>()
+    const reloadFailures: string[] = []
+    let reloadCommitted = false
+    let completedReloadRequests = 0
+    const trackReloadCommit = (frame: Frame) => {
+      if (frame === bob.page.mainFrame()) reloadCommitted = true
+    }
+    const trackReloadRequest = (request: Request) => {
+      if (reloadCommitted && request.method() === "GET"
+        && new URL(request.url()).pathname === "/api/community/servers") {
+        pendingReloadRequests.add(request)
+      }
+    }
+    const finishReloadRequest = (request: Request) => {
+      if (!pendingReloadRequests.has(request)) return
+      void request.response().then(async (response) => {
+        if (!response) throw new Error("Reload servers response missing")
+        const failure = await response.finished()
+        if (response.status() !== 200 || failure !== null) {
+          reloadFailures.push(`HTTP ${response.status()}: ${failure?.message ?? "unexpected status"}`)
+        } else {
+          completedReloadRequests += 1
+        }
+      }).catch((error: unknown) => {
+        reloadFailures.push(error instanceof Error ? error.message : String(error))
+      }).finally(() => pendingReloadRequests.delete(request))
+    }
+    const failReloadRequest = (request: Request) => {
+      if (!pendingReloadRequests.delete(request)) return
+      reloadFailures.push(request.failure()?.errorText ?? "Reload servers request failed")
+    }
+    bob.page.on("framenavigated", trackReloadCommit)
+    bob.page.on("request", trackReloadRequest)
+    bob.page.on("requestfinished", finishReloadRequest)
+    bob.page.on("requestfailed", failReloadRequest)
+    try {
+      await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
+      await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
+      await expect.poll(() => ({
+        requestsIncreased: serverRequests.length > requestsBeforeReload,
+        responseCompleted: completedReloadRequests > 0,
+        pending: pendingReloadRequests.size,
+        failures: reloadFailures,
+      }), { timeout: 20_000 }).toEqual({
+        requestsIncreased: true, responseCompleted: true, pending: 0, failures: [],
+      })
+    } finally {
+      bob.page.off("framenavigated", trackReloadCommit)
+      bob.page.off("request", trackReloadRequest)
+      bob.page.off("requestfinished", finishReloadRequest)
+      bob.page.off("requestfailed", failReloadRequest)
+    }
     const requestsBeforeReplay = serverRequests.length
     proxy.replay(batch)
     await expect.poll(() => serverRequests.length, { timeout: 20_000 })
