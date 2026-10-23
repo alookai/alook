@@ -1,6 +1,6 @@
 "use client"
 
-import { Monitor, Box, Gauge, Check } from "lucide-react"
+import { Monitor, Box, Gauge } from "lucide-react"
 import { ScrollArea } from "@base-ui/react/scroll-area"
 import type { BotCreationItem, BotCreationPayload } from "@alook/shared"
 import { Button } from "@/components/ui/button"
@@ -34,11 +34,11 @@ export function BotCreationRequestCard({ request, messageId, viewerUserId, onOpe
   return (
     <section className={`flex w-full min-w-0 flex-col ${count > 1 ? "max-w-2xl" : "max-w-80"}`}
       aria-label="Bot creation request" data-testid={tid.botCreationRequestCard} data-request-status={request.status}>
-      <ScrollArea.Root className={count > 1 ? "min-w-0 pb-4" : "min-w-0"} data-swipe-ignore="">
+      <ScrollArea.Root className={count > 1 ? "-ml-2 min-w-0 pb-4" : "-ml-2 min-w-0"} data-swipe-ignore="">
         <ScrollArea.Viewport role="group" aria-label="Proposed bots" tabIndex={0}
           className="min-w-0 snap-x snap-mandatory scroll-px-2 overscroll-x-contain rounded-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
           <ScrollArea.Content className="flex gap-4 p-2">
-            {request.bots.map((bot) => <BotProposal key={bot.itemId} bot={bot} approved={request.status === "approved"} onOpenProfile={onOpenProfile} />)}
+            {request.bots.map((bot) => <BotProposal key={bot.itemId} bot={bot} status={request.status} onOpenProfile={onOpenProfile} />)}
           </ScrollArea.Content>
         </ScrollArea.Viewport>
         <ScrollArea.Scrollbar orientation="horizontal" className="mx-2 flex h-6 items-center px-1">
@@ -46,7 +46,7 @@ export function BotCreationRequestCard({ request, messageId, viewerUserId, onOpe
         </ScrollArea.Scrollbar>
       </ScrollArea.Root>
       {actionable ? (
-        <div className="flex flex-col gap-2 px-2">
+        <div className="flex flex-col gap-2">
           {error && <p role="alert" className="wrap-anywhere text-sm text-destructive">{error.message}</p>}
           <div className="flex justify-start gap-2" aria-busy={decide.isPending}>
             <Button size="sm" className="h-11 sm:h-9" disabled={decide.isPending}
@@ -59,14 +59,14 @@ export function BotCreationRequestCard({ request, messageId, viewerUserId, onOpe
             </Button>
           </div>
         </div>
-      ) : request.status === "approved" ? null : <p role="status" className="text-xs font-medium text-muted-foreground">
-        {pending ? "Waiting for your owner’s decision" : "Declined"}
+      ) : !pending ? null : <p role="status" className="text-xs font-medium text-muted-foreground">
+        Waiting for your owner’s decision
       </p>}
     </section>
   )
 }
 
-function BotProposal({ bot, approved, onOpenProfile }: { bot: BotCreationItem; approved: boolean; onOpenProfile?: OpenProfile }) {
+function BotProposal({ bot, status, onOpenProfile }: { bot: BotCreationItem; status: BotCreationPayload["status"]; onOpenProfile?: OpenProfile }) {
   const identity = bot.createdBot
   const canonical = useCanonicalCommunityProfile(identity?.id)
   const name = canonical?.name ?? identity?.name ?? bot.name
@@ -77,7 +77,10 @@ function BotProposal({ bot, approved, onOpenProfile }: { bot: BotCreationItem; a
   const badgeClass = "min-w-0 max-w-full shrink-0 whitespace-nowrap text-left"
 
   return <article className={`${styles.card} relative flex h-70 w-70 min-w-0 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-border bg-popover p-2`} aria-label={bot.name}>
-    {approved && <span role="img" aria-label="Approved" title="Approved" className="absolute left-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border border-border bg-popover text-foreground"><Check aria-hidden className="size-3.5" /></span>}
+    {status !== "pending" && <span role="img" aria-label={status === "approved" ? "Approved" : "Declined"}
+      className={`pointer-events-none absolute right-3 top-3 z-10 -rotate-8 rounded-sm border-4 border-double bg-popover px-2 py-1 text-xl font-black leading-none tracking-wide ${status === "approved" ? "border-approval-pass text-approval-pass" : "border-destructive text-destructive"}`}>
+      {status === "approved" ? "PASS" : "NOT PASS"}
+    </span>}
     <div className="relative -m-2 mb-0 h-12 shrink-0 overflow-hidden rounded-t-lg">
       <SeededBackdrop seed={seed} />
     </div>
