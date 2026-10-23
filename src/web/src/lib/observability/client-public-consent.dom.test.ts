@@ -1,5 +1,6 @@
 import type { Faro } from "@grafana/faro-web-sdk"
 import { afterEach, expect, it, vi } from "vitest"
+import { act } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
 
 const native = vi.hoisted(() => ({ faro: undefined as Faro | undefined }))
@@ -30,7 +31,7 @@ it("collects fresh public document vitals, stops at private navigation and denia
   }))
   const { bootstrapObservability, onObservedRouterTransition, onObservedRouteCommit } = await import("./client")
   const { emitTelemetry, isTelemetryEligible } = await import("./telemetry")
-  bootstrapObservability("web")
+  await act(async () => { bootstrapObservability("web"); await Promise.resolve() })
   await vi.waitFor(() => expect(native.faro).toBeDefined())
   await vi.advanceTimersByTimeAsync(1500)
   expect(isTelemetryEligible()).toBe(true)
