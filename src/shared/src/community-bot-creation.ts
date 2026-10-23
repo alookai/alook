@@ -55,8 +55,7 @@ export class BotCreationError extends Error {
   constructor(public code: string, message: string, public status = 400, public details: Record<string, unknown> = {}) { super(message) }
 }
 
-export function resolveBotCreationConfiguration(machine: { id: string; status: string }, runtime: CommunityMachineRuntime | undefined, bot: Pick<BotCreationProposal, "backendId" | "model" | "reasoningEffort">) {
-  if (machine.status !== "online") throw new BotCreationError("MACHINE_OFFLINE", "Target machine is offline", 409, { machineId: machine.id })
+export function resolveBotCreationConfiguration(runtime: CommunityMachineRuntime | undefined, bot: Pick<BotCreationProposal, "backendId" | "model" | "reasoningEffort">) {
   if (!runtime) throw new BotCreationError("BACKEND_NOT_FOUND", `runtime ${bot.backendId} not available on this machine`)
   if (runtime.status === "unhealthy") throw new BotCreationError("BACKEND_UNHEALTHY", `runtime ${bot.backendId} is currently unavailable on this machine — check the daemon logs`)
   if (requiresExplicitModel(bot.backendId) && !bot.model?.trim()) throw new BotCreationError("MODEL_REQUIRED", "Choose a model before saving")

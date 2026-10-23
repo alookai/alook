@@ -58,7 +58,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const runtime = machine.availableRuntimes.find((r) => r.id === body.runtime)
   const modelName = body.model ?? null
   let effortResolution
-  try { effortResolution = resolveBotCreationConfiguration(machine, runtime, { backendId: body.runtime, model: modelName, reasoningEffort: body.reasoningEffort ?? null }) }
+  try { effortResolution = resolveBotCreationConfiguration(runtime, { backendId: body.runtime, model: modelName, reasoningEffort: body.reasoningEffort ?? null }) }
   catch (error) {
     if (error instanceof BotCreationError) return writeJSON({ error: error.message, code: error.code, ...error.details }, error.status)
     throw error

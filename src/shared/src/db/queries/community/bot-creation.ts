@@ -23,9 +23,10 @@ export async function validateBotConfigurations(db: Database, ownerId: string, b
     if (!machines.has(bot.machineId)) machines.set(bot.machineId, await getMachineForOwner(db, bot.machineId, ownerId))
     const machine = machines.get(bot.machineId)
     if (!machine) throw new BotCreationError("MACHINE_NOT_FOUND", "machine not found", 404, details)
+    if (machine.status !== "online") throw new BotCreationError("MACHINE_OFFLINE", "Target machine is offline", 409, { machineId: machine.id, ...details })
     const runtime = machine.availableRuntimes.find((candidate) => candidate.id === bot.backendId)
     let effort
-    try { effort = resolveBotCreationConfiguration(machine, runtime, bot) }
+    try { effort = resolveBotCreationConfiguration(runtime, bot) }
     catch (error) {
       if (error instanceof BotCreationError) error.details = { ...error.details, ...details }
       throw error
