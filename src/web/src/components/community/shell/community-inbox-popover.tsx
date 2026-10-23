@@ -1,10 +1,12 @@
 
-import { Bookmark, Check, ChevronRight, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "lucide-react"
-import { stripInlineMarkup } from "@alook/shared"
+import { Bookmark, Check, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "lucide-react"
+import { formatHandle, stripInlineMarkup } from "@alook/shared"
 import { EntityIcon } from "../entity-icon"
+import { ServerIcon } from "../server-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { CommunityNavigationLink } from "./community-navigation-link"
 import { Avatar } from "../avatar"
@@ -18,6 +20,7 @@ import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import { avatarInitial } from "@/lib/community/avatar"
 import {
   useLayoutEffect,
   useRef,
@@ -104,7 +107,7 @@ function InboxScrollBody({
   )
 }
 
-function MentionBadge({ count }: { count: number }) {
+function InboxCountBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
     <span className="grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">
@@ -174,7 +177,6 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
                   <Skeleton className="size-7 shrink-0 rounded-full" />
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
                     <Skeleton className="h-3.5 w-28 rounded" />
-                    <Skeleton className="h-3 w-40 rounded" />
                   </div>
                 </div>
               )
@@ -199,8 +201,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
                   >
                     <Avatar label={profile.avatar} seed={request.userId} size={28} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{profile.name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">sent you a friend request</span>
+                      <span className="block truncate font-medium">{profile.name}{profile.discriminator && <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">#{profile.discriminator}</span>}</span>
                     </span>
                   </button>
                   <div className="flex shrink-0 gap-1">
@@ -244,6 +245,8 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
         </div>
       )}
       {visibleDms.length > 0 && (
+        <>
+        {friendRequests.length > 0 && <Separator className="mb-3" />}
         <div className="mb-3">
           <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">Direct Messages</div>
           {visibleDms.map((d) => {
@@ -260,39 +263,42 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
               className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
             >
               <Avatar label={profile.avatar} seed={d.otherUserId} size={24} />
-              <span className="min-w-0 flex-1 truncate">{profile.name}</span>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">{profile.name}{profile.discriminator && <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">#{profile.discriminator}</span>}</span>
+              <InboxCountBadge count={d.unreadCount ?? 0} />
             </CommunityNavigationLink>
             )
           })}
         </div>
+        </>
       )}
+      {visibleServers.length > 0 && (friendRequests.length > 0 || visibleDms.length > 0) && <Separator className="mb-3" />}
       {visibleServers.map(({ server, channels }) => (
         <div key={server.serverId} className="mb-3">
-          <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{server.serverName}</div>
+          <div className="flex items-center gap-2 px-2 pb-1 text-sm font-semibold text-muted-foreground">
+            <ServerIcon id={server.serverId} name={server.serverName} initial={avatarInitial(server.serverName)} icon={server.serverIcon} size={14} className="shrink-0 rounded-sm" />
+            <span className="truncate">{server.serverName}</span>
+          </div>
           {channels.map(({ channel, directVisible, children }) => (
             <div key={channel.channelId}>
               <button
                 data-testid={tid.inboxUnreadChannel(channel.channelId)}
                 onClick={() => onOpenChannel?.(server, channel, directVisible)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-md py-2 pl-6 pr-2 text-left text-sm hover:bg-accent"
               >
-                <EntityIcon kind={channel.type} className="size-4 shrink-0 text-muted-foreground" />
+                <EntityIcon kind={channel.type} className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{channel.channelName}</span>
-                {directVisible && <MentionBadge count={channel.mentionCount} />}
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                {directVisible && <InboxCountBadge count={channel.mentionCount} />}
               </button>
               {children.map((child) => (
                 <button
                   key={child.channelId}
                   data-testid={tid.inboxUnreadChild(child.channelId)}
                   onClick={() => onOpenThread(server, channel, child)}
-                  className="flex w-full items-center gap-2 rounded-md py-1.5 pl-8 pr-2 text-left text-sm hover:bg-accent"
+                  className="flex w-full items-center gap-2 rounded-md py-1.5 pl-10 pr-2 text-left text-sm hover:bg-accent"
                 >
                   <EntityIcon kind={child.type} className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-muted-foreground">{child.channelName}</span>
-                  <MentionBadge count={child.mentionCount} />
-                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                  <InboxCountBadge count={child.mentionCount} />
                 </button>
               ))}
             </div>
@@ -328,6 +334,7 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
               <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <Skeleton className="h-3.5 w-2/5 rounded" />
                 <Skeleton className="h-3 w-3/4 rounded" />
+                <Skeleton className="h-3 w-full rounded" />
               </div>
             </div>
           )
@@ -337,31 +344,23 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
           mn.m.authorId ?? "",
         )
         return (
-        <div key={mn.id} className="group flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-accent">
-          <button onClick={() => onOpenMention?.(mn)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
+        <div key={mn.id} className="grid w-full grid-cols-[minmax(0,1fr)_20px] items-start rounded-md p-2 text-left hover:bg-accent">
+          <button onClick={() => onOpenMention?.(mn)} className="col-span-2 col-start-1 row-start-1 flex min-w-0 items-start gap-3 text-left">
             <Avatar label={author.avatar} seed={mn.m.authorId} size={36} />
             <div className="min-w-0 flex-1">
-              <div className="text-sm">
-                <span className="font-medium">{author.name}</span>{" "}
-                <span className="text-xs text-muted-foreground">
-                  {mn.kind === "reply" ? "replied to you" : "mentioned you"} in {mn.server} · <ChannelIcon className="inline h-[1em] w-auto align-[-0.1em]" />{mn.channel}
-                </span>
+              <div className="flex h-5 items-center pr-7 text-sm font-medium leading-5">
+                <span className="truncate">{author.discriminator ? formatHandle(author.name, author.discriminator) : author.name}</span>
+              </div>
+              <div className="truncate text-[11px] leading-4 text-muted-foreground/75">
+                {mn.server} · <ChannelIcon className="inline h-[1em] w-auto align-[-0.1em]" />{mn.channel}
               </div>
               <div className="truncate text-sm text-muted-foreground">{stripInlineMarkup(mn.m.content ?? "")}</div>
             </div>
           </button>
           {onDeleteMention && (
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<button className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
-                <MoreHorizontal className="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={4} className="w-36">
-                <DropdownMenuItem onClick={() => onDeleteMention(mn.id)}>
-                  <Trash2 className="size-4" />
-                  Remove
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button variant="secondary" size="icon" onClick={() => onDeleteMention(mn.id)} aria-label="Mark mention as read" className="z-10 col-start-2 row-start-1 size-5 text-muted-foreground">
+              <Check className="size-3.5" />
+            </Button>
           )}
         </div>
         )

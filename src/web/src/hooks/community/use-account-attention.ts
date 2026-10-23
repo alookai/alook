@@ -4,6 +4,8 @@ import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import {
   AccountAttentionSnapshotSchema,
+  COMMUNITY_CONTRACT_HEADER,
+  COMMUNITY_RESOURCE_CONTRACT_VERSION,
   type AccountAttentionSnapshot,
 } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
@@ -21,6 +23,7 @@ import {
   getCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
+import { prefetchCommunityMessage, prefetchCommunityLatestMessage } from "./use-message"
 
 class StaleAttentionReadError extends Error {
   constructor() {
@@ -30,9 +33,11 @@ class StaleAttentionReadError extends Error {
 }
 
 async function fetchAccountAttention(options: ApiRequestOptions): Promise<AccountAttentionSnapshot> {
+  const headers = new Headers(options.headers)
+  headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_RESOURCE_CONTRACT_VERSION))
   const response = await apiFetch<AccountAttentionSnapshot & { stale?: boolean }>(
     "/api/community/users/me/attention",
-    options,
+    { ...options, headers },
   )
   if (response.stale) throw new StaleAttentionReadError()
   return AccountAttentionSnapshotSchema.parse(response)
@@ -90,10 +95,15 @@ export async function reconcileAccountAttention(
   return snapshot
 }
 
-export function scheduleAccountAttentionReconcile(queryClient: QueryClient) {
+export function scheduleAccountAttentionReconcile(queryClient: QueryClient, message?: { channelId?: string; messageId?: string }) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry?.runtime.lifecycle.get().active) return
   const token = captureCommunityLiveSnapshotToken(queryClient)
+  if (message?.messageId) {
+    void prefetchCommunityMessage(queryClient, message.messageId, { channelId: message.channelId }).catch(() => undefined)
+  } else if (message?.channelId) {
+    void prefetchCommunityLatestMessage(queryClient, message.channelId).catch(() => undefined)
+  }
   void queryClient.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true }).then(() => {
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
     return queryClient.invalidateQueries({ queryKey: communityKeys.accountAttention(), exact: true, refetchType: "active" }, { cancelRefetch: false })

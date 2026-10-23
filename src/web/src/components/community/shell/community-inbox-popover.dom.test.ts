@@ -1,13 +1,21 @@
 import React from "react"
-import { describe, expect, expectTypeOf, it, vi } from "vitest"
+import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 import { fireEvent, render } from "@/test/react-dom-harness"
 import { InboxPopover } from "./community-inbox-popover"
-import type { UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { tid } from "@/lib/community/testids"
+import type { CommunityProfile } from "@/lib/community/models/people"
 
 vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))
 
-const mocks = vi.hoisted(() => ({ tabs: vi.fn() }))
+const mocks = vi.hoisted(() => ({ tabs: vi.fn(), profiles: new Map<string, CommunityProfile>() }))
+
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
+  useCanonicalProfilesByUserId: () => mocks.profiles,
+}))
+
+beforeEach(() => mocks.profiles.clear())
 
 vi.mock("@/components/ui/tabs", () => ({
   Tabs: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
@@ -69,6 +77,29 @@ function popover(onOpenChannel: ReturnType<typeof vi.fn>, onOpenThread: ReturnTy
 }
 
 describe("InboxPopover thread opener rows", () => {
+  it.each([undefined, 0, 3])("shows a known positive DM unread count: %s", (unreadCount) => {
+    mocks.profiles.set("peer", { id: "peer", name: "Mika", discriminator: "0042" })
+    const dm: UnreadDm = { channelId: "dm1", otherUserId: "peer", otherUserName: "Mika", otherUserDiscriminator: "0042", otherUserAvatar: "M", otherUserAvatarVersion: 0, lastMessageAt: "2026-10-24T00:00:00Z", unreadCount }
+    const onOpenDm = vi.fn()
+    const renderer = render(React.createElement(InboxPopover, {
+      unreads: [], unreadDms: [dm], mentions: [], marked: [], hasProjectedUnreads: true, hasProjectedMentions: false, onOpenDm,
+    }))
+    const row = renderer.getByTestId(tid.inboxUnreadDm("dm1"))
+    expect(row.textContent).toBe(unreadCount ? "Mika#00423" : "Mika#0042")
+    expect(row.querySelector(".text-xs")?.textContent).toBe("#0042")
+    fireEvent.click(row)
+    expect(onOpenDm).toHaveBeenCalledExactlyOnceWith(dm)
+  })
+
+  it("shows the server identity and leaves unread navigation rows without chevrons", () => {
+    const renderer = render(popover(vi.fn(), vi.fn()))
+    const icon = renderer.getByRole("img", { name: "Server" })
+    expect(icon.style.width).toBe("14px")
+    expect(icon.style.height).toBe("14px")
+    const unreads = renderer.getByTestId(tid.inboxTabScroll("unreads"))
+    expect(unreads.querySelector(".lucide-chevron-right")).toBeNull()
+  })
+
   it("accepts the generic thread callback used by opener-backed buttons", () => {
     expectTypeOf<Parameters<typeof InboxPopover>[0]>().toExtend<{
       onOpenThread?: (
@@ -215,6 +246,33 @@ describe("InboxPopover thread opener rows", () => {
   })
 })
 
+describe("InboxPopover mention rows", () => {
+  it("shows the full handle, location and content with a direct independent Remove button", () => {
+    mocks.profiles.set("author", { id: "author", name: "Alice", discriminator: "0042", avatar: "A" })
+    const onOpenMention = vi.fn()
+    const onDeleteMention = vi.fn()
+    const mention: Mention = { id: "mention-1", server: "Workshop", channel: "general", m: { id: "message-1", type: "chat", authorId: "author", content: "Hello there" } }
+    const renderer = render(React.createElement(InboxPopover, {
+      unreads: [], unreadDms: [], mentions: [mention], marked: [],
+      hasProjectedUnreads: false, hasProjectedMentions: true,
+      onOpenMention, onDeleteMention,
+    }))
+    const handle = renderer.getByText("Alice#0042")
+    const location = renderer.getByText(/Workshop ·/)
+    const content = renderer.getByText("Hello there")
+    expect(handle.parentElement?.nextElementSibling).toBe(location)
+    expect(location.nextElementSibling).toBe(content)
+    const remove = renderer.getByRole("button", { name: "Mark mention as read" })
+    expect(remove.querySelector(".lucide-check")).not.toBeNull()
+    expect(renderer.queryByRole("button", { name: "More" })).toBeNull()
+    fireEvent.click(remove)
+    expect(onDeleteMention).toHaveBeenCalledExactlyOnceWith("mention-1")
+    expect(onOpenMention).not.toHaveBeenCalled()
+    fireEvent.click(handle)
+    expect(onOpenMention).toHaveBeenCalledExactlyOnceWith(mention)
+  })
+})
+
 describe("InboxPopover friend requests", () => {
   const friendRequest = {
     row: {
@@ -227,7 +285,26 @@ describe("InboxPopover friend requests", () => {
     },
   }
 
+  it.each([
+    { requests: true, dms: false, servers: false, separators: 0 },
+    { requests: false, dms: true, servers: false, separators: 0 },
+    { requests: false, dms: false, servers: true, separators: 0 },
+    { requests: true, dms: true, servers: false, separators: 1 },
+    { requests: true, dms: false, servers: true, separators: 1 },
+    { requests: false, dms: true, servers: true, separators: 1 },
+    { requests: true, dms: true, servers: true, separators: 2 },
+  ])("separates only nonempty sections: $requests/$dms/$servers", ({ requests, dms, servers, separators }) => {
+    const renderer = render(React.createElement(InboxPopover, {
+      friendRequests: requests ? [friendRequest] : [],
+      unreads: servers ? unreadFixture() : [],
+      unreadDms: dms ? [{ channelId: "dm1", otherUserId: "peer", otherUserName: "Peer", otherUserDiscriminator: "0042", otherUserAvatar: "P", otherUserAvatarVersion: 0, lastMessageAt: "2026-10-24T00:00:00Z" }] : [],
+      mentions: [], marked: [], hasProjectedUnreads: dms || servers, hasProjectedMentions: false,
+    }))
+    expect(renderer.getByTestId(tid.inboxTabScroll("unreads")).querySelectorAll('[data-slot="separator"]')).toHaveLength(separators)
+  })
+
   it("renders requests before DMs and servers with sibling navigation/actions", () => {
+    mocks.profiles.set("u_friend", { id: "u_friend", name: "Ada", discriminator: "0001" })
     const onOpenFriendRequests = vi.fn()
     const onAcceptFriendRequest = vi.fn()
     const renderer = render(React.createElement(InboxPopover, {
@@ -251,10 +328,13 @@ describe("InboxPopover friend requests", () => {
       onOpenThread: vi.fn(),
     }))
     const text = renderer.container.textContent ?? ""
+    expect(text).not.toContain("sent you a friend request")
     expect(text.indexOf("Friend requests — 1")).toBeLessThan(text.indexOf("Direct Messages"))
     expect(text.indexOf("Direct Messages")).toBeLessThan(text.indexOf("Server"))
 
     const open = renderer.getByTestId(tid.inboxFriendRequestOpen("fr_1"))
+    expect(open.textContent).toBe("Ada#0001")
+    expect(open.querySelector(".text-xs")?.textContent).toBe("#0001")
     const accept = renderer.getByTestId(tid.inboxFriendRequestAccept("fr_1"))
     expect(open.contains(accept)).toBe(false)
     fireEvent.click(accept)

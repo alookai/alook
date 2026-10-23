@@ -1,4 +1,4 @@
-import { aliasedTable, and, eq, gt, isNotNull, isNull, inArray, ne, or, sql } from "drizzle-orm";
+import { aliasedTable, and, count, eq, gt, isNotNull, isNull, inArray, ne, or, sql } from "drizzle-orm";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { jsonTextSet } from "../_json-set";
 import {
@@ -541,6 +541,7 @@ export interface UnreadDmRow {
 
 export interface EligibleUnreadDmRow extends UnreadDmRow {
   lastUnreadSeq: number;
+  unreadCount: number;
 }
 
 /**
@@ -682,6 +683,7 @@ export async function listEligibleUnreadDms(
             otherUserAvatarVersion: user.avatarVersion,
             lastMessageAt: sql<string>`MAX(${communityMessage.createdAt})`,
             lastUnreadSeq: sql<number>`MAX(${communityMessage.seq})`.mapWith(Number),
+            unreadCount: count(),
           })
           .from(communityMessage)
           .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))

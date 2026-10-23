@@ -91,6 +91,7 @@ export function useInboxAttention() {
           otherUserAvatarVersion: dm.avatarVersion,
           lastMessageAt: channel.lastMessageAt ?? "",
           lastUnreadSeq: scope.lastUnreadSeq,
+          unreadCount: scope.unreadCount,
         })
         continue
       }
@@ -194,7 +195,7 @@ export function useInboxAttention() {
             .sort((left, right) => right.lastMessageAt.localeCompare(left.lastMessageAt)),
         }))
         .sort((left, right) => right.lastMessageAt.localeCompare(left.lastMessageAt))
-      return [{ serverId, serverName: server.name, channels }]
+      return [{ serverId, serverName: server.name, serverIcon: server.icon, channels }]
     })
     dms.sort((left, right) => right.lastMessageAt.localeCompare(left.lastMessageAt))
 

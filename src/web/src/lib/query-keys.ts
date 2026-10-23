@@ -64,6 +64,8 @@ export const communityKeys = {
   // ── Channel-scoped resources ────────────────────────────────────────────
   channelMessages: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "messages"] as const,
+  channelLatestMessage: (channelId: string) =>
+    [...communityKeys.all, "channel", channelId, "latest-message"] as const,
   channelMessagesWindow: (channelId: string, initial: Extract<MessagesPageParam, { mode: "newest" | "anchor" | "since" }>, tag?: string | null) =>
     initial.mode === "newest" && !tag ? communityKeys.channelMessages(channelId)
       : [...communityKeys.channelMessages(channelId), "window", { ...initial, tag: tag ?? null }] as const,

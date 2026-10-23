@@ -1,0 +1,126 @@
+import { createElement, type PropsWithChildren } from "react"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { COMMUNITY_CONTRACT_HEADER, type AccountAttentionSnapshot } from "@alook/shared"
+import { renderHook, waitFor } from "@/test/react-dom-harness"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { scheduleAccountAttentionReconcile, useAccountAttention } from "./use-account-attention"
+
+const apiFetchMock = vi.fn()
+vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
+beforeEach(() => { apiFetchMock.mockReset() })
+
+const message = { id: "message", channelId: "channel", type: "chat", seq: 4, authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 0, content: "background message", createdAt: "2026-10-24T00:00:00Z", replyToId: null, clientNonce: null, attachments: [], embeds: [], reactions: [], resourceComplete: true }
+function snapshot(lastUnreadSeq = 4): AccountAttentionSnapshot {
+  return {
+    scopes: [{ scopeId: "channel", channelId: "channel", serverId: "server", parentChannelId: null, ordinaryUnread: true, lastUnreadSeq, lastAttentionSeq: null, attentionCount: 0 }],
+    items: [], limit: 100, truncated: false,
+    included: {
+      servers: [{ id: "server", name: "Server", discriminator: "0001" }],
+      channels: [{ id: "channel", serverId: "server", name: "general", type: "text", parentChannelId: null, parentMessageId: null, creatorId: null, archived: false, lastMessageAt: message.createdAt }],
+      dms: [], profiles: [], messages: [],
+    },
+  }
+}
+
+async function mountOwner(value: AccountAttentionSnapshot) {
+  const owner = await createCommunityQueryOwner()
+  apiFetchMock.mockImplementation(async (path) => {
+    if (path === "/api/community/users/me/attention") return value
+    if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message] }
+    if (path === "/api/community/messages/message") return message
+    throw new Error(`Unexpected content read ${path}`)
+  })
+  function Wrapper({ children }: PropsWithChildren) {
+    return createElement(QueryClientProvider, { client: owner.client }, createElement(CommunityDbProvider, { registry: owner.registry }, children))
+  }
+  const hook = renderHook(() => useAccountAttention(), { wrapper: Wrapper })
+  await waitFor(() => {
+    if (hook.result.current.error) throw hook.result.current.error
+    expect(hook.result.current.data).toEqual({ loaded: true })
+  })
+  return { ...owner, hook }
+}
+
+describe("closed-Inbox account attention message hydration", () => {
+  it("hydrates an ID-bearing mention without any Inbox component or message window", async () => {
+    const owner = await mountOwner(snapshot())
+    const attentionCall = apiFetchMock.mock.calls.find(([path]) => path.endsWith("/attention"))!
+    expect(new Headers(attentionCall[1].headers).get(COMMUNITY_CONTRACT_HEADER)).toBe("3")
+    scheduleAccountAttentionReconcile(owner.client, { messageId: message.id, channelId: "channel" })
+    await waitFor(() => expect(owner.registry.collections.messages.get(message.id)?.resourceComplete).toBe(true))
+    expect(owner.registry.collections.messages.get(message.id)?.content).toBe(message.content)
+    expect(apiFetchMock.mock.calls.filter(([path]) => path.includes("/seq/"))).toHaveLength(0)
+    expect(apiFetchMock.mock.calls.every(([path]) => !path.endsWith("/read"))).toBe(true)
+    owner.hook.unmount()
+  })
+
+  it("hydrates a hint-only unread while its account index reconciliation is still held", async () => {
+    const owner = await mountOwner(snapshot())
+    expect(owner.registry.collections.messages.get(message.id)).toBeUndefined()
+    let release!: (value: AccountAttentionSnapshot) => void
+    apiFetchMock.mockImplementation(async (path) => {
+      if (path.endsWith("/attention")) return new Promise((resolve) => { release = resolve })
+      if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message] }
+      throw new Error(`Unexpected content read ${path}`)
+    })
+    scheduleAccountAttentionReconcile(owner.client, { channelId: "channel" })
+    await waitFor(() => expect(owner.registry.collections.messages.get(message.id)?.resourceComplete).toBe(true))
+    await waitFor(() => expect(release).toBeTypeOf("function"))
+    expect(owner.hook.result.current.isFetching).toBe(true)
+    expect(apiFetchMock.mock.calls.filter(([path]) => path.includes("/seq/"))).toHaveLength(0)
+    release(snapshot())
+    await waitFor(() => expect(owner.hook.result.current.isFetching).toBe(false))
+    owner.hook.unmount()
+  })
+
+  it("hydrates both channels when a later hint cancels an earlier account-index read", async () => {
+    const owner = await mountOwner(snapshot())
+    const other = { ...message, id: "other", channelId: "other-channel" }
+    const reads: Array<{ signal: AbortSignal; release: (value: AccountAttentionSnapshot) => void }> = []
+    apiFetchMock.mockImplementation(async (path, options) => {
+      if (path.endsWith("/attention")) return new Promise((resolve) => { reads.push({ signal: options.signal, release: resolve }) })
+      if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message] }
+      if (path === "/api/community/channels/other-channel/messages?limit=1") return { messages: [other] }
+      throw new Error(`Unexpected content read ${path}`)
+    })
+    scheduleAccountAttentionReconcile(owner.client, { channelId: "channel" })
+    await waitFor(() => expect(reads).toHaveLength(1))
+    scheduleAccountAttentionReconcile(owner.client, { channelId: other.channelId })
+    await waitFor(() => expect(reads).toHaveLength(2))
+    expect(reads[0].signal.aborted).toBe(true)
+    reads[0].release(snapshot())
+    reads[1].release(snapshot())
+    await waitFor(() => {
+      expect(owner.registry.collections.messages.get(message.id)?.resourceComplete).toBe(true)
+      expect(owner.registry.collections.messages.get(other.id)?.resourceComplete).toBe(true)
+      expect(owner.hook.result.current.isFetching).toBe(false)
+    })
+    expect(apiFetchMock.mock.calls.filter(([path]) => path.includes("messages?limit=1"))).toHaveLength(2)
+    expect(apiFetchMock.mock.calls.every(([path]) => !path.endsWith("/read"))).toBe(true)
+    owner.hook.unmount()
+  })
+
+  it.each(["missing-scope", "empty-scope"])("hydrates without depending on a potentially lagging index: %s", async (mode) => {
+    const value = snapshot(0)
+    if (mode === "missing-scope") value.scopes = []
+    const owner = await mountOwner(value)
+    scheduleAccountAttentionReconcile(owner.client, { channelId: "channel" })
+    await waitFor(() => expect(owner.registry.collections.messages.get(message.id)?.resourceComplete).toBe(true))
+    expect(apiFetchMock.mock.calls.every(([path]) => !path.endsWith("/read"))).toBe(true)
+    owner.hook.unmount()
+  })
+
+  it.each(["no-hint", "inactive"])("does not hydrate an unrelated or retired scope: %s", async (mode) => {
+    const owner = await mountOwner(snapshot())
+    if (mode === "inactive") owner.runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
+    scheduleAccountAttentionReconcile(owner.client, mode === "no-hint" ? undefined : { channelId: "channel" })
+    if (mode !== "inactive") {
+      await waitFor(() => expect(apiFetchMock.mock.calls.filter(([path]) => path.endsWith("/attention"))).toHaveLength(2))
+      await waitFor(() => expect(owner.hook.result.current.isFetching).toBe(false))
+    }
+    expect(apiFetchMock.mock.calls.filter(([path]) => path.includes("/messages"))).toHaveLength(0)
+    owner.hook.unmount()
+  })
+})

@@ -6,13 +6,16 @@ import { useEffect, useMemo } from "react"
 import {
   useQuery,
   useQueryClient,
+  queryOptions,
   type QueryClient,
   type QueryFunctionContext,
   type UseQueryResult,
 } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
-import type { MessageInput, Msg } from "@/lib/community/models/message"
+import type { MessageInput, MessagesPage, Msg } from "@/lib/community/models/message"
 import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import {
   useCanonicalMessagesById,
@@ -26,6 +29,7 @@ import { accountUnreadAllowsAccess, getActiveAccountUnreadProjection } from "./a
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import {
   captureCommunityLiveSnapshotToken,
+  assertCommunityLiveSnapshotTokenCurrent,
   publishCommunityMessages,
   getCanonicalCommunityMessages,
 } from "@/lib/community-db/sync"
@@ -55,7 +59,7 @@ export const messageQueryFn = (
   const token = captureCommunityLiveSnapshotToken(queryClient, channelId)
   const message = await apiFetchCommunity<MessageInput>(
     `/api/community/messages/${messageId}`,
-    { signal: readSignal }, token,
+    { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } }, token,
   )
   const publishChannelId = message.channelId ?? channelId
   if (publishChannelId) {
@@ -67,6 +71,51 @@ export const messageQueryFn = (
   }
   return message.id
 })
+
+function messageQueryOptions(queryClient: QueryClient, messageId: string, channelId?: string) {
+  return queryOptions({
+    queryKey: communityKeys.message(messageId),
+    queryFn: messageQueryFn(messageId, queryClient, channelId),
+    staleTime: 30_000,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.message(messageId) }).retry),
+    networkMode: "always",
+  })
+}
+
+export async function prefetchCommunityMessage(queryClient: QueryClient, messageId: string, scope: MessageAccessScope) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry?.runtime.lifecycle.get().active
+    || !accountUnreadAllowsAccess(getActiveAccountUnreadProjection(queryClient).state.get(), scope)) return
+  rememberMessageAccessScope(queryClient, messageId, scope)
+  if (registry.collections.messages.get(messageId)?.resourceComplete) return
+  await queryClient.query({ ...messageQueryOptions(queryClient, messageId, scope.channelId), staleTime: 0, select: undefined })
+}
+
+export async function prefetchCommunityLatestMessage(queryClient: QueryClient, channelId: string) {
+  const token = captureCommunityLiveSnapshotToken(queryClient, channelId)
+  const registry = token.registry
+  if (!registry?.runtime.lifecycle.get().active) return
+  const scope = { channelId, serverId: registry.collections.channels.get(channelId)?.serverId }
+  if (!accountUnreadAllowsAccess(getActiveAccountUnreadProjection(queryClient).state.get(), scope)) return
+  const queryKey = communityKeys.channelLatestMessage(channelId)
+  await queryClient.cancelQueries({ queryKey, exact: true })
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+  await queryClient.query({
+    queryKey,
+    staleTime: 0,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry),
+    networkMode: "always",
+    queryFn: ({ signal }) => withConversationReadDeadline(signal, async (readSignal) => {
+      const page = await apiFetchCommunity<MessagesPage>(
+        `/api/community/channels/${channelId}/messages?limit=1`,
+        { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } }, token,
+      )
+      publishCommunityMessages(queryClient, { channelId, messages: page.messages, proof: { token, signal: readSignal } })
+      return page.messages[0]?.id ?? null
+    }),
+    select: undefined,
+  })
+}
 
 export function findCachedMessage(
   queryClient: QueryClient,
@@ -110,17 +159,12 @@ export function useMessage(
     [accessAllowed, messageId, queryClient],
   )
   const query = useQuery({
-    queryKey: enabled ? communityKeys.message(messageId!) : communityKeys.message("__none__"),
+    ...messageQueryOptions(queryClient, enabled ? messageId! : "__none__", accessScope?.channelId),
     queryFn: enabled
       ? messageQueryFn(messageId!, queryClient, accessScope?.channelId)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
     placeholderData,
-    // Quick tab-switches shouldn't hammer the endpoint; 30s window is plenty
-    // for the "opener stays live via mutation invalidation" contract.
-    staleTime: 30_000,
-    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.message(messageId ?? "__none__") }).retry),
-    networkMode: "always",
   })
   const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
   return {

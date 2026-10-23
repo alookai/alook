@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { ingestMessages } from "@/lib/community-db/sync"
-import { findCachedMessage, messageQueryFn } from "./use-message"
+import { ingestMessages, retireCommunityChannelReading } from "@/lib/community-db/sync"
+import { findCachedMessage, messageQueryFn, prefetchCommunityMessage, prefetchCommunityLatestMessage } from "./use-message"
+import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
@@ -13,6 +15,127 @@ const payload = {
   authorName: "Alice", authorAvatar: "", authorAvatarVersion: 0, content: "hi there",
   createdAt: "2026-07-03T00:00:00.000Z",
 }
+
+const completePayload = { ...payload, resourceComplete: true as const, seq: 4, replyToId: null, clientNonce: null, attachments: [], embeds: [], reactions: [] }
+
+describe("background canonical message hydration", () => {
+  it("deduplicates concurrent reads and shares the exact message cache without opening a window", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    let release!: (value: typeof completePayload) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const first = prefetchCommunityMessage(client, payload.id, { channelId: payload.channelId })
+    const second = prefetchCommunityMessage(client, payload.id, { channelId: payload.channelId })
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+    release(completePayload)
+    await Promise.all([first, second])
+    expect(registry.collections.messages.get(payload.id)).toMatchObject({ resourceComplete: true, content: payload.content, seq: 4 })
+    expect(client.getQueryData(communityKeys.message(payload.id))).toBe(payload.id)
+    expect(client.getQueryData(communityKeys.channelMessages(payload.channelId))).toBeUndefined()
+    await prefetchCommunityMessage(client, payload.id, { channelId: payload.channelId })
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("reads a hint-only channel's latest full resource without creating a conversation window", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    apiFetchMock.mockResolvedValue({ messages: [completePayload] })
+    await Promise.all([
+      prefetchCommunityLatestMessage(client, payload.channelId),
+      prefetchCommunityLatestMessage(client, payload.channelId),
+    ])
+    expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/channel-1/messages?limit=1"])
+    expect(new Headers(apiFetchMock.mock.calls[0][1].headers).get(COMMUNITY_CONTRACT_HEADER)).toBe("3")
+    expect(registry.collections.messages.get(payload.id)?.resourceComplete).toBe(true)
+    expect(client.getQueryData(communityKeys.channelLatestMessage(payload.channelId))).toBe(payload.id)
+    expect(client.getQueryData(communityKeys.channelMessages(payload.channelId))).toBeUndefined()
+  })
+
+  it("hydrates a partial canonical message through the existing exact-ID reader", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    ingestMessages(registry, payload.channelId, [{ ...payload, seq: 4 }])
+    apiFetchMock.mockResolvedValueOnce(completePayload)
+    await prefetchCommunityMessage(client, payload.id, { channelId: payload.channelId })
+    expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/community/messages/m_1"])
+    expect(registry.collections.messages.get(payload.id)?.resourceComplete).toBe(true)
+  })
+
+  it("does not fetch for retired access or an inactive owner", async () => {
+    const owner = await createCommunityQueryOwner()
+    getActiveAccountUnreadProjection(owner.client).retireAccessScope({ kind: "channel", channelId: payload.channelId })
+    await prefetchCommunityMessage(owner.client, payload.id, { channelId: payload.channelId })
+    await prefetchCommunityLatestMessage(owner.client, payload.channelId)
+    owner.runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
+    await prefetchCommunityMessage(owner.client, payload.id, {})
+    await prefetchCommunityLatestMessage(owner.client, payload.channelId)
+    expect(apiFetchMock).not.toHaveBeenCalled()
+  })
+
+  it("does not publish a latest resource after its account owner retires", async () => {
+    const owner = await createCommunityQueryOwner()
+    let release!: (value: { messages: typeof completePayload[] }) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const result = prefetchCommunityLatestMessage(owner.client, payload.channelId).catch((error) => error)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+    owner.runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
+    release({ messages: [completePayload] })
+    expect(await result).toMatchObject({ name: "AbortError" })
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    expect(owner.registry.collections.messages.get(payload.id)).toBeUndefined()
+  })
+
+  it("keeps different channel reads independent and cancels an older same-channel read", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const next = { ...completePayload, id: "new", seq: 5, content: "newest" }
+    const other = { ...completePayload, id: "other", channelId: "channel-2" }
+    let releaseOld!: (value: { messages: typeof completePayload[] }) => void
+    let releaseOther!: (value: { messages: typeof completePayload[] }) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { releaseOld = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { releaseOther = resolve }))
+      .mockResolvedValueOnce({ messages: [next] })
+    const old = prefetchCommunityLatestMessage(client, payload.channelId).catch((error) => error)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+    const secondChannel = prefetchCommunityLatestMessage(client, other.channelId)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    await prefetchCommunityLatestMessage(client, payload.channelId)
+    expect(apiFetchMock.mock.calls[0][1].signal.aborted).toBe(true)
+    expect(apiFetchMock.mock.calls[1][1].signal.aborted).toBe(false)
+    releaseOld({ messages: [completePayload] })
+    releaseOther({ messages: [other] })
+    await Promise.all([old, secondChannel])
+    expect(registry.collections.messages.get(payload.id)).toBeUndefined()
+    expect(registry.collections.messages.get(next.id)?.content).toBe("newest")
+    expect(registry.collections.messages.get(other.id)?.resourceComplete).toBe(true)
+    expect(client.getQueryData(communityKeys.channelLatestMessage(payload.channelId))).toBe(next.id)
+    expect(client.getQueryData(communityKeys.channelLatestMessage(other.channelId))).toBe(other.id)
+  })
+
+  it("stores null for an empty latest page and rejects a late revoked-scope resource", async () => {
+    const owner = await createCommunityQueryOwner()
+    apiFetchMock.mockResolvedValueOnce({ messages: [] })
+    await prefetchCommunityLatestMessage(owner.client, payload.channelId)
+    expect(owner.client.getQueryData(communityKeys.channelLatestMessage(payload.channelId))).toBeNull()
+    let release!: (value: { messages: typeof completePayload[] }) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const result = prefetchCommunityLatestMessage(owner.client, payload.channelId).catch((error) => error)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    retireCommunityChannelReading(owner.registry, payload.channelId, { reason: "read-denied" })
+    release({ messages: [completePayload] })
+    await result
+    expect(owner.registry.collections.messages.get(payload.id)).toBeUndefined()
+    expect(owner.client.getQueryData(communityKeys.channelLatestMessage(payload.channelId))).toBeUndefined()
+  })
+
+  it("does not publish a full message response after channel access is revoked", async () => {
+    const owner = await createCommunityQueryOwner()
+    let release!: (value: typeof completePayload) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const result = prefetchCommunityMessage(owner.client, payload.id, { channelId: payload.channelId }).catch((error) => error)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+    owner.runtime.ws.actions.revokeChannelAccess(null, payload.channelId)
+    release(completePayload)
+    expect(await result).toMatchObject({ name: "AbortError" })
+    expect(owner.registry.collections.messages.get(payload.id)).toBeUndefined()
+  })
+})
 
 describe("useMessage / messageQueryFn", () => {
   it("clears absent rich fields from a fresh complete exact response", async () => {

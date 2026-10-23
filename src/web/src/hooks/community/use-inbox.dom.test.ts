@@ -14,6 +14,7 @@ import {
 import {
   clearAttentionScopeOptimistically,
   ingestAttentionSnapshot,
+  ingestServers,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
@@ -189,6 +190,7 @@ function dmSnapshot({ mention = false }: { mention?: boolean } = {}): AccountAtt
       parentChannelId: null,
       ordinaryUnread: !mention,
       lastUnreadSeq: 9,
+      unreadCount: 3,
       lastAttentionSeq: mention ? 9 : null,
       attentionCount: mention ? 1 : 0,
     }],
@@ -390,6 +392,28 @@ beforeEach(() => {
 })
 
 describe("useInboxAttention", () => {
+  it("keeps unread server identity aligned with its canonical owner", async () => {
+    const harness = await createHarness()
+    try {
+      const server = { id: "server", name: "Server", discriminator: "0001", initial: "S", active: false, unread: true, mentions: 0, icon: "/first-server-icon.png" }
+      act(() => {
+        ingestServers(harness.registry, { servers: [server] })
+        ingestAttentionSnapshot(harness.registry, forumSnapshot())
+      })
+      await waitFor(() => expect(harness.latest.servers[0]).toMatchObject({
+        serverName: "Server",
+        serverIcon: "/first-server-icon.png",
+      }))
+      act(() => ingestServers(harness.registry, { servers: [{ ...server, name: "Renamed", icon: null }] }))
+      await waitFor(() => expect(harness.latest.servers[0]).toMatchObject({
+        serverName: "Renamed",
+        serverIcon: null,
+      }))
+    } finally {
+      harness.dispose()
+    }
+  })
+
   it("rejects stale marked and message-mark responses instead of publishing empty success", async () => {
     const wrapperFor = (queryClient: QueryClient) => function Wrapper({
       children,
@@ -428,6 +452,7 @@ describe("useInboxAttention", () => {
         channelId: "dm",
         otherUserName: "Peer",
         lastUnreadSeq: 9,
+        unreadCount: 3,
       })]))
 
       const profileKey = communityKeys.communityDbCollection("viewer", "profiles")

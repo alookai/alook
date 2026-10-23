@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 
 const mocks = vi.hoisted(() => ({
   snapshot: vi.fn(),
@@ -38,6 +39,20 @@ import { GET } from "./route"
 
 describe("GET /api/community/users/me/attention", () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it.each([undefined, "1", "2", "3"])("exposes exact DM counts only for the resource contract: %s", async (contract) => {
+    mocks.snapshot.mockResolvedValue({
+      scopes: [{ scopeId: "dm1", channelId: "dm1", serverId: null, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 5, unreadCount: 2, lastAttentionSeq: null, attentionCount: 0 }],
+      items: [], limit: 100, truncated: false,
+      included: { servers: [], channels: [], dms: [{ id: "dm1", userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0, lastMessageAt: "2026-10-24T00:00:00Z", lastUnreadSeq: 5 }], profiles: [{ userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0 }], messages: [] },
+    })
+    const headers = new Headers()
+    if (contract) headers.set(COMMUNITY_CONTRACT_HEADER, contract)
+    const response = await GET(new Request("http://localhost/api/community/users/me/attention", { headers }) as any)
+    const body = await response.json()
+    expect(response.status).toBe(200)
+    expect(body.scopes[0].unreadCount).toBe(contract === "3" ? 2 : undefined)
+  })
 
   it("uses the primary-authoritative session for the stateless snapshot", async () => {
     mocks.snapshot.mockResolvedValue({

@@ -87,7 +87,7 @@ export function handleUnreadBump(
   const viewerId = viewerUserIdRef.current
   if (event.userId === viewerId && viewerId) {
     const evidence = unreadBumpEvidence?.get(event)
-    scheduleAccountAttentionReconcile(queryClient)
+    scheduleAccountAttentionReconcile(queryClient, { channelId: event.channelId, messageId: evidence?.messageId })
     getAccountUnreadProjection(queryClient, viewerId).recordArrival({
       channelId: event.channelId,
       railChannelId: event.railChannelId,
@@ -151,7 +151,7 @@ export function handleMentionCreate(
 ) {
   const viewerId = viewerUserIdRef.current
   if (!viewerId || event.userId !== viewerId) return
-  scheduleAccountAttentionReconcile(queryClient)
+  scheduleAccountAttentionReconcile(queryClient, { channelId: event.channelId, messageId: event.messageId })
   if (event.channelId) {
     const candidate = messageEvidenceByChannel?.get(event.channelId)
     const evidence = candidate?.messageId === event.messageId ? candidate : undefined

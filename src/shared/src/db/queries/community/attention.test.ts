@@ -47,6 +47,7 @@ beforeEach(() => {
     otherUserAvatarVersion: 1,
     lastMessageAt: "2026-09-27T00:00:00.000Z",
     lastUnreadSeq: 4,
+    unreadCount: 2,
   }])
   mocks.listActionableIncomingRequests.mockResolvedValue([])
   mocks.listUnreadMentionScopes.mockResolvedValue([])
@@ -69,6 +70,7 @@ describe("getAccountAttentionSnapshot", () => {
       parentChannelId: null,
       ordinaryUnread: true,
       lastUnreadSeq: 4,
+      unreadCount: 2,
       lastAttentionSeq: null,
       attentionCount: 0,
     }])

@@ -10,6 +10,7 @@ export const AttentionScopeSchema = z.strictObject({
   parentChannelId: id.nullable().optional(),
   ordinaryUnread: z.boolean(),
   lastUnreadSeq: z.number().int().nonnegative(),
+  unreadCount: z.number().int().nonnegative().optional(),
   lastAttentionSeq: z.number().int().nonnegative().nullable().optional(),
   attentionCount: z.number().int().nonnegative(),
 })

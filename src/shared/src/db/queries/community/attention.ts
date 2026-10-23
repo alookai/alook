@@ -67,6 +67,7 @@ export async function getAccountAttentionSnapshot(
       parentChannelId: null,
       ordinaryUnread: true,
       lastUnreadSeq: row.lastUnreadSeq,
+      unreadCount: row.unreadCount,
       lastAttentionSeq: null,
       attentionCount: 0,
     })

@@ -4,6 +4,7 @@ import {
   MAX_INBOX_PAGE_SIZE,
   queries,
   readOrStale,
+  requestedCommunityContract,
 } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -52,6 +53,9 @@ export const GET = withAuth(async (request, ctx) => {
   )
   const normalized = {
     ...value,
+    scopes: requestedCommunityContract(request.headers) === 3
+      ? value.scopes
+      : value.scopes.map(({ unreadCount: _unreadCount, ...scope }) => scope),
     included: {
       ...value.included,
       dms: value.included.dms.map(canonicalizeIncludedAvatar),
