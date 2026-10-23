@@ -15,7 +15,7 @@ import { createOwnerServerDeleteRouteToken, cancelOwnerServerDelete, observeOwne
 import { flushOwnerServerDeleteRouteCommit } from "../community-ws/scope-eviction"
 import { dispatchCommunityWsEvent } from "../community-ws/registry"
 import { getCommunityRuntime } from "@/stores/community/runtime"
-import { useCreateChannel, useCreateCategory, useDeleteCategory, useMoveChannel, useReorderChannels, useUpdateCategory, useReorderCategories, useDeleteChannel } from "./channels"
+import { useCreateChannel, useCreateCategory, useDeleteCategory, useReorderChannels, useUpdateCategory, useReorderCategories, useDeleteChannel } from "./channels"
 import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 const api = vi.hoisted(() => vi.fn())
 const sdk = vi.hoisted(() => ({ id: "A" }))
@@ -29,15 +29,15 @@ let leave: ReturnType<typeof useLeaveServer>
 let remove: ReturnType<typeof useDeleteServer>
 let icon: ReturnType<typeof useUploadServerIcon>, updateCategory: ReturnType<typeof useUpdateCategory>, reorderCategories: ReturnType<typeof useReorderCategories>, deleteChannel: ReturnType<typeof useDeleteChannel>
 let deleteCallbacks = { onSuccess: vi.fn(), onError: vi.fn() }
-let createChannel: ReturnType<typeof useCreateChannel>, createCategory: ReturnType<typeof useCreateCategory>, deleteCategory: ReturnType<typeof useDeleteCategory>, moveChannel: ReturnType<typeof useMoveChannel>, reorderChannels: ReturnType<typeof useReorderChannels>
+let createChannel: ReturnType<typeof useCreateChannel>, createCategory: ReturnType<typeof useCreateCategory>, deleteCategory: ReturnType<typeof useDeleteCategory>, reorderChannels: ReturnType<typeof useReorderChannels>
 function Probe() {
   const currentClient = useQueryClient()
   const list = useServers(), detail = useServer("s1")
   const routeToken = useMemo(() => createOwnerServerDeleteRouteToken(currentClient), [currentClient])
   const currentUpdate = useUpdateServer(), currentLeave = useLeaveServer(), currentRemove = useDeleteServer({ ...deleteCallbacks, routeToken })
   const currentIcon = useUploadServerIcon(), currentUpdateCategory = useUpdateCategory(), currentReorderCategories = useReorderCategories(), currentDeleteChannel = useDeleteChannel()
-  const currentCreateChannel = useCreateChannel(), currentCreateCategory = useCreateCategory(), currentDeleteCategory = useDeleteCategory(), currentMoveChannel = useMoveChannel(), currentReorderChannels = useReorderChannels()
-  useLayoutEffect(() => { client = currentClient; update = currentUpdate; leave = currentLeave; remove = currentRemove; icon = currentIcon; updateCategory = currentUpdateCategory; reorderCategories = currentReorderCategories; deleteChannel = currentDeleteChannel; createChannel = currentCreateChannel; createCategory = currentCreateCategory; deleteCategory = currentDeleteCategory; moveChannel = currentMoveChannel; reorderChannels = currentReorderChannels })
+  const currentCreateChannel = useCreateChannel(), currentCreateCategory = useCreateCategory(), currentDeleteCategory = useDeleteCategory(), currentReorderChannels = useReorderChannels()
+  useLayoutEffect(() => { client = currentClient; update = currentUpdate; leave = currentLeave; remove = currentRemove; icon = currentIcon; updateCategory = currentUpdateCategory; reorderCategories = currentReorderCategories; deleteChannel = currentDeleteChannel; createChannel = currentCreateChannel; createCategory = currentCreateCategory; deleteCategory = currentDeleteCategory; reorderChannels = currentReorderChannels })
   return <><output data-testid="server-list">{list.servers.map((s) => s.name).join(",")}</output><output data-testid="server-detail">{detail.server ? `${detail.server.name}|${detail.server.description}` : "missing"}</output><output data-testid="tree">{detail.server?.categories.map((c) => `${c.id}:${c.name}:${c.channels.map((ch) => `${ch.id}=${ch.name}`).join(",")}`).join("|")}</output></>
 }
 function Root({ id = sdk.id }: { id?: string }) { return <QueryProvider userId={id}><Probe /></QueryProvider> }
@@ -156,7 +156,7 @@ describe("actual canonical server and tree command owner", () => {
   })
   it("confirms a move without losing the newer WS channel name", async () => {
     const { resolve, original } = await mount()
-    let result!: Promise<unknown>; act(() => { result = moveChannel.mutateAsync({ serverId: "s1", channelId: "c1", categoryId: "cat2" }).catch((error) => error) })
+    let result!: Promise<unknown>; act(() => { result = reorderChannels.mutateAsync({ serverId: "s1", channelIds: ["c1"], move: { channelId: "c1", categoryId: "cat2" } }).catch((error) => error) })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).toContain("cat2:Elsewhere:c1=general"))
     act(() => projectCommunityWsEventToDb(original, { type: "community:channel.update", serverId: "s1", channelId: "c1", changes: { name: "newer-room" } }))
     await act(async () => { resolve({ id: "c1", categoryId: "cat2" }); await result })

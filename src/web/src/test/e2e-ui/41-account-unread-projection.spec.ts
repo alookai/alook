@@ -89,13 +89,13 @@ function hasCorrelatedBundle(
   })
 }
 
-async function expectUnreadDot(row: ReturnType<Page["getByTestId"]>) {
+async function expectUnreadDot(row: ReturnType<Page["getByTestId"]>, height = "10px") {
   await expect(row).toBeVisible({ timeout: 30_000 })
-  await expect(row.locator("span.rounded-full.bg-primary")).toHaveCount(1)
+  await expect(row.locator('[data-slot="community-channel-unread-indicator"]')).toHaveCSS("height", height)
 }
 
 async function expectNoUnreadDot(row: ReturnType<Page["getByTestId"]>) {
-  await expect(row.locator("span.rounded-full.bg-primary")).toHaveCount(0)
+  await expect(row.locator('[data-slot="community-channel-unread-indicator"]')).toHaveCSS("height", "0px")
 }
 
 async function readSeq(page: Page, channelId: string): Promise<number> {
@@ -370,7 +370,7 @@ test.setTimeout(180_000)
 
     await gotoAfterUserWsAuth(page, `/c/channels/${backgroundServer}/${forumId}`)
     await expect(page).toHaveURL(`/c/channels/${backgroundServer}/${forumId}`)
-    await expectUnreadDot(page.getByTestId(tid.forumSidebarThread(forumChild)))
+    await expectUnreadDot(page.getByTestId(tid.forumSidebarThread(forumChild)), "4px")
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(unreadChannel))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadChild(forumChild))).toBeVisible()

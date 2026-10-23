@@ -125,14 +125,12 @@ function combine(state: RailState, instruction: Extract<RailInstruction, { opera
     if (sourceFolder === targetFolder) {
       if (instruction.target.kind !== "folder") return "server is already in target folder"
       state.folders[targetFolder] = [...state.folders[targetFolder]!.filter((id) => id !== source), source]
-      state.expanded = unique([...state.expanded, targetFolder])
       return null
     }
     removeServerFromFolder(state, source)
     const items = state.folders[targetFolder]!
     const index = instruction.target.kind === "server" ? items.indexOf(instruction.target.id) + 1 : items.length
     items.splice(index, 0, source)
-    state.expanded = unique([...state.expanded, targetFolder])
     return null
   }
   if (instruction.target.kind !== "server") return "target folder is missing"
@@ -182,7 +180,6 @@ export function commitRailInstruction(before: RailState, instruction: RailInstru
       const id = instruction.target.id
       if (folderForServer(next, source.id) === id) next.folders[id] = [...next.folders[id]!.filter((value) => value !== source.id), source.id]
       else { removeServerFromFolder(next, source.id); next.folders[id]!.push(source.id) }
-      next.expanded = unique([...next.expanded, id])
     }
   } else if (instruction.operation === "combine") error = combine(next, instruction)
   else {
@@ -195,7 +192,6 @@ export function commitRailInstruction(before: RailState, instruction: RailInstru
           next.folders[targetFolder]!.push(source.id)
         }
         next.folders[targetFolder] = moveRelative(next.folders[targetFolder]!, source.id, target.id, instruction.operation === "reorder-after")
-        next.expanded = unique([...next.expanded, targetFolder])
       }
     } else {
       const targetIndex = railTopLevel(next).findIndex((entry) => key(entry) === key(instruction.target))

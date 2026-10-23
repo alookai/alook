@@ -834,3 +834,4 @@ export * from "./community-resources";
 export * from "./runtime-models-contract";
 
 export { readBoundedJsonRequest } from "./http-json";
+export { channelReorderRequestSchema, type ChannelReorderRequest, type ChannelCategoryMove } from "./community-channel-order";

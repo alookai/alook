@@ -974,18 +974,35 @@ describe("membership metadata and access lifetime", () => {
     expect(capturedQueryClient.getQueryData(key)).toMatchObject({ pages: [{ messages: [] }] })
   })
 
-  it.each([403, 404, 500])("keeps unknown legacy content retired when the access recheck returns %s", async (status) => {
+  it("restores a newly mentioned forum participant and refreshes the mounted sidebar after legacy metadata recovery", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const api = getCommunityApiFetchMock()
+    const base = communityKeys.forumSidebarThreads("server")
+    capturedQueryClient.setQueryData(base, { threads: [], serverNow: "2026-10-01T00:00:00Z", verifiedEpoch: 0, serverClockOffsetMs: 0 })
+    const unread = getAccountUnreadProjection(capturedQueryClient, "u_me")
+    unread.recordArrival({ channelId: "child", serverId: "server", railChannelId: "forum", seq: 1, isMention: true })
+    api.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 1, creatorId: "peer", createdAt: "2026-10-01T00:00:00Z", lastMessageAt: "2026-10-01T00:00:01Z", id: "child", serverId: "server", type: "thread", parentChannelId: "forum", parentMessageId: "opener", name: "New post", archived: false }, "u_me"))
+    capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
+    await vi.waitFor(() => expect(hasCanonicalChannelNotify("child", "u_me")).toBe(true))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryState(base)?.isInvalidated).toBe(true))
+    expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
+    expect(unread.projectUnread("servers", "child", false)).toBe(true)
+  })
+
+  it.each([403, 404, 500].flatMap((status) => (["community:channel.member_add", "community:channel.member_remove"] as const).map((type) => ({ status, type }))))("keeps unknown legacy content retired after $type when the access recheck returns $status", async ({ status, type }) => {
     await mountHook({ viewerUserId: "u_me" })
     const { ApiError } = await import("@/lib/errors")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     getCommunityApiFetchMock().mockRejectedValue(new ApiError("lookup failed", status))
     const key = communityKeys.channelMessages("child")
     capturedQueryClient.setQueryData(key, { pages: [] })
-    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    capturedOnMessage!({ type, channelId: "child", serverId: "server", userId: "u_me" })
     await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
     await vi.waitFor(() => expect(capturedQueryClient.getQueryState(entryKey("server", "child"))?.fetchStatus ?? "idle").toBe("idle"))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(true)
     expect(capturedQueryClient.getQueryData(key) === undefined).toBe(true)
+    expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
   })
 
   it("discards a slow removal after a newer add and a slow metadata result after server leave", async () => {

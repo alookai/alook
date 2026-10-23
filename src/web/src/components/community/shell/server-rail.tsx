@@ -403,14 +403,14 @@ function ServerRailContent({
               <div className="min-h-0 overflow-hidden">
                 <div className="flex w-full flex-col items-center gap-2 pt-2">
                   {children.map((server) => serverItem(server, true))}
-                  <RailEndDropTarget dnd={dnd} target={{ kind: "folder-content", id: folderId }} testId={tid.serverRailFolderEnd(folderId)} />
+                  <RailEndDropTarget dnd={dnd} target={{ kind: "folder-content", id: folderId }} testId={tid.serverRailFolderEnd(folderId)} active={preview?.operation === "append" && preview.target.kind === "folder-content" && preview.target.id === folderId} />
                 </div>
               </div>
             </div>
           </div>
         )
       })}
-      <RailEndDropTarget dnd={dnd} target={{ kind: "root", id: "root" }} testId={tid.serverRailEnd} />
+      <RailEndDropTarget dnd={dnd} target={{ kind: "root", id: "root" }} testId={tid.serverRailEnd} active={preview?.operation === "append" && preview.target.kind === "root"} />
     </div>
   )
 

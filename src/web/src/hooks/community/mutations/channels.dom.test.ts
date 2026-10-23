@@ -9,6 +9,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
 import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 import * as commands from "./channels"
+import { useChannelTree } from "@/components/community/channels/use-channel-tree"
 import type { ServerDetail } from "../use-servers"
 
 const api = vi.fn()
@@ -36,7 +37,7 @@ function seed(cats = categories) {
   client.setQueryData(communityKeys.server("s1"), "s1")
   client.setQueryData(communityKeys.channelRefDirectory(), { serverIds: ["s1", "s2"] })
 }
-function mount<T>(hook: () => T) { return renderHook(() => ({ command: hook(), tree: useServerTreeProjection("s1"), directory: useChannelRefDirectoryProjection() }), { wrapper: Owner }) }
+function mount<T>(hook: () => T) { return renderHook(() => { const command = hook(), tree = useServerTreeProjection("s1"), directory = useChannelRefDirectoryProjection(), sidebar = useChannelTree(tree?.categories ?? []); return { command, tree, directory, sidebar } }, { wrapper: Owner }) }
 function deferred() {
   let resolve!: (value: unknown) => void, reject!: (error: Error) => void
   const promise = new Promise((done, fail) => { resolve = done; reject = fail })
@@ -93,13 +94,29 @@ describe("canonical channel rename", () => {
 })
 
 describe("canonical channel move and create", () => {
-  it.each(["cat_2", null])("PATCHes categoryId %s and invalidates the original tree and directory", async (categoryId) => {
+  it.each(["cat_2", null])("saves categoryId %s and final positions in one request", async (categoryId) => {
     seed(); api.mockResolvedValueOnce(undefined)
-    const rendered = mount(commands.useMoveChannel)
-    await act(async () => { await rendered.result.current.command.mutateAsync({ serverId: "s1", channelId: "c1", categoryId }) })
-    expect(api).toHaveBeenCalledWith("/api/community/channels/c1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ categoryId }) }))
-    expect(registry.collections.channels.get("c1")?.categoryId).toBe(categoryId)
+    const rendered = mount(commands.useReorderChannels)
+    const args = { serverId: "s1", channelIds: ["c2", "c1"], move: { channelId: "c1", categoryId } }
+    await act(async () => { await rendered.result.current.command.mutateAsync(args) })
+    expect(api).toHaveBeenCalledExactlyOnceWith("/api/community/servers/s1/channels/reorder", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ channelIds: args.channelIds, move: args.move }) }))
+    expect(registry.collections.channels.get("c1")).toMatchObject({ categoryId, position: 1 })
+    expect(registry.collections.channels.get("c2")?.position).toBe(0)
+    expect(registry.collections.channels.get("c3")?.serverId).toBe("s2")
     for (const key of [communityKeys.server("s1"), communityKeys.channelRefDirectory()]) expect(client.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+  it("rolls back category and ordering in the actual sidebar projection on one failed save", async () => {
+    seed(); const held = deferred(), rendered = mount(commands.useReorderChannels)
+    const args = { serverId: "s1", channelIds: ["c2", "c1"], move: { channelId: "c1", categoryId: "cat_2" } }
+    const pending = start(rendered.result.current.command, args)
+    await waitFor(() => expect(rendered.result.current.sidebar.order.cat_2.map((row) => row.id)).toEqual(["c1"]))
+    expect(rendered.result.current.sidebar.order.cat_1.map((row) => row.id)).toEqual(["c2"])
+    await act(async () => { held.reject(new Error("atomic write failed")); expect(await pending).toMatchObject({ message: "atomic write failed" }) })
+    await waitFor(() => expect(rendered.result.current.sidebar.order.cat_1.map((row) => row.id)).toEqual(["c1", "c2"]))
+    expect(rendered.result.current.sidebar.order.cat_2).toEqual([])
+    expect(registry.collections.channels.get("c1")).toMatchObject({ categoryId: "cat_1", position: 0 })
+    expect(registry.collections.channels.get("c2")?.position).toBe(1)
+    expect(api).toHaveBeenCalledTimes(1)
   })
   it("inserts a pending channel into the matching category", async () => {
     seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)

@@ -21,6 +21,21 @@ function fixture(): RailState {
 }
 
 describe("server rail normalized reducer", () => {
+  it.each(["combine", "append", "reorder-after"] as const)("preserves an existing destination's disclosure after %s", (operation) => {
+    for (const open of [false, true]) {
+      const before = fixture()
+      if (open) before.expanded.push("two")
+      const source = { kind: "server", id: "a" } as const
+      const result = commitRailInstruction(before, operation === "append"
+        ? { operation, source, target: { kind: "folder-content", id: "two" } }
+        : { operation, source, target: operation === "combine" ? { kind: "folder", id: "two" } : { kind: "server", id: "e" } })
+      expect(result.applied).toBe(true)
+      if (result.applied) {
+        expect(result.state.expanded).toEqual(before.expanded)
+        expect(result.state.folders.two).toEqual(["e", "a"])
+      }
+    }
+  })
   it("moves a folder's last member into its own root gap at the former folder position", () => {
     const result = commitRailInstruction(fixture(), { operation: "reorder-before", source: { kind: "server", id: "e" }, target: { kind: "folder", id: "two" } })
     expect(result.applied).toBe(true)

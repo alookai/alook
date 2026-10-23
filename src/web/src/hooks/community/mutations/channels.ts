@@ -15,7 +15,7 @@ import {
 import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
 import type { ChannelRow, CategoryRow } from "@/lib/community-db/schema"
-import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
+import { UNCATEGORIZED_CATEGORY_ID, type ChannelCategoryMove, type ChannelType } from "@alook/shared"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 // Prefix marks an optimistic row so every consumer can tell it from a real
@@ -116,12 +116,6 @@ export function useCreateChannel() {
   })
 }
 
-export type MoveChannelArgs = {
-  serverId: string
-  channelId: string
-  categoryId: string | null
-}
-
 export type RenameChannelArgs = {
   serverId: string
   channelId: string
@@ -174,28 +168,6 @@ export function useRenameChannel() {
       }
       return result!
     },
-    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
-  })
-}
-
-/**
- * Move a channel to another category (or to uncategorized with `null`). The
- * backend (`channels/[id]` PATCH) is admin-only and rejects a move that would
- * cross a public↔private boundary — the sidebar blocks that before it gets
- * here, this mutation covers the same-privacy case. Invalidates the tree so
- * positions/category resettle from the server.
- */
-export function useMoveChannel() {
-  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, MoveChannelArgs>(origin, { meta: { observabilityAction: "channel.move" },
-    scope: { id: "community-tree-commands" },
-    mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
-      if (db.collections.channels.has(args.channelId)) db.collections.channels.update(args.channelId, (row) => { row.categoryId = args.categoryId })
-    }, async (proof, options) => {
-      await apiFetch(`/api/community/channels/${args.channelId}`, { method: "PATCH", body: JSON.stringify({ categoryId: args.categoryId }), ...options })
-      origin.assert(proof.token)
-      publishCommunityChannelFields(queryClient, args.channelId, { categoryId: args.categoryId }, proof)
-    }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
@@ -308,18 +280,18 @@ export function useReorderCategories() {
   })
 }
 
-export type ReorderChannelsArgs = { serverId: string; channelIds: string[] }
+export type ReorderChannelsArgs = { serverId: string; channelIds: string[]; move?: ChannelCategoryMove }
 
 export function useReorderChannels() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   return useCommunityCommandMutation<void, Error, ReorderChannelsArgs>(origin, { meta: { observabilityAction: "channel.reorder" },
     scope: { id: "community-tree-commands" },
     mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
-      args.channelIds.forEach((id, position) => { if (db.collections.channels.get(id)?.serverId === args.serverId) db.collections.channels.update(id, (row) => { row.position = position }) })
+      args.channelIds.forEach((id, position) => { if (db.collections.channels.get(id)?.serverId === args.serverId) db.collections.channels.update(id, (row) => { row.position = position; if (args.move?.channelId === id) row.categoryId = args.move.categoryId }) })
     }, async (proof, options) => {
-      await apiFetch(`/api/community/servers/${args.serverId}/channels/reorder`, { method: "PATCH", body: JSON.stringify({ channelIds: args.channelIds }), ...options })
+      await apiFetch(`/api/community/servers/${args.serverId}/channels/reorder`, { method: "PATCH", body: JSON.stringify({ channelIds: args.channelIds, ...(args.move ? { move: args.move } : {}) }), ...options })
       origin.assert(proof.token)
-      args.channelIds.forEach((id, position) => publishCommunityChannelFields(queryClient, id, { position }, proof))
+      args.channelIds.forEach((id, position) => publishCommunityChannelFields(queryClient, id, { position, ...(args.move?.channelId === id ? { categoryId: args.move.categoryId } : {}) }, proof))
     }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })

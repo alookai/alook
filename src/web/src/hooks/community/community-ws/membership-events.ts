@@ -55,7 +55,7 @@ function retireChannelAccess(event: { serverId: string | null; channelId: string
   if (registry) retireCommunityChannelReading(registry, event.channelId, { reason: "read-denied", serverId: event.serverId })
 }
 
-function refreshChannelAccess(event: { serverId: string | null; channelId: string }, context: MembershipEventContext) {
+function refreshChannelAccess(event: { serverId: string | null; channelId: string }, context: MembershipEventContext, legacyEvent?: ChannelMemberEvent) {
   const { queryClient } = context
   const token = captureChannelMetadataToken(queryClient, event.channelId)
   const options = channelMetadataOptions(queryClient, event.serverId, event.channelId)
@@ -68,8 +68,15 @@ function refreshChannelAccess(event: { serverId: string | null; channelId: strin
       if (!isChannelMetadataTokenCurrent(token)) return
       const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
       if (channel?.archived) runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection }))
-      else if (channel) getAccountUnreadProjection(queryClient, context.viewerUserIdRef.current!).grantAccessScope({ kind: "channel", channelId: event.channelId })
-    } catch {}
+      else if (channel) {
+        getAccountUnreadProjection(queryClient, context.viewerUserIdRef.current!).grantAccessScope({ kind: "channel", channelId: event.channelId })
+        if (legacyEvent && channel.type === "thread") runCommunityWsProjectionTransaction(queryClient, (projection) => {
+          handleChannelMembershipChange({ ...legacyEvent, type: "community:channel.membership.change", relation: "notify", present: legacyEvent.type === "community:channel.member_add" }, { ...context, projection })
+        })
+      }
+    } catch {
+      if (legacyEvent?.type === "community:channel.member_add" && isChannelMetadataTokenCurrent(token)) runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection }))
+    }
   })()
 }
 
@@ -113,8 +120,8 @@ export function handleChannelMemberEvent(event: ChannelMemberEvent, context: Mem
     return
   }
   if (event.userId === context.viewerUserIdRef.current) {
-    retireChannelAccess(event, context)
-    refreshChannelAccess(event, context)
+    if (event.type === "community:channel.member_remove") retireChannelAccess(event, context)
+    refreshChannelAccess(event, context, event)
   } else invalidateChannelRoster(context.projection, event.channelId)
 }
 

@@ -14,6 +14,7 @@ import { DropLine } from "../drop-line"
 import { tid } from "@/lib/community/testids"
 import type { Channel } from "@/lib/community/models/navigation"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
+import { ChannelUnreadIndicator } from "./channel-unread-indicator"
 
 export function hasChannelMenu(h: { onEdit?: () => void; onManageMembers?: () => void; onDelete?: () => void }) {
   return !!(h.onEdit || h.onManageMembers || h.onDelete)
@@ -50,9 +51,9 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
   canReorder?: boolean
 }) {
   const [confirmingDelete, setConfirmingDelete] = useAtom(useCreateAtom(false))
-  const { setNodeRef, isDragging, isOver, lineSide, dragActive, suppressClick } = useChannelDndItem(ch.id, "channel", canReorder)
+  const { setNodeRef, isDragging, isOver, placement, lineSide, dragActive, suppressClick, resumeClick } = useChannelDndItem(ch.id, "channel", canReorder)
   const style = { opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
-  const showLine = isOver && !isDragging
+  const showLine = isOver && !isDragging && placement !== "append"
   const activate = () => { if (!suppressClick()) onClick() }
   const unread = selectUnreadPresentation({
     accountUnread: ch.unread,
@@ -64,8 +65,11 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
     style,
     "data-testid": tid.channelRow(ch.id),
     "data-dragging": isDragging || undefined,
+    "data-channel-tree-row": ch.id,
     "aria-roledescription": canReorder ? "draggable" : undefined,
     role: "button", tabIndex: 0,
+    onPointerDownCapture: resumeClick,
+    onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") resumeClick() },
     onClickCapture: (event: React.MouseEvent) => { if (suppressClick()) { event.preventDefault(); event.stopPropagation() } },
     className: [
       "group relative flex h-8 w-full cursor-pointer touch-manipulation items-center gap-2 rounded-md px-2 text-sm select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
@@ -82,14 +86,13 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
   const content = (
     <>
       {showLine && <DropLine side={lineSide} />}
+      <ChannelUnreadIndicator visible={unread.showDot} hidden={isDragging} />
       <span className="grid size-5 shrink-0 place-items-center opacity-70">
       <EntityIcon kind={ch.type} className="size-4" />
       </span>
       <span className="truncate font-semibold">{ch.name}</span>
       {ch.muted ? (
       <BellOff className="ml-auto size-4 shrink-0 opacity-70" />
-      ) : unread.showDot ? (
-      <span className="ml-auto size-2 shrink-0 rounded-full bg-primary" />
       ) : null}
     </>
   )

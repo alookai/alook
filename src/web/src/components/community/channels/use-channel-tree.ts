@@ -1,151 +1,91 @@
 "use client"
 
-
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCallback, useMemo } from "react"
+import { UNCATEGORIZED_CATEGORY_ID, type ChannelCategoryMove } from "@alook/shared"
 import type { Category, Channel } from "@/lib/community/models/navigation"
 
-// DnD keeps the persisted opaque IDs unchanged. Category identity comes from
-// membership in `catOrder` / `order`, never from an ID prefix.
-export const catId = (id: string) => id
-
 export type ChannelOrder = Record<string, Channel[]>
-export type ChannelTreeDrop = { active: { id: string }; over: { id: string } | null }
-
-function arrayMove<T>(items: T[], from: number, to: number): T[] {
-  const next = [...items]
-  const [item] = next.splice(from, 1)
-  next.splice(to, 0, item)
-  return next
+export type ChannelTreeEntity = { id: string; kind: "category" | "channel" }
+export type ChannelTreeDrop = {
+  active: ChannelTreeEntity
+  over: ChannelTreeEntity
+  placement: "before" | "after" | "append"
 }
+export type { ChannelCategoryMove } from "@alook/shared"
+export type ChannelTreeCommit = { categoryIds: string[] } | { channelIds: string[]; move?: ChannelCategoryMove }
 
-/** Which category currently holds a channel id (or the category itself if `id` is an order key). */
 export function catOf(id: string, order: ChannelOrder): string | undefined {
   if (Object.hasOwn(order, id)) return id
-  return Object.keys(order).find((cat) => order[cat].some((c) => c.id === id))
+  return Object.keys(order).find((cat) => order[cat].some((channel) => channel.id === id))
 }
 
-/**
- * Move a channel to another category on drop. Returns a new order, or the input unchanged when the move doesn't
- * apply (same category, missing channel, etc.). Pure — exported for tests.
- */
-export function moveChannelAcrossCategories(order: ChannelOrder, activeId: string, overId: string): ChannelOrder {
-  const fromCat = catOf(activeId, order)
-  const toCat = catOf(overId, order)
-  if (!fromCat || !toCat || fromCat === toCat) return order
-  const moving = order[fromCat].find((c) => c.id === activeId)
-  if (!moving) return order
-  const overIdx = order[toCat].findIndex((c) => c.id === overId)
-  const insertAt = overIdx === -1 ? order[toCat].length : overIdx
-  const nextTo = [...order[toCat]]
-  nextTo.splice(insertAt, 0, moving)
+function insert<T>(rows: T[], value: T, target: T, placement: "before" | "after") {
+  const next = rows.filter((row) => row !== value)
+  const index = next.indexOf(target)
+  if (index === -1) return rows
+  next.splice(index + Number(placement === "after"), 0, value)
+  return next
+}
+const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((id, index) => id === b[index])
+
+export function projectChannelTreeDrop(tree: Pick<ChannelTree, "catOrder" | "order" | "catNames" | "catPrivate" | "catPending">, drop: ChannelTreeDrop): ChannelTreeCommit | null {
+  const { active, over, placement } = drop
+  const { catOrder, order, catNames, catPrivate, catPending } = tree
+  if (active.id === over.id) return null
+  const from = catOf(active.id, order), to = catOf(over.id, order)
+  if (!from || !to || catPending[from] || catPending[to]) return null
+  if (active.kind === "category") {
+    if (from !== active.id || to !== over.id || over.kind !== "category" || placement === "append" || !catNames[active.id] || !catNames[over.id]) return null
+    const categoryIds = catOrder.filter((id) => catNames[id] && !catPending[id])
+    const next = insert(categoryIds, active.id, over.id, placement)
+    return sameIds(next, categoryIds) ? null : { categoryIds: next }
+  }
+  const moving = order[from].find((channel) => channel.id === active.id)
+  if (!moving || moving.pending || catPrivate[from] !== catPrivate[to]) return null
+  if (over.kind === "category" ? placement !== "append" : placement === "append") return null
+  const target = over.kind === "channel" ? order[to].find((channel) => channel.id === over.id) : null
+  if (over.kind === "channel" && (!target || target.pending)) return null
+  const destination = order[to].filter((channel) => channel.id !== active.id)
+  const index = target ? destination.indexOf(target) + Number(placement === "after") : destination.length
+  destination.splice(index, 0, moving)
+  if (from === to && sameIds(destination.map((channel) => channel.id), order[from].map((channel) => channel.id))) return null
+  const settled = { ...order, [from]: order[from].filter((channel) => channel.id !== active.id), [to]: destination }
   return {
-    ...order,
-    [fromCat]: order[fromCat].filter((c) => c.id !== activeId),
-    [toCat]: nextTo,
+    channelIds: catOrder.flatMap((id) => (settled[id] ?? []).filter((channel) => !channel.pending).map((channel) => channel.id)),
+    ...(from === to ? {} : { move: { channelId: active.id, categoryId: catNames[to] === "" ? null : to } }),
   }
 }
 
-/** Settle channel order within the destination category on drop. Pure. */
-export function reorderChannelsWithin(order: ChannelOrder, activeId: string, overId: string): ChannelOrder {
-  const cat = catOf(activeId, order)
-  if (!cat || !order[cat].some((c) => c.id === overId)) return order
-  const from = order[cat].findIndex((c) => c.id === activeId)
-  const to = order[cat].findIndex((c) => c.id === overId)
-  if (from === -1 || to === -1) return order
-  return { ...order, [cat]: arrayMove(order[cat], from, to) }
-}
-
-/**
- * Merge metadata-only field changes (`unread`, `name`) from the incoming
- * `categories` prop into the existing per-category `order` state, keyed by
- * channel id. Used by the sync effect when the channel/category *id set* is
- * unchanged but a field like `unread` still needs to reach the render tree —
- * preserves drag order/collapse state by only ever touching the matched
- * channel's fields, never reshuffling arrays. Pure — exported for tests.
- */
-export function mergeChannelMetadata(
-  order: ChannelOrder,
-  categories: Category[],
-): { next: ChannelOrder; changed: boolean } {
-  const incoming = new Map<string, Channel>()
-  for (const cat of categories) {
-    for (const ch of cat.channels) incoming.set(ch.id, ch)
+export function resolveChannelTreeDrop(tree: ChannelTree, drop: ChannelTreeDrop): ChannelTreeDrop | null {
+  let result = drop
+  if (drop.active.kind === "channel" && drop.over.kind === "channel" && drop.placement === "after") {
+    const categoryId = catOf(drop.over.id, tree.order)
+    if (categoryId && tree.order[categoryId].filter((channel) => !channel.pending).at(-1)?.id === drop.over.id) result = { ...drop, over: { id: categoryId, kind: "category" }, placement: "append" }
   }
-  let changed = false
-  const next: ChannelOrder = {}
-  for (const [catId, channels] of Object.entries(order)) {
-    next[catId] = channels.map((ch) => {
-      const src = incoming.get(ch.id)
-      if (!src) return ch
-      const pending = src.pending === undefined ? ch.pending : src.pending
-      if (
-        src.unread === ch.unread &&
-        src.name === ch.name &&
-        Boolean(pending) === Boolean(ch.pending) &&
-        (src.creatorId ?? null) === (ch.creatorId ?? null) &&
-        (src.type ?? null) === (ch.type ?? null)
-      ) return ch
-      changed = true
-      return {
-        ...ch,
-        unread: src.unread,
-        name: src.name,
-        pending,
-        creatorId: src.creatorId,
-        type: src.type,
-      }
-    })
-  }
-  return { next: changed ? next : order, changed }
+  return projectChannelTreeDrop(tree, result) ? result : null
 }
-
-/** Reorder the category list itself. `activeCatId`/`overCatId` are category IDs. Pure. */
-export function reorderCategories(catOrder: string[], activeCatId: string, overCatId: string): string[] {
-  const from = catOrder.indexOf(activeCatId)
-  const to = catOrder.indexOf(overCatId)
-  if (from === -1 || to === -1) return catOrder
-  return arrayMove(catOrder, from, to)
-}
-
 
 export function useChannelTree(categories: Category[]) {
-  const [collapsed, setCollapsed] = useAtom(useCreateAtom<Set<string>>(new Set<string>()));
-  const layout = useCreateAtom<{ identity: string; categories: string[]; channels: Record<string, string[]> } | null>(null);
-  const [preview, setPreview] = useAtom(layout);
-  const identity = JSON.stringify(categories.map((category) => [category.id, category.channels.map((channel) => channel.id)]));
-  const channelFacts = JSON.stringify(categories.flatMap((category) => category.channels));
-  const canonicalChannels = useMemo(() => new Map((JSON.parse(channelFacts) as Channel[]).map((channel) => [channel.id, channel])), [channelFacts]);
-  const baseOrder = useMemo(() => Object.fromEntries(JSON.parse(identity) as Array<[string, string[]]>), [identity]);
-  const current = useMemo(() => preview?.identity === identity ? preview : { identity, categories: Object.keys(baseOrder), channels: baseOrder }, [preview, identity, baseOrder]);
-  const catOrder = current.categories;
-  const order = useMemo<ChannelOrder>(() => Object.fromEntries(Object.entries(current.channels).map(([id, ids]) => [id, ids.flatMap((channelId) => {
-    const channel = canonicalChannels.get(channelId);
-    return channel ? [channel] : [];
-  })])), [current.channels, canonicalChannels]);
-  const catNames = Object.fromEntries(categories.map((category) => [category.id, category.name]));
-  const catPrivate = Object.fromEntries(categories.map((category) => [category.id, !!category.private]));
-  const catPending = Object.fromEntries(categories.map((category) => [category.id, !!category.pending]));
-  const catCreators = Object.fromEntries(categories.map((category) => [category.id, category.creatorId ?? null]));
-  const toggleCat = useCallback((id: string) => setCollapsed((previous) => {
-    const next = new Set(previous);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    return next;
-  }), [setCollapsed]);
-  const projectOrder = (next: ChannelOrder) => Object.fromEntries(Object.entries(next).map(([id, channels]) => [id, channels.map((channel) => channel.id)]));
-  const onDragEnd = ({ active, over }: ChannelTreeDrop) => {
-    if (over && active.id !== over.id) {
-      const activeId = String(active.id), overId = String(over.id);
-      if (catOrder.includes(activeId) && catOrder.includes(overId)) setPreview({ ...current, categories: reorderCategories(catOrder, activeId, overId) });
-      else if (!catOrder.includes(activeId)) {
-        const from = catOf(activeId, order), to = catOf(overId, order);
-        if (!from || !to || catPrivate[from] !== catPrivate[to]) return;
-        const next = from === to ? reorderChannelsWithin(order, activeId, overId) : moveChannelAcrossCategories(order, activeId, overId);
-        setPreview({ ...current, channels: projectOrder(next) });
-      }
+  const [collapsed, setCollapsed] = useAtom(useCreateAtom(new Set<string>()))
+  const structure = useMemo(() => {
+    const rows = categories.some((category) => category.name === "") ? categories
+      : [...categories, { id: UNCATEGORIZED_CATEGORY_ID, name: "", private: false, channels: [] }]
+    return {
+      catOrder: rows.map((category) => category.id),
+      order: Object.fromEntries(rows.map((category) => [category.id, category.channels])),
+      catNames: Object.fromEntries(rows.map((category) => [category.id, category.name])),
+      catPrivate: Object.fromEntries(rows.map((category) => [category.id, !!category.private])),
+      catPending: Object.fromEntries(rows.map((category) => [category.id, !!category.pending])),
+      catCreators: Object.fromEntries(rows.map((category) => [category.id, category.creatorId ?? null])),
     }
-  };
-  return { collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators, toggleCat, onDragEnd };
+  }, [categories])
+  const toggleCat = useCallback((id: string) => setCollapsed((previous) => {
+    const next = new Set(previous)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  }), [setCollapsed])
+  return { ...structure, collapsed, toggleCat }
 }
 export type ChannelTree = ReturnType<typeof useChannelTree>

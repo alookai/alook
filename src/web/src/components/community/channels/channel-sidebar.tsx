@@ -17,15 +17,16 @@ import { SortableChannel, PendingChannelRow } from "./sortable-channel"
 import { CreateChannelDialog } from "../settings/create-channel-dialog"
 import { CreateCategoryDialog } from "../settings/create-category-dialog"
 import { CategorySettingsDialog } from "../settings/category-settings-dialog"
-import { catId, catOf, moveChannelAcrossCategories, reorderChannelsWithin, type ChannelTree } from "./use-channel-tree"
+import { projectChannelTreeDrop, type ChannelCategoryMove, type ChannelTree, type ChannelTreeDrop } from "./use-channel-tree"
 import { InviteDialog } from "../social/invite-dialog"
 import { ChannelAddMembersDialog } from "../members/channel-add-members-dialog"
 import type { Channel } from "@/lib/community/models/navigation"
 import type { SettingsSection } from "@/components/community/settings/settings-types"
-import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
+import type { ChannelType } from "@alook/shared"
 import { tid } from "@/lib/community/testids"
 import type { ForumSidebarThread } from "@/hooks/community/use-forum-sidebar-threads"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
+import { ChannelUnreadIndicator } from "./channel-unread-indicator"
 
 
 type Dialog =
@@ -36,10 +37,6 @@ type Dialog =
   | { kind: "manage-members"; channelId: string; channelName: string }
   | null
 
-// The channel sidebar (server view). Category/channel reorder + add/remove/rename live in
-// useChannelTree. The category gear/right-click opens settings; "+" (or empty-space
-// right-click) creates; channels right-click to edit/delete. A private category only
-// lets admins create channels — non-admins are blocked via onBlockedCreate.
 export type ChannelSidebarProps = {
   tree: ChannelTree
   serverName: string
@@ -50,6 +47,7 @@ export type ChannelSidebarProps = {
   noHeader?: boolean
   onOpenSettings?: (section?: SettingsSection) => void
   isAdmin?: boolean
+  reorderPending?: boolean
   currentUserId?: string
   onBlockedCreate?: () => void
   mutedChannels?: Record<string, boolean>
@@ -60,9 +58,7 @@ export type ChannelSidebarProps = {
   onUpdateCategory?: (categoryId: string, opts: { name?: string }) => void
   onRenameChannel?: (channelId: string, name: string) => void
   onReorderCategories?: (categoryIds: string[]) => void
-  onReorderChannels?: (channelIds: string[]) => void
-  onMoveChannel?: (channelId: string, categoryId: string | null) => void
-  onBlockedMove?: () => void
+  onReorderChannels?: (channelIds: string[], move?: ChannelCategoryMove) => void
   serverId?: string
   invitePopoverOpen?: boolean
   onInvitePopoverOpenChange?: (open: boolean) => void
@@ -73,14 +69,13 @@ export type ChannelSidebarProps = {
 
 function ChannelSidebarContent({
   tree, serverName, official, activeChannel, setActiveChannel, noHeader, onOpenSettings,
-  isAdmin = true, currentUserId, onBlockedCreate, mutedChannels,
+  isAdmin = true, reorderPending = false, currentUserId, onBlockedCreate, mutedChannels,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
-  onMoveChannel, onBlockedMove,
   serverId, invitePopoverOpen, onInvitePopoverOpenChange,
   forumThreadsByParent = {}, activeThreadId, onSelectForumThread,
 }: ChannelSidebarProps) {
-  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, onDragEnd: treeDragEnd } = tree
+  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat } = tree
   const scrollRef = useRef<HTMLDivElement>(null)
   useCommunityDndScrolling(scrollRef, "community/channel-tree")
   const menuActionsRef = useRef<ContextMenuPrimitive.Root.Actions | null>(null)
@@ -90,27 +85,12 @@ function ChannelSidebarContent({
       menuActionsRef.current?.unmount()
     }
   }, [isAdmin])
-  const onDragEnd = (event: Parameters<typeof treeDragEnd>[0]) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const activeId = active.id, overId = over.id
-    if (catOrder.includes(activeId)) {
-      if (!catOrder.includes(overId)) return
-      treeDragEnd(event)
-      const next = [...catOrder]
-      next.splice(next.indexOf(activeId), 1)
-      next.splice(catOrder.indexOf(overId), 0, activeId)
-      onReorderCategories?.(next.filter((id) => catNames[id] !== "" && id !== UNCATEGORIZED_CATEGORY_ID && !catPending[id]))
-      return
-    }
-    const from = catOf(activeId, order), to = catOf(overId, order)
-    if (!from || !to) return
-    if (!!catPrivate[from] !== !!catPrivate[to]) { onBlockedMove?.(); return }
-    const settled = from === to ? reorderChannelsWithin(order, activeId, overId) : moveChannelAcrossCategories(order, activeId, overId)
-    if (settled === order) return
-    treeDragEnd(event)
-    if (from !== to) onMoveChannel?.(activeId, catNames[to] === "" || to === UNCATEGORIZED_CATEGORY_ID ? null : to)
-    onReorderChannels?.(catOrder.flatMap((id) => (settled[id] ?? []).filter((channel) => !channel.pending).map((channel) => channel.id)))
+  const canReorder = isAdmin && !reorderPending
+  const onDragEnd = (event: ChannelTreeDrop) => {
+    const commit = projectChannelTreeDrop(tree, event)
+    if (!commit || !canReorder) return
+    if ("categoryIds" in commit) onReorderCategories?.(commit.categoryIds)
+    else onReorderChannels?.(commit.channelIds, commit.move)
   }
   const [dialog, setDialog] = useAtom(useCreateAtom<Dialog>(null))
   const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
@@ -178,10 +158,11 @@ function ChannelSidebarContent({
   }
 
   const channelTree = (
-    <ChannelDndScope tree={tree} onDrop={onDragEnd}>
+    <ChannelDndScope tree={tree} onDrop={onDragEnd} enabled={canReorder}>
       {/* uncategorized channels (empty-name category) render bare at the top — no header */}
       {noneCatId && (
-        <ChannelDropContainer id={noneCatId} className="mb-4 min-h-2 space-y-1">
+        <div className={order[noneCatId].length > 0 ? "mb-4" : ""}>
+          <div className="space-y-1">
             {order[noneCatId].map((ch) => ch.pending ? (
               <PendingChannelRow key={ch.id} ch={ch} />
             ) : (
@@ -190,7 +171,7 @@ function ChannelSidebarContent({
                   ch={withMute(ch)}
                   href={serverId ? channelHref(serverId, ch.id) : undefined}
                   active={ch.id === activeChannel && !hasActiveSidebarThread}
-                  canReorder={isAdmin}
+                  canReorder={canReorder}
                   onClick={() => setActiveChannel(ch.id)}
                   onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
                   onDelete={isAdmin ? () => onDeleteChannel?.(ch.id) : undefined}
@@ -198,13 +179,15 @@ function ChannelSidebarContent({
                 {childRows(ch.id)}
               </Fragment>
             ))}
-        </ChannelDropContainer>
+          </div>
+          <ChannelDropContainer id={noneCatId} before={order[noneCatId].length === 0} lastRowId={order[noneCatId].filter((channel) => !channel.pending).at(-1)?.id} />
+        </div>
       )}
 
         {catOrder.filter((id) => catNames[id] !== "").map((id) => (
           <SortableCategory
             key={id}
-            id={catId(id)}
+            id={id}
             name={catNames[id] ?? id}
             open={!collapsed.has(id)}
             onToggle={() => toggleCat(id)}
@@ -212,10 +195,12 @@ function ChannelSidebarContent({
             onSettings={!catPending[id] && isAdmin ? () => setDialog({ kind: "category-settings", categoryId: id }) : undefined}
             onDelete={!catPending[id] && isAdmin ? () => onDeleteCategory?.(id) : undefined}
             isPrivate={catPrivate[id]}
-            canReorder={isAdmin && !catPending[id]}
+            canReorder={canReorder && !catPending[id]}
             pending={catPending[id]}
+            hasChannels={(order[id]?.length ?? 0) > 0}
           >
-              <div className="mt-1 min-h-2 space-y-1">
+              <div className={(order[id]?.length ?? 0) > 0 ? "mt-1" : ""}>
+                <div className="space-y-1">
                 {(order[id] ?? []).map((ch) => {
                   if (ch.pending) return <PendingChannelRow key={ch.id} ch={ch} />
                   // Manage/edit rights:
@@ -229,7 +214,7 @@ function ChannelSidebarContent({
                         ch={withMute(ch)}
                         href={serverId ? channelHref(serverId, ch.id) : undefined}
                         active={ch.id === activeChannel && !hasActiveSidebarThread}
-                        canReorder={isAdmin}
+                        canReorder={canReorder}
                         onClick={() => setActiveChannel(ch.id)}
                         onEdit={canManageChannel ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
                         onDelete={canManageChannel ? () => onDeleteChannel?.(ch.id) : undefined}
@@ -239,6 +224,8 @@ function ChannelSidebarContent({
                     </Fragment>
                   )
                 })}
+                </div>
+                <ChannelDropContainer id={id} lastRowId={order[id]?.filter((channel) => !channel.pending).at(-1)?.id} />
               </div>
           </SortableCategory>
         ))}
@@ -384,7 +371,7 @@ function ForumSidebarThreadRow({
       event.stopPropagation()
     },
     className: [
-      "ml-4 flex h-7 w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+      "relative ml-4 flex h-7 w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
       active
         ? "bg-sidebar-accent text-foreground"
         : muted
@@ -396,7 +383,7 @@ function ForumSidebarThreadRow({
   }
   const content = (<>
     <span className="truncate">{thread.title}</span>
-    {unread.showDot && <span className="ml-auto size-2 shrink-0 rounded-full bg-primary" />}
+    <ChannelUnreadIndicator visible={unread.showDot} dot />
   </>)
   return (
     <div className="relative h-7">

@@ -340,3 +340,59 @@ describe("whole-statement SQL correctness on native D1", () => {
     expect(await graph(name)).toEqual([{ servers: 0, categories: 0, channels: 0, access: 0, members: 0 }]);
   });
 });
+
+async function seedChannelOrder(label: string) {
+  const f = await seedCommunity(label, 3);
+  const source = `${f.prefix}_source`, target = `${f.prefix}_target`;
+  await run("INSERT INTO community_category (id, server_id, name, private) VALUES (?, ?, 'Source', 1), (?, ?, 'Target', 1)", source, f.server, target, f.server);
+  for (const [position, id] of f.channels.entries()) await run("UPDATE community_channel SET category_id = ?, position = ? WHERE id = ?", position === 0 ? source : target, position, id);
+  await run("INSERT INTO community_channel_member (id, channel_id, user_id, relation, source, added_at) VALUES (?, ?, ?, 'access', 'added', ?)", `${f.prefix}_roster`, f.channels[0], f.viewer, baseline);
+  return { ...f, source, target };
+}
+
+async function channelOrderRows(serverId: string) {
+  return rows<{ id: string; categoryId: string | null; position: number }>("SELECT id, category_id AS categoryId, position FROM community_channel WHERE server_id = ? ORDER BY id", serverId);
+}
+
+describe("atomic channel category and order", () => {
+  it("persists exact insertion and category in one native batch without changing private rosters", async () => {
+    const f = await seedChannelOrder("order_atomic");
+    const before = await rows("SELECT * FROM community_channel_member WHERE user_id = ?", f.viewer);
+    const { db, record } = recordedDb("channel-order-atomic");
+    const order = [f.channels[1], f.channels[0], f.channels[2]];
+    await queries.communityChannel.reorderChannels(db, f.server, order, { channelId: f.channels[0], categoryId: f.target });
+    expect(record.batches).toEqual([3]);
+    const after = await channelOrderRows(f.server);
+    expect([...after].sort((a, b) => a.position - b.position).map((channel) => channel.id)).toEqual(order);
+    expect(after.every((channel) => channel.categoryId === f.target)).toBe(true);
+    expect(await rows("SELECT * FROM community_channel_member WHERE user_id = ?", f.viewer)).toEqual(before);
+  });
+
+  it("rolls back category and every position when a later statement fails", async () => {
+    const f = await seedChannelOrder("order_rollback");
+    const before = await channelOrderRows(f.server);
+    const roster = await rows("SELECT * FROM community_channel_member WHERE user_id = ?", f.viewer);
+    const trigger = `${f.prefix}_trigger`;
+    triggers.push(trigger);
+    await run(`CREATE TRIGGER ${trigger} BEFORE UPDATE OF position ON community_channel WHEN OLD.id = '${f.channels[2]}' BEGIN SELECT RAISE(ABORT, 'order rejected'); END`);
+    const { db, record } = recordedDb("channel-order-rollback");
+    await expect(queries.communityChannel.reorderChannels(db, f.server, [f.channels[1], f.channels[0], f.channels[2]], { channelId: f.channels[0], categoryId: f.target })).rejects.toThrow("order rejected");
+    expect(record.batches).toEqual([3]);
+    expect(await channelOrderRows(f.server)).toEqual(before);
+    expect(await rows("SELECT * FROM community_channel_member WHERE user_id = ?", f.viewer)).toEqual(roster);
+  });
+
+  it("scopes root reads and writes before accepting opaque channel identities", async () => {
+    const f = await seedCommunity("order_scope", 125), other = await seedCommunity("order_foreign", 1);
+    const child = `${f.prefix}_child`;
+    await run("INSERT INTO community_channel (id, server_id, name, type, parent_channel_id, position, created_at) VALUES (?, ?, 'child', 'thread', ?, 10, ?)", child, f.server, f.channels[0], baseline);
+    const { db } = recordedDb("channel-order-scope");
+    const actual = await queries.communityChannel.getServerRootChannelsByIds(db, f.server, [...f.channels, other.channels[0], child]);
+    expect(actual.map((channel) => channel.id).sort()).toEqual([...f.channels].sort());
+    const foreignBefore = await channelOrderRows(other.server);
+    await queries.communityChannel.reorderChannels(db, f.server, [other.channels[0], f.channels[0], child]);
+    expect(await channelOrderRows(other.server)).toEqual(foreignBefore);
+    expect((await channelOrderRows(f.server)).find((channel) => channel.id === child)?.position).toBe(10);
+    expect((await channelOrderRows(f.server)).find((channel) => channel.id === f.channels[0])?.position).toBe(1);
+  });
+});

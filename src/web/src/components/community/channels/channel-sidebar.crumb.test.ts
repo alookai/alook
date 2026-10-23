@@ -15,12 +15,6 @@ const emptyTree = {
   catPending: {},
   catCreators: {},
   toggleCat: vi.fn(),
-  removeChannel: vi.fn(),
-  renameChannel: vi.fn(),
-  markRead: vi.fn(),
-  renameCategory: vi.fn(),
-  onDragOver: vi.fn(),
-  onDragEnd: vi.fn(),
 } as unknown as ChannelTree
 
 const render = () =>
@@ -156,18 +150,18 @@ describe("ChannelSidebar header", () => {
     expect(html).not.toContain("text-[13px]")
     expect(html).toContain("First post")
     expect(html).toContain("Second post")
-    expect(html).toContain("bg-primary")
+    expect(html).toMatch(/data-slot="community-channel-unread-indicator" class="[^"]*rounded-full[^"]* h-1"/)
   })
 
   it("suppresses the child unread dot when its parent forum is muted", () => {
-    expect(renderForum(true)).not.toContain("bg-primary")
+    expect(renderForum(true)).not.toMatch(/data-slot="community-channel-unread-indicator" class="[^"]* h-1"/)
   })
 
   it("uses the active child shape without treating route activation as read", () => {
     const html = renderForum(false, "post_1")
     expect(html).toContain('data-testid="community-forum-sidebar-thread-post_1"')
     expect(html).toContain('aria-current="page"')
-    expect(html).not.toContain("bg-primary")
+    expect(html).not.toMatch(/data-slot="community-channel-unread-indicator" class="[^"]* h-1"/)
   })
 
   it("keeps hint-only private categories inert until live actions are installed", () => {

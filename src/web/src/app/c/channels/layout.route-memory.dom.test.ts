@@ -208,7 +208,6 @@ vi.mock("@/hooks/community/mutations", async () => {
     useCreateChannel: mutation,
     useRenameChannel: mutation,
     useDeleteChannel: mutation,
-    useMoveChannel: mutation,
     useCreateCategory: mutation,
     useUpdateCategory: mutation,
     useDeleteCategory: mutation,

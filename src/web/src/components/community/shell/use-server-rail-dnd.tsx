@@ -5,7 +5,7 @@ import { useDrag, useDragLayer, useDragDropManager, useDrop } from "react-dnd"
 import { getEmptyImage } from "react-dnd-html5-backend"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useDndCancellation } from "../community-dnd"
-import { railOperationAvailability, railInstructionIsAvailable, type RailContainer, type RailEntity, type RailInstruction, type RailState } from "@/lib/community/server-rail-model"
+import { railTopLevel, railOperationAvailability, railInstructionIsAvailable, type RailContainer, type RailEntity, type RailInstruction, type RailState } from "@/lib/community/server-rail-model"
 
 const RAIL_ITEM = "community/server-rail"
 type RailDrag = { entity: RailEntity; owner: object }
@@ -22,11 +22,18 @@ type Options = {
 
 export function railInstructionAt(state: RailState, source: RailEntity, target: RailEntity, ratio: number): RailInstruction | null {
   const available = railOperationAvailability(state, source, target)
-  const nested = target.kind === "server" && state.folderIds.some((id) => state.folders[id]?.includes(target.id))
+  const folderId = target.kind === "server" ? state.folderIds.find((id) => state.folders[id]?.includes(target.id)) : undefined
   const operation = source.kind === "server" && target.kind === "folder" ? "combine"
-    : nested ? ratio < 0.5 ? "reorder-before" : "reorder-after"
+    : folderId ? ratio < 0.5 ? "reorder-before" : "reorder-after"
     : ratio < 0.25 ? "reorder-before" : ratio > 0.75 ? "reorder-after"
     : source.kind === "server" ? "combine" : ratio < 0.5 ? "reorder-before" : "reorder-after"
+  if (operation === "reorder-after") {
+    const last = folderId ? state.folders[folderId]?.at(-1) === target.id : railTopLevel(state).at(-1)?.id === target.id
+    if (last) {
+      const append: RailInstruction = { operation: "append", source, target: folderId ? { kind: "folder-content", id: folderId } : { kind: "root", id: "root" } }
+      return railInstructionIsAvailable(state, append) ? append : null
+    }
+  }
   return available[operation] ? { source, target, operation } : null
 }
 
@@ -183,7 +190,7 @@ export function RailDndBinding({ dnd, entity, element, handle }: {
   return null
 }
 
-export function RailEndDropTarget({ dnd, target, testId }: { dnd: RailDndController; target: RailContainer; testId: string }) {
+export function RailEndDropTarget({ dnd, target, testId, active = false }: { dnd: RailDndController; target: RailContainer; testId: string; active?: boolean }) {
   const item = useDragLayer((monitor) => monitor.isDragging() && monitor.getItemType() === RAIL_ITEM ? monitor.getItem<RailDrag>() : null)
   const { kind, id } = target
   const instruction = useCallback((drag: RailDrag): RailInstruction => ({ operation: "append", source: drag.entity, target: kind === "root" ? { kind, id: "root" } : { kind, id } }), [kind, id])
@@ -196,9 +203,9 @@ export function RailEndDropTarget({ dnd, target, testId }: { dnd: RailDndControl
   }), [dnd, instruction])
   useLayoutEffect(() => { if (over && item) dnd.updatePreview(instruction(item)) }, [dnd, over, item, instruction])
   return <div ref={(node) => { drop(node) }} data-testid={testId} aria-hidden="true"
-    className={`relative z-20 -mt-2 w-full shrink-0 ${valid && over ? "h-10" : "h-0"}`}>
+    className={`relative z-20 -mt-2 w-full shrink-0 ${valid && (over || active) ? "h-10" : "h-0"}`}>
     {valid && <span className={`absolute left-1/2 h-2 w-12 -translate-x-1/2 ${kind === "root" ? "-top-1" : "-top-2"}`} />}
-    {valid && over && <span data-slot="community-server-rail-end-region" className="pointer-events-none absolute inset-x-1 inset-y-0 rounded-[12px] border-2 border-dashed border-primary bg-primary/5" />}
+    {valid && (over || active) && <span data-slot="community-server-rail-end-region" className="pointer-events-none absolute inset-x-1 inset-y-0 rounded-[12px] border-2 border-dashed border-primary bg-primary/5" />}
   </div>
 }
 

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react"
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { DndProvider } from "react-dnd"
 import { TestBackend, type TestBackendImpl } from "react-dnd-test-backend"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
@@ -53,19 +53,21 @@ const categories: Category[] = [
   { id: "private", name: "Private", private: true, channels: [channel("secret")] },
   { id: "private2", name: "Private 2", private: true, channels: [] },
 ]
-function TreeFixture({ onDrop, canReorder = true }: { onDrop: (event: ChannelTreeDrop) => void; canReorder?: boolean }) {
+function TreeFixture({ onDrop, canReorder = true, rootBefore = true }: { onDrop: (event: ChannelTreeDrop) => void; canReorder?: boolean; rootBefore?: boolean }) {
   const tree = useChannelTree(categories)
-  const settle = (event: ChannelTreeDrop) => { onDrop(event); tree.onDragEnd(event) }
+  const settle = (event: ChannelTreeDrop) => { onDrop(event) }
   return <ChannelDndScope tree={tree} onDrop={settle}>
     <output data-testid="tree-order">{JSON.stringify({ cats: tree.catOrder, channels: Object.fromEntries(Object.entries(tree.order).map(([id, rows]) => [id, rows.map((row) => row.id)])) })}</output>
     {tree.catOrder.map((id) => <TreeItem key={id} id={id} kind="category" canReorder={canReorder} />)}
     {Object.values(tree.order).flat().map((row) => <TreeItem key={row.id} id={row.id} kind="channel" canReorder={canReorder} />)}
-    <ChannelDropContainer id="empty" className=""><span>Empty target</span></ChannelDropContainer>
+    <ChannelDropContainer id="empty" />
+    <ChannelDropContainer id="public" lastRowId="forum" />
+    <ChannelDropContainer id={UNCATEGORIZED_CATEGORY_ID} before={rootBefore} />
   </ChannelDndScope>
 }
 function TreeItem({ id, kind, canReorder }: { id: string; kind: "category" | "channel"; canReorder: boolean }) {
-  const { setNodeRef, setActivatorNodeRef } = useChannelDndItem(id, kind, canReorder)
-  return <div ref={setNodeRef} data-testid={id}>{kind === "category" ? <div ref={setActivatorNodeRef} data-testid={`${id}-handle`}>{id}</div> : id}</div>
+  const { setNodeRef, setActivatorNodeRef, placement } = useChannelDndItem(id, kind, canReorder)
+  return <div ref={setNodeRef} data-testid={id} data-channel-tree-row={kind === "channel" ? id : undefined} data-placement={placement ?? undefined}>{kind === "category" ? <div ref={setActivatorNodeRef} data-testid={`${id}-handle`}>{id}</div> : id}</div>
 }
 
 function ActualSidebarFixture({ onReorder }: { onReorder: (ids: string[]) => void }) {
@@ -136,6 +138,15 @@ describe("React DnD community scopes", () => {
     const target = { kind: "server", id: "b" } as const
     expect(railInstructionAt(nested, source, target, 0.4)).toMatchObject({ operation: "reorder-before" })
     expect(railInstructionAt(nested, source, target, 0.6)).toMatchObject({ operation: "reorder-after" })
+  })
+  it("uses the container end instruction for the final row's after edge", () => {
+    const source = { kind: "server", id: "a" } as const
+    const nested: RailState = { serverIds: ["a", "b", "c"], folderIds: ["f"], folders: { f: ["b", "c"] }, expanded: ["f"] }
+    expect(railInstructionAt(nested, source, { kind: "server", id: "c" }, 0.8)).toEqual({ operation: "append", source, target: { kind: "folder-content", id: "f" } })
+    const root: RailState = { serverIds: ["a", "b", "c"], folderIds: [], folders: {}, expanded: [] }
+    expect(railInstructionAt(root, source, { kind: "server", id: "c" }, 0.9)).toEqual({ operation: "append", source, target: { kind: "root", id: "root" } })
+    expect(railInstructionAt(root, source, { kind: "server", id: "b" }, 0.9)).toEqual({ operation: "reorder-after", source, target: { kind: "server", id: "b" } })
+    expect(railInstructionAt(root, { kind: "server", id: "c" }, { kind: "server", id: "c" }, 0.9)).toBeNull()
   })
   it("updates center/combine and edge/insertion feedback while staying over the same target", () => {
     const onPreview = vi.fn()
@@ -218,25 +229,99 @@ describe("React DnD community scopes", () => {
     ui.start("text"); ui.hover("forum")
     expect(ui.node("tree-order").textContent).toBe(before)
     ui.drop()
-    expect(JSON.parse(ui.node("tree-order").textContent!).channels.public).toEqual(["forum", "text"])
+    expect(ui.node("tree-order").textContent).toBe(before)
+    expect(onDrop).toHaveBeenCalledWith({ active: { id: "text", kind: "channel" }, over: { id: "public", kind: "category" }, placement: "append" })
     expect(onDrop).toHaveBeenCalledTimes(1)
   })
   it("accepts an empty category, rejects privacy changes, and allows private/private", () => {
     const onDrop = vi.fn()
     const ui = setup(<TreeFixture onDrop={onDrop} />)
-    ui.start("text"); ui.hover("empty"); ui.drop()
-    expect(JSON.parse(ui.node("tree-order").textContent!).channels.empty).toEqual(["text"])
+    ui.start("text"); ui.hover("empty-handle"); ui.drop()
+    expect(onDrop).toHaveBeenLastCalledWith({ active: { id: "text", kind: "channel" }, over: { id: "empty", kind: "category" }, placement: "append" })
     ui.start("forum"); ui.hover("private"); ui.drop()
     expect(onDrop).toHaveBeenCalledTimes(1)
-    ui.start("secret"); ui.hover("private2"); ui.drop()
-    expect(JSON.parse(ui.node("tree-order").textContent!).channels.private2).toEqual(["secret"])
+    ui.start("secret"); ui.hover("private2-handle"); ui.drop()
+    expect(onDrop).toHaveBeenLastCalledWith({ active: { id: "secret", kind: "channel" }, over: { id: "private2", kind: "category" }, placement: "append" })
     expect(onDrop).toHaveBeenCalledTimes(2)
+  })
+  it("shows valid header feedback and updates row edges without stale hover snapshots", () => {
+    const ui = setup(<TreeFixture onDrop={vi.fn()} />)
+    ui.node("forum").getBoundingClientRect = () => ({ top: 100, bottom: 132, left: 0, right: 100, height: 32, width: 100 }) as DOMRect
+    ui.start("text"); ui.hover("empty-handle")
+    expect(ui.node("empty")).toHaveAttribute("data-placement", "append")
+    ui.hover("private-handle")
+    expect(ui.node("empty")).not.toHaveAttribute("data-placement")
+    expect(ui.node("private")).not.toHaveAttribute("data-placement")
+    ui.hover("forum", 130)
+    expect(ui.node("forum")).toHaveAttribute("data-placement", "append")
+    expect(ui.container.querySelector('[data-channel-drop-end="public"]')).toHaveAttribute("data-drop-visible", "true")
+    ui.hover("forum", 102)
+    expect(ui.node("forum")).not.toHaveAttribute("data-placement")
+    ui.cancel()
+    expect(ui.node("empty")).not.toHaveAttribute("data-placement")
+  })
+  it("keeps a nearby end target stable while its landing area opens and closes", () => {
+    const onDrop = vi.fn()
+    const ui = setup(<TreeFixture onDrop={onDrop} />)
+    const end = ui.container.querySelector<HTMLElement>('[data-channel-drop-end="empty"]')!
+    const anchor = end.parentElement!
+    anchor.getBoundingClientRect = () => ({ top: 100, bottom: 100, left: 0, right: 100, height: 0, width: 100 }) as DOMRect
+    ui.start("text")
+    act(() => ui.backend.simulateHover([], { clientOffset: { x: 20, y: 86 } }))
+    expect(end).not.toHaveAttribute("data-drop-visible")
+    act(() => ui.backend.simulateHover([ui.targets.get(end)!], { clientOffset: { x: 20, y: 108 } }))
+    expect(end).toHaveAttribute("data-drop-visible", "true")
+    expect(end).toHaveClass("absolute", "h-4")
+    expect(anchor).toHaveClass("h-0")
+    expect(anchor.getBoundingClientRect().top).toBe(100)
+    expect(onDrop).not.toHaveBeenCalled()
+    ui.drop()
+    expect(onDrop).toHaveBeenCalledExactlyOnceWith({ active: { id: "text", kind: "channel" }, over: { id: "empty", kind: "category" }, placement: "append" })
+    expect(end).not.toHaveAttribute("data-drop-visible")
+    ui.start("text")
+    act(() => ui.backend.simulateHover([], { clientOffset: { x: 20, y: 149 } }))
+    expect(end).not.toHaveAttribute("data-drop-visible")
+    ui.cancel()
+    expect(onDrop).toHaveBeenCalledTimes(1)
+  })
+  it("uses existing space before an empty root without capturing the first header", () => {
+    const onDrop = vi.fn()
+    const ui = setup(<TreeFixture onDrop={onDrop} />)
+    const end = ui.container.querySelector<HTMLElement>(`[data-channel-drop-end="${UNCATEGORIZED_CATEGORY_ID}"]`)!
+    end.parentElement!.getBoundingClientRect = () => ({ top: 100, bottom: 100, left: 0, right: 100, height: 0, width: 100 }) as DOMRect
+    ui.start("text")
+    act(() => ui.backend.simulateHover([ui.targets.get(end)!], { clientOffset: { x: 20, y: 92 } }))
+    expect(end).toHaveAttribute("data-drop-visible", "true")
+    expect(end).toHaveClass("absolute", "bottom-0", "h-4")
+    act(() => ui.backend.simulateHover([], { clientOffset: { x: 20, y: 100 } }))
+    expect(end).not.toHaveAttribute("data-drop-visible")
+    act(() => ui.backend.simulateHover([ui.targets.get(end)!], { clientOffset: { x: 20, y: 92 } }))
+    ui.drop()
+    expect(onDrop).toHaveBeenCalledExactlyOnceWith({ active: { id: "text", kind: "channel" }, over: { id: UNCATEGORIZED_CATEGORY_ID, kind: "category" }, placement: "append" })
+  })
+  it("uses the current root end geometry after a canonical update while idle", () => {
+    const onDrop = vi.fn()
+    function RootFixture() {
+      const [before, setBefore] = useState(true)
+      return <><button data-testid="root-filled" onClick={() => setBefore(false)}>Fill root</button><TreeFixture onDrop={onDrop} rootBefore={before} /></>
+    }
+    const ui = setup(<RootFixture />)
+    const end = ui.container.querySelector<HTMLElement>(`[data-channel-drop-end="${UNCATEGORIZED_CATEGORY_ID}"]`)!
+    end.parentElement!.getBoundingClientRect = () => ({ top: 100, bottom: 100, left: 0, right: 100, height: 0, width: 100 }) as DOMRect
+    fireEvent.click(ui.node("root-filled"))
+    expect(ui.container.querySelector(`[data-channel-drop-end="${UNCATEGORIZED_CATEGORY_ID}"]`)).toBe(end)
+    ui.start("text")
+    act(() => ui.backend.simulateHover([ui.targets.get(end)!], { clientOffset: { x: 20, y: 108 } }))
+    expect(end).toHaveClass("top-0", "h-4")
+    expect(end).toHaveAttribute("data-drop-visible", "true")
+    ui.drop()
+    expect(onDrop).toHaveBeenCalledTimes(1)
   })
   it("moves category blocks and cancels a channel without changing its owner", () => {
     const onDrop = vi.fn()
     const ui = setup(<TreeFixture onDrop={onDrop} />)
     ui.start("public-handle"); ui.hover("empty"); ui.drop()
-    expect(JSON.parse(ui.node("tree-order").textContent!).cats.slice(0, 2)).toEqual(["empty", "public"])
+    expect(onDrop).toHaveBeenCalledWith({ active: { id: "public", kind: "category" }, over: { id: "empty", kind: "category" }, placement: "after" })
     const before = ui.node("tree-order").textContent
     ui.start("text"); ui.hover("empty"); ui.cancel()
     expect(ui.node("tree-order").textContent).toBe(before)
@@ -246,8 +331,8 @@ describe("React DnD community scopes", () => {
     const onReorder = vi.fn()
     const ui = setup(<ActualSidebarFixture onReorder={onReorder} />)
     ui.start(tid.categoryHeader("public"))
-    const target = [...ui.targets.keys()].find((node) => node.contains(ui.node(tid.categoryHeader("empty"))))!
-    act(() => ui.backend.simulateHover([ui.targets.get(target)!], {}))
+    const target = ui.node(tid.categoryHeader("empty")).closest<HTMLElement>("[data-channel-category]")!
+    act(() => ui.backend.simulateHover([ui.targets.get(target)!], { clientOffset: { x: 20, y: 20 } }))
     ui.drop()
     expect(onReorder).toHaveBeenCalledExactlyOnceWith(["empty", "public", "private", "private2"])
   })
