@@ -250,7 +250,7 @@ describe("renderBotListView", () => {
     expect(withExactClass(renderer.container,
       "flex flex-wrap items-center justify-between gap-4")).toHaveLength(1)
     expect(renderer.getByText("My Bots")).toHaveClass("text-xl", "font-medium", "text-foreground")
-    expect(renderer.getByText("Ask your bot to create more bots. Approve requests in your DM.")).toBeTruthy()
+    expect(renderer.getByText("Ask your bot to create more bots.")).toBeTruthy()
     expect(renderer.getByRole("button", { name: "Active Bots loading" })).toBeDisabled()
     expect(withExactClass(renderer.container, "flex items-center gap-1")).toHaveLength(1)
     expect(withExactClass(renderer.container, "flex flex-col gap-6")).toHaveLength(1)
