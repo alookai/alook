@@ -95,17 +95,20 @@ describe("DailyTokenUsageStore", () => {
   it("exposes 30 UTC days while retaining two recovery days", async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-token-retention-"));
     roots.push(root);
-    let now = new Date("2026-07-27T12:00:00Z");
-    const store = new DailyTokenUsageStore(root, () => now, "UTC");
-    for (let day = 0; day < 33; day += 1) {
-      await store.record("bot", delta(day, day, day));
-      now = new Date(now.getTime() + 86_400_000);
-    }
-    now = new Date("2026-08-28T12:00:00Z");
+    const directory = join(root, ".telemetry");
+    mkdirSync(directory);
+    const history = Array.from({ length: 32 }, (_, index) => ({
+      botId: "bot",
+      day: new Date(Date.UTC(2026, 6, 27 + index)).toISOString().slice(0, 10),
+      metrics: delta(index, index, index),
+    }));
+    writeFileSync(join(directory, "daily-token-usage.json"), JSON.stringify({ version: 1, bots: { bot: history } }));
+    const store = new DailyTokenUsageStore(root, () => new Date("2026-08-28T12:00:00Z"), "UTC");
+    await store.record("bot", delta(32, 32, 32));
     const snapshots = await store.snapshots("bot");
     expect(snapshots).toHaveLength(30);
     expect(snapshots.at(0)?.day).toBe("2026-07-30");
-    expect(snapshots.at(-1)?.day).toBe("2026-08-28");
+    expect(snapshots.at(-1)).toEqual({ botId: "bot", day: "2026-08-28", metrics: delta(32, 32, 32) });
 
     const persisted = JSON.parse(readFileSync(
       join(root, ".telemetry", "daily-token-usage.json"),

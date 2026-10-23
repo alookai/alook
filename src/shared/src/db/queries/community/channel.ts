@@ -1,3 +1,5 @@
+import { readServerRailSnapshot } from "./server-rail";
+import { sortServerRailRows } from "../../../community-server-rail";
 import { eq, and, asc, desc, isNotNull, isNull, inArray, count, ne, or, sql } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
 import {
@@ -1083,7 +1085,7 @@ export async function listChannelRefDirectoryForUser(db: Database, userId: strin
           eq(communityServerMember.userId, userId)
         )
       )
-      .orderBy(asc(communityServerMember.railOrder), asc(communityServer.id)),
+      .orderBy(asc(communityServerMember.joinedAt), asc(communityServer.id)),
     db
       .select({
         serverId: communityChannel.serverId,
@@ -1120,7 +1122,6 @@ export async function listChannelRefDirectoryForUser(db: Database, userId: strin
         )
       )
       .orderBy(
-        asc(communityServerMember.railOrder),
         asc(communityServerMember.serverId),
         sql`${communityChannel.categoryId} IS NULL`,
         asc(communityCategory.position),
@@ -1129,7 +1130,7 @@ export async function listChannelRefDirectoryForUser(db: Database, userId: strin
         asc(communityChannel.id)
       ),
   ]);
-  return groupChannelRefDirectoryRows(servers, channels);
+  return groupChannelRefDirectoryRows(sortServerRailRows(await readServerRailSnapshot(db, userId), servers), channels);
 }
 
 // Shared visibility computation for the nested-membership model. Assembles the

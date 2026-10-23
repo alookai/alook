@@ -18,6 +18,8 @@ import { withUniqueDiscriminator } from "../user";
 import { parseNameAndTag } from "../../../lib/discriminator";
 import { notificationEligibleSql } from "./notification-eligibility";
 import { channelReadableSql } from "./channel";
+import { readServerRailSnapshot } from "./server-rail";
+import { sortServerRailRows } from "../../../community-server-rail";
 
 export async function createServer(
   db: Database,
@@ -91,7 +93,6 @@ export async function createServer(
         serverId: id,
         userId: data.ownerId,
         role: "owner",
-        railOrder: 0,
       }).returning({
         id: communityServerMember.id,
         userId: communityServerMember.userId,
@@ -231,7 +232,7 @@ export async function listUserServers(db: Database, userId: string) {
     .groupBy(communityChannel.serverId)
     .as("mention_counts");
 
-  return db
+  const rows = await db
     .select({
       id: communityServer.id,
       name: communityServer.name,
@@ -243,7 +244,6 @@ export async function listUserServers(db: Database, userId: string) {
       createdAt: communityServer.createdAt,
       role: communityServerMember.role,
       memberId: communityServerMember.id,
-      railOrder: communityServerMember.railOrder,
       // COALESCE has no ORM operator in this Drizzle version — the LEFT JOIN
       // yields NULL for servers with zero unread mentions. Wrap the aggregate
       // column with a narrow `sql` cast so the client always receives a
@@ -259,7 +259,8 @@ export async function listUserServers(db: Database, userId: string) {
       )
     )
     .leftJoin(mentionCounts, eq(mentionCounts.serverId, communityServer.id))
-    .orderBy(asc(communityServerMember.railOrder));
+    .orderBy(asc(communityServerMember.joinedAt), asc(communityServer.id));
+  return sortServerRailRows(await readServerRailSnapshot(db, userId), rows);
 }
 
 /**

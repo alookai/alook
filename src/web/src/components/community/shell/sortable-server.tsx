@@ -1,9 +1,8 @@
 "use client";
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { OfficialServerBadge } from "../official-server-badge";
 
-import { memo, useLayoutEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -19,10 +18,12 @@ import {
 } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { NumberTicker } from "@/components/ui/number-ticker";
-import { ServerIcon } from "@/components/community/server-icon";
+import { RailServerIcon } from "./rail-server-icon"
+import { RailFolderIcon } from "./rail-folder"
 import { tid } from "@/lib/community/testids";
 import type { Server } from "@/lib/community/models/navigation"
-import type { RailEntity, RailOperation } from "@/lib/community/server-rail-model"
+import type { RailOperation } from "@/lib/community/server-rail-model"
+import { RailDndBinding, type RailDndController } from "./use-server-rail-dnd"
 
 import { CommunityNavigationLink } from "./community-navigation-link"
 import { serverRootHref } from "@/lib/community/community-route"
@@ -39,11 +40,8 @@ type SortableServerProps = {
   inFolder?: boolean;
   dragging?: boolean;
   preview?: RailOperation | null;
-  registerItem?: (
-    entity: RailEntity,
-    element: HTMLElement,
-    dragHandle: HTMLElement,
-  ) => () => void;
+  combineWith?: Server;
+  dnd?: RailDndController;
   dragDescriptionId?: string;
 };
 
@@ -59,27 +57,24 @@ function SortableServerImpl({
   inFolder,
   dragging: isDragActive,
   preview,
-  registerItem,
+  combineWith,
+  dnd,
   dragDescriptionId,
 }: SortableServerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const linkRef = useRef<HTMLAnchorElement>(null)
   const [confirmLeave, setConfirmLeave] = useAtom(useCreateAtom(false));
   const [activated, setActivated] = useAtom(useCreateAtom(false));
-  useLayoutEffect(() => {
-    if (!registerItem || !rootRef.current || !linkRef.current) return
-    return registerItem(
-      { kind: "server", id: server.id },
-      rootRef.current,
-      linkRef.current,
-    )
-  }, [registerItem, server.id])
+  const [tooltipOpen, setTooltipOpen] = useAtom(useCreateAtom(false));
+  useEffect(() => { if (isDragActive) setTooltipOpen(false) }, [isDragActive, setTooltipOpen])
+
   const activate = activated ? undefined : () => setActivated(true);
 
   const icon = (
     <div
       ref={rootRef}
       style={{ opacity: isDragActive ? 0.3 : 1 }}
+      data-rail-preview={preview || undefined}
       className="group relative flex w-full justify-center"
       onPointerEnter={activate}
       onPointerDownCapture={activate}
@@ -87,22 +82,18 @@ function SortableServerImpl({
       onKeyDownCapture={activate}
       onContextMenuCapture={activate}
     >
-      {(preview === "reorder-before" || preview === "reorder-after") && (
-        <div
-          data-testid={tid.serverRailInsert(server.id)}
-          className={`pointer-events-none absolute left-1/2 z-10 h-0.5 w-9 -translate-x-1/2 rounded-full bg-primary ${preview === "reorder-before" ? "-top-1" : "-bottom-1"}`}
-        />
-      )}
+      {dnd && <RailDndBinding dnd={dnd} entity={{ kind: "server", id: server.id }} element={rootRef} handle={linkRef} />}
       <RailIndicator
         active={active}
         unread={server.unread}
         testId={tid.serverRailIndicator(server.id)}
+        hidden={isDragActive}
       />
+      {preview && preview !== "combine" && <span data-slot="community-server-rail-insert" className={`pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-primary ${preview === "reorder-before" ? "-top-1 -translate-y-1/2" : "-bottom-1 translate-y-1/2"}`} />}
       <div
         className={[
           "relative size-10 transition-[border-radius,background-color,border-color,opacity,transform] duration-150",
-          preview === "combine" ? "rounded-xl bg-primary/10 outline outline-2! outline-primary" : "",
-          isDragActive ? "rounded-xl border-2 border-dashed border-muted-foreground/40" : "",
+          preview === "combine" && !combineWith ? "rounded-xl ring-2 ring-primary ring-offset-2 ring-offset-(--d-rail)" : "",
         ].join(" ")}
       >
         <CommunityNavigationLink
@@ -113,38 +104,21 @@ function SortableServerImpl({
           ref={linkRef}
           data-testid={tid.serverIcon(server.id)}
           data-dragging={isDragActive || undefined}
-          data-rail-preview={preview ?? undefined}
           aria-label={server.official ? `${server.name}, Official server` : server.name}
           aria-describedby={dragDescriptionId}
-          aria-keyshortcuts="Space ArrowUp ArrowDown ArrowLeft ArrowRight Escape"
           onActivate={() => { if (!active) onClick() }}
           className={[
             "group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing [-webkit-touch-callout:none]",
             active ? "cursor-default" : "cursor-pointer",
           ].join(" ")}
         >
-          <ServerIcon
-            data-rail-drag-preview
-            id={server.id}
-            name={server.name}
-            initial={server.initial}
-            icon={server.icon}
-            size={40}
-            className={[
-            "pointer-events-none relative grid size-10 place-items-center overflow-hidden font-brand text-xl font-bold transition-all duration-150",
-            active
-              ? "cursor-default rounded-xl"
-              : "cursor-pointer rounded-[18px] group-hover/server:rounded-xl",
-            server.icon
-              ? active
-                ? "bg-primary text-primary-foreground"
-                : "bg-card group-hover/server:bg-primary group-hover/server:text-primary-foreground"
-              : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)] group-hover/server:brightness-110",
-          ].join(" ")}
-          />
-          <OfficialServerBadge official={server.official} className="absolute -left-1 -top-1 z-2" />
+          {preview === "combine" && combineWith ? (
+            <span data-slot="community-server-rail-combine-preview" className="pointer-events-none absolute -inset-0.5 grid size-12 place-items-center rounded-[12px] bg-accent/50 text-muted-foreground ring-2 ring-primary dark:bg-accent">
+              <RailFolderIcon open={false} folderServers={[server, combineWith]} />
+            </span>
+          ) : <RailServerIcon server={server} active={active} />}
         </CommunityNavigationLink>
-        {server.mentions > 0 && (
+        {server.mentions > 0 && !(preview === "combine" && combineWith) && (
           <span
             data-testid={tid.railUnreadBadge(server.id)}
             className="pointer-events-none absolute -bottom-1 -right-1 z-2 grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold text-primary-foreground ring-2 ring-(--d-rail)"
@@ -158,7 +132,7 @@ function SortableServerImpl({
 
   const withMenu = (
     <ContextMenu>
-      <ContextMenuTrigger render={icon} />
+      <ContextMenuTrigger render={icon} onTouchStart={(event) => { if (dnd?.latest.current.canStart()) event.preventBaseUIHandler() }} />
       {activated && (
         <ContextMenuContent className="w-52">
           <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">
@@ -190,7 +164,7 @@ function SortableServerImpl({
 
   return (
     <>
-      <Tooltip>
+      <Tooltip open={!isDragActive && tooltipOpen} onOpenChange={setTooltipOpen}>
         <TooltipTrigger
           render={<span className="flex w-full justify-center" />}
         >
@@ -247,6 +221,10 @@ export function serverPropsEqual(prev: SortableServerProps, next: SortableServer
     prev.inFolder === next.inFolder &&
     prev.dragging === next.dragging &&
     prev.preview === next.preview &&
+    prev.combineWith?.id === next.combineWith?.id &&
+    prev.combineWith?.name === next.combineWith?.name &&
+    prev.combineWith?.initial === next.combineWith?.initial &&
+    prev.combineWith?.icon === next.combineWith?.icon &&
     // The presence of an optional handler flips menu items on/off, so compare
     // definedness (not identity) — a menu row appears/disappears with it.
     !!prev.onLeave === !!next.onLeave &&

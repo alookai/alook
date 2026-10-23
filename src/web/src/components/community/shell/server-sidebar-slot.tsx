@@ -1,4 +1,5 @@
 "use client"
+import { readCommunityServerRailServers } from "@/lib/community-db/server-rail"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
@@ -217,8 +218,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
       clearLastChannel(deletedServerId)
       if (!needsNavigation || !ownerDeleteRouteToken) return
       void (async () => {
-        const allowed = new Set([...communityDb!.collections.serverMemberships.values()].filter((row) => row.viewer && row.userId === currentUser.id).map((row) => row.serverId))
-        const survivor = [...communityDb!.collections.servers.values()].filter((server) => allowed.has(server.id)).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).find((server) => server.id !== deletedServerId)
+        const survivor = readCommunityServerRailServers(communityDb!).find((server) => server.id !== deletedServerId)
         const destination = survivor
           ? await serverDestination(survivor.id)
           : "/c/me"

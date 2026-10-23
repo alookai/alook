@@ -8,8 +8,10 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockReadSnapshot = vi.fn()
 const mockApplyProjection = vi.fn()
+const mockBroadcast = vi.fn()
+vi.mock("@/lib/community/fanout", () => ({ broadcastToUserSafe: (...args: unknown[]) => mockBroadcast(...args) }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({ id: "db" })) }))
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({ id: "db" })), getPrimaryDb: vi.fn(() => ({ id: "db" })) }))
 vi.mock("nanoid", async () => {
   const actual = await vi.importActual<typeof import("nanoid")>("nanoid")
   return { ...actual, nanoid: vi.fn(() => "folder_generated") }
@@ -38,8 +40,8 @@ vi.mock("@/lib/middleware/auth", () => ({
 import { PATCH } from "./route"
 
 const snapshot = {
-  serverOrder: ["server_1", "server_2", "server_3"],
-  folderOrder: ["folder_1"],
+  serverIds: ["server_1", "server_2", "server_3"],
+  folderIds: ["folder_1"],
   folders: {
     folder_1: { id: "folder_1", name: "Folder", serverIds: ["server_2"] },
   },
@@ -57,6 +59,7 @@ describe("PATCH /api/community/users/me/server-rail", () => {
     vi.clearAllMocks()
     mockReadSnapshot.mockResolvedValue(snapshot)
     mockApplyProjection.mockResolvedValue(undefined)
+    mockBroadcast.mockResolvedValue(undefined)
   })
 
   it("commits one validated projection and returns generated folder ids", async () => {
@@ -73,6 +76,8 @@ describe("PATCH /api/community/users/me/server-rail", () => {
     await expect(response.json()).resolves.toEqual({
       createdFolderIds: { temp_1: "folder_generated" },
     })
+    expect(mockBroadcast).toHaveBeenCalledExactlyOnceWith("user_1", { type: "community:server_rail.changed" })
+    expect(mockApplyProjection.mock.invocationCallOrder[0]).toBeLessThan(mockBroadcast.mock.invocationCallOrder[0])
     expect(mockReadSnapshot).toHaveBeenCalledWith({ id: "db" }, "user_1")
     expect(mockApplyProjection).toHaveBeenCalledTimes(1)
     expect(mockApplyProjection).toHaveBeenCalledWith(
@@ -88,15 +93,16 @@ describe("PATCH /api/community/users/me/server-rail", () => {
   it.each([
     ["malformed JSON", "{"],
     ["empty commands", { commands: [] }],
-    ["unknown fields", { commands: [{ kind: "reorder-servers", serverIds: snapshot.serverOrder, extra: true }] }],
-    ["partial memberships", { commands: [{ kind: "reorder-servers", serverIds: ["server_1"] }] }],
-    ["duplicate memberships", { commands: [{ kind: "reorder-servers", serverIds: ["server_1", "server_1", "server_3"] }] }],
+    ["unknown fields", { commands: [{ kind: "reorder-servers", serverIds: snapshot.serverIds, extra: true }] }],
+    ["partial root set", { commands: [{ kind: "reorder-top-level", entries: [{ kind: "server", id: "server_1" }] }] }],
+    ["duplicate root set", { commands: [{ kind: "reorder-top-level", entries: [{ kind: "server", id: "server_1" }, { kind: "server", id: "server_1" }] }] }],
     ["foreign folder", { commands: [{ kind: "delete-folder", folderId: "folder_foreign" }] }],
   ])("rejects %s without a write", async (_name, body) => {
     const response = await PATCH(patchRequest(body), {} as any)
 
     expect(response.status).toBeGreaterThanOrEqual(400)
     expect(mockApplyProjection).not.toHaveBeenCalled()
+    expect(mockBroadcast).not.toHaveBeenCalled()
   })
 
   it("rejects an oversized UTF-8 body before reading a snapshot", async () => {
@@ -108,14 +114,15 @@ describe("PATCH /api/community/users/me/server-rail", () => {
     expect(response.status).toBe(413)
     expect(mockReadSnapshot).not.toHaveBeenCalled()
     expect(mockApplyProjection).not.toHaveBeenCalled()
+    expect(mockBroadcast).not.toHaveBeenCalled()
   })
 
   it("accepts a complete 125-membership reorder without cardinality rejection", async () => {
-    const serverOrder = Array.from({ length: 125 }, (_, index) => `server_${index}`)
-    mockReadSnapshot.mockResolvedValue({ serverOrder, folderOrder: [], folders: {} })
+    const serverIds = Array.from({ length: 125 }, (_, index) => `server_${index}`)
+    mockReadSnapshot.mockResolvedValue({ serverIds, folderIds: [], folders: {} })
 
     const response = await PATCH(patchRequest({
-      commands: [{ kind: "reorder-servers", serverIds: [...serverOrder].reverse() }],
+      commands: [{ kind: "reorder-top-level", entries: [...serverIds].reverse().map((id) => ({ kind: "server", id })) }],
     }), {} as any)
 
     expect(response.status).toBe(200)
@@ -129,5 +136,12 @@ describe("PATCH /api/community/users/me/server-rail", () => {
 
     expect(response.status).toBe(404)
     expect(mockApplyProjection).not.toHaveBeenCalled()
+    expect(mockBroadcast).not.toHaveBeenCalled()
   })
+  it("does not broadcast a failed atomic save", async () => {
+    mockApplyProjection.mockRejectedValue(new Error("D1 write failed"))
+    await expect(PATCH(patchRequest({ commands: [{ kind: "delete-folder", folderId: "folder_1" }] }), {} as any)).rejects.toThrow("D1 write failed")
+    expect(mockBroadcast).not.toHaveBeenCalled()
+  })
+
 })

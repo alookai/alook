@@ -53,7 +53,7 @@ export const SPEC_SECONDS = {
   "35-bot-token-usage-quota.spec.ts": 10.867,
   "35-channel-ref-directory-states.spec.ts": 12.626,
   "36-server-switch-pending-checkpoint.spec.ts": 5.732,
-  "37-server-rail-pdd.spec.ts": 21.594,
+  "37-server-rail-dnd.spec.ts": 21.594,
   "38-community-navigation-checkpoint-matrix.spec.ts": 4.646,
   "39-mobile-composer-send.spec.ts": 16.534,
   "39-mobile-message-interactions.spec.ts": 58.479,

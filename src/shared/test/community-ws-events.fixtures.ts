@@ -108,6 +108,7 @@ export const communityWsEventFixtures = {
     channelId: "thread-1",
     changes: { name: "Renamed" },
   },
+  "community:server_rail.changed": { type: "community:server_rail.changed" },
   "community:server.update": {
     type: "community:server.update",
     serverId: "server-1",
@@ -308,6 +309,7 @@ export const requiredFixturePaths = {
   "community:channel.child_create": ["channel"],
   "community:channel.child_update": ["changes"],
   "community:server.update": ["changes"],
+  "community:server_rail.changed": [],
   "community:server.delete": ["serverId"],
   "community:channel.create": ["channel"],
   "community:channel.update": ["changes"],

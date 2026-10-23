@@ -279,7 +279,7 @@ describe("whole-statement SQL correctness on native D1", () => {
     expect(result.ownerMember).toMatchObject({ userId: owner, userName: owner, userImage: null, userAvatarVersion: 0, userDiscriminator: "1710" });
     expect(await graph(prefix)).toEqual([{ servers: 1, categories: 2, channels: 2, access: 1, members: 1 }]);
     expect(await rows("SELECT c.name, k.name AS category, k.private FROM community_channel c JOIN community_category k ON k.id = c.category_id WHERE c.server_id = ? ORDER BY k.position", result.server.id)).toEqual([{ name: "all", category: "Public", private: 0 }, { name: "room", category: "Private", private: 1 }]);
-    expect(await rows("SELECT role, rail_order FROM community_server_member WHERE server_id = ?", result.server.id)).toEqual([{ role: "owner", rail_order: 0 }]);
+    expect(await rows("SELECT role FROM community_server_member WHERE server_id = ?", result.server.id)).toEqual([{ role: "owner" }]);
   });
 
   it.each([2, 3, 4, 5, 6, 7])("rolls back every graph row after a native failure at seed step %i", async (step) => {

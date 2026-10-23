@@ -23,6 +23,7 @@ import {
   channelSchema,
   folderItemSchema,
   folderSchema,
+  serverRailSchema,
   messageSchema,
   friendshipSchema,
   notificationSettingSchema,
@@ -85,6 +86,7 @@ function buildCommunityDbRegistry(
   const readStateClock = collectionFor("readStateClock", readStateClockSchema, (row) => row.id)
   const attentionScopes = collectionFor("attentionScopes", AttentionScopeSchema, (row) => row.scopeId)
   const attentionItems = collectionFor("attentionItems", AttentionItemSchema, (row) => row.id)
+  const serverRail = collectionFor("serverRail", serverRailSchema, (row) => row.id)
   const folders = collectionFor("folders", folderSchema, (row) => row.id)
   const folderItems = collectionFor("folderItems", folderItemSchema, (row) => row.id)
   const notificationSettings = collectionFor("notificationSettings", notificationSettingSchema, (row) => row.id)
@@ -103,6 +105,7 @@ function buildCommunityDbRegistry(
     readStateClock,
     attentionScopes,
     attentionItems,
+    serverRail,
     folders,
     folderItems,
     notificationSettings,

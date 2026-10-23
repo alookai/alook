@@ -1,11 +1,13 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, exists, lt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { ServerRailProjection, ServerRailState } from "../../../community-server-rail";
 import {
   MAX_SERVER_RAIL_FOLDERS,
+  serverRailTopOrder,
   SERVER_RAIL_MAX_WRITE_STATEMENTS,
 } from "../../../community-server-rail";
 import {
+  communityServerRail,
   communityServerFolder,
   communityServerFolderItem,
   communityServerMember,
@@ -22,7 +24,6 @@ export async function readServerRailSnapshot(
     .from(communityServerMember)
     .where(eq(communityServerMember.userId, userId))
     .orderBy(
-      asc(communityServerMember.railOrder),
       asc(communityServerMember.joinedAt),
       asc(communityServerMember.serverId),
     );
@@ -34,7 +35,6 @@ export async function readServerRailSnapshot(
     .from(communityServerFolder)
     .where(eq(communityServerFolder.userId, userId))
     .orderBy(
-      asc(sql`COALESCE(${communityServerFolder.position}, 0)`),
       asc(communityServerFolder.id),
     );
   const items = db
@@ -56,20 +56,22 @@ export async function readServerRailSnapshot(
     )
     .where(eq(communityServerFolder.userId, userId))
     .orderBy(
-      asc(sql`COALESCE(${communityServerFolder.position}, 0)`),
       asc(communityServerFolder.id),
       asc(communityServerFolderItem.position),
       asc(communityServerFolderItem.serverId),
     );
 
-  const [membershipRows, folderRows, itemRows] = await db.batch([
+  const rail = db.select({ entries: communityServerRail.entries }).from(communityServerRail).where(eq(communityServerRail.userId, userId));
+  const [membershipRows, folderRows, itemRows, railRows] = await db.batch([
     memberships,
     folders,
     items,
+    rail,
   ] as any) as unknown as [
     Array<{ serverId: string }>,
     Array<{ id: string; name: string }>,
     Array<{ folderId: string; serverId: string }>,
+    Array<{ entries: NonNullable<ServerRailState["topOrder"]> }>,
   ];
 
   const claimedServerIds = new Set<string>();
@@ -81,8 +83,8 @@ export async function readServerRailSnapshot(
   const projectedFolderIds = new Set(projectedItemRows.map((row) => row.folderId));
   const projectedFolderRows = folderRows.filter((row) => projectedFolderIds.has(row.id));
   const state: ServerRailState = {
-    serverOrder: membershipRows.map((row) => row.serverId),
-    folderOrder: projectedFolderRows.map((row) => row.id),
+    serverIds: membershipRows.map((row) => row.serverId),
+    folderIds: projectedFolderRows.map((row) => row.id),
     folders: Object.fromEntries(projectedFolderRows.map((row) => [
       row.id,
       { id: row.id, name: row.name, serverIds: [] },
@@ -91,6 +93,7 @@ export async function readServerRailSnapshot(
   for (const item of projectedItemRows) {
     state.folders[item.folderId]?.serverIds.push(item.serverId);
   }
+  state.topOrder = serverRailTopOrder({ ...state, topOrder: railRows[0]?.entries ?? [] });
   return state;
 }
 
@@ -103,54 +106,6 @@ function idListCte(db: Database, alias: string, ids: readonly string[]) {
   );
 }
 
-function membershipReorderStatement(
-  db: Database,
-  userId: string,
-  serverIds: readonly string[],
-) {
-  const desired = idListCte(db, "desired_member_order", serverIds);
-  return db.with(desired)
-    .update(communityServerMember)
-    .set({
-      railOrder: sql<number>`(
-        SELECT ${desired.position}
-        FROM ${desired}
-        WHERE ${desired.id} = ${communityServerMember.serverId}
-      )`,
-    })
-    .where(and(
-      eq(communityServerMember.userId, userId),
-      sql`EXISTS (
-        SELECT 1 FROM ${desired}
-        WHERE ${desired.id} = ${communityServerMember.serverId}
-      )`,
-    ));
-}
-
-function folderReorderStatement(
-  db: Database,
-  userId: string,
-  folderIds: readonly string[],
-) {
-  const desired = idListCte(db, "desired_folder_order", folderIds);
-  return db.with(desired)
-    .update(communityServerFolder)
-    .set({
-      position: sql<number>`(
-        SELECT ${desired.position}
-        FROM ${desired}
-        WHERE ${desired.id} = ${communityServerFolder.id}
-      )`,
-    })
-    .where(and(
-      eq(communityServerFolder.userId, userId),
-      sql`EXISTS (
-        SELECT 1 FROM ${desired}
-        WHERE ${desired.id} = ${communityServerFolder.id}
-      )`,
-    ));
-}
-
 function createFolderStatement(
   db: Database,
   userId: string,
@@ -160,11 +115,6 @@ function createFolderStatement(
     id: sql<string>`${folder.id}`.as("id"),
     userId: sql<string>`${userId}`.as("user_id"),
     name: sql<string>`${folder.name}`.as("name"),
-    position: sql<number>`(
-      SELECT COALESCE(MAX(${communityServerFolder.position}), -1) + 1
-      FROM ${communityServerFolder}
-      WHERE ${communityServerFolder.userId} = ${userId}
-    )`.as("position"),
   }).from(sql`(SELECT 1)`)
     .where(sql`(
       SELECT COUNT(*)
@@ -261,25 +211,21 @@ function deleteDanglingFolderItemsStatement(db: Database, userId: string) {
 }
 
 function deleteDuplicateFolderItemsStatement(db: Database, userId: string) {
-  return db.delete(communityServerFolderItem)
-    .where(sql`EXISTS (
-      SELECT 1
-      FROM community_server_folder_item AS preferred_item
-      INNER JOIN community_server_folder AS preferred_folder
-        ON preferred_folder.id = preferred_item.folder_id
-      INNER JOIN community_server_folder AS current_folder
-        ON current_folder.id = ${communityServerFolderItem.folderId}
-      WHERE preferred_item.server_id = ${communityServerFolderItem.serverId}
-        AND preferred_folder.user_id = ${userId}
-        AND current_folder.user_id = ${userId}
-        AND (
-          COALESCE(preferred_folder.position, 0) < COALESCE(current_folder.position, 0)
-          OR (
-            COALESCE(preferred_folder.position, 0) = COALESCE(current_folder.position, 0)
-            AND preferred_folder.id < current_folder.id
-          )
-        )
-    )`);
+  const preferredItem = alias(communityServerFolderItem, "preferred_item");
+  const preferredFolder = alias(communityServerFolder, "preferred_folder");
+  const currentFolder = alias(communityServerFolder, "current_folder");
+  return db.delete(communityServerFolderItem).where(exists(
+    db.select({ serverId: preferredItem.serverId })
+      .from(preferredItem)
+      .innerJoin(preferredFolder, eq(preferredFolder.id, preferredItem.folderId))
+      .innerJoin(currentFolder, eq(currentFolder.id, communityServerFolderItem.folderId))
+      .where(and(
+        eq(preferredItem.serverId, communityServerFolderItem.serverId),
+        eq(preferredFolder.userId, userId),
+        eq(currentFolder.userId, userId),
+        lt(preferredFolder.id, currentFolder.id),
+      )),
+  ));
 }
 
 function insertFolderItemsStatement(
@@ -314,31 +260,6 @@ function insertFolderItemsStatement(
       and(eq(ownedMember.serverId, desiredServerId), eq(ownedMember.userId, userId)),
     );
   return db.with(desired).insert(communityServerFolderItem).select(selected);
-}
-
-function normalizeFolderPositionsStatement(db: Database, userId: string) {
-  const ranked = db.$with("ranked_folders").as(
-    db.select({
-      id: communityServerFolder.id,
-      position: sql<number>`ROW_NUMBER() OVER (
-        ORDER BY COALESCE(${communityServerFolder.position}, 0), ${communityServerFolder.id}
-      ) - 1`.as("position"),
-    })
-      .from(communityServerFolder)
-      .where(eq(communityServerFolder.userId, userId)),
-  );
-  return db.with(ranked)
-    .update(communityServerFolder)
-    .set({
-      position: sql<number>`(
-        SELECT ${ranked.position} FROM ${ranked}
-        WHERE ${ranked.id} = ${communityServerFolder.id}
-      )`,
-    })
-    .where(and(
-      eq(communityServerFolder.userId, userId),
-      sql`EXISTS (SELECT 1 FROM ${ranked} WHERE ${ranked.id} = ${communityServerFolder.id})`,
-    ));
 }
 
 function normalizeFolderItemPositionsStatement(db: Database, userId: string) {
@@ -399,6 +320,9 @@ export function buildServerRailWriteStatements(
     ...projection.movedServerIds,
     ...desiredItems.map((item) => item.serverId),
   ])];
+  if (projection.deletedFolderIds.length > 0) {
+    statements.push(deleteFoldersStatement(db, userId, projection.deletedFolderIds));
+  }
   if (projection.createdFolders.length > 0) {
     statements.push(createFolderStatement(db, userId, projection.createdFolders[0]!));
   }
@@ -408,21 +332,15 @@ export function buildServerRailWriteStatements(
   if (projection.affectedFolderIds.length > 0) {
     statements.push(clearAffectedFolderItemsStatement(db, userId, projection.affectedFolderIds));
   }
-  if (projection.deletedFolderIds.length > 0) {
-    statements.push(deleteFoldersStatement(db, userId, projection.deletedFolderIds));
-  }
 
   if (desiredItems.length > 0) {
     statements.push(insertFolderItemsStatement(db, userId, desiredItems));
   }
-  if (projection.reorderServers) {
-    statements.push(membershipReorderStatement(db, userId, projection.after.serverOrder));
-  }
-  if (projection.reorderFolders) {
-    statements.push(folderReorderStatement(db, userId, projection.after.folderOrder));
+  if (projection.reorderTopLevel) {
+    const entries = serverRailTopOrder(projection.after);
+    statements.push(db.insert(communityServerRail).values({ userId, entries }).onConflictDoUpdate({ target: communityServerRail.userId, set: { entries } }));
   }
   statements.push(deleteEmptyFoldersStatement(db, userId));
-  statements.push(normalizeFolderPositionsStatement(db, userId));
   statements.push(normalizeFolderItemPositionsStatement(db, userId));
   if (statements.length === 0 || statements.length > SERVER_RAIL_MAX_WRITE_STATEMENTS) {
     throw new Error(`invalid server rail write statement count: ${statements.length}`);

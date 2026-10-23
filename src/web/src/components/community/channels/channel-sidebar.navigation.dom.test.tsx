@@ -35,14 +35,14 @@ describe("real sortable channel navigation surface", () => {
     expect(view.getByTestId(tid.channelRow("two")).querySelector(".rounded-full.bg-primary")).toBeNull()
   })
 
-  it("keeps href and sortable attributes on the anchor and Enter activates once", async () => {
+  it("keeps href and drag attributes on the anchor and Enter activates once", async () => {
     const onPick = vi.fn()
     const view = render(<Sidebar onPick={onPick} />)
     const anchor = view.getByTestId(tid.channelRow("two"))
     expect(anchor.tagName).toBe("A")
     expect(anchor).toHaveAttribute("role", "link")
     expect(anchor).toHaveAttribute("href", "/c/channels/server/two")
-    expect(anchor).toHaveAttribute("aria-roledescription", "sortable")
+    expect(anchor).toHaveAttribute("aria-roledescription", "draggable")
     fireEvent.focus(anchor)
     expect(anchor).toHaveAttribute("data-prefetch", "true")
     act(() => anchor.focus())
@@ -50,17 +50,17 @@ describe("real sortable channel navigation surface", () => {
     expect(onPick.mock.calls).toEqual([["two"]])
   })
 
-  it("Space starts reorder and Tab ends it without navigating", async () => {
+  it("Space and Tab keep ordinary link navigation without keyboard sorting", async () => {
     const onPick = vi.fn()
     const view = render(<Sidebar onPick={onPick} />)
     const anchor = view.getByTestId(tid.channelRow("two"))
     act(() => anchor.focus())
     const user = setupUser()
     await user.keyboard(" ")
-    expect(anchor).toHaveAttribute("aria-pressed", "true")
+    expect(anchor).not.toHaveAttribute("aria-pressed")
     expect(onPick).not.toHaveBeenCalled()
     await user.keyboard("{Tab}")
-    expect(view.getByText(/was dropped/i)).toBeInTheDocument()
+    expect(view.queryByText(/was dropped/i)).not.toBeInTheDocument()
     expect(onPick).not.toHaveBeenCalled()
   })
 

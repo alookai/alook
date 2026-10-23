@@ -93,11 +93,7 @@ async function dispatchTouchGesture(
   await page.waitForTimeout(20)
   if (holdMs > 0) await page.waitForTimeout(holdMs)
   let sawDragging = false
-  let sawPreview = false
-  let sawFloatingPreview = false
-  let sawFloatingPreviewFollowTouch = false
-  let floatingPreviewKind: string | null = null
-  let floatingPreviewSize: { width: number; height: number } | null = null
+  let sawFeedback = false
   let capturedPreview = false
   let currentEnd = end
   for (let step = 1; step <= 8; step += 1) {
@@ -117,23 +113,10 @@ async function dispatchTouchGesture(
     }
     await dispatch("touchmove", currentPoint)
     await page.waitForTimeout(20)
-    const floatingPreview = page.locator("[data-rail-floating-preview]")
-    if (await floatingPreview.count() === 1) {
-      sawFloatingPreview = true
-      floatingPreviewKind = await floatingPreview.getAttribute("data-rail-floating-preview")
-      const box = await floatingPreview.boundingBox()
-      if (box) {
-        floatingPreviewSize = { width: box.width, height: box.height }
-        sawFloatingPreviewFollowTouch ||= (
-          Math.abs(box.x + box.width / 2 - currentPoint.x) <= 0.5
-          && Math.abs(box.y + box.height / 2 - currentPoint.y) <= 0.5
-        )
-      }
-    }
     if (probe) {
       sawDragging ||= await probe.source.getAttribute("data-dragging") === "true"
-      sawPreview ||= await probe.target.getAttribute("data-rail-preview") !== null
-      if (sawPreview && previewScreenshotPath && !capturedPreview) {
+      sawFeedback ||= await probe.target.evaluate((element) => !!element.closest("[data-rail-preview]"))
+      if (sawFeedback && previewScreenshotPath && !capturedPreview) {
         capturedPreview = true
         await page.screenshot({ path: previewScreenshotPath })
       }
@@ -145,11 +128,7 @@ async function dispatchTouchGesture(
   return {
     events: await page.evaluate(() => Reflect.get(window, "__railTouchEvents") as string[]),
     sawDragging,
-    sawPreview,
-    sawFloatingPreview,
-    sawFloatingPreviewFollowTouch,
-    floatingPreviewKind,
-    floatingPreviewSize,
+    sawFeedback,
   }
 }
 
@@ -230,13 +209,7 @@ async function touchDrag(
     targetRatio,
     previewScreenshotPath,
   )
-  const expectedPreviewKind = sourceTestId?.startsWith(tid.serverRailFolder(""))
-    ? "folder"
-    : "server"
-  expect(result.sawFloatingPreview).toBe(true)
-  expect(result.sawFloatingPreviewFollowTouch).toBe(true)
-  expect(result.floatingPreviewKind).toBe(expectedPreviewKind)
-  expect(result.floatingPreviewSize).toEqual({ width: 40, height: 40 })
+  expect(result.sawDragging).toBe(true)
   return { ...result, sourceTestId }
 }
 
@@ -244,29 +217,21 @@ async function startStationaryTouch(page: Page, origin: Locator) {
   const box = await origin.boundingBox()
   if (!box) throw new Error("touch target is outside the viewport")
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-  const dispatch = (type: "touchstart" | "touchend") => origin.evaluate((element, args) => {
-    const touch = new Touch({
-      identifier: 2,
-      target: element,
-      clientX: args.point.x,
-      clientY: args.point.y,
-      screenX: args.point.x,
-      screenY: args.point.y,
+  const session = await page.context().newCDPSession(page)
+  try {
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ ...point, radiusX: 1, radiusY: 1, force: 1, id: 2 }],
     })
-    const allowed = element.dispatchEvent(new TouchEvent(args.type, {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      touches: args.type === "touchend" ? [] : [touch],
-      targetTouches: args.type === "touchend" ? [] : [touch],
-      changedTouches: [touch],
-    }))
-    // Synthetic TouchEvents do not synthesize the browser's trailing click.
-    // Mirror that default only when the production handler did not cancel it.
-    if (args.type === "touchend" && allowed) (element as HTMLElement).click()
-  }, { type, point })
-  await dispatch("touchstart")
-  return () => dispatch("touchend")
+  } catch (error) {
+    await session.detach()
+    throw error
+  }
+  return async () => {
+    try {
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+    } finally { await session.detach() }
+  }
 }
 
 async function expectTouchPatch(
@@ -287,6 +252,7 @@ async function expectTouchPatch(
   expect((await response).status()).toBe(200)
   expect((await reconcile).every((candidate) => candidate.status() === 200)).toBe(true)
   if (sourceTestId) await expect(page.getByTestId(sourceTestId)).toBeFocused()
+  return (await response).json() as Promise<{ createdFolderIds: Record<string, string> }>
 }
 
 async function dragUntilNativeDrop(
@@ -426,7 +392,7 @@ test("first native Server tap is one root push with a stable handle and zero rai
   await expectFirstNativeServerTap(warm.page, serverId, warmPatches)
 })
 
-test("server rail keeps scroll separate from native, touch, and keyboard drag", async ({ caseActors, caseResources }, testInfo) => {
+test("server rail keeps scroll separate from React DnD native and touch drag", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(150_000)
 
   const actors = await caseActors(["alice"])
@@ -476,8 +442,8 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
       document.addEventListener(type, () => events.push(type), { capture: true })
     }
   })
-  const sourceDraggable = source.locator("xpath=ancestor::*[@draggable='true'][1]")
-  const targetDraggable = target.locator("xpath=ancestor::*[@draggable='true'][1]")
+  const sourceDraggable = source.locator("xpath=ancestor-or-self::*[@draggable='true'][1]")
+  const targetDraggable = target.locator("xpath=ancestor-or-self::*[@draggable='true'][1]")
   await expect(sourceDraggable).toHaveCount(1)
   await expect(targetDraggable).toHaveCount(1)
   await dragUntilNativeDrop(page, sourceDraggable, targetDraggable, () => railRequests.length > 0)
@@ -487,7 +453,7 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await expect.poll(() => railRequests.length, { timeout: 10_000 }).toBe(1)
   expect(railRequests).toHaveLength(1)
   expect(railRequests[0]?.body).toMatchObject({
-    commands: [{ kind: "reorder-servers" }],
+    commands: [{ kind: "reorder-top-level" }],
   })
   await expect.poll(() => railRequests[0]?.status).toBe(200)
 
@@ -566,7 +532,8 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   expect(firstTouch.events).toContain("touchend")
   expect(firstTouch.events).not.toContain("contextmenu")
   expect(firstTouch.sawDragging).toBe(true)
-  expect(firstTouch.sawPreview).toBe(true)
+  expect(firstTouch.sawFeedback).toBe(true)
+  await expect(page.locator("[data-rail-preview]")).toHaveCount(0)
   const createResponse = await createResponsePromise
   expect(createResponse.status()).toBe(200)
   expect((await createReconcilePromise).every((response) => response.status() === 200)).toBe(true)
@@ -575,17 +542,20 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   }
   expect(railRequests).toHaveLength(2)
   expect(railRequests[1]?.body).toMatchObject({
-    commands: [{ kind: "create-folder", name: "Group", serverIds: [tail, swipeServer] }],
+    commands: [
+      { kind: "create-folder", name: "Group", serverIds: [swipeServer, tail] },
+      { kind: "reorder-top-level" },
+    ],
   })
-  const folderSelector = `[data-testid^="${tid.serverRailFolder("")}"]`
-  const firstFolder = page.locator(folderSelector).first()
+  const createdFirst = await createResponse.json() as { createdFolderIds: Record<string, string> }
+  const firstFolder = page.getByTestId(tid.serverRailFolder(Object.values(createdFirst.createdFolderIds)[0]!))
   await expect(firstFolder).toBeVisible()
 
   await expectTouchPatch(page, () => touchDrag(
     page,
     page.getByTestId(tid.serverIcon(tail)),
     page.getByTestId(tid.serverIcon(swipeServer)),
-    0.85,
+    0.15,
   ))
   expect(railRequests[2]?.body).toMatchObject({
     commands: [{ kind: "replace-folder-items" }],
@@ -600,8 +570,8 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   ))
   expect(railRequests[3]?.body).toMatchObject({
     commands: [
-      { kind: "reorder-servers" },
       { kind: "replace-folder-items" },
+      { kind: "reorder-top-level" },
     ],
   })
 
@@ -611,19 +581,19 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
     firstFolder,
   ))
   expect(railRequests[4]?.body).toMatchObject({
-    commands: [{ kind: "replace-folder-items" }],
+    commands: [{ kind: "replace-folder-items" }, { kind: "reorder-top-level" }],
   })
 
   const secondGroupSource = overflowServers.at(-4)!
-  await expectTouchPatch(page, () => touchDrag(
+  const createdSecond = await expectTouchPatch(page, () => touchDrag(
     page,
     page.getByTestId(tid.serverIcon(secondGroupSource)),
     page.getByTestId(tid.serverIcon(nearbyTopLevel)),
   ))
   expect(railRequests[5]?.body).toMatchObject({
-    commands: [{ kind: "create-folder" }],
+    commands: [{ kind: "create-folder" }, { kind: "reorder-top-level" }],
   })
-  const secondFolder = page.locator(folderSelector).nth(1)
+  const secondFolder = page.getByTestId(tid.serverRailFolder(Object.values(createdSecond.createdFolderIds)[0]!))
   await expect(secondFolder).toBeVisible()
 
   await expectTouchPatch(page, () => touchDrag(
@@ -638,9 +608,19 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
     ],
   })
 
-  await expectTouchPatch(page, () => touchDrag(page, secondFolder, firstFolder, 0.15))
+  const readFolderIds = async () => {
+    const response = await page.request.get("/api/community/users/me/server-folders")
+    expect(response.status()).toBe(200)
+    const body = await response.json() as { topOrder: Array<{ kind: "server" | "folder"; id: string }> }
+    return body.topOrder.filter((entry) => entry.kind === "folder").map((entry) => entry.id)
+  }
+  const firstFolderId = Object.values(createdFirst.createdFolderIds)[0]!
+  const secondFolderId = Object.values(createdSecond.createdFolderIds)[0]!
+  expect(await readFolderIds()).toEqual([secondFolderId, firstFolderId])
+  await expectTouchPatch(page, () => touchDrag(page, secondFolder, firstFolder, 0.85))
+  expect(await readFolderIds()).toEqual([firstFolderId, secondFolderId])
   expect(railRequests[7]?.body).toMatchObject({
-    commands: [{ kind: "reorder-folders" }],
+    commands: [{ kind: "reorder-top-level" }],
   })
   await expect(page.getByTestId(tid.serverIcon(tail))).toBeVisible()
   await expect(page.getByTestId(tid.serverIcon(first))).toBeVisible()
@@ -658,14 +638,15 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
     })
   })
   const endLongPress = await startStationaryTouch(page, firstFolder)
-  await page.waitForTimeout(700)
-  await expect(firstFolder).not.toHaveAttribute("data-dragging", "true")
   const stationaryFolderPreview = page.locator('[data-rail-floating-preview="folder"]')
-  await expect(stationaryFolderPreview).toHaveCount(0)
-  await expect(page.getByRole("menuitem", { name: "Ungroup" })).toHaveCount(0)
-  await expect(page.getByRole("menuitem", { name: "Move…" })).toHaveCount(0)
-  await expect(page.getByRole("menuitem", { name: "Create group" })).toHaveCount(0)
-  await endLongPress()
+  try {
+    await page.waitForTimeout(700)
+    await expect(firstFolder).not.toHaveAttribute("data-dragging", "true")
+    await expect(stationaryFolderPreview).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Ungroup" })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Move…" })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Create group" })).toHaveCount(0)
+  } finally { await endLongPress() }
   await expect(stationaryFolderPreview).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__railStationaryClicks")))
     .toBe(1)
@@ -689,17 +670,15 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await expect(desktopComposer).toBeVisible()
   await waitForElementMotion(desktopComposer)
   await expect(firstFolder).toBeFocused()
-  const darkKeyboardSource = page.getByTestId(tid.serverIcon(first))
-  await darkKeyboardSource.focus()
+  const darkSource = page.getByTestId(tid.serverIcon(first))
+  await darkSource.focus()
+  const beforeKeyboard = railRequests.length
   await page.keyboard.press("Space")
-  await expect(darkKeyboardSource).toBeFocused()
-  await expect(darkKeyboardSource).toHaveAttribute("data-dragging", "true")
-  await page.keyboard.press("ArrowDown")
-  const keyboardInsert = page.locator(`[data-testid^="${tid.serverRailInsert("")}"]`).first()
-  await expect(keyboardInsert).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath("server-rail-keyboard-preview-1280-dark.png") })
+  await expect(darkSource).not.toHaveAttribute("data-dragging", "true")
+  await expect(darkSource).not.toHaveAttribute("aria-keyshortcuts")
   await page.keyboard.press("Escape")
-  await expect(keyboardInsert).toHaveCount(0)
+  expect(railRequests).toHaveLength(beforeKeyboard)
+  await page.screenshot({ path: testInfo.outputPath("server-rail-native-1280-dark.png") })
   await page.emulateMedia({ colorScheme: "light" })
   await expect(page.locator("html")).not.toHaveClass(/dark/)
   let releaseCommit!: () => void
@@ -717,27 +696,26 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
     response.request().method() === "PATCH" && new URL(response.url()).pathname === RAIL_ENDPOINT,
   )
   try {
-    const keyboardSource = page.getByTestId(tid.serverIcon(first))
-    await keyboardSource.focus()
-    await page.keyboard.press("Space")
-    await page.keyboard.press("ArrowDown")
-    await expect(page.locator(`[data-testid^="${tid.serverRailInsert("")}"]`).first()).toBeVisible()
-    await page.keyboard.press("Enter")
-    await expect.poll(() => railRequests.length).toBe(9)
+    const beforePending = railRequests.length
+    expect(await readFolderIds()).toEqual([firstFolderId, secondFolderId])
+    await secondFolder.dragTo(firstFolder, { targetPosition: { x: 22, y: 4 } })
+    await expect.poll(() => railRequests.length).toBe(beforePending + 1)
 
     const existingFolder = page.locator(`[data-testid^="${tid.serverRailFolder("")}"]`).first()
     await existingFolder.click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Move…" })).toHaveCount(0)
     await expect(page.getByRole("menuitem", { name: "Create group" })).toHaveCount(0)
-    await page.getByRole("menuitem", { name: "Ungroup" }).click()
+    await expect(page.getByRole("menuitem", { name: "Ungroup" })).toHaveCount(0)
+    await firstFolder.dragTo(secondFolder, { targetPosition: { x: 22, y: 4 } })
     await page.waitForTimeout(250)
-    expect(railRequests).toHaveLength(9)
+    expect(railRequests).toHaveLength(beforePending + 1)
   } finally {
     releaseCommit()
   }
   expect((await pendingResponse).status()).toBe(200)
+  expect(await readFolderIds()).toEqual([secondFolderId, firstFolderId])
   await page.unroute(`**${RAIL_ENDPOINT}`)
-  await page.screenshot({ path: testInfo.outputPath("server-rail-keyboard-1280.png") })
+  await page.screenshot({ path: testInfo.outputPath("server-rail-native-1280.png") })
 })
 
 test("short server rail keeps Add adjacent and desktop geometry stable", async ({ caseActors }) => {
@@ -794,10 +772,11 @@ test("short server rail keeps Add adjacent and desktop geometry stable", async (
   })
 
   const endLongPress = await startStationaryTouch(page, onlyServer)
-  await page.waitForTimeout(700)
-  await expect(onlyServer).not.toHaveAttribute("data-dragging", "true")
-  await expect(page.locator("[data-rail-floating-preview]")).toHaveCount(0)
-  await endLongPress()
+  try {
+    await page.waitForTimeout(700)
+    await expect(onlyServer).not.toHaveAttribute("data-dragging", "true")
+    await expect(page.locator("[data-rail-floating-preview]")).toHaveCount(0)
+  } finally { await endLongPress() }
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__railOnlyServerClicks")))
     .toBe(1)
   expect(new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)

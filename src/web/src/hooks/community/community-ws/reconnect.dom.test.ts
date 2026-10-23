@@ -512,7 +512,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
     await capturedOnReconnect!({ reconnectDurationMs: 250 })
 
-    expect(directoryFetches).toBe(1)
+    expect(directoryFetches).toBe(2)
     expect(capturedQueryClient.getQueryState(communityKeys.channelRefDirectory())?.isInvalidated).toBe(false)
     const calls = spy.mock.calls.map(([filters]) => filters)
     for (const serverId of ["srv_a", "srv_b"]) {
@@ -543,7 +543,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(capturedQueryClient.getQueryData(scopeOnlyMetadata)).toEqual({ id: "scope-only" })
     expect(calls.some(({ queryKey }) => queryKey?.includes("__none__"))).toBe(false)
     expect(calls.some(({ queryKey }) => queryKey?.includes("__pending__"))).toBe(false)
-    expect(calls.some(({ queryKey }) => queryKey?.includes("channel-ref-directory"))).toBe(false)
+    expect(calls.some(({ queryKey }) => queryKey?.includes("channel-ref-directory"))).toBe(true)
     expect(calls.some(({ queryKey }) => queryKey?.includes("srv_ghost"))).toBe(false)
     for (const queryKey of invalidDerivedTuples) {
       expect(capturedQueryClient.getQueryData(queryKey)).toEqual({ sentinel: true })
@@ -569,8 +569,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900)
 
     expect(summary).toMatchObject({
-      policyCount: 15,
-      successCount: 14,
+      policyCount: 16,
+      successCount: 15,
       failureCount: 1,
       reconnectDurationMs: 900,
     })
@@ -629,7 +629,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
     vi.spyOn(getCapturedRuntime().ws.actions, "setPresence").mockImplementation(originalSetPresence)
 
-    expect(summary).toMatchObject({ policyCount: 15, successCount: 14, failureCount: 1 })
+    expect(summary).toMatchObject({ policyCount: 16, successCount: 15, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
       policy: "presence-overlay",
       reason: "async-rejection",
@@ -650,7 +650,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(keys).not.toContain(JSON.stringify(communityKeys.dms()))
     expect(keys).toContain(JSON.stringify(communityKeys.friends()))
     expect(keys).toContain(JSON.stringify(communityKeys.servers()))
-    expect(summary).toMatchObject({ policyCount: 14, successCount: 14, failureCount: 0 })
+    expect(summary).toMatchObject({ policyCount: 15, successCount: 15, failureCount: 0 })
   })
 
   it("actively refetches cached Friends and canonical attention after a socket gap", async () => {

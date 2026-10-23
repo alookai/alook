@@ -1,5 +1,7 @@
 "use client"
 
+import { readCommunityServerRailServers } from "@/lib/community-db/server-rail"
+
 import { useCallback, useMemo, useLayoutEffect } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
@@ -149,8 +151,7 @@ export function useShellRailController({
           if (currentNavigation && communityServerId(currentNavigation.navigationPending
             ? currentNavigation.pendingHref ?? ""
             : currentNavigation.publishedHref) === id) {
-            const allowed = new Set([...communityDb!.collections.serverMemberships.values()].filter((row) => row.viewer && row.userId === communityDb!.accountId).map((row) => row.serverId))
-            const remaining = [...communityDb!.collections.servers.values()].filter((row) => allowed.has(row.id)).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+            const remaining = readCommunityServerRailServers(communityDb!)
             currentNavigation.replace(pickPostEjectDestination(remaining, id))
           }
         },
@@ -197,6 +198,8 @@ export function useShellRailController({
       homeHref,
       serverHrefs,
       folders,
+      topOrder: foldersQuery.topOrder,
+      navigationKey: navigation.navigationPending ? navigation.pendingHref ?? navigation.publishedHref : navigation.publishedHref,
       activeServerId: projectedActiveServerId,
       serversLoading: serversQuery.isPending && servers.length === 0,
       view: projectedView,

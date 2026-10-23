@@ -108,6 +108,9 @@ describe("notification setting read-state isolation contract", () => {
         relation TEXT NOT NULL,
         added_at TEXT NOT NULL
       );
+      CREATE TABLE community_server_rail (user_id TEXT PRIMARY KEY, entries TEXT NOT NULL);
+      CREATE TABLE community_server_folder (id TEXT PRIMARY KEY, user_id TEXT, name TEXT);
+      CREATE TABLE community_server_folder_item (folder_id TEXT, server_id TEXT, position INTEGER);
       CREATE TABLE community_server_member (
         id TEXT PRIMARY KEY,
         server_id TEXT NOT NULL,

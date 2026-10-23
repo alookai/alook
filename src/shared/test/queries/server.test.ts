@@ -265,13 +265,12 @@ describe("createServer", () => {
       addedBy: ownerId,
     });
 
-    // 7) communityServerMember — exactly one owner row, railOrder=0
+    // 7) communityServerMember — exactly one owner row, no rail order
     expect(insertCalls[6].table).toBe(communityServerMember);
     expect(insertCalls[6].values).toMatchObject({
       serverId,
       userId: ownerId,
       role: "owner",
-      railOrder: 0,
     });
     // Member insert uses .returning({ id, userId, joinedAt })
     expect(insertCalls[6].returningArg).toBeDefined();
@@ -385,6 +384,7 @@ function createListServersMock(finalRows: unknown[]) {
   };
 
   const db: any = {
+    batch: async () => [finalRows.map((row: any) => ({ serverId: row.id })), [], [], []],
     select(fields: unknown) {
       selectChains.push({
         fields,
@@ -437,7 +437,7 @@ describe("listUserServers — mention aggregate for the rail badge", () => {
     expect(outer.leftJoins[0].table).toMatchObject({ __subquery: "mention_counts" });
   });
 
-  it("orders rows by railOrder — rail sort must not regress", async () => {
+  it("orders newly joined rows deterministically before canonical projection", async () => {
     const { db, selectChains } = createListServersMock([]);
     await serverQueries.listUserServers(db, "u_1");
     const outer = selectChains[1];
@@ -448,9 +448,9 @@ describe("listUserServers — mention aggregate for the rail badge", () => {
     // Simulates: viewer has 2 unread mentions in srv_A, 1 in srv_B, none in
     // srv_C (LEFT JOIN + COALESCE → 0).
     const rows = [
-      { id: "srv_A", name: "A", railOrder: 0, mentions: 2 },
-      { id: "srv_B", name: "B", railOrder: 1, mentions: 1 },
-      { id: "srv_C", name: "C", railOrder: 2, mentions: 0 },
+      { id: "srv_A", name: "A", mentions: 2 },
+      { id: "srv_B", name: "B", mentions: 1 },
+      { id: "srv_C", name: "C", mentions: 0 },
     ];
     const { db } = createListServersMock(rows);
     const result = await serverQueries.listUserServers(db, "u_1");
@@ -468,8 +468,8 @@ describe("listUserServers — mention aggregate for the rail badge", () => {
     // With zero unread mentions, the subquery yields no rows and every
     // LEFT JOIN produces NULL → COALESCE → 0.
     const rows = [
-      { id: "srv_A", name: "A", railOrder: 0, mentions: 0 },
-      { id: "srv_B", name: "B", railOrder: 1, mentions: 0 },
+      { id: "srv_A", name: "A", mentions: 0 },
+      { id: "srv_B", name: "B", mentions: 0 },
     ];
     const { db } = createListServersMock(rows);
     const result = await serverQueries.listUserServers(db, "u_1");

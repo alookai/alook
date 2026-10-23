@@ -8,12 +8,11 @@ import { projectServerRailCommit, type ServerRailCommand, type ServerRailCommitR
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
-import { mutateCommunityServerRail, readCommunityServerRail } from "@/lib/community-db/server-rail"
+import { serverRailMutationKey, mutateCommunityServerRail, readCommunityServerRail } from "@/lib/community-db/server-rail"
 import { publishCommunityServerRailCommit } from "@/lib/community-db/sync"
-import type { RailState } from "@/lib/community/server-rail-model"
 
-export type ServerRailCommitArgs = { before: RailState; after: RailState; commands: ServerRailCommand[]; assertUI?: () => void }
-const mutationKey = ["community", "server-rail", "change"] as const
+export type ServerRailCommitArgs = { commands: ServerRailCommand[]; assertUI?: () => void }
+const mutationKey = serverRailMutationKey
 export function useServerRailCommit() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   const pending = useIsMutating({ mutationKey, exact: true }) > 0
@@ -66,6 +65,7 @@ export function useServerRailCommit() {
       if ((error instanceof Error && error.name === "AbortError") || !origin.registry?.runtime.lifecycle.get().active) return
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true, predicate: (query) => args.resources.includes(query) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.folders(), exact: true, predicate: (query) => args.resources.includes(query) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channelRefDirectory(), exact: true, predicate: (query) => args.resources.includes(query) })
     },
   })
   return { ...mutation, isPending: pending, isCommandPending: () => queryClient.isMutating({ mutationKey, exact: true }) > 0 }

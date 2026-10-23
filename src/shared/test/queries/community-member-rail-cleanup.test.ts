@@ -13,6 +13,7 @@ function createDatabase() {
   sqlite.exec(`
     PRAGMA foreign_keys = ON;
     CREATE TABLE community_server (id TEXT PRIMARY KEY);
+    CREATE TABLE community_server_rail (user_id TEXT PRIMARY KEY, entries TEXT NOT NULL);
     CREATE TABLE community_server_member (
       id TEXT PRIMARY KEY,
       server_id TEXT NOT NULL REFERENCES community_server(id) ON DELETE CASCADE,
@@ -126,7 +127,7 @@ describe("member removal server rail cleanup", () => {
 
     db.batch = async (statements: any[]) => statements.map((statement) => statement.all());
     const snapshot = await readServerRailSnapshot(db, "target");
-    expect(snapshot).toEqual({ serverOrder: ["keep"], folderOrder: [], folders: {} });
+    expect(snapshot).toEqual({ serverIds: ["keep"], folderIds: [], folders: {}, topOrder: [{ kind: "server", id: "keep" }] });
     const next = projectServerRailCommit(snapshot, {
       commands: [{
         kind: "create-folder",

@@ -4,6 +4,8 @@ import { SortableServer } from "./sortable-server"
 import { tid } from "@/lib/community/testids"
 import { act, fireEvent, render, setupUser } from "@/test/react-dom-harness"
 
+const feedback = vi.hoisted(() => ({ tooltip: vi.fn() }))
+
 vi.mock("@/components/ui/context-menu", () => ({
   ContextMenu: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
   ContextMenuTrigger: ({ render }: { render: ReactNode }) =>
@@ -15,11 +17,10 @@ vi.mock("@/components/ui/context-menu", () => ({
   ContextMenuSeparator: () => null,
 }))
 vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
+  Tooltip: ({ children, ...props }: { children: ReactNode }) => { feedback.tooltip(props); return createElement(Fragment, null, children) },
   TooltipTrigger: ({ children }: { children: ReactNode }) => children,
   TooltipContent: () => null,
 }))
-vi.mock("./rail-indicator", () => ({ RailIndicator: () => null }))
 vi.mock("@/components/ui/confirm-dialog", () => ({ ConfirmDialog: () => null }))
 vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: () => null }))
 vi.mock("@/components/avatar", () => ({ SeededBackdrop: () => null }))
@@ -53,11 +54,43 @@ function renderServer(
 describe("SortableServer stable menu trigger", () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it("updates href on the same registered anchor with the committed activation dispatcher", async () => {
-    const registerItem = vi.fn(() => vi.fn())
+  it("previews the final target/source folder thumbnails and restores the same target anchor", () => {
+    const props = { server: { ...server, unread: true, mentions: 3 }, active: true, onClick: vi.fn() }
+    const source = { ...server, id: "b", name: "Bee", initial: "B", unread: false }
+    const result = render(createElement(SortableServer, { ...props, preview: "combine", combineWith: source }))
+    const anchor = result.getByTestId(tid.serverIcon("a"))
+    const preview = result.container.querySelector('[data-slot="community-server-rail-combine-preview"]')!
+    expect([...preview.querySelectorAll('[role="img"]')].map((node) => node.getAttribute("aria-label"))).toEqual(["A", "Bee"])
+    expect(preview).toHaveClass("size-12", "ring-primary")
+    expect(result.container.querySelector(`[data-testid="${tid.railUnreadBadge("a")}"]`)).toBeNull()
+    result.rerender(createElement(SortableServer, props))
+    expect(result.getByTestId(tid.serverIcon("a"))).toBe(anchor)
+    expect(result.container.querySelector('[data-slot="community-server-rail-combine-preview"]')).toBeNull()
+    expect(result.container.querySelectorAll('[role="img"]')).toHaveLength(1)
+    expect(result.getByTestId(tid.railUnreadBadge("a"))).toBeInTheDocument()
+  })
+
+  it("hides the dragged base tooltip and bar, and changes target feedback on the same anchor", () => {
+    const props = { server: { ...server, unread: true }, active: true, onClick: vi.fn() }
+    const result = render(createElement(SortableServer, { ...props, dragging: true, preview: "combine" }))
+    const anchor = result.getByTestId(tid.serverIcon("a"))
+    expect(feedback.tooltip).toHaveBeenLastCalledWith(expect.objectContaining({ open: false }))
+    expect(result.getByTestId(tid.serverRailIndicator("a"))).toHaveClass("h-0", "opacity-0")
+    expect(result.container.querySelector('[data-rail-preview="combine"] .ring-primary')).not.toBeNull()
+    result.rerender(createElement(SortableServer, { ...props, dragging: false, preview: "reorder-after" }))
+    expect(result.getByTestId(tid.serverIcon("a"))).toBe(anchor)
+    expect(result.getByTestId(tid.serverRailIndicator("a"))).toHaveClass("h-8")
+    expect(result.container.querySelector('[data-slot="community-server-rail-insert"]')).toHaveClass("-bottom-1")
+    result.rerender(createElement(SortableServer, props))
+    expect(result.container.querySelector('[data-rail-preview]')).toBeNull()
+    expect(result.container.querySelector('[data-slot="community-server-rail-insert"]')).toBeNull()
+    expect(feedback.tooltip).toHaveBeenLastCalledWith(expect.objectContaining({ open: false }))
+  })
+
+  it("updates href on the same anchor with the committed activation dispatcher", async () => {
     const current = { activate: vi.fn() }
     const dispatch = () => current.activate()
-    const props = { server, onClick: dispatch, registerItem, href: "/c/channels/a/first" }
+    const props = { server, onClick: dispatch, href: "/c/channels/a/first" }
     const result = render(createElement(SortableServer, props))
     const anchor = result.getByTestId(tid.serverIcon("a"))
     const originalActivate = current.activate
@@ -65,8 +98,6 @@ describe("SortableServer stable menu trigger", () => {
     result.rerender(createElement(SortableServer, { ...props, href: "/c/channels/a/latest" }))
     expect(result.getByTestId(tid.serverIcon("a"))).toBe(anchor)
     expect(anchor).toHaveAttribute("href", "/c/channels/a/latest")
-    expect(registerItem).toHaveBeenCalledTimes(1)
-    expect(registerItem).toHaveBeenCalledWith({ kind: "server", id: "a" }, expect.any(HTMLElement), anchor)
     await setupUser().click(anchor)
     expect(originalActivate).not.toHaveBeenCalled()
     expect(current.activate).toHaveBeenCalledTimes(1)
@@ -93,23 +124,19 @@ describe("SortableServer stable menu trigger", () => {
     expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
   })
 
-  it("keeps the same button and drag registration when pointer hover activates the menu", () => {
+  it("keeps the same button when pointer hover activates the menu", () => {
     const focus = vi.spyOn(HTMLElement.prototype, "focus")
-    const dispose = vi.fn()
-    const registerItem = vi.fn(() => dispose)
     const onClick = vi.fn()
-    const result = renderServer(false, 0, false, { registerItem, onClick })
+    const result = renderServer(false, 0, false, { onClick })
     const originalButton = result.button()
 
     fireEvent.pointerEnter(result.activationRoot())
 
     expect(result.button()).toBe(originalButton)
-    expect(registerItem).toHaveBeenCalledTimes(1)
     expect(onClick).not.toHaveBeenCalled()
     expect(result.container.querySelectorAll("context-menu-trigger")).toHaveLength(1)
     expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
     expect(focus).not.toHaveBeenCalled()
-    expect(dispose).not.toHaveBeenCalled()
   })
 
   it("keeps the same button for first touch-like pointer activation", () => {
@@ -123,11 +150,11 @@ describe("SortableServer stable menu trigger", () => {
     expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
   })
 
-  it("exposes keyboard drag help without positional menu shortcuts", () => {
+  it("keeps drag help without advertising keyboard sorting", () => {
     const result = renderServer()
     const button = result.button()
     expect(button).toHaveAttribute("aria-describedby", "rail-help")
-    expect(button).toHaveAttribute("aria-keyshortcuts", expect.stringContaining("Space"))
+    expect(button).not.toHaveAttribute("aria-keyshortcuts")
     fireEvent.keyDown(button, { key: "F10", shiftKey: true })
     expect(result.container.querySelectorAll("context-menu-content")).toHaveLength(1)
     const menuText = result.container.textContent

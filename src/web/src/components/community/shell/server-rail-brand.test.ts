@@ -22,14 +22,14 @@ describe("ServerRail Home brand mark", () => {
     const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
 
     const scrollViewport =
-      'className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"'
+      'className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip pt-2 pb-1 thin-scrollbar scrollbar-none"'
     const addRegion =
-      'className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"'
+      'className="flex w-full shrink-0 justify-center pt-2 pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom)+0.5rem)] sm:pb-[calc(var(--community-rail-bottom-inset)+0.5rem)]"'
 
     expect(source).toContain("data-testid={tid.serverRailScroll}")
     expect(source).toContain(scrollViewport)
     expect(source).toContain(addRegion)
-    expect(source).toContain('"--community-rail-bottom-inset": `${bottomInset ?? 8}px`')
+    expect(source).toContain('"--community-rail-bottom-inset": `${bottomInset ?? 0}px`')
     expect(source.indexOf(scrollViewport)).toBeLessThan(source.indexOf(addRegion))
     expect(scrollViewport).toContain("shrink")
     expect(scrollViewport).not.toContain("flex-1")

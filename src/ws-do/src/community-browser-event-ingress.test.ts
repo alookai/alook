@@ -69,9 +69,9 @@ function worstEscapingTarget(index: number) {
 }
 
 describe("community browser event ingress", () => {
-  it("normalizes all 47 current fixtures without a contract version field", () => {
+  it("normalizes all 48 current fixtures without a contract version field", () => {
     const fixtures = Object.values(communityWsEventFixtures)
-    expect(fixtures).toHaveLength(47)
+    expect(fixtures).toHaveLength(48)
     for (const fixture of fixtures) {
       const normalized = normalizeCommunityBrowserEvent(fixture)
       expect(normalized).toMatchObject({ ok: true, event: fixture, envelope: fixture })
@@ -83,8 +83,9 @@ describe("community browser event ingress", () => {
 
   it("rejects every required-field corruption and representative invalid families", () => {
     for (const [type, fixture] of Object.entries(communityWsEventFixtures)) {
+      const path = requiredFixturePaths[type as CommunityWsEvent["type"]]
       expect(normalizeCommunityBrowserEvent(
-        corruptRequiredField(fixture, requiredFixturePaths[type as CommunityWsEvent["type"]]),
+        path.length ? corruptRequiredField(fixture, path) : { ...fixture, entries: [] },
       )).toMatchObject({ ok: false, reason: "invalid-payload" })
     }
     expect(normalizeCommunityBrowserEvent({ type: "task.updated" })).toMatchObject({ reason: "wrong-family" })

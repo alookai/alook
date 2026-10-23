@@ -11,23 +11,22 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
   pending: false,
   announce: vi.fn(),
-  capturePddOptions: vi.fn(),
+  captureDndOptions: vi.fn(),
   querySelector: vi.fn(),
   sortableProps: vi.fn(),
   railFolderProps: vi.fn(),
 }))
 
-vi.mock("@atlaskit/pragmatic-drag-and-drop-live-region", () => ({
-  announce: mocks.announce,
-  cleanup: vi.fn(),
-}))
 vi.mock("@/hooks/community/mutations", () => ({
   useServerRailCommit: () => ({ mutate: mocks.mutate, isPending: mocks.pending, isCommandPending: () => mocks.pending }),
 }))
-vi.mock("./use-server-rail-pdd", () => ({
-  useServerRailPdd: (options: unknown) => {
-    mocks.capturePddOptions(options)
-    return { registerItem: vi.fn() }
+vi.mock("./use-server-rail-dnd", () => ({
+  RailEndDropTarget: () => null,
+  RailFolderGapDropTarget: () => null,
+  useServerRailDrag: () => ({ entity: null, offset: null }),
+  useServerRailDnd: (options: unknown) => {
+    mocks.captureDndOptions(options)
+    return { cancel: () => {} }
   },
 }))
 vi.mock("./sortable-server", () => ({
@@ -127,7 +126,7 @@ function latestMutation() {
 }
 
 function drop(instruction: RailInstruction) {
-  const options = mocks.capturePddOptions.mock.calls.at(-1)![0] as {
+  const options = mocks.captureDndOptions.mock.calls.at(-1)![0] as {
     onDrop: (instruction: RailInstruction) => void
   }
   options.onDrop(instruction)
@@ -413,39 +412,17 @@ describe("ServerRail one-in-flight structural guard", () => {
     expect((latestSortableProps("b").server as { unread: boolean }).unread).toBe(true)
   })
 
-  it.each(["drop-first", "ungroup-first"] as const)(
-    "allows one PATCH when drag-drop and ungroup callbacks race: %s",
-    async (order) => {
-      renderRail()
-      const ungroup = latestFolderProps().onUngroup as () => void
-      const instruction = {
-        operation: "reorder-after",
-        source: { kind: "server", id: "a" },
-        target: { kind: "server", id: "c" },
-      } satisfies RailInstruction
-
-      await act(async () => {
-        if (order === "drop-first") {
-          drop(instruction)
-          ungroup()
-        } else {
-          ungroup()
-          drop(instruction)
-        }
-      })
-
-      expect(mocks.mutate).toHaveBeenCalledTimes(1)
-      expect(mocks.announce).toHaveBeenCalledWith("A server rail move is already being saved")
-
-      const options = mocks.mutate.mock.calls[0]![1]
-      await act(async () => { options.onSettled() })
-      await act(async () => {
-        if (order === "drop-first") ungroup()
-        else drop(instruction)
-      })
-      expect(mocks.mutate).toHaveBeenCalledTimes(2)
-    },
-  )
+  it.each([false, true])("allows one PATCH when two drop callbacks race, reverse=%s", async (reverse) => {
+    const view = renderRail()
+    const first: RailInstruction = { operation: "reorder-after", source: { kind: "server", id: "a" }, target: { kind: "server", id: "c" } }
+    const second: RailInstruction = { operation: "reorder-before", source: { kind: "server", id: "c" }, target: { kind: "server", id: "a" } }
+    await act(async () => { drop(reverse ? second : first); drop(reverse ? first : second) })
+    expect(mocks.mutate).toHaveBeenCalledTimes(1)
+    expect(view.container.querySelector('[role="status"]')?.textContent).toBe("A server rail move is already being saved")
+    await act(async () => { mocks.mutate.mock.calls[0]![1].onSettled() })
+    await act(async () => drop(reverse ? first : second))
+    expect(mocks.mutate).toHaveBeenCalledTimes(2)
+  })
 
   it("keeps immediate rejected-operation focus on one animation frame", async () => {
     const focus = vi.fn()
@@ -592,32 +569,25 @@ describe("ServerRail one-in-flight structural guard", () => {
     expect(latestFolderProps("created").open).toBe(true)
   })
 
-  it.each(["success", "error"] as const)(
-    "returns Ungroup focus after settle to a surviving entity: %s",
-    async (outcome) => {
-      const focus = vi.fn()
-      mocks.querySelector.mockReturnValue({ focus })
-      renderRail()
-      const ungroup = latestFolderProps().onUngroup as () => void
-      await act(async () => ungroup())
-      const { callbacks } = latestMutation()
+  it("has no Ungroup callback and keeps the same folder backdrop across toggle", async () => {
+    const view = renderRail()
+    expect(latestFolderProps().onUngroup).toBeUndefined()
+    const background = view.container.querySelector('[data-slot="community-rail-folder-backdrop"]')
+    await act(async () => (latestFolderProps().onToggle as () => void)())
+    expect(view.container.querySelector('[data-slot="community-rail-folder-backdrop"]')).toBe(background)
+  })
 
-      await act(async () => {
-        if (outcome === "success") callbacks.onSuccess({ createdFolderIds: {} })
-        else callbacks.onError()
-      })
-      expect(focus).not.toHaveBeenCalled()
+  it("keeps folder expansion unchanged while hovering and cancelling without a mutation", async () => {
+    renderRail()
+    const options = mocks.captureDndOptions.mock.calls.at(-1)![0] as { onDragStart: (source: { kind: "server"; id: string }) => void; onPreview: (instruction: RailInstruction) => void; onCancel: () => void }
+    await act(async () => options.onDragStart({ kind: "server", id: "a" }))
+    await act(async () => options.onPreview({ source: { kind: "server", id: "a" }, target: { kind: "folder", id: "one" }, operation: "combine" }))
+    expect(latestFolderProps().open).toBe(false)
+    await act(async () => options.onCancel())
+    expect(latestFolderProps().open).toBe(false)
+    expect(mocks.mutate).not.toHaveBeenCalled()
+  })
 
-      await act(async () => callbacks.onSettled(
-        undefined,
-        outcome === "error" ? new Error("failed") : null,
-      ))
-      await expectReconciledFocus(
-        outcome === "success" ? tid.serverIcon("b") : tid.serverRailFolder("one"),
-        focus,
-      )
-    },
-  )
 })
 
 vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))

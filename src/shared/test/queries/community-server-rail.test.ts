@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { describe, expect, it } from "vitest";
 import {
   projectServerRailCommit,
+  serverRailTopOrder,
   type ServerRailCommitRequest,
   type ServerRailState,
 } from "../../src/community-server-rail";
@@ -15,6 +16,7 @@ function createDatabase() {
   const sqlite = new Sqlite(":memory:");
   sqlite.exec(`
     PRAGMA foreign_keys = ON;
+    CREATE TABLE community_server_rail (user_id TEXT PRIMARY KEY, entries TEXT NOT NULL);
     CREATE TABLE community_server (
       id TEXT PRIMARY KEY
     );
@@ -23,7 +25,6 @@ function createDatabase() {
       server_id TEXT NOT NULL REFERENCES community_server(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL,
       role TEXT DEFAULT 'member',
-      rail_order INTEGER DEFAULT 0,
       joined_at TEXT NOT NULL
     );
     CREATE UNIQUE INDEX uq_server_member_server_user
@@ -31,8 +32,7 @@ function createDatabase() {
     CREATE TABLE community_server_folder (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      position INTEGER DEFAULT 0
+      name TEXT NOT NULL
     );
     CREATE TABLE community_server_folder_item (
       folder_id TEXT NOT NULL REFERENCES community_server_folder(id) ON DELETE CASCADE,
@@ -64,21 +64,22 @@ function runProjection(
 function seedMemberships(sqlite: Sqlite.Database, ids: string[]) {
   const server = sqlite.prepare("INSERT INTO community_server (id) VALUES (?)");
   const member = sqlite.prepare(`
-    INSERT INTO community_server_member (id, server_id, user_id, rail_order, joined_at)
-    VALUES (?, ?, 'u1', ?, ?)
+    INSERT INTO community_server_member (id, server_id, user_id, joined_at)
+    VALUES (?, ?, 'u1', ?)
   `);
   ids.forEach((id, index) => {
     server.run(id);
-    member.run(`member-${id}`, id, index, `2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`);
+    member.run(`member-${id}`, id, `2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`);
   });
 }
 
 describe("community server rail D1 statements", () => {
-  it("reads memberships, folders, and items in one consistent three-statement batch", async () => {
+  it("reads memberships, folders, and items in one consistent four-statement batch", async () => {
     const statementRows = [
       [{ serverId: "s1" }, { serverId: "s2" }],
       [{ id: "f1", name: "One" }],
       [{ folderId: "f1", serverId: "s2" }],
+      [],
     ];
     const db: any = {
       select: () => {
@@ -89,46 +90,37 @@ describe("community server rail D1 statements", () => {
         return chain;
       },
       batch: async (statements: unknown[]) => {
-        expect(statements).toHaveLength(3);
+        expect(statements).toHaveLength(4);
         return statementRows;
       },
     };
     await expect(readServerRailSnapshot(db, "u1")).resolves.toEqual({
-      serverOrder: ["s1", "s2"],
-      folderOrder: ["f1"],
+      serverIds: ["s1", "s2"],
+      folderIds: ["f1"],
       folders: { f1: { id: "f1", name: "One", serverIds: ["s2"] } },
+      topOrder: [{ kind: "server", id: "s1" }, { kind: "folder", id: "f1" }],
     });
   });
 
-  it("reorders 125 memberships with one JSON expansion and fixed bind count", () => {
+  it("persists 125 top-level entries with fixed bind count and no membership writes", () => {
     const { sqlite, db } = createDatabase();
     const ids = Array.from({ length: 125 }, (_, index) => `s${index}`);
     seedMemberships(sqlite, ids);
-    const state: ServerRailState = { serverOrder: ids, folderOrder: [], folders: {} };
-    const { statements } = runProjection(sqlite, db, state, {
-      commands: [{ kind: "reorder-servers", serverIds: [...ids].reverse() }],
-    });
-    expect(statements.length).toBeLessThanOrEqual(13);
-    const reorder = statements.find((statement) => statement.toSQL().sql.includes(
-      'update "community_server_member"',
-    ));
-    expect(reorder).toBeDefined();
-    const query = reorder!.toSQL();
-    expect(query.sql).toContain("json_each");
-    expect(query.params).toHaveLength(2);
-    expect(query.params.every((param: unknown) => typeof param === "string")).toBe(true);
-    const order = sqlite.prepare(`
-      SELECT server_id AS id FROM community_server_member
-      WHERE user_id = 'u1' ORDER BY rail_order, server_id
-    `).all().map((row: any) => row.id);
-    expect(order).toEqual([...ids].reverse());
+    const state: ServerRailState = { serverIds: ids, folderIds: [], folders: {} };
+    const entries = [...ids].reverse().map((id) => ({ kind: "server" as const, id }));
+    const { statements } = runProjection(sqlite, db, state, { commands: [{ kind: "reorder-top-level", entries }] });
+    expect(statements.length).toBeLessThanOrEqual(11);
+    expect(statements.some((statement) => statement.toSQL().sql.includes('update "community_server_member"'))).toBe(false);
+    const write = statements.find((statement) => statement.toSQL().sql.includes('insert into "community_server_rail"'))!;
+    expect(write.toSQL().params).toHaveLength(3);
+    expect(JSON.parse((sqlite.prepare("SELECT entries FROM community_server_rail WHERE user_id='u1'").get() as { entries: string }).entries)).toEqual(entries);
   });
 
   it("inserts 125 guarded folder items from one JSON statement", () => {
     const { sqlite, db } = createDatabase();
     const ids = Array.from({ length: 125 }, (_, index) => `s${index}`);
     seedMemberships(sqlite, ids);
-    const state: ServerRailState = { serverOrder: ids, folderOrder: [], folders: {} };
+    const state: ServerRailState = { serverIds: ids, folderIds: [], folders: {} };
     const { statements } = runProjection(sqlite, db, state, {
       commands: [{ kind: "create-folder", clientId: "tmp", name: "Group", serverIds: ids }],
     });
@@ -154,7 +146,7 @@ describe("community server rail D1 statements", () => {
   it("rolls back the whole write when membership disappears before guarded insert", () => {
     const { sqlite, db } = createDatabase();
     seedMemberships(sqlite, ["a", "b"]);
-    const state: ServerRailState = { serverOrder: ["a", "b"], folderOrder: [], folders: {} };
+    const state: ServerRailState = { serverIds: ["a", "b"], folderIds: [], folders: {} };
     const result = projectServerRailCommit(state, {
       commands: [{ kind: "create-folder", clientId: "tmp", name: "Group", serverIds: ["a", "b"] }],
     }, () => "created");
@@ -173,20 +165,20 @@ describe("community server rail D1 statements", () => {
     const { sqlite, db } = createDatabase();
     sqlite.exec(`
       INSERT INTO community_server (id) VALUES ('a'), ('b'), ('x');
-      INSERT INTO community_server_member (id, server_id, user_id, rail_order, joined_at)
+      INSERT INTO community_server_member (id, server_id, user_id, joined_at)
       VALUES
-        ('u1-a', 'a', 'u1', 0, '2026-01-01T00:00:00.000Z'),
-        ('u1-b', 'b', 'u1', 1, '2026-01-01T00:00:01.000Z'),
-        ('u2-x', 'x', 'u2', 0, '2026-01-01T00:00:00.000Z');
-      INSERT INTO community_server_folder (id, user_id, name, position)
+        ('u1-a', 'a', 'u1', '2026-01-01T00:00:00.000Z'),
+        ('u1-b', 'b', 'u1', '2026-01-01T00:00:01.000Z'),
+        ('u2-x', 'x', 'u2', '2026-01-01T00:00:00.000Z');
+      INSERT INTO community_server_folder (id, user_id, name)
       VALUES
-        ('u1-empty', 'u1', 'Empty', 0),
-        ('u1-a-locale-first', 'u1', 'Locale first', NULL),
-        ('u1-Z-binary-first', 'u1', 'Binary first', 0),
-        ('u1-dangling', 'u1', 'Dangling', 6),
-        ('u2-empty', 'u2', 'Foreign empty', 0),
-        ('u2-first', 'u2', 'Foreign first', 1),
-        ('u2-second', 'u2', 'Foreign second', 2);
+        ('u1-empty', 'u1', 'Empty'),
+        ('u1-a-locale-first', 'u1', 'Locale first'),
+        ('u1-Z-binary-first', 'u1', 'Binary first'),
+        ('u1-dangling', 'u1', 'Dangling'),
+        ('u2-empty', 'u2', 'Foreign empty'),
+        ('u2-first', 'u2', 'Foreign first'),
+        ('u2-second', 'u2', 'Foreign second');
       INSERT INTO community_server_folder_item (folder_id, server_id, position)
       VALUES
         ('u1-a-locale-first', 'a', 7),
@@ -201,8 +193,9 @@ describe("community server rail D1 statements", () => {
 
     const snapshot = await readServerRailSnapshot(d1Db, "u1");
     expect(snapshot).toEqual({
-      serverOrder: ["a", "b"],
-      folderOrder: ["u1-Z-binary-first"],
+      serverIds: ["a", "b"],
+      folderIds: ["u1-Z-binary-first"],
+      topOrder: [{ kind: "server", id: "b" }, { kind: "folder", id: "u1-Z-binary-first" }],
       folders: {
         "u1-Z-binary-first": {
           id: "u1-Z-binary-first",
@@ -212,7 +205,7 @@ describe("community server rail D1 statements", () => {
       },
     });
     const projection = projectServerRailCommit(snapshot, {
-      commands: [{ kind: "reorder-servers", serverIds: ["b", "a"] }],
+      commands: [{ kind: "reorder-top-level", entries: [...serverRailTopOrder(snapshot)].reverse() }],
     }, () => "unused");
     expect(projection.ok).toBe(true);
     if (!projection.ok) throw new Error(projection.error);
@@ -221,18 +214,18 @@ describe("community server rail D1 statements", () => {
       .not.toThrow();
 
     expect(sqlite.prepare(`
-      SELECT id, position FROM community_server_folder WHERE user_id = 'u1' ORDER BY id
-    `).all()).toEqual([{ id: "u1-Z-binary-first", position: 0 }]);
+      SELECT id FROM community_server_folder WHERE user_id = 'u1' ORDER BY id
+    `).all()).toEqual([{ id: "u1-Z-binary-first" }]);
     expect(sqlite.prepare(`
       SELECT folder_id AS folderId, server_id AS serverId, position
       FROM community_server_folder_item WHERE folder_id = 'u1-Z-binary-first'
     `).all()).toEqual([{ folderId: "u1-Z-binary-first", serverId: "a", position: 0 }]);
     expect(sqlite.prepare(`
-      SELECT id, position FROM community_server_folder WHERE user_id = 'u2' ORDER BY id
+      SELECT id FROM community_server_folder WHERE user_id = 'u2' ORDER BY id
     `).all()).toEqual([
-      { id: "u2-empty", position: 0 },
-      { id: "u2-first", position: 1 },
-      { id: "u2-second", position: 2 },
+      { id: "u2-empty" },
+      { id: "u2-first" },
+      { id: "u2-second" },
     ]);
     expect(sqlite.prepare(`
       SELECT folder_id AS folderId, server_id AS serverId, position
@@ -251,9 +244,9 @@ describe("community server rail D1 statements", () => {
     seedMemberships(sqlite, ids);
     ids.forEach((serverId, index) => {
       sqlite.prepare(`
-        INSERT INTO community_server_folder (id, user_id, name, position)
-        VALUES (?, 'u1', ?, ?)
-      `).run(`f${index}`, `Folder ${index}`, index);
+        INSERT INTO community_server_folder (id, user_id, name)
+        VALUES (?, 'u1', ?)
+      `).run(`f${index}`, `Folder ${index}`);
       sqlite.prepare(`
         INSERT INTO community_server_folder_item (folder_id, server_id, position)
         VALUES (?, ?, 0)
@@ -263,9 +256,9 @@ describe("community server rail D1 statements", () => {
       batch: async (statements: any[]) => statements.map((statement) => statement.all()),
     });
     const overflow = await readServerRailSnapshot(d1Db, "u1");
-    expect(overflow.folderOrder).toHaveLength(11);
+    expect(overflow.folderIds).toHaveLength(11);
     expect(projectServerRailCommit(overflow, {
-      commands: [{ kind: "reorder-servers", serverIds: [...ids].reverse() }],
+      commands: [{ kind: "reorder-top-level", entries: [...serverRailTopOrder(overflow)].reverse() }],
     }, () => "unused")).toMatchObject({ ok: false });
 
     const recovery = projectServerRailCommit(overflow, {
@@ -276,12 +269,12 @@ describe("community server rail D1 statements", () => {
     const recoveryStatements = buildServerRailWriteStatements(db as any, "u1", recovery.value);
     sqlite.transaction(() => recoveryStatements.forEach((statement) => statement.run()))();
     expect(sqlite.prepare(`
-      SELECT id, position FROM community_server_folder WHERE user_id = 'u1' ORDER BY position
-    `).all()).toEqual(Array.from({ length: 10 }, (_, index) => ({ id: `f${index}`, position: index })));
+      SELECT id FROM community_server_folder WHERE user_id = 'u1' ORDER BY id
+    `).all()).toEqual(Array.from({ length: 10 }, (_, index) => ({ id: `f${index}` })));
 
     const recovered = await readServerRailSnapshot(d1Db, "u1");
     const next = projectServerRailCommit(recovered, {
-      commands: [{ kind: "reorder-servers", serverIds: [...ids].reverse() }],
+      commands: [{ kind: "reorder-top-level", entries: [...serverRailTopOrder(recovered)].reverse() }],
     }, () => "unused");
     expect(next.ok).toBe(true);
     if (!next.ok) throw new Error(next.error);
@@ -294,14 +287,14 @@ describe("community server rail D1 statements", () => {
     const { sqlite, db } = createDatabase();
     seedMemberships(sqlite, ["a", "b", "c"]);
     sqlite.exec(`
-      INSERT INTO community_server_folder (id, user_id, name, position)
-      VALUES ('one', 'u1', 'One', 0), ('two', 'u1', 'Two', 1);
+      INSERT INTO community_server_folder (id, user_id, name)
+      VALUES ('one', 'u1', 'One'), ('two', 'u1', 'Two');
       INSERT INTO community_server_folder_item (folder_id, server_id, position)
       VALUES ('one', 'a', 0), ('one', 'b', 1), ('two', 'c', 0);
     `);
     const stale: ServerRailState = {
-      serverOrder: ["a", "b", "c"],
-      folderOrder: ["one", "two"],
+      serverIds: ["a", "b", "c"],
+      folderIds: ["one", "two"],
       folders: {
         one: { id: "one", name: "One", serverIds: ["a", "b"] },
         two: { id: "two", name: "Two", serverIds: ["c"] },
@@ -339,7 +332,7 @@ describe("community server rail D1 statements", () => {
   ] as const)("removes the folder emptied by a concurrent same-server create: %s", async (_name, order) => {
     const { sqlite, db } = createDatabase();
     seedMemberships(sqlite, ["a", "b"]);
-    const stale: ServerRailState = { serverOrder: ["a", "b"], folderOrder: [], folders: {} };
+    const stale: ServerRailState = { serverIds: ["a", "b"], folderIds: [], folders: {} };
     const projections = Object.fromEntries(["x", "y"].map((id) => {
       const result = projectServerRailCommit(stale, {
         commands: [{ kind: "create-folder", clientId: id, name: id, serverIds: ["a"] }],
@@ -358,7 +351,7 @@ describe("community server rail D1 statements", () => {
       batch: async (statements: any[]) => statements.map((statement) => statement.all()),
     });
     const snapshot = await readServerRailSnapshot(d1Db, "u1");
-    expect(snapshot.folderOrder).toEqual([order[1]]);
+    expect(snapshot.folderIds).toEqual([order[1]]);
     expect(snapshot.folders[order[1]]?.serverIds).toEqual(["a"]);
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_server_folder").get())
       .toEqual({ count: 1 });
@@ -378,8 +371,8 @@ describe("community server rail D1 statements", () => {
     seedMemberships(sqlite, ids);
     for (let index = 0; index < 9; index += 1) {
       sqlite.prepare(`
-        INSERT INTO community_server_folder (id, user_id, name, position) VALUES (?, 'u1', ?, ?)
-      `).run(`f${index}`, `Folder ${index}`, index);
+        INSERT INTO community_server_folder (id, user_id, name) VALUES (?, 'u1', ?)
+      `).run(`f${index}`, `Folder ${index}`);
       sqlite.prepare(`
         INSERT INTO community_server_folder_item (folder_id, server_id, position) VALUES (?, ?, 0)
       `).run(`f${index}`, `s${index}`);
@@ -407,7 +400,7 @@ describe("community server rail D1 statements", () => {
 
     const finalSnapshot = await readServerRailSnapshot(d1Db, "u1");
     const next = projectServerRailCommit(finalSnapshot, {
-      commands: [{ kind: "reorder-servers", serverIds: [...finalSnapshot.serverOrder].reverse() }],
+      commands: [{ kind: "reorder-top-level", entries: [...serverRailTopOrder(finalSnapshot)].reverse() }],
     }, () => "unused");
     expect(next.ok).toBe(true);
     if (!next.ok) throw new Error(next.error);
@@ -415,4 +408,35 @@ describe("community server rail D1 statements", () => {
     expect(() => sqlite.transaction(() => nextStatements.forEach((statement) => statement.run()))())
       .not.toThrow();
   });
+});
+
+it("persists one account mixed order without changing another account", () => {
+  const { sqlite, db } = createDatabase();
+  seedMemberships(sqlite, ["a", "b", "c"]);
+  sqlite.exec(`INSERT INTO community_server_folder VALUES ('f', 'u1', 'Folder'); INSERT INTO community_server_folder_item VALUES ('f', 'c', 0);`);
+  const other = JSON.stringify([{ kind: "server", id: "other" }]);
+  sqlite.prepare("INSERT INTO community_server_rail VALUES (?, ?)").run("u2", other);
+  const entries = [{ kind: "server" as const, id: "a" }, { kind: "folder" as const, id: "f" }, { kind: "server" as const, id: "b" }];
+  runProjection(sqlite, db, { serverIds: ["a", "b", "c"], folderIds: ["f"], folders: { f: { id: "f", name: "Folder", serverIds: ["c"] } } }, { commands: [{ kind: "reorder-top-level", entries }] });
+  expect(JSON.parse((sqlite.prepare("SELECT entries FROM community_server_rail WHERE user_id = 'u1'").get() as { entries: string }).entries)).toEqual(entries);
+  expect(sqlite.prepare("SELECT entries FROM community_server_rail WHERE user_id = 'u2'").get()).toEqual({ entries: other });
+});
+
+it("atomically replaces an emptied single-server folder at the ten-folder limit", () => {
+  const { sqlite, db } = createDatabase();
+  seedMemberships(sqlite, ["a", "b", ...Array.from({ length: 10 }, (_, i) => `s${i}`)]);
+  const folder = sqlite.prepare("INSERT INTO community_server_folder VALUES (?, 'u1', 'Folder')");
+  const item = sqlite.prepare("INSERT INTO community_server_folder_item VALUES (?, ?, 0)");
+  for (let i = 0; i < 10; i++) { folder.run(`f${i}`); item.run(`f${i}`, `s${i}`); }
+  const folderIds = Array.from({ length: 10 }, (_, i) => `f${i}`);
+  const state: ServerRailState = { serverIds: ["a", "b", ...Array.from({ length: 10 }, (_, i) => `s${i}`)], folderIds, folders: Object.fromEntries(folderIds.map((id, i) => [id, { id, name: "Folder", serverIds: [`s${i}`] }])) };
+  runProjection(sqlite, db, state, { commands: [
+    { kind: "delete-folder", folderId: "f1" },
+    { kind: "create-folder", clientId: "temp", name: "Group", serverIds: ["a", "s1"] },
+    { kind: "reorder-top-level", entries: [{ kind: "folder", id: "temp" }, { kind: "server", id: "b" }, ...folderIds.filter((id) => id !== "f1").map((id) => ({ kind: "folder" as const, id }))] },
+  ] });
+  expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_server_folder WHERE user_id = 'u1'").get()).toEqual({ count: 10 });
+  expect(sqlite.prepare("SELECT id FROM community_server_folder WHERE id = 'f1'").get()).toBeUndefined();
+  expect(sqlite.prepare("SELECT server_id AS id FROM community_server_folder_item WHERE folder_id = 'created' ORDER BY position").all()).toEqual([{ id: "a" }, { id: "s1" }]);
+  expect(JSON.parse((sqlite.prepare("SELECT entries FROM community_server_rail WHERE user_id = 'u1'").get() as { entries: string }).entries)[0]).toEqual({ kind: "folder", id: "created" });
 });

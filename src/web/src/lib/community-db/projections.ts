@@ -5,7 +5,7 @@ import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/applicat
 import { DbProvider, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CommunityRuntimeProvider } from "@/stores/community/runtime"
-import { notifLevelDisplay } from "@alook/shared"
+import { serverRailTopOrder, sortServerRailRows, notifLevelDisplay } from "@alook/shared"
 import { projectForumSidebar } from "@/lib/community/forum-sidebar"
 import { avatarInitial } from "@/lib/community/avatar"
 import { readCommunityProfile } from "@/lib/community/profile-read"
@@ -135,6 +135,7 @@ export function useServerRailProjection() {
     registry: useOptionalCommunityDbRegistry(),
     servers: useServerRows(),
     serverMemberships: useServerMembershipRows(),
+    serverRail: useCollectionRows("serverRail"),
     folders: useFolderRows(),
     folderItems: useFolderItemRows(),
   }
@@ -175,12 +176,9 @@ export function useServerRailProjection() {
       itemsByFolder.set(item.folderId, items)
     }
     const folders: CommunityFolder[] = (rows.folders ?? [])
-      .slice()
-      .sort((a, b) => a.position - b.position)
       .map((folder) => ({
         id: folder.id,
         name: folder.name,
-        position: folder.position,
         servers: (itemsByFolder.get(folder.id) ?? [])
           .slice()
           .sort((a, b) => a.position - b.position)
@@ -194,8 +192,16 @@ export function useServerRailProjection() {
             }] : []
           }),
       }))
-    return { servers, folders }
-  }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems])
+    const state = {
+      serverIds: servers.map((server) => server.id),
+      folderIds: folders.map((folder) => folder.id),
+      folders: Object.fromEntries(folders.map((folder) => [folder.id, { id: folder.id, name: folder.name, serverIds: folder.servers.map((server) => server.id) }])),
+      topOrder: rows.serverRail?.find((row) => row.id === "account")?.entries,
+    }
+    const topOrder = serverRailTopOrder(state)
+    const byFolder = new Map(folders.map((folder) => [folder.id, folder]))
+    return { servers: sortServerRailRows(state, servers), folders: topOrder.flatMap((entry) => entry.kind === "folder" ? [byFolder.get(entry.id)!] : []), topOrder }
+  }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems, rows.serverRail])
 }
 
 export function useServerTreeProjection(serverId: string | null) {

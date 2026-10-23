@@ -61,8 +61,12 @@ describe("listChannelRefDirectoryForUser", () => {
         id TEXT PRIMARY KEY,
         server_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
-        rail_order INTEGER
+        joined_at TEXT DEFAULT '2026-01-01'
       );
+      CREATE TABLE community_server_rail (user_id TEXT PRIMARY KEY, entries TEXT NOT NULL);
+      CREATE TABLE community_server_folder (id TEXT PRIMARY KEY, user_id TEXT, name TEXT);
+      CREATE TABLE community_server_folder_item (folder_id TEXT, server_id TEXT, position INTEGER);
+      INSERT INTO community_server_rail VALUES ('viewer', '[{"kind":"server","id":"s2"},{"kind":"server","id":"s1"}]');
       CREATE TABLE community_category (
         id TEXT PRIMARY KEY,
         server_id TEXT NOT NULL,
@@ -90,10 +94,10 @@ describe("listChannelRefDirectoryForUser", () => {
         ('s1', 'First', '0001'),
         ('s2', 'Second', '0002'),
         ('s3', 'Not joined', '0003');
-      INSERT INTO community_server_member (id, server_id, user_id, rail_order) VALUES
-        ('sm2', 's2', 'viewer', 0),
-        ('sm1', 's1', 'viewer', 1),
-        ('sm3', 's3', 'someone_else', 0);
+      INSERT INTO community_server_member (id, server_id, user_id) VALUES
+        ('sm2', 's2', 'viewer'),
+        ('sm1', 's1', 'viewer'),
+        ('sm3', 's3', 'someone_else');
       INSERT INTO community_category (id, server_id, position, private) VALUES
         ('public', 's1', 0, 0),
         ('private', 's1', 1, 1),
@@ -116,6 +120,7 @@ describe("listChannelRefDirectoryForUser", () => {
         ('cm_dm', 'dm', 'viewer', 'access');
     `);
     db = drizzle(sqlite) as unknown as Database;
+    (db as any).batch = async (statements: any[]) => statements.map((statement) => statement.all());
   });
 
   afterEach(() => sqlite.close());

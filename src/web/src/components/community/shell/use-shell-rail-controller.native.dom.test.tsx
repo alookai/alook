@@ -6,6 +6,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, waitFor, within } from "@/test/react-dom-harness"
 import { QueryProvider } from "@/app/c/QueryProvider"
 import { clearAllPersistedCaches } from "@/lib/query-persister"
+import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useCommunityNavigationController, type CommunityNavigationController } from "./use-community-navigation-controller"
@@ -63,7 +64,7 @@ function Probe({ sidebar = false }: { sidebar?: boolean }) {
   return sidebar ? <CommunityRouteContext value={{ breakpoint: "desktop", frame, navigation: currentNavigation, ownerDeleteRouteScope }}><ServerRail {...current.railProps} bottomInset={60} /><ServerSidebarSlot serverId={serverId} /></CommunityRouteContext> : null
 }
 function Root({ visible = true, sidebar = false }: { visible?: boolean; sidebar?: boolean }) { return <QueryProvider userId="A">{visible && <Probe sidebar={sidebar} />}</QueryProvider> }
-async function mount(sidebar = false) {
+async function mount(sidebar = false, extraServer = false) {
   let resolve!: (value: unknown) => void, reject!: (error: Error) => void
   const held = new Promise<unknown>((done, fail) => { resolve = done; reject = fail })
   const seen = new Set<string>()
@@ -72,10 +73,10 @@ async function mount(sidebar = false) {
     if (options.method === "POST") return held
     if (seen.has(path)) return new Promise((_, fail) => options.signal?.addEventListener("abort", () => fail(new DOMException("cancelled", "AbortError")), { once: true }))
     seen.add(path)
-    return Promise.resolve(path.endsWith("server-folders") ? { folders: [] } : { servers: [{ id: "s1", name: "One", discriminator: "0001", icon: null, ownerId: sidebar ? "other-owner" : "A", role: sidebar ? "member" : "owner" }, ...(sidebar ? [{ id: "s2", name: "Two", discriminator: "0002", icon: null, ownerId: "other-owner", role: "member" }] : [])] })
+    return Promise.resolve(path.endsWith("server-folders") ? { folders: [] } : { servers: [{ id: "s1", name: "One", discriminator: "0001", icon: null, ownerId: sidebar ? "other-owner" : "A", role: sidebar ? "member" : "owner" }, ...((sidebar || extraServer) ? [{ id: "s2", name: "Two", discriminator: "0002", icon: null, ownerId: "other-owner", role: "member" }] : []), ...(extraServer ? [{ id: "s3", name: "Three", discriminator: "0003", icon: null, ownerId: "other-owner", role: "member" }] : [])] })
   })
   const view = render(<Root sidebar={sidebar} />)
-  await waitFor(() => expect(controller.railProps.servers).toHaveLength(sidebar ? 2 : 1))
+  await waitFor(() => expect(controller.railProps.servers).toHaveLength(extraServer ? 3 : sidebar ? 2 : 1))
   return { view, resolve, reject, original: client }
 }
 beforeEach(async () => {
@@ -144,6 +145,26 @@ describe("actual native Rail controller continuation", () => {
     await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
     await act(async () => resolve(undefined))
     await waitFor(() => expect(ui.replace).toHaveBeenCalledWith("/c/me"))
+  })
+  it("leaves into canonical folder order while server/folder refresh stays held", async () => {
+    const { resolve, original } = await mount(false, true)
+    const registry = getCommunityDbRegistry(original)!
+    act(() => {
+      publishCommunityLiveSnapshot(original, {
+        snapshot: { kind: "folders", data: {
+          folders: [{ id: "f", name: "Group", servers: [{ id: "s3", name: "Three", initial: "T" }, { id: "s2", name: "Two", initial: "T" }] }],
+          topOrder: [{ kind: "folder", id: "f" }, { kind: "server", id: "s1" }],
+        } },
+        proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(original), signal: undefined },
+      })
+    })
+    await waitFor(() => expect(controller.railProps.servers.map((server) => server.id)).toEqual(["s3", "s2", "s1"]))
+    act(() => controller.railProps.onLeaveServer!("s1"))
+    await waitFor(() => expect(api.mock.calls.some(([path]) => path.endsWith("/leave"))).toBe(true))
+    await act(async () => resolve(undefined))
+    await waitFor(() => expect(ui.replace).toHaveBeenCalledWith("/c/channels/s3"))
+    expect(registry.collections.servers.get("s2")?.position).toBe(1)
+    expect(registry.collections.servers.get("s3")?.position).toBe(2)
   })
   it("confirmed leave does not redirect a newer navigation intent", async () => {
     const { view, resolve } = await mount()

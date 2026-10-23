@@ -1,3 +1,4 @@
+import { serverRailTopOrder } from "@alook/shared"
 import type { Transaction } from "@tanstack/react-db"
 import { communityRequestOptions as qualifiedCommunityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { isAbortError } from "@/lib/errors"
@@ -1006,7 +1007,6 @@ function ingestFolders(
   const folders: FolderRow[] = response.folders.map((folder) => ({
     id: folder.id,
     name: folder.name,
-    position: folder.position,
   }))
   const items: FolderItemRow[] = response.folders.flatMap((folder) => (
     folder.servers.map((server, position) => ({
@@ -1017,6 +1017,7 @@ function ingestFolders(
     }))
   ))
   notifyManager.batch(() => {
+    if (Object.hasOwn(response, "topOrder")) replaceRows(registry, "serverRail", response.topOrder ? [{ id: "account", entries: response.topOrder }] : [], () => true)
     replaceRows(registry, "folders", folders, () => true)
     replaceRows(registry, "folderItems", items, () => true)
   })
@@ -1024,14 +1025,9 @@ function ingestFolders(
 
 export function publishCommunityServerRailCommit(queryClient: QueryClient, projection: ServerRailProjection, proof: CommunityFreshQueryProof) {
   return withCommunityQueryProof(queryClient, proof, (registry) => {
-    if (projection.reorderServers) {
-      const positions = new Map(projection.after.serverOrder.map((id, position) => [id, position]))
-      withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
-        patchRows(registry, "servers", (row) => ({ ...row, position: positions.get(row.id)! }), (row) => positions.has(row.id), undefined, ["position"])
-      })
-    }
-    const affected = new Set([...projection.affectedFolderIds, ...projection.createdFolders.map((row) => row.id), ...(projection.reorderFolders ? projection.after.folderOrder : [])])
-    const folders = projection.after.folderOrder.filter((id) => affected.has(id)).map((id) => ({ id, name: projection.after.folders[id]!.name, position: projection.after.folderOrder.indexOf(id) }))
+    if (projection.reorderTopLevel) replaceRows(registry, "serverRail", [{ id: "account", entries: serverRailTopOrder(projection.after) }], () => true)
+    const affected = new Set([...projection.affectedFolderIds, ...projection.createdFolders.map((row) => row.id)])
+    const folders = projection.after.folderIds.filter((id) => affected.has(id)).map((id) => ({ id, name: projection.after.folders[id]!.name }))
     const knownServers = new Set(collectionRows(registry, "servers").map((row) => row.id))
     const allowed = new Set(collectionRows(registry, "serverMemberships").filter((row) => row.viewer && row.userId === registry.accountId && knownServers.has(row.serverId)).map((row) => row.serverId))
     const items = folders.flatMap((folder) => projection.after.folders[folder.id]!.serverIds.filter((serverId) => allowed.has(serverId)).map((serverId, position) => ({ id: folderItemKey(folder.id, serverId), folderId: folder.id, serverId, position })))

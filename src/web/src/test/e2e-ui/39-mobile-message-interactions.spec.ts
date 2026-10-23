@@ -96,7 +96,7 @@ function expectStableScroller(before: ScrollerGeometry, after: ScrollerGeometry)
 
 async function clickAuthoritativeOwnerChannelRow(page: Page, channelId: string): Promise<void> {
   const row = page.getByTestId(tid.channelRow(channelId))
-  await expect(row).toHaveAttribute("aria-disabled", "false", { timeout: 20_000 })
+  await expect(row).toBeEnabled({ timeout: 20_000 })
   await row.evaluate((element) => (element as HTMLElement).click())
 }
 

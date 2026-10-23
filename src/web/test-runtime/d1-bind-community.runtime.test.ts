@@ -74,8 +74,8 @@ describe("community high-cardinality D1 queries", () => {
         "INSERT INTO community_server (id, name, discriminator, owner_id, created_at) VALUES (?, ?, ?, ?, ?)",
       ).bind(serverId, `${prefix}-server-${index}`, String(index).padStart(4, "0"), userId, now),
       runtimeEnv.DB.prepare(
-        "INSERT INTO community_server_member (id, server_id, user_id, role, rail_order, joined_at) VALUES (?, ?, ?, 'owner', ?, ?)",
-      ).bind(`${prefix}_member_${index}`, serverId, userId, index, now),
+        "INSERT INTO community_server_member (id, server_id, user_id, role, joined_at) VALUES (?, ?, ?, 'owner', ?)",
+      ).bind(`${prefix}_member_${index}`, serverId, userId, now),
       runtimeEnv.DB.prepare(
         "INSERT INTO community_channel (id, server_id, name, type, position, created_at) VALUES (?, ?, ?, 'text', 0, ?)",
       ).bind(`${prefix}_channel_${index}`, serverId, `general-${index}`, now),
@@ -114,8 +114,8 @@ describe("community high-cardinality D1 queries", () => {
         "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, ?, ?)",
       ).bind(userId, `${userId}@example.com`, `Member ${index}`, String(2000 + index)),
       runtimeEnv.DB.prepare(
-        "INSERT INTO community_server_member (id, server_id, user_id, role, rail_order, joined_at) VALUES (?, ?, ?, 'member', ?, ?)",
-      ).bind(`${prefix}_member_${index}`, serverId, userId, index, now),
+        "INSERT INTO community_server_member (id, server_id, user_id, role, joined_at) VALUES (?, ?, ?, 'member', ?)",
+      ).bind(`${prefix}_member_${index}`, serverId, userId, now),
       runtimeEnv.DB.prepare(
         "INSERT INTO community_category (id, server_id, name, position, private) VALUES (?, ?, ?, ?, 0)",
       ).bind(categoryIds[index], serverId, `Category ${index}`, index),

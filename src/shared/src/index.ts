@@ -603,6 +603,7 @@ export type {
   CommunityChildChannelCreate,
   CommunityChildChannelUpdate,
   CommunityServerUpdate,
+  CommunityServerRailChanged,
   CommunityServerDelete,
   CommunityChannelCreate,
   CommunityChannelUpdate,
@@ -711,11 +712,16 @@ export {
   MAX_SERVER_RAIL_REQUEST_BYTES,
   SERVER_RAIL_SNAPSHOT_STATEMENTS,
   SERVER_RAIL_MAX_WRITE_STATEMENTS,
+  serverRailEntrySchema,
+  serverRailTopOrder,
+  serverRailServerIds,
+  sortServerRailRows,
   serverRailCommandSchema,
   serverRailCommitRequestSchema,
   projectServerRailCommit,
 } from "./community-server-rail";
 export type {
+  ServerRailEntry,
   ServerRailCommand,
   ServerRailCommitRequest,
   ServerRailCommitResponse,
@@ -726,7 +732,7 @@ export type {
 } from "./community-server-rail";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
-export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity, communityPushDevice } from "./db/community-schema";
+export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerRail, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity, communityPushDevice } from "./db/community-schema";
 
 // Logger
 export { Logger, createLogger } from "./logger"

@@ -29,7 +29,6 @@ describe("useFolders / foldersQueryFn", () => {
         {
           id: "fld_1",
           name: "Group",
-          position: 2,
           servers: [{ id: "srv_1", name: "Alook", icon: null }],
         },
       ],
@@ -38,7 +37,7 @@ describe("useFolders / foldersQueryFn", () => {
     const data = await foldersQueryFn(context())
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/server-folders", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }))
     expect(data.folders[0].servers[0].initial).toBe("A")
-    expect(data.folders[0].position).toBe(2)
+    expect(data.folders[0]).not.toHaveProperty("position")
   })
 
   it("populates queryClient at communityKeys.folders()", async () => {

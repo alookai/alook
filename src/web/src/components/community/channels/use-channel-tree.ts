@@ -3,8 +3,6 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCallback, useMemo } from "react"
-import { arrayMove } from "@dnd-kit/sortable"
-import type { DragEndEvent } from "@dnd-kit/core"
 import type { Category, Channel } from "@/lib/community/models/navigation"
 
 // DnD keeps the persisted opaque IDs unchanged. Category identity comes from
@@ -12,6 +10,14 @@ import type { Category, Channel } from "@/lib/community/models/navigation"
 export const catId = (id: string) => id
 
 export type ChannelOrder = Record<string, Channel[]>
+export type ChannelTreeDrop = { active: { id: string }; over: { id: string } | null }
+
+function arrayMove<T>(items: T[], from: number, to: number): T[] {
+  const next = [...items]
+  const [item] = next.splice(from, 1)
+  next.splice(to, 0, item)
+  return next
+}
 
 /** Which category currently holds a channel id (or the category itself if `id` is an order key). */
 export function catOf(id: string, order: ChannelOrder): string | undefined {
@@ -20,8 +26,7 @@ export function catOf(id: string, order: ChannelOrder): string | undefined {
 }
 
 /**
- * Live cross-category move while dragging a channel (channels can jump
- * categories). Returns a new order, or the input unchanged when the move doesn't
+ * Move a channel to another category on drop. Returns a new order, or the input unchanged when the move doesn't
  * apply (same category, missing channel, etc.). Pure — exported for tests.
  */
 export function moveChannelAcrossCategories(order: ChannelOrder, activeId: string, overId: string): ChannelOrder {
@@ -104,11 +109,6 @@ export function reorderCategories(catOrder: string[], activeCatId: string, overC
 }
 
 
-/**
- * Channel-sidebar dnd state: category order + per-category channel order, with
- * cross-category drag and collapse toggles. One DndContext drives both: categories
- * sort among themselves, channels sort across categories.
- */
 export function useChannelTree(categories: Category[]) {
   const [collapsed, setCollapsed] = useAtom(useCreateAtom<Set<string>>(new Set<string>()));
   const layout = useCreateAtom<{ identity: string; categories: string[]; channels: Record<string, string[]> } | null>(null);
@@ -134,20 +134,18 @@ export function useChannelTree(categories: Category[]) {
     return next;
   }), [setCollapsed]);
   const projectOrder = (next: ChannelOrder) => Object.fromEntries(Object.entries(next).map(([id, channels]) => [id, channels.map((channel) => channel.id)]));
-  const onDragOver = ({ active, over }: DragEndEvent) => {
-    if (!over || catOrder.includes(String(active.id))) return;
-    const from = catOf(String(active.id), order), to = catOf(String(over.id), order);
-    if (from && to && from !== to && catPrivate[from] !== catPrivate[to]) return;
-    const next = moveChannelAcrossCategories(order, String(active.id), String(over.id));
-    if (next !== order) setPreview({ ...current, channels: projectOrder(next) });
-  };
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
+  const onDragEnd = ({ active, over }: ChannelTreeDrop) => {
     if (over && active.id !== over.id) {
       const activeId = String(active.id), overId = String(over.id);
       if (catOrder.includes(activeId) && catOrder.includes(overId)) setPreview({ ...current, categories: reorderCategories(catOrder, activeId, overId) });
-      else if (!catOrder.includes(activeId)) setPreview({ ...current, channels: projectOrder(reorderChannelsWithin(order, activeId, overId)) });
+      else if (!catOrder.includes(activeId)) {
+        const from = catOf(activeId, order), to = catOf(overId, order);
+        if (!from || !to || catPrivate[from] !== catPrivate[to]) return;
+        const next = from === to ? reorderChannelsWithin(order, activeId, overId) : moveChannelAcrossCategories(order, activeId, overId);
+        setPreview({ ...current, channels: projectOrder(next) });
+      }
     }
   };
-  return { collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators, toggleCat, onDragOver, onDragEnd };
+  return { collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators, toggleCat, onDragEnd };
 }
 export type ChannelTree = ReturnType<typeof useChannelTree>

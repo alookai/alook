@@ -1,3 +1,4 @@
+import { reconcileCommunityServerRail } from "./server-rail-reconciliation"
 
 import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
 import type { QueryClient, QueryKey } from "@tanstack/react-query"
@@ -233,6 +234,7 @@ function policyExecutors(
     "cached-read-state": async () => {
       await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
     },
+    "server-rail": () => reconcileCommunityServerRail(queryClient),
     "all-cached-servers": async () => {
       const serverIds = cachedServerIds(queryClient, queryKeys)
       const settled = await Promise.allSettled([

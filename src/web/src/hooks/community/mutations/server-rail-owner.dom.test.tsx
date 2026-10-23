@@ -22,18 +22,18 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: api }))
 vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => sdk.session }; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }))
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
-vi.mock("@atlaskit/pragmatic-drag-and-drop-live-region", () => ({ announce: ui.announce, cleanup: vi.fn() }))
-vi.mock("@/components/community/shell/use-server-rail-pdd", () => ({ useServerRailPdd: (options: typeof ui.options) => { ui.options = options; return { registerItem: vi.fn() } } }))
+vi.mock("@/components/community/shell/use-server-rail-dnd", () => ({ RailEndDropTarget: () => null, RailFolderGapDropTarget: () => null, useServerRailDrag: () => ({ entity: null, offset: null }), useServerRailDnd: (options: typeof ui.options) => { ui.options = options; return { cancel: () => {} } } }))
 vi.mock("@/components/community/shell/sortable-server", () => ({ SortableServer: ({ server }: { server: { id: string; name: string } }) => <button data-testid={tid.serverIcon(server.id)}>{server.name}</button> }))
-vi.mock("@/components/community/shell/rail-folder", () => ({ RailFolder: ({ folderId, open, onToggle, onUngroup }: { folderId: string; open: boolean; onToggle: () => void; onUngroup: () => void }) => <><button data-testid={tid.serverRailFolder(folderId)} aria-expanded={open} onClick={onToggle}>{folderId}</button><button onClick={onUngroup}>Ungroup {folderId}</button></> }))
+vi.mock("@/components/community/shell/rail-folder", () => ({ RailFolder: ({ folderId, open, onToggle }: { folderId: string; open: boolean; onToggle: () => void }) => <button data-testid={tid.serverRailFolder(folderId)} aria-expanded={open} onClick={onToggle}>{folderId}</button> }))
 vi.mock("@/components/community/shell/animated-alook-logo", () => ({ AnimatedAlookLogo: () => null }))
 vi.mock("@/components/community/settings/create-server-dialog", () => ({ CreateServerDialog: () => null }))
 vi.mock("@/components/ui/tooltip", () => ({ Tooltip: ({ children }: { children: React.ReactNode }) => children, TooltipTrigger: ({ children }: { children: React.ReactNode }) => children, TooltipContent: () => null }))
 const servers = ["a", "b", "c"].map((id) => ({ id, name: id.toUpperCase(), discriminator: "0001", ownerId: "A", role: "member", icon: null }))
 const folders = [{ id: "one", name: "One", position: 0, servers: [{ id: "c", name: "C", icon: null }] }]
-const before = { serverOrder: ["a", "b", "c"], folderOrder: ["one"], folders: { one: ["c"] }, expanded: [] }
-const after = { serverOrder: ["b", "a", "c"], folderOrder: ["one", "temp"], folders: { one: ["c"], temp: ["a", "b"] }, expanded: ["temp"] }
-const commands = [{ kind: "reorder-servers" as const, serverIds: after.serverOrder }, { kind: "create-folder" as const, clientId: "temp", name: "Group", serverIds: ["a", "b"] }]
+const commands = [
+  { kind: "reorder-top-level" as const, entries: [{ kind: "folder" as const, id: "temp" }, { kind: "folder" as const, id: "one" }] },
+  { kind: "create-folder" as const, clientId: "temp", name: "Group", serverIds: ["b", "a"] },
+]
 let mutation: ReturnType<typeof useServerRailCommit>, qc: QueryClient
 const clients: QueryClient[] = []
 function Probe({ rail = false }: { rail?: boolean }) { const list = useServers(), groups = useFolders(); const command = useServerRailCommit(), client = useQueryClient(); useLayoutEffect(() => { mutation = command; qc = client; if (!clients.includes(client)) clients.push(client) }); return <><output data-testid="order">{list.servers.map((row) => row.id).join(",")}</output><output data-testid="names">{list.servers.map((row) => `${row.id}:${row.name}`).join(",")}</output><output data-testid="groups">{groups.folders.map((row) => `${row.id}:${row.servers.map((server) => server.id).join(",")}`).join("|")}</output>{rail && <ServerRail servers={list.servers} folders={groups.folders} view="server" onHome={vi.fn()} />}</> }
@@ -53,7 +53,7 @@ async function mount(rail = false) {
   await getCommunityDbRegistry(qc)!.ready
   return { view, resolve, reject, original: qc }
 }
-function commit() { return mutation.mutateAsync({ before, after, commands }).catch((error: unknown) => error) }
+function commit() { return mutation.mutateAsync({ commands }).catch((error: unknown) => error) }
 beforeEach(async () => { await clearAllPersistedCaches(); sdk.session = { data: { user: { id: "A" } }, isPending: false, error: null }; ui.frames.length = 0; ui.announce.mockReset(); sessionStorage.clear(); vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { ui.frames.push(callback); return ui.frames.length }) })
 afterEach(async () => {
   await act(async () => {
@@ -66,7 +66,7 @@ describe("native canonical rail command owner", () => {
     expect(original.getQueryData(communityKeys.folders())).toEqual(["one"])
     const cancel = vi.spyOn(original, "cancelQueries")
     let result!: Promise<unknown>; act(() => { result = commit() })
-    await waitFor(() => { expect(screen.getByTestId("order").textContent).toBe("b,a,c"); expect(screen.getByTestId("groups").textContent).toBe("one:c|temp:a,b") })
+    await waitFor(() => { expect(screen.getByTestId("order").textContent).toBe("b,a,c"); expect(screen.getByTestId("groups").textContent).toBe("temp:b,a|one:c") })
     const replacement = new QueryClient()
     for (const key of [communityKeys.servers(), communityKeys.folders()]) {
       const resource = original.getQueryCache().find({ queryKey: key, exact: true })!
@@ -80,7 +80,7 @@ describe("native canonical rail command owner", () => {
     expect(patches).toHaveLength(1)
     expect(patches[0]).toEqual(["/api/community/users/me/server-rail", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ commands }), authenticationAccount: "A" })])
     await act(async () => { resolve({ createdFolderIds: { temp: "real" } }); await result })
-    await waitFor(() => expect(screen.getByTestId("groups").textContent).toBe("one:c|real:a,b"))
+    await waitFor(() => expect(screen.getByTestId("groups").textContent).toBe("real:b,a|one:c"))
     const registry = getCommunityDbRegistry(original)!
     expect(registry.collections.folders.has("temp")).toBe(false); expect(registry.collections.folders.has("real")).toBe(true)
     expect([...registry.collections.folderItems.values()].some((row) => row.folderId === "temp")).toBe(false)
@@ -110,13 +110,13 @@ describe("native canonical rail command owner", () => {
     expect(screen.getByTestId("order").textContent).toBe("b,a,c")
     expect(screen.getByTestId("names").textContent).toBe("b:B,a:newer,c:C")
     const registry = getCommunityDbRegistry(original)!
-    expect(registry.collections.servers.get("a")).toMatchObject({ name: "newer", position: 1 })
-    expect(registry.collections.servers.get("b")?.position).toBe(0)
+    expect(registry.collections.servers.get("a")).toMatchObject({ name: "newer", position: 0 })
+    expect(registry.collections.servers.get("b")?.position).toBe(1)
     expect(registry.collections.servers.get("c")?.position).toBe(2)
     const committed = original.getQueryData<Array<{ id: string; position: number; name: string }>>(
       communityKeys.communityDbCollection(registry.scopeId, "servers"),
     )
-    expect(committed).toEqual(expect.arrayContaining([expect.objectContaining({ id: "a", name: "newer", position: 1 })]))
+    expect(committed).toEqual(expect.arrayContaining([expect.objectContaining({ id: "a", name: "newer", position: 0 })]))
   })
   it("old successful account response cannot resurrect transport data or touch the new account", async () => {
     const { view, resolve, original } = await mount()
@@ -149,7 +149,7 @@ describe("native canonical rail command owner", () => {
     await waitFor(() => expect(api.mock.calls.some(([, options]) => options.method === "PATCH")).toBe(true))
     act(() => view.rerender(<Root />)); ui.announce.mockClear(); ui.frames.length = 0
     await act(async () => resolve({ createdFolderIds: { temp: "real" } }))
-    await waitFor(() => expect(screen.getByTestId("groups").textContent).toBe("one:c|real:a,b"))
+    await waitFor(() => expect(screen.getByTestId("groups").textContent).toBe("real:b,a|one:c"))
     expect(ui.announce).not.toHaveBeenCalled(); expect(ui.frames).toHaveLength(0)
   })
   it("a queued original focus callback cannot focus the replacement account", async () => {
@@ -165,3 +165,20 @@ describe("native canonical rail command owner", () => {
     expect(query).not.toHaveBeenCalled(); query.mockRestore()
   })
 })
+
+it.each(["success", "error"] as const)("keeps mixed rail metadata in the native transaction through %s", async (outcome) => {
+  const { resolve, reject, original } = await mount();
+  const entries = [{ kind: "folder" as const, id: "one" }, { kind: "server" as const, id: "b" }, { kind: "server" as const, id: "a" }];
+  let result!: Promise<unknown>;
+  act(() => { result = mutation.mutateAsync({ commands: [{ kind: "reorder-top-level", entries }] }).catch((error: unknown) => error) });
+  const registry = getCommunityDbRegistry(original)!;
+  await waitFor(() => expect(registry.collections.serverRail.get("account")?.entries).toEqual(entries));
+  act(() => projectCommunityWsEventToDb(original, { type: "community:server.update", serverId: "a", changes: { name: "newer" } }));
+  await act(async () => {
+    if (outcome === "success") resolve({ createdFolderIds: {} }); else reject(new Error("denied"));
+    await result;
+  });
+  if (outcome === "success") expect(registry.collections.serverRail.get("account")?.entries).toEqual(entries);
+  else expect(registry.collections.serverRail.get("account")).toBeUndefined();
+  expect(registry.collections.servers.get("a")?.name).toBe("newer");
+});

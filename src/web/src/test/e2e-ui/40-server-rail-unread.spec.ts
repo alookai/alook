@@ -21,11 +21,9 @@ async function combineServers(page: Page, sourceId: string, targetId: string) {
   await sourceButton.focus()
   await targetButton.focus()
   const source = sourceButton
-    .locator("xpath=ancestor::*[@draggable='true'][1]")
   const target = targetButton
-    .locator("xpath=ancestor::*[@draggable='true'][1]")
-  await expect(source).toHaveCount(1)
-  await expect(target).toHaveCount(1)
+  await expect(source).toHaveAttribute("draggable", "true")
+  await expect(target).toHaveAttribute("draggable", "true")
   const targetBox = await target.boundingBox()
   if (!targetBox) throw new Error("server rail drag target is outside the viewport")
   let responseStatus: number | null = null
@@ -136,7 +134,8 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   await page.getByTestId(tid.serverIcon(foregroundServer)).focus()
   await expectIndicatorHeight(backgroundIndicator, 10)
   await folder.click()
-  await expect(page.getByTestId(tid.serverIcon(backgroundServer))).toHaveCount(0)
+  await expect(folder).toHaveAttribute("aria-expanded", "false")
+  await expect(backgroundIcon).not.toBeInViewport()
   await page.mouse.move(300, 300)
   await page.getByTestId(tid.serverIcon(foregroundServer)).focus()
   await expectIndicatorHeight(folderIndicator, 10)
@@ -149,7 +148,8 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   await backgroundIcon.click()
   await expectIndicatorHeight(backgroundIndicator, 32)
   await folder.click()
-  await expect(page.getByTestId(tid.serverIcon(backgroundServer))).toHaveCount(0)
+  await expect(folder).toHaveAttribute("aria-expanded", "false")
+  await expect(backgroundIcon).not.toBeInViewport()
   await expectIndicatorHeight(folderIndicator, 32)
   await folder.click()
   await expect(backgroundIcon).toBeVisible()
@@ -172,7 +172,7 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${foregroundServer}`)
-  if (await backgroundIcon.count() === 0) {
+  if (await folder.getAttribute("aria-expanded") !== "true") {
     await folder.click()
     await expect(backgroundIcon).toBeVisible()
   }
@@ -359,13 +359,14 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   const beforeFolder = await flow.elementHandle()
   expect(beforeFolder).not.toBeNull()
   await folder.click()
-  await expect(backgroundIcon).toHaveCount(0)
+  await expect(folder).toHaveAttribute("aria-expanded", "false")
+  await expect(backgroundIcon).not.toBeInViewport()
   await sendMention(`Server folder update ${stamp}`)
-  await expectPrimaryCount("folder-unmounted", 2)
-  await capture("folder-unmounted", 2)
+  await expectPrimaryCount("folder-hidden", 2)
+  await capture("folder-hidden", 2)
   await folder.click()
-  await expectVisibleDigits("folder-remount", 2)
-  expect(await flow.evaluate((element, prior) => element === prior, beforeFolder)).toBe(false)
+  await expectVisibleDigits("folder-reopen", 2)
+  expect(await flow.evaluate((element, prior) => element === prior, beforeFolder)).toBe(true)
 })
 
 

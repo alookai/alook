@@ -58,7 +58,7 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   const view = render(node("/c/channels/target", 0))
   const scroll = await view.findByTestId(tid.channelSidebarScroll)
   const row = view.getByTestId(tid.channelRow("channel"))
-  expect(row).toHaveAttribute("aria-roledescription", "sortable")
+  expect(row).toHaveAttribute("aria-roledescription", "draggable")
   const header = grouped ? view.getByText("Group") : null
   scroll.scrollTop = 37
   row.setAttribute("data-retained-row", "original")
@@ -88,11 +88,11 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   await act(async () => { view.rerender(node(mocks.pathname, 2)) })
   await waitFor(() => expect(view.getByTestId("pending")).toHaveTextContent("false"))
   assertNodes()
-  expect(row).toHaveAttribute("aria-roledescription", "sortable")
+  expect(row).toHaveAttribute("aria-roledescription", "draggable")
   const user = setupUser()
   act(() => row.focus())
   await user.keyboard(" ")
-  expect(row).toHaveAttribute("aria-pressed", "true")
+  expect(row).not.toHaveAttribute("aria-pressed")
   await user.keyboard("{Escape}")
   assertNodes()
   if (header) {

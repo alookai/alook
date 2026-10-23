@@ -26,6 +26,7 @@ export const communityContentAccessKinds = {
   "community:channel.membership.change": "control",
   "community:member.join": "control",
   "community:server.update": "control",
+  "community:server_rail.changed": "control",
   "community:channel.reorder": "control",
   "community:category.create": "control",
   "community:category.update": "control",

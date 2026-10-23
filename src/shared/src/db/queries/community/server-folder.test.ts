@@ -1,35 +1,21 @@
-import { describe, expect, it, vi } from "vitest"
-import { listFolders } from "./server-folder"
+import { describe, expect, it, vi } from "vitest";
+const { readServerRailSnapshot } = vi.hoisted(() => ({ readServerRailSnapshot: vi.fn() }));
+vi.mock("./server-rail", () => ({ readServerRailSnapshot }));
+import { listFolders } from "./server-folder";
 
 describe("listFolders", () => {
-  it("keeps an unavailable server reference renderable", async () => {
-    const folderChain: Record<string, ReturnType<typeof vi.fn>> = {}
-    folderChain.from = vi.fn(() => folderChain)
-    folderChain.where = vi.fn(() => folderChain)
-    folderChain.orderBy = vi.fn().mockResolvedValue([{ id: "folder_1", name: "Saved", position: 0 }])
-
-    const itemChain: Record<string, ReturnType<typeof vi.fn>> = {}
-    itemChain.from = vi.fn(() => itemChain)
-    itemChain.leftJoin = vi.fn(() => itemChain)
-    itemChain.where = vi.fn(() => itemChain)
-    itemChain.orderBy = vi.fn().mockResolvedValue([{
-      serverId: "server_missing",
-      position: 0,
-      serverName: null,
-      serverIcon: null,
-    }])
-
-    const db = {
-      select: vi.fn()
-        .mockReturnValueOnce(folderChain)
-        .mockReturnValueOnce(itemChain),
-    }
-
-    await expect(listFolders(db as never, "user_1")).resolves.toEqual([{
-      id: "folder_1",
-      name: "Saved",
-      position: 0,
-      servers: [{ id: "server_missing", name: "Server unavailable", icon: null }],
-    }])
-  })
-})
+  it("uses canonical folder order and scoped live member data", async () => {
+    const topOrder = [{ kind: "folder", id: "second" }, { kind: "server", id: "a" }, { kind: "folder", id: "first" }];
+    readServerRailSnapshot.mockResolvedValue({
+      serverIds: ["a", "b", "c"], folderIds: ["first", "second"], topOrder,
+      folders: { first: { id: "first", name: "First", serverIds: ["b"] }, second: { id: "second", name: "Second", serverIds: ["c"] } },
+    });
+    const chain: any = { from: () => chain, innerJoin: async () => [{ id: "b", name: "B", icon: null }, { id: "c", name: "C", icon: "c.png" }] };
+    const db = { select: () => chain };
+    await expect(listFolders(db as never, "viewer")).resolves.toEqual({ topOrder, folders: [
+      { id: "second", name: "Second", servers: [{ id: "c", name: "C", icon: "c.png" }] },
+      { id: "first", name: "First", servers: [{ id: "b", name: "B", icon: null }] },
+    ] });
+    expect(readServerRailSnapshot).toHaveBeenCalledWith(db, "viewer");
+  });
+});

@@ -10,12 +10,14 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  type ComponentProps,
   type CSSProperties,
   type ReactNode,
   type Ref,
 } from "react"
+import type { ServerRailEntry } from "@alook/shared"
 import { Plus } from "lucide-react"
-import { announce, cleanup as cleanupLiveRegion } from "@atlaskit/pragmatic-drag-and-drop-live-region"
+import { CommunityDndProvider, useCommunityDndScrolling } from "../community-dnd"
 import { RailIcon } from "./rail-icon"
 import { AnimatedAlookLogo } from "./animated-alook-logo"
 import { tid } from "@/lib/community/testids"
@@ -25,20 +27,20 @@ import { CommunityNavigationLink } from "./community-navigation-link"
 import { serverRootHref } from "@/lib/community/community-route"
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
+import { ServerRailDragPreview } from "./server-rail-drag-preview"
 import { RailIndicator } from "./rail-indicator"
 import { CreateServerDialog } from "../settings/create-server-dialog"
 import {
   cloneRailState,
   commitRailInstruction,
-  planRailPersistence,
   railMoveAnnouncement,
   railStateFromData,
-  visibleTopLevelServers,
+  railTopLevel,
   type RailEntity,
   type RailInstruction,
   type RailState,
 } from "@/lib/community/server-rail-model"
-import { useServerRailPdd } from "./use-server-rail-pdd"
+import { RailEndDropTarget, RailFolderGapDropTarget, useServerRailDnd } from "./use-server-rail-dnd"
 import { useServerRailCommit } from "@/hooks/community/mutations"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import type { Server, CommunityFolder } from "@/lib/community/models/navigation"
@@ -87,7 +89,7 @@ function ServerRailFrame({
         <div
           ref={scrollRef}
           data-testid={tid.serverRailScroll}
-          className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
+          className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip pt-2 pb-1 thin-scrollbar scrollbar-none"
         >
           {items}
         </div>
@@ -95,9 +97,9 @@ function ServerRailFrame({
         {add && (
           <div
             data-slot="community-server-rail-add"
-            className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
+            className="flex w-full shrink-0 justify-center pt-2 pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom)+0.5rem)] sm:pb-[calc(var(--community-rail-bottom-inset)+0.5rem)]"
             style={{
-              "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
+              "--community-rail-bottom-inset": `${bottomInset ?? 0}px`,
             } as CSSProperties}
           >
             {add}
@@ -109,11 +111,13 @@ function ServerRailFrame({
   )
 }
 
-export const ServerRail = memo(function ServerRail({
+function ServerRailContent({
   servers,
   homeHref = "/c/me",
   serverHrefs = {},
   folders,
+  topOrder,
+  navigationKey,
   activeServerId: activeServerIdProp,
   serversLoading,
   view,
@@ -130,6 +134,8 @@ export const ServerRail = memo(function ServerRail({
   homeHref?: string
   serverHrefs?: Readonly<Record<string, string>>
   folders: CommunityFolder[]
+  topOrder?: ServerRailEntry[]
+  navigationKey?: string
   activeServerId?: string
   serversLoading?: boolean
   view: View
@@ -142,15 +148,17 @@ export const ServerRail = memo(function ServerRail({
   onOpenSettings?: (serverId: string) => void
   onOpenInvitePopover?: (serverId: string) => void
 }) {
+  const [announcement, announce] = useAtom(useCreateAtom(""))
   const isPreview = useCommunityPreviewNavigation()
   const expandedAtom = useCreateAtom<string[]>([])
   const [expanded, setExpanded] = useAtom(expandedAtom)
-  const collapsedAtom = useCreateAtom(new Set<string>())
+  const expansionOverrides = useCreateAtom(new Map<string, boolean>())
   const dragSnapshotAtom = useCreateAtom<RailState | null>(null)
   const [preview, setPreview] = useAtom(useCreateAtom<RailInstruction | null>(null))
   const [dragSource, setDragSource] = useAtom(useCreateAtom<RailEntity | null>(null))
   const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false))
   const scrollRef = useRef<HTMLDivElement>(null)
+  useCommunityDndScrolling(scrollRef, "community/server-rail")
   const serverActivationRef = useRef({ onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover })
   const railMutation = useServerRailCommit()
   const communityRuntime = useCommunityRuntime()
@@ -169,15 +177,15 @@ export const ServerRail = memo(function ServerRail({
     }
   }, [registry, viewLifecycle])
   const storageKey = `alook:community:${registry?.accountId ?? "anon"}:rail-open-folders`
-  const renderState = useMemo(() => railStateFromData(servers.map((server) => server.id), folders, expanded), [servers, folders, expanded])
+  const renderState = useMemo(() => railStateFromData(servers.map((server) => server.id), folders, expanded, topOrder), [servers, folders, expanded, topOrder])
   const claimMutation = useCallback(() => {
     if (railMutation.isCommandPending()) {
       announce("A server rail move is already being saved")
       return false
     }
     return true
-  }, [railMutation])
-  const releaseMutation = useCallback(() => collapsedAtom.set(() => new Set()), [collapsedAtom])
+  }, [announce, railMutation])
+  const releaseMutation = useCallback(() => expansionOverrides.set(() => new Map()), [expansionOverrides])
   useEffect(() => {
     try {
       if (isPreview) return
@@ -194,7 +202,6 @@ export const ServerRail = memo(function ServerRail({
     sessionStorage.setItem(storageKey, JSON.stringify(expanded))
   }, [isPreview, expanded, storageKey])
 
-  useEffect(() => () => cleanupLiveRegion(), [])
 
   const activeFromProps = activeServerIdProp ?? servers.find((server) => server.active)?.id ?? ""
   const [localActiveId, setLocalActiveId] = useAtom(useCreateAtom(activeFromProps))
@@ -269,13 +276,13 @@ export const ServerRail = memo(function ServerRail({
     const assertUI = captureUI()
     setExpanded(result.state.expanded)
     railMutation.mutate(
-      { before, after: result.state, commands: result.commands, assertUI },
+      { commands: result.commands, assertUI },
       {
         onSuccess: (response) => {
           try { assertUI() } catch { return }
           setExpanded((current) => {
             const next = new Set(current.map((id) => response.createdFolderIds[id] ?? id))
-            for (const [clientId, id] of Object.entries(response.createdFolderIds)) if (!collapsedAtom.get().has(clientId) && !collapsedAtom.get().has(id)) next.add(id)
+            for (const [clientId, id] of Object.entries(response.createdFolderIds)) if (expansionOverrides.get().get(clientId) !== false && expansionOverrides.get().get(id) !== false) next.add(id)
             return [...next]
           })
           announce(label)
@@ -283,7 +290,11 @@ export const ServerRail = memo(function ServerRail({
         onError: () => {
           try { assertUI() } catch { return }
           const created = new Set(result.commands.flatMap((command) => command.kind === "create-folder" ? [command.clientId] : []))
-          setExpanded((current) => current.filter((id) => !created.has(id)))
+          setExpanded(() => {
+            const restored = new Set(before.expanded)
+            for (const [id, open] of expansionOverrides.get()) { if (open) restored.add(id); else restored.delete(id) }
+            return [...restored].filter((id) => !created.has(id))
+          })
           announce(`${label} failed and was rolled back`)
         },
         onSettled: () => {
@@ -293,52 +304,18 @@ export const ServerRail = memo(function ServerRail({
         },
       },
     )
-  }, [isPreview, captureUI, claimMutation, collapsedAtom, focusEntity, folderNames, railMutation, releaseMutation, serverNames, setExpanded])
+  }, [announce, isPreview, captureUI, claimMutation, expansionOverrides, focusEntity, folderNames, railMutation, releaseMutation, serverNames, setExpanded])
 
-  const ungroupFolder = useCallback((folderId: string) => {
-    const before = cloneRailState(renderState)
-    const after = cloneRailState(renderState)
-    const firstServerId = before.folders[folderId]?.[0]
-    delete after.folders[folderId]
-    after.folderOrder = after.folderOrder.filter((id) => id !== folderId)
-    after.expanded = after.expanded.filter((id) => id !== folderId)
-    const commands = planRailPersistence(before, after)
-    if (commands.length !== 1) return
-    if (!claimMutation()) return
-    const assertUI = captureUI()
-    setExpanded(after.expanded)
-    railMutation.mutate(
-      { before, after, commands, assertUI },
-      {
-        onSuccess: () => { try { assertUI() } catch { return }; announce("Group removed") },
-        onError: () => {
-          try { assertUI() } catch { return }
-          if (before.expanded.includes(folderId)) setExpanded((current) => [...new Set([...current, folderId])])
-          announce("Removing group failed and was rolled back")
-        },
-        onSettled: (_data, error) => {
-          try { assertUI() } catch { return }
-          releaseMutation()
-          focusEntity(error || !firstServerId
-            ? { kind: "folder", id: folderId }
-            : { kind: "server", id: firstServerId }, { afterReconcile: true }, assertUI)
-        },
-      },
-    )
-  }, [captureUI, claimMutation, focusEntity, railMutation, releaseMutation, renderState, setExpanded])
-
-  const { registerItem } = useServerRailPdd({
-    scrollRef,
+  const dnd = useServerRailDnd({
     getState: () => renderState,
     canStart: () => !isPreview && !railMutation.isCommandPending(),
-    getEntityLabel: (entity) => entity.kind === "server"
-      ? serverNames.get(entity.id) ?? "Server"
-      : folderNames.get(entity.id) ?? "Group",
     onDragStart: (source) => {
       dragSnapshotAtom.set(() => cloneRailState(renderState))
       setDragSource(source)
     },
-    onPreview: setPreview,
+    onPreview: (instruction) => {
+      setPreview(instruction)
+    },
     onDrop: (instruction) => {
       const before = dragSnapshotAtom.get() ?? cloneRailState(renderState)
       dragSnapshotAtom.set(() => null)
@@ -349,16 +326,9 @@ export const ServerRail = memo(function ServerRail({
       dragSnapshotAtom.set(() => null)
       setDragSource(null)
     },
-    onHoverExpand: (folderId) => {
-      setExpanded((current) => current.includes(folderId) ? current : [...current, folderId])
-    },
-    onAnnounce: announce,
   })
+  useLayoutEffect(() => { dnd.cancel() }, [dnd, navigationKey, activeFromProps, view, registry?.accountId])
 
-  const previewFor = (entity: RailEntity) => preview?.target.kind === entity.kind
-    && preview.target.id === entity.id
-    ? preview.operation
-    : null
   const dragging = (entity: RailEntity) => dragSource?.kind === entity.kind
     && dragSource.id === entity.id
   const folderServers = (folderId: string): Server[] => (renderState.folders[folderId] ?? [])
@@ -385,85 +355,62 @@ export const ServerRail = memo(function ServerRail({
     </Tooltip>
   )
   const serverListPending = serversLoading && servers.length === 0 && folders.length === 0
-  const items = serverListPending ? (
-    <ServerRailSkeleton />
-  ) : (
+  const serverItem = (server: Server, inFolder = false) => (
+    <SortableServer key={server.id} server={server}
+      href={serverHrefs[server.id] ?? serverRootHref(server.id)}
+      navigationDisabled={dragSource !== null}
+      active={view !== "dm" && activeId === server.id}
+      onClick={() => pickServer(server.id)}
+      onLeave={inFolder ? undefined : () => onLeaveServer?.(server.id)}
+      onOpenSettings={() => serverActivationRef.current.onOpenSettings?.(server.id)}
+      onOpenInvitePopover={onOpenInvitePopover ? () => serverActivationRef.current.onOpenInvitePopover?.(server.id) : undefined}
+      inFolder={inFolder} dragging={dragging({ kind: "server", id: server.id })}
+      preview={preview?.target.kind === "server" && preview.target.id === server.id && preview.operation !== "append" ? preview.operation : null}
+      combineWith={preview?.operation === "combine" && preview.target.kind === "server" && preview.target.id === server.id && preview.source.kind === "server" ? serverById.get(preview.source.id) : undefined}
+      dnd={dnd} dragDescriptionId={DRAG_INSTRUCTIONS_ID}
+    />
+  )
+  const items = serverListPending ? <ServerRailSkeleton /> : (
     <div className="flex w-full flex-col items-center gap-2">
-      {visibleTopLevelServers(renderState).map((serverId) => {
-        const server = serverById.get(serverId)
-        if (!server) return null
+      {railTopLevel(renderState).map((entry, index, entries) => {
+        if (entry.kind === "server") {
+          const server = serverById.get(entry.id)
+          return server ? serverItem(server) : null
+        }
+        const folderId = entry.id
+        const children = folderServers(folderId)
+        const open = renderState.expanded.includes(folderId) && !dragging(entry)
+        const operation = preview?.target.kind === "folder" && preview.target.id === folderId && preview.operation !== "append" ? preview.operation : null
         return (
-          <SortableServer
-            key={serverId}
-            server={server}
-            href={serverHrefs[serverId] ?? serverRootHref(serverId)}
-            navigationDisabled={dragSource !== null}
-            active={view !== "dm" && activeId === serverId}
-            onClick={() => pickServer(serverId)}
-            onLeave={() => onLeaveServer?.(serverId)}
-            onOpenSettings={() => serverActivationRef.current.onOpenSettings?.(serverId)}
-            onOpenInvitePopover={onOpenInvitePopover ? () => serverActivationRef.current.onOpenInvitePopover?.(serverId) : undefined}
-            dragging={dragging({ kind: "server", id: serverId })}
-            preview={previewFor({ kind: "server", id: serverId })}
-            registerItem={registerItem}
-            dragDescriptionId={DRAG_INSTRUCTIONS_ID}
-          />
-        )
-      })}
-      {renderState.folderOrder.map((folderId) => {
-        const serversInFolder = folderServers(folderId)
-        const open = renderState.expanded.includes(folderId)
-          && !(dragSource?.kind === "folder" && dragSource.id === folderId)
-        return (
-          <div key={folderId} className="flex w-full flex-col items-center gap-2">
-            <RailFolder
-              folderId={folderId}
-              name={folderNames.get(folderId) ?? "Group"}
-              open={open}
-              active={!open && serversInFolder.some((server) => server.id === activeId)}
-              unread={!open && serversInFolder.some((server) => server.unread)}
+          <div key={`folder:${folderId}`} data-slot="community-rail-folder-surface" data-folder-id={folderId}
+            data-rail-preview={operation || undefined}
+            className="relative w-full py-1">
+            <RailFolderGapDropTarget dnd={dnd} folderId={folderId} operation="reorder-before" testId={tid.serverRailFolderBefore(folderId)} />
+            {index < entries.length - 1 && <RailFolderGapDropTarget dnd={dnd} folderId={folderId} operation="reorder-after" testId={tid.serverRailFolderAfter(folderId)} />}
+            <div data-slot="community-rail-folder-backdrop" className={`pointer-events-none absolute inset-x-1 inset-y-0 rounded-[12px] bg-accent/50 dark:bg-accent ${operation === "combine" ? "ring-2 ring-primary" : ""}`} />
+            {operation && operation !== "combine" && <span data-slot="community-server-rail-insert" className={`pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-primary ${operation === "reorder-before" ? "-top-1 -translate-y-1/2" : "-bottom-1 translate-y-1/2"}`} />}
+            <RailFolder folderId={folderId} name={folderNames.get(folderId) ?? "Group"} open={open}
+              active={!open && children.some((server) => server.id === activeId)}
+              unread={!open && children.some((server) => server.unread)}
               onToggle={() => setExpanded((current) => {
-                const collapsing = current.includes(folderId)
-                if (railMutation.isCommandPending()) collapsedAtom.set((values) => {
-                  const next = new Set(values)
-                  if (collapsing) next.add(folderId)
-                  else next.delete(folderId)
-                  return next
-                })
-                return collapsing ? current.filter((id) => id !== folderId) : [...current, folderId]
+                const expanding = !current.includes(folderId)
+                if (railMutation.isCommandPending()) expansionOverrides.set((previous) => new Map(previous).set(folderId, expanding))
+                return expanding ? [...current, folderId] : current.filter((id) => id !== folderId)
               })}
-              folderServers={serversInFolder}
-              onUngroup={() => ungroupFolder(folderId)}
-              dragging={dragging({ kind: "folder", id: folderId })}
-              preview={previewFor({ kind: "folder", id: folderId })}
-              registerItem={registerItem}
-              dragDescriptionId={DRAG_INSTRUCTIONS_ID}
+              folderServers={children} dragging={dragging(entry)} dnd={dnd} dragDescriptionId={DRAG_INSTRUCTIONS_ID}
             />
-            {open && serversInFolder.length > 0 && (
-              <div className="relative flex w-full flex-col items-center gap-2 py-1">
-                <span className="pointer-events-none absolute inset-y-0 left-1/2 w-12 -translate-x-1/2 rounded-[20px] bg-primary/10" />
-                {serversInFolder.map((server) => (
-                  <SortableServer
-                    key={server.id}
-                    server={server}
-                    href={serverHrefs[server.id] ?? serverRootHref(server.id)}
-                    navigationDisabled={dragSource !== null}
-                    active={view !== "dm" && activeId === server.id}
-                    onClick={() => pickServer(server.id)}
-                    onOpenSettings={() => serverActivationRef.current.onOpenSettings?.(server.id)}
-                    onOpenInvitePopover={onOpenInvitePopover ? () => serverActivationRef.current.onOpenInvitePopover?.(server.id) : undefined}
-                    inFolder
-                    dragging={dragging({ kind: "server", id: server.id })}
-                    preview={previewFor({ kind: "server", id: server.id })}
-                    registerItem={registerItem}
-                    dragDescriptionId={DRAG_INSTRUCTIONS_ID}
-                  />
-                ))}
+            <div className={`relative grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`} inert={!open}>
+              <div className="min-h-0 overflow-hidden">
+                <div className="flex w-full flex-col items-center gap-2 pt-2">
+                  {children.map((server) => serverItem(server, true))}
+                  <RailEndDropTarget dnd={dnd} target={{ kind: "folder-content", id: folderId }} testId={tid.serverRailFolderEnd(folderId)} />
+                </div>
               </div>
-            )}
+            </div>
           </div>
         )
       })}
+      <RailEndDropTarget dnd={dnd} target={{ kind: "root", id: "root" }} testId={tid.serverRailEnd} />
     </div>
   )
 
@@ -490,10 +437,11 @@ export const ServerRail = memo(function ServerRail({
         />
       )}
     >
+      <ServerRailDragPreview dnd={dnd} servers={serverById} folderNames={folderNames} state={renderState} activeServerId={view === "dm" ? "" : activeId} />
       <span id={DRAG_INSTRUCTIONS_ID} className="sr-only">
-        Press Space to pick up a server or group. Use the arrow keys to choose a position,
-        Space or Enter to drop, and Escape to cancel.
+        Drag to move a server or group. On touch screens, hold before moving. Escape cancels.
       </span>
+      <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
       {createOpen && (
         <CreateServerDialog
           onClose={() => setCreateOpen(false)}
@@ -502,6 +450,10 @@ export const ServerRail = memo(function ServerRail({
       )}
     </ServerRailFrame>
   )
+}
+
+export const ServerRail = memo(function ServerRail(props: ComponentProps<typeof ServerRailContent>) {
+  return <CommunityDndProvider><ServerRailContent {...props} /></CommunityDndProvider>
 })
 
 export function ServerRailPending({ bottomInset }: { bottomInset?: number }) {

@@ -14,7 +14,7 @@ import {
   type ChannelOrder,
 } from "./use-channel-tree"
 import type { Channel, Category } from "@/lib/community/models/navigation"
-import type { DragEndEvent } from "@dnd-kit/core"
+import type { ChannelTreeDrop } from "./use-channel-tree"
 
 const ch = (id: string): Channel => ({ id, name: id, active: false, unread: false })
 const category = (id: string, channels: Channel[]): Category => ({ id, name: id, channels })
@@ -79,10 +79,10 @@ async function renderTreeHook(categories: Category[]) {
   }
 }
 
-const dragEvent = (activeId: string, overId: string): DragEndEvent => ({
+const dragEvent = (activeId: string, overId: string): ChannelTreeDrop => ({
   active: { id: activeId },
   over: { id: overId },
-}) as DragEndEvent
+}) as ChannelTreeDrop
 
 const order: ChannelOrder = {
   cat_A: [ch("a1"), ch("a2")],
@@ -181,27 +181,16 @@ describe("useChannelTree opaque category drag callbacks", () => {
     category("9qsh2k", [ch("b1"), ch("b2")]),
   ]
 
-  it("previews a same-privacy category move and settles the destination order", async () => {
+  it("settles a same-privacy category move only on drop", async () => {
     const moving = { ...ch("a1"), name: "Canonical channel", unread: true }
     const hook = await renderTreeHook([
       category("5vg7bs", [moving, ch("a2")]),
       category("9qsh2k", [ch("b1"), ch("b2")]),
     ])
-
-    await hook.drag((tree) => tree.onDragOver(dragEvent("a1", "b2")))
-
+    await hook.drag((tree) => tree.onDragEnd(dragEvent("a1", "b2")))
     expect(hook.current.order["5vg7bs"].map((channel) => channel.id)).toEqual(["a2"])
     expect(hook.current.order["9qsh2k"].map((channel) => channel.id)).toEqual(["b1", "a1", "b2"])
     expect(hook.current.order["9qsh2k"][1]).toEqual(moving)
-    const preview = hook.current.order
-    await hook.drag((tree) => tree.onDragOver(dragEvent("a1", "b2")))
-    expect(hook.current.order).toBe(preview)
-
-    await hook.drag((tree) => tree.onDragEnd(dragEvent("a1", "b2")))
-
-    expect(hook.current.order["5vg7bs"].map((channel) => channel.id)).toEqual(["a2"])
-    expect(hook.current.order["9qsh2k"].map((channel) => channel.id)).toEqual(["b1", "b2", "a1"])
-    expect(hook.current.order["9qsh2k"][2]).toEqual(moving)
     expect(hook.current.catOrder).toEqual(["5vg7bs", "9qsh2k"])
   })
 
@@ -212,18 +201,18 @@ describe("useChannelTree opaque category drag callbacks", () => {
     ])
     const before = hook.current.order
 
-    await hook.drag((tree) => tree.onDragOver(dragEvent("a1", "b1")))
+    await hook.drag((tree) => tree.onDragEnd(dragEvent("a1", "b1")))
 
     expect(hook.current.order).toBe(before)
     expect(hook.current.order["5vg7bs"].map((channel) => channel.id)).toEqual(["a1"])
     expect(hook.current.order["9qsh2k"].map((channel) => channel.id)).toEqual(["b1"])
   })
 
-  it("ignores category drag-over instead of moving a channel", async () => {
+  it("ignores category dropped over a channel instead of moving a channel", async () => {
     const hook = await renderTreeHook(categories)
     const before = hook.current.order
 
-    await hook.drag((tree) => tree.onDragOver(dragEvent("5vg7bs", "b1")))
+    await hook.drag((tree) => tree.onDragEnd(dragEvent("5vg7bs", "b1")))
 
     expect(hook.current.order).toBe(before)
     expect(hook.current.order["5vg7bs"].map((channel) => channel.id)).toEqual(["a1", "a2"])
@@ -290,7 +279,7 @@ describe("useChannelTree scope ownership", () => {
     const initialToggle = current.toggleCat
 
     await act(async () => current.toggleCat("cat_A"))
-    await act(async () => current.onDragOver(dragEvent("a2", "a1")))
+    await act(async () => current.onDragEnd(dragEvent("a2", "a1")))
     const movedOrder = current.order
 
     renderer.rerender(React.createElement(ScopedCaptureTree, {
@@ -322,7 +311,7 @@ describe("useChannelTree scope ownership", () => {
 
     const current = samples.at(-1)!.tree
     await act(async () => current.toggleCat("cat_A"))
-    await act(async () => current.onDragOver(dragEvent("a2", "a1")))
+    await act(async () => current.onDragEnd(dragEvent("a2", "a1")))
     const ownerA = samples.at(-1)!.ownerId
     samples.length = 0
 

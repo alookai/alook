@@ -12,7 +12,7 @@ import { NextRequest } from "next/server"
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
 }))
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }))
 
 // No-`crk_` request falls through to the human withAuth path; mock Better-Auth
 // to "no session" so a no-auth request yields the human-path 401 rather than a

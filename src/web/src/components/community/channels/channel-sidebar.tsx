@@ -5,13 +5,10 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { OfficialServerBadge } from "../official-server-badge"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { channelHref } from "@/lib/community/community-route"
-import { Fragment, memo, useEffect, useRef, type MouseEvent } from "react"
+import { Fragment, memo, useEffect, useRef, type ComponentProps, type MouseEvent } from "react"
 import { Settings, Users, Link2, Bell, ChevronDown, UserPlus } from "lucide-react"
-import {
-  DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, useDndContext,
-  type CollisionDetection,
-} from "@dnd-kit/core"
-import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { CommunityDndProvider, useCommunityDndScrolling } from "../community-dnd"
+import { ChannelDndScope, ChannelDropContainer, useChannelDragActive } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,7 +17,7 @@ import { SortableChannel, PendingChannelRow } from "./sortable-channel"
 import { CreateChannelDialog } from "../settings/create-channel-dialog"
 import { CreateCategoryDialog } from "../settings/create-category-dialog"
 import { CategorySettingsDialog } from "../settings/category-settings-dialog"
-import { catId, catOf, reorderChannelsWithin, type ChannelTree } from "./use-channel-tree"
+import { catId, catOf, moveChannelAcrossCategories, reorderChannelsWithin, type ChannelTree } from "./use-channel-tree"
 import { InviteDialog } from "../social/invite-dialog"
 import { ChannelAddMembersDialog } from "../members/channel-add-members-dialog"
 import type { Channel } from "@/lib/community/models/navigation"
@@ -38,20 +35,6 @@ type Dialog =
   | { kind: "category-settings"; categoryId: string }
   | { kind: "manage-members"; channelId: string; channelName: string }
   | null
-
-type SortableData = { kind?: "category" | "channel"; sortable?: { containerId?: string } }
-
-const channelSidebarCollisionDetection: CollisionDetection = (args) => {
-  const activeData = args.active.data.current as SortableData | undefined
-  if (args.pointerCoordinates && activeData?.kind !== "category") return closestCenter(args)
-
-  const containerId = activeData?.sortable?.containerId
-  if (!containerId) return closestCenter(args)
-
-  const sameContainer = args.droppableContainers.filter((container) =>
-    (container.data.current as SortableData | undefined)?.sortable?.containerId === containerId)
-  return closestCenter({ ...args, droppableContainers: sameContainer })
-}
 
 // The channel sidebar (server view). Category/channel reorder + add/remove/rename live in
 // useChannelTree. The category gear/right-click opens settings; "+" (or empty-space
@@ -88,7 +71,7 @@ export type ChannelSidebarProps = {
   onSelectForumThread?: (parentId: string, id: string) => void
 }
 
-export const ChannelSidebar = memo(function ChannelSidebar({
+function ChannelSidebarContent({
   tree, serverName, official, activeChannel, setActiveChannel, noHeader, onOpenSettings,
   isAdmin = true, currentUserId, onBlockedCreate, mutedChannels,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
@@ -97,7 +80,9 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   serverId, invitePopoverOpen, onInvitePopoverOpenChange,
   forumThreadsByParent = {}, activeThreadId, onSelectForumThread,
 }: ChannelSidebarProps) {
-  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, onDragOver, onDragEnd: treeDragEnd } = tree
+  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, onDragEnd: treeDragEnd } = tree
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useCommunityDndScrolling(scrollRef, "community/channel-tree")
   const menuActionsRef = useRef<ContextMenuPrimitive.Root.Actions | null>(null)
   useEffect(() => {
     if (!isAdmin) {
@@ -105,78 +90,28 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       menuActionsRef.current?.unmount()
     }
   }, [isAdmin])
-  // Category the dragged channel started in — captured at drag start, because
-  // `onDragOver` mutates `order` mid-drag so by drop time it already reflects
-  // the destination.
-  const dragOriginCat = useRef<string | undefined>(undefined)
-  const onDragStart = (e: { active: { id: string | number } }) => {
-    const activeStr = String(e.active.id)
-    dragOriginCat.current = catOrder.includes(activeStr) ? undefined : catOf(activeStr, order)
-  }
-  const onDragEnd = (e: Parameters<typeof treeDragEnd>[0]) => {
-    const originCat = dragOriginCat.current
-    dragOriginCat.current = undefined
-    treeDragEnd(e)
-    const { active, over } = e
+  const onDragEnd = (event: Parameters<typeof treeDragEnd>[0]) => {
+    const { active, over } = event
     if (!over || active.id === over.id) return
-    const activeStr = String(active.id)
-    const overStr = String(over.id)
-    const activeIsCategory = catOrder.includes(activeStr)
-    const overIsCategory = catOrder.includes(overStr)
-    if (activeIsCategory && overIsCategory) {
-      const reordered = catOrder.indexOf(activeStr) !== -1 ? (() => {
-        const from = catOrder.indexOf(activeStr)
-        const to = catOrder.indexOf(overStr)
-        if (from === -1 || to === -1) return null
-        const next = [...catOrder]
-        const [item] = next.splice(from, 1)
-        next.splice(to, 0, item)
-        return next
-      })() : null
-      // Never send an optimistic (pending) category id to the reorder endpoint.
-      if (reordered) onReorderCategories?.(reordered.filter((cid) => !catPending[cid]))
-    } else if (!activeIsCategory) {
-      // The channel's category AFTER onDragOver settled the optimistic move.
-      const destCat = catOf(activeStr, order)
-      // A blocked public↔private move: the cursor landed in a different-privacy
-      // category, so onDragOver refused to move it and destCat === originCat.
-      // Detect the attempt from the drop target and warn.
-      const dropTargetCat = overIsCategory ? overStr : catOf(overStr, order)
-      if (
-        originCat && dropTargetCat && dropTargetCat !== originCat &&
-        destCat === originCat &&
-        !!catPrivate[originCat] !== !!catPrivate[dropTargetCat]
-      ) {
-        onBlockedMove?.()
-        return
-      }
-      // Persist a same-privacy cross-category move: write the new categoryId
-      // (translating the synthetic uncategorized bucket to null), then reorder.
-      //
-      // `treeDragEnd(e)` above settles the drop via `setOrder(...)`, which only
-      // applies on the NEXT render — so the `order` closure here is still the
-      // PRE-drop order for a same-category reorder (`onDragOver` never touched
-      // it in that case). Reading it directly would PATCH the old sequence and
-      // the reorder wouldn't persist. Recompute the settled order synchronously
-      // from the same pure helper `treeDragEnd` uses. Cross-category is already
-      // settled by `onDragOver`, and re-settling within the destination is
-      // idempotent — so this is correct for both paths.
-      const settledOrder = reorderChannelsWithin(order, activeStr, overStr)
-      const allChannelIds = catOrder.flatMap((cat) => (settledOrder[cat] ?? []).filter((c) => !c.pending).map((c) => c.id))
-      if (destCat && originCat && destCat !== originCat) {
-        // The uncategorized bucket (empty name, synthetic id) maps back to a
-        // real `categoryId: null` for the PATCH.
-        const isUncategorized = catNames[destCat] === "" || destCat === UNCATEGORIZED_CATEGORY_ID
-        onMoveChannel?.(activeStr, isUncategorized ? null : destCat)
-      }
-      onReorderChannels?.(allChannelIds)
+    const activeId = active.id, overId = over.id
+    if (catOrder.includes(activeId)) {
+      if (!catOrder.includes(overId)) return
+      treeDragEnd(event)
+      const next = [...catOrder]
+      next.splice(next.indexOf(activeId), 1)
+      next.splice(catOrder.indexOf(overId), 0, activeId)
+      onReorderCategories?.(next.filter((id) => catNames[id] !== "" && id !== UNCATEGORIZED_CATEGORY_ID && !catPending[id]))
+      return
     }
+    const from = catOf(activeId, order), to = catOf(overId, order)
+    if (!from || !to) return
+    if (!!catPrivate[from] !== !!catPrivate[to]) { onBlockedMove?.(); return }
+    const settled = from === to ? reorderChannelsWithin(order, activeId, overId) : moveChannelAcrossCategories(order, activeId, overId)
+    if (settled === order) return
+    treeDragEnd(event)
+    if (from !== to) onMoveChannel?.(activeId, catNames[to] === "" || to === UNCATEGORIZED_CATEGORY_ID ? null : to)
+    onReorderChannels?.(catOrder.flatMap((id) => (settled[id] ?? []).filter((channel) => !channel.pending).map((channel) => channel.id)))
   }
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space", "Enter", "Tab"] } }),
-  )
   const [dialog, setDialog] = useAtom(useCreateAtom<Dialog>(null))
   const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
   const hasActiveSidebarThread = !!activeThreadId && Object.values(forumThreadsByParent)
@@ -242,13 +177,11 @@ export const ChannelSidebar = memo(function ChannelSidebar({
     if (id) setActiveChannel(id)
   }
 
-  // one DndContext spans everything: categories sort among themselves, channels across categories
   const channelTree = (
-    <DndContext id="d-channels" sensors={sensors} collisionDetection={channelSidebarCollisionDetection} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
+    <ChannelDndScope tree={tree} onDrop={onDragEnd}>
       {/* uncategorized channels (empty-name category) render bare at the top — no header */}
-      {noneCatId && order[noneCatId]?.length > 0 && (
-        <SortableContext items={order[noneCatId].filter((c) => !c.pending).map((c) => c.id)} strategy={verticalListSortingStrategy}>
-          <div className="mb-4 space-y-1">
+      {noneCatId && (
+        <ChannelDropContainer id={noneCatId} className="mb-4 min-h-2 space-y-1">
             {order[noneCatId].map((ch) => ch.pending ? (
               <PendingChannelRow key={ch.id} ch={ch} />
             ) : (
@@ -265,10 +198,9 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                 {childRows(ch.id)}
               </Fragment>
             ))}
-          </div>
-        </SortableContext>
+        </ChannelDropContainer>
       )}
-      <SortableContext items={catOrder.filter((id) => catNames[id] !== "" && !catPending[id]).map((id) => catId(id))} strategy={verticalListSortingStrategy}>
+
         {catOrder.filter((id) => catNames[id] !== "").map((id) => (
           <SortableCategory
             key={id}
@@ -283,7 +215,6 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             canReorder={isAdmin && !catPending[id]}
             pending={catPending[id]}
           >
-            <SortableContext items={(order[id] ?? []).filter((c) => !c.pending).map((c) => c.id)} strategy={verticalListSortingStrategy}>
               <div className="mt-1 min-h-2 space-y-1">
                 {(order[id] ?? []).map((ch) => {
                   if (ch.pending) return <PendingChannelRow key={ch.id} ch={ch} />
@@ -309,11 +240,9 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                   )
                 })}
               </div>
-            </SortableContext>
           </SortableCategory>
         ))}
-      </SortableContext>
-    </DndContext>
+    </ChannelDndScope>
   )
 
   return (
@@ -361,8 +290,10 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       )}
       <ContextMenu disabled={!isAdmin} actionsRef={menuActionsRef}>
         <ContextMenuTrigger
+          onTouchStart={(event) => { if (isAdmin) event.preventBaseUIHandler() }}
           render={(
             <div
+              ref={scrollRef}
               data-testid={tid.channelSidebarScroll}
               className="min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none"
             />
@@ -420,6 +351,10 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       )}
     </aside>
   )
+}
+
+export const ChannelSidebar = memo(function ChannelSidebar(props: ComponentProps<typeof ChannelSidebarContent>) {
+  return <CommunityDndProvider><ChannelSidebarContent {...props} /></CommunityDndProvider>
 })
 
 function ForumSidebarThreadRow({
@@ -435,7 +370,7 @@ function ForumSidebarThreadRow({
   muted: boolean
   onClick: () => void
 }) {
-  const { active: dragActive } = useDndContext()
+  const dragActive = useChannelDragActive()
   const unread = selectUnreadPresentation({
     accountUnread: thread.unread,
     active,

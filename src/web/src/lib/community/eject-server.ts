@@ -191,7 +191,7 @@ export function isDefinitiveChildMetaFailure(error: unknown): boolean {
 }
 
 // Pure destination picker for the post-eject redirect. When the viewer
-// has any other servers, the first (railOrder-sorted from the API) wins.
+// has any other servers, the first in the canonical rail sequence wins.
 // Otherwise the DM home is the only safe landing spot.
 export function pickPostEjectDestination(
   servers: readonly Pick<Server, "id">[],

@@ -146,6 +146,10 @@ const communityServerUpdateSchema = z.strictObject({
   }),
 })
 
+const communityServerRailChangedSchema = z.strictObject({
+  type: z.literal("community:server_rail.changed"),
+})
+
 const communityServerDeleteSchema = z.strictObject({
   type: z.literal("community:server.delete"),
   serverId: string,
@@ -459,6 +463,7 @@ const commonCommunityEventSchemas = [
   communityTypingStartSchema,
   communityTypingStopSchema,
   communityServerUpdateSchema,
+  communityServerRailChangedSchema,
   communityServerDeleteSchema,
   communityChannelDeleteSchema,
   communityChannelReorderSchema,
@@ -561,6 +566,7 @@ export type CommunityTypingStart = Extract<CommunityWsEvent, { type: "community:
 export type CommunityTypingStop = Extract<CommunityWsEvent, { type: "community:typing.stop" }>
 export type CommunityChildChannelCreate = Extract<CommunityWsEvent, { type: "community:channel.child_create" }>
 export type CommunityChildChannelUpdate = Extract<CommunityWsEvent, { type: "community:channel.child_update" }>
+export type CommunityServerRailChanged = Extract<CommunityWsEvent, { type: "community:server_rail.changed" }>
 export type CommunityServerUpdate = Extract<CommunityWsEvent, { type: "community:server.update" }>
 export type CommunityServerDelete = Extract<CommunityWsEvent, { type: "community:server.delete" }>
 export type CommunityChannelCreate = Extract<CommunityWsEvent, { type: "community:channel.create" }>
@@ -634,6 +640,7 @@ export const WS_EVENTS = {
   CHILD_CHANNEL_CREATE: "community:channel.child_create",
   CHILD_CHANNEL_UPDATE: "community:channel.child_update",
   SERVER_UPDATE: "community:server.update",
+  SERVER_RAIL_CHANGED: "community:server_rail.changed",
   SERVER_DELETE: "community:server.delete",
   CHANNEL_CREATE: "community:channel.create",
   CHANNEL_UPDATE: "community:channel.update",

@@ -130,7 +130,6 @@ export async function useInvite(
           serverId: communityServerInvite.serverId,
           userId: sql<string>`${userId}`.as("user_id"),
           role: sql<string>`${"member"}`.as("role"),
-          railOrder: sql<number>`0`.as("rail_order"),
           joinedAt: sql<string>`${joinedAt}`.as("joined_at"),
         })
         .from(communityServerInvite)

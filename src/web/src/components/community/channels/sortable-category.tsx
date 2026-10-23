@@ -6,10 +6,10 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
 import { ChevronDown, Plus, Settings, Lock, Trash2 } from "lucide-react"
-import { useSortable } from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+import { useChannelDndItem } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { tid } from "@/lib/community/testids"
 import { DropLine } from "../drop-line"
 
 export function hasCategoryMenu(h: { onAddChannel?: () => void; onSettings?: () => void; onDelete?: () => void }) {
@@ -34,19 +34,15 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   children: React.ReactNode
 }) {
   const [confirmingDelete, setConfirmingDelete] = useAtom(useCreateAtom(false))
-  const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: catDndId, data: { kind: "category" }, disabled: !canReorder })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
+  const { setActivatorNodeRef, setNodeRef, isDragging, isOver, lineSide, suppressClick } = useChannelDndItem(catDndId, "category", canReorder)
+  const style = { opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging
-  const lineSide: "top" | "bottom" = activeIndex !== -1 && activeIndex < index ? "bottom" : "top"
   const headerProps = {
     ref: setActivatorNodeRef,
-    ...(canReorder ? attributes : { role: "button", tabIndex: 0 }),
-    ...listeners,
-    onTouchStart: undefined,
-    onTouchStartCapture: listeners?.onTouchStart
-      ? (event: React.TouchEvent<HTMLDivElement>) => listeners.onTouchStart?.(event)
-      : undefined,
-    onClick: onToggle,
+    "data-testid": tid.categoryHeader(catDndId),
+    "data-dragging": isDragging || undefined,
+    role: "button", tabIndex: 0,
+    onClick: () => { if (!suppressClick()) onToggle() },
     className: `group flex w-full touch-manipulation items-center gap-1 rounded px-1 py-1 text-xs font-semibold text-muted-foreground/80 select-none hover:text-foreground ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`,
   }
   const headerInner = (
@@ -90,7 +86,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
     <div ref={setNodeRef} style={style} className={`relative mb-4 ${pending ? "opacity-60" : ""}`}>
       {showLine && <DropLine side={lineSide} />}
       <ContextMenu disabled={!hasMenu} actionsRef={menuActionsRef}>
-        <ContextMenuTrigger render={<div {...headerProps} />}>
+        <ContextMenuTrigger render={<div {...headerProps} />} onTouchStart={(event) => { if (canReorder) event.preventBaseUIHandler() }}>
           {headerInner}
         </ContextMenuTrigger>
         {hasMenu && <ContextMenuContent className="w-48">

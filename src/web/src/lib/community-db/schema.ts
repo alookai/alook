@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
-import { AttentionScopeSchema, AttentionItemSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMessagePreviewSchema, CommunityReadStateResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "@alook/shared"
+import { serverRailEntrySchema, AttentionScopeSchema, AttentionItemSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMessagePreviewSchema, CommunityReadStateResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "@alook/shared"
 
 const nullableString = z.string().nullable()
 const optionalNullableString = nullableString.optional()
@@ -116,7 +116,11 @@ export const readStateClockSchema = z.object({
 export const folderSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
-  position: z.number(),
+})
+
+export const serverRailSchema = z.object({
+  id: z.literal("account"),
+  entries: z.array(serverRailEntrySchema),
 })
 
 export const folderItemSchema = z.object({
@@ -153,6 +157,7 @@ export const communityCollectionSchemas = {
   readStateClock: readStateClockSchema,
   attentionScopes: AttentionScopeSchema,
   attentionItems: AttentionItemSchema,
+  serverRail: serverRailSchema,
   folders: folderSchema,
   folderItems: folderItemSchema,
   notificationSettings: notificationSettingSchema,

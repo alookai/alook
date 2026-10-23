@@ -34,7 +34,6 @@ export type FolderServer = {
 export type CommunityFolder = {
   id: string
   name: string
-  position: number
   servers: FolderServer[]
 }
 

@@ -21,6 +21,8 @@ const handlers = vi.hoisted(() => new Proxy({} as Record<string, ReturnType<type
   },
 }))
 
+vi.mock("./server-rail-reconciliation", () => ({ handleServerRailChanged: handlers.handleServerRailChanged }))
+
 vi.mock("./message-events", () => ({
   handleMessageCreate: handlers.handleMessageCreate,
   handleMessageEdited: handlers.handleMessageEdited,
@@ -88,7 +90,7 @@ describe("community WebSocket registry", () => {
   it("has exactly one entry for each runtime event type", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(47)
+    expect(eventTypes).toHaveLength(48)
     expect(registryTypes).toEqual(eventTypes)
   })
 
@@ -100,8 +102,8 @@ describe("community WebSocket registry", () => {
   })
 
   it("deduplicates the complete policy set", () => {
-    expect(communityWsReconnectPolicies).toHaveLength(15)
-    expect(new Set(communityWsReconnectPolicies).size).toBe(15)
+    expect(communityWsReconnectPolicies).toHaveLength(16)
+    expect(new Set(communityWsReconnectPolicies).size).toBe(16)
   })
 
   it.each([
@@ -131,6 +133,7 @@ describe("community WebSocket registry", () => {
     ["community:message.create", "handleMessageCreate"],
     ["community:typing.start", "handleTypingStart"],
     ["community:server.update", "handleServerUpdate"],
+    ["community:server_rail.changed", "handleServerRailChanged"],
     ["community:member.join", "handleMemberJoin"],
     ["community:friend.accept", "handleFriendEvent"],
     ["community:presence.update", "handlePresenceUpdate"],

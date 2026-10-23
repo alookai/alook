@@ -51,6 +51,7 @@ describe("community DB schemas", () => {
       "readStateClock",
       "attentionScopes",
       "attentionItems",
+      "serverRail",
       "folders",
       "folderItems",
       "notificationSettings",

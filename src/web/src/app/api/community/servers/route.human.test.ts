@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   listUnreadMentionSources: vi.fn(),
 }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({ kind: "db" })) }))
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({ kind: "db" })), getPrimaryDb: vi.fn(() => ({ kind: "db" })) }))
 vi.mock("@/lib/community/storage", () => ({
   serverIconUrl: vi.fn((row: { icon?: string | null }) => row.icon ?? null),
 }))
@@ -48,6 +48,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 import { GET } from "./route"
+import { getDb, getPrimaryDb } from "@/lib/db"
 
 describe("GET /api/community/servers — human unread seed", () => {
   beforeEach(() => {
@@ -82,6 +83,8 @@ describe("GET /api/community/servers — human unread seed", () => {
     const response = await GET(new NextRequest("http://localhost/api/community/servers"))
 
     expect(response.status).toBe(200)
+    expect(getPrimaryDb).toHaveBeenCalledOnce()
+    expect(getDb).not.toHaveBeenCalled()
     await expect(response.json()).resolves.toEqual({
       servers: [
         {

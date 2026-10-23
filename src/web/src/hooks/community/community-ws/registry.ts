@@ -1,3 +1,4 @@
+import { handleServerRailChanged } from "./server-rail-reconciliation"
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { telemetryId, currentPageObservation, startPageOperation, finishPageOperation, pageOperationAttributes, type PageOperation } from "@/lib/observability/context"
@@ -78,6 +79,7 @@ export const communityWsRegistry = {
   "community:typing.stop": { handler: handleTypingStop, reconnectPolicies: ["ephemeral-typing"] },
   "community:channel.child_create": { handler: handleChildChannelCreate, reconnectPolicies: ["focused-threads", "all-cached-servers"] },
   "community:channel.child_update": { handler: handleChildChannelUpdate, reconnectPolicies: ["focused-threads", "all-cached-servers"] },
+  "community:server_rail.changed": { handler: handleServerRailChanged, reconnectPolicies: ["server-rail"] },
   "community:server.update": { handler: handleServerUpdate, reconnectPolicies: ["all-cached-servers"] },
   "community:server.delete": { handler: handleServerDelete, reconnectPolicies: ["all-cached-servers"] },
   "community:channel.create": { handler: handleChannelEvent, reconnectPolicies: ["all-cached-servers"] },

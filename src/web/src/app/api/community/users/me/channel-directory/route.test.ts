@@ -4,7 +4,7 @@ import { NextRequest } from "next/server"
 const listChannelRefDirectoryForUser = vi.fn()
 const db = { scoped: true }
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => db) }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => db) }))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")

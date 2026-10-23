@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import {
   queries,
   MAX_SERVER_NAME_LENGTH,
@@ -15,7 +15,7 @@ import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { canonicalUserImage, serverIconUrl } from "@/lib/community/storage"
 
 export const GET = withCommunityActor(async (_req, ctx) => {
-  const db = getDb(ctx.env.DB)
+  const db = getPrimaryDb(ctx.env.DB)
   const rows = await withD1Retry(
     () => queries.communityServer.listUserServers(db, ctx.actor.userId),
     { route: "community/servers:list" },

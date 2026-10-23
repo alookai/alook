@@ -35,6 +35,14 @@ describe("RailIndicator", () => {
     expect(markup({ testId: "indicator-id" })).toContain('data-testid="indicator-id"')
   })
 
+  it("retracts a hidden source or expanded-folder bar despite active, unread, hover and focus", () => {
+    const html = markup({ active: true, unread: true, hidden: true })
+    expect(html).toContain("h-0 opacity-0")
+    expect(html).not.toContain("h-8")
+    expect(html).not.toContain("group-hover:h-5")
+    expect(html).not.toContain("group-has-[:focus-visible]:h-5")
+  })
+
   it("builds the canonical server and folder indicator locators", () => {
     expect(tid.serverRailIndicator("server-id")).toBe("community-server-rail-indicator-server-id")
     expect(tid.serverRailFolderIndicator("folder-id")).toBe("community-server-rail-folder-indicator-folder-id")

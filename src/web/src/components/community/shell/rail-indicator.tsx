@@ -4,10 +4,12 @@ export function RailIndicator({
   active,
   unread,
   testId,
+  hidden,
 }: {
   active?: boolean
   unread?: boolean
   testId?: string
+  hidden?: boolean
 }) {
   const presentation = selectUnreadPresentation({
     accountUnread: unread === true,
@@ -19,7 +21,7 @@ export function RailIndicator({
       data-testid={testId}
       className={[
         "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-foreground transition-all duration-150",
-        presentation.active
+        hidden ? "h-0 opacity-0" : presentation.active
           ? "h-8"
           : `${presentation.showDot ? "h-2.5" : "h-0"} group-hover:h-5 group-has-[:focus-visible]:h-5`,
       ].join(" ")}

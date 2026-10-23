@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import type { ServerRailEntry } from "../community-server-rail";
 import { user } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -218,17 +219,20 @@ export const communityServerMember = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").default("member"),
-    railOrder: integer("rail_order").default(0),
     joinedAt: text("joined_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
     unique("uq_server_member_server_user").on(t.serverId, t.userId),
     index("idx_server_member_user").on(t.userId),
-    index("idx_server_member_user_rail_order").on(t.userId, t.railOrder),
     // Serves listMembersPaginated's WHERE server_id ORDER BY (joined_at, id).
     index("idx_server_member_server_joined").on(t.serverId, t.joinedAt),
   ]
 );
+
+export const communityServerRail = sqliteTable("community_server_rail", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  entries: text("entries", { mode: "json" }).$type<ServerRailEntry[]>().notNull(),
+});
 
 // 8. community_server_folder
 export const communityServerFolder = sqliteTable(
@@ -239,9 +243,8 @@ export const communityServerFolder = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    position: integer("position").default(0),
   },
-  (t) => [index("idx_server_folder_user_position").on(t.userId, t.position)]
+  (t) => [index("idx_server_folder_user").on(t.userId)]
 );
 
 // 9. community_server_folder_item

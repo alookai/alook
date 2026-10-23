@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   projectServerRailCommit,
+  serverRailTopOrder,
+  serverRailServerIds,
   serverRailCommitRequestSchema,
   type ServerRailState,
 } from "./community-server-rail";
 
 function snapshot(): ServerRailState {
   return {
-    serverOrder: ["a", "b", "c", "d", "e"],
-    folderOrder: ["one", "two"],
+    serverIds: ["a", "b", "c", "d", "e"],
+    folderIds: ["one", "two"],
     folders: {
       one: { id: "one", name: "One", serverIds: ["c", "d"] },
       two: { id: "two", name: "Two", serverIds: ["e"] },
@@ -65,21 +67,52 @@ describe("server rail wire contract", () => {
 
   it("accepts a complete 101+ membership reorder without a cardinality cliff", () => {
     const ids = Array.from({ length: 125 }, (_, index) => `server-${index}`);
-    const state: ServerRailState = { serverOrder: ids, folderOrder: [], folders: {} };
+    const state: ServerRailState = { serverIds: ids, folderIds: [], folders: {} };
     const result = projectServerRailCommit(state, {
-      commands: [{ kind: "reorder-servers", serverIds: [...ids].reverse() }],
+      commands: [{ kind: "reorder-top-level", entries: [...ids].reverse().map((id) => ({ kind: "server", id })) }],
     }, () => "unused");
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.after.serverOrder).toEqual([...ids].reverse());
+    if (result.ok) expect(result.value.after.topOrder).toEqual([...ids].reverse().map((id) => ({ kind: "server", id })));
   });
 
   it("requires complete reorder sets and rejects no-ops", () => {
     expect(projectServerRailCommit(snapshot(), {
-      commands: [{ kind: "reorder-servers", serverIds: ["a", "b"] }],
-    }, () => "new")).toMatchObject({ ok: false, error: "serverIds must match current memberships" });
+      commands: [{ kind: "reorder-top-level", entries: [{ kind: "server", id: "a" }, { kind: "server", id: "b" }] }],
+    }, () => "new")).toMatchObject({ ok: false, error: "top-level entries must match current servers and folders" });
 
     expect(projectServerRailCommit(snapshot(), {
-      commands: [{ kind: "reorder-folders", folderIds: ["one", "two"] }],
+      commands: [{ kind: "reorder-top-level", entries: serverRailTopOrder(snapshot()) }],
     }, () => "new")).toMatchObject({ ok: false, error: "rail command is a no-op" });
   });
+});
+
+describe("personal mixed top-level order", () => {
+  it("validates the exact visible set and maps new folder identities", () => {
+    const state: ServerRailState = { serverIds: ["a", "b", "c"], folderIds: [], folders: {} };
+    const result = projectServerRailCommit(state, { commands: [
+      { kind: "create-folder", clientId: "temp", name: "Group", serverIds: ["b", "a"] },
+      { kind: "reorder-top-level", entries: [{ kind: "folder", id: "temp" }, { kind: "server", id: "c" }] },
+    ] }, () => "confirmed");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.after.topOrder).toEqual([{ kind: "folder", id: "confirmed" }, { kind: "server", id: "c" }]);
+      expect(result.value.reorderTopLevel).toBe(true);
+    }
+    for (const entries of [
+      [{ kind: "server" as const, id: "foreign" }],
+      [{ kind: "server" as const, id: "a" }, { kind: "server" as const, id: "a" }, { kind: "server" as const, id: "b" }, { kind: "server" as const, id: "c" }],
+    ]) expect(projectServerRailCommit(state, { commands: [{ kind: "reorder-top-level", entries }] }, () => "unused").ok).toBe(false);
+  });
+  it("rejects a same-order no-op and duplicate top-order commands", () => {
+    const state: ServerRailState = { serverIds: ["a", "b"], folderIds: [], folders: {} };
+    const command = { kind: "reorder-top-level" as const, entries: [{ kind: "server" as const, id: "a" }, { kind: "server" as const, id: "b" }] };
+    expect(projectServerRailCommit(state, { commands: [command] }, () => "unused").ok).toBe(false);
+    expect(projectServerRailCommit(state, { commands: [command, command] }, () => "unused")).toMatchObject({ ok: false, error: "duplicate reorder-top-level command" });
+  });
+});
+
+it("rejects obsolete independent order commands and flattens only canonical roots", () => {
+  for (const kind of ["reorder-servers", "reorder-folders"]) expect(serverRailCommitRequestSchema.safeParse({ commands: [{ kind, serverIds: ["a"], folderIds: [] }] }).success).toBe(false);
+  const state = { ...snapshot(), topOrder: [{ kind: "folder" as const, id: "two" }, { kind: "server" as const, id: "b" }, { kind: "folder" as const, id: "one" }, { kind: "server" as const, id: "a" }] };
+  expect(serverRailServerIds(state)).toEqual(["e", "b", "c", "d", "a"]);
 });

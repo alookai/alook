@@ -220,6 +220,7 @@ export type CommunityWsReconcilePolicy =
   | "inbox-dms"
   | "cached-read-state"
   | "all-cached-servers"
+  | "server-rail"
   | "friends"
   | "presence-overlay"
   | "status-overlay"

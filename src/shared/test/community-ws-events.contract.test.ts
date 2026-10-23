@@ -65,13 +65,13 @@ describe("Community browser event runtime contract", () => {
   const fixtures = Object.values(communityWsEventFixtures)
   const names = Object.values(WS_EVENTS).sort()
 
-  it("locks the exact 47-event inventory", () => {
-    expect(names).toHaveLength(47)
+  it("locks the exact 48-event inventory", () => {
+    expect(names).toHaveLength(48)
     expect(Object.keys(communityWsEventFixtures).sort()).toEqual(names)
     expect(Object.keys(requiredFixturePaths).sort()).toEqual(names)
   })
 
-  it("decodes and canonically encodes all 47 current event fixtures", () => {
+  it("decodes and canonically encodes all 48 current event fixtures", () => {
     for (const fixture of fixtures) {
       expect(decodeCommunityBrowserEvent(fixture)).toEqual({ ok: true, event: fixture })
       const encoded = encodeCommunityBrowserEvent(fixture)
@@ -93,9 +93,10 @@ describe("Community browser event runtime contract", () => {
     expect(decodeCommunityBrowserEvent(event)).toEqual({ ok: true, event })
   })
 
-  it("rejects one required-field corruption for every event", () => {
+  it("rejects missing fields or extra payload on every event", () => {
     for (const fixture of fixtures) {
-      const corrupted = withoutPath(fixture, requiredFixturePaths[fixture.type])
+      const path = requiredFixturePaths[fixture.type]
+      const corrupted = path.length ? withoutPath(fixture, path) : { ...fixture, entries: [] }
       expect(decodeCommunityBrowserEvent(corrupted)).toMatchObject({
         ok: false,
         reason: "invalid-payload",
@@ -273,3 +274,11 @@ describe("explicit v3 browser events", () => {
     expect(encodeCommunityBrowserEvent({ ...communityResourceMessageFixture, message: { ...communityResourceMessageFixture.message, content: "😀".repeat(COMMUNITY_BROWSER_EVENT_MAX_BYTES) } }, 3).ok).toBe(false)
   })
 })
+
+it("server rail hints carry no order or account payload in either contract", () => {
+  for (const contract of [2, 3] as const) {
+    const hint = { type: "community:server_rail.changed" };
+    expect(decodeCommunityBrowserEvent(hint, contract)).toMatchObject({ ok: true, event: hint });
+    for (const extra of [{ entries: [] }, { userId: "other" }]) expect(decodeCommunityBrowserEvent({ ...hint, ...extra }, contract)).toMatchObject({ ok: false, reason: "invalid-payload" });
+  }
+});
