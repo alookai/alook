@@ -75,7 +75,7 @@ function BotProposal({ bot, onOpenProfile }: { bot: BotCreationItem; onOpenProfi
   const heading = <><span className="min-w-0 truncate">{name}</span>{identity && <span className="ml-1.5 shrink-0 text-sm font-normal tracking-wide text-muted-foreground">#{discriminator}</span>}</>
   const badgeClass = "h-auto min-h-5 max-w-full wrap-anywhere whitespace-normal text-left"
 
-  return <article className="flex h-70 w-60 min-w-0 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)" aria-label={bot.name}>
+  return <article className="flex h-70 w-60 min-w-0 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-border bg-popover p-2" aria-label={bot.name}>
     <div className="relative -m-2 mb-0 h-12 shrink-0 overflow-hidden rounded-t-lg">
       <SeededBackdrop seed={seed} />
     </div>
