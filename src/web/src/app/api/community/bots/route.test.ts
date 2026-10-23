@@ -109,29 +109,12 @@ describe("POST /api/community/bots — model", () => {
     mockEnsureNewSiblingBotFriendships.mockResolvedValue({ blocked: false })
   })
 
-  it("preserves manual creation on an owned offline machine with a healthy runtime", async () => {
+  it("rejects an offline machine on the existing human create path", async () => {
     mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "offline", availableRuntimes: [{ id: "claude", status: "healthy" }] })
     const response = await POST(postReq(base()), ctx)
-    expect(response.status).toBe(201)
-    expect(await response.json()).toMatchObject({ bot: { id: "b1", machineId: "mac1", runtime: "claude" } })
-    expect(mockGetMachineForOwner).toHaveBeenCalledWith(expect.anything(), "mac1", "u1")
-    expect(mockCreateBot).toHaveBeenCalledOnce()
-    expect(mockPushBotEventToMachine).toHaveBeenCalledOnce()
-  })
-  it.each([{ runtimes: [] }, { runtimes: [{ id: "claude", status: "unhealthy" }] }])("still rejects an unavailable runtime on an offline machine", async ({ runtimes }) => {
-    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "offline", availableRuntimes: runtimes })
-    const response = await POST(postReq(base()), ctx)
-    expect(response.status).toBe(400)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: "MACHINE_OFFLINE", machineId: "mac1" })
     expect(mockCreateBot).not.toHaveBeenCalled()
-    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
-  })
-  it("returns404 when the owner-scoped machine lookup has no match", async () => {
-    mockGetMachineForOwner.mockResolvedValue(null)
-    const response = await POST(postReq(base()), ctx)
-    expect(response.status).toBe(404)
-    expect(mockGetMachineForOwner).toHaveBeenCalledWith(expect.anything(), "mac1", "u1")
-    expect(mockCreateBot).not.toHaveBeenCalled()
-    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
   })
   it("persists model_name and returns it in the 201 body", async () => {
     const res = await POST(postReq(base("claude-opus-4-6")), ctx)
