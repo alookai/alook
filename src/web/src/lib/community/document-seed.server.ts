@@ -15,6 +15,7 @@ import type { CommunitySelfProfile } from "./self-profile.server"
 import { readCommunityBots } from "./bots.server"
 import { readCommunityMachineList } from "./machines.server"
 import { readCommunityServerDirectory } from "./server-directory.server"
+import { forumTagFromUrl } from "./forum-tag-selection"
 
 export async function readCommunityDocumentSeed(db: Database, viewerId: string, href: string | null, selfProfile: CommunitySelfProfile): Promise<CommunityDocumentSeed> {
   const seed: CommunityDocumentSeed = { viewerId, href: readCommunityDocumentRoute(href), generatedAt: Date.now(), selfProfile, entries: [], db: { collections: [] } }
@@ -43,6 +44,11 @@ export async function readCommunityDocumentSeed(db: Database, viewerId: string, 
         phase = "resolve-target"
         const resolved = await resolveMessageTarget(db, viewerId, { id }, "human", "read")
         if (!resolved.ok || resolved.value.access.channel.serverId !== serverId) return
+        if (resolved.value.access.channel.type === "forum") {
+          const selected = forumTagFromUrl(url.searchParams.get("tag"))
+          if (selected === null) return
+          filter = selected === "All" ? undefined : selected
+        }
         const params = new URLSearchParams(anchor ? { anchor } : undefined)
         phase = "read-entry"
         const result = await readCommunityConversationEntry(db, { viewerId, target: resolved.value, window: parseCommunityMessageWindow(params), tag: filter, preferTail: false })
@@ -64,6 +70,8 @@ export async function readCommunityDocumentSeed(db: Database, viewerId: string, 
       communityCollectionQuery(registry, "profiles", () => eq(1, 1)),
       communityCollectionQuery(registry, "channels"),
     ]
+    const authorIds = new Set(Array.from(registry.collections.messages.values()).flatMap(message => message.authorId ? [message.authorId] : []))
+    for (const authorId of authorIds) descriptors.push(communityCollectionQuery(registry, "profiles", ({ row }) => eq(row.id, authorId)))
     for (const { target, data } of seed.entries) {
       const channelId = target.channelId
       descriptors.push(communityCollectionQuery(registry, "channels", ({ row }) => eq(row.id, channelId)))

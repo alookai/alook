@@ -286,9 +286,10 @@ describe("ForumView responsive post actions", () => {
     for (const button of [tagButton, archiveButton, deleteButton]) {
       expect(button).toContain("size-8")
       expect(button).toContain("opacity-100")
-      expect(button).toContain("sm:size-6")
+      expect(button).not.toContain("sm:size-")
       expect(button).toContain("sm:opacity-0")
-      expect(button).toContain("sm:focus-visible:opacity-100")
+      expect(button).toContain("sm:group-focus-within/card:opacity-100")
+      expect(button).not.toContain("transition-opacity")
       expect(button).toContain("sm:group-hover/card:opacity-100")
     }
     expect(tagButton).toContain("sm:data-popup-open:opacity-100")
@@ -296,7 +297,7 @@ describe("ForumView responsive post actions", () => {
     expect(archiveButton).toContain('aria-pressed="false"')
     expect(archiveButton).toContain("disabled:opacity-50")
     expect(deleteButton).toContain("disabled:opacity-50")
-    expect(html).toContain("min-h-8 pr-28 sm:min-h-0 sm:pr-22")
+    expect(html).toContain("min-h-8 pr-28")
     expect(html).toContain("w-full min-w-0 max-w-full text-[15px] font-semibold leading-tight")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
@@ -338,7 +339,7 @@ describe("ForumView responsive post actions", () => {
     expect(html).not.toContain(tid.forumThreadTagBtn("p1"))
     expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
     expect(html).toContain(tid.forumThreadDeleteBtn("p1"))
-    expect(html).toContain("min-h-8 pr-12 sm:min-h-0 sm:pr-8")
+    expect(html).toContain("min-h-8 pr-12")
   })
 })
 

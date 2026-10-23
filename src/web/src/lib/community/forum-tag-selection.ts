@@ -1,5 +1,9 @@
 const keyFor = (channelId: string) => `alook:forum-tag:${channelId}`
 
+export function forumTagFromUrl(value: string | null | undefined): string | null {
+  return value == null ? null : value.trim().toLowerCase() || "All"
+}
+
 export function readForumTagSelection(storage: Pick<Storage, "getItem">, channelId: string): string {
   return storage.getItem(keyFor(channelId)) || "All"
 }

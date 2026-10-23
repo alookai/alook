@@ -361,7 +361,11 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
     "true",
     { timeout: 20_000 },
   )
-  await expect(composerEditable(alice.page)).toBeVisible({ timeout: 20_000 })
+  const reloadedComposer = composerEditable(alice.page)
+  await expect(async () => {
+    expect(await reloadedComposer.count()).toBe(1)
+    expect(await reloadedComposer.isVisible()).toBe(true)
+  }).toPass({ timeout: 20_000 })
   await expect.poll(() => proxy.connectionCount()).toBe(reloadConnectionBaseline + 1)
   await expect.poll(() => successfulTokenResponses).toBe(reloadSuccessfulTokenBaseline + 1)
   await alice.page.waitForTimeout(500)

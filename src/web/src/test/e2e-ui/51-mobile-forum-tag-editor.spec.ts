@@ -298,7 +298,7 @@ test.describe("forum tag editor", () => {
     }).toEqual({ tags: [], threads: [threadId] })
     for (const { page } of [tabA, tabB]) {
       await expect(page.getByTestId(tid.forumTagChip("archived"))).toHaveCount(0)
-      await expect(page.getByTestId(tid.forumTagAll)).toHaveCount(0)
+      await expect(page.getByTestId(tid.forumTagAll)).toBeVisible()
       await expect.poll(() => page.evaluate((id) => localStorage.getItem(`alook:forum-tag:${id}`), forumId)).toBeNull()
       const card = page.getByTestId(tid.forumThreadCard(threadId))
       await expect(card).toBeVisible()
@@ -326,6 +326,7 @@ test.describe("forum tag editor", () => {
     await expect(page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
     await page.getByTestId(tid.forumTagChip("archived")).click()
     await expect(page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible()
+    await expect(page).toHaveURL((url) => url.searchParams.get("tag") === "archived")
     const writes = observeTagPuts(page)
     const initialUrl = page.url()
 

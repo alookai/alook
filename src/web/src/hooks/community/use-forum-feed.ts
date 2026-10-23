@@ -11,7 +11,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityForumFeed } from "@/lib/community-db/sync"
-import { readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
+import { forumTagFromUrl, readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import type { ForumThread, Msg } from "@/lib/community/models/message"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import { readCommunityProfile } from "@/lib/community/profile-read"
@@ -87,30 +87,38 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
   return [...byId.values()].sort((a, b) => compareAsciiSqliteBinary(channels.get(b.id)?.createdAt ?? "", channels.get(a.id)?.createdAt ?? "") || compareAsciiSqliteBinary(b.id, a.id))
 }
 
-export function useForumFeed(serverId: string, channelId: string) {
+export function useForumFeed(serverId: string, channelId: string, options?: { routeTag?: string | null; onSelectTag?: (tag: string) => void }) {
   const queryClient = useQueryClient(), channels = useCanonicalChannelsById(), profiles = useCanonicalProfilesByUserId()
   const readTag = () => { try { return readForumTagSelection(window.localStorage, channelId) } catch { return "All" } }
   const subscribeTag = useCallback((notify: () => void) => { window.addEventListener("storage", notify); return () => window.removeEventListener("storage", notify) }, [])
-  const persistedTag = useSyncExternalStore(subscribeTag, readTag, () => "All")
+  const persistedTag = useSyncExternalStore(subscribeTag, readTag, (): string | null => null)
+  const routeTag = forumTagFromUrl(options?.routeTag)
   const [selection, setSelection] = useAtom(useCreateAtom({ channelId: null as string | null, tag: "All" }))
-  const tag = selection.channelId === channelId ? selection.tag : persistedTag
-  const selectTag = useCallback((next: string) => { setSelection({ channelId, tag: next }); try { writeForumTagSelection(window.localStorage, channelId, next) } catch {} }, [channelId, setSelection])
+  const resolvedTag = routeTag ?? (selection.channelId === channelId ? selection.tag : persistedTag)
+  const selectionReady = resolvedTag !== null
+  const tag = resolvedTag ?? "All"
+  const onSelectTag = options?.onSelectTag
+  const selectTag = useCallback((next: string) => {
+    setSelection({ channelId, tag: next })
+    try { writeForumTagSelection(window.localStorage, channelId, next) } catch {}
+    onSelectTag?.(next)
+  }, [channelId, setSelection, onSelectTag])
   const tagsQuery = useForumTags(channelId, true)
   const pendingTagCommands = useIsMutating({ mutationKey: ["community", "forum-tag-command"], exact: true, predicate: (mutation) => {
     const args = mutation.state.variables as { serverId?: string; forumChannelId?: string } | undefined
     return args?.serverId === serverId && args.forumChannelId === channelId
   } })
-  useEffect(() => { if (!pendingTagCommands && tagsQuery.isSuccess && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [pendingTagCommands, tag, tagsQuery.isSuccess, tagsQuery.data, selectTag])
+  useEffect(() => { if (selectionReady && !pendingTagCommands && tagsQuery.isSuccess && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [selectionReady, pendingTagCommands, tag, tagsQuery.isSuccess, tagsQuery.data, selectTag])
   const selectedTag = tag === "All" ? null : tag
-  const entry = useConversationResource({ channelId, serverId })
+  const entry = useConversationResource(selectionReady ? { channelId, serverId, tag: selectedTag } : null)
   const queryKey = communityKeys.forumFeed(entry.canRead ? channelId : "__none__", selectedTag)
   const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
-    enabled: entry.canRead, subscribed: entry.canRead, staleTime: 5_000,
+    enabled: selectionReady && entry.canRead, subscribed: selectionReady && entry.canRead, staleTime: 5_000,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry), networkMode: "always" })
   const messageIds = useMemo(() => [...new Set(query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : [])) ?? [])], [query.data?.pages])
   const messages = useCanonicalMessagesById(messageIds)
-  const posts = useMemo(() => mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag), [query.data?.pages, messages, channels, profiles, selectedTag])
+  const posts = useMemo(() => selectionReady ? mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag) : [], [selectionReady, query.data?.pages, messages, channels, profiles, selectedTag])
   const fetchNextPage = query.fetchNextPage
   const fetchOlder = useCallback(() => { void fetchNextPage({ cancelRefetch: false }) }, [fetchNextPage])
-  return { ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: query.data ? "covered" as const : "uncovered" as const, wait_reason: !entry.canRead ? "entry" as const : query.data ? "none" as const : "window" as const }, posts, tag, selectTag, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
+  return { ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: query.data ? "covered" as const : "uncovered" as const, wait_reason: !entry.canRead ? "entry" as const : query.data ? "none" as const : "window" as const }, posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError: tagsQuery.isError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
 }

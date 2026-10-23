@@ -60,7 +60,11 @@ test.describe("same-tab Community attachment drafts", () => {
     const { page } = await asUser("alice")
     const channelA = `/c/channels/${serverId}/${channelAId}`
     await page.goto(channelA, { waitUntil: "commit" })
-    await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
+    const initialComposer = composerEditable(page)
+    await expect(async () => {
+      expect(await initialComposer.count()).toBe(1)
+      expect(await initialComposer.isVisible()).toBe(true)
+    }).toPass({ timeout: 20_000 })
     await page.evaluate(() => {
       const created: string[] = []
       const revoked: string[] = []
@@ -159,7 +163,11 @@ test.describe("same-tab Community attachment drafts", () => {
     const { page } = await asUser("alice")
     const channelA = `/c/channels/${serverId}/${channelAId}`
     await page.goto(channelA, { waitUntil: "commit" })
-    await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
+    const initialComposer = composerEditable(page)
+    await expect(async () => {
+      expect(await initialComposer.count()).toBe(1)
+      expect(await initialComposer.isVisible()).toBe(true)
+    }).toPass({ timeout: 20_000 })
     const body = `retry restored file ${Date.now()}`
     await composerEditable(page).fill(body)
     await page.getByTestId(tid.composerFileInput).setInputFiles({
@@ -229,7 +237,11 @@ test.describe("same-tab Community attachment drafts", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     const channelA = `/c/channels/${serverId}/${channelAId}`
     await page.goto(channelA, { waitUntil: "commit" })
-    await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
+    const initialComposer = composerEditable(page)
+    await expect(async () => {
+      expect(await initialComposer.count()).toBe(1)
+      expect(await initialComposer.isVisible()).toBe(true)
+    }).toPass({ timeout: 20_000 })
     const body = `mobile restored image ${Date.now()}`
     await composerEditable(page).fill(body)
     await page.getByTestId(tid.composerFileInput).setInputFiles({

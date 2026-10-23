@@ -38,6 +38,8 @@ export function ForumChannelSurface({
   onOpenPost,
   onOpenProfile,
   embedded = false,
+  routeTag,
+  onSelectTag,
 }: {
   serverId: string
   channelId: string
@@ -54,6 +56,8 @@ export function ForumChannelSurface({
   onOpenPost: (postId: string) => void
   onOpenProfile: OpenProfile
   embedded?: boolean
+  routeTag?: string | null
+  onSelectTag?: (tag: string) => void
 }) {
   const source = useCommunityViewSource(`forum-surface:${serverId}:${channelId}`)
   const [panelState, setPanelState] = useAtom(useCreateAtom<{ channelId: string; panel: RightPanel }>({
@@ -115,6 +119,8 @@ export function ForumChannelSurface({
           <ForumSurface
             serverId={serverId}
             forumChannelId={channelId}
+            routeTag={routeTag}
+            onSelectTag={onSelectTag}
             members={composerMembers}
             mentionCandidates={composerMentionCandidates}
             onOpenPost={onOpenPost}

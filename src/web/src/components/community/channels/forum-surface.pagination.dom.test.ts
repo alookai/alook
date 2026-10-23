@@ -26,7 +26,7 @@ vi.mock("@/hooks/community/use-forum-feed", async () => {
       staleTime: Infinity, retry: 1, retryDelay: 0,
     })
     return {
-      ...query, posts: query.data.pages.flatMap(value => value.posts), tag: "All",
+      ...query, posts: query.data.pages.flatMap(value => value.posts), tag: "All", selectionReady: true,
       availableTags: [], selectTag: vi.fn(), hasMoreOlder: query.hasNextPage,
       isFetchingOlder: query.isFetchingNextPage, fetchOlder: () => { void query.fetchNextPage() },
     }

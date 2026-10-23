@@ -318,7 +318,7 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
     const response = await page.goto(`/c/channels/${serverId}/${channelId}?msg=${channelMessageId}`)
     expect(response?.ok()).toBe(true)
     const html = await response!.text()
-    const initialSeed = readCommunityDocumentSeedFromHtml(html)
+    const initialSeed = await readCommunityDocumentSeedFromHtml(html)
     expect(initialSeed.viewerId).toBe(actors.userId("bob"))
     const seeded = initialSeed.entries.find(entry => entry.target.channelId === channelId)
     expect(seeded?.target).toEqual({ channelId, serverId, anchorMessageId: channelMessageId, tag: null })

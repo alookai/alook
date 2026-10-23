@@ -27,9 +27,9 @@ async function CommunitySessionLayout({ children, sidebar }: CommunityLayoutProp
   const authenticated = session && session.user.isBot !== true && (session.user.deletedAt ?? null) === null
     ? await loadDocument(session.user.id) : null
   const currentUser = authenticated?.viewer ? {
-    ...authenticated.seed.selfProfile,
+    ...authenticated.profile,
     email: authenticated.viewer.email,
-    avatar: authenticated.seed.selfProfile.avatar || avatarInitial(authenticated.seed.selfProfile.name),
+    avatar: authenticated.profile.avatar || avatarInitial(authenticated.profile.name),
   } : null
 
   return (
@@ -46,5 +46,9 @@ async function loadDocument(viewerId: string) {
   const db = kind === "machines" || kind === "bots" ? getPrimaryDb(env.DB) : getDb(env.DB)
   const { viewer, profile } = await readCommunitySelfProfile(db, viewerId)
   if (!viewer) return null
-  return { viewer, seed: await readCommunityDocumentSeed(db, viewerId, href, profile) }
+  const seed = readCommunityDocumentSeed(db, viewerId, href, profile).catch((error: unknown) => {
+    console.error("Community document prefetch failed", error)
+    return null
+  })
+  return { viewer, profile, seed }
 }

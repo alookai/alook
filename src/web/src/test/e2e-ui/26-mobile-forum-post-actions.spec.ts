@@ -35,6 +35,7 @@ async function prepareCase(actors: CaseActors) {
 
 const MOBILE_WIDTHS = [320, 390] as const
 const FILTER_RAIL_WIDTHS = [320, 390, 1280] as const
+const ACTION_WIDTHS = [639, 640, 641, 1280] as const
 const TAGS = ["alpha-long-tag", "beta-long-tag", "gamma", "delta", "epsilon"]
 const DESKTOP_OVERFLOW_TAGS = [
   "desktop-overflow-tag-one",
@@ -64,6 +65,24 @@ async function rect(locator: Locator): Promise<Rect | null> {
     width: box.width,
     height: box.height,
   }
+}
+
+async function postActionGeometry(card: Locator, postId: string) {
+  return card.evaluate((element, titleId) => {
+    const readRect = (target: Element | null) => {
+      if (!target) throw new Error("Missing Forum geometry target")
+      const box = target.getBoundingClientRect()
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height }
+    }
+    const row = element.closest("[data-index]")
+    return {
+      card: readRect(element),
+      title: readRect(element.querySelector(`[data-testid="${titleId}"]`)),
+      preview: readRect(element.querySelector(":scope > p")),
+      row: readRect(row),
+      virtualHeight: readRect(row?.parentElement ?? null).height,
+    }
+  }, tid.forumThreadTitle(postId))
 }
 
 async function expectNewPostGeometry(
@@ -466,6 +485,10 @@ async function expectNoOverflowFilterRail(
   await page.emulateMedia({ colorScheme: "light" })
   await expect(page.locator("html")).not.toHaveClass(/dark/)
   const rail = page.getByTestId(tid.forumTagScroller)
+  await expect(rail.getByTestId(tid.forumTagAll)).toBeVisible({ timeout: 20_000 })
+  await expect(rail.getByTestId(tid.forumTagChip("solo"))).toBeVisible({ timeout: 20_000 })
+  await expect(rail.getByRole("button")).toHaveText(["All", "#solo"])
+  await expect(rail.getByRole("status", { name: "Loading tag filters" })).toHaveCount(0)
   const geometry = await rail.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }))
   expect(geometry.scrollWidth, `no-overflow rail@${width}`).toBe(geometry.clientWidth)
   await expect(page.getByTestId(tid.forumTagFadeLeft)).toHaveCount(0)
@@ -629,13 +652,41 @@ test("forum post actions stay discoverable on mobile without changing permission
   await manager.page.mouse.move(0, 0)
   const managerTagButton = manager.page.getByTestId(tid.forumThreadTagBtn(primaryPostId))
   const managerDeleteButton = manager.page.getByTestId(tid.forumThreadDeleteBtn(primaryPostId))
+  const managerArchiveButton = manager.page.getByTestId(tid.forumThreadArchiveBtn(primaryPostId))
   await expect(managerTagButton).toHaveCSS("opacity", "0")
   await expect(managerDeleteButton).toHaveCSS("opacity", "0")
   for (const button of [managerTagButton, managerDeleteButton]) {
     const buttonRect = await rect(button)
-    expect(buttonRect?.width).toBe(24)
-    expect(buttonRect?.height).toBe(24)
+    expect(buttonRect?.width).toBe(32)
+    expect(buttonRect?.height).toBe(32)
   }
+  for (const width of ACTION_WIDTHS) {
+    await manager.page.setViewportSize({ width, height: 900 })
+    await managerTagButton.evaluate((button) => button.blur())
+    await manager.page.mouse.move(0, 0)
+    await managerCard.scrollIntoViewIfNeeded()
+    for (const button of [managerTagButton, managerArchiveButton, managerDeleteButton]) {
+      await expect(button).toHaveCSS("opacity", width < 640 ? "1" : "0")
+      const buttonRect = await rect(button)
+      expect(buttonRect?.width, `action width@${width}`).toBe(32)
+      expect(buttonRect?.height, `action height@${width}`).toBe(32)
+    }
+    const baseline = await postActionGeometry(managerCard, primaryPostId)
+    await managerCard.hover()
+    await expect(managerTagButton).toHaveCSS("opacity", "1")
+    const hover = await postActionGeometry(managerCard, primaryPostId)
+    expect(hover, `hover geometry@${width}`).toEqual(baseline)
+    await manager.page.mouse.move(0, 0)
+    await managerTagButton.focus()
+    await expect(managerTagButton).toHaveCSS("opacity", "1")
+    const focus = await postActionGeometry(managerCard, primaryPostId)
+    expect(focus, `focus geometry@${width}`).toEqual(baseline)
+    await testInfo.attach(`manager-actions-${width}.json`, {
+      body: JSON.stringify({ width, baseline, hover, focus }),
+      contentType: "application/json",
+    })
+  }
+  await managerTagButton.evaluate((button) => button.blur())
   await managerCard.hover()
   await expect(managerTagButton).toHaveCSS("opacity", "1")
   await expect(managerDeleteButton).toHaveCSS("opacity", "1")

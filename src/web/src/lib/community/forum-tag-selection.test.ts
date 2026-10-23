@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
-import { readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "./forum-tag-selection"
+import { forumTagFromUrl, readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "./forum-tag-selection"
 
 describe("forum tag selection", () => {
+  it("distinguishes an absent URL selection from explicit All and normalizes a tag", () => {
+    expect(forumTagFromUrl(null)).toBeNull()
+    expect(forumTagFromUrl(undefined)).toBeNull()
+    expect(forumTagFromUrl("")).toBe("All")
+    expect(forumTagFromUrl(" BUG ")).toBe("bug")
+    expect(forumTagFromUrl("all")).toBe("all")
+  })
   it("defaults to All and scopes persisted selections by channel", () => {
     const getItem = vi.fn((key: string) => key.endsWith("forum-a") ? "bug" : null)
     expect(readForumTagSelection({ getItem }, "forum-a")).toBe("bug")

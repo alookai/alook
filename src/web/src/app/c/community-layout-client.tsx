@@ -14,7 +14,7 @@ import {
   retireCommunityColdEntryAttempt,
 } from "@/lib/community/last-community-route"
 import type { CurrentUser } from "@/contexts/community/current-user"
-import type { CommunityDocumentSeed } from "@/lib/community/document-seed"
+import type { CommunityDocumentSeedInput } from "@/lib/community/document-seed"
 
 function isPublicCommunityPath(pathname: string): boolean {
   return resolveCommunityModulePlan(pathname).route === "public-invite"
@@ -29,7 +29,7 @@ export function CommunityLayoutClient({
   children: ReactNode
   sidebar: ReactNode
   currentUser: CurrentUser | null
-  initialSeed?: CommunityDocumentSeed
+  initialSeed?: CommunityDocumentSeedInput
 }) {
   const router = useRouter()
   const pathname = usePathname()

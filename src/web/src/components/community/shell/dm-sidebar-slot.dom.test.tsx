@@ -1,6 +1,8 @@
 import { createElement, useEffect } from "react"
+import { renderToString } from "react-dom/server"
+import { hydrateRoot } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { render } from "@/test/react-dom-harness"
+import { act, render } from "@/test/react-dom-harness"
 import { RemoteIdentityImage } from "@/components/remote-image/remote-image"
 import { DmSidebarSlot } from "./dm-sidebar-slot"
 
@@ -46,7 +48,7 @@ vi.mock("@/hooks/community/use-inbox", () => ({
 }))
 vi.mock("@/lib/observability/regions", () => ({ useObservedRegion: vi.fn() }))
 vi.mock("@/components/community/channels/dm-sidebar", () => ({
-  DmSidebar: ({ dms }: { dms: Array<{ userId: string; avatar: string }> }) => <aside>
+  DmSidebar: ({ dms, activeDm }: { dms: Array<{ userId: string; avatar: string }>; activeDm?: string | null }) => <aside data-active-dm={activeDm ?? ""}>
     <input aria-label="Sidebar state" defaultValue="retained" />
     <RemoteIdentityImage src={dms[0].avatar} identityKey={dms[0].userId} alt="Peer" />
   </aside>,
@@ -64,6 +66,30 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks() })
 
 describe("account-scoped DM sidebar Activity", () => {
+  it("hydrates the direct target DM and switches activation without waiting for the old UI store", async () => {
+    mocks.scope = "me"
+    const tree = <DmSidebarSlot href="/c/me/dm-a" />
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(tree)
+    document.body.appendChild(container)
+    const sidebar = container.querySelector("aside")!
+    expect(sidebar).toHaveAttribute("data-active-dm", "dm-a")
+    const recoveries: unknown[] = []
+    let root!: ReturnType<typeof hydrateRoot>
+    try {
+      await act(async () => { root = hydrateRoot(container, tree, { onRecoverableError: error => { recoveries.push(error) } }) })
+      expect(container.querySelector("aside")).toBe(sidebar)
+      expect(sidebar).toHaveAttribute("data-active-dm", "dm-a")
+      await act(async () => { root.render(<DmSidebarSlot href="/c/me/dm-b" routeCommitted={false} />) })
+      expect(sidebar).toHaveAttribute("data-active-dm", "dm-b")
+      await act(async () => { root.render(<DmSidebarSlot href="/c/me/friends" />) })
+      expect(sidebar).toHaveAttribute("data-active-dm", "")
+      await act(async () => { root.render(<DmSidebarSlot href="/c/me/dm-a" />) })
+      expect(sidebar).toHaveAttribute("data-active-dm", "dm-a")
+      expect(recoveries).toEqual([])
+    } finally { await act(async () => { root?.unmount() }); container.remove() }
+  })
+
   it("starts at the first Me visit, preserves real DOM and releases Effects while away", () => {
     const rendered = render(<DmSidebarSlot />)
     expect(mocks.reads).not.toHaveBeenCalled()
