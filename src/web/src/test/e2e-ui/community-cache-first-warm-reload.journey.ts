@@ -6,7 +6,7 @@ import { HostCommandSchema } from "@alook/shared/community-cli-contract"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 import type { APIResponse, Page, Request, TestInfo } from "@playwright/test"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
-import { expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
+import { expectPublicCommunityDocument, expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
 import { PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { expect, test } from "./_fixtures/case-fixture"
 
@@ -148,7 +148,7 @@ async function clearQueryPersistence(page: Page) {
 
 async function expectCacheFirstReload(
   page: Page,
-  assertRscContent: () => Promise<void>,
+  assertEntryContent: () => Promise<void>,
   assertCachedContent: () => Promise<void>,
   assertReconciledContent: () => Promise<void>, caseResources: CaseResources, independentParentEntry?: string
 ): Promise<ReloadCapture> {
@@ -201,6 +201,11 @@ async function expectCacheFirstReload(
     const url = new URL(route.request().url())
     const path = url.pathname
     const parentEntry = independentParentEntry && path === `/api/community/channels/${independentParentEntry}/messages` && url.searchParams.get("entry") === "1"
+    const childEntry = url.searchParams.get("entry") === "1" && path.endsWith("/messages") && !parentEntry
+    if (childEntry) {
+      await route.continue()
+      return
+    }
     if (parentEntry) {
       heldReads += 1
       await readsGate
@@ -222,7 +227,7 @@ async function expectCacheFirstReload(
 
   try {
     await page.reload({ waitUntil: "commit" })
-    await assertRscContent()
+    await assertEntryContent()
     await expect.poll(() => heldReads).toBeGreaterThan(0)
     await expect.poll(() => wsAttempts).toBeGreaterThan(0)
     const readCapture = () => page.evaluate((): ReloadCapture | null => {
@@ -272,7 +277,7 @@ async function expectCacheFirstReload(
   }
 }
 
-test("a warm channel reload shows qualified RSC content while browser reads remain held", async ({ caseActors, caseResources }) => {
+test("a warm channel reload shows entry-qualified cached content while browser reads remain held", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice"])
@@ -309,7 +314,7 @@ test("a warm channel reload shows qualified RSC content while browser reads rema
   }, caseResources)
 })
 
-test("a warm DM reload shows qualified RSC identity and history before browser reads", async ({ caseActors, caseResources }) => {
+test("a warm DM reload shows entry-qualified identity and history before browser reads", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice", "bob"])
@@ -352,7 +357,7 @@ test("a warm DM reload shows qualified RSC identity and history before browser r
   }, caseResources)
 })
 
-test("a warm desktop thread reload keeps RSC child and independently reconciles its parent entry", async ({ caseActors, caseResources }) => {
+test("a warm desktop thread reload qualifies its child and independently reconciles its parent entry", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice"])
@@ -496,13 +501,14 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
     expect(await page.evaluate(() => (
       performance.getEntriesByName("alook:restore:first-cached-paint", "mark").length
     ))).toBe(0)
-    await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+    await expect(page.getByText(body, { exact: false })).toHaveCount(0)
+    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
   } finally {
     releaseReads()
     await page.unroute("**/api/community/**")
   }
   await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
 })
 
 async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: string, newId: string) {
@@ -686,7 +692,7 @@ async function retiredAccountDiskState(page: Page, viewerId: string, channelId: 
   }), { prefix: PERSIST_CACHE_PREFIX, viewerId, channelId })
 }
 
-test("late original IDB cannot replace RSC messages or revive a DM after a real WS block", async ({ caseActors, caseResources }, testInfo) => {
+test("late original IDB cannot revive a DM after a real WS block", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(120_000)
   const actors = await caseActors(["alice", "bob"])
   const { asUser, userId } = actors
@@ -701,7 +707,7 @@ test("late original IDB cannot replace RSC messages or revive a DM after a real 
     { key: ["community", "db", userId("alice"), "messages"], containsId: oldId },
   ])
   await alice.page.goto("/")
-  const newBody = `new RSC DM ${Date.now()}`
+  const newBody = `new private DM ${Date.now()}`
   const newId = await seedDmMessage("bob", dmId, newBody)
   await holdOriginalPersistedRead(alice.page, userId("alice"), oldId, newId)
   caseResources.own(alice.page, releaseOriginalPersistedRead)
@@ -717,14 +723,15 @@ test("late original IDB cannot replace RSC messages or revive a DM after a real 
     const response = await alice.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
     expect(response?.status()).toBe(200)
     const originalHtml = await response!.text()
-    expect(originalHtml).toContain(newId)
+    expectPublicCommunityDocument(originalHtml)
+    expect(originalHtml).not.toContain(newId)
     await expect.poll(() => alice.page.evaluate(() => {
       const state = Reflect.get(window, "__217DiskRead") as { held: number; oldPresent: boolean; newPresent: boolean }
       return { held: state.held, oldPresent: state.oldPresent, newPresent: state.newPresent }
     })).toEqual({ held: 1, oldPresent: true, newPresent: false })
-    await expect(alice.page.getByTestId(tid.message(newId))).toBeVisible()
-    await expect(alice.page.getByTestId(tid.message(newId)).getByText(newBody, { exact: true })).toBeVisible()
-    await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
+    await expect(alice.page.getByTestId(tid.message(oldId))).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.message(newId))).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
     expect(targetGets).toEqual([])
     await expect.poll(() => proxy.connectionFrames.some(frame => frame.type === "auth.ok")).toBe(true)
     const blocked = await bob.page.request.post(`/api/community/users/${userId("alice")}/block`)
@@ -736,13 +743,14 @@ test("late original IDB cannot replace RSC messages or revive a DM after a real 
     await expect(alice.page.getByTestId(tid.message(newId))).toHaveCount(0)
     await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
     await releaseOriginalPersistedRead(alice.page)
+    releaseNetwork()
     await expect.poll(() => alice.page.evaluate(() => performance.getEntriesByName("alook:restore:complete", "mark").length)).toBe(1)
     await expect(alice.page.getByRole("alert").filter({ hasText: "You can no longer read this conversation." })).toBeVisible()
     await expect(alice.page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
     await expect(alice.page.getByTestId(tid.message(oldId))).toHaveCount(0)
     await expect(alice.page.getByTestId(tid.message(newId))).toHaveCount(0)
     await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
-    await testInfo.attach("late-idb-rsc-ws-boundaries", { body: JSON.stringify({ dmId, oldId, newId, originalHtmlContainsNewId: originalHtml.includes(newId), denied: denied.status(), wsBlock: proxy.frames.filter(frame => frame.type === "community:friend.block").map(frame => ({ type: frame.type, userId: frame.userId })) }), contentType: "application/json" })
+    await testInfo.attach("late-idb-public-shell-ws-boundaries", { body: JSON.stringify({ dmId, oldId, newId, originalHtmlContainsNewId: originalHtml.includes(newId), denied: denied.status(), wsBlock: proxy.frames.filter(frame => frame.type === "community:friend.block").map(frame => ({ type: frame.type, userId: frame.userId })) }), contentType: "application/json" })
   } finally {
     await releaseOriginalPersistedRead(alice.page)
     releaseNetwork()
@@ -1010,7 +1018,8 @@ for (const lateSource of ["query", "idb"] as const) {
         })
         return id
       })
-      await expect(page.getByTestId(tid.message(aliceMessage))).toBeVisible()
+      if (held) await expect(page.getByTestId(tid.message(aliceMessage))).toBeVisible()
+      else await expect(page.getByTestId(tid.message(aliceMessage))).toHaveCount(0)
       if (held) {
         await expect.poll(() => held.captured() !== undefined).toBe(true)
         expect(held.captured()?.status).toBe(200)

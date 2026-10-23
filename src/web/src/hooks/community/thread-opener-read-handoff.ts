@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useLayoutEffect, useRef } from "react"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useCurrentUser } from "@/contexts/community/current-user"

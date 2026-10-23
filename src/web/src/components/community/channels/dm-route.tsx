@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
+import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { DmView } from "./dm-view"
 import { DmRouteErrorFrame } from "./dm-route-error-frame"
 import { DmLoadingFrame } from "./dm-loading-frame"

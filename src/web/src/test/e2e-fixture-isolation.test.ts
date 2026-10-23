@@ -156,7 +156,7 @@ describe("test-scoped case actors and cleanup", () => {
   const browser = (): Browser => ({
     newContext: vi.fn(async () => {
       let isClosed = false
-      const page = { isClosed: () => isClosed, context: () => context, url: () => "http://fixture.test/sign-in" } as Page
+      const page = { isClosed: () => isClosed, context: () => context, url: () => "http://fixture.test/sign-in?redirect=%2Fc" } as Page
       const context = {
         cookies: vi.fn(async () => []),
         newPage: async () => page,
@@ -179,10 +179,14 @@ describe("test-scoped case actors and cleanup", () => {
     }, testInfo)
   }
 
-  const protectedRedirect = (): APIResponse => ({
+  const publicDocument = (): APIResponse => ({
     url: () => "http://fixture.test/c",
-    status: () => 307,
-    headers: () => ({ location: "/sign-in?redirect=%2Fc" }),
+    status: () => 200,
+    text: async () => '<main data-community-shell="public"></main>',
+  }) as unknown as APIResponse
+  const protectedDenial = (): APIResponse => ({
+    url: () => "http://fixture.test/api/community/servers",
+    status: () => 401,
   }) as unknown as APIResponse
 
   const serverDeleteResponse = (page: Page, serverId: string, cookie: string, options: {
@@ -502,20 +506,28 @@ describe("test-scoped case actors and cleanup", () => {
       const users = await create(["alice", "logout"])
       const alice = await users.asUser("alice")
       await expect(resources.closeContext({ close: vi.fn() } as unknown as BrowserContext)).rejects.toThrow("different case owner")
-      await expect(users.confirmSignedOut("logout", { ...alice, protectedResponse: protectedRedirect() })).rejects.toThrow("different case")
-      await expect(users.confirmSignedOut("alice", { ...alice, protectedResponse: protectedRedirect() })).rejects.toThrow("restricted")
+      await expect(users.confirmSignedOut("logout", { ...alice, publicDocumentResponse: publicDocument(), protectedResponse: protectedDenial() })).rejects.toThrow("different case")
+      await expect(users.confirmSignedOut("alice", { ...alice, publicDocumentResponse: publicDocument(), protectedResponse: protectedDenial() })).rejects.toThrow("restricted")
     })
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => new URL(String(url)).pathname === "/api/ws/token")).toHaveLength(0)
   })
 
-  it("requires both cleared original cookies and the original protected redirect", async () => {
+  it("requires cleared original cookies, the public document and protected API denial", async () => {
     await run(info("missing-signout-proof"), async (create) => {
       const users = await create(["logout"])
       const logout = await users.asUser("logout")
       vi.mocked(logout.context.cookies).mockResolvedValue([{ name: "better-auth.session_token", value: "still-live" }] as Awaited<ReturnType<BrowserContext["cookies"]>>)
-      await expect(users.confirmSignedOut("logout", { ...logout, protectedResponse: protectedRedirect() })).rejects.toThrow("incomplete")
+      await expect(users.confirmSignedOut("logout", { ...logout, publicDocumentResponse: publicDocument(), protectedResponse: protectedDenial() })).rejects.toThrow("incomplete")
       vi.mocked(logout.context.cookies).mockResolvedValue([])
-      await expect(users.confirmSignedOut("logout", { ...logout, protectedResponse: { ...protectedRedirect(), status: () => 401 } as APIResponse })).rejects.toThrow("incomplete")
+      await expect(users.confirmSignedOut("logout", { ...logout, publicDocumentResponse: publicDocument(), protectedResponse: { ...protectedDenial(), status: () => 200 } as APIResponse })).rejects.toThrow("incomplete")
+      for (const invalid of [
+        { ...publicDocument(), status: () => 503 },
+        { ...publicDocument(), url: () => "https://foreign.test/c" },
+        { ...publicDocument(), text: async () => "private document" },
+      ]) await expect(users.confirmSignedOut("logout", { ...logout, publicDocumentResponse: invalid as APIResponse, protectedResponse: protectedDenial() })).rejects.toThrow("incomplete")
+      await expect(users.confirmSignedOut("logout", { ...logout, publicDocumentResponse: publicDocument(), protectedResponse: { ...protectedDenial(), url: () => "http://fixture.test/api/other" } as APIResponse })).rejects.toThrow("incomplete")
+      vi.spyOn(logout.page, "url").mockReturnValue("http://fixture.test/sign-in?redirect=%2Fc%2Fprivate")
+      await expect(users.confirmSignedOut("logout", { ...logout, publicDocumentResponse: publicDocument(), protectedResponse: protectedDenial() })).rejects.toThrow("incomplete")
     })
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => new URL(String(url)).pathname === "/api/ws/token")).toHaveLength(0)
   })
@@ -530,7 +542,7 @@ describe("test-scoped case actors and cleanup", () => {
       const dispose = vi.fn(async () => undefined)
       resources.own("gate", dispose)
       const logout = await users.asUser("logout")
-      await users.confirmSignedOut("logout", { ...logout, protectedResponse: protectedRedirect() })
+      await users.confirmSignedOut("logout", { ...logout, publicDocumentResponse: publicDocument(), protectedResponse: protectedDenial() })
       expect(dispose).toHaveBeenCalledTimes(1)
       expect(servers.size).toBe(0)
       expect(closed.every((page) => page.isClosed())).toBe(true)
@@ -554,7 +566,7 @@ describe("test-scoped case actors and cleanup", () => {
     await expect(run(info("unproved-session"), async (create) => {
       const users = await create(["logout"])
       const logout = await users.asUser("logout")
-      await users.confirmSignedOut("logout", { ...logout, protectedResponse: protectedRedirect() })
+      await users.confirmSignedOut("logout", { ...logout, publicDocumentResponse: publicDocument(), protectedResponse: protectedDenial() })
     })).rejects.toThrow("Case cleanup failed")
     const record = JSON.parse(readFileSync(resolve(fixture.directory, "case-cleanup-failure.json"), "utf8"))
     expect(record.pendingSessionRetirement).toBe(true)
@@ -567,7 +579,7 @@ describe("test-scoped case actors and cleanup", () => {
       deniedDeletes.add(server)
       resources.own("socket", async () => { throw new Error("socket close failed") })
       const logout = await users.asUser("logout")
-      await users.confirmSignedOut("logout", { ...logout, protectedResponse: protectedRedirect() })
+      await users.confirmSignedOut("logout", { ...logout, publicDocumentResponse: publicDocument(), protectedResponse: protectedDenial() })
     }).catch((error: AggregateError) => error)
     expect(failure).toBeInstanceOf(AggregateError)
     expect(servers.size).toBe(1)

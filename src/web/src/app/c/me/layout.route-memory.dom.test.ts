@@ -112,7 +112,7 @@ vi.mock("@/lib/community/last-community-route", () => ({
   consumeCommunityColdEntryFailure: (...args: unknown[]) => mocks.consumeColdEntryFailure(...args),
 }))
 
-import MeContent from "./layout"
+import { CommunityMeMemoryHost as MeContent } from "@/test/community-module-host"
 import { DmSidebarSlot } from "@/components/community/shell/dm-sidebar-slot"
 import { CommunityRouteContext } from "@/components/community/shell/community-route-context"
 import { normalizeCommunityHref } from "@/lib/community/community-route"

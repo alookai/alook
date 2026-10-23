@@ -4,6 +4,7 @@ import ts from "typescript"
 import { expect, it } from "vitest"
 import { actionNames, apiRoutes, pageRoutes, routeTemplate } from "./coverage"
 import { actionVariants } from "./actions"
+import { resolveCommunityModulePlan } from "../community/community-route"
 
 const web = resolve(import.meta.dirname, "../../..")
 const files = (root: string) => readdirSync(root, { recursive: true }).filter((file): file is string => typeof file === "string" && /\.tsx?$/.test(file)).map(file => resolve(root, file))
@@ -12,7 +13,13 @@ it("normalizes the ordinary message route without retaining a message ID or quer
 })
 it("keeps the route whitelist aligned with both builds and parallel route slots", () => {
   const routes = new Set(["src/app", "blog/src/app"].flatMap(root => files(resolve(web, root)).filter(file => file.endsWith("/page.tsx")).map(file => "/" + relative(resolve(web, root), file).split("/").slice(0, -1).filter(segment => !segment.startsWith("(") && !segment.startsWith("@")).join("/"))))
-  expect([...routes].sort()).toEqual([...pageRoutes].sort())
+  expect([...routes].filter(route => !/^\/c(?:\/|$)/.test(route)).sort()).toEqual(pageRoutes.filter(route => !/^\/c(?:\/|$)/.test(route)).sort())
+  expect([...routes].filter(route => route === "/c" || route.startsWith("/c/")).sort()).toEqual(["/c", "/c/[...path]", "/c/invite/[token]"])
+  for (const route of pageRoutes.filter(route => route === "/c" || route.startsWith("/c/"))) {
+    const concrete = route.replace(/\[[^\]]+\]/g, "fixture-id")
+    expect(resolveCommunityModulePlan(concrete).route, concrete).not.toBe("unknown")
+    expect(routeTemplate(concrete), concrete).toBe(route)
+  }
 })
 it("keeps the API whitelist aligned with the current route files", () => {
   const root = resolve(web, "src/app/api")
@@ -38,7 +45,7 @@ it("keeps existing mutation owners inventoried and semantic variants on the whit
 const mutationCoverage = [
   { "file": "src/web/src/hooks/community/mutations/bot-creation.ts", "owner": "useBotCreationDecision", "action": "bot.creation.decision" },
   {
-    "file": "src/web/src/app/c/invite/[token]/invite-accept-client.tsx",
+    "file": "src/web/src/app/(public-community)/c/invite/[token]/invite-accept-client.tsx",
     "owner": "InviteAcceptInner",
     "action": "server.invite.accept"
   },

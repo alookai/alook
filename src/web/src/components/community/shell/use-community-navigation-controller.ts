@@ -6,7 +6,8 @@ import { prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
 import { flushSync } from "react-dom"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   commitLatestNavigationIntent,

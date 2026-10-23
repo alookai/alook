@@ -45,7 +45,7 @@ describe("standalone README capture app contract", () => {
     "utf8",
   )
   const inviteSource = readFileSync(
-    path.join(root, "src/app/c/invite/[token]/invite-accept-client.tsx"),
+    path.join(root, "src/app/(public-community)/c/invite/[token]/invite-accept-client.tsx"),
     "utf8",
   )
 

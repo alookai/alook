@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   audit: null as string | null,
   bots: [] as BotSummary[],
   botsDataReady: true,
+  botsObserved: true,
   useActualBots: false,
   botsLoad: vi.fn(),
   isFounder: true,
@@ -87,7 +88,7 @@ vi.mock("@/hooks/community/use-bots", async (importOriginal) => {
     mocks.hookOrder.push("bots")
     return {
       bots: mocks.bots,
-      data: mocks.botsDataReady ? { bots: mocks.bots, ...mocks.planSummary, isFounder: mocks.isFounder } : undefined,
+      data: mocks.botsDataReady ? { bots: mocks.bots, observed: mocks.botsObserved, ...mocks.planSummary, isFounder: mocks.isFounder } : undefined,
       isPending: mocks.botsLoading,
     }
   },
@@ -240,6 +241,7 @@ describe("useBotListController", () => {
     mocks.audit = null
     mocks.bots = [bot("b1", "mac1")]
     mocks.botsDataReady = true
+    mocks.botsObserved = true
     mocks.useActualBots = false
     mocks.botsLoad.mockReset()
     mocks.botsLoading = false
@@ -510,6 +512,35 @@ describe("useBotListController", () => {
     mocks.bots = [bot("b1", "mac1")]
     mocks.botsDataReady = true
     act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])("keeps a missing restored audit target until current inventory resolves, present=%s", (present) => {
+    mocks.audit = "b2"
+    mocks.botsObserved = false
+    const renderer = render()
+    expect(latest.activityOpen).toBe(false)
+    expect(mocks.replace).not.toHaveBeenCalled()
+
+    mocks.botsObserved = true
+    if (present) mocks.bots = [...mocks.bots, bot("b2", "mac1")]
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(present)
+    if (present) {
+      expect(latest.activityBot?.id).toBe("b2")
+      expect(mocks.replace).not.toHaveBeenCalled()
+    } else {
+      expect(latest.activityBot).toBeNull()
+      expect(mocks.replace).toHaveBeenCalledWith("/c/me/bots?machineId=mac1")
+    }
+  })
+
+  it("opens an existing restored audit target before inventory revalidation", () => {
+    mocks.audit = "b1"
+    mocks.botsObserved = false
+    render()
     expect(latest.activityOpen).toBe(true)
     expect(latest.activityBot?.id).toBe("b1")
     expect(mocks.replace).not.toHaveBeenCalled()

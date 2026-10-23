@@ -445,9 +445,9 @@ describe("InboxPopover DM rows", () => {
 
     const row = renderer.getByTestId(tid.inboxUnreadDm(dm.channelId))
     expect(row).toHaveAttribute("href", "/c/me/dm-new")
-    expect(row).toHaveAttribute("data-prefetch", "false")
+    expect(row).not.toHaveAttribute("data-prefetch")
     fireEvent.pointerEnter(row)
-    expect(row).toHaveAttribute("data-prefetch", "true")
+    expect(row).not.toHaveAttribute("data-prefetch")
     expect(onOpenDm).not.toHaveBeenCalled()
     fireEvent.click(row)
 

@@ -3,7 +3,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
+import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ConversationMessageSkeleton } from "@/components/community/channels/conversation-message-skeleton"

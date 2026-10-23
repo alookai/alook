@@ -1,3 +1,4 @@
+import type { CommunityConversationEntryRead } from "@alook/shared"
 import type { Locator, Page, Route, TestInfo } from "@playwright/test"
 import { test, expect, type CaseActors } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
@@ -22,7 +23,7 @@ import {
 } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
-import { expectUniqueSsrCommunityFrame, readCommunityDocumentSeedFromHtml } from "./_fixtures/community-ssr-frame"
+import { expectUniqueSsrCommunityFrame, expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
 
 const VIEWPORT = { width: 1280, height: 800 }
 
@@ -829,16 +830,21 @@ test.describe("message scroll characterization", () => {
     alice.page.on("request", request => {
       if (request.method() === "POST" && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`) composerPosts += 1
     })
-    const anchorResponse = alice.page.waitForResponse(response => response.request().isNavigationRequest()
+    const documentResponse = alice.page.waitForResponse(response => response.request().isNavigationRequest()
       && new URL(response.url()).pathname === `/c/channels/${serverId}/${channelId}`)
+    const anchorResponse = alice.page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.request().method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages` && url.searchParams.get("entry") === "1"
+    })
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
     const scroller = alice.page.getByTestId(tid.messageScroller)
     await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
     const anchored = await anchorResponse
     expect(anchored.status()).toBe(200)
-    const anchorPage = (await readCommunityDocumentSeedFromHtml(await anchored.text())).entries.find(entry => entry.target.channelId === channelId)
-    expect(anchorPage?.data.selection.reason).toBe("read_pointer")
-    expect(anchorPage?.data.page.hasMoreNewer).toBe(true)
+    expectPublicCommunityDocument(await (await documentResponse).text())
+    const anchorPage = await anchored.json() as CommunityConversationEntryRead
+    expect(anchorPage.selection.reason).toBe("read_pointer")
+    expect(anchorPage.page.hasMoreNewer).toBe(true)
     let newestGets = 0
     alice.page.on("request", request => {
       const url = new URL(request.url())

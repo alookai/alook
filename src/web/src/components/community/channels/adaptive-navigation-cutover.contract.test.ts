@@ -21,8 +21,8 @@ describe("adaptive navigation cutover contracts", () => {
   })
 
   it("shares one channel subtree consumer across the layout and shell and removes the nested leaf", () => {
-    const layout = readSource("../../../app/c/channels/layout.tsx")
-    const flatPage = readSource("../../../app/c/channels/[serverId]/[channelId]/page.tsx")
+    const layout = readSource("../shell/community-route-frame.tsx")
+    const flatPage = readSource("../../../app/c/[...path]/page.tsx")
     const nestedPage = new URL(
       "../../../app/c/channels/[serverId]/[channelId]/[childChannelId]/page.tsx",
       import.meta.url,
@@ -30,7 +30,7 @@ describe("adaptive navigation cutover contracts", () => {
 
     const consumer = readSource("./server-conversation-route.tsx")
     const shell = readSource("../shell/community-module-route.tsx")
-    expect(layout).toContain("<ServerConversationRoute")
+    expect(layout).toContain("usePathname()")
     expect(shell).toContain("<ServerConversationRoute")
     expect(consumer).toContain("key={JSON.stringify([viewer.id, serverId])}")
     expect(layout).not.toContain("parentChannelId={routeParent" + "ChannelId}")

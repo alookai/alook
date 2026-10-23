@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useMemo } from "react"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
+import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 
 export const CommunityModuleRouteContext = createContext<{ href: string; routeCommitted: boolean } | null>(null)
 

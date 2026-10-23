@@ -79,7 +79,7 @@ function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplica
     }
     const locator = (count = 1) => ({
       fixtureLocator: true, visible: true, count,
-      attributes: { "aria-busy": "true", "aria-label": "Loading community" },
+      attributes: { "aria-busy": "true", "aria-label": "Loading community", "data-community-route-kind": "community-root-redirect" },
       locator: () => locator(),
     })
     const page = {
@@ -97,7 +97,7 @@ function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplica
         if (failure === "navigation" && visits[0] === visit) throw originalFailure
       },
       getByTestId: () => locator(),
-      locator: (selector: string) => locator(selector.includes("restore-bootstrap") ? 0 : 1),
+      locator: (selector: string) => locator(selector.includes("restore-bootstrap") || selector.includes("user-bar-base") ? 0 : 1),
       waitForTimeout: async (time: number) => { visit.waits.push(time); visit.events.push("sample.wait") },
       evaluate: async (callback: () => unknown, input?: unknown) => {
         if (input && typeof input === "object" && "initialId" in input && input.initialId === tid.initialFrame) {

@@ -1,7 +1,7 @@
 import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@/test/react-dom-harness"
-import ServerDefaultPage from "./page"
+import ServerDefaultPage from "@/components/community/shell/server-landing-route"
 import { tid } from "@/lib/community/testids"
 import { CommunityServerRouteContext } from "@/components/community/shell/community-route-context"
 

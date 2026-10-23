@@ -25,32 +25,16 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-server-delete-route-guard"
 import { CommunityRestoreBoundary } from "@/components/community/shell/community-restore-bootstrap"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
-import type { CommunityDocumentSeedInput } from "@/lib/community/document-seed"
 
-/**
- * Client wrapper that provides the QueryClient, CurrentUser, and the
- * community WebSocket handler to every community page.
- *
- * The server-side layout drops the initial session user into this shell.
- * `<CurrentUserProvider>` holds identity for the tree; `<CommunityBootstrap>`
- * mounts the single WS handler and hydrates the viewer's aboutMe field once
- * on mount — the old God-context's on-mount side-effects that survived Step 3.
- *
- * Notification-setting hydration lives at this root so every unread source
- * request is reconciled against one account policy, including `/c` routes
- * that do not mount a settings consumer.
- */
 export function CommunityShell({
   currentUser,
   children,
-  initialSeed,
 }: {
   currentUser: CurrentUser
   children: ReactNode
-  initialSeed?: CommunityDocumentSeedInput
 }) {
   return (
-    <QueryProvider userId={currentUser.id} initialUser={currentUser} initialSeed={initialSeed}>
+    <QueryProvider userId={currentUser.id} initialUser={currentUser}>
       <CommunityRestoreBoundary>
         <ProfileAccountBoundary viewerId={currentUser.id}>
           <CurrentUserProvider initialUser={currentUser}>

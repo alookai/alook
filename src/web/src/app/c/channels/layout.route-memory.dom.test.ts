@@ -246,7 +246,7 @@ vi.mock("@/hooks/community/mutations", async () => {
   }
 })
 
-import ServerContent from "./layout"
+import { CommunityServerModuleHost as ServerContent } from "@/test/community-module-host"
 import { ServerSidebarSlot } from "@/components/community/shell/server-sidebar-slot"
 import { CommunityRouteContext } from "@/components/community/shell/community-route-context"
 import { normalizeCommunityHref } from "@/lib/community/community-route"

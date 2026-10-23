@@ -5,7 +5,8 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
 import { useCallback, useEffect, useMemo, useRef } from "react"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"

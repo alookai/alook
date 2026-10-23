@@ -19,5 +19,3 @@ export async function readCommunitySelfProfile(db: Database, userId: string) {
     statusText: profile?.statusText ?? "",
   } }
 }
-
-export type CommunitySelfProfile = Awaited<ReturnType<typeof readCommunitySelfProfile>>["profile"]

@@ -10,7 +10,6 @@ vi.mock("@/components/community/shell/community-shell-layout", () => ({
   CommunityShellLayout: ({ main }: { main: ReactNode }) => main,
 }))
 
-import FriendsLoading from "@/app/c/me/friends/loading"
 import { CommunityPendingFrame } from "./community-pending-frame"
 import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
 
@@ -37,7 +36,7 @@ describe("friends pending QueryClient provider order", () => {
     },
     {
       name: "the friends route loading boundary",
-      render: () => createElement(FriendsLoading),
+      render: () => createElement(CommunityPendingFrame, { href: "/c/me/friends" }),
       withQueryProvider: false,
     },
     {

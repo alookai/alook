@@ -12,11 +12,13 @@ vi.mock("@/components/community/channels/dm-loading-frame", () => ({
   DmLoadingFrame: () => createElement("div", { "data-testid": "dm-loading-frame" }),
 }))
 
-import MeLoading from "./loading"
-import FriendsLoading from "./friends/loading"
-import MachinesLoading from "./machines/loading"
-import BotsLoading from "./bots/loading"
-import DmLoading from "./[dmId]/loading"
+import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
+import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
+const MeLoading = () => createElement(CommunityPendingFrame, { href: "/c/me" })
+const FriendsLoading = () => createElement(CommunityPendingFrame, { href: "/c/me/friends" })
+const MachinesLoading = () => createElement(CommunityPendingFrame, { href: "/c/me/machines" })
+const BotsLoading = () => createElement(CommunityPendingFrame, { href: "/c/me/bots" })
+const DmLoading = DmLoadingFrame
 
 function hrefFor(Component: () => React.ReactNode) {
   const rendered = render(createElement(Component))

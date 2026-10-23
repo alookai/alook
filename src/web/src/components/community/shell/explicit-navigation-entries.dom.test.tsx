@@ -12,7 +12,7 @@ import type { BotSummary } from "@/hooks/community/use-bots"
 import { CommunityInviteCard } from "../social/community-invite-card"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
-import MeFriendsPage from "@/app/c/me/friends/page"
+import MeFriendsPage from "@/components/community/social/friends-route"
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),

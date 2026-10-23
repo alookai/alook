@@ -1,30 +1,8 @@
-import type { Page, Route } from "@playwright/test"
+import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
-import type { CaseResources } from "./_fixtures/case-fixture"
-
-async function holdRoute(page: Page, pathname: string, caseResources: CaseResources) {
-  let releaseGate!: () => void
-  const gate = new Promise<void>((resolve) => { releaseGate = resolve })
-  caseResources.own(releaseGate, async (captured) => { captured() })
-  let held = 0
-  const pattern = `**${pathname}**`
-  const handler = async (route: Route) => {
-    held += 1
-    await gate
-    await route.continue()
-  }
-  await page.route(pattern, handler)
-  return {
-    held: () => held,
-    release: async () => {
-      releaseGate()
-      await page.waitForTimeout(100)
-      await page.unroute(pattern, handler)
-    },
-  }
-}
+import { holdRoute } from "./_fixtures/held-route"
 
 function channelHeader(page: Page, name: string) {
   return page.getByRole("banner").getByText(name, { exact: true })
@@ -141,8 +119,7 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   const channelA = await seedChannel("alice", serverId, channelAName)
   const channelB = await seedChannel("alice", serverId, channelBName)
   const { page } = await asUser("alice")
-  const machineDataGate = await holdRoute(page, "/api/community/machines", caseResources)
-  const machinesGate = await holdRoute(page, "/c/me/machines", caseResources)
+  const machineDataGate = await holdRoute(page, "**/api/community/machines**", caseResources)
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(`/c/channels/${serverId}/${channelA}`)
   await expect(channelHeader(page, channelAName)).toBeVisible({ timeout: 30_000 })
@@ -162,7 +139,7 @@ test("community checkpoint shows target pending for detail and keeps list surfac
     ) mutations.push(`${method} ${pathname}`)
   })
 
-  const leafGate = await holdRoute(page, `/c/channels/${serverId}/${channelB}`, caseResources)
+  const leafGate = await holdRoute(page, `**/api/community/channels/${channelB}/messages*`, caseResources)
   await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true })
   await expect.poll(leafGate.held).toBeGreaterThan(0)
   const pendingMain = page.locator(
@@ -191,46 +168,39 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   await expect(targetReady).toBeVisible()
 
   await page.setViewportSize({ width: 390, height: 844 })
-  const rootGate = await holdRoute(page, `/c/channels/${serverId}`, caseResources)
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click({ noWaitAfter: true })
-  await expect.poll(rootGate.held).toBeGreaterThan(0)
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await page.setViewportSize({ width: 1280, height: 900 })
   await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await expect(channelHeader(page, channelBName)).toBeVisible()
   await page.waitForTimeout(150)
   await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
-  await expect(channelHeader(page, channelBName)).toBeVisible()
-  await rootGate.release()
   await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
   await page.goto("/c/me/friends")
   await expect(page.getByPlaceholder("Search friends")).toBeVisible({ timeout: 30_000 })
   await page.getByRole("link", { name: "Machines", exact: true }).click({ noWaitAfter: true })
-  await expect.poll(machinesGate.held).toBeGreaterThan(0)
   await expect.poll(machineDataGate.held).toBeGreaterThan(0)
   await expect(page.getByPlaceholder("Search friends")).toHaveCount(0)
   await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await expect(page.locator('[data-slot="community-machines-heading"] [data-slot="skeleton"]').first()).toBeVisible()
   await expect(page.getByText("No machines yet", {exact: true})).toHaveCount(0)
   await expect(page.getByTestId(tid.machinePairOpen)).toHaveCount(0)
-  expect(new URL(page.url()).pathname).toBe("/c/me/friends")
+  expect(new URL(page.url()).pathname).toBe("/c/me/machines")
   await machineDataGate.release()
   await expect(page.getByText("No machines yet", {exact: true})).toBeVisible()
   await expect(page.getByTestId(tid.machinePairOpen)).toBeEnabled()
-  expect(new URL(page.url()).pathname).toBe("/c/me/friends")
+  expect(new URL(page.url()).pathname).toBe("/c/me/machines")
   const cachedMachineContent = page.getByText("No machines yet", {exact: true})
   await cachedMachineContent.evaluate(element => { element.setAttribute("data-e2e-cached-identity", "retained") })
-  await machinesGate.release()
   await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me/machines")
   await expect(cachedMachineContent).toHaveAttribute("data-e2e-cached-identity", "retained")
   await page.getByRole("link", {name: "Friends", exact: true}).click()
   await expect(page.getByPlaceholder("Search friends")).toBeVisible()
-  const warmMachinesGate = await holdRoute(page, "/c/me/machines", caseResources)
   await page.getByRole("link", {name: "Machines", exact: true}).click({noWaitAfter: true})
   await expect(cachedMachineContent).toBeVisible()
   await expect(page.getByTestId(tid.machinePairOpen)).toBeEnabled()
   await expect(page.getByPlaceholder("Search friends")).toHaveCount(0)
-  await warmMachinesGate.release()
   await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me/machines")
 
   expect(mutations).toEqual([])
@@ -292,7 +262,7 @@ test("mobile route commits stay stationary while sidebar identity survives same-
 
   await clearSurfaceAnimations(page)
   const pendingPath = `/c/channels/${serverId}/${pendingChannel}`
-  const pendingGate = await holdRoute(page, pendingPath, caseResources)
+  const pendingGate = await holdRoute(page, `**/api/community/channels/${pendingChannel}/messages*`, caseResources)
   await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true })
   await expect.poll(pendingGate.held).toBeGreaterThan(0)
   const pendingMain = page.locator(

@@ -2,7 +2,7 @@ import { devices, type Page } from "@playwright/test"
 import { COMMUNITY_CONTRACT_HEADER, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityConversationEntryRead } from "@alook/shared"
 import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
-import { readCommunityDocumentSeedFromHtml } from "./_fixtures/community-ssr-frame"
+import { expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
 
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
@@ -315,17 +315,22 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
     expect(readPointer).not.toBe(laterIds.at(-1))
 
     const { page } = await asUser("bob", devices["iPhone 13"])
+    const entryResponse = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return response.request().method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages`
+        && url.searchParams.get("entry") === "1" && url.searchParams.get("anchor") === channelMessageId
+    })
     const response = await page.goto(`/c/channels/${serverId}/${channelId}?msg=${channelMessageId}`)
     expect(response?.ok()).toBe(true)
     const html = await response!.text()
-    const initialSeed = await readCommunityDocumentSeedFromHtml(html)
-    expect(initialSeed.viewerId).toBe(actors.userId("bob"))
-    const seeded = initialSeed.entries.find(entry => entry.target.channelId === channelId)
-    expect(seeded?.target).toEqual({ channelId, serverId, anchorMessageId: channelMessageId, tag: null })
-    expect(seeded?.data.selection).toEqual({ reason: "explicit_anchor", anchorMessageId: channelMessageId })
-    expect(seeded?.data.surfaceReceipt).toEqual({ channelId, surfaceKind: "channel" })
-    expect(seeded?.data.messages).toEqual(expect.arrayContaining([expect.objectContaining({ id: channelMessageId })]))
-    expect(seeded?.data.messages.some(message => message.id === readPointer)).toBe(false)
+    expectPublicCommunityDocument(html)
+    const explicitResponse = await entryResponse
+    expect(explicitResponse.ok()).toBe(true)
+    const explicitEntry = await explicitResponse.json() as CommunityConversationEntryRead
+    expect(explicitEntry.selection).toEqual({ reason: "explicit_anchor", anchorMessageId: channelMessageId })
+    expect(explicitEntry.surfaceReceipt).toEqual({ channelId, surfaceKind: "channel" })
+    expect(explicitEntry.messages).toEqual(expect.arrayContaining([expect.objectContaining({ id: channelMessageId })]))
+    expect(explicitEntry.messages.some(message => message.id === readPointer)).toBe(false)
     const target = page.getByTestId(tid.message(channelMessageId))
     await expect(target).toBeVisible()
     await expect(target.locator(".group").first()).toHaveClass(/bg-primary\/10/)
@@ -338,7 +343,7 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
     await expect.poll(position).toMatchObject({ inView: true, ready: "true" })
     await expect(page).toHaveURL(`${WEB_URL}/c/channels/${serverId}/${channelId}`)
     await expect(composerEditable(page)).toBeVisible({ timeout: 30_000 })
-    await testInfo.attach("msg-anchor-evidence", { body: JSON.stringify({ status: response!.status(), htmlBytes: Buffer.byteLength(html), selection: seeded?.data.selection, surfaceReceipt: seeded?.data.surfaceReceipt, anchorId: channelMessageId, readPointer, latestId: laterIds.at(-1), defaultWindowIds: defaultEntry.messages.map(message => message.id), explicitWindowIds: seeded?.data.messages.map(message => message.id), position: await position(), url: page.url() }), contentType: "application/json" })
+    await testInfo.attach("msg-anchor-evidence", { body: JSON.stringify({ status: response!.status(), htmlBytes: Buffer.byteLength(html), selection: explicitEntry.selection, surfaceReceipt: explicitEntry.surfaceReceipt, anchorId: channelMessageId, readPointer, latestId: laterIds.at(-1), defaultWindowIds: defaultEntry.messages.map(message => message.id), explicitWindowIds: explicitEntry.messages.map(message => message.id), position: await position(), url: page.url() }), contentType: "application/json" })
   })
 
 })

@@ -190,7 +190,8 @@ describe("cleanupAuthenticatedNativeOauthResidue", () => {
     const communityLayout = readFileSync(new URL("../app/c/layout.tsx", import.meta.url), "utf8")
     const communityClient = readFileSync(new URL("../app/c/community-layout-client.tsx", import.meta.url), "utf8")
 
-    expect(communityLayout).toContain("await getSession()")
+    expect(communityLayout).not.toContain("getSession")
+    expect(communityClient).toContain("const session = useSession()")
     expect(communityClient.indexOf("if (!currentUser)")).toBeLessThan(
       communityClient.indexOf("<AuthenticatedNativeOauthCleanup />"),
     )

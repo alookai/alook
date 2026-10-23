@@ -2,6 +2,7 @@ import type { Page, WebSocket } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, openServer } from "./_fixtures/actions"
 
+import { holdRoute } from "./_fixtures/held-route"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 import type { UserKey } from "./_setup/users"
@@ -131,29 +132,9 @@ async function delayDelete(page: Page, serverId: string, caseResources: CaseReso
   }
 }
 
-async function delayServerRsc(page: Page, serverId: string, caseResources: CaseResources) {
-  const release = deferred<void>()
-  caseResources.own(release, async (captured) => { captured.resolve() })
-  const intercepted = deferred<void>()
-  caseResources.own(intercepted, async (captured) => { captured.resolve() })
-  const pattern = "**/c/channels/**"
-  await page.route(pattern, async (route) => {
-    const url = new URL(route.request().url())
-    const targetsServer = url.pathname === `/c/channels/${serverId}`
-      || url.pathname.startsWith(`/c/channels/${serverId}/`)
-    if (!targetsServer || !url.searchParams.has("_rsc")) {
-      await route.continue()
-      return
-    }
-    intercepted.resolve()
-    await release.promise
-    await route.continue()
-  })
-  return {
-    intercepted: intercepted.promise,
-    release: () => release.resolve(),
-    cleanup: () => page.unroute(pattern),
-  }
+async function delayServerEntry(page: Page, channelId: string, resources: CaseResources) {
+  return holdRoute(page, url => url.pathname === `/api/community/channels/${channelId}/messages`
+    && url.searchParams.get("entry") === "1", resources)
 }
 
 async function installHistoryRecorder(page: Page): Promise<void> {
@@ -292,7 +273,7 @@ for (const testCase of [
   })
 }
 
-test("slow target RSC survives delete/list/WS convergence and lands on its remembered Channel", async ({ caseActors, caseResources }) => {
+test("a held target entry survives delete/list/WS convergence on its remembered Channel", async ({ caseActors, caseResources }) => {
   const actors = await caseActors(["carol"])
   const { asUser } = actors
   const { serverIds, seedServerRoute } = await prepareCase(actors)
@@ -315,7 +296,10 @@ test("slow target RSC survives delete/list/WS convergence and lands on its remem
   const targetPathname = await expectServerLeaf(page, targetServerId!)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   await openServer(page, deleted.serverId)
-  const targetRsc = await delayServerRsc(page, targetServerId!, caseResources)
+  const targetChannelId = targetPathname.split("/").at(-1)!
+  await page.reload()
+  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+  const targetEntry = await delayServerEntry(page, targetChannelId, caseResources)
   const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
       && new URL(candidate.url()).pathname === `/api/community/servers/${deleted.serverId}`
@@ -326,15 +310,14 @@ test("slow target RSC survives delete/list/WS convergence and lands on its remem
   expect((await response).status()).toBe(204)
   const deleteResponse = await response
   await actors.recordServerDeletion("carol", deleted.serverId, { page, response: deleteResponse })
-  await targetRsc.intercepted
+  await expect.poll(targetEntry.held).toBeGreaterThan(0)
   expect(new URL(page.url()).pathname).not.toBe("/c/me")
-  targetRsc.release()
+  await targetEntry.release()
   expect(await expectServerLeaf(page, targetServerId!)).toBe(targetPathname)
   await expect(page.getByTestId(tid.serverIcon(deleted.serverId))).toHaveCount(0)
-  await targetRsc.cleanup()
 })
 
-test("a newer user navigation wins while the delete target RSC is pending", async ({ caseActors, caseResources }) => {
+test("a newer user navigation wins while the delete target entry is pending", async ({ caseActors, caseResources }) => {
   const actors = await caseActors(["dave"])
   const { asUser } = actors
   const { serverIds, seedServerRoute } = await prepareCase(actors)
@@ -355,9 +338,11 @@ test("a newer user navigation wins while the delete target RSC is pending", asyn
   ))
   expect(userRoute).toBeTruthy()
   await openServer(page, targetServerId!)
-  await expectServerLeaf(page, targetServerId!)
+  const targetPathname = await expectServerLeaf(page, targetServerId!)
   await openServer(page, deleted.serverId)
-  const targetRsc = await delayServerRsc(page, targetServerId!, caseResources)
+  await page.reload()
+  await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+  const targetEntry = await delayServerEntry(page, targetPathname.split("/").at(-1)!, caseResources)
   const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
       && new URL(candidate.url()).pathname === `/api/community/servers/${deleted.serverId}`
@@ -368,14 +353,13 @@ test("a newer user navigation wins while the delete target RSC is pending", asyn
   expect((await response).status()).toBe(204)
   const deleteResponse = await response
   await actors.recordServerDeletion("dave", deleted.serverId, { page, response: deleteResponse })
-  await targetRsc.intercepted
+  await expect.poll(targetEntry.held).toBeGreaterThan(0)
   await page.getByTestId(tid.serverIcon(userRoute!.serverId)).click()
-  targetRsc.release()
+  await targetEntry.release()
   await expectServerLeaf(page, userRoute!.serverId)
   await expect(page).not.toHaveURL(new RegExp(`/c/channels/${targetServerId}(?:/|$)`), {
     timeout: 2_000,
   })
-  await targetRsc.cleanup()
 })
 
 test("a Back visit after terminal cleanup is an ordinary missing route", async ({ caseActors, caseResources }) => {

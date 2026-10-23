@@ -12,7 +12,7 @@ import {
 import { ShellFrameView } from "./shell-frame-view"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import { CommunityRouteContext } from "./community-route-context"
-import ServerLayout from "@/app/c/channels/layout"
+import { CommunityServerModuleHost as ServerLayout } from "@/test/community-module-host"
 
 const mocks = vi.hoisted(() => ({
   pathname: "/c/channels/s1/a",

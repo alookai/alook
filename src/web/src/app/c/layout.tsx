@@ -1,54 +1,14 @@
-import { Suspense, type ReactNode } from "react"
-import { getSession } from "@/lib/session"
-import { avatarInitial } from "@/lib/community/avatar"
-import { headers } from "next/headers"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { getDb, getPrimaryDb } from "@/lib/db"
-import { readCommunitySelfProfile } from "@/lib/community/self-profile.server"
-import { readCommunityDocumentSeed } from "@/lib/community/document-seed.server"
-import { resolveCommunityModulePlan } from "@/lib/community/community-route"
-import { COMMUNITY_DOCUMENT_ROUTE_HEADER, readCommunityDocumentRoute } from "@/lib/community/document-route"
+import { Suspense } from "react"
+import type { Metadata } from "next"
 import { CommunityLayoutClient } from "./community-layout-client"
-import { CommunitySessionFallback } from "./community-session-fallback"
+import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 
-type CommunityLayoutProps = { children: ReactNode; sidebar: ReactNode }
+export const metadata: Metadata = { robots: { index: false, follow: false } }
 
-export default function CommunityLayout({ children, sidebar }: CommunityLayoutProps) {
-  return (
-    <Suspense fallback={<CommunitySessionFallback />}>
-      <CommunitySessionLayout sidebar={sidebar}>{children}</CommunitySessionLayout>
+export default function CommunityLayout() {
+  return <div className="contents" data-community-shell="public">
+    <Suspense fallback={<CommunitySessionPendingFrame pathname="/c" />}>
+      <CommunityLayoutClient />
     </Suspense>
-  )
-}
-
-async function CommunitySessionLayout({ children, sidebar }: CommunityLayoutProps) {
-  const session = await getSession()
-  // Match the REST session guard; flags retain the existing cookie-cache freshness.
-  const authenticated = session && session.user.isBot !== true && (session.user.deletedAt ?? null) === null
-    ? await loadDocument(session.user.id) : null
-  const currentUser = authenticated?.viewer ? {
-    ...authenticated.profile,
-    email: authenticated.viewer.email,
-    avatar: authenticated.profile.avatar || avatarInitial(authenticated.profile.name),
-  } : null
-
-  return (
-    <CommunityLayoutClient currentUser={currentUser} initialSeed={authenticated?.seed} sidebar={sidebar}>
-      {children}
-    </CommunityLayoutClient>
-  )
-}
-
-async function loadDocument(viewerId: string) {
-  const [{ env }, requestHeaders] = await Promise.all([getCloudflareContext({ async: true }), headers()])
-  const href = readCommunityDocumentRoute(requestHeaders.get(COMMUNITY_DOCUMENT_ROUTE_HEADER))
-  const kind = href ? resolveCommunityModulePlan(href).main.kind : "none"
-  const db = kind === "machines" || kind === "bots" ? getPrimaryDb(env.DB) : getDb(env.DB)
-  const { viewer, profile } = await readCommunitySelfProfile(db, viewerId)
-  if (!viewer) return null
-  const seed = readCommunityDocumentSeed(db, viewerId, href, profile).catch((error: unknown) => {
-    console.error("Community document prefetch failed", error)
-    return null
-  })
-  return { viewer, profile, seed }
+  </div>
 }

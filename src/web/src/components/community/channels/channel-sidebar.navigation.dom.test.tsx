@@ -73,7 +73,7 @@ describe("real sortable channel navigation surface", () => {
     expect(anchor).toHaveAttribute("href", "/c/channels/server/two")
     expect(anchor).toHaveAttribute("aria-roledescription", "draggable")
     fireEvent.focus(anchor)
-    expect(anchor).toHaveAttribute("data-prefetch", "true")
+    expect(anchor).not.toHaveAttribute("data-prefetch")
     act(() => anchor.focus())
     await setupUser().keyboard("{Enter}")
     expect(onPick.mock.calls).toEqual([["two"]])

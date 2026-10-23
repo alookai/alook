@@ -14,7 +14,7 @@ import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-fee
 import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-warmup"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { runAuthoritativeServerEject } from "@/lib/community/eject-server"
-import ServerLayout from "@/app/c/channels/layout"
+import { CommunityServerModuleHost as ServerLayout } from "@/test/community-module-host"
 import { channelSchema } from "@/lib/community-db/schema"
 import { conversationEntryFixture } from "@/test/conversation-entry-fixtures"
 

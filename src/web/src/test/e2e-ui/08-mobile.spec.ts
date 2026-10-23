@@ -1,6 +1,7 @@
 import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
+import { expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
 import { tid } from "./_fixtures/testids"
 
 import type { CaseActors } from "./_fixtures/case-fixture"
@@ -266,7 +267,10 @@ test.describe("mobile layout", () => {
     const response = await page.goto(
       `/c/channels/${serverId}/${channelId}/${childChannelId}`,
     )
-    expect(response?.status()).toBe(404)
+    expect(response?.status()).toBe(200)
+    expectPublicCommunityDocument(await response!.text())
+    await expect(page.getByText("Undeliverable — page not found", { exact: false })).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
 
     await page.goto("/c/me")
     await page.evaluate(

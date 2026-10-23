@@ -25,7 +25,7 @@ export type CaseActors = {
   recordServerDeletion: (role: UserKey, serverId: string, evidence: ServerDeletionEvidence) => Promise<void>
 }
 
-export type SignedOutEvidence = { context: BrowserContext; page: Page; protectedResponse: APIResponse }
+export type SignedOutEvidence = { context: BrowserContext; page: Page; publicDocumentResponse: APIResponse; protectedResponse: APIResponse }
 export type ServerDeletionEvidence = { page: Page; response: PlaywrightResponse }
 export type OwnedCaseResource<T> = { readonly value: T; close: () => Promise<void> }
 export type CaseResources = {
@@ -284,10 +284,13 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       if (!cookie || contextOwner?.role !== role || contextOwner.kind !== "actor" || evidence.page.context() !== evidence.context) throw new Error("Sign-out evidence has a different case, role, context or original session")
       if (retiredSessions.has(role)) throw new Error("Original session retirement was already confirmed")
       const responseUrl = new URL(evidence.protectedResponse.url())
-      const location = evidence.protectedResponse.headers().location
-      const redirect = location ? new URL(location, WEB_URL) : undefined
+      const documentUrl = new URL(evidence.publicDocumentResponse.url())
       const pageUrl = new URL(evidence.page.url())
-      if (responseUrl.origin !== WEB_URL || responseUrl.pathname !== "/c" || evidence.protectedResponse.status() !== 307 || redirect?.origin !== WEB_URL || redirect.pathname !== "/sign-in" || redirect.searchParams.get("redirect") !== "/c" || pageUrl.origin !== WEB_URL || pageUrl.pathname !== "/sign-in" || (await evidence.context.cookies()).some((value) => value.name.startsWith("better-auth"))) throw new Error("Original cookie and protected redirect sign-out proof is incomplete")
+      if (responseUrl.origin !== WEB_URL || responseUrl.pathname !== "/api/community/servers" || evidence.protectedResponse.status() !== 401
+        || documentUrl.origin !== WEB_URL || documentUrl.pathname !== "/c" || evidence.publicDocumentResponse.status() !== 200
+        || !(await evidence.publicDocumentResponse.text()).includes('data-community-shell="public"')
+        || pageUrl.origin !== WEB_URL || pageUrl.pathname !== "/sign-in" || pageUrl.searchParams.get("redirect") !== "/c"
+        || (await evidence.context.cookies()).some((value) => value.name.startsWith("better-auth"))) throw new Error("Original cookie, public document and protected API sign-out proof is incomplete")
       if (businessRoles.has(role) || [...owned.values()].some((value) => value.owner === role)) throw new Error("Logout role has unresolved or unknown business resources")
       pendingSessionRetirement = true
       exiting = true

@@ -9,6 +9,14 @@ const daemonPkg = JSON.parse(readFileSync(path.resolve(__dirname, "../daemon/pac
 const observation = resolveObservationBuild(process.env);
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [{ source: "/community-shell/:hash", headers: [
+      { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+      { key: "Content-Type", value: "text/html; charset=utf-8" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "X-Robots-Tag", value: "noindex" },
+    ] }];
+  },
 	images: { unoptimized: true },
 	env: {
 		NEXT_PUBLIC_APP_VERSION: pkg.version,

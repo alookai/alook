@@ -11,9 +11,6 @@ import { CommunityRestoreBoundary } from "@/components/community/shell/community
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { dispatchCommunityWsEvents } from "@/hooks/community/community-ws/registry"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
-import { installCommunityDocumentSeed, type CommunityDocumentSeed } from "@/lib/community/document-seed"
-import { communityCollectionQuery, communityJoinedMessagesQuery } from "@/lib/community-db/queries"
-import { preloadCommunityProjection, dehydrateCommunityProjections } from "@/lib/community-db/live-query"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { communityKeys } from "@/lib/query-keys"
 vi.mock("@/lib/auth-client", () => ({ useSession: () => ({ data: { user: { id: "viewer" } }, isPending: false, error: null }), currentSessionViewer: () => "viewer" }))
@@ -31,16 +28,9 @@ it.each([null, false, true].flatMap(blockMode => (["accepted", "incoming"] as co
   const disk = createIdbPersister("viewer")
   await disk.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(old.client) })
   const fresh = dmConversationEntryFixture()
-  fresh.messages = [{ ...fresh.messages[0], id: "m2", seq: 2, content: "Fresh RSC" }]
+  fresh.messages = [{ ...fresh.messages[0], id: "m2", seq: 2, content: "Fresh authorized entry" }]
   fresh.readState = { ...fresh.readState, lastReadMessageId: "m2", lastReadSeq: 2 }
   fresh.selection = { reason: "read_pointer", anchorMessageId: "m2" }
-  const selfProfile = { id: "viewer", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 0, aboutMe: "", bannerColor: null, statusEmoji: "", statusText: "" }
-  const source = await createCommunityQueryOwner()
-  const seed: CommunityDocumentSeed = { viewerId: "viewer", href: "/c/me/c1", generatedAt: Date.now(), selfProfile, entries: [{ target: { channelId: "c1", serverId: null }, data: fresh }], db: { collections: [] } }
-  installCommunityDocumentSeed(source.client, source.registry, seed, "viewer")
-  const descriptors = [communityCollectionQuery(source.registry, "profiles"), communityCollectionQuery(source.registry, "channels"), communityCollectionQuery(source.registry, "channelMemberships"), communityCollectionQuery(source.registry, "readStates"), communityJoinedMessagesQuery(source.registry, "c1", ["m2"])]
-  const bindings = await Promise.all(descriptors.map(d => preloadCommunityProjection(source.registry, d)))
-  seed.db = { ...dehydrateCommunityProjections(source.registry, bindings), collections: [] }
   const original = IDBObjectStore.prototype.get
   let reads = 0, held = 0
   let release: (() => void) | undefined
@@ -63,10 +53,11 @@ it.each([null, false, true].flatMap(blockMode => (["accepted", "incoming"] as co
   let restoring = true
   let ids: string[] = []
   function Probe() { registry = useOptionalCommunityDbRegistry(); restoring = useIsRestoring(); const body = useDmMessages("c1"); ids = body.messages.map(m => m.id); return null }
-  const view = render(<QueryProvider userId="viewer" initialSeed={JSON.parse(JSON.stringify(seed))}><CommunityRestoreBoundary><Probe /></CommunityRestoreBoundary></QueryProvider>)
+  const view = render(<QueryProvider userId="viewer"><CommunityRestoreBoundary><Probe /></CommunityRestoreBoundary></QueryProvider>)
   try {
     await waitFor(() => expect(held).toBe(1))
     expect(restoring).toBe(true)
+    await act(async () => { await seedConversationEntry(registry!.queryClient, fresh) })
     expect(ids).toContain("m2")
     if (blocked) act(() => dispatchCommunityWsEvents([{ type: "community:friend.block", userId: "peer", ...(blockMode ? { blockedByViewer: true } : {}) }], {
       deliveryMode: "batch", contract: 2, queryClient: registry!.queryClient, communityStore: registry!.runtime.ui, wsStore: registry!.runtime.ws,
@@ -87,6 +78,6 @@ it.each([null, false, true].flatMap(blockMode => (["accepted", "incoming"] as co
       unrelatedAttention: registry!.collections.attentionItems.has("friend_request:other"),
     }).toEqual({ peerFriend: !blocked, peerAttention: !blocked && kind === "incoming", currentBlock: blockMode === true, unrelatedFriend: true, unrelatedAttention: true })
   } finally {
-    release?.();view.unmount();vi.restoreAllMocks();old.client.clear();source.client.clear()
+    release?.();view.unmount();vi.restoreAllMocks();old.client.clear()
   }
 })

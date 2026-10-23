@@ -30,7 +30,7 @@ vi.mock("@/components/community/shell/community-pending-frame", () => ({
   }),
 }))
 
-import MeListPage from "./page"
+import MeListPage from "@/components/community/shell/me-root-route"
 
 function StartOnboarding() {
   const runtime = useCommunityRuntime()

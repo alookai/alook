@@ -3,10 +3,10 @@ import { test, expect } from "./_fixtures/case-fixture"
 import type { CaseResources } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 
-async function holdParentRoute(page: Page, pathname: string, resources: CaseResources) {
+async function holdReturnDocumentRoutes(page: Page, pathnames: string[], resources: CaseResources) {
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
-  const pattern = (url: URL) => url.pathname === pathname
+  const pattern = (url: URL) => pathnames.includes(url.pathname)
   let held = 0
   const pending = new Set<Request>()
   const continuations: Promise<void>[] = []
@@ -40,7 +40,7 @@ async function holdParentRoute(page: Page, pathname: string, resources: CaseReso
 
 for (const parentType of ["forum", "text"] as const) {
   for (const input of ["button", "system"] as const) {
-    test(`mobile ${parentType} parent accepts ${input} Back before the previous return commits`, async ({ caseActors, caseResources }, testInfo) => {
+    test(`mobile ${parentType} parent accepts consecutive ${input} Back without framework route reads`, async ({ caseActors, caseResources }, testInfo) => {
       const actors = await caseActors(["alice"])
       const { seedServer, seedChannel, seedMessage, seedThread, seedForumThread } = actors.seed
       const serverId = await seedServer("alice", `Parent return ${parentType} ${input}`)
@@ -76,11 +76,10 @@ for (const parentType of ["forum", "text"] as const) {
       expect(channel).toMatchObject({ id: childId, serverId, parentChannelId: parentId })
       expect(parent).toMatchObject({ id: parentId, type: parentType })
 
-      const parentRoute = await holdParentRoute(page, parentPath, caseResources)
+      const parentRoute = await holdReturnDocumentRoutes(page, [parentPath, rootPath], caseResources)
       await back.click({ noWaitAfter: true })
-      await expect.poll(parentRoute.held).toBeGreaterThan(0)
       await expect(foreground.locator(`[data-community-target-href="${parentPath}"]`)).toBeVisible()
-      expect(new URL(page.url()).pathname).toBe(childPath)
+      expect(new URL(page.url()).pathname).toBe(parentPath)
 
       if (input === "button") await back.click({ noWaitAfter: true })
       else await page.evaluate(() => window.dispatchEvent(new Event("alook:native-back", { cancelable: true })))
@@ -91,6 +90,7 @@ for (const parentType of ["forum", "text"] as const) {
       const screenshot = testInfo.outputPath("list-before-parent-release.png")
       await page.screenshot({ path: screenshot })
       await testInfo.attach("list-before-parent-release", { path: screenshot, contentType: "image/png" })
+      expect(parentRoute.held()).toBe(0)
       await parentRoute.release()
       await expect.poll(() => new URL(page.url()).pathname).toBe(rootPath)
       await expect(parentRow).toBeVisible()

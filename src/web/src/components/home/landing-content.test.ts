@@ -267,7 +267,7 @@ describe("landing content contract", () => {
     expect(signInClient).toContain('label: "Bring your own agents"')
     expect(signInClient).toContain('description: "Use your own computer and existing agent subscriptions."')
     expect(signInClient).not.toContain("Bring your own workspaces")
-    expect(communityLayout).toContain("await getSession()")
+    expect(communityLayout).toContain('data-community-shell="public"')
     expect(communityLayoutClient).toContain('<SignupTracker redirectTo="/c/me/machines" />')
     expect(ogRoute).toContain("SITE_OG_IMAGE_URL")
     expect(ogRoute).toContain("Response.redirect")

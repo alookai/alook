@@ -400,7 +400,7 @@ test.describe("desktop default User Bar width", () => {
     return { serverId, channelId }
   }
 
-  test("prepaints saved SSR shell widths and preserves the interactive handoff", async ({ caseActors, caseResources }, testInfo) => {
+  test("prepaints a public frame and preserves saved widths from the first authenticated shell", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(240_000)
 
     const actors = await caseActors(["alice"])
@@ -432,11 +432,9 @@ test.describe("desktop default User Bar width", () => {
       await expect.poll(scripts.hits).toBeGreaterThan(0)
       const ssrFrame = await expectUniqueSsrCommunityFrame(page)
       await expect(ssrFrame).toBeVisible()
-      await expect.poll(async () => (
-        (await page.evaluate(() => (
-          Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
-        ))).some(({ scriptsHeld }) => scriptsHeld)
-      )).toBe(true)
+      await expect(ssrFrame).toHaveAttribute("data-community-route-kind", "community-root-redirect")
+      await expect(page.locator('[data-slot="community-user-bar-base"]')).toHaveCount(0)
+      expect(await page.evaluate(() => Reflect.get(window, "__desktopWidthSamples"))).toEqual([])
       await scripts.release()
       communityReads.release()
       await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
@@ -456,7 +454,8 @@ test.describe("desktop default User Bar width", () => {
         Math.abs(sidebar - targetWidth) <= geometryEpsilon
         && Math.abs(overlay - (targetWidth + 58)) <= geometryEpsilon
       ))).toBe(true)
-      expect(sequence.some(({ scriptsHeld }) => scriptsHeld)).toBe(true)
+      expect(sequence.length).toBeGreaterThan(0)
+      expect(sequence.some(({ scriptsHeld }) => scriptsHeld)).toBe(false)
       expect(sequence.at(-1)?.scriptsHeld).toBe(false)
     }
   })
@@ -1084,8 +1083,8 @@ test.describe("desktop default User Bar width", () => {
         const ssrPhase = await ssrFrame.evaluate(root => ({ initial: root.getAttribute("data-testid"), busy: root.getAttribute("aria-busy"), route: root.getAttribute("data-community-route-kind"), slot: root.getAttribute("data-slot"), placeholders: root.querySelectorAll('[data-slot="skeleton"]').length }))
         if (ssrPhase.initial === tid.initialFrame) {
           expect(ssrPhase.busy).toBe("true")
-          expect(ssrPhase.route).toBe("server-root")
-          expect(ssrPhase.placeholders).toBeGreaterThan(0)
+          expect(ssrPhase.route).toBe("community-root-redirect")
+          await expect(pending.page.locator('[data-slot="community-user-bar-base"]')).toHaveCount(0)
         } else expect(ssrPhase.slot).toBe("community-shell-root")
         await expect(pending.page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
         await scripts.release()

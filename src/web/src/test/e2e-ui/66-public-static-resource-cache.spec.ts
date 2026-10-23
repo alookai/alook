@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { mkdtempSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -6,6 +7,8 @@ import { chromium, type BrowserContext, type Page, type TestInfo } from "@playwr
 import { publicWorkerCacheNames, publicWorkerRuntimeCacheNames } from "../../lib/service-worker/cache-identity"
 import { publicRuntimeAssetKind } from "../../lib/service-worker/public-cache"
 import { expect, test } from "./_fixtures/case-fixture"
+import { expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
+import { tid } from "./_fixtures/testids"
 import { blogBuildIdFromScripts } from "./_fixtures/public-static-qa"
 
 type Asset = { url: string; cacheName: string }
@@ -143,6 +146,59 @@ async function attachReceipt(page: Page, testInfo: TestInfo, name: string, resou
 }
 
 test.describe("production public static resource cache", () => {
+  test("a closed community page reopens from the public shell while identity and entry remain online", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const dmId = await actors.seed.seedDm("alice", actors.userId("bob"))
+    const body = `Public shell private message ${Date.now()}`
+    const messageId = await actors.seed.seedDmMessage("bob", dmId, body)
+    const { page, context } = await actors.asUser("alice")
+    await page.goto(`/c/me/${dmId}`)
+    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+    await expectRootWorker(page)
+    const keys = await publicCacheKeys(page)
+    const shellKeys = (keys[publicWorkerCacheNames().precache] ?? []).filter(url => /^\/community-shell\/[a-f0-9]{64}$/.test(new URL(url).pathname))
+    expect(shellKeys).toHaveLength(1)
+    const cachedHtml = await page.evaluate(async ({ name, url }) => {
+      const response = await (await caches.open(name)).match(url)
+      if (!response) throw new Error("Installed shell is missing")
+      return response.text()
+    }, { name: publicWorkerCacheNames().precache, url: shellKeys[0] })
+    expectPublicCommunityDocument(cachedHtml)
+    const hash = createHash("sha256").update(cachedHtml).digest("hex")
+    expect(new URL(shellKeys[0]).pathname).toBe(`/community-shell/${hash}`)
+    for (const privateValue of [actors.userId("alice"), messageId, body]) expect(cachedHtml).not.toContain(privateValue)
+    await page.close()
+    const reopened = await context.newPage()
+    const target = `/c/me/${dmId}?qa=warm-shell#frame`
+    let deniedNetworkRequests = 0
+    const denyDocumentNetwork = async (route: import("@playwright/test").Route) => { deniedNetworkRequests += 1; await route.abort("failed") }
+    const documentPath = (url: URL) => url.pathname === `/c/me/${dmId}`
+    await context.route(documentPath, denyDocumentNetwork)
+    await runWithCleanup(async () => {
+      await reopened.goto("/robots.txt")
+      await expectRootWorker(reopened)
+      expect(await reopened.evaluate(async target => { try { await fetch(target, { cache: "no-store" }); return false } catch { return true } }, target)).toBe(true)
+      expect(deniedNetworkRequests).toBeGreaterThan(0)
+      const sessionResponse = reopened.waitForResponse(response => new URL(response.url()).pathname === "/api/auth/get-session")
+      const entryResponse = reopened.waitForResponse(response => {
+        const url = new URL(response.url())
+        return url.pathname === `/api/community/channels/${dmId}/messages` && url.searchParams.get("entry") === "1"
+      })
+      const started = Date.now()
+      const response = await reopened.goto(target)
+      expect(response?.status()).toBe(200)
+      expect(response?.fromServiceWorker()).toBe(true)
+      expect(await response!.text()).toBe(cachedHtml)
+      expect((await sessionResponse).ok()).toBe(true)
+      expect((await entryResponse).ok()).toBe(true)
+      await expect(reopened.getByTestId(tid.message(messageId))).toBeVisible()
+      await expect(reopened.getByTestId(tid.composerInput)).toBeVisible()
+      expect(new URL(reopened.url()).pathname + new URL(reopened.url()).search + new URL(reopened.url()).hash).toBe(target)
+      await testInfo.attach("public-shell-warm-reopen", { body: JSON.stringify({ shellHash: hash, documentFromServiceWorker: true, deniedNetworkRequests, observedHistoryReadyMs: Date.now() - started }), contentType: "application/json" })
+      await testInfo.attach("public-shell-warm-reopen-ui", { body: await reopened.screenshot(), contentType: "image/png" })
+    }, async () => { await context.unroute(documentPath, denyDocumentNetwork) })
+  })
+
   test("a first Blog visit registers the root worker and installs the added Main public resources", async ({ page }, testInfo) => {
     await page.goto("/blog")
     await expect(page.getByRole("heading", { name: "Blog", exact: true })).toBeVisible()

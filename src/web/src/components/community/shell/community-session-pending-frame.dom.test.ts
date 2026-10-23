@@ -1,6 +1,6 @@
 import { createElement } from "react"
-import { describe, expect, it, vi } from "vitest"
-import { render, screen } from "@/test/react-dom-harness"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { fireEvent, render, screen } from "@/test/react-dom-harness"
 
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: () => createElement("div", { "data-testid": "skeleton" }),
@@ -16,7 +16,9 @@ vi.mock("@/components/ui/resizable", () => ({
   ResizablePanel: ({ children }: React.PropsWithChildren) => createElement("div", null, children),
   ResizableHandle: () => createElement("div"),
 }))
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "unknown" }))
+const viewport = vi.hoisted(() => ({ value: "unknown" }))
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => viewport.value }))
+beforeEach(() => { viewport.value = "unknown" })
 vi.mock("@/components/community/channels/channel-sidebar", () => ({
   ChannelSidebarSkeleton: () => createElement("div", { "data-testid": "server-sidebar" }),
 }))
@@ -52,6 +54,16 @@ function renderFrame(pathname: string) {
 }
 
 describe("CommunitySessionPendingFrame", () => {
+  it.each(["mobile", "desktop"].flatMap(viewport => ["/c", "/c/me/machines", "/c/channels/s1/c1"].map(pathname => ({ viewport, pathname }))))("shows an actionable account error at $pathname on $viewport", ({ viewport: breakpoint, pathname }) => {
+    viewport.value = breakpoint
+    const retry = vi.fn()
+    render(createElement(CommunitySessionPendingFrame, { pathname }, createElement("div", { role: "alert" },
+      "Could not check account", createElement("button", { onClick: retry }, "Retry"))))
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not check account")
+    expect(screen.queryByTestId("pending-main")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
   it.each([
     ["/c/me", "me-root", "me-sidebar", "me-root"],
     ["/c/me/dm_1", "dm-detail", "me-sidebar", "dm"],

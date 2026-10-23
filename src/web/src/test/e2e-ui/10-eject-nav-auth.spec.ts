@@ -1,3 +1,4 @@
+import { expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
 import { test, expect } from "./_fixtures/case-fixture"
 
 import type { CaseActors } from "./_fixtures/case-fixture"
@@ -49,17 +50,15 @@ test.describe("eject, navigation & logout", () => {
     await page.getByRole("button", { name: "Log Out" }).click()
     await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
 
-    // Session is actually cleared: a protected route returns a sign-in redirect.
     await expect.poll(async () => (await page.context().cookies())
       .some((cookie) => cookie.name.startsWith("better-auth"))).toBe(false)
-    const protectedResponse = await page.request.get("/c", { maxRedirects: 0 })
-    expect(protectedResponse.status()).toBe(307)
-    const redirectLocation = protectedResponse.headers().location
-    expect(redirectLocation).toBeTruthy()
-    const redirectUrl = new URL(redirectLocation!, page.url())
-    expect(redirectUrl.pathname).toBe("/sign-in")
-    expect(redirectUrl.searchParams.get("redirect")).toBe("/c")
-    await expect(page).toHaveURL(/\/sign-in/)
-    await actors.confirmSignedOut("logout", { context: page.context(), page, protectedResponse })
+    const publicDocumentResponse = await page.request.get("/c", { maxRedirects: 0 })
+    expect(publicDocumentResponse.status()).toBe(200)
+    expectPublicCommunityDocument(await publicDocumentResponse.text())
+    const protectedResponse = await page.request.get("/api/community/servers", { maxRedirects: 0 })
+    expect(protectedResponse.status()).toBe(401)
+    await page.goto("/c")
+    await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fc$/)
+    await actors.confirmSignedOut("logout", { context: page.context(), page, publicDocumentResponse, protectedResponse })
   })
 })

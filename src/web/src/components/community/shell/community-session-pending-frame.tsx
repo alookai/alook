@@ -45,7 +45,7 @@ export function CommunitySessionPendingFrame({ pathname, children }: { pathname:
       sidebar={plan.sidebar.kind === "server"
         ? <ChannelSidebarSkeleton targetServerId={plan.sidebar.serverId} />
         : <DmSidebarSkeleton />}
-      main={<CommunityPendingFrame
+      main={children ?? <CommunityPendingFrame
         href={pathname}
         plan={plan}
         reserveBackSlot={plan.surface === "detail"}

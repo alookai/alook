@@ -22,10 +22,13 @@ function makeReq(url: string, headers: Record<string, string> = {}) {
 describe("middleware", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("strips a supplied internal document route from a public request", async () => {
-    const res = await middleware(makeReq("https://app.com/about", { "x-alook-community-document-route": "/c/me/bots" }))
-    expect(res.headers.get("x-middleware-request-x-alook-community-document-route")).toBeNull()
-    expect(res.headers.get("x-middleware-override-headers") ?? "").not.toContain("x-alook-community-document-route")
+  it.each(["/c", "/c/me", "/c/me/machines", "/c/channels/server/channel", "/c/invite/token"])("serves public community document %s without session work or cookie changes", async path => {
+    mockGetSession.mockImplementation(() => { throw new Error("Session must not gate the public shell") })
+    const res = await middleware(makeReq(`https://app.com${path}`, { Cookie: "session=fixture" }))
+    expect(res.headers.get("x-middleware-next")).toBe("1")
+    expect(res.headers.get("location")).toBeNull()
+    expect(res.headers.get("set-cookie")).toBeNull()
+    expect(mockGetSession).not.toHaveBeenCalled()
   })
 
   describe("HTTPS enforcement", () => {
@@ -41,7 +44,7 @@ describe("middleware", () => {
       const req = makeReq("http://localhost/c/me", { "x-forwarded-proto": "http" });
       const res = await middleware(req);
       // localhost is exempt → falls through to auth handling (sign-in redirect), not a 301 https redirect
-      expect(res.headers.get("location")).not.toContain("https://localhost")
+      expect(res.status).not.toBe(301)
     });
 
     it("does NOT force https for 127.x", async () => {
@@ -63,31 +66,6 @@ describe("middleware", () => {
         expect(mockGetSession).not.toHaveBeenCalled();
       }
     });
-    it("redirects to /sign-in with redirect param when unauthenticated", async () => {
-      mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
-      const req = makeReq("https://app.com/c/me?tab=x", { "x-forwarded-proto": "https" });
-      const res = await middleware(req);
-      const loc = new URL(res.headers.get("location")!);
-      expect(loc.pathname).toBe("/sign-in");
-      expect(loc.searchParams.get("redirect")).toBe("/c/me?tab=x");
-    });
-
-    it("passes through authenticated requests and forwards refreshed cookies", async () => {
-      const setHeaders = new Headers();
-      setHeaders.append("set-cookie", "session=abc; Path=/");
-      mockGetSession.mockResolvedValue({
-        headers: setHeaders,
-        response: { user: { id: "u1" } },
-      });
-      const req = makeReq("https://app.com/c/me", { "x-forwarded-proto": "https" });
-      const res = await middleware(req);
-      // NextResponse.next() — no redirect location
-      expect(res.headers.get("location")).toBeNull();
-      expect(res.headers.get("set-cookie")).toContain("session=abc");
-      expect(res.headers.get("x-middleware-request-cookie")).toBe("session=abc");
-      expect(res.headers.get("cache-control")).toBe("private, no-store");
-    });
-
     it("does not require auth for unlisted public paths", async () => {
       const req = makeReq("https://app.com/about", { "x-forwarded-proto": "https" });
       const res = await middleware(req);
@@ -104,14 +82,7 @@ describe("middleware", () => {
       expect(mockGetSession).not.toHaveBeenCalled();
     });
 
-    it("still gates the rest of /c/ (the public exemption is scoped to /c/invite/)", async () => {
-      mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
-      const req = makeReq("https://app.com/c/channels/s1", { "x-forwarded-proto": "https" });
-      const res = await middleware(req);
-      const loc = new URL(res.headers.get("location")!);
-      expect(loc.pathname).toBe("/sign-in");
-      expect(loc.searchParams.get("redirect")).toBe("/c/channels/s1");
-    });
+
   });
 
   describe("Next route matcher", () => {

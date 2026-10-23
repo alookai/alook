@@ -4,29 +4,40 @@ import { act, fireEvent, render, setupUser } from "@/test/react-dom-harness"
 import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityNavigationLink } from "./community-navigation-link"
 
-const owner = vi.hoisted(() => ({ registry: null as CommunityDbRegistry | null }))
+const owner = vi.hoisted(() => ({ registry: null as CommunityDbRegistry | null, warm: vi.fn() }))
 vi.mock("@/lib/community-db/projections", () => ({ useOptionalCommunityDbRegistry: () => owner.registry }))
-vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))
+vi.mock("@/lib/observability/context", () => ({ beginNavigationPrefetch: owner.warm }))
+vi.mock("@/lib/community/navigation-metadata", () => ({ prepareNavigationMetadata: vi.fn() }))
 
-beforeEach(() => { owner.registry = null })
+beforeEach(() => { owner.registry = null; owner.warm.mockClear() })
 
 describe("community public Link bridge", () => {
-  it("requests full prefetch only on intent and resets it when href changes, retaining the anchor", async () => {
+  it.each(["", "saved.html", true])("preserves native download activation for download=%s", download => {
+    const onActivate = vi.fn()
+    const view = render(<CommunityNavigationLink href="/c/me/friends" download={download} onActivate={onActivate}>Download</CommunityNavigationLink>)
+    const anchor = view.getByRole("link")
+    expect(anchor).toHaveAttribute("download")
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true })
+    fireEvent(anchor, click)
+    expect(onActivate).not.toHaveBeenCalled()
+    expect(click.defaultPrevented).toBe(false)
+  })
+  it("warms only client metadata on intent while retaining the anchor", async () => {
     const onActivate = vi.fn()
     const props = { href: "/c/channels/a/one", onActivate }
     const view = render(<CommunityNavigationLink {...props}>A</CommunityNavigationLink>)
     const anchor = view.getByRole("link")
-    expect(anchor).toHaveAttribute("data-prefetch", "false")
+    expect(owner.warm).not.toHaveBeenCalled()
     fireEvent.pointerEnter(anchor)
-    expect(anchor).toHaveAttribute("data-prefetch", "true")
+    expect(owner.warm).toHaveBeenLastCalledWith(props.href)
     expect(onActivate).not.toHaveBeenCalled()
     view.rerender(<CommunityNavigationLink {...props} href="/c/channels/a/two">A</CommunityNavigationLink>)
     expect(view.getByRole("link")).toBe(anchor)
-    expect(anchor).toHaveAttribute("data-prefetch", "false")
+    expect(owner.warm).toHaveBeenCalledTimes(1)
     view.rerender(<CommunityNavigationLink {...props}>A</CommunityNavigationLink>)
-    expect(anchor).toHaveAttribute("data-prefetch", "false")
+    expect(owner.warm).toHaveBeenCalledTimes(1)
     fireEvent.focus(anchor)
-    expect(anchor).toHaveAttribute("data-prefetch", "true")
+    expect(owner.warm).toHaveBeenCalledTimes(1)
     await setupUser().click(anchor)
     expect(onActivate).toHaveBeenCalledTimes(1)
   })
@@ -37,7 +48,7 @@ describe("community public Link bridge", () => {
     const event = new Event("pointerdown", { bubbles: true })
     Object.defineProperty(event, "pointerType", { value: "touch" })
     fireEvent(view.getByRole("link"), event)
-    expect(view.getByRole("link")).toHaveAttribute("data-prefetch", "true")
+    expect(owner.warm).toHaveBeenCalledWith("/c/me/dm")
     expect(onActivate).not.toHaveBeenCalled()
   })
 
@@ -46,9 +57,9 @@ describe("community public Link bridge", () => {
     const props = { href: "/c/me/bots", onActivate, prefetchMode: "visible" as const }
     const view = render(<CommunityNavigationLink {...props}>Bots</CommunityNavigationLink>)
     const anchor = view.getByRole("link")
-    expect(anchor).toHaveAttribute("data-prefetch", "true")
+    expect(owner.warm).toHaveBeenCalledWith(props.href)
     view.rerender(<CommunityNavigationLink {...props} active>Bots</CommunityNavigationLink>)
-    expect(anchor).toHaveAttribute("data-prefetch", "false")
+    expect(owner.warm).toHaveBeenCalledTimes(1)
     const user = setupUser()
     await user.click(anchor)
     anchor.focus()
@@ -70,7 +81,7 @@ describe("community public Link bridge", () => {
     expect(onActivate).toHaveBeenCalledTimes(1)
   })
 
-  it("blocks navigation and warming during dragging, then retires intent on account generation changes", () => {
+  it("blocks navigation and warming during dragging, then blocks a retired account generation", () => {
     const lifecycle = createStore({ active: true, generation: 0 })
     owner.registry = { runtime: { lifecycle } } as unknown as CommunityDbRegistry
     const onActivate = vi.fn()
@@ -79,17 +90,17 @@ describe("community public Link bridge", () => {
     const anchor = view.getByRole("link")
     fireEvent.pointerEnter(anchor)
     fireEvent.click(anchor)
-    expect(anchor).toHaveAttribute("data-prefetch", "false")
+    expect(owner.warm).not.toHaveBeenCalled()
     expect(onActivate).not.toHaveBeenCalled()
     view.rerender(<CommunityNavigationLink {...props}>A</CommunityNavigationLink>)
     fireEvent.focus(anchor)
-    expect(anchor).toHaveAttribute("data-prefetch", "true")
+    expect(owner.warm).toHaveBeenCalledOnce()
     act(() => lifecycle.setState(() => ({ active: false, generation: 1 })))
     fireEvent.click(anchor)
-    expect(anchor).toHaveAttribute("data-prefetch", "false")
+    expect(owner.warm).toHaveBeenCalledOnce()
     expect(onActivate).not.toHaveBeenCalled()
     act(() => lifecycle.setState(() => ({ active: true, generation: 2 })))
-    expect(anchor).toHaveAttribute("data-prefetch", "false")
+    expect(owner.warm).toHaveBeenCalledOnce()
   })
 })
 
@@ -104,7 +115,7 @@ it("keeps preview links local without prefetching real account routes", async ()
   expect(anchor).toHaveAttribute("href", "#product")
   fireEvent.pointerEnter(anchor)
   fireEvent.focus(anchor)
-  expect(anchor).not.toHaveAttribute("data-prefetch")
+  expect(owner.warm).not.toHaveBeenCalled()
   await setupUser().click(anchor)
   expect(onActivate).toHaveBeenCalledOnce()
 })

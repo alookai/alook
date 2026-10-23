@@ -26,7 +26,7 @@ vi.mock("@/lib/community/last-community-route", () => ({
   resolveCommunityColdEntryDestination: (args: unknown) => mocks.resolve(args),
 }))
 
-import CommunityIndex from "./page"
+import CommunityIndex from "@/components/community/shell/community-root-route"
 
 describe("CommunityIndex", () => {
   beforeEach(() => {

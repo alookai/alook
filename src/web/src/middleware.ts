@@ -1,18 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 import { safeRedirectPath } from "@/lib/safe-redirect"
-import { COMMUNITY_DOCUMENT_ROUTE_HEADER, communityDocumentRoute } from "@/lib/community/document-route"
-import { authResponseCookies } from "@/lib/auth-response-cookies"
-
-const AUTH_REQUIRED_PREFIXES = ["/c/"]
-
-// Paths that stay public even though they'd otherwise match an auth-required
-// prefix. The invite landing page is preview-first: a logged-out user must be
-// able to SEE the invite (server name/icon/description/members) and only hit
-// the login wall when they click Join. Its `info` API is `withOptionalAuth`
-// and the invite token is the capability, so serving the page anonymously
-// leaks nothing gated. Scoped to exactly this path — the rest of `/c/` stays
-// gated.
-const PUBLIC_PREFIXES = ["/c/invite/"]
 
 export async function middleware(request: NextRequest) {
   if (
@@ -26,35 +13,6 @@ export async function middleware(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl
-  const isPublic = PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))
-  const needsAuth = !isPublic && (pathname === "/c" || AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p)))
-
-  if (needsAuth) {
-    const [{ getCloudflareContext }, { getAuth, observeAuthSession }] = await Promise.all([
-      import("@opennextjs/cloudflare"), import("@/lib/auth"),
-    ])
-    const { env } = await getCloudflareContext({ async: true })
-    const auth = getAuth(env as Env)
-    const result = await observeAuthSession(auth, () => auth.api.getSession({
-      headers: request.headers,
-      returnHeaders: true,
-    })) as { headers: Headers; response: unknown } | null
-
-    if (!result?.response) {
-      const signInUrl = new URL("/sign-in", request.url)
-      signInUrl.searchParams.set("redirect", pathname + request.nextUrl.search)
-      return NextResponse.redirect(signInUrl)
-    }
-
-    const forwarded = new Headers(request.headers)
-    forwarded.delete(COMMUNITY_DOCUMENT_ROUTE_HEADER)
-    const documentRoute = request.method === "GET" ? communityDocumentRoute(request.nextUrl) : null
-    if (documentRoute) forwarded.set(COMMUNITY_DOCUMENT_ROUTE_HEADER, documentRoute)
-    const response = authResponseCookies(request, result.headers, forwarded)
-    response.headers.set("Cache-Control", "private, no-store")
-    return response
-  }
-
   if (pathname === "/sign-in" || pathname === "/sign-up") {
     const [{ getCloudflareContext }, { getAuth, observeAuthSession }] = await Promise.all([
       import("@opennextjs/cloudflare"), import("@/lib/auth"),
@@ -77,11 +35,6 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (request.headers.has(COMMUNITY_DOCUMENT_ROUTE_HEADER)) {
-    const forwarded = new Headers(request.headers)
-    forwarded.delete(COMMUNITY_DOCUMENT_ROUTE_HEADER)
-    return NextResponse.next({ request: { headers: forwarded } })
-  }
   return NextResponse.next()
 }
 

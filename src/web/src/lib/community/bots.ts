@@ -66,7 +66,7 @@ export function botProfilePatch(bot: Pick<BotSummary, "id" | "name" | "image" | 
   return { id: bot.id, identityAbout: { name: bot.name, kind: "bot", ...("discriminator" in bot && typeof bot.discriminator === "string" ? { discriminator: bot.discriminator } : {}), ...(bot.description === undefined ? {} : { aboutMe: bot.description }) }, avatar: { avatar: bot.image, avatarVersion: bot.avatarVersion } }
 }
 
-export function botsResource(data: BotsResponse): BotsResourceResponse {
+function botsResource(data: BotsResponse): BotsResourceResponse {
   return { ...data, bots: data.bots.map(({ name: _name, description: _description, image: _image, avatarVersion: _avatarVersion, presence: _presence, ...resource }) => resource) }
 }
 

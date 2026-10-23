@@ -51,6 +51,7 @@ export function useBotListController(): BotListController {
   const { bots } = botsQuery
   const isLoading = botsQuery.isPending || botsQuery.profilesPending === true
   const botsResolved = botsQuery.data !== undefined && botsQuery.profilesPending !== true
+  const botsObserved = botsQuery.data?.observed !== false
   const [billingOpen, setBillingOpen] = useAtom(useCreateAtom(false))
   const viewPlan = () => {
     const next = new URL(routeCommitted ? window.location.href : `/c/me/bots?${searchParams.toString()}`, window.location.origin)
@@ -295,6 +296,7 @@ export function useBotListController(): BotListController {
 
     const targetBot = bots.find((bot) => bot.id === targetAuditBotId)
     if (!targetBot) {
+      if (!botsObserved) return
       patchProtocol({ suppressedAudit: targetAuditBotId })
       if (activityOpen) {
         setActivityOpen(false)
@@ -314,7 +316,7 @@ export function useBotListController(): BotListController {
     if (!activityOpen) {
       setActivityOpen(true)
     }
-  }, [routeCommitted, activityBot, activityOpen, bots, botsResolved, patchProtocol, protocol, router, searchParams, setActivityBot, setActivityGeneration, setActivityOpen, targetAuditBotId])
+  }, [routeCommitted, activityBot, activityOpen, bots, botsResolved, botsObserved, patchProtocol, protocol, router, searchParams, setActivityBot, setActivityGeneration, setActivityOpen, targetAuditBotId])
 
   const openActivity = (bot: BotSummary) => {
     uiHandlers.cancelPendingNavigation?.()

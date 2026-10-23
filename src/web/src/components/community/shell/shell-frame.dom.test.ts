@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render as renderDom, screen, waitFor } from "@/test/react-dom-harness"
 import { ShellFrame } from "./shell-frame"
 import { MobilePage } from "./mobile-page"
-import ServerLayout from "@/app/c/channels/layout"
+import { CommunityServerModuleHost as ServerLayout } from "@/test/community-module-host"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { communityKeys } from "@/lib/query-keys"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
@@ -885,7 +885,7 @@ describe("ShellFrame orchestration", () => {
       expect(task.context.navigation.pendingHref).toBe(returnRoot)
       expect(task.context.navigation.navigationPending).toBe(true)
       expect(screen.queryByTestId(`return-leaf-${child}`)).toBeNull()
-      expect(screen.getByTestId(`return-leaf-${parent}`)).not.toBeVisible()
+      expect(screen.queryByTestId(`return-leaf-${parent}`)).toBeNull()
       task.commit(returnRoot)
       await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
       expect(task.context.frame.href).toBe(returnRoot)

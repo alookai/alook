@@ -1,5 +1,5 @@
 import { renderToString } from "react-dom/server"
-import MeBotsPage from "@/app/c/me/bots/page"
+import MeBotsPage from "@/components/community/bots/me-bots-route"
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotListController } from "./bot-list-types"

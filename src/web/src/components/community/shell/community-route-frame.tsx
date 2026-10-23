@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useLayoutEffect, useMemo, type ReactNode } from "react"
-import { useSelectedLayoutSegments } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -13,8 +13,9 @@ export function CommunityRouteFrame({ sidebar, children }: {
   sidebar: ReactNode
   children: ReactNode
 }) {
-  const segments = useSelectedLayoutSegments()
-  const frameHref = segments.length ? `/c/${segments.join("/")}` : "/c"
+  const pathname = usePathname()
+  const search = useSearchParams().toString()
+  const frameHref = `${pathname}${search ? `?${search}` : ""}`
   const serverId = communityServerId(frameHref)
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()

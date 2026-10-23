@@ -1,11 +1,12 @@
-import type { Page, Request, Response, Route } from "@playwright/test"
+import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
 import type { CaseResources } from "./_fixtures/case-fixture"
+import { holdRoute } from "./_fixtures/held-route"
 
 type HeldServer = {
-  heldNavigation: () => number
+  heldReads: () => number
   release: () => Promise<void>
 }
 
@@ -24,6 +25,7 @@ type SidebarFrame = {
 type HistoryEvent = {
   kind: "pushState" | "replaceState" | "popstate"
   pathname: string
+  internal: boolean
 }
 
 async function installSidebarFrameProbe(page: Page) {
@@ -38,21 +40,22 @@ async function installSidebarFrameProbe(page: Page) {
     const recordHistory = (
       kind: HistoryEvent["kind"],
       href: string | URL | null | undefined,
+      data: unknown,
     ) => {
       const url = href == null ? new URL(location.href) : new URL(String(href), location.href)
-      state.__communityHistoryEvents!.push({ kind, pathname: url.pathname })
+      state.__communityHistoryEvents!.push({ kind, pathname: url.pathname, internal: typeof data === "object" && data !== null && "__NA" in data && data.__NA === true && "__PRIVATE_NEXTJS_INTERNALS_TREE" in data })
     }
     const pushState = history.pushState.bind(history)
     history.pushState = (...args) => {
-      recordHistory("pushState", args[2])
+      recordHistory("pushState", args[2], args[0])
       return pushState(...args)
     }
     const replaceState = history.replaceState.bind(history)
     history.replaceState = (...args) => {
-      recordHistory("replaceState", args[2])
+      recordHistory("replaceState", args[2], args[0])
       return replaceState(...args)
     }
-    addEventListener("popstate", () => recordHistory("popstate", location.href))
+    addEventListener("popstate", () => recordHistory("popstate", location.href, history.state))
     const ownerIds = new WeakMap<Element, number>()
     let nextOwnerId = 0
     const sample = () => {
@@ -156,156 +159,12 @@ async function holdServerTransition(
   page: Page,
   serverId: string, caseResources: CaseResources
 ): Promise<HeldServer> {
-  let releaseGate!: () => void
-  const gate = new Promise<void>((resolve) => { releaseGate = resolve })
-  caseResources.own(releaseGate, async (captured) => { captured() })
-  let heldNavigation = 0
-  const patterns: Array<{ pattern: string; navigation: boolean }> = [
-    { pattern: `**/c/channels/${serverId}**`, navigation: true },
-    { pattern: `**/api/community/servers/${serverId}/categories**`, navigation: false },
-    { pattern: `**/api/community/servers/${serverId}/channels**`, navigation: false },
-    { pattern: `**/api/community/servers/${serverId}/unreads**`, navigation: false },
-  ]
-  const handlers = new Map<string, (route: Route) => Promise<void>>()
-  for (const { pattern, navigation } of patterns) {
-    const handler = async (route: Route) => {
-      if (navigation) heldNavigation += 1
-      await gate
-      await route.continue()
-    }
-    handlers.set(pattern, handler)
-    await page.route(pattern, handler)
-  }
-  return {
-    heldNavigation: () => heldNavigation,
-    release: async () => {
-      releaseGate()
-      await page.waitForTimeout(100)
-      await Promise.all([...handlers].map(([pattern, handler]) => page.unroute(pattern, handler)))
-    },
-  }
-}
-
-function isTargetRsc(request: Request, serverId: string): boolean {
-  return request.resourceType() === "fetch"
-    && request.headers().rsc === "1"
-    && new URL(request.url()).pathname.startsWith(`/c/channels/${serverId}/`)
-}
-
-type TargetRscBody = { bytes: number; done: boolean; error: boolean; restore: () => void }
-type TargetRscWindow = typeof window & { __communityTargetRscBody: TargetRscBody }
-
-async function observeTargetRsc(
-  page: Page,
-  serverId: string,
-  timeoutMs: number, caseResources: CaseResources
-) {
-  await page.evaluate((serverId) => {
-    const originalFetch = window.fetch
-    const state = { bytes: 0, done: false, error: false, readers: 0, restore: () => { window.fetch = originalFetch } }
-    Object.assign(window, { __communityTargetRscBody: state })
-    window.fetch = function (input, init) {
-      const pending = originalFetch.call(this, input, init)
-      const url = new URL(input instanceof Request ? input.url : String(input), location.href)
-      if (!url.pathname.startsWith(`/c/channels/${serverId}/`) || new Headers(init?.headers).get("rsc") !== "1") return pending
-      return pending.then((response) => {
-        if (!response.body) { state.error = true; return response }
-        response.body.getReader = new Proxy(response.body.getReader, {
-          apply(target, receiver, args) {
-            if (++state.readers !== 1) state.error = true
-            const reader = Reflect.apply(target, receiver, args)
-            reader.cancel = new Proxy(reader.cancel, {
-              apply(cancel, owner, cancelArgs) {
-                if (!state.done) state.error = true
-                return Reflect.apply(cancel, owner, cancelArgs)
-              },
-            })
-            reader.read = new Proxy(reader.read, {
-              apply(read, owner, readArgs) {
-                const reading = Reflect.apply(read, owner, readArgs) as Promise<ReadableStreamReadResult<Uint8Array>>
-                return reading.then((result) => {
-                  state.bytes += result.value?.byteLength ?? 0
-                  state.done = result.done
-                  return result
-                }, (error: unknown) => { state.error = true; throw error })
-              },
-            })
-            return reader
-          },
-        })
-        return response
-      }, (error: unknown) => { state.error = true; throw error })
-    }
-  }, serverId)
-  const deadline = Date.now() + timeoutMs
-  const polling = new AbortController()
-  const responded = new Set<Request>()
-  const requests: string[] = []
-  let settled = false
-  let resolveFinished!: (error: Error | null) => void
-  const finished = new Promise<Error | null>((resolve) => {
-    resolveFinished = resolve
-  })
-  const settle = (error?: Error) => {
-    if (settled) return
-    settled = true
-    clearTimeout(timeout)
-    resolveFinished(error ?? null)
-  }
-  const onRequest = (request: Request) => {
-    if (isTargetRsc(request, serverId)) requests.push(request.url())
-  }
-  const onRequestFailed = (request: Request) => {
-    if (!isTargetRsc(request, serverId) || responded.has(request)) return
-    settle(new Error(
-      `Target RSC request failed: ${request.failure()?.errorText ?? "unknown failure"}`,
-    ))
-  }
-  const onResponse = (response: Response) => {
-    if (!isTargetRsc(response.request(), serverId)) return
-    responded.add(response.request())
-    if (response.status() !== 200) {
-      settle(new Error(`Target RSC responded ${response.status()}: ${response.url()}`))
-      return
-    }
-    void page.waitForFunction(() => {
-      const body = (window as TargetRscWindow).__communityTargetRscBody
-      return body.error || body.done
-    }, undefined, { timeout: Math.max(1, deadline - Date.now()), signal: polling.signal }).then(async (handle) => {
-      await handle.dispose()
-      const body = await page.evaluate(() => {
-        const { bytes, done, error } = (window as TargetRscWindow).__communityTargetRscBody
-        return { bytes, done, error }
-      })
-      settle(body.error || !body.done || body.bytes === 0 ? new Error("Target RSC body did not reach a nonempty native EOF") : undefined)
-    }).catch((error: unknown) => { settle(new Error(`Target RSC body completion rejected: ${String(error)}`)) })
-  }
-  const timeout = setTimeout(() => {
-    settle(new Error(`Target RSC did not finish within ${timeoutMs}ms for server ${serverId}`))
-  }, timeoutMs)
-  let stopped = false
-  const stop = async () => {
-    if (stopped) return
-    stopped = true
-    polling.abort()
-    clearTimeout(timeout)
-    page.off("request", onRequest)
-    page.off("requestfailed", onRequestFailed)
-    page.off("response", onResponse)
-    if (!page.isClosed()) await page.evaluate(() => (window as Partial<TargetRscWindow>).__communityTargetRscBody?.restore())
-  }
-  caseResources.own(stop, async (captured) => {
-    await captured()
-    settle()
-  })
-  page.on("request", onRequest)
-  page.on("requestfailed", onRequestFailed)
-  page.on("response", onResponse)
-  return {
-    finished,
-    requests: () => [...requests],
-    stop,
-  }
+  const held = await holdRoute(page, url => [
+    `/api/community/servers/${serverId}/categories`,
+    `/api/community/servers/${serverId}/channels`,
+    `/api/community/servers/${serverId}/unreads`,
+  ].includes(url.pathname), caseResources)
+  return { heldReads: held.held, release: held.release }
 }
 
 async function activateServerIcon(page: Page, serverId: string) {
@@ -362,6 +221,10 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   const channelF = await seedChannel("alice", serverF, `checkpoint-f-${stamp}`)
 
   const { page } = await asUser("alice")
+  const rscRequests: string[] = []
+  page.on("request", request => {
+    if (request.headers().rsc === "1" && new URL(request.url()).pathname.startsWith("/c/")) rscRequests.push(request.url())
+  })
   await page.setViewportSize({ width: 1280, height: 900 })
   await installSidebarFrameProbe(page)
   await page.goto(`/c/channels/${serverA}/${channelA}`)
@@ -424,7 +287,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
 
   await clearSidebarFrames(page)
   await clickServer(page, serverC)
-  await expect.poll(coldC.heldNavigation).toBeGreaterThan(0)
+  await expect.poll(coldC.heldReads).toBeGreaterThan(0)
   await expect(page.getByTestId(tid.channelSidebarPending(serverC))).toBeVisible()
   await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
   await expect(page.getByRole("link", { name: channelAName, exact: true })).toHaveCount(0)
@@ -468,16 +331,13 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await page.reload()
   await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
   const structuralC = await holdServerTransition(page, serverC, caseResources)
-  const targetRsc = await observeTargetRsc(page, serverC, 30_000, caseResources)
   await clearSidebarFrames(page)
   await clearHistoryEvents(page)
-  try {
+  const historyLength = await page.evaluate(() => history.length)
+  {
     await clickServer(page, serverC)
-    await expect.poll(structuralC.heldNavigation).toBeGreaterThan(0)
+    await expect.poll(structuralC.heldReads).toBeGreaterThan(0)
     await structuralC.release()
-    const rscFailure = await targetRsc.finished
-    if (rscFailure) throw rscFailure
-    expect(targetRsc.requests()).toHaveLength(1)
     await expectDesktopServerDetail(page, serverC)
     await expect(page.getByTestId(tid.channelRow(channelC))).toBeVisible({ timeout: 30_000 })
     await expect.poll(() => new URL(page.url()).pathname).toBe(rememberedCHref)
@@ -494,14 +354,20 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
       [channelA, channelB],
     )
     const navigationEvents = await historyEvents(page)
-    expect(navigationEvents).toHaveLength(1)
-    expect(navigationEvents[0]).toEqual({
+    expect(navigationEvents.filter(event => event.kind === "pushState")).toEqual([{
       kind: "pushState",
       pathname: rememberedCHref,
-    })
-  } finally {
-    await targetRsc.stop()
+      internal: true,
+    }])
+    expect(navigationEvents.every(event => event.pathname === rememberedCHref
+      && (event.kind === "pushState" || event.kind === "replaceState" && event.internal))).toBe(true)
+    expect(await page.evaluate(() => history.length)).toBe(historyLength + 1)
   }
+  await page.goBack()
+  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible()
+  await page.goForward()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(rememberedCHref)
+  await expect(page.getByRole("heading", { name: rememberedCHeading, exact: true })).toBeVisible()
 
   await clickServer(page, serverA)
   await expectDesktopServerDetail(page, serverA)
@@ -515,7 +381,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
 
   await clearSidebarFrames(page)
   await clickServer(page, serverD)
-  await expect.poll(coldD.heldNavigation).toBeGreaterThan(0)
+  await expect.poll(coldD.heldReads).toBeGreaterThan(0)
   const mobileCheckpoint = page.getByTestId(tid.channelSidebarPending(serverD))
   await expect(mobileCheckpoint).toBeVisible()
   await expect(page.getByRole("link", { name: channelAName, exact: true })).toHaveCount(0)
@@ -545,7 +411,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   // button so this remains one immediate E→F intent window; awaiting F's
   // focus-driven prefetch would serialize the two intents.
   await page.getByTestId(tid.serverIcon(serverF)).dispatchEvent("click")
-  await expect.poll(coldF.heldNavigation).toBeGreaterThan(0)
+  await expect.poll(coldF.heldReads).toBeGreaterThan(0)
   await expect(page.getByTestId(tid.channelSidebarPending(serverE))).toHaveCount(0)
   await expect(page.getByTestId(tid.channelSidebarPending(serverF))).toBeVisible()
   await expectActiveServer(page, serverF, serverD)
@@ -563,4 +429,5 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     channelF,
     [channelA, channelB, channelC, channelD, channelE],
   )
+  expect(rscRequests).toEqual([])
 })

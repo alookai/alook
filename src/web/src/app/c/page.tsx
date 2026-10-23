@@ -1,3 +1,5 @@
-"use client"
+export const dynamic = "force-static"
 
-export { default } from "@/components/community/shell/community-root-route"
+export default function CommunityPage() {
+  return null
+}

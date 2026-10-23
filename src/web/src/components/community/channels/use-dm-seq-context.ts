@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect } from "react"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { removeCommunityParam } from "@/lib/community/community-route"
 
 export function useDmSeqContext({

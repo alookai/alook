@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
+import { holdRoute } from "./_fixtures/held-route"
 import { sendMessage } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 
@@ -142,7 +143,7 @@ test.describe("forum sidebar Stage B request shape", () => {
     return { participantUserIds, serverId, forumId, threadId, textAId, textBId, forumTitle, ordinaryThreadId }
   }
 
-  test("a cold direct child and hard refresh use their RSC window without duplicate target reads", async ({ caseActors, caseResources }) => {
+  test("a cold direct child and hard refresh verify entry once without duplicate target reads", async ({ caseActors, caseResources }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
     const { serverId, threadId, forumTitle } = await prepareCase1(actors)
@@ -150,38 +151,32 @@ test.describe("forum sidebar Stage B request shape", () => {
     const { page } = await asUser("alice")
     const requests: string[] = []
     const successfulResponses: string[] = []
-    let releaseTargetReads!: () => void
-    const targetGate = new Promise<void>(resolve => { releaseTargetReads = resolve })
-    caseResources.own(releaseTargetReads, async captured => { captured() })
-    const targetRead = (url: URL) => url.pathname === `/api/community/channels/${threadId}`
-      || url.pathname === `/api/community/channels/${threadId}/read-state`
-      || url.pathname === `/api/community/channels/${threadId}/messages`
-    await page.route(targetRead, async route => { await targetGate; await route.continue() })
     page.on("request", request => { if (request.method() === "GET") requests.push(request.url()) })
     page.on("response", response => { if (response.request().method() === "GET" && response.ok()) successfulResponses.push(response.url()) })
-    try {
-      for (const refresh of [false, true]) {
-        requests.length = 0
-        successfulResponses.length = 0
-        const combined = page.waitForResponse(response => response.ok() && isSidebarRequest(response.url(), serverId))
-        if (refresh) await page.reload({ waitUntil: "commit" })
-        else await page.goto(`/c/channels/${serverId}/${threadId}`)
-        await combined
-        await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
-        await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
-        await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
-        await expect(childPanel(page).getByTestId(tid.composerInput)).toBeVisible()
-        await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
-        await page.waitForTimeout(refresh ? 2_000 : 500)
-        expect(requests.filter(url => targetRead(new URL(url)))).toEqual([])
-        const sidebar = requests.filter(url => isSidebarRequest(url, serverId))
-        expect(sidebar.length).toBeGreaterThanOrEqual(1)
-        expect(sidebar.length).toBeLessThanOrEqual(2)
-        expect(sidebar.every(url => { const retain = new URL(url).searchParams.get("retainId"); return retain === null || retain === threadId })).toBe(true)
-      }
-    } finally {
-      releaseTargetReads()
-      await page.unroute(targetRead)
+    for (const refresh of [false, true]) {
+      const entryGate = await holdRoute(page, url => isConversationEntryRequest(url.href, threadId), caseResources)
+      requests.length = 0
+      successfulResponses.length = 0
+      const combined = page.waitForResponse(response => response.ok() && isSidebarRequest(response.url(), serverId))
+      if (refresh) await page.reload({ waitUntil: "commit" })
+      else await page.goto(`/c/channels/${serverId}/${threadId}`)
+      await combined
+      await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
+      await expect.poll(entryGate.held).toBe(1)
+      await expect(childPanel(page).getByText("post body", { exact: true })).toHaveCount(0)
+      await expect(childPanel(page).getByTestId(tid.composerInput)).toHaveCount(0)
+      await entryGate.release()
+      await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
+      await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+      await expect(childPanel(page).getByTestId(tid.composerInput)).toBeVisible()
+      await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
+      await page.waitForTimeout(refresh ? 2_000 : 500)
+      expect(requests.filter(url => isChannelMessagesRequest(url, threadId))).toHaveLength(1)
+      expect(successfulResponses.filter(url => isConversationEntryRequest(url, threadId))).toHaveLength(1)
+      const sidebar = requests.filter(url => isSidebarRequest(url, serverId))
+      expect(sidebar.length).toBeGreaterThanOrEqual(1)
+      expect(sidebar.length).toBeLessThanOrEqual(2)
+      expect(sidebar.every(url => { const retain = new URL(url).searchParams.get("retainId"); return retain === null || retain === threadId })).toBe(true)
     }
   })
 
@@ -210,7 +205,8 @@ test.describe("forum sidebar Stage B request shape", () => {
     const messageResponses = successfulResponses.filter((url) =>
       isChannelMessagesRequest(url, threadId),
     )
-    expect(messageResponses).toEqual([])
+    expect(messageResponses).toHaveLength(1)
+    expect(messageResponses.every(url => isConversationEntryRequest(url, threadId))).toBe(true)
   })
 
   test("a non-participant keeps a grouped forum route after retained null arrives", async ({ caseActors }) => {
@@ -252,7 +248,7 @@ test.describe("forum sidebar Stage B request shape", () => {
     )
     expect(retainedResponses).toHaveLength(1)
     expect(retainedResponses[0]?.retainedChannel).toBeNull()
-    expect(successfulResponses.filter((url) => isConversationEntryRequest(url, threadId))).toHaveLength(0)
+    expect(successfulResponses.filter((url) => isConversationEntryRequest(url, threadId))).toHaveLength(1)
     expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
     expect(await participantUserIds(page, threadId)).not.toContain(userId("bob"))
 
@@ -332,7 +328,7 @@ test.describe("forum sidebar Stage B request shape", () => {
     await page.waitForTimeout(2_000)
 
     expect(successfulResponses.filter((url) => isConversationEntryRequest(url, ordinaryThreadId)))
-      .toHaveLength(0)
+      .toHaveLength(1)
     expect(requests.filter((url) =>
       isSidebarRequest(url, serverId)
       && new URL(url).searchParams.get("retainId") === ordinaryThreadId

@@ -1,5 +1,0 @@
-import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
-
-export default function MeRouteLoading() {
-  return <CommunityPendingFrame href="/c/me" />
-}

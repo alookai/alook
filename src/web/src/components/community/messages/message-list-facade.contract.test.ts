@@ -96,7 +96,8 @@ describe("MessageList facade contract", () => {
 
   it("keeps unresolved server entries independent of message layout modules", () => {
     for (const path of [
-      "src/app/c/channels/[serverId]/page.tsx",
+      "src/app/c/page.tsx",
+      "src/app/c/layout.tsx",
       "src/components/community/channels/channel-loading-frame.tsx",
     ]) {
       expect(source(path)).not.toMatch(/messages\/(?:message-list|composer)|[\/."]channel-header["']/)

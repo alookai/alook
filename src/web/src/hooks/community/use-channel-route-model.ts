@@ -5,7 +5,8 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
+import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { isForum as isForumType, type CommunityChannelResource } from "@alook/shared"
 import type { Channel } from "@/lib/community/models/navigation"

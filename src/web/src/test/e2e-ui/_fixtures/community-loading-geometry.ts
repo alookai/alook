@@ -93,7 +93,7 @@ async function holdCommunityReads(page: Page, resources?: CaseResources) {
   return { hits: () => hits, release }
 }
 
-async function expectServerSeededRouteFrame(
+async function expectPublicRouteFrame(
   page: Page,
   width: number,
   height: number,
@@ -136,7 +136,8 @@ async function expectServerSeededRouteFrame(
   if (visibleFrames[0].initial) {
     expect(visibleFrames[0].busy).toBe("true")
     expect(visibleFrames[0].label).toBe("Loading community")
-    expect(visibleFrames[0].placeholders).toBeGreaterThan(0)
+    await expect(frame).toHaveAttribute("data-community-route-kind", "community-root-redirect")
+    await expect(page.locator('[data-slot="community-user-bar-base"]')).toHaveCount(0)
   } else expect(visibleFrames[0].slot).toBe("community-shell-root")
   expect(geometry.overflow).toBe(0)
   expect(visibleFrames[0]).toMatchObject({ x: 0, y: 0, width, height })
@@ -563,9 +564,8 @@ export async function seedGeometryRoutes(
       main(page).getByText(content, { exact: true }).first()
     const threadMessageReady = (content: string) => (page: Page) => page
       .getByTestId(tid.threadSplitPanel).getByText(content, { exact: true }).first()
-    const threadComposerReady = (page: Page) => page
-      .getByTestId(tid.threadSplitPanel)
-      .getByTestId(tid.composerInput)
+    const threadEntryPending = (page: Page) => page
+      .getByTestId(tid.conversationResolutionPending).filter({ visible: true }).first()
   return [
       { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("link", { name: "Friends", exact: true }) },
       { name: "friends", pathname: "/c/me/friends", ready: (page) => page.getByPlaceholder("Search friends") },
@@ -578,8 +578,8 @@ export async function seedGeometryRoutes(
         pathname: `/c/channels/${serverId}/${forumId}`,
         ready: messageReady(forumTitle),
         intermediate: {
-          requestPattern: `**/api/community/channels/${forumId}/threads?**`,
-          ready: (page) => page.getByTestId(tid.forumFilterBar),
+          requestPattern: `**/api/community/channels/${forumId}/messages**`,
+          ready: (page) => page.getByLabel("Loading forum", { exact: true }).filter({ visible: true }).first(),
         },
       },
       {
@@ -588,7 +588,7 @@ export async function seedGeometryRoutes(
         ready: threadMessageReady(threadMessage),
         intermediate: {
           requestPattern: `**/api/community/channels/${threadId}/messages**`,
-          ready: threadComposerReady,
+          ready: threadEntryPending,
         },
       },
       {
@@ -597,7 +597,7 @@ export async function seedGeometryRoutes(
         ready: threadMessageReady(forumMessage),
         intermediate: {
           requestPattern: `**/api/community/channels/${forumPostId}/messages**`,
-          ready: threadComposerReady,
+          ready: threadEntryPending,
         },
       },
   ]
@@ -624,7 +624,7 @@ export async function runAndroidLoadingGeometry(actors: CaseActors, resources: C
           await page.goto(pathname, { waitUntil: "commit" })
           await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
           expect(scripts.received).toEqual([])
-          await expectServerSeededRouteFrame(page, width, width === 320 ? 720 : 900)
+          await expectPublicRouteFrame(page, width, width === 320 ? 720 : 900)
           await page.waitForTimeout(250)
           ssrEvidence = {
             blockedScripts: [...scripts.blocked],
@@ -634,7 +634,7 @@ export async function runAndroidLoadingGeometry(actors: CaseActors, resources: C
           expect(scripts.received, "application JS must remain blocked during SSR measurement").toEqual([])
           expect(
             scripts.sessionRequests(),
-            "server-seeded identity must not issue a browser session request",
+            "blocked application scripts must not issue a browser session request",
           ).toBe(0)
           await page.evaluate(() => Reflect.set(window, "__communityApplicationScriptsReleased", true))
           scripts.release()
@@ -710,7 +710,7 @@ export async function runDesktopPersistedPendingGeometry(
           await expect.poll(() => scriptGate.blocked.length).toBeGreaterThan(0)
           expect(scriptGate.received).toEqual([])
           expect(scriptGate.sessionRequests()).toBe(0)
-          await expectServerSeededRouteFrame(page, viewportWidth, 900)
+          await expectPublicRouteFrame(page, viewportWidth, 900)
           scriptGate.release()
           await expect.poll(communityReads.hits).toBeGreaterThan(0)
           await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
@@ -773,7 +773,7 @@ export async function runSkeletonLoadingMotion(actors: CaseActors, resources: Ca
     await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
     expect(scripts.received).toEqual([])
     expect(scripts.sessionRequests()).toBe(0)
-    await expectServerSeededRouteFrame(page, 320, 720)
+    await expectPublicRouteFrame(page, 320, 720)
     scripts.release()
     await expect.poll(communityReads.hits).toBeGreaterThan(0)
     await page.getByRole("link", { name: "Machines", exact: true }).click()
@@ -809,7 +809,7 @@ export async function runNeutralRootGeometry(
         expect(scripts.received).toEqual([])
         expect(scripts.sessionRequests()).toBe(0)
 
-        const frame = await expectServerSeededRouteFrame(page, width, width === 390 ? 844 : 900)
+        const frame = await expectPublicRouteFrame(page, width, width === 390 ? 844 : 900)
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(0)
         await expect(page.getByTestId(tid.initialRailPending)).toHaveCount(0)
         await expect(page.getByTestId(tid.dmSidebarPending)).toHaveCount(0)
@@ -873,13 +873,11 @@ export async function runRouteLoadingGeometry(
         await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
         expect(scripts.received).toEqual([])
         expect(scripts.sessionRequests()).toBe(0)
-        await expectServerSeededRouteFrame(
+        await expectPublicRouteFrame(
           page,
           entry.width,
           entry.width === 390 ? 844 : 900,
         )
-        const ssrGeometry = await visibleGeometry(page)
-        await resetCls(page)
         scripts.release()
         await expect.poll(communityReads.hits).toBeGreaterThan(0)
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
@@ -895,10 +893,18 @@ export async function runRouteLoadingGeometry(
           contentType: "image/png",
         })
 
-        expectSameGeometry(ssrGeometry, pendingGeometry)
+        await resetCls(page)
         communityReads.release()
         if (entry.intermediate && intermediate) {
+          await expect.poll(intermediate.hits).toBeGreaterThan(0)
+          await expect(entry.ready(page)).toHaveCount(0)
+          if (entry.name === "thread" || entry.name === "forum-post") {
+            await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toHaveCount(0)
+          }
           await expect(entry.intermediate.ready(page)).toBeVisible({ timeout: 30_000 })
+          if (entry.name === "thread" || entry.name === "forum-post") {
+            await expect(entry.intermediate.ready(page)).toHaveAttribute("aria-busy", "true")
+          }
           const intermediatePath = testInfo.outputPath(
             `${theme}-${entry.width}-${entry.name}-intermediate.png`,
           )
@@ -910,6 +916,7 @@ export async function runRouteLoadingGeometry(
           intermediate.release()
         }
         await expect(entry.ready(page)).toBeVisible({ timeout: 30_000 })
+        if (entry.name === "forum") await expect(page.getByTestId(tid.forumFilterBar)).toBeVisible()
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(1)
         const loadedAdd = page.getByTestId(tid.serverAdd)
         if (entry.width === 1280 || entry.mobileRail) {

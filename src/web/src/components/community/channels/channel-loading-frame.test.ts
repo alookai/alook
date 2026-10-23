@@ -1,7 +1,7 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import ServerLoading from "@/app/c/channels/[serverId]/loading"
+import { ChannelLoadingFrame as ServerLoading } from "@/components/community/channels/channel-loading-frame"
 import { ChannelLoadingFrame } from "./channel-loading-frame"
 
 describe("ChannelLoadingFrame", () => {

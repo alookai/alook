@@ -1,3 +1,4 @@
+import type { Request } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer, sendMessage, expectMessageVisible } from "./_fixtures/actions"
@@ -165,21 +166,42 @@ test("server → channel → message", async ({ caseActors, caseResources }) => 
 
   let releaseMessages!: () => void
   const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
-  caseResources.own(releaseMessages, async (captured) => { captured() })
-  await page.route("**/api/community/channels/*/messages*", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.continue()
-      return
-    }
-    await messagesGate
-    await route.continue()
+  const messageContinuations: Promise<void>[] = []
+  const pendingMessageRequests = new Set<Request>()
+  const settleMessageRequest = (request: Request) => { pendingMessageRequests.delete(request) }
+  page.on("requestfinished", settleMessageRequest)
+  page.on("requestfailed", settleMessageRequest)
+  caseResources.own(releaseMessages, async (captured) => { captured(); await Promise.all(messageContinuations) })
+  let heldMessageReads = 0
+  await page.route("**/api/community/channels/*/messages*", route => {
+    const request = route.request()
+    const continuation = (async () => {
+      if (request.method() === "GET") {
+        pendingMessageRequests.add(request)
+        heldMessageReads += 1
+        await messagesGate
+        if (!pendingMessageRequests.has(request)) return
+      }
+      try { await route.continue() } catch (error) {
+        if (request.method() !== "GET" || pendingMessageRequests.has(request)) throw error
+      }
+    })()
+    messageContinuations.push(continuation)
+    return continuation
   })
   await page.reload({ waitUntil: "commit" })
+  await expect.poll(() => heldMessageReads).toBeGreaterThan(0)
+  await expect(composerEditable(page)).toHaveCount(0)
+  await expect(page.getByTestId(tid.message(firstPayload.message.id))).toHaveCount(0)
+  await expect(page.getByTestId(tid.message(imePayload.message.id))).toHaveCount(0)
+  releaseMessages()
   await expect(composerEditable(page)).toContainText(draft)
   await expect(page.getByTestId(tid.message(firstPayload.message.id))).toHaveCount(1)
   await expect(page.getByTestId(tid.message(imePayload.message.id))).toHaveCount(1)
-  releaseMessages()
+  await Promise.all(messageContinuations)
   await page.unroute("**/api/community/channels/*/messages*")
+  page.off("requestfinished", settleMessageRequest)
+  page.off("requestfailed", settleMessageRequest)
 
   const restored = composerEditable(page)
   await restored.click()

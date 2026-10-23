@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ComponentProps } from "react"
@@ -17,17 +17,17 @@ describe("ShellFrame public contract", () => {
 
   it("keeps the one frame above both native slots and content layouts", () => {
     const frame = readWeb("src/components/community/shell/community-route-frame.tsx")
-    expect(frame).toContain("useSelectedLayoutSegments()")
+    expect(frame).toContain("usePathname()")
     expect(frame).toContain("<ShellFrame")
     expect(readWeb("src/app/c/community-layout-client.tsx")).toContain("<CommunityRouteFrame")
     for (const path of ["src/app/c/channels/layout.tsx", "src/app/c/me/layout.tsx"]) {
-      expect(readWeb(path)).not.toContain("<ShellFrame")
+      expect(existsSync(resolve(webRoot, path))).toBe(false)
     }
     const shellView = readWeb("src/components/community/shell/shell-frame-view.tsx")
     expect(shellView.match(/<DmSidebarSlot\b/g)).toHaveLength(1)
-    expect(readWeb("src/app/c/@sidebar/me/layout.tsx")).not.toContain("DmSidebarSlot")
+    expect(existsSync(resolve(webRoot, "src/app/c/@sidebar"))).toBe(false)
     expect(shellView.match(/<ServerSidebarSlot\b/g)).toHaveLength(1)
-    expect(readWeb("src/app/c/@sidebar/channels/[serverId]/layout.tsx")).not.toContain("ServerSidebarSlot")
+    expect(frame).not.toContain("useSelectedLayoutSegments")
   })
 
   it("keeps shell-frame as orchestration with one public component", () => {

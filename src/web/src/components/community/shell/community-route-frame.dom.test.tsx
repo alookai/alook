@@ -6,7 +6,6 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityRouteFrame } from "./community-route-frame"
 import { useCommunityRouteFrame } from "./community-route-context"
-import ServerContent from "@/app/c/channels/layout"
 import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
 import { tid } from "@/lib/community/testids"
 
@@ -137,17 +136,17 @@ describe("common committed community frame", () => {
     expect(view.getByTestId("rail")).toBe(rail)
   })
 
-  it("ignores ahead-of-commit pathname and gates mismatched sidebar scope", async () => {
+  it("commits the URL without a layout-segment handshake and still gates a mismatched sidebar", async () => {
     const view = render(tree())
     await act(async () => {})
     mocks.pathname = "/c/channels/b/two"
     view.rerender(tree("b"))
-    expect(view.queryByTestId("sidebar")).toBeNull()
-    expect(owner.registry.runtime.ui.get().currentServerId).toBeNull()
-    expect(view.getByTestId("main")).toHaveTextContent("me/friends")
-    mocks.segments = ["channels", "b", "two"]
-    view.rerender(tree("b"))
     expect(view.getByTestId("sidebar")).toHaveAttribute("data-server-id", "b")
+    expect(owner.registry.runtime.ui.get().currentServerId).toBe("b")
+    expect(view.queryByText("me/friends")).toBeNull()
+    view.rerender(tree("a"))
+    expect(view.queryByTestId("sidebar")).toBeNull()
+    expect(owner.registry.runtime.ui.get().currentServerId).toBe("b")
   })
 
   it.each(["url-first", "segments-first"])("gates DM query effects on exact publication in %s order", async order => {
@@ -163,7 +162,7 @@ describe("common committed community frame", () => {
     else mocks.segments = ["me", "dm-b"]
     view.rerender(tree())
     expect(view.container.querySelector('[data-dm-target="dm-b"]')).toBe(body)
-    expect(body).toHaveAttribute("data-committed", "false")
+    expect(body).toHaveAttribute("data-committed", order === "url-first" ? "true" : "false")
     mocks.segments = ["me", "dm-b"]
     mocks.pathname = "/c/me/dm-b"
     mocks.search = "seq=7"
@@ -195,30 +194,23 @@ describe("common committed community frame", () => {
     expect(view.getByTestId("userbar")).not.toBe(userbar)
   })
 
-  it("takes server content identity from its own segments despite merged slot params", () => {
-    mocks.segments = ["a", "channel-a"]
-    mocks.search = "msg=other-slot&threadView=full"
-    const view = render(<CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
-      <CommunityRouteFrame sidebar={null}><ServerContent><span>static child</span></ServerContent></CommunityRouteFrame>
-    </CommunityTestProvider>)
-    expect(mocks.channel).toHaveBeenLastCalledWith({
-      serverParam: "a", channelId: "channel-a",
-      targetHref: "/c/channels/a/channel-a", routeCommitted: false,
-    })
+  it("takes server and channel identity from the URL despite stale segment or slot params", () => {
+    mocks.segments = ["wrong-server", "wrong-channel"]
     mocks.pathname = "/c/channels/a/channel-a"
     mocks.search = "msg=own-anchor&threadView=full"
-    view.rerender(<CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
-      <CommunityRouteFrame sidebar={null}><ServerContent><span>static child</span></ServerContent></CommunityRouteFrame>
-    </CommunityTestProvider>)
+    const node = () => <CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
+      <CommunityRouteFrame sidebar={null}>{null}</CommunityRouteFrame>
+    </CommunityTestProvider>
+    const view = render(node())
     expect(mocks.channel).toHaveBeenLastCalledWith({
       serverParam: "a", channelId: "channel-a",
       targetHref: "/c/channels/a/channel-a?msg=own-anchor&threadView=full", routeCommitted: true,
     })
-    mocks.segments = ["a", "settings"]
-    view.rerender(<CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
-      <CommunityRouteFrame sidebar={null}><ServerContent><span>static child</span></ServerContent></CommunityRouteFrame>
-    </CommunityTestProvider>)
-    expect(view.getByText("static child")).toBeInTheDocument()
-    expect(view.queryByTestId("channel")).toBeNull()
+    mocks.pathname = "/c/channels/b/channel-b"
+    mocks.search = "seq=9"
+    view.rerender(node())
+    expect(mocks.channel).toHaveBeenLastCalledWith({
+      serverParam: "b", channelId: "channel-b", targetHref: "/c/channels/b/channel-b?seq=9", routeCommitted: true,
+    })
   })
 })
