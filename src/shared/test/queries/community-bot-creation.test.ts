@@ -2,6 +2,9 @@ import { beforeEach, afterEach, describe, it, expect } from "vitest"
 import { readFileSync, readdirSync } from "node:fs"
 import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
+import { getTableName } from "drizzle-orm"
+import { getTableConfig } from "drizzle-orm/sqlite-core"
+import { communityBotCreationRequest } from "../../src/db/bot-creation-schema"
 import type { Database } from "../../src/db"
 import { submitCreationRequest, decideCreationRequest, getCreationRequest, hydrateCreationRequestsForDmMessages } from "../../src/db/queries/community/bot-creation"
 import { ensureNewSiblingBotFriendships } from "../../src/db/queries/community/friendship"
@@ -29,6 +32,45 @@ beforeEach(() => {
 afterEach(() => sqlite.close())
 
 describe("bot creation requests on real migrated SQLite", () => {
+  it("matches migrated foreign keys and lookup indexes, and enforces card identity and valid state", async () => {
+    const config = getTableConfig(communityBotCreationRequest)
+    const declared = config.foreignKeys.map((key) => {
+      const reference = key.reference()
+      return { from: reference.columns[0]!.name, table: getTableName(reference.foreignTable), to: reference.foreignColumns[0]!.name, on_delete: key.onDelete!.toUpperCase() }
+    }).sort((a, b) => a.from.localeCompare(b.from))
+    const migrated = (sqlite.pragma("foreign_key_list(community_bot_creation_request)") as typeof declared).map(({ from, table, to, on_delete }) => ({ from, table, to, on_delete })).sort((a, b) => a.from.localeCompare(b.from))
+    expect(declared).toHaveLength(4)
+    expect(migrated).toEqual(declared)
+    expect(config.indexes.map((index) => index.config.name).sort()).toEqual(["idx_bot_creation_owner", "idx_bot_creation_requester"])
+    for (const index of config.indexes) {
+      const columns = index.config.columns.map((column) => "name" in column ? column.name : undefined)
+      expect(sqlite.pragma(`index_info(${index.config.name})`)).toEqual(columns.map((name, seqno) => expect.objectContaining({ name, seqno })))
+    }
+    const { row } = await submitCreationRequest(db, "owner", "requester", { requestId: "schema", bots: [proposal("A")] })
+    expect(() => sqlite.prepare("UPDATE community_bot_creation_request SET status='unknown' WHERE id=?").run(row.id)).toThrow(/CHECK/)
+    expect(() => sqlite.prepare("UPDATE community_bot_creation_request SET bots='invalid json' WHERE id=?").run(row.id)).toThrow(/CHECK/)
+    expect(() => sqlite.prepare("UPDATE community_bot_creation_request SET owner_id='missing' WHERE id=?").run(row.id)).toThrow(/FOREIGN KEY/)
+    expect(() => sqlite.prepare("INSERT INTO community_bot_creation_request SELECT 'duplicate',requester_id,owner_id,channel_id,message_id,status,bots,decision_nonce,created_at,resolved_at FROM community_bot_creation_request WHERE id=?").run(row.id)).toThrow(/UNIQUE/)
+    sqlite.prepare("DELETE FROM community_message WHERE id=?").run(row.messageId)
+    expect(await getCreationRequest(db, row.id, { requesterId: "requester" })).toBeNull()
+    expect(sqlite.pragma("foreign_key_check")).toEqual([])
+  })
+  it("returns the committed winner for concurrent submissions without duplicating the card or request", async () => {
+    const input = { requestId: "race", bots: [proposal("A")] }
+    const results = await Promise.all([submitCreationRequest(db, "owner", "requester", input), submitCreationRequest(db, "owner", "requester", input)])
+    expect(results.map((result) => result.isNew).sort()).toEqual([false, true])
+    expect(results[0]!.row).toEqual(results[1]!.row)
+    expect(sqlite.prepare("SELECT count(*) AS n FROM community_bot_creation_request").get()).toEqual({ n: 1 })
+    expect(sqlite.prepare("SELECT count(*) AS n FROM community_message").get()).toEqual({ n: 1 })
+    expect(count()).toBe(1)
+  })
+  it("propagates a failed submission with no winner and rolls back its card and request", async () => {
+    sqlite.exec("CREATE TRIGGER reject_request BEFORE INSERT ON community_bot_creation_request BEGIN SELECT RAISE(ABORT, 'request insert failed'); END")
+    await expect(submitCreationRequest(db, "owner", "requester", { requestId: "failed", bots: [proposal("A")] })).rejects.toThrow("request insert failed")
+    expect(await getCreationRequest(db, "failed", { requesterId: "requester" })).toBeNull()
+    expect(sqlite.prepare("SELECT count(*) AS n FROM community_message").get()).toEqual({ n: 0 })
+    expect(count()).toBe(1)
+  })
   it("connects twenty new bots to twenty existing siblings within D1 query and parameter limits", async () => {
     sqlite.exec("UPDATE product_plan_entitlement SET value_json='40' WHERE entitlement_key='bots.max'")
     for (let index = 1; index < 20; index++) {

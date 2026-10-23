@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import * as shared from "@alook/shared"
 import { NextRequest } from "next/server"
+
+const mockResolveBotActor = vi.fn()
+vi.mock("@/lib/middleware/community-agent-runner-auth", () => ({ resolveBotActor: (...args: unknown[]) => mockResolveBotActor(...args) }))
 
 const mockCountLiveBotsForOwner = vi.fn()
 const mockGetMachineForOwner = vi.fn()
@@ -109,6 +113,12 @@ describe("POST /api/community/bots — model", () => {
     mockEnsureNewSiblingBotFriendships.mockResolvedValue({ blocked: false })
   })
 
+  it("propagates unexpected configuration failures before creating a bot", async () => {
+    const error = new Error("configuration unavailable")
+    vi.spyOn(shared, "resolveBotCreationConfiguration").mockImplementationOnce(() => { throw error })
+    await expect(POST(postReq(base()), ctx)).rejects.toThrow(error)
+    expect(mockCreateBot).not.toHaveBeenCalled()
+  })
   it("rejects an offline machine on the existing human create path", async () => {
     mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "offline", availableRuntimes: [{ id: "claude", status: "healthy" }] })
     const response = await POST(postReq(base()), ctx)
@@ -329,6 +339,16 @@ describe("GET /api/community/bots — heatmap activity", () => {
     })
   })
 
+  it("projects the owner's bots for a runner without exposing private owner usage", async () => {
+    mockResolveBotActor.mockResolvedValueOnce({ kind: "bot", actor: { botUserId: "requester", ownerUserId: "owner", machineId: "m1", isActive: true } })
+    mockListBotsForOwner.mockResolvedValueOnce([{ id: "sibling", name: "Reviewer", discriminator: "0042", machineId: "m2", runtime: "codex", modelName: "custom/model", reasoningEffort: "high", isActive: true, presence: "online", dailyActivity: ["private"], description: "private" }])
+    const response = await GET(new NextRequest("http://localhost/api/community/bots", { headers: { Authorization: "Bearer crk_test_fixture" } }), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ bots: [{ id: "sibling", handle: "Reviewer#0042", name: "Reviewer", machineId: "m2", backendId: "codex", model: "custom/model", reasoningEffort: "high", isActive: true, presence: "online" }] })
+    expect(mockListBotsForOwner).toHaveBeenCalledWith({}, "owner")
+    expect(mockGetBotDailyActivityForOwner).not.toHaveBeenCalled()
+    expect(mockGetBotCapacitySummary).not.toHaveBeenCalled()
+  })
   it("attaches each bot's 30-day dailyActivity from the batched owner read", async () => {
     mockListBotsForOwner.mockResolvedValue([
       { id: "bot_1", name: "A", machineId: "m1", runtime: "claude", modelName: null },

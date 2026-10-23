@@ -29,6 +29,20 @@ beforeEach(() => {
   mocks.get.mockResolvedValue(row)
 })
 describe("bot creation request API authorization and envelopes", () => {
+  it("returns a typed submission failure without dispatching a card", async () => {
+    mocks.submit.mockRejectedValueOnce(new BotCreationError("MACHINE_OFFLINE", "Target machine is offline", 409, { machineId: "machine", itemIndex: 1 }))
+    const response = await POST(request({ requestId: "request", bots: [proposal] }))
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "Target machine is offline", code: "MACHINE_OFFLINE", machineId: "machine", itemIndex: 1 })
+    expect(mocks.dispatch).not.toHaveBeenCalled()
+  })
+  it("propagates unexpected decision failures without publishing an approval", async () => {
+    mocks.actor = { kind: "human", userId: "owner", isBot: false }
+    mocks.decide.mockRejectedValueOnce(new Error("decision storage unavailable"))
+    await expect(PATCH(request({ decision: "approve" }, "PATCH"))).rejects.toThrow("decision storage unavailable")
+    expect(mocks.complete).not.toHaveBeenCalled()
+    expect(mocks.broadcast).not.toHaveBeenCalled()
+  })
   it("derives both identities from bot authentication and dispatches exactly one committed card", async () => {
     const response = await POST(request({ requestId: "request", bots: [proposal] }))
     expect(response.status).toBe(201)
