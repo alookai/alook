@@ -48,7 +48,7 @@ export function BotCreationRequestCard({ request, messageId, viewerUserId, onOpe
       {actionable ? (
         <div className="flex flex-col gap-2 px-2">
           {error && <p role="alert" className="wrap-anywhere text-sm text-destructive">{error.message}</p>}
-          <div className="flex justify-end gap-2" aria-busy={decide.isPending}>
+          <div className="flex justify-start gap-2" aria-busy={decide.isPending}>
             <Button size="sm" variant="ghost" className="h-11 sm:h-9" disabled={decide.isPending}
               data-testid={tid.botCreationDecline} onClick={() => submit("decline")}>
               {decide.isPending && decide.variables?.decision === "decline" ? "Declining…" : "Decline"}
@@ -74,7 +74,7 @@ function BotProposal({ bot, approved, onOpenProfile }: { bot: BotCreationItem; a
   const seed = identity?.id ?? bot.itemId
   const avatar = canonical ? canonical.avatar : identity?.image
   const heading = <><span className="min-w-0 truncate">{name}</span>{identity && <span className="ml-1.5 shrink-0 text-sm font-normal tracking-wide text-muted-foreground">#{discriminator}</span>}</>
-  const badgeClass = "shrink-0 whitespace-nowrap text-left"
+  const badgeClass = "min-w-0 max-w-full shrink-0 whitespace-nowrap text-left"
 
   return <article className={`${styles.card} relative flex h-70 w-70 min-w-0 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-border bg-popover p-2`} aria-label={bot.name}>
     {approved && <span role="img" aria-label="Approved" title="Approved" className="absolute left-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border border-border bg-popover text-foreground"><Check aria-hidden className="size-3.5" /></span>}
@@ -98,10 +98,10 @@ function BotProposal({ bot, approved, onOpenProfile }: { bot: BotCreationItem; a
       <div tabIndex={0} aria-label={`${name} reason`} className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-sm pr-2 thin-scrollbar focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
         <p className="wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{bot.reason}</p>
       </div>
-      <div tabIndex={0} aria-label={`${name} configuration`} className="mt-3 flex shrink-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain rounded-sm thin-scrollbar focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-        <Badge variant="secondary" className={badgeClass} title={`Machine: ${bot.machineName}`}><Monitor aria-hidden />{bot.machineName}</Badge>
-        {bot.model && <Badge variant="secondary" className={badgeClass} title={`Model: ${bot.model}`}><Box aria-hidden />{bot.model}</Badge>}
-        {bot.reasoningEffort && <Badge variant="secondary" className={badgeClass} title={`Effort: ${bot.reasoningEffort}`}><Gauge aria-hidden />{bot.reasoningEffort}</Badge>}
+      <div tabIndex={0} aria-label={`${name} configuration`} className="mt-3 flex max-h-12 shrink-0 flex-wrap items-start gap-1.5 overflow-y-auto overscroll-y-contain rounded-sm thin-scrollbar focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        <Badge variant="secondary" className={badgeClass} title={`Machine: ${bot.machineName}`}><Monitor aria-hidden className="shrink-0" /><span className="truncate">{bot.machineName}</span></Badge>
+        {bot.model && <Badge variant="secondary" className={badgeClass} title={`Model: ${bot.model}`}><Box aria-hidden className="shrink-0" /><span className="truncate">{bot.model}</span></Badge>}
+        {bot.reasoningEffort && <Badge variant="secondary" className={badgeClass} title={`Effort: ${bot.reasoningEffort}`}><Gauge aria-hidden className="shrink-0" /><span className="truncate">{bot.reasoningEffort}</span></Badge>}
       </div>
     </div>
   </article>
