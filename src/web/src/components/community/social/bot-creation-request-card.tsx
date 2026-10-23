@@ -49,13 +49,13 @@ export function BotCreationRequestCard({ request, messageId, viewerUserId, onOpe
         <div className="flex flex-col gap-2 px-2">
           {error && <p role="alert" className="wrap-anywhere text-sm text-destructive">{error.message}</p>}
           <div className="flex justify-start gap-2" aria-busy={decide.isPending}>
-            <Button size="sm" variant="ghost" className="h-11 sm:h-9" disabled={decide.isPending}
-              data-testid={tid.botCreationDecline} onClick={() => submit("decline")}>
-              {decide.isPending && decide.variables?.decision === "decline" ? "Declining…" : "Decline"}
-            </Button>
             <Button size="sm" className="h-11 sm:h-9" disabled={decide.isPending}
               data-testid={tid.botCreationApprove} onClick={() => submit("approve")}>
               {decide.isPending && decide.variables?.decision === "approve" ? "Creating…" : `Create ${count === 1 ? "bot" : `${count} bots`}`}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-11 sm:h-9" disabled={decide.isPending}
+              data-testid={tid.botCreationDecline} onClick={() => submit("decline")}>
+              {decide.isPending && decide.variables?.decision === "decline" ? "Declining…" : "Decline"}
             </Button>
           </div>
         </div>
