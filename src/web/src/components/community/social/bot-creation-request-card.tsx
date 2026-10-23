@@ -36,7 +36,7 @@ export function BotCreationRequestCard({ request, messageId, viewerUserId, onOpe
       aria-label="Bot creation request" data-testid={tid.botCreationRequestCard} data-request-status={request.status}>
       <ScrollArea.Root className={count > 1 ? "min-w-0 pb-4" : "min-w-0"} data-swipe-ignore="">
         <ScrollArea.Viewport role="group" aria-label="Proposed bots" tabIndex={0}
-          className="min-w-0 snap-x snap-mandatory overscroll-x-contain rounded-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+          className="min-w-0 snap-x snap-mandatory scroll-px-2 overscroll-x-contain rounded-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
           <ScrollArea.Content className="flex gap-4 p-2">
             {request.bots.map((bot) => <BotProposal key={bot.itemId} bot={bot} approved={request.status === "approved"} onOpenProfile={onOpenProfile} />)}
           </ScrollArea.Content>
