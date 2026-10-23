@@ -117,6 +117,7 @@ export const tid = {
   onboardingStart: "community-onboarding-start",
   machineActions: (id: string) => `machine-actions-${id}`,
   machineUpdate: (id: string) => `machine-update-${id}`,
+  machineStop: (id: string) => `machine-stop-${id}`,
   machineUpdateConfirm: "machine-update-confirm",
   daemonUpdateNotice: "daemon-update-notice",
   daemonUpdateAction: "daemon-update-action",

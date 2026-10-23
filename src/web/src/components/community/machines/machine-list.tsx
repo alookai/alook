@@ -56,7 +56,6 @@ const MACHINE_LIST_HEADING_CLASS =
   "flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between"
 const MACHINE_LIST_HEADING_COPY_CLASS = "flex min-w-0 flex-col gap-1"
 const MACHINE_LIST_HEADING_ACTION_CLASS = "w-full sm:w-fit sm:shrink-0"
-const MACHINE_LIST_DESCRIPTION = "Your computers running the alook daemon."
 
 // Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
 // name row + meta lines + trailing kebab slot) so the list doesn't reflow when
@@ -124,10 +123,6 @@ export function MachineListSkeleton({
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <Skeleton className="h-7 w-24 rounded" />
               <Skeleton aria-hidden className="h-11 w-36 max-w-full rounded-sm sm:h-6" />
-              <div aria-hidden className="relative w-fit max-w-full">
-                <p className="invisible text-sm">{MACHINE_LIST_DESCRIPTION}</p>
-                <Skeleton className="absolute inset-0 rounded" />
-              </div>
             </div>
             <div data-slot="community-machines-heading-action" className={MACHINE_LIST_HEADING_ACTION_CLASS}>
               <Skeleton className="h-11 w-full rounded-md sm:h-9 sm:w-36" />
@@ -237,6 +232,8 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const [connectedHostname, setConnectedHostname] = useAtom(useCreateAtom<string | null>(null))
   const [deleteMachineId, setDeleteMachineId] = useAtom(useCreateAtom<string | null>(null))
   const [updateMachineId, setUpdateMachineId] = useAtom(useCreateAtom<string | null>(null))
+  const pendingStopsAtom = useCreateAtom(new Set<string>())
+  const [pendingStops, setPendingStops] = useAtom(pendingStopsAtom)
   const confirmDelete = machines.find((machine) => machine.id === deleteMachineId) ?? null
   const confirmUpdate = machines.find((machine) => machine.id === updateMachineId) ?? null
   const setConfirmDelete = (machine: MachineSummary | null) => setDeleteMachineId(machine?.id ?? null)
@@ -251,11 +248,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   })
   const latestVersion = versionQuery.data?.version ?? null
   const machineCommand = useMutation({ meta: { observabilityAction: "machine.command" }, mutationKey: ["community", "machine-command"], scope: { id: "community-machine-command" },
-    mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
+    mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update" | "stop"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       origin.assert(token)
       const key = communityKeys.machines()
       const original = captureMachinesPublication(queryClient)
-      await origin.request(token, `/api/community/machines/${id}${kind === "update" ? "/update" : ""}`, { method: kind === "delete" ? "DELETE" : "POST", assertActive: assert })
+      await origin.request(token, `/api/community/machines/${id}${kind === "delete" ? "" : `/${kind}`}`, { method: kind === "delete" ? "DELETE" : "POST", assertActive: assert })
       origin.assert(token)
       if (kind === "delete" && !await publishMachines(queryClient, original, (current) => current ? replaceMachines(current, current.machines.filter((row) => row.id !== id)) : current)) return
       if (queryClient.getQueryCache().get(original.query.queryHash) !== original.query) return
@@ -371,6 +368,23 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     }
   }
 
+  const stopMachine = async (machine: MachineSummary) => {
+    if (!isPresenceOnline(machine.status) || pendingStopsAtom.get().has(machine.id)) return
+    const assert = source.capture(), token = origin.begin().token
+    assert()
+    setPendingStops((current) => new Set(current).add(machine.id))
+    try {
+      await machineCommand.mutateAsync({ kind: "stop", id: machine.id, token, assert })
+      assert()
+      toast.success("Stop requested")
+    } catch (error) {
+      try { assert() } catch { return }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(getErrorMessage(error, "Couldn't request the daemon stop"))
+    } finally {
+      setPendingStops((current) => { const next = new Set(current); next.delete(machine.id); return next })
+    }
+  }
+
   const finishGuideIntro = useCallback(() => {
     setGuideIntroActive(false)
   }, [setGuideIntroActive])
@@ -471,9 +485,6 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
               <h1 className="text-xl font-medium text-foreground">Machines</h1>
               {usage}
-              <p className="text-sm text-muted-foreground">
-                {MACHINE_LIST_DESCRIPTION}
-              </p>
             </div>
             <div
               data-slot="community-machines-heading-action"
@@ -497,6 +508,8 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
             machine={m}
             onDelete={() => setConfirmDelete(m)}
             onReconnect={() => openReconnect(m)}
+            onStop={isPresenceOnline(m.status) ? () => void stopMachine(m) : undefined}
+            stopping={pendingStops.has(m.id)}
             onUpdate={
               canUpdateMachine(m, latestVersion, controllerMode)
                 ? () => setConfirmUpdate(m)
