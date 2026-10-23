@@ -78,7 +78,11 @@ function BotProposal({ bot, status, onOpenProfile }: { bot: BotCreationItem; sta
 
   return <article className={`${styles.card} relative flex h-70 w-70 min-w-0 shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-border bg-popover p-2`} aria-label={bot.name}>
     {status !== "pending" && <span role="img" aria-label={status === "approved" ? "Approved" : "Declined"}
-      className={`pointer-events-none absolute right-3 top-3 z-10 -rotate-8 rounded-sm border-4 border-double bg-popover px-2 py-1 text-xl font-black leading-none tracking-wide ${status === "approved" ? "border-approval-pass text-approval-pass" : "border-destructive text-destructive"}`}>
+      className={`pointer-events-none absolute right-3 top-3 z-10 -rotate-8 px-3 py-2 text-xl font-black leading-none tracking-wide ${status === "approved" ? "text-approval-pass" : "text-destructive"}`}>
+      <svg aria-hidden="true" focusable="false" viewBox="0 0 144 48" preserveAspectRatio="none" className="absolute inset-0 size-full fill-none stroke-current">
+        <path d="M8 3 19 2.5 29 3.4 40 2.5 53 3.2 66 2.4 80 3.3 95 2.6 110 3.4 124 2.5 136 3 Q141 3 141 8 L140.4 15 141.3 22 140.5 30 141 38 Q142 44 136 44.5 L122 43.8 109 45 94 44 80 44.8 65 43.9 50 44.8 37 44 22 45 8 44.5 Q3 44 3.5 39 L2.7 30 3.5 23 2.6 15 3.4 8 Q3 3 8 3Z" strokeWidth="2.5" strokeDasharray="49 1.2 22 0.8 67 1.8 31 0.7" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <path d="M9 8 34 7.5 62 8.2 91 7.6 117 8.3 135 8 135.5 21 135 39.5 110 39 83 40 57 39.4 31 40 9 39.5 8.5 25Z" strokeWidth="1" strokeDasharray="20 1 45 2 12 0.8 35 1.4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      </svg>
       {status === "approved" ? "PASS" : "NOT PASS"}
     </span>}
     <div className="relative -m-2 mb-0 h-12 shrink-0 overflow-hidden rounded-t-lg">
