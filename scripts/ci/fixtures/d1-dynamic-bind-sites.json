@@ -249,6 +249,12 @@
     "key": "src/shared/src/db/queries/community/bot-audit-log.ts:pruneBotActivityEventsStatement:notInArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/bot-creation.ts:hydrateCreationRequestsForDmMessages:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot-creation.ts:submitCreationRequest:values:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/bot.ts:findWakeCandidates:inArray:1"
   },
   {
@@ -349,6 +355,18 @@
   },
   {
     "key": "src/shared/src/db/queries/community/forum-post-delete.ts:deleteForumPostAttempt:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:ensureNewSiblingBotFriendships:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:ensureNewSiblingBotFriendships:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:ensureNewSiblingBotFriendships:inArray:3"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:ensureNewSiblingBotFriendships:values:1"
   },
   {
     "key": "src/shared/src/db/queries/community/friendship.ts:findActive:inArray:1"
