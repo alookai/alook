@@ -196,7 +196,7 @@ const returnPost = `${returnRoot}/post`
 
 vi.mock("@/components/community/channels/channel-route", () => ({
   ChannelRoute: ({ channelId, routeCommitted }: { channelId: string; routeCommitted: boolean }) => {
-    const parentPath = channelId === "post" ? returnForum : returnRoot
+    const parentPath = channelId === "post" ? returnForum : channelId === "thread" ? `${returnRoot}/text` : returnRoot
     return createElement(MobilePage, { parentPath },
       createElement("div", { "data-testid": `return-leaf-${channelId}`, "data-route-committed": String(routeCommitted) },
         createElement("button", { onClick: () => mocks.registerUiHandlers.mock.calls.at(-1)![0].goBackMobile(parentPath) }, `Back ${channelId}`)))
@@ -263,17 +263,19 @@ function holdReturnExit(popup: HTMLElement) {
   return { finish, animations }
 }
 
-function renderPostReturnLifecycle({ strict = false } = {}) {
+function renderPostReturnLifecycle({ strict = false, child = "post", parent = "forum" } = {}) {
+  const childHref = `${returnRoot}/${child}`
+  const parentHref = `${returnRoot}/${parent}`
   mocks.lifecycle = true
   mocks.breakpoint.current = "mobile"
-  mocks.currentHref.current = returnPost
-  mocks.selectedHref.current = returnPost
-  mocks.projectedChannel.current = { id: "post", serverId: "s1", parentChannelId: "forum" }
+  mocks.currentHref.current = childHref
+  mocks.selectedHref.current = childHref
+  mocks.projectedChannel.current = { id: child, serverId: "s1", parentChannelId: parent }
   vi.spyOn(window, "matchMedia").mockImplementation(media => ({
     media, matches: media === "(max-width: 639px)", onchange: null,
     addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
   }))
-  let frameHref = returnPost
+  let frameHref = childHref
   let context!: ReturnType<typeof useCommunityRouteFrame>
   let runtime!: ReturnType<typeof useCommunityRuntime>
   function Capture() {
@@ -294,28 +296,32 @@ function renderPostReturnLifecycle({ strict = false } = {}) {
     commit(href: string, { frame = true, published = true } = {}) {
       if (frame) { frameHref = href; mocks.selectedHref.current = href }
       if (published) mocks.currentHref.current = href
-      mocks.projectedChannel.current = frameHref === returnPost
-        ? { id: "post", serverId: "s1", parentChannelId: "forum" }
-        : frameHref === returnForum ? { id: "forum", serverId: "s1", parentChannelId: null } : undefined
+      mocks.projectedChannel.current = frameHref === childHref
+        ? { id: child, serverId: "s1", parentChannelId: parent }
+        : frameHref === parentHref ? { id: parent, serverId: "s1", parentChannelId: null } : undefined
       renderer.rerender(node())
     },
   }
 }
 
-async function returnToProjectedForum(options: { strict?: boolean } = {}) {
+async function returnToProjectedForum(options: { strict?: boolean; child?: string; parent?: string } = {}) {
+  const child = options.child ?? "post"
+  const parent = options.parent ?? "forum"
+  const childHref = `${returnRoot}/${child}`
+  const parentHref = `${returnRoot}/${parent}`
   const task = renderPostReturnLifecycle(options)
-  const exit = holdReturnExit(screen.getByTestId("return-leaf-post").closest<HTMLElement>("[data-slot='mobile-page']")!)
-  fireEvent.click(screen.getByRole("button", { name: "Back post" }))
+  const exit = holdReturnExit(screen.getByTestId(`return-leaf-${child}`).closest<HTMLElement>("[data-slot='mobile-page']")!)
+  fireEvent.click(screen.getByRole("button", { name: `Back ${child}` }))
   expect(mocks.replace).not.toHaveBeenCalled()
   await waitFor(() => expect(exit.animations).toHaveBeenCalled())
   await act(async () => exit.finish())
-  await waitFor(() => expect(screen.getByTestId("return-leaf-forum")).toBeVisible())
-  expect(screen.getByTestId("return-leaf-forum")).toHaveAttribute("data-route-committed", "false")
-  expect(task.context.frame.href).toBe(returnPost)
-  expect(task.context.navigation.publishedHref).toBe(returnPost)
-  expect(task.context.navigation.pendingHref).toBe(returnForum)
+  await waitFor(() => expect(screen.getByTestId(`return-leaf-${parent}`)).toBeVisible())
+  expect(screen.getByTestId(`return-leaf-${parent}`)).toHaveAttribute("data-route-committed", "false")
+  expect(task.context.frame.href).toBe(childHref)
+  expect(task.context.navigation.publishedHref).toBe(childHref)
+  expect(task.context.navigation.pendingHref).toBe(parentHref)
   expect(task.context.navigation.navigationPending).toBe(true)
-  expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
+  expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([parentHref])
   return task
 }
 
@@ -860,42 +866,84 @@ describe("ShellFrame orchestration", () => {
   })
 
   describe("accepted mobile parent return", () => {
-    it.each(["button", "system"] as const)("does not reopen the old post when %s Back repeats before parent publication", async (entry) => {
-      const task = await returnToProjectedForum()
-      repeatBack(entry, "forum")
-      expect(mocks.replace.mock.calls.slice(1).map(args => args[0])).not.toContain(returnPost)
-      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
-      expect(task.context.navigation.pendingHref).toBe(returnForum)
+    it.each([
+      { entry: "button", child: "post", parent: "forum" },
+      { entry: "system", child: "post", parent: "forum" },
+      { entry: "button", child: "thread", parent: "text" },
+      { entry: "system", child: "thread", parent: "text" },
+    ] as const)("continues $child through its displayed $parent on $entry Back before parent publication", async ({ entry, child, parent }) => {
+      const task = await returnToProjectedForum({ child, parent })
+      const exit = holdReturnExit(screen.getByTestId(`return-leaf-${parent}`).closest<HTMLElement>("[data-slot='mobile-page']")!)
+      repeatBack(entry, parent)
+      repeatBack(entry, parent)
+      await waitFor(() => expect(exit.animations).toHaveBeenCalled())
+      await act(async () => exit.finish())
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([`${returnRoot}/${parent}`, returnRoot])
+      expect(task.context.navigation.pendingHref).toBe(returnRoot)
+      expect(screen.getByRole("button", { name: "Outside action" })).toBeVisible()
+      task.commit(`${returnRoot}/${parent}`)
+      expect(task.context.navigation.pendingHref).toBe(returnRoot)
       expect(task.context.navigation.navigationPending).toBe(true)
-      expect(screen.queryByTestId("return-leaf-post")).toBeNull()
-      task.commit(returnForum)
+      expect(screen.queryByTestId(`return-leaf-${child}`)).toBeNull()
+      expect(screen.getByTestId(`return-leaf-${parent}`)).not.toBeVisible()
+      task.commit(returnRoot)
       await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
-      expect(task.context.frame.href).toBe(returnForum)
-      expect(screen.queryByTestId("return-leaf-post")).toBeNull()
-      expect(screen.getByTestId("return-leaf-forum")).toBeVisible()
+      expect(task.context.frame.href).toBe(returnRoot)
     })
 
-    it("keeps the accepted parent return through StrictMode lifecycle replay", async () => {
+    it("continues the accepted parent return through StrictMode lifecycle replay", async () => {
       const task = await returnToProjectedForum({ strict: true })
+      const exit = holdReturnExit(screen.getByTestId("return-leaf-forum").closest<HTMLElement>("[data-slot='mobile-page']")!)
       repeatBack("button", "forum")
-      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
-      expect(task.context.navigation.pendingHref).toBe(returnForum)
-      task.commit(returnForum)
+      await waitFor(() => expect(exit.animations).toHaveBeenCalled())
+      await act(async () => exit.finish())
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum, returnRoot])
+      task.commit(returnRoot)
       await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
-      expect(screen.getByTestId("return-leaf-forum")).toBeVisible()
+      expect(screen.getByRole("button", { name: "Outside action" })).toBeVisible()
     })
 
-    it.each(["frame-first", "publication-first"] as const)("coalesces repeated Back until the complete parent return, %s", async (order) => {
+    it.each(["frame-first", "publication-first", "during-exit"] as const)("preserves the next Back when the previous parent commits %s", async (order) => {
       const task = await returnToProjectedForum()
       task.commit(returnForum, { frame: order === "frame-first", published: order === "publication-first" })
       expect(task.context.navigation.navigationPending).toBe(true)
       expect(task.context.navigation.pendingHref).toBe(returnForum)
+      const popup = screen.getByTestId("return-leaf-forum").closest<HTMLElement>("[data-slot='mobile-page']")!
+      const exit = holdReturnExit(popup)
       repeatBack("button", "forum")
+      await waitFor(() => expect(exit.animations).toHaveBeenCalled())
       expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
       task.commit(returnForum)
       await waitFor(() => expect(task.context.navigation.navigationPending).toBe(false))
-      expect(screen.getByTestId("return-leaf-forum")).toBeVisible()
+      expect(popup).toHaveAttribute("data-closed")
+      await act(async () => exit.finish())
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum, returnRoot])
+      expect(task.context.navigation.pendingHref).toBe(returnRoot)
       expect(screen.queryByTestId("return-leaf-post")).toBeNull()
+    })
+
+    it("coalesces a repeated destination from the departed page without cancelling the displayed parent", async () => {
+      const task = await returnToProjectedForum()
+      act(() => mocks.registerUiHandlers.mock.calls.at(-1)![0].goBackMobile(returnForum))
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
+      expect(task.context.navigation.pendingHref).toBe(returnForum)
+      expect(screen.getByTestId("return-leaf-forum")).toBeVisible()
+    })
+
+    it.each(["newer intent", "retired owner", "retired access"] as const)("retires a second closing return after a %s", async (boundary) => {
+      const task = await returnToProjectedForum()
+      const exit = holdReturnExit(screen.getByTestId("return-leaf-forum").closest<HTMLElement>("[data-slot='mobile-page']")!)
+      repeatBack("button", "forum")
+      await waitFor(() => expect(exit.animations).toHaveBeenCalled())
+      task.commit(returnForum)
+      act(() => {
+        if (boundary === "newer intent") task.context.navigation.push(`${returnRoot}/other`)
+        else if (boundary === "retired owner") task.retireOwner()
+        else task.retireAccess()
+      })
+      await act(async () => exit.finish())
+      expect(mocks.replace.mock.calls.map(args => args[0])).toEqual([returnForum])
+      expect(task.context.navigation.pendingHref).not.toBe(returnRoot)
     })
 
     it("returns from a fully committed forum to the semantic server list", async () => {

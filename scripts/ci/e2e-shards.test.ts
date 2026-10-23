@@ -75,20 +75,23 @@ describe("planE2eShards", () => {
 
     expect(first).toEqual(second)
     expect(Object.keys(SPEC_SECONDS).sort()).toEqual(specs)
-    expect(first).toHaveLength(16)
+    expect(first).toHaveLength(17)
     expect([...assigned].sort()).toEqual(specs)
     expect(new Set(assigned).size).toBe(specs.length)
     expect(SPEC_SECONDS["18-new-divider-scroll.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
     expect(SPEC_SECONDS["55-message-scroll-characterization.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
     expect(SPEC_SECONDS["66-public-static-resource-cache.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
+    expect(SPEC_SECONDS["64-mobile-parent-return.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
+    expect(first.find((shard) => shard.files.includes("64-mobile-parent-return.spec.ts"))?.files)
+      .toEqual(["64-mobile-parent-return.spec.ts"])
     expect(first.find((shard) => shard.files.includes("66-public-static-resource-cache.spec.ts"))?.files)
       .toEqual(["66-public-static-resource-cache.spec.ts"])
     expect(specSeconds).toEqual([
-      165, 165, 165, 165, 165, 165, 155.638, 154.234, 155.283,
+      165, 165, 165, 165, 165, 165, 165, 155.638, 154.234, 155.283,
       156.095, 155.905, 156.323, 155.711, 153.963, 154.488, 156.138,
     ])
     expect(predictedSeconds).toEqual([
-      240, 240, 240, 240, 240, 240, 230.638, 229.234, 230.283,
+      240, 240, 240, 240, 240, 240, 240, 230.638, 229.234, 230.283,
       231.095, 230.905, 231.323, 230.711, 228.963, 229.488, 231.138,
     ])
     expect(first.every((shard) => (
