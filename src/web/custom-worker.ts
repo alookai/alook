@@ -13,4 +13,14 @@ export { DOQueueHandler } from "./.open-next/worker.js"
 
 const buildEnv = (requiredServerFiles as { config: Pick<NextConfig, "env"> }).config.env
 const build = resolveObservationLabels({ release: buildEnv?.NEXT_PUBLIC_FARO_RELEASE, environment: buildEnv?.NEXT_PUBLIC_FARO_ENVIRONMENT })
-export default createWebWorkerHandler(openNextHandler as ExportedHandler<CloudflareEnv>, build)
+const webHandler = createWebWorkerHandler(openNextHandler as ExportedHandler<CloudflareEnv>, build)
+export default {
+  ...webHandler,
+  async scheduled(_event: ScheduledController, env: CloudflareEnv, ctx: ExecutionContext) {
+    const request = new Request("https://internal/api/internal/account-maintenance", {
+      method: "POST", headers: { "X-Alook-Internal": "1" },
+    })
+    const response = await openNextHandler.fetch(request, env, ctx)
+    if (!response.ok) throw new Error(`Account maintenance failed: ${response.status}`)
+  },
+} satisfies ExportedHandler<CloudflareEnv>

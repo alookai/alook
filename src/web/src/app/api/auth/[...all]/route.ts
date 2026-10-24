@@ -8,6 +8,7 @@ const SERVER_ONLY_AUTH_PREFIX = "/api/auth/one-time-token"
 
 function isServerOnlyAuthRequest(request: NextRequest): boolean {
   const pathname = request.nextUrl.pathname.replace(/\/+$/, "")
+  if (pathname === "/api/auth/email-otp/check-verification-otp") return true
   return pathname === SERVER_ONLY_AUTH_PREFIX
     || pathname.startsWith(`${SERVER_ONLY_AUTH_PREFIX}/`)
 }

@@ -5,6 +5,7 @@ import { broadcastToDaemon } from "@/lib/broadcast"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
 import { fanOutToUsers, broadcastToUserSafe } from "@/lib/community/fanout"
 import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
+import { closeAccountBilling } from "@/lib/billing/service"
 import { deleteAccountStorage } from "./storage"
 import { revokeProviderAccount } from "./provider-revocation"
 import { unsubscribeResendContact } from "@/lib/resend-contacts"
@@ -15,6 +16,7 @@ export type ExecuteAccountDeletionResult =
   | { kind: "deleted" }
   | { kind: "missing" }
   | { kind: "failed" }
+  | { kind: "pending" }
 
 async function invalidateMachineTokens(tokens: string[]): Promise<void> {
   await invalidateMany(tokens.map((token) => cacheKeys.machineToken(token))).catch(() => {})
@@ -28,7 +30,6 @@ function scheduleAfterCommit(
 ): void {
   const work = Promise.allSettled([
     unsubscribeResendContact(env, snapshot.identity.email),
-    forceCloseCommunityMachinesByDoNames(env, snapshot.machineDoNames),
     ...snapshot.botBindings.map((binding) => pushBotEventToMachine(env, binding.machineId, {
       type: "bot:removed",
       botId: binding.botId,
@@ -66,11 +67,16 @@ export async function executeAccountDeletion(
   executionContext: Pick<ExecutionContext, "waitUntil">,
   userId: string,
 ): Promise<ExecuteAccountDeletionResult> {
+  let started = false
   try {
+    const finalDb = getPrimaryDb(env.DB)
+    await queries.accountDeletion.beginAccountDeletion(finalDb, userId)
+    started = true
     const firstSnapshot = await queries.accountDeletion.getAccountDeletionSnapshot(db, userId)
     if (!firstSnapshot) return { kind: "missing" }
-
-    const finalDb = getPrimaryDb(env.DB)
+    await invalidateMachineTokens(firstSnapshot.machineTokens)
+    await forceCloseCommunityMachinesByDoNames(env, firstSnapshot.machineDoNames, true)
+    await closeAccountBilling(finalDb, env, userId)
     const finalSnapshot = await queries.accountDeletion.getAccountDeletionSnapshot(finalDb, userId)
     if (!finalSnapshot) {
       await deleteAccountStorage(env, firstSnapshot)
@@ -101,7 +107,7 @@ export async function executeAccountDeletion(
     }
     if (!deletion.deleted) {
       const remaining = await queries.user.getUserInternal(getPrimaryDb(env.DB), userId)
-      if (remaining) return { kind: "failed" }
+      if (remaining) return { kind: "pending" }
     }
 
     await invalidateMachineTokens(machineTokens)
@@ -111,6 +117,10 @@ export async function executeAccountDeletion(
     log.warn("account_deletion_failed", {
       errorCategory: error instanceof Error ? error.name : "NonError",
     })
-    return { kind: "failed" }
+    if (!started) {
+      const remaining = await queries.user.getUserInternal(getPrimaryDb(env.DB), userId).catch(() => null)
+      started = remaining?.deletedAt != null
+    }
+    return { kind: started ? "pending" : "failed" }
   }
 }

@@ -16,6 +16,8 @@ export type ConnectionState =
     userId: string
     targetUserId?: string
     authenticated: boolean
+    sessionId?: string
+    sessionValidUntil?: number
     name?: string
     discriminator?: string
     communityContract?: CommunityContract

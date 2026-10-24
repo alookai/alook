@@ -148,7 +148,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
       await clearPersistedCache(source.registry.accountId).catch(() => undefined)
       if (!visible || !rootEligible()) { cancelAccountDeletionAuthTransition(lease); transition.current = undefined; return }
       try { await onDeleted() } catch {}
-      if (rootEligible()) globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
+      if (rootEligible()) globalThis.location.replace(response.status === 202 ? "/sign-in?account_deleted=pending" : ACCOUNT_DELETED_SIGN_IN_PATH)
     } catch (error) {
       cancelAccountDeletionAuthTransition(lease); transition.current = undefined
       if (isAbortError(error)) return

@@ -16,6 +16,8 @@ export function createWebWorkerHandler(
 ): ExportedHandler<CloudflareEnv> {
   return {
     async fetch(request, env, ctx) {
+      request = new Request(request) as typeof request
+      request.headers.delete("X-Alook-Internal")
       const url = new URL(request.url)
       const invocation = ctx.tracing?.getActiveSpan?.()
       const isWsUpgrade = request.headers.get("Upgrade")?.toLowerCase() === "websocket"

@@ -8,6 +8,7 @@ import {
   requireDMCommunicationAccess,
 } from "@/lib/community/permissions"
 import { handleAttachmentUpload, runAttachmentUpload } from "@/lib/community/upload"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 const log = createLogger({ service: "community-attachments-upload" })
 
@@ -17,6 +18,11 @@ const log = createLogger({ service: "community-attachments-upload" })
 // puts the real channelId in the path. Mirrors the channels/[id]/members
 // dual-actor door.
 export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+  const ownerId = ctx.actor.kind === "bot" ? ctx.actor.ownerUserId : ctx.actor.userId
+  const rate = await checkRateLimit(ctx.env, "community:upload", ownerId)
+  if (!rate.allowed) return NextResponse.json({ error: "Upload limit reached. Try again shortly." }, {
+    status: 429, headers: { "Retry-After": String(rate.retryAfterSec) },
+  })
   if (ctx.actor.kind === "bot") {
     return handleBotAttachmentUpload(req, ctx)
   }

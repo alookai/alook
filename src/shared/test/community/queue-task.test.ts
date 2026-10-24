@@ -110,3 +110,9 @@ describe("parseQueueTaskBatch", () => {
       .toEqual({ ok: false, reason: "malformed", itemIndex: null })
   })
 })
+
+it("preserves an installation-scoped mobile retry and rejects empty device identity", () => {
+  const task = { version: 1, kind: "mobile-push", messageId: "m", userId: "u", installationId: "device" }
+  expect(parseQueueTask(task)).toMatchObject({ ok: true, task })
+  expect(parseQueueTask({ ...task, installationId: "" })).toMatchObject({ ok: false })
+})

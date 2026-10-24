@@ -25,7 +25,7 @@ describe("agent running-turn interrupt WS routing", () => {
 
   function userSocket(userId = "owner_1") {
     const ws = createMockWebSocket()
-    ws.serializeAttachment({ type: "user", userId, authenticated: true })
+    ws.serializeAttachment({ type: "user", userId, authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
     return ws
   }
 

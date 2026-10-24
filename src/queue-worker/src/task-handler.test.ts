@@ -71,7 +71,7 @@ describe("queue task handler", () => {
     })
   })
 
-  it("catches mobile processing failures so the consumer can ACK", async () => {
+  it("propagates mobile processing failures so the consumer retries", async () => {
     const processPush = vi.fn(async () => {
       throw new Error("provider unavailable")
     })
@@ -85,7 +85,7 @@ describe("queue task handler", () => {
     await expect(executeQueueTask({} as never, {} as Env, task, {
       dispatchWake: vi.fn(),
       processMobilePush: processPush,
-    })).resolves.toBeUndefined()
+    })).rejects.toThrow("provider unavailable")
     expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_task_failed", {
       kind: "mobile-push",
       messageId: "message-1",

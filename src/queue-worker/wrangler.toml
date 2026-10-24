@@ -41,3 +41,7 @@ queue = "alook-queue"
 max_batch_size = 25
 max_retries = 3
 dead_letter_queue = "alook-queue-dlq"
+
+[[queues.producers]]
+binding = "TASK_QUEUE"
+queue = "alook-queue"

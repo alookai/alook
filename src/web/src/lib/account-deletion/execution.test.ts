@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   getSnapshot: vi.fn(),
+  beginDeletion: vi.fn(),
+  closeBilling: vi.fn(),
   deleteRows: vi.fn(),
   getUser: vi.fn(),
   deleteStorage: vi.fn(),
@@ -25,6 +27,7 @@ vi.mock("@alook/shared", () => ({
   queries: {
     accountDeletion: {
       getAccountDeletionSnapshot: mocks.getSnapshot,
+      beginAccountDeletion: mocks.beginDeletion,
       deleteAccountRows: mocks.deleteRows,
     },
     user: { getUserInternal: mocks.getUser },
@@ -37,6 +40,7 @@ vi.mock("@/lib/cache", () => ({
   invalidateMany: mocks.invalidateMany,
 }))
 vi.mock("@/lib/community/community-media-cleanup", () => ({ deleteCommunityMediaObjects: vi.fn() }))
+vi.mock("@/lib/billing/service", () => ({ closeAccountBilling: mocks.closeBilling }))
 vi.mock("./storage", () => ({ deleteAccountStorage: mocks.deleteStorage }))
 vi.mock("./provider-revocation", () => ({ revokeProviderAccount: mocks.revokeProvider }))
 vi.mock("@/lib/community/machine-disconnect", () => ({
@@ -81,6 +85,8 @@ describe("account deletion execution", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     for (const effect of [
+      mocks.beginDeletion,
+      mocks.closeBilling,
       mocks.deleteStorage,
       mocks.forceClose,
       mocks.pushBot,
@@ -146,7 +152,7 @@ describe("account deletion execution", () => {
       {} as never,
       { waitUntil: vi.fn() },
       "user-1",
-    )).resolves.toEqual({ kind: "failed" })
+    )).resolves.toEqual({ kind: "pending" })
     expect(mocks.getSnapshot).toHaveBeenCalledTimes(2)
     expect(mocks.deleteRows).not.toHaveBeenCalled()
     expect(mocks.unsubscribe).not.toHaveBeenCalled()
@@ -173,7 +179,7 @@ describe("account deletion execution", () => {
       {} as never,
       { waitUntil: vi.fn() },
       "user-1",
-    )).resolves.toEqual({ kind: "failed" })
+    )).resolves.toEqual({ kind: "pending" })
     expect(mocks.unsubscribe).not.toHaveBeenCalled()
   })
 
@@ -193,7 +199,7 @@ describe("account deletion execution", () => {
       deleted: true,
       readStateRevisions: [{ userId: "member-1", revision: 7 }],
     })
-    mocks.forceClose.mockRejectedValue(new Error("socket unavailable"))
+    mocks.broadcastDaemon.mockRejectedValue(new Error("socket unavailable"))
     let postCommit: Promise<unknown> | undefined
 
     await expect(executeAccountDeletion(
@@ -264,11 +270,11 @@ describe("account deletion execution", () => {
       {} as never,
       { waitUntil: vi.fn() },
       "user-1",
-    )).resolves.toEqual({ kind: "failed" })
+    )).resolves.toEqual({ kind: "pending" })
 
     expect(mocks.deleteStorage).not.toHaveBeenCalled()
     expect(mocks.deleteRows).not.toHaveBeenCalled()
-    expect(mocks.invalidateMany).not.toHaveBeenCalled()
+    expect(mocks.invalidateMany).toHaveBeenCalled()
     expect(mocks.unsubscribe).not.toHaveBeenCalled()
   })
 
@@ -299,7 +305,7 @@ describe("account deletion execution", () => {
       {} as never,
       { waitUntil: vi.fn() },
       "user-1",
-    )).resolves.toEqual({ kind: "failed" })
+    )).resolves.toEqual({ kind: "pending" })
     expect(mocks.unsubscribe).not.toHaveBeenCalled()
   })
 
@@ -362,4 +368,23 @@ describe("account deletion execution", () => {
     expect(mocks.unsubscribe.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.getUser.mock.invocationCallOrder[0])
     expect(waitUntil).toHaveBeenCalledOnce()
   })
+  it("keeps cleanup pending until billing and machine shutdown succeed", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot("current"))
+    mocks.closeBilling.mockRejectedValueOnce(new Error("Stripe unavailable"))
+    const ctx = { waitUntil: vi.fn() }
+    await expect(executeAccountDeletion({} as never, {} as never, ctx, "user-1")).resolves.toEqual({ kind: "pending" })
+    expect(mocks.beginDeletion).toHaveBeenCalledBefore(mocks.closeBilling)
+    expect(mocks.deleteStorage).not.toHaveBeenCalled()
+    expect(mocks.deleteRows).not.toHaveBeenCalled()
+    mocks.deleteRows.mockResolvedValue({ deleted: true, readStateRevisions: [] })
+    await expect(executeAccountDeletion({} as never, {} as never, ctx, "user-1")).resolves.toEqual({ kind: "deleted" })
+    expect(mocks.closeBilling).toHaveBeenCalledBefore(mocks.deleteStorage)
+  })
+  it("does not erase media while an existing machine cannot be disconnected", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot("current"))
+    mocks.forceClose.mockRejectedValueOnce(new Error("DO unavailable"))
+    await expect(executeAccountDeletion({} as never, {} as never, { waitUntil: vi.fn() }, "user-1")).resolves.toEqual({ kind: "pending" })
+    expect(mocks.deleteStorage).not.toHaveBeenCalled()
+  })
+
 })

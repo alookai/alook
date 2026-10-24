@@ -142,6 +142,7 @@ async function resolveSession(
     try {
       sessionResult = await observeWorkerOperation("auth.get_session", {}, () => auth.api.getSession({
         headers: req.headers,
+        query: { disableCookieCache: new URL(req.url).pathname.startsWith("/api/community/") },
         returnHeaders: true,
       })) as { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> }
       lastErr = undefined
@@ -154,20 +155,6 @@ async function resolveSession(
   if (lastErr) return { kind: "error" }
   if (!sessionResult?.response) return { kind: "none" }
 
-  // Session guard — Better-Auth's Drizzle adapter reads user rows via
-  // .select() directly, so a session cookie may carry stale state after a
-  // user is soft-deleted or if some future flow ever mints a session for a
-  // bot user row. Enforce at request-time:
-  //   - deletedAt != null → session invalid
-  //   - isBot === true    → session invalid (bots must never sign in)
-  // Belt-and-braces with the databaseHooks.session.create.before hook.
-  // isBot/deletedAt ride the session user via better-auth `additionalFields`
-  // (see auth.ts) — no dedicated per-request `getUserInternal` D1 read. Their
-  // freshness = the session cookie-cache period (prod 5min); revocation
-  // latency is therefore bounded by that window and is NOT loosened beyond
-  // today's getSession cookie cache. (Bots never mint a session — the
-  // session.create hook blocks them — so the isBot check is belt-and-braces;
-  // deletedAt is the one with a real, ≤cookie-period latency.)
   const guardUser = sessionResult.response.user as { isBot?: boolean | null; deletedAt?: string | null }
   const sessionUserIsBot = guardUser.isBot === true
   if (sessionUserIsBot || (guardUser.deletedAt ?? null) !== null) {

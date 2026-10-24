@@ -114,11 +114,11 @@ describe("AccountDeletionFlow", () => {
     expect(authTransition.cancel).toHaveBeenCalledTimes(1)
   })
 
-  it("falls back to the persistent completion URL when local cleanup rejects", async () => {
+  it.each([200, 202])("preserves the accepted deletion status %s when local cleanup rejects", async (status) => {
     const user = setupUser({ advanceTimers: (delay) => vi.advanceTimersByTime(delay) })
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, expires_in: 300, resend_after: 60 }))
-      .mockResolvedValueOnce(Response.json({ ok: true }))
+      .mockResolvedValueOnce(Response.json({ ok: true }, { status }))
     vi.stubGlobal("fetch", fetchMock)
     const replace = vi.fn()
     vi.stubGlobal("location", { replace })
@@ -133,7 +133,7 @@ describe("AccountDeletionFlow", () => {
     fireEvent.change(input, { target: { value: "123456" } })
     await user.click(screen.getByTestId(tid.accountDeletionSubmit))
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in?account_deleted=1"))
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(status === 202 ? "/sign-in?account_deleted=pending" : "/sign-in?account_deleted=1"))
     expect(authTransition.cancel).not.toHaveBeenCalled()
   })
 })

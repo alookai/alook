@@ -1,3 +1,4 @@
+vi.mock("./upload-body", () => ({ readUploadFormData: (req: Request) => req.formData(), UploadTooLargeError: class extends Error {} }))
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 import { structuredJpegFixture } from "@/test/fixtures/media"
@@ -94,7 +95,7 @@ function reqWithUpload(file: unknown, thumbnail: unknown, width = "640", height 
   const req = new NextRequest("http://localhost/u", { method: "POST" })
   req.formData = (async () => {
     const values: Record<string, unknown> = { file, thumbnail, width, height }
-    return { get: (key: string) => values[key] ?? null } as unknown as FormData
+    return { keys: () => Object.keys(values), get: (key: string) => values[key] ?? null } as unknown as FormData
   }) as typeof req.formData
   return req
 }
@@ -784,4 +785,16 @@ describe("runAttachmentUpload", () => {
     expect(response.status).toBe(500)
     expect(del).not.toHaveBeenCalled()
   })
+})
+
+it.each(["extra", "file"])("rejects unexpected or repeated multipart field %s before storage writes", async (key) => {
+  const put = vi.fn()
+  const request = new NextRequest("http://localhost/upload", { method: "POST" })
+  const form = new FormData()
+  form.append("file", new File(["hello"], "a.txt"))
+  form.append(key, "ignored")
+  request.formData = async () => form
+  const result = await handleAttachmentUpload(request, envWithR2(put))
+  expect(result.ok).toBe(false)
+  expect(put).not.toHaveBeenCalled()
 })

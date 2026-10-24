@@ -1,3 +1,4 @@
+import { readUploadFormData, UploadTooLargeError } from "./upload-body"
 import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import {
@@ -182,9 +183,16 @@ function jpegDimensions(bytes: Uint8Array): { width: number; height: number } | 
 async function readFile(req: NextRequest): Promise<ParsedUpload | UploadErr> {
   let formData: FormData
   try {
-    formData = await req.formData()
-  } catch {
-    return { ok: false, response: writeError("invalid form data", 400) }
+    formData = await readUploadFormData(req)
+  } catch (error) {
+    return { ok: false, response: writeError("invalid or oversized upload request", error instanceof UploadTooLargeError ? 413 : 400) }
+  }
+  const fields = new Set<string>()
+  for (const key of formData.keys()) {
+    if (!["file", "thumbnail", "width", "height"].includes(key) || fields.has(key)) {
+      return { ok: false, response: writeError("unexpected or repeated upload field", 400) }
+    }
+    fields.add(key)
   }
   const file = formData.get("file")
   if (!isFileLike(file)) return { ok: false, response: writeError("no file provided", 400) }

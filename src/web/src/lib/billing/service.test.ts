@@ -70,6 +70,22 @@ beforeEach(() => {
 const checkout = (price = "studio") => createCheckout(db, stripe, env, "owner", "qa@example.test", price)
 
 describe("billing summary offer loading", () => {
+  it("repairs a missed webhook before reading the displayed plan", async () => {
+    row.customerId = "cus_existing"
+    mocked.reconcileBilling.mockImplementation(async () => {
+      mocked.getEffectivePlan.mockResolvedValue({ plan: { id: "studio", displayName: "Studio" }, isFounder: false })
+    })
+    const result = await getBillingSummary(db, () => stripe, env, "owner")
+    expect(result.plan?.id).toBe("studio")
+    expect(mocked.reconcileBilling).toHaveBeenCalledExactlyOnceWith(db, stripe, env, "owner")
+  })
+  it("does not report a stale paid projection as verified during a Stripe outage", async () => {
+    row.customerId = "cus_existing"
+    mocked.reconcileBilling.mockRejectedValue(new Error("Stripe unavailable"))
+    await expect(getBillingSummary(db, () => stripe, env, "owner")).rejects.toThrow("Stripe unavailable")
+    expect(mocked.getEffectivePlan).not.toHaveBeenCalled()
+  })
+
   it.each([false, true])("preserves the database plan without constructing Stripe for an empty catalog, Founder=%s", async (isFounder) => {
     founder = isFounder
     const client = vi.fn(() => { throw new BillingError("BILLING_UNAVAILABLE", 503) })
@@ -170,12 +186,14 @@ describe("one unresolved Checkout per owner", () => {
     await expect(checkout()).resolves.toHaveProperty("url")
     expect(sessions).toHaveLength(1)
   })
-  it("does not rotate an aged unknown Stripe outcome", async () => {
-    row.checkoutAttempt = { id: "old", priceId: "studio", email: "qa@example.test", origin: "http://localhost:3000", startedAt: 1, sessionId: null }
+  it("recovers an unknown attempt only after its fixed payment window ends", async () => {
+    row.checkoutAttempt = { id: "old", priceId: "studio", email: "qa@example.test", origin: "http://localhost:3000", startedAt: Math.floor(Date.now() / 1000) - 23 * 3600, sessionId: null }
     await expect(checkout()).rejects.toMatchObject({ code: "BILLING_CHECKOUT_UNRESOLVED" })
     expect(customerCreates).not.toHaveBeenCalled()
-    expect(sessionCreates).not.toHaveBeenCalled()
-    expect(row.checkoutAttempt.id).toBe("old")
+    row.checkoutAttempt.startedAt -= 3601
+    await expect(checkout("house")).resolves.toHaveProperty("url")
+    expect(row.checkoutAttempt?.id).not.toBe("old")
+    expect(sessionCreates).toHaveBeenCalledOnce()
   })
   it("permits replacement only after Stripe confirms the previous session expired", async () => {
     await checkout()

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, notExists, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, isNotNull, notExists, or, sql } from "drizzle-orm"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import {
   account,
@@ -563,4 +563,19 @@ export async function deleteAccountRows(
       ? results[revisionIndex] as Array<{ userId: string; revision: number }>
       : [],
   }
+}
+
+export async function beginAccountDeletion(db: Database, userId: string) {
+  await db.batch([
+    db.update(user).set({ deletedAt: new Date().toISOString() })
+      .where(and(isNull(user.deletedAt), or(eq(user.id, userId), and(eq(user.ownerUserId, userId), eq(user.isBot, true))))),
+    db.delete(session).where(eq(session.userId, userId)),
+    db.update(user).set({ updatedAt: new Date().toISOString() }).where(eq(user.id, userId)),
+  ])
+}
+
+export async function listPendingAccountDeletions(db: Database) {
+  return db.select({ id: user.id }).from(user)
+    .where(and(eq(user.isBot, false), isNotNull(user.deletedAt)))
+    .orderBy(user.updatedAt, user.id).limit(25)
 }

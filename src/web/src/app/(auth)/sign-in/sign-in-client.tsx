@@ -43,11 +43,13 @@ function SignInForm({
   postLoginUrl,
   isProd,
   accountDeleted,
+  accountDeletionPending,
   appleEnabled,
 }: {
   postLoginUrl: string
   isProd: boolean
   accountDeleted: boolean
+  accountDeletionPending: boolean
   appleEnabled: boolean
 }) {
   useEffect(() => { void captureProductAnalytics({ event: "login_page_view" }) }, [])
@@ -186,7 +188,7 @@ function SignInForm({
   return (
     <FieldGroup>
       <ObservedStaticContent />
-      {accountDeleted ? (
+      {accountDeleted || accountDeletionPending ? (
         <div
           className="flex gap-3 rounded-xl bg-muted/70 p-4 text-left"
           role="status"
@@ -194,9 +196,11 @@ function SignInForm({
         >
           <CircleCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
           <div>
-            <div className="text-sm font-medium">Account deleted</div>
+            <div className="text-sm font-medium">{accountDeletionPending ? "Account deletion requested" : "Account deleted"}</div>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Your account and its data were removed.
+              {accountDeletionPending
+                ? "Sign-in is disabled. We’re stopping billing and removing your data. Cleanup will retry automatically."
+                : "Your account and its data were removed."}
             </p>
           </div>
         </div>
@@ -409,6 +413,7 @@ export default function SignInPageClient({
   const searchParams = useSearchParams()
   const postLoginUrl = safeRedirectUrl(searchParams.get("redirect"))
   const accountDeleted = searchParams.get("account_deleted") === "1"
+  const accountDeletionPending = searchParams.get("account_deleted") === "pending"
 
   return (
     <div className="relative flex min-h-svh flex-col items-center justify-center p-6 sm:p-10">
@@ -425,6 +430,7 @@ export default function SignInPageClient({
                   postLoginUrl={postLoginUrl}
                   isProd={isProd}
                   accountDeleted={accountDeleted}
+                  accountDeletionPending={accountDeletionPending}
                   appleEnabled={appleEnabled}
                 />
               </div>

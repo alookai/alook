@@ -80,6 +80,15 @@ describe("account deletion submit route", () => {
     expect(executeAccountDeletion).not.toHaveBeenCalled()
   })
 
+  it("accepts durable pending deletion and clears cookies without restoring the code", async () => {
+    executeAccountDeletion.mockResolvedValue({ kind: "pending" })
+    const response = await POST(request({ otp: "123456" }), {} as never)
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ ok: true, pending: true })
+    expect(response.headers.getSetCookie().join("\n")).toContain("better-auth.session_token=")
+    expect(restoreVerifiedDeletionCode).not.toHaveBeenCalled()
+  })
+
   it("deletes explicitly and clears Better Auth cookies", async () => {
     const response = await POST(request({ otp: "123456" }), {} as never)
 

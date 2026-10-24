@@ -7,6 +7,7 @@ import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { authorizeAttachment } from "@/lib/community/attachment-authorization"
 import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE } from "@/lib/community/storage"
 import { resolveAttachmentPresentation, resolveMediaContentType } from "@/lib/community/attachment-presentation"
+import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 
 const log = createLogger({ service: "community-attachments-download" })
 
@@ -117,6 +118,8 @@ export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequ
       const size = row.size ?? obj.size
       const headers: Record<string, string> = {
         "Content-Type": contentType,
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'",
         "X-Alook-Filename": encodeRfc5987(row.filename),
       }
       if (typeof size === "number") headers["Content-Length"] = String(size)
@@ -124,11 +127,13 @@ export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequ
       return new Response(buffer, { headers })
     }
 
-    const isImage = contentType.startsWith("image/")
+    const isImage = isInlineAttachmentContentType(contentType)
     const isMedia = contentType.startsWith("audio/") || contentType.startsWith("video/")
     const size = knownSize ?? row.size ?? obj.size
     const headers: Record<string, string> = {
       "Content-Type": contentType,
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "sandbox; default-src 'none'; media-src 'self'; img-src 'self'",
       "Content-Disposition": isImage || isMedia
         ? "inline"
         : contentDisposition("attachment", row.filename),

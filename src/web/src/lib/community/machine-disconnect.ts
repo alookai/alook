@@ -10,22 +10,25 @@ const log = createLogger({ service: "community-machine-disconnect" })
  * because the DO is keyed by that suffix — not by `machineId` — so a machine
  * with N historical credentials fans out N force-close calls.
  */
-export async function forceCloseCommunityMachineByDoName(env: Env, doName: string): Promise<void> {
+export async function forceCloseCommunityMachineByDoName(env: Env, doName: string, required = false): Promise<void> {
   const path = `/community-machine/${encodeURIComponent(doName)}/force-close`
   try {
     const res = await wsDoFetch(env, path, { method: "POST" }, { label: doName })
     if (!res.ok) {
       log.warn("force-close non-ok", { status: res.status, doName })
+      if (required) throw new Error("Machine disconnect failed")
     }
   } catch (err) {
     log.warn("force-close fetch failed", { err: String(err), doName })
+    if (required) throw err
   }
 }
 
 /** Force-close every DO for a set of credential do_name suffixes. */
 export async function forceCloseCommunityMachinesByDoNames(
   env: Env,
-  doNames: string[]
+  doNames: string[],
+  required = false,
 ): Promise<void> {
-  await Promise.all(doNames.map((n) => forceCloseCommunityMachineByDoName(env, n)))
+  await Promise.all(doNames.map((n) => forceCloseCommunityMachineByDoName(env, n, required)))
 }

@@ -1,6 +1,6 @@
 import { queries, type CheckoutAttempt, type Database, type BillingSummary } from "@alook/shared"
 import type Stripe from "stripe"
-import { assertStripeMode, billingOrigin, BillingError, stripeId } from "./client"
+import { assertStripeMode, billingClient, billingOrigin, BillingError, stripeId } from "./client"
 import { getOffers, requireOffer } from "./catalog"
 import { currentSubscription, reconcileBilling } from "./reconcile"
 import {
@@ -21,9 +21,11 @@ async function requireBillingOwner(db: Database, userId: string, founderAcknowle
 }
 
 export async function getBillingSummary(db: Database, stripe: () => Stripe, env: Env, userId: string): Promise<BillingSummary> {
+  const billing = await queries.billing.getBilling(db, userId)
+  if (billing?.customerId) await reconcileBilling(db, stripe(), env, userId)
   const effective = await queries.billing.getEffectivePlan(db, userId)
   if (effective.isFounder) return { plan: effective.plan, isFounder: true, offers: await getOffers(db, stripe, env), subscription: null }
-  const [row, offers] = await Promise.all([queries.billing.getBilling(db, userId), getOffers(db, stripe, env)])
+  const [row, offers] = await Promise.all([billing?.customerId ? queries.billing.getBilling(db, userId) : billing, getOffers(db, stripe, env)])
   return { plan: effective.plan, isFounder: false, offers, subscription: row?.subscription ?? null }
 }
 
@@ -87,6 +89,10 @@ export async function createCheckout(
       throw new BillingError("BILLING_SUBSCRIPTION_EXISTS")
     }
     if (session?.status === "expired") {
+      if (!await queries.billing.updateBilling(db, row, { checkoutAttempt: null })) continue
+      continue
+    }
+    if (!session && Date.now() / 1000 >= attempt.startedAt + 24 * 3600) {
       if (!await queries.billing.updateBilling(db, row, { checkoutAttempt: null })) continue
       continue
     }
@@ -210,7 +216,23 @@ export async function cancelScheduledChange(db: Database, stripe: Stripe, env: E
         if (!["released", "completed", "canceled"].includes(fresh.status)) throw error
       }
     }
-    await reconcileBilling(db, stripe, env, userId)
   }
   return getBillingSummary(db, () => stripe, env, userId)
+}
+
+export async function closeAccountBilling(db: Database, env: Env, userId: string) {
+  const row = await queries.billing.getBilling(db, userId)
+  if (!row) return
+  if (!row.customerId && !row.checkoutAttempt) return
+  const stripe = billingClient(env)
+  const session = await sessionForAttempt(stripe, env, row)
+  if (session?.status === "open") {
+    await stripe.checkout.sessions.expire(session.id)
+  } else if (!session && row.checkoutAttempt && Date.now() / 1000 < row.checkoutAttempt.startedAt + 24 * 3600) {
+    throw new BillingError("BILLING_CHECKOUT_UNRESOLVED", 503)
+  }
+  const subscription = await currentSubscription(stripe, env, row)
+  if (subscription && !["canceled", "incomplete_expired"].includes(subscription.status)) {
+    await stripe.subscriptions.cancel(subscription.id)
+  }
 }

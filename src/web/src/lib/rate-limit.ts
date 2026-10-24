@@ -18,11 +18,6 @@ export type { RateLimitName, RateLimitPolicy, RateLimitResult }
  * Sharding: one DO instance per (name, key) pair — different rate-limit
  * names never collide even with a shared key.
  *
- * Fail-open: transport errors return `{ allowed: true }`. The DO is a
- * strong-consistency counter, not a security perimeter; auth/authz above
- * the rate limit is what actually gates access. Locking every user out
- * because we can't reach the DO would be a worse failure mode.
- *
  * @param env    Worker env (used to reach `WS_DO_WORKER`).
  * @param name   Registered policy name — must exist in `RATE_LIMITS`.
  * @param key    Caller-chosen shard key. Typically userId, but any stable
@@ -38,9 +33,10 @@ export async function checkRateLimit(
   key: string,
   overrides?: Partial<RateLimitPolicy>,
 ): Promise<RateLimitResult> {
-  const policy = RATE_LIMITS[name]
+  const policy: RateLimitPolicy = RATE_LIMITS[name]
   const windowMs = overrides?.windowMs ?? policy.windowMs
   const max = overrides?.max ?? policy.max
+  const unavailable: RateLimitResult = policy.failClosed ? { allowed: false, retryAfterSec: 60 } : { allowed: true }
   try {
     const res = await wsDoFetch(
       env,
@@ -52,9 +48,9 @@ export async function checkRateLimit(
       },
       { label: `${name}:${key}`, type: "rate-limit" },
     )
-    if (!res.ok) return { allowed: true }
+    if (!res.ok) return unavailable
     return (await res.json()) as RateLimitResult
   } catch {
-    return { allowed: true }
+    return unavailable
   }
 }

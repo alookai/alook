@@ -46,11 +46,39 @@ import {
 import { canDeliverCommunityContent } from "../community-content-access"
 import { handleUserAgentInterrupt } from "./agent-interrupt"
 
+const USER_SESSION_CHECK_INTERVAL_MS = 60_000
+
+async function refreshUserSession(context: WsDurableContext, ws: WebSocket): Promise<void> {
+  const state = ws.deserializeAttachment() as ConnectionState
+  if (state?.type !== "user" || !state.authenticated || (state.sessionValidUntil ?? 0) > Date.now()) return
+  try {
+    const session = state.sessionId
+      ? await queries.session.getValidSessionByIdForUser(createDb(context.env.DB), state.sessionId, state.userId)
+      : null
+    if (session) {
+      const current = ws.deserializeAttachment() as ConnectionState
+      if (current?.type === "user" && current.sessionId === state.sessionId && current.authenticated) {
+        ws.serializeAttachment({ ...current, sessionValidUntil: Math.min(Date.now() + USER_SESSION_CHECK_INTERVAL_MS, Date.parse(session.expiresAt)) })
+      }
+      return
+    }
+  } catch {
+    context.log.warn("user_session_refresh_failed", { userId: state.userId })
+  }
+  const current = ws.deserializeAttachment() as ConnectionState
+  if (current?.type !== "user" || current.sessionId !== state.sessionId) return
+  ws.serializeAttachment({ ...current, authenticated: false })
+  ws.close(1008, "Session expired or revoked")
+}
+
 export async function handleUserFetch(
   context: WsDurableContext,
   request: Request,
   url: URL,
 ): Promise<Response | null> {
+  if (["/community-broadcast-bundle", "/community-broadcast", "/broadcast", "/check-alive", "/check-user-online"].includes(url.pathname)) {
+    for (const ws of context.ctx.getWebSockets()) await refreshUserSession(context, ws)
+  }
   if (url.pathname === "/community-broadcast-bundle" && request.method === "POST") {
     const targetUserId = getInternalCommunityUserTarget(request)
     if (!isValidCommunityUserTarget(targetUserId)) {
@@ -216,6 +244,8 @@ export async function handleWebSocketMessage(
   let parsed: unknown
   try { parsed = JSON.parse(message) } catch { ws.close(1008, "Invalid JSON"); return }
 
+  await refreshUserSession(context, ws)
+
   const state = ws.deserializeAttachment() as ConnectionState
 
   const controlType = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
@@ -308,6 +338,8 @@ export async function handleWebSocketMessage(
       userId,
       targetUserId,
       authenticated: true,
+      sessionId: identity.sessionId,
+      sessionValidUntil: Math.min(Date.now() + USER_SESSION_CHECK_INTERVAL_MS, Date.parse(identity.expiresAt)),
       name,
       discriminator,
       communityContract,
@@ -714,7 +746,7 @@ async function getDaemonIdForUser(context: WsDurableContext, userId: string): Pr
 async function validateToken(
   context: WsDurableContext,
   token: string,
-): Promise<{ userId: string; name: string; discriminator: string } | null> {
+): ReturnType<typeof queries.session.getValidSessionWithIdentity> {
   const db = createDb(context.env.DB)
   return withD1Retry(
     () => queries.session.getValidSessionWithIdentity(db, token),

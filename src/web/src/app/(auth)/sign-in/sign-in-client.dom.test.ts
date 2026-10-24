@@ -62,6 +62,14 @@ describe("sign-in client Apple availability", () => {
     })) as never
   })
 
+  it("does not claim removal is complete while deletion remains pending", () => {
+    mocks.searchParams = new URLSearchParams("account_deleted=pending")
+    render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
+    expect(screen.getByRole("status")).toHaveTextContent("Account deletion requested")
+    expect(screen.getByRole("status")).toHaveTextContent("Cleanup will retry automatically")
+    expect(screen.queryByText("Your account and its data were removed.")).toBeNull()
+  })
+
   it("counts login entry once and records only bounded OTP failure dimensions", async () => {
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
     expect(mocks.capture).toHaveBeenCalledWith({ event: "login_page_view" })

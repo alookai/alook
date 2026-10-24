@@ -1,4 +1,4 @@
-import { and, eq, exists, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { Database } from "../index";
 import {
@@ -252,3 +252,14 @@ export async function applyBillingPlan(
 }
 
 export { resolveBotsMaxForUser as getEffectivePlan };
+
+export async function listBillingOwners(db: Database) {
+  return db.select({ userId: userBilling.userId }).from(userBilling)
+    .innerJoin(user, eq(user.id, userBilling.userId))
+    .where(and(isNotNull(userBilling.customerId), isNull(user.deletedAt)))
+    .orderBy(userBilling.updatedAt, userBilling.userId).limit(25);
+}
+
+export async function recordBillingRecoveryAttempt(db: Database, userId: string) {
+  await db.update(userBilling).set({ updatedAt: new Date().toISOString() }).where(eq(userBilling.userId, userId));
+}

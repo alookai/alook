@@ -26,6 +26,9 @@ describe("Better Auth server-only endpoints", () => {
     ["GET", "/api/auth/one-time-token/generate"],
     ["POST", "/api/auth/one-time-token/verify"],
     ["POST", "/api/auth/one-time-token/verify/"],
+    ["POST", "/api/auth/email-otp/check-verification-otp"],
+    ["POST", "/api/auth/email-otp/check-verification-otp/"],
+    ["GET", "/api/auth/email-otp/check-verification-otp"],
   ])("blocks public %s %s before Better Auth", async (method, pathname) => {
     const request = new NextRequest(`https://alook.ai${pathname}`, { method })
     const response = method === "GET" ? await GET(request) : await POST(request)

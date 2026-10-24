@@ -24,12 +24,12 @@ type MobilePushSkipReason =
 
 export type MobilePushResult =
   | { outcome: "skip"; reason: MobilePushSkipReason }
+  | { outcome: "queued"; devices: number }
   | {
       outcome: "processed"
       attempted: number
       sent: number
       invalidated: number
-      failed: number
     }
 
 type MobilePushDependencies = {
@@ -87,12 +87,22 @@ export async function processMobilePush(
     }
   }
 
-  const [target, devices] = await Promise.all([
+  const [target, activeDevices] = await Promise.all([
     dependencies.getTarget(db, task.messageId),
     dependencies.listDevices(db, task.userId),
   ])
   if (!target) return { outcome: "skip", reason: "message_missing" }
+  const devices = activeDevices.filter((device) => !task.installationId || device.installationId === task.installationId)
   if (devices.length === 0) return { outcome: "skip", reason: "no_active_devices" }
+
+  if (!task.installationId) {
+    for (let offset = 0; offset < devices.length; offset += 100) {
+      await env.TASK_QUEUE.sendBatch(devices.slice(offset, offset + 100).map((device) => ({
+        body: { ...task, installationId: device.installationId },
+      })))
+    }
+    return { outcome: "queued", devices: devices.length }
+  }
 
   const payload = await dependencies.buildPayload(target, task.userId)
   let fcmAccessToken: Promise<string> | undefined
@@ -156,7 +166,7 @@ export async function processMobilePush(
         ...diagnostic,
         durationMs: Date.now() - startedAt,
       })
-      return "failed" as const
+      throw error
     }
   }))
 
@@ -165,6 +175,5 @@ export async function processMobilePush(
     attempted: devices.length,
     sent: results.filter((outcome) => outcome === "sent").length,
     invalidated: results.filter((outcome) => outcome === "invalid-token").length,
-    failed: results.filter((outcome) => outcome === "failed").length,
   }
 }

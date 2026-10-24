@@ -79,6 +79,7 @@ vi.mock("cloudflare:workers", () => ({
 
 // Mock @alook/shared
 export const mockGetValidSession = vi.fn<(db: unknown, token: string) => Promise<string | null>>()
+export const mockGetValidSessionByIdForUser = vi.fn().mockResolvedValue({ expiresAt: "2099-01-01T00:00:00.000Z" })
 export const mockGetValidSessionWithIdentity = vi.fn<(db: unknown, token: string) => Promise<{ userId: string; name: string; discriminator: string } | null>>()
 export const mockGetMachineTokenByToken = vi.fn()
 export const mockGetLatestTokenForUser = vi.fn()
@@ -383,7 +384,11 @@ vi.mock("@alook/shared", async () => {
       productPlan: { ...actual.queries.productPlan, assertMachineCapacity: (...a: any[]) => mockAssertMachineCapacity(...a) },
       session: {
         getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token),
-        getValidSessionWithIdentity: (db: unknown, token: string) => mockGetValidSessionWithIdentity(db, token),
+        getValidSessionWithIdentity: async (db: unknown, token: string) => {
+          const identity = await mockGetValidSessionWithIdentity(db, token)
+          return identity ? { sessionId: "test-session", expiresAt: "2099-01-01T00:00:00.000Z", ...identity } : null
+        },
+        getValidSessionByIdForUser: (...args: unknown[]) => mockGetValidSessionByIdForUser(...args),
       },
       machineToken: {
         getMachineTokenByToken: (...a: any[]) => mockGetMachineTokenByToken(...a),
@@ -537,6 +542,7 @@ export const flushAsyncWork = async () => {
 }
 export function resetHarness() {
     vi.clearAllMocks()
+    mockGetValidSessionByIdForUser.mockReset().mockResolvedValue({ expiresAt: "2099-01-01T00:00:00.000Z" })
     mockD1WithSession.mockReturnValue({})
     mockAssertMachineCapacity.mockReset().mockResolvedValue(undefined)
     mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "online", availableRuntimes: [] })

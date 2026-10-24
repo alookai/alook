@@ -30,6 +30,7 @@ export const RATE_LIMITS = {
    */
   "auth:otpSend": { windowMs: 60_000, max: 5 },
   "auth:nativeAttempt": { windowMs: 60_000, max: 10 },
+  "community:upload": { windowMs: 60_000, max: 30, failClosed: true },
 } as const
 
 export type RateLimitName = keyof typeof RATE_LIMITS
@@ -37,6 +38,7 @@ export type RateLimitName = keyof typeof RATE_LIMITS
 export type RateLimitPolicy = {
   windowMs: number
   max: number
+  failClosed?: boolean
 }
 
 export type RateLimitResult =

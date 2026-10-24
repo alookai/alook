@@ -19,7 +19,7 @@ function dedupeQueueTasks(tasks: AlookQueueTask[]): AlookQueueTask[] {
   const seen = new Set<string>()
   return tasks.filter((task) => {
     const recipientId = task.kind === "bot-wake" ? task.botUserId : task.userId
-    const key = JSON.stringify([task.kind, task.messageId, recipientId])
+    const key = JSON.stringify([task.kind, task.messageId, recipientId, task.kind === "mobile-push" ? task.installationId : null])
     if (seen.has(key)) return false
     seen.add(key)
     return true

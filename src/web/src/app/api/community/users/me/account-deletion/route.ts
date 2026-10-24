@@ -67,8 +67,8 @@ export const POST = withCookieHumanAuth(async (request, context) => {
   }
 
   const response = NextResponse.json(
-    { ok: true },
-    { headers: { "Cache-Control": "no-store, max-age=0" } },
+    { ok: true, ...(deletion.kind === "pending" ? { pending: true } : {}) },
+    { status: deletion.kind === "pending" ? 202 : 200, headers: { "Cache-Control": "no-store, max-age=0" } },
   )
   clearAuthCookies(response)
   try {

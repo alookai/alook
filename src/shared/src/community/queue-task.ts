@@ -10,6 +10,7 @@ export type MobilePushQueueTaskV1 = {
   kind: "mobile-push"
   messageId: string
   userId: string
+  installationId?: string
 }
 
 export type AlookQueueTask = BotWakeQueueTaskV1 | MobilePushQueueTaskV1
@@ -100,7 +101,8 @@ export function parseQueueTask(value: unknown): QueueTaskParseResult {
 
   if (value.kind === "mobile-push") {
     if (
-      !hasExactKeys(value, ["version", "kind", "messageId", "userId"])
+      !hasExactKeys(value, ["version", "kind", "messageId", "userId", ...(hasOwn(value, "installationId") ? ["installationId"] : [])])
+      || (hasOwn(value, "installationId") && !isNonEmptyId(value.installationId))
       || !isNonEmptyId(value.messageId)
       || !isNonEmptyId(value.userId)
     ) {
@@ -114,6 +116,7 @@ export function parseQueueTask(value: unknown): QueueTaskParseResult {
         kind: "mobile-push",
         messageId: value.messageId,
         userId: value.userId,
+        ...(typeof value.installationId === "string" ? { installationId: value.installationId } : {}),
       },
     }
   }

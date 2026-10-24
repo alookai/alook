@@ -29,6 +29,7 @@ const task = {
   kind: "mobile-push" as const,
   messageId: "message-1",
   userId: "user-1",
+  installationId: "installation-ios",
 }
 
 type Eligibility = {
@@ -99,6 +100,7 @@ function dependencies() {
 }
 
 const env = {
+  TASK_QUEUE: { sendBatch: vi.fn(async () => undefined) },
   ENCRYPTION_KEY: "encryption-key",
   APNS_TEAM_ID: "apns-team",
   APNS_KEY_ID: "apns-key",
@@ -107,7 +109,7 @@ const env = {
   FCM_PROJECT_ID: "fcm-project",
   FCM_CLIENT_EMAIL: "fcm@example.test",
   FCM_PRIVATE_KEY: "fcm-private-key",
-} as Env
+} as unknown as Env
 
 describe("mobile-push processing", () => {
   beforeEach(() => vi.clearAllMocks())
@@ -132,15 +134,15 @@ describe("mobile-push processing", () => {
     expect(deps.listDevices).not.toHaveBeenCalled()
   })
 
-  it("attempts every active device independently and soft-disables an invalid token", async () => {
+  it("sends only the selected device and soft-disables an invalid token", async () => {
     const deps = dependencies()
 
     await expect(processMobilePush({} as never, env, task, deps)).resolves.toEqual({
-      outcome: "processed",
-      attempted: 2,
-      sent: 1,
-      invalidated: 1,
-      failed: 0,
+      outcome: "processed", attempted: 1, sent: 1, invalidated: 0,
+    })
+    expect(deps.sendFcm).not.toHaveBeenCalled()
+    await expect(processMobilePush({} as never, env, { ...task, installationId: "installation-android" }, deps)).resolves.toEqual({
+      outcome: "processed", attempted: 1, sent: 0, invalidated: 1,
     })
     expect(deps.decrypt).toHaveBeenCalledTimes(2)
     expect(deps.sendApns).toHaveBeenCalledWith(expect.objectContaining({
@@ -158,7 +160,7 @@ describe("mobile-push processing", () => {
     })
   })
 
-  it("continues siblings and returns a caught failure without logging content or tokens", async () => {
+  it("retries a failed device without sending to its sibling or logging content", async () => {
     const deps = dependencies()
     deps.sendApns.mockRejectedValue(new PushProviderError(
       "apns",
@@ -167,14 +169,8 @@ describe("mobile-push processing", () => {
       "sensitive-provider-reason",
     ))
 
-    await expect(processMobilePush({} as never, env, task, deps)).resolves.toMatchObject({
-      outcome: "processed",
-      attempted: 2,
-      sent: 0,
-      invalidated: 1,
-      failed: 1,
-    })
-    expect(deps.sendFcm).toHaveBeenCalledTimes(1)
+    await expect(processMobilePush({} as never, env, task, deps)).rejects.toThrow()
+    expect(deps.sendFcm).not.toHaveBeenCalled()
     expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_device_failed", {
       messageId: "message-1",
       deviceId: "device-ios",
@@ -217,13 +213,7 @@ describe("mobile-push processing", () => {
     rawError.stack = "sensitive-decrypt-stack"
     deps.decrypt.mockImplementation(() => { throw rawError })
 
-    await expect(processMobilePush({} as never, env, task, deps)).resolves.toEqual({
-      outcome: "processed",
-      attempted: 1,
-      sent: 0,
-      invalidated: 0,
-      failed: 1,
-    })
+    await expect(processMobilePush({} as never, env, task, deps)).rejects.toThrow()
     expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_device_failed", {
       messageId: "message-1",
       deviceId: "device-ios",
@@ -259,7 +249,7 @@ describe("mobile-push processing", () => {
       "SensitiveInternalError",
     ))
 
-    await processMobilePush({} as never, env, task, deps)
+    await expect(processMobilePush({} as never, env, { ...task, installationId: "installation-android" }, deps)).rejects.toThrow()
 
     expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_device_failed", {
       messageId: "message-1",
@@ -300,11 +290,7 @@ describe("mobile-push processing", () => {
       )
       deps[dependency].mockRejectedValue(failure)
 
-      await expect(processMobilePush({} as never, env, task, deps)).resolves.toMatchObject({
-        outcome: "processed",
-        attempted: 1,
-        failed: 1,
-      })
+      await expect(processMobilePush({} as never, env, { ...task, installationId: provider === "apns" ? "installation-ios" : "installation-android" }, deps)).rejects.toThrow()
 
       const expectedDetails = {
         messageId: "message-1",
@@ -341,4 +327,16 @@ describe("mobile-push processing", () => {
     })
     expect(deps.buildPayload).not.toHaveBeenCalled()
   })
+})
+
+it("queues per-device work before delivery so a failed device does not replay its sibling", async () => {
+  const deps = dependencies()
+  const { installationId: _installationId, ...rootTask } = task
+  expect(await processMobilePush({} as never, env, rootTask, deps)).toEqual({ outcome: "queued", devices: 2 })
+  expect(env.TASK_QUEUE.sendBatch).toHaveBeenCalledWith([
+    { body: { ...rootTask, installationId: "installation-ios" } },
+    { body: { ...rootTask, installationId: "installation-android" } },
+  ])
+  expect(deps.sendApns).not.toHaveBeenCalled()
+  expect(deps.sendFcm).not.toHaveBeenCalled()
 })

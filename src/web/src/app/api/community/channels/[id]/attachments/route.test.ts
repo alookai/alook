@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn(async () => ({ allowed: true })) }))
+
 const mockR2Delete = vi.fn(async () => undefined)
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({
@@ -83,6 +85,7 @@ vi.mock("@/lib/community/upload", () => ({
 }))
 
 import { POST } from "./route"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 // The path `[id]` carries the `resolve` placeholder for a bot (it addresses by
 // `?target=`); a human puts the real channelId there.
@@ -116,6 +119,16 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       contentType: "image/png",
       size: 10,
     })
+  })
+
+  it("shares the owner's upload cap across bots and stops before storage", async () => {
+    vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, retryAfterSec: 9 })
+    const response = await POST(botReq(null, { Authorization: "Bearer crk_abc" }), botCtx)
+    expect(response.status).toBe(429)
+    expect(response.headers.get("Retry-After")).toBe("9")
+    expect(checkRateLimit).toHaveBeenCalledWith(expect.anything(), "community:upload", "owner_1")
+    expect(mockHandleAttachmentUpload).not.toHaveBeenCalled()
+    expect(mockCreateAttachment).not.toHaveBeenCalled()
   })
 
   it("401 without Authorization", async () => {

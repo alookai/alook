@@ -59,5 +59,6 @@ export async function executeQueueTask(
       userId: task.userId,
       errorName: error instanceof Error ? error.name : "unknown",
     })
+    throw error
   }
 }

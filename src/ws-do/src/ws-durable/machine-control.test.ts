@@ -67,7 +67,7 @@ describe("WebSocketDurableObject", () => {
       supported.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "cm_1", userId: "u_1", machineStop: true })
       legacy.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "cm_1", userId: "u_1" })
       unauthed.serializeAttachment({ type: "community-machine", authenticated: false, machineId: "cm_1", userId: "u_1", machineStop: true })
-      user.serializeAttachment({ type: "user", authenticated: true, userId: "u_1" })
+      user.serializeAttachment({ type: "user", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000, userId: "u_1" })
       getWebSockets.mockReturnValue([supported, legacy, unauthed, user])
       const response = await durable.fetch(new Request("http://internal/stop", { method: "POST" }))
       expect(await response.json()).toEqual({ sent: 1, unsupported: 1 })

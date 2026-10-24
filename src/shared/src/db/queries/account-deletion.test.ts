@@ -9,6 +9,8 @@ import * as machineSchema from "../community-machine-schema"
 import type { Database } from "../index"
 import {
   deleteAccountRows,
+  beginAccountDeletion,
+  listPendingAccountDeletions,
   deleteDeletionChallengeIfMatches,
   getAccountDeletionSnapshot,
   restoreDeletionChallenge,
@@ -134,6 +136,24 @@ describe("account deletion snapshot and delete queries", () => {
   function run(statement: string, ...bindings: unknown[]): void {
     sqlite.prepare(statement).run(...bindings)
   }
+
+
+  it("atomically disables the owner and bots, revokes sessions, and retains cleanup roots", async () => {
+    run("INSERT INTO user (id, email, name, discriminator) VALUES ('owner', 'owner@test', 'Owner', '0001'), ('other', 'other@test', 'Other', '0002')")
+    run("INSERT INTO user (id, email, name, discriminator, isBot, ownerUserId) VALUES ('bot', 'bot@test', 'Bot', '0003', 1, 'owner')")
+    run("INSERT INTO session (id, userId, token, expiresAt) VALUES ('s1', 'owner', 'test', '2099-01-01T00:00:00.000Z')")
+    await beginAccountDeletion(db, "owner")
+    expect(sqlite.prepare("SELECT id FROM user WHERE deletedAt IS NOT NULL ORDER BY id").all()).toEqual([{ id: "bot" }, { id: "owner" }])
+    expect(sqlite.prepare("SELECT id FROM session").all()).toEqual([])
+    expect(await listPendingAccountDeletions(db)).toEqual([{ id: "owner" }])
+    const snapshot = await getAccountDeletionSnapshot(db, "owner")
+    expect(snapshot?.identities.map(identity => identity.id).sort()).toEqual(["bot", "owner"])
+    await beginAccountDeletion(db, "owner")
+    expect(await listPendingAccountDeletions(db)).toEqual([{ id: "owner" }])
+    expect((await deleteAccountRows(db, snapshot!)).deleted).toBe(true)
+    expect(await listPendingAccountDeletions(db)).toEqual([])
+    expect(sqlite.prepare("SELECT id FROM user").all()).toEqual([{ id: "other" }])
+  })
 
   it("snapshots every attributable root and deletes it without damaging shared data", async () => {
     const now = "2026-09-08T00:00:00.000Z"

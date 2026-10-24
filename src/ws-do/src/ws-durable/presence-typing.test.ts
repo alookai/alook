@@ -71,7 +71,7 @@ describe("WebSocketDurableObject", () => {
 
       // Set up two WebSockets: one authenticated, one not
       const wsAuth = createMockWebSocket()
-      wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
+      wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const wsUnauth = createMockWebSocket()
       wsUnauth.serializeAttachment({ type: "user", userId: "", authenticated: false })
         ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth, wsUnauth])
@@ -112,9 +112,9 @@ describe("WebSocketDurableObject", () => {
       const { durable, ctx } = createDO()
 
       const wsOpen = createMockWebSocket(WebSocket.OPEN)
-      wsOpen.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
+      wsOpen.serializeAttachment({ type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const wsClosed = createMockWebSocket(WebSocket.CLOSED)
-      wsClosed.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
+      wsClosed.serializeAttachment({ type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       wsClosed.send.mockImplementation(() => { throw new Error("Connection closed") })
         ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsOpen, wsClosed])
 
@@ -134,7 +134,7 @@ describe("WebSocketDurableObject", () => {
     it("sweeps an authenticated historical mismatch before sending", async () => {
       const { durable, ctx } = createDO()
       const attacker = createMockWebSocket()
-      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker])
 
       const res = await durable.fetch(new Request("http://internal/broadcast", {
@@ -145,7 +145,7 @@ describe("WebSocketDurableObject", () => {
 
       expect(await res.json()).toEqual({ sent: 0 })
       expect(attacker.send).not.toHaveBeenCalled()
-      expect(attacker.deserializeAttachment()).toEqual({
+      expect(attacker.deserializeAttachment()).toMatchObject({
         type: "user",
         userId: "attacker",
         authenticated: false,
@@ -167,9 +167,9 @@ describe("WebSocketDurableObject", () => {
     it("sends only to the matching user while sweeping mixed historical sockets", async () => {
       const { durable, ctx } = createDO()
       const victim = createMockWebSocket()
-      victim.serializeAttachment({ type: "user", userId: "victim", authenticated: true })
+      victim.serializeAttachment({ type: "user", userId: "victim", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const attacker = createMockWebSocket()
-      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker, victim])
 
       const res = await durable.fetch(new Request("http://internal/broadcast", {
@@ -214,7 +214,7 @@ describe("WebSocketDurableObject", () => {
       const daemon = createMockWebSocket()
       daemon.serializeAttachment({ type: "daemon", daemonId: "daemon-1", userId: "user-1", authenticated: true })
       const user = createMockWebSocket()
-      user.serializeAttachment({ type: "user", userId: "user-1", authenticated: true })
+      user.serializeAttachment({ type: "user", userId: "user-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([user, daemon])
 
       const response = await durable.fetch(new Request("http://internal/check-alive"))
@@ -268,7 +268,7 @@ describe("WebSocketDurableObject", () => {
       const { durable, ctx } = createDO()
       mockGetUserInternal.mockResolvedValue({ isBot: false } as any)
       const wsAuth = createMockWebSocket()
-      wsAuth.serializeAttachment({ type: "user", userId: "human-1", authenticated: true })
+      wsAuth.serializeAttachment({ type: "user", userId: "human-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
         ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
 
       const res = await durable.fetch(new Request("http://internal/check-user-online?userId=human-1"))
@@ -280,13 +280,13 @@ describe("WebSocketDurableObject", () => {
     it("fails closed and sweeps user sockets when userId is missing entirely", async () => {
       const { durable, ctx } = createDO()
       const wsAuth = createMockWebSocket()
-      wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
+      wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
         ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
 
       const res = await durable.fetch(new Request("http://internal/check-user-online"))
 
       expect(await res.json()).toEqual({ online: false })
-      expect(wsAuth.deserializeAttachment()).toEqual({
+      expect(wsAuth.deserializeAttachment()).toMatchObject({
         type: "user",
         userId: "u1",
         authenticated: false,
@@ -299,7 +299,7 @@ describe("WebSocketDurableObject", () => {
       const { durable, ctx } = createDO()
       mockGetUserInternal.mockResolvedValue({ isBot: false } as any)
       const attacker = createMockWebSocket()
-      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      attacker.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker])
 
       const res = await durable.fetch(
@@ -307,7 +307,7 @@ describe("WebSocketDurableObject", () => {
       )
 
       expect(await res.json()).toEqual({ online: false })
-      expect(attacker.deserializeAttachment()).toEqual({
+      expect(attacker.deserializeAttachment()).toMatchObject({
         type: "user",
         userId: "attacker",
         authenticated: false,
@@ -629,7 +629,7 @@ describe("WebSocketDurableObject", () => {
     it("does nothing when a typing frame has no channelId", async () => {
       const { durable } = createDO()
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -646,7 +646,7 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValue({ id: "channel-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const now = vi.spyOn(Date, "now")
       try {
         now.mockReturnValue(10_000)
@@ -678,7 +678,7 @@ describe("WebSocketDurableObject", () => {
       const { durable } = createDO()
       mockGetChannelForMember.mockResolvedValue(null)
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       let timestamp = 100_000
       const now = vi.spyOn(Date, "now").mockImplementation(() => timestamp)
       try {
@@ -709,7 +709,7 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValueOnce(null)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -732,7 +732,7 @@ describe("WebSocketDurableObject", () => {
       mockResolveScopeMemberUserIds.mockResolvedValueOnce(["member-1", "member-2", "sender-1"])
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -761,7 +761,7 @@ describe("WebSocketDurableObject", () => {
       mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "member-1"])
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -789,7 +789,7 @@ describe("WebSocketDurableObject", () => {
       mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "reader-1"])
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -813,7 +813,7 @@ describe("WebSocketDurableObject", () => {
       let clock = 10_000
       const now = vi.spyOn(Date, "now").mockImplementation(() => clock)
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       const start = JSON.stringify({ type: "community:typing.start", channelId: "t-1" })
       try {
         await durable.webSocketMessage(ws as any, start)
@@ -850,7 +850,7 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValueOnce(null)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -871,7 +871,7 @@ describe("WebSocketDurableObject", () => {
       mockGetDMPeer.mockResolvedValueOnce({ otherUserId: "bob" })
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -892,7 +892,7 @@ describe("WebSocketDurableObject", () => {
       mockAreFriends.mockResolvedValue(false)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -919,7 +919,7 @@ describe("WebSocketDurableObject", () => {
       mockAreFriends.mockResolvedValue(true)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       await durable.webSocketMessage(
         ws as any,
         JSON.stringify({ type: "community:typing.start", channelId: "dm-1" }),
@@ -941,7 +941,7 @@ describe("WebSocketDurableObject", () => {
         try { return await fn() } catch { return fn() }
       })
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -981,7 +981,7 @@ describe("WebSocketDurableObject", () => {
       })
       ;(env.WS_DO.get as ReturnType<typeof vi.fn>).mockReturnValue({ fetch })
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -1000,7 +1000,7 @@ describe("WebSocketDurableObject", () => {
         .mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -1042,7 +1042,7 @@ describe("WebSocketDurableObject", () => {
     it("consumes a typing.stop without a channel and does not fan out", async () => {
       const { durable } = createDO()
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -1067,7 +1067,7 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -1096,7 +1096,7 @@ describe("WebSocketDurableObject", () => {
       const { durable } = createDO()
       mockGetChannelForMember.mockResolvedValue(null)
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
       await durable.webSocketMessage(
         ws as any,
@@ -1118,7 +1118,7 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
       mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       let releaseFirstFetch!: () => void
       mockStubFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => {
         releaseFirstFetch = () => resolve(new Response(null, { status: 200 }))

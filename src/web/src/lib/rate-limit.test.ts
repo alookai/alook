@@ -68,3 +68,9 @@ describe("checkRateLimit — unified rate-limit entry", () => {
     expect(r).toEqual({ allowed: true })
   })
 })
+
+it("fails closed only for upload admission when the rate limiter is unavailable", async () => {
+  mockWsDoFetch.mockRejectedValue(new Error("DO unavailable"))
+  expect(await checkRateLimit({} as Env, "community:upload", "owner")).toEqual({ allowed: false, retryAfterSec: 60 })
+  expect(await checkRateLimit({} as Env, "community:msgSend", "owner")).toEqual({ allowed: true })
+})

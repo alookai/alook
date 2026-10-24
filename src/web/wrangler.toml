@@ -113,3 +113,6 @@ OPENROUTER_JEV_BASE_URL = "https://openrouter.ai"
 OPENROUTER_JEV_MODEL = "typesafe/jev-1.13"
 TYPESAFE_JEV_BASE_URL = "https://api.typesafe.ai"
 TYPESAFE_JEV_MODEL = "jev-1.13.0"
+
+[triggers]
+crons = ["17 * * * *"]

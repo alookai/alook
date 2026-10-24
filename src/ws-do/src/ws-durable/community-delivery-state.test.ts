@@ -17,7 +17,7 @@ describe("community delivery connection attachment state", () => {
       type: "user",
       userId: "u".repeat(64),
       targetUserId: "t".repeat(64),
-      authenticated: true,
+      authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000,
       name: "n".repeat(128),
       discriminator: "1234",
     }
@@ -64,7 +64,7 @@ describe("community delivery connection attachment state", () => {
     const base: UserConnectionState = {
       type: "user",
       userId: "user-1",
-      authenticated: true,
+      authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000,
       communityDeliveryProgress: [[operationId, "a".repeat(64), 1, 1]],
     }
     expect(preflightCommunityConnectionState({
