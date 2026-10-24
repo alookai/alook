@@ -312,3 +312,25 @@ describe("purchase analytics persistence", () => {
     await expect(db.select().from(billingPurchaseDelivery)).resolves.toEqual([]);
   });
 });
+
+it("bounds recovery to the 25 oldest live billed owners and rotates attempted owners", async () => {
+  for (let i = 0; i < 27; i++) {
+    const id = `recover-${String(i).padStart(2, "0")}`;
+    sqlite.prepare("INSERT INTO user(id) VALUES (?)").run(id);
+    const row = (await billing.ensureBilling(db, id))!;
+    await billing.updateBilling(db, row, { customerId: `cus-${id}` });
+    sqlite.prepare("UPDATE user_billing SET updated_at=? WHERE user_id=?").run("2000-01-01T00:00:00.000Z", id);
+  }
+  sqlite.prepare("UPDATE user SET deletedAt=? WHERE id='recover-01'").run(new Date().toISOString());
+  await billing.ensureBilling(db, "new-user");
+  const owners = await billing.listBillingOwners(db);
+  expect(owners).toHaveLength(25);
+  expect(owners[0]).toEqual({ userId: "recover-00" });
+  expect(owners).not.toContainEqual({ userId: "recover-01" });
+  expect(owners).not.toContainEqual({ userId: "new-user" });
+  await billing.recordBillingRecoveryAttempt(db, "recover-00");
+  const next = await billing.listBillingOwners(db);
+  expect(next[0]).toEqual({ userId: "recover-02" });
+  expect(next).toContainEqual({ userId: "recover-26" });
+  expect(next).not.toContainEqual({ userId: "recover-00" });
+});

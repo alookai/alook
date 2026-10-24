@@ -798,3 +798,22 @@ it.each(["extra", "file"])("rejects unexpected or repeated multipart field %s be
   expect(result.ok).toBe(false)
   expect(put).not.toHaveBeenCalled()
 })
+
+it("rejects a string thumbnail before writing storage", async () => {
+  const put = vi.fn()
+  const result = await handleAttachmentUpload(reqWithUpload(fakeFile("a.png", "image/png", 10), "invalid"), envWithR2(put))
+  expect(result.ok).toBe(false)
+  if (!result.ok) expect(await result.response.json()).toMatchObject({ error: "invalid thumbnail" })
+  expect(put).not.toHaveBeenCalled()
+})
+
+import { UploadTooLargeError } from "./upload-body"
+it.each([[new UploadTooLargeError(), 413], [new Error("malformed"), 400]] as const)("maps multipart reader failure to status %s %s without R2 writes", async (error, status) => {
+  const request = new NextRequest("http://localhost/upload", { method: "POST" })
+  request.formData = async () => { throw error }
+  const put = vi.fn()
+  const result = await handleAttachmentUpload(request, envWithR2(put))
+  expect(result.ok).toBe(false)
+  if (!result.ok) expect(result.response.status).toBe(status)
+  expect(put).not.toHaveBeenCalled()
+})

@@ -36,3 +36,22 @@ describe("custom Worker composition", () => {
     expect(JSON.stringify(setAttribute.mock.calls)).not.toContain("b".repeat(40))
   })
 })
+
+it.each([200, 503])("dispatches cron through OpenNext and propagates status %s", async (status) => {
+  const generated = (await import("./open-next-node-stub")).default
+  const fetch = vi.spyOn(generated, "fetch").mockResolvedValue(new Response(null, { status }))
+  const env = {} as CloudflareEnv
+  const ctx = {} as ExecutionContext
+  try {
+    const task = handler.scheduled!({} as ScheduledController, env, ctx)
+    if (status === 200) await expect(task).resolves.toBeUndefined()
+    else await expect(task).rejects.toThrow("Account maintenance failed: 503")
+    const [request] = fetch.mock.calls[0]!
+    expect(request.url).toBe("https://internal/api/internal/account-maintenance")
+    expect(request.method).toBe("POST")
+    expect(request.headers.get("X-Alook-Internal")).toBe("1")
+    expect(fetch).toHaveBeenCalledWith(request, env, ctx)
+  } finally {
+    fetch.mockRestore()
+  }
+})

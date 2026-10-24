@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
-import { forceCloseCommunityMachineByDoName } from "./machine-disconnect"
+import { forceCloseCommunityMachineByDoName, forceCloseCommunityMachinesByDoNames } from "./machine-disconnect"
 
 const originalFetch = globalThis.fetch
 const mockFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
@@ -95,4 +95,23 @@ describe("forceCloseCommunityMachineByDoName", () => {
     expect(src).not.toMatch(/WS_DO_WORKER/)
     expect(src).not.toMatch(/DEV_WS_DO_URL/)
   })
+})
+
+it("requires a successful shutdown receipt when account deletion requests it", async () => {
+  const env = { WS_DO_WORKER: { fetch: vi.fn(async () => new Response("unavailable", { status: 503 })) } } as unknown as Env
+  mockFetch.mockResolvedValue(new Response("unavailable", { status: 503 }))
+  await expect(forceCloseCommunityMachineByDoName(env, "machine", true)).rejects.toThrow("Machine disconnect failed")
+})
+
+it("propagates a transport failure for required shutdowns", async () => {
+  const env = { WS_DO_WORKER: { fetch: vi.fn(async () => { throw new Error("binding unavailable") }) } } as unknown as Env
+  mockFetch.mockRejectedValue(new Error("network unavailable"))
+  await expect(forceCloseCommunityMachineByDoName(env, "machine", true)).rejects.toThrow()
+})
+
+it("propagates required shutdown failure across multiple machine credentials", async () => {
+  const binding = vi.fn(async (url: string) => new Response(null, { status: url.includes("failed") ? 503 : 200 }))
+  mockFetch.mockResolvedValue(new Response(null, { status: 503 }))
+  await expect(forceCloseCommunityMachinesByDoNames({ WS_DO_WORKER: { fetch: binding } } as unknown as Env, ["healthy", "failed"], true)).rejects.toThrow()
+  expect(binding).toHaveBeenCalledTimes(2)
 })

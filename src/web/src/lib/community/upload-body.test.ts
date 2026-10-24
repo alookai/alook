@@ -29,3 +29,7 @@ describe("bounded multipart upload", () => {
     expect(cancel).toHaveBeenCalled()
   })
 })
+
+it("preserves malformed multipart errors instead of reporting overflow", async () => {
+  await expect(readUploadFormData(new Request("http://upload", { method: "POST", body: "not multipart" }))).rejects.not.toBeInstanceOf(UploadTooLargeError)
+})

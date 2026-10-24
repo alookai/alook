@@ -388,3 +388,13 @@ describe("account deletion execution", () => {
   })
 
 })
+
+it.each([true, false, "unavailable"])("classifies an ambiguous deletion start using persisted state: %s", async (state) => {
+  vi.clearAllMocks()
+  mocks.beginDeletion.mockRejectedValueOnce(new Error("D1 response lost"))
+  if (state === "unavailable") mocks.getUser.mockRejectedValueOnce(new Error("D1 unavailable"))
+  else mocks.getUser.mockResolvedValueOnce({ deletedAt: state ? "2026-01-01" : null })
+  await expect(executeAccountDeletion({} as never, {} as never, { waitUntil: vi.fn() }, "user-1"))
+    .resolves.toEqual({ kind: state === true ? "pending" : "failed" })
+  expect(mocks.deleteStorage).not.toHaveBeenCalled()
+})
