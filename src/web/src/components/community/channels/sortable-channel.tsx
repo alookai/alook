@@ -68,6 +68,7 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
     "aria-roledescription": canReorder ? "draggable" : undefined,
     role: "button", tabIndex: 0,
     onPointerDownCapture: resumeClick,
+    onTouchStartCapture: resumeClick,
     onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " " || isKeyboardContextMenu(event.nativeEvent)) resumeClick() },
     onClickCapture: (event: React.MouseEvent) => { if (suppressClick()) { event.preventDefault(); event.stopPropagation() } },
     className: [

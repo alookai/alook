@@ -46,6 +46,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
     "aria-description": isPrivate ? "Private category" : "Public category",
     "aria-expanded": hasChannels ? open : undefined,
     onPointerDownCapture: resumeClick,
+    onTouchStartCapture: resumeClick,
     onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " " || isKeyboardContextMenu(event.nativeEvent)) resumeClick() },
     onClick: () => { if (hasChannels && !suppressClick()) onToggle() },
     onKeyDown: (event: React.KeyboardEvent) => { if (event.target === event.currentTarget && hasChannels && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); if (!suppressClick()) onToggle() } },

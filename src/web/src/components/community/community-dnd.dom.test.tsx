@@ -218,6 +218,25 @@ describe("React DnD community scopes", () => {
     ui.cancel()
   })
 
+  it("opens transparent landing geometry without showing an accepted end until native hover", () => {
+    const onDrop = vi.fn(), ui = setup(<TreeFixture onDrop={onDrop} />)
+    const end = ui.container.querySelector<HTMLElement>('[data-channel-drop-end="empty"]')!
+    end.parentElement!.getBoundingClientRect = () => ({ top: 100, bottom: 100, left: 0, right: 100, height: 0, width: 100 }) as DOMRect
+    ui.start("text")
+    act(() => ui.backend.simulateHover([], { clientOffset: { x: 20, y: 108 } }))
+    expect(end).toHaveClass("h-4")
+    expect(end).not.toHaveClass("pointer-events-none")
+    expect(end).not.toHaveClass("border-dashed")
+    expect(end).not.toHaveAttribute("data-drop-visible")
+    ui.drop()
+    expect(onDrop).not.toHaveBeenCalled()
+    ui.start("text")
+    act(() => ui.backend.simulateHover([ui.targets.get(end)!], { clientOffset: { x: 20, y: 108 } }))
+    expect(end).toHaveAttribute("data-drop-visible", "true")
+    ui.drop()
+    expect(onDrop).toHaveBeenCalledExactlyOnceWith({ active: { id: "text", kind: "channel" }, over: { id: "empty", kind: "category" }, placement: "append" })
+  })
+
   it("uses the valid parent category when its native header target cannot accept a category", () => {
     const onDrop = vi.fn(), ui = setup(<TreeFixture onDrop={onDrop} />)
     ui.node("private").getBoundingClientRect = () => ({ top: 100, bottom: 200, left: 0, right: 220, width: 220, height: 100 }) as DOMRect

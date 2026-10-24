@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type SyntheticEvent } from "react"
 import { useDrag, useDragDropManager, useDragLayer, useDrop, type DropTargetMonitor } from "react-dnd"
 import { getEmptyImage } from "react-dnd-html5-backend"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
@@ -16,7 +16,7 @@ type Target = {
   kind: "row" | "header" | "end"
   instruction: (item: Item, point: { x: number; y: number } | null) => ChannelTreeDrop | null
 }
-type Feedback = { targetId: NonNullable<TargetId>; kind: Target["kind"]; drop: ChannelTreeDrop }
+type Feedback = { targetId: NonNullable<TargetId>; kind: Target["kind"]; drop: ChannelTreeDrop; hovered: boolean }
 type Controller = {
   owner: object
   targets: Map<NonNullable<TargetId>, Target>
@@ -106,12 +106,12 @@ export function ChannelDndScope({ tree, onDrop, enabled = true, children }: {
       const target = targets.get(targetId)
       if (!target || !manager.getMonitor().canDropOnTarget(targetId)) continue
       const drop = target.instruction(item, point)
-      if (drop) { feedback = { targetId, kind: target.kind, drop }; break }
+      if (drop) { feedback = { targetId, kind: target.kind, drop, hovered: true }; break }
     }
     if (!feedback) for (const [targetId, target] of targets) {
       if (target.kind !== "end") continue
       const drop = target.instruction(item, point)
-      if (drop) { feedback = { targetId, kind: target.kind, drop }; break }
+      if (drop) { feedback = { targetId, kind: target.kind, drop, hovered: false }; break }
     }
     return feedback
   })
@@ -139,6 +139,7 @@ export function useChannelDndItem(id: string, kind: ChannelTreeEntity["kind"], c
   const feedback = useContext(ChannelFeedbackContext)
   const element = useRef<HTMLElement | null>(null)
   const header = useRef<HTMLElement | null>(null)
+  const pressAllowsDrag = useRef(true)
   const instruction = useCallback((item: Item, point: { x: number; y: number } | null, append = false): ChannelTreeDrop | null => {
     if (!controller || !canReorder || !point) return null
     const rect = (append ? header.current : element.current)?.getBoundingClientRect()
@@ -149,7 +150,7 @@ export function useChannelDndItem(id: string, kind: ChannelTreeEntity["kind"], c
   }, [controller, canReorder, id, kind])
   const [{ isDragging }, drag, preview] = useDrag<Item, ChannelTreeDrop, { isDragging: boolean }>(() => ({
     type: CHANNEL_ITEM,
-    canDrag: () => canReorder && !!controller,
+    canDrag: () => canReorder && !!controller && pressAllowsDrag.current,
     item: () => controller?.begin({ id, kind }, kind === "category" ? header.current : element.current) ?? null,
     end: (item, monitor) => controller?.finish(item, monitor.didDrop() ? monitor.getDropResult() : null),
     collect: (monitor) => ({ isDragging: monitor.isDragging() }),
@@ -179,7 +180,7 @@ export function useChannelDndItem(id: string, kind: ChannelTreeEntity["kind"], c
       if (headerTargetId !== null) controller.targets.delete(headerTargetId)
     }
   }, [controller, rowTargetId, headerTargetId, instruction])
-  const placement = feedback && (feedback.targetId === rowTargetId || feedback.targetId === headerTargetId) ? feedback.drop.placement : null
+  const placement = feedback?.hovered && (feedback.targetId === rowTargetId || feedback.targetId === headerTargetId) ? feedback.drop.placement : null
   const setNodeRef = useCallback((node: HTMLElement | null) => {
     element.current = node; drop(node)
     if (kind === "channel") drag(canReorder ? node : null)
@@ -192,7 +193,12 @@ export function useChannelDndItem(id: string, kind: ChannelTreeEntity["kind"], c
     placement, lineSide: placement === "after" ? "bottom" as const : "top" as const,
     dragActive: useChannelDragActive(),
     suppressClick: () => controller?.suppressClick() ?? false,
-    resumeClick: () => controller?.resumeClick(),
+    resumeClick: (event?: SyntheticEvent<HTMLElement>) => {
+      const target = event?.target
+      const action = target instanceof Element ? target.closest("button") : null
+      pressAllowsDrag.current = !action || action === event?.currentTarget || !event?.currentTarget.contains(action)
+      controller?.resumeClick()
+    },
   }
 }
 
@@ -227,9 +233,10 @@ export function ChannelDropContainer({ id, before = false, lastRowId }: { id: st
     controller.targets.set(targetId, { kind: "end", instruction })
     return () => { controller.targets.delete(targetId) }
   }, [controller, targetId, instruction])
-  const visible = feedback?.kind !== "header" && feedback?.drop.placement === "append" && feedback.drop.over.id === id
+  const visible = feedback?.hovered && feedback.kind !== "header" && feedback.drop.placement === "append" && feedback.drop.over.id === id
+  const open = visible || feedback?.kind === "end" && feedback.targetId === targetId
   return <div ref={anchor} data-channel-drop-anchor={id} aria-hidden="true" className="relative h-0">
     <div ref={setDropRef} data-channel-drop-end={id} data-drop-visible={visible || undefined}
-      className={`absolute inset-x-0 ${before ? "bottom-0" : "top-0"} ${visible ? "h-4 rounded-md border border-dashed border-primary bg-primary/5" : "pointer-events-none h-0"}`} />
+      className={`absolute inset-x-0 ${before ? "bottom-0" : "top-0"} ${open ? "h-4" : "pointer-events-none h-0"} ${visible ? "rounded-md border border-dashed border-primary bg-primary/5" : ""}`} />
   </div>
 }

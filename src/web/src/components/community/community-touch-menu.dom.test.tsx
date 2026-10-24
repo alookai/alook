@@ -5,7 +5,7 @@ import { act, fireEvent, mockElementGeometry, render } from "@/test/react-dom-ha
 import { CommunityDndProvider, communityTouchHoldDelay } from "./community-dnd"
 import { SortableServer } from "./shell/sortable-server"
 import { useServerRailDnd } from "./shell/use-server-rail-dnd"
-import { ChannelDndScope } from "./channels/channel-dnd"
+import { ChannelDndScope, ChannelDropContainer } from "./channels/channel-dnd"
 import { SortableChannel } from "./channels/sortable-channel"
 import { SortableCategory } from "./channels/sortable-category"
 import { useChannelTree, type ChannelTreeDrop } from "./channels/use-channel-tree"
@@ -45,7 +45,7 @@ function Tree({ kind, drop, activate, menuAction, enabled, withHref }: { kind: E
   const tree = useChannelTree([{ id: "category-a", name: "a", channels: [{ id: "channel-a", name: "a", unread: false, active: false }, { id: "channel-b", name: "b", unread: false, active: false }] }, { id: "category-b", name: "b", channels: [] }])
   return <ChannelDndScope tree={tree} onDrop={drop} enabled={enabled}>{[`${kind}-a`, `${kind}-b`].map(id => kind === "channel"
     ? <SortableChannel key={id} ch={{ id, name: id, unread: false, active: false }} href={withHref ? `/c/channels/server/${id}` : undefined} active={false} onClick={activate} onEdit={menuAction} canReorder={enabled} />
-    : <SortableCategory key={id} id={id} name={id} open onToggle={activate} onAddChannel={menuAction} onSettings={menuAction} canReorder={enabled} hasChannels>{null}</SortableCategory>)}</ChannelDndScope>
+    : <SortableCategory key={id} id={id} name={id} open onToggle={activate} onAddChannel={menuAction} onSettings={menuAction} canReorder={enabled} hasChannels>{null}</SortableCategory>)}<ChannelDropContainer id="category-b" /></ChannelDndScope>
 }
 
 function EmptyChannelScope({ enabled }: { enabled: boolean }) {
@@ -77,14 +77,20 @@ function setup(kind: Kind, enabled = true, includeOtherScope = false, options: {
   Object.defineProperty(document, "elementFromPoint", { configurable: true, value: (_x: number, y: number) => y >= 90 ? target : startNode })
   Object.defineProperty(document, "elementsFromPoint", { configurable: true, value: (_x: number, y: number) => [y >= 90 ? target : startNode] })
   const touch = (y: number) => ({ identifier: 1, clientX: 20, clientY: y, target: startNode })
-  const start = () => {
-    fireEvent.pointerDown(startNode, { pointerType: "touch", button: 0 })
+  const start = (pointer = true) => {
+    if (pointer) fireEvent.pointerDown(startNode, { pointerType: "touch", button: 0 })
     fireEvent.touchStart(startNode, { touches: [touch(20)], targetTouches: [touch(20)], changedTouches: [touch(20)] })
   }
+  const warm = () => {
+    const warmTouch = { identifier: 2, clientX: 20, clientY: 20, target: source }
+    fireEvent.pointerDown(source, { pointerType: "touch", button: 0 })
+    fireEvent.touchStart(source, { touches: [warmTouch], targetTouches: [warmTouch], changedTouches: [warmTouch] })
+    fireEvent.touchCancel(source, { touches: [], targetTouches: [], changedTouches: [warmTouch] })
+  }
   const move = (y: number) => fireEvent.touchMove(startNode, { touches: [touch(y)], targetTouches: [touch(y)], changedTouches: [touch(y)] })
-  const end = () => fireEvent.touchEnd(startNode, { touches: [], targetTouches: [], changedTouches: [touch(120)] })
+  const end = (y = 120) => fireEvent.touchEnd(startNode, { touches: [], targetTouches: [], changedTouches: [touch(y)] })
   const hold = async () => { await act(async () => { vi.advanceTimersByTime(communityTouchHoldDelay + 20) }) }
-  return { ...view, manager, drop, activate, menuAction, source, startNode, start, move, end, hold, setEnabled: (next: boolean) => view.rerender(content(next)), setOtherEnabled: (next: boolean) => view.rerender(content(enabled, next)) }
+  return { ...view, manager, drop, activate, menuAction, source, startNode, start, warm, move, end, hold, setEnabled: (next: boolean) => view.rerender(content(next)), setOtherEnabled: (next: boolean) => view.rerender(content(enabled, next)) }
 }
 
 describe("native community touch menu and drag handoff", () => {
@@ -141,6 +147,67 @@ describe("native community touch menu and drag handoff", () => {
     expect(ui.drop).not.toHaveBeenCalled()
     expect(ui.activate).not.toHaveBeenCalled()
     expect(ui.menuAction).not.toHaveBeenCalled()
+  })
+
+  it.each((["settings", "create"] as const).flatMap(target => [true, false].map(pointer => ({ target, pointer }))))("rejects the category $target press in active TouchBackend with pointer events=$pointer", async ({ target, pointer }) => {
+    const ui = setup("category", true, false, { target })
+    ui.warm()
+    ui.start(pointer)
+    await ui.hold()
+    ui.move(55)
+    expect(ui.manager.getMonitor().isDragging()).toBe(false)
+    expect(document.querySelector("[data-channel-floating-preview]")).toBeNull()
+    ui.move(130); ui.end()
+    expect(ui.drop).not.toHaveBeenCalled()
+    expect(ui.queryByRole("menu")).not.toBeInTheDocument()
+    expect(ui.menuAction).not.toHaveBeenCalled()
+    ui.warm()
+    const touch = (y: number) => ({ identifier: 3, clientX: 20, clientY: y, target: ui.source })
+    fireEvent.pointerDown(ui.source, { pointerType: "touch", button: 0 })
+    fireEvent.touchStart(ui.source, { touches: [touch(20)], targetTouches: [touch(20)], changedTouches: [touch(20)] })
+    await ui.hold()
+    fireEvent.touchMove(ui.source, { touches: [touch(55)], targetTouches: [touch(55)], changedTouches: [touch(55)] })
+    expect(ui.manager.getMonitor().isDragging()).toBe(true)
+    fireEvent.touchMove(ui.source, { touches: [touch(130)], targetTouches: [touch(130)], changedTouches: [touch(130)] })
+    fireEvent.touchEnd(ui.source, { touches: [], targetTouches: [], changedTouches: [touch(130)] })
+    expect(ui.drop).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["settings", "create"] as const)("rejects a parent-target HTML5 dragstart initiated on the category %s button", target => {
+    const ui = setup("category", true, false, { target })
+    fireEvent.pointerDown(ui.startNode, { pointerType: "mouse", button: 0 })
+    fireEvent.mouseDown(ui.startNode, { button: 0 })
+    expect(fireEvent.dragStart(ui.source, { clientX: 20, clientY: 20, dataTransfer: { setData: vi.fn(), setDragImage: vi.fn(), types: [], files: [] } })).toBe(false)
+    expect(ui.manager.getMonitor().isDragging()).toBe(false)
+    expect(ui.drop).not.toHaveBeenCalled()
+    fireEvent.pointerDown(ui.source, { pointerType: "mouse", button: 0 })
+    fireEvent.mouseDown(ui.source, { button: 0 })
+    fireEvent.dragStart(ui.source, { clientX: 20, clientY: 20, dataTransfer: { setData: vi.fn(), setDragImage: vi.fn(), types: [], files: [] } })
+    expect(ui.manager.getMonitor().isDragging()).toBe(true)
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(ui.manager.getMonitor().isDragging()).toBe(false)
+    expect(ui.drop).not.toHaveBeenCalled()
+  })
+
+  it("opens an unselected end hit area on the first native move and saves only after an accepted hover", async () => {
+    const ui = setup("channel", true, false, { target: "text", channelHref: true })
+    const end = ui.container.querySelector<HTMLElement>('[data-channel-drop-end="category-b"]')!
+    mockElementGeometry(end.parentElement!, { top: 100, left: 0, width: 100, height: 0 })
+    const hit = (y: number) => y < 90 ? ui.startNode : end.classList.contains("h-4") ? end : document.body
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: (_x: number, y: number) => hit(y) })
+    Object.defineProperty(document, "elementsFromPoint", { configurable: true, value: (_x: number, y: number) => [hit(y)] })
+    ui.start(); await ui.hold(); ui.move(108)
+    expect(ui.manager.getMonitor().isDragging()).toBe(true)
+    expect(ui.manager.getMonitor().getTargetIds()).toEqual([])
+    expect(end).toHaveClass("h-4")
+    expect(end).not.toHaveAttribute("data-drop-visible")
+    expect(end).not.toHaveClass("border-dashed")
+    ui.end(108)
+    expect(ui.drop).not.toHaveBeenCalled()
+    ui.start(); await ui.hold(); ui.move(108); ui.move(109)
+    expect(end).toHaveAttribute("data-drop-visible", "true")
+    ui.end(109)
+    expect(ui.drop).toHaveBeenCalledExactlyOnceWith({ active: { id: "channel-a", kind: "channel" }, over: { id: "category-b", kind: "category" }, placement: "append" })
   })
 
   it.each((["channel", "category"] as const).flatMap(kind => (["row", "text"] as const).map(target => ({ kind, target }))))("starts a $kind drag at its $target with production link rendering", async ({ kind, target }) => {
