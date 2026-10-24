@@ -126,10 +126,6 @@ function useChannelRows(serverId?: string, type?: ChannelRow["type"]) {
 function useChannelMembershipRows(channelIds?: string[]) {
   return useCollectionRows("channelMemberships", ({ row }) => channelIds === undefined ? eq(1, 1) : inArray(row.channelId, channelIds))
 }
-function useMessageRowsById(messageIds: string[]) {
-  return useCollectionRows("messages", ({ row }) => inArray(row.id, messageIds))
-}
-
 export function useServerRailProjection() {
   const rows = {
     registry: useOptionalCommunityDbRegistry(),
@@ -500,17 +496,22 @@ export function useForumSidebarProjection(
   serverNowMs: number | null,
 ) {
   const registry = useOptionalCommunityDbRegistry()
-  const channels = useChannelRows(serverId)
+  const channelProjection = useCollectionQuery("channels", ({ row }) => and(eq(row.serverId, serverId), eq(1, 1)))
+  const channels = channelProjection.data
   const channelIds = useMemo(() => (channels ?? []).map((channel) => channel.id), [channels])
-  const channelMemberships = useChannelMembershipRows(channelIds)
+  const membershipProjection = useCollectionQuery("channelMemberships", ({ row }) => inArray(row.channelId, channelIds))
+  const channelMemberships = membershipProjection.data
   const openerIds = useMemo(() => (channels ?? []).flatMap((channel) => (
     channel.parentMessageId ? [channel.parentMessageId] : []
   )), [channels])
-  const messages = useMessageRowsById(openerIds)
+  const messageProjection = useCollectionQuery("messages", ({ row }) => inArray(row.id, openerIds))
+  const messages = messageProjection.data
+  const ready = channelProjection.isReady && membershipProjection.isReady && messageProjection.isReady
   const rows = { registry, channels, channelMemberships, messages }
   return useMemo(() => {
     if (
       serverNowMs === null
+      || !ready
       || !rows.registry
       || !rows.channels
       || !rows.channelMemberships
@@ -519,5 +520,5 @@ export function useForumSidebarProjection(
     const { threads, parentUnread } = projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages,
       rows.registry.accountId, serverId, retainId, serverNowMs)
     return { threads, parentUnread }
-  }, [serverNowMs, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
+  }, [serverNowMs, ready, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
 }

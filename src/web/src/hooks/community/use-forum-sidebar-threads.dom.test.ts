@@ -2,9 +2,11 @@ import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures
 import { conversationEntryOptions } from "@/lib/community/conversation-entry"
 import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
+import { hydrateRoot } from "react-dom/client"
+import { renderToString } from "react-dom/server"
 import { dehydrate, hydrate, CancelledError, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider, useForumSidebarProjection } from "@/lib/community-db/projections"
 import {
@@ -574,18 +576,124 @@ describe("forum sidebar canonical projection", () => {
     publish(queryClient)
     apiFetchMock.mockReturnValue(new Promise(() => {}))
 
+    const frames: string[][] = []
     const rendered = renderHook(
-      () => useForumSidebarThreads("server-1", null),
+      () => {
+        const sidebar = useForumSidebarThreads("server-1", null)
+        frames.push(sidebar.threads.map(({ id }) => id))
+        return sidebar
+      },
       { wrapper },
     )
 
-    await waitFor(() => expect(rendered.result.current.threads).toEqual([
+    expect(frames[0]).toEqual(["post-1"])
+    expect(rendered.result.current.threads).toEqual([
       expect.objectContaining({ id: "post-1", title: "Canonical title", unread: false }),
-    ]))
+    ])
     expect(rendered.result.current.projectionReady).toBe(true)
     expect(rendered.result.current.fetchStatus).toBe("fetching")
     rendered.unmount()
     await invalidateForumSidebarBaseExact(queryClient, "server-1")
+  })
+
+  it("projects complete first frames for remounted A to B to A cached servers", async () => {
+    const { queryClient, registry, wrapper } = await setup()
+    publish(queryClient)
+    ingestServerDetail(registry, {
+      id: "server-2", name: "Second", discriminator: "0002", description: "", icon: null, ownerId: "viewer",
+      categories: [{ id: "cat-2", name: "Second forums", channels: [{ id: "forum-2", name: "Second forum", type: "forum", active: false, unread: false }] }],
+    })
+    const second = envelopeFor(["post-2"])
+    publishCommunityForumSidebar(queryClient, {
+      serverId: "server-2",
+      channels: second.channels.map((channel) => ({ ...channel, serverId: "server-2", parentChannelId: "forum-2" })),
+      openers: second.included.parentMessages.map((message) => ({ ...message, channelId: "forum-2", type: "chat" as const })),
+      proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined },
+    })
+    apiFetchMock.mockReturnValue(new Promise(() => {}))
+    const frames: Array<{ serverId: string; ids: string[]; ready: boolean }> = []
+    function Probe({ serverId }: { serverId: string }) {
+      const sidebar = useForumSidebarThreads(serverId, null)
+      frames.push({ serverId, ids: sidebar.threads.map(({ id }) => id), ready: sidebar.projectionReady })
+      return null
+    }
+    const view = render(createElement(Probe, { key: "server-1", serverId: "server-1" }), { wrapper })
+    expect(frames[0]).toEqual({ serverId: "server-1", ids: ["post-1"], ready: true })
+    frames.length = 0
+    view.rerender(createElement(Probe, { key: "server-2", serverId: "server-2" }))
+    expect(frames[0]).toEqual({ serverId: "server-2", ids: ["post-2"], ready: true })
+    frames.length = 0
+    view.rerender(createElement(Probe, { key: "server-1", serverId: "server-1" }))
+    expect(frames[0]).toEqual({ serverId: "server-1", ids: ["post-1"], ready: true })
+    view.unmount()
+  })
+
+  it.each(["empty", "error"])("finishes the initial projection after a cold %s response", async (outcome) => {
+    const { wrapper } = await setup()
+    if (outcome === "empty") apiFetchMock.mockResolvedValue(envelopeFor([]))
+    else apiFetchMock.mockRejectedValue(new Error("Forum read unavailable"))
+    const frames: boolean[] = []
+    const view = renderHook(() => {
+      const sidebar = useForumSidebarThreads("server-1", null)
+      frames.push(sidebar.projectionReady)
+      return sidebar
+    }, { wrapper })
+    expect(frames[0]).toBe(false)
+    await waitFor(() => expect(view.result.current.projectionReady).toBe(true))
+    expect(view.result.current.threads).toEqual([])
+    expect(view.result.current.isError).toBe(outcome === "error")
+    view.unmount()
+  })
+
+  it("does not use a completed transport marker before canonical collections are ready", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let release!: () => void
+    const registry = createCommunityDbRegistry(queryClient, "viewer", { waitForRestore: new Promise<void>((resolve) => { release = resolve }) })
+    const unregister = registerCommunityDbRegistry(registry)
+    cleanups.push(unregister, registry.cleanup.bind(registry))
+    queryClient.setQueryData(communityKeys.forumSidebarThreads("server-1"), {
+      threads: [], verifiedEpoch: 0, serverNow: new Date().toISOString(), serverClockOffsetMs: 0,
+    })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: queryClient },
+      createElement(CommunityDbProvider, { registry }, children))
+    const view = renderHook(() => useForumSidebarThreads("server-1", null, false), { wrapper })
+    try {
+      expect(view.result.current.projectionReady).toBe(false)
+      await act(async () => { release(); await registry.preload() })
+      await waitFor(() => expect(view.result.current.projectionReady).toBe(true))
+      expect(view.result.current.threads).toEqual([])
+    } finally {
+      release()
+      view.unmount()
+    }
+  })
+
+  it("keeps SSR and hydration consistent before projecting the mounted client clock", async () => {
+    const { queryClient, wrapper } = await setup()
+    publish(queryClient)
+    apiFetchMock.mockReturnValue(new Promise(() => {}))
+    function Probe() {
+      const sidebar = useForumSidebarThreads("server-1", null)
+      return createElement("output", null, sidebar.projectionReady ? sidebar.threads.map(({ id }) => id).join(",") : "pending")
+    }
+    const node = createElement(wrapper, {}, createElement(Probe))
+    const html = renderToString(node)
+    expect(html).toContain(">pending<")
+    const host = document.createElement("div")
+    host.innerHTML = html
+    document.body.append(host)
+    const recoverable = vi.fn()
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000)
+    let root: ReturnType<typeof hydrateRoot> | undefined
+    try {
+      await act(async () => { root = hydrateRoot(host, node, { onRecoverableError: recoverable }) })
+      expect(recoverable).not.toHaveBeenCalled()
+      expect(host).toHaveTextContent("post-1")
+    } finally {
+      await act(async () => root?.unmount())
+      host.remove()
+      now.mockRestore()
+    }
   })
 
   it("removes a restored notify row displaced by the fresh bounded window", async () => {
@@ -1175,11 +1283,16 @@ describe("forum sidebar canonical projection", () => {
       createElement(CommunityDbProvider, { registry: restoredRegistry }, children),
     )
     apiFetchMock.mockReturnValue(new Promise(() => {}))
+    const frames: string[][] = []
     const rendered = renderHook(
-      () => useForumSidebarThreads("server-1", null),
+      () => {
+        const sidebar = useForumSidebarThreads("server-1", null)
+        frames.push(sidebar.threads.map(({ id }) => id))
+        return sidebar
+      },
       { wrapper },
     )
-    await waitFor(() => expect(rendered.result.current.threads[0]?.id).toBe("post-1"))
+    expect(frames[0]).toEqual(["post-1"])
     expect(rendered.result.current.fetchStatus).toBe("fetching")
     const route = renderHook(() => useChannelMetadata("server-1", "post-1"), { wrapper })
     expect(route.result.current.isVerified).toBe(false)

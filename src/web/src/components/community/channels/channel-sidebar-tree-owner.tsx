@@ -29,33 +29,28 @@ export type ChannelSidebarRevealBoundaryProps = Omit<
   categories: Category[]
   primaryReady: boolean
   forumProjectionMissing: boolean
-  trustedRestoredPrimary: boolean
 }
 
 /**
- * A trusted restored primary tree reveals even when it arrives asynchronously
- * and the non-persisted forum projection is still pending. A true-cold tree
- * reveals once, after its primary data and initial forum projection are both
- * ready. Later forum refetches never hide or remount the revealed tree.
+ * Reveal the complete target tree once both primary and forum data are ready.
+ * Later forum refetches must not hide or remount the revealed tree.
  */
 export function ChannelSidebarRevealBoundary({
   categories,
   primaryReady,
   forumProjectionMissing,
-  trustedRestoredPrimary,
   ...scopeProps
 }: ChannelSidebarRevealBoundaryProps) {
-  const [revealed, setRevealed] = useAtom(useCreateAtom(primaryReady && trustedRestoredPrimary))
+  const ready = primaryReady && !forumProjectionMissing
+  const [revealed, setRevealed] = useAtom(useCreateAtom(ready))
 
   useEffect(() => {
-    if (primaryReady && (trustedRestoredPrimary || !forumProjectionMissing)) {
-      setRevealed(true)
-    }
-  }, [forumProjectionMissing, primaryReady, setRevealed, trustedRestoredPrimary])
+    if (ready) setRevealed(true)
+  }, [ready, setRevealed])
 
   return (
     <ChannelSidebarScope
-      categories={primaryReady && revealed ? categories : null}
+      categories={primaryReady && (revealed || ready) ? categories : null}
       {...scopeProps}
     />
   )
@@ -76,9 +71,7 @@ export function ChannelSidebarScope({
     return (
       <ChannelSidebarSkeleton
         noHeader={sidebarProps.noHeader}
-        showInviteAction={Boolean(
-          sidebarProps.serverId && sidebarProps.onInvitePopoverOpenChange,
-        )}
+        showInviteAction={Boolean(sidebarProps.serverId)}
         targetServerId={targetServerId}
       />
     )

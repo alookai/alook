@@ -1,5 +1,6 @@
 "use client"
-import { useAtom,useCreateAtom } from "@tanstack/react-store"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
+import { useMountedClock } from "@/hooks/use-mounted-clock"
 import { useTrustedRestoredForumProjection } from "@/lib/community-db/projections"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
@@ -561,14 +562,11 @@ export function useForumSidebarThreads(
     void invalidateForumSidebarBaseExact(queryClient, serverId)
   }, [queryClient, retainId, serverId])
 
-  const [clockNowMs, setClockNowMs] = useAtom(useCreateAtom<number | null>(null))
-  useEffect(() => {
-    const timeout = globalThis.setTimeout(() => setClockNowMs(Date.now()), 0)
-    return () => globalThis.clearTimeout(timeout)
-  }, [setClockNowMs])
-  const serverNowMs = clockNowMs === null
-    ? null
-    : clockNowMs + (query.data?.serverClockOffsetMs ?? 0)
+  const hydratedClient = useHydratedClient()
+  const [clockNowMs, setClockNowMs] = useMountedClock()
+  const serverNowMs = hydratedClient
+    ? clockNowMs + (query.data?.serverClockOffsetMs ?? 0)
+    : null
   const canonical = useForumSidebarProjection(serverId, retainId, serverNowMs)
   const attentionScopes = useAttentionScopes()
   const projection = useMemo(() => {
@@ -613,9 +611,8 @@ export function useForumSidebarThreads(
     ...query,
     threads: projection.threads,
     parentUnread: projection.parentUnread,
-    projectionReady: query.isError || (
-      clockNowMs !== null
-      && (query.data !== undefined || restoredForumProjection || (canonical?.threads.length ?? 0) > 0)
+    projectionReady: canonical !== undefined && (
+      query.isError || query.data !== undefined || restoredForumProjection || canonical.threads.length > 0
     ),
     verifiedEpoch: accessEpoch,
   }

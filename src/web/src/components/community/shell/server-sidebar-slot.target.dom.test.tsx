@@ -1,6 +1,6 @@
 import { IsRestoringProvider } from "@tanstack/react-query"
 import { beforeEach, expect, it, vi } from "vitest"
-import { render } from "@/test/react-dom-harness"
+import { fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
@@ -60,4 +60,43 @@ it("uses the canonical target sidebar before commit, retaining its node while de
   expect(input).toHaveValue("Target state")
   expect(mocks.members).toHaveBeenLastCalledWith("target")
   expect(mocks.presence).toHaveBeenLastCalledWith("target")
+})
+
+it("ends a failed cold primary read with retry and accepts a successful empty tree", async () => {
+  const { client, registry } = await createCommunityQueryOwner()
+  const server = { id: "target", name: "Target server", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
+  publishCommunityLiveSnapshot(client, {
+    snapshot: { kind: "servers", data: { servers: [{ ...server, initial: "T", active: false, unread: false, mentions: 0 }] } },
+    proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
+  })
+  client.setQueryData(communityKeys.servers(), [server.id])
+  let fail = true
+  mocks.load.mockImplementation((url: string) => {
+    if (url === "/api/community/servers/target/categories") {
+      return fail ? Promise.reject(new Error("Temporary read failure")) : Promise.resolve({ categories: [] })
+    }
+    if (url === "/api/community/servers/target/channels") return Promise.resolve({ channels: [] })
+    if (url.startsWith("/api/community/servers/target/channels?")) {
+      return Promise.resolve({ channels: [], included: { parentMessages: [] }, serverNow: new Date().toISOString() })
+    }
+    return new Promise(() => {})
+  })
+  mocks.pathname = "/c/channels/target"
+  const token = createOwnerServerDeleteRouteToken(client)
+  const view = render(<CommunityTestProvider client={client} registry={registry}>
+    <CurrentUserProvider initialUser={{ id: "viewer", name: "Viewer", avatar: "V", email: "viewer@example.test" }}>
+      <CommunityRouteContext value={{ frame: { ...normalizeCommunityHref(mocks.pathname), revision: 0 }, navigation: { captureIntent: () => () => true, navigationPending: false, pendingHref: null }, ownerDeleteRouteScope: { serverId: "target", token } } as never}>
+        <ServerSidebarSlot serverId="target" />
+      </CommunityRouteContext>
+    </CurrentUserProvider>
+  </CommunityTestProvider>)
+  expect(await view.findByRole("alert")).toHaveTextContent("Couldn't load server channels.")
+  expect(view.queryByText("Target server")).toBeNull()
+  expect(view.getByRole("button", { name: "Retry" })).toBeEnabled()
+  fail = false
+  fireEvent.click(view.getByRole("button", { name: "Retry" }))
+  await waitFor(() => expect(view.queryByRole("alert")).toBeNull())
+  expect(view.getByText("Target server")).toBeVisible()
+  expect(mocks.load.mock.calls.filter(([path]) => path === "/api/community/servers/target/categories")).toHaveLength(2)
+  expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ categories: [], primaryReady: true, forumProjectionMissing: false }))
 })

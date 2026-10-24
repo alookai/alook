@@ -47,6 +47,7 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
     return <CommunityRouteContext value={{ breakpoint: "mobile", frame, navigation, ownerDeleteRouteScope: { serverId: server.id, token } }}>
       <output data-testid="pending">{String(navigation.navigationPending)}</output>
       <button onClick={() => navigation.replace("/c/channels/target", { resume: true })}>Return</button>
+      <button onClick={() => navigation.cancelPendingNavigation()}>Cancel navigation</button>
       <ServerSidebarSlot serverId={server.id} href={navigation.pendingHref ?? frame.href} routeCommitted={!navigation.navigationPending} />
     </CommunityRouteContext>
   }
@@ -58,6 +59,8 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   const view = render(node("/c/channels/target", 0))
   const scroll = await view.findByTestId(tid.channelSidebarScroll)
   const row = view.getByTestId(tid.channelRow("channel"))
+  const title = view.getByRole("button", { name: "Target server" })
+  const invite = view.getByRole("button", { name: "Invite to server" })
   expect(row).toHaveAttribute("aria-roledescription", "draggable")
   const header = grouped ? view.getByText("Group") : null
   scroll.scrollTop = 37
@@ -67,12 +70,19 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
     expect.soft(view.getByTestId(tid.channelSidebarScroll).scrollTop).toBe(37)
     expect.soft(view.getByTestId(tid.channelRow("channel"))).toBe(row)
     expect.soft(view.getByTestId(tid.channelRow("channel"))).toHaveAttribute("data-retained-row", "original")
+    expect.soft(view.getByRole("button", { name: "Target server" })).toBe(title)
+    expect.soft(view.getByRole("button", { name: "Invite to server" })).toBe(invite)
     if (header) expect.soft(view.getByText("Group")).toBe(header)
   }
   fireEvent.click(row)
   expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/channels/target/channel")
   expect(view.getByTestId("pending")).toHaveTextContent("true")
   assertNodes()
+  expect(title).toBeDisabled()
+  expect(invite).toBeDisabled()
+  fireEvent.click(title)
+  fireEvent.click(invite)
+  expect(view.queryByRole("dialog")).toBeNull()
   expect(row).not.toHaveAttribute("aria-roledescription")
   fireEvent.contextMenu(view.getByTestId(tid.channelSidebarScroll), { button: 2 })
   expect(view.queryByRole("menu")).toBeNull()
@@ -80,6 +90,8 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   view.rerender(node(mocks.pathname, 1))
   await waitFor(() => expect(view.getByTestId("pending")).toHaveTextContent("false"))
   assertNodes()
+  expect(title).toBeEnabled()
+  expect(invite).toBeEnabled()
   fireEvent.click(view.getByRole("button", { name: "Return" }))
   expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/target")
   expect(view.getByTestId("pending")).toHaveTextContent("true")
@@ -89,6 +101,15 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   await waitFor(() => expect(view.getByTestId("pending")).toHaveTextContent("false"))
   assertNodes()
   expect(row).toHaveAttribute("aria-roledescription", "draggable")
+  fireEvent.click(row)
+  expect(view.getByTestId("pending")).toHaveTextContent("true")
+  expect(title).toBeDisabled()
+  expect(invite).toBeDisabled()
+  fireEvent.click(view.getByRole("button", { name: "Cancel navigation" }))
+  expect(view.getByTestId("pending")).toHaveTextContent("false")
+  assertNodes()
+  expect(title).toBeEnabled()
+  expect(invite).toBeEnabled()
   const user = setupUser()
   act(() => row.focus())
   await user.keyboard(" ")

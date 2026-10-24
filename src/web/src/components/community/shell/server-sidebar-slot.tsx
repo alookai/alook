@@ -80,7 +80,6 @@ import {
 import {
   useCanonicalProfilesByUserId,
   useOptionalCommunityDbRegistry,
-  useTrustedRestoredPrimary,
   useRouteChannelProjection,
 } from "@/lib/community-db/projections"
 
@@ -106,7 +105,6 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
 
   const router = useRouter()
   const communityDb = useOptionalCommunityDbRegistry()
-  const trustedRestoredPrimary = useTrustedRestoredPrimary()
   const cancelPendingNavigation = useCallback(() => {
     getCommunityRuntime(queryClient).ui.get().uiHandlers.cancelPendingNavigation?.()
   }, [queryClient])
@@ -117,6 +115,9 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   const {
     server: currentServer,
     data: authoritativeServer,
+    isError: serverReadFailed,
+    isFetching: serverReadPending,
+    refetch: retryServerRead,
   } = useServer(ownerDeleteRouteProtected || serverAccessRevoked ? null : serverId)
   const sidebarCategories = useMemo(
     () => currentServer?.categories ?? [],
@@ -292,10 +293,15 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   }, [serverId])
 
   const [serverSettingsOpen, setServerSettingsOpen] = useAtom(useCreateAtom(false))
-  const settingsView = useCommunityViewSource("server-settings:" + serverId, routeCommitted && serverSettingsOpen)
+  const settingsView = useCommunityViewSource("server-settings:" + serverId, !sidebarHintOnly && isAdmin && serverSettingsOpen)
   const [settingsSection, setSettingsSection] = useAtom(useCreateAtom<SettingsSection>("overview"))
   const [invitePopoverOpen, setInvitePopoverOpen] = useAtom(useCreateAtom(false))
   const [pendingIconCrop, setPendingIconCrop] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
+
+  useEffect(() => {
+    if (sidebarHintOnly || !isAdmin) setServerSettingsOpen(false)
+    if (sidebarHintOnly) setInvitePopoverOpen(false)
+  }, [sidebarHintOnly, isAdmin, setServerSettingsOpen, setInvitePopoverOpen])
 
   // Close server-scoped dialogs when the user navigates to another server —
   // without this, settings for server A would remain open after switching
@@ -485,7 +491,6 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
       categories={categories}
       primaryReady={sidebarDataReady}
       forumProjectionMissing={!forumSidebar.projectionReady}
-      trustedRestoredPrimary={trustedRestoredPrimary}
       targetServerId={serverId}
       {...channelProps}
       {...opts}
@@ -497,11 +502,10 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     forumSidebar.projectionReady,
     serverId,
     sidebarDataReady,
-    trustedRestoredPrimary,
   ])
 
   const serverSettingsDialog = (
-    <Dialog open={serverSettingsOpen && !!currentServer && isAdmin} onOpenChange={(o) => { if (!o) closeSettings() }}>
+    <Dialog open={serverSettingsOpen && !sidebarHintOnly && !!currentServer && isAdmin} onOpenChange={(o) => { if (!o) closeSettings() }}>
       <DialogContent className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100vh-4rem)] sm:max-h-180 sm:w-[calc(100vw-4rem)] sm:max-w-4xl sm:rounded-xl" showCloseButton={false}>
         <ServerSettings
           isAdmin={isAdmin}
@@ -601,5 +605,17 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     />
   )
 
-  return <>{sidebar()}{serverSettingsDialog}{iconCropDialog}</>
+  return <>{serverReadFailed && !currentServer ? (
+    <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div role="alert" className="flex flex-col gap-2 p-4 text-sm text-muted-foreground">
+        <span>Couldn&apos;t load server channels.</span>
+        <button
+          type="button"
+          disabled={!routeCommitted || serverReadPending}
+          onClick={() => { void retryServerRead() }}
+          className="h-11 self-start rounded-md px-2 text-foreground enabled:hover:bg-accent disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-9"
+        >Retry</button>
+      </div>
+    </aside>
+  ) : sidebar()}{serverSettingsDialog}{iconCropDialog}</>
 }
