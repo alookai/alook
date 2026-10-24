@@ -4,7 +4,7 @@ import { configureTelemetry, retireTelemetry } from "@/lib/observability/telemet
 
 vi.mock("@tanstack/react-db", async importOriginal => {
   const real = await importOriginal<typeof import("@tanstack/react-db")>()
-  return { ...real, useLiveQuery: () => ({ data: [{ id: "server-a", name: "Unowned snapshot", detailComplete: true, ownerId: "viewer" }] }) }
+  return { ...real, useLiveQuery: () => ({ isReady: true, data: [{ id: "server-a", name: "Unowned snapshot", detailComplete: true, ownerId: "viewer" }] }) }
 })
 it("does not attribute an upstream cached tree snapshot to an absent community owner", async () => {
   const { useServerTreeProjection } = await import("./projections")

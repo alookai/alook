@@ -12,7 +12,7 @@ import {
   type CommunityRestoredCollections,
   PERSIST_BUSTER,
   PERSIST_MAX_AGE_MS,
-  shouldPersistQuery,
+  shouldDehydrateCommunityQuery,
 } from "@/lib/query-persister"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
@@ -233,10 +233,7 @@ function ScopedQueryProvider({
         maxAge: PERSIST_MAX_AGE_MS,
         buster: PERSIST_BUSTER,
         dehydrateOptions: {
-          shouldDehydrateQuery: (query) => {
-            if (query.state.status !== "success") return false
-            return shouldPersistQuery(query.queryKey, query.state.data)
-          },
+          shouldDehydrateQuery: shouldDehydrateCommunityQuery,
         },
       }}
     >

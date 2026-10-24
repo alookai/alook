@@ -184,7 +184,7 @@ vi.mock("@/lib/community/last-channel", () => ({
 vi.mock("@/hooks/community/use-server-panels", () => ({ usePresence: vi.fn() }))
 vi.mock("@/hooks/community/use-forum-sidebar-threads", () => ({
   resolveForumSidebarRouteCandidate: () => null,
-  useForumSidebarThreads: () => ({ threads: [], parentUnread: {} }),
+  useForumSidebarThreads: () => ({ threads: [], parentUnread: {}, projectionReady: true, sidebar: { server: mocks.serverSnapshot.current, status: "ready" } }),
 }))
 vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/ws")>(),
   useCommunityWsStore: (selector: (state: {

@@ -298,10 +298,14 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   const [invitePopoverOpen, setInvitePopoverOpen] = useAtom(useCreateAtom(false))
   const [pendingIconCrop, setPendingIconCrop] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
 
+  const admittedDialogs = useRef({ settings: false, invite: false })
   useEffect(() => {
-    if (sidebarHintOnly || !isAdmin) setServerSettingsOpen(false)
-    if (sidebarHintOnly) setInvitePopoverOpen(false)
-  }, [sidebarHintOnly, isAdmin, setServerSettingsOpen, setInvitePopoverOpen])
+    const settings = !sidebarHintOnly && isAdmin && serverSettingsOpen
+    const invite = !sidebarHintOnly && !!currentServer && invitePopoverOpen
+    if (admittedDialogs.current.settings && !settings || !sidebarHintOnly && role !== undefined && !isAdmin) setServerSettingsOpen(false)
+    if (admittedDialogs.current.invite && !invite) setInvitePopoverOpen(false)
+    admittedDialogs.current = { settings, invite }
+  }, [sidebarHintOnly, isAdmin, role, currentServer, serverSettingsOpen, invitePopoverOpen, setServerSettingsOpen, setInvitePopoverOpen])
 
   // Close server-scoped dialogs when the user navigates to another server —
   // without this, settings for server A would remain open after switching
@@ -361,15 +365,16 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     routeCommitted,
   ])
 
-  const categories = useMemo(() => sidebarCategories.map((category) => ({
+  const displayCategories = forumSidebar.sidebar.server?.categories
+  const categories = useMemo(() => (displayCategories ?? []).map((category) => ({
     ...category,
     channels: category.channels.map((channel) =>
       forumSidebar.parentUnread[channel.id] === undefined
         ? channel
         : { ...channel, unread: forumSidebar.parentUnread[channel.id] },
     ),
-  })), [forumSidebar.parentUnread, sidebarCategories])
-  const sidebarDataReady = Boolean(currentServer)
+  })), [forumSidebar.parentUnread, displayCategories])
+  const sidebarDataReady = Boolean(forumSidebar.sidebar.server)
   const channelTreeScopeKey = `server:${serverId}`
 
   const setActiveChannel = useCallback((id: string) => {
@@ -605,14 +610,14 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     />
   )
 
-  return <>{serverReadFailed && !currentServer ? (
+  return <>{serverReadFailed && !currentServer || forumSidebar.sidebar.status === "error" ? (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div role="alert" className="flex flex-col gap-2 p-4 text-sm text-muted-foreground">
-        <span>Couldn&apos;t load server channels.</span>
+        <span>{serverReadFailed && !currentServer ? "Couldn't load server channels." : "Couldn't load forum posts."}</span>
         <button
           type="button"
-          disabled={!routeCommitted || serverReadPending}
-          onClick={() => { void retryServerRead() }}
+          disabled={!routeCommitted || serverReadPending || forumSidebar.isFetching}
+          onClick={() => { if (!currentServer) void retryServerRead(); else void forumSidebar.refetch() }}
           className="h-11 self-start rounded-md px-2 text-foreground enabled:hover:bg-accent disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-9"
         >Retry</button>
       </div>
