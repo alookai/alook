@@ -293,19 +293,20 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   }, [serverId])
 
   const [serverSettingsOpen, setServerSettingsOpen] = useAtom(useCreateAtom(false))
-  const settingsView = useCommunityViewSource("server-settings:" + serverId, !sidebarHintOnly && isAdmin && serverSettingsOpen)
+  const settingsAdmitted = !!currentServer && !sidebarHintOnly && isAdmin && serverSettingsOpen
+  const settingsView = useCommunityViewSource("server-settings:" + serverId, settingsAdmitted)
   const [settingsSection, setSettingsSection] = useAtom(useCreateAtom<SettingsSection>("overview"))
   const [invitePopoverOpen, setInvitePopoverOpen] = useAtom(useCreateAtom(false))
   const [pendingIconCrop, setPendingIconCrop] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
 
   const admittedDialogs = useRef({ settings: false, invite: false })
   useEffect(() => {
-    const settings = !sidebarHintOnly && isAdmin && serverSettingsOpen
+    const settings = settingsAdmitted
     const invite = !sidebarHintOnly && !!currentServer && invitePopoverOpen
     if (admittedDialogs.current.settings && !settings || !sidebarHintOnly && role !== undefined && !isAdmin) setServerSettingsOpen(false)
     if (admittedDialogs.current.invite && !invite) setInvitePopoverOpen(false)
     admittedDialogs.current = { settings, invite }
-  }, [sidebarHintOnly, isAdmin, role, currentServer, serverSettingsOpen, invitePopoverOpen, setServerSettingsOpen, setInvitePopoverOpen])
+  }, [sidebarHintOnly, isAdmin, role, currentServer, settingsAdmitted, invitePopoverOpen, setServerSettingsOpen, setInvitePopoverOpen])
 
   // Close server-scoped dialogs when the user navigates to another server —
   // without this, settings for server A would remain open after switching
@@ -510,7 +511,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   ])
 
   const serverSettingsDialog = (
-    <Dialog open={serverSettingsOpen && !sidebarHintOnly && !!currentServer && isAdmin} onOpenChange={(o) => { if (!o) closeSettings() }}>
+    <Dialog open={settingsAdmitted} onOpenChange={(o) => { if (!o) closeSettings() }}>
       <DialogContent className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100vh-4rem)] sm:max-h-180 sm:w-[calc(100vw-4rem)] sm:max-w-4xl sm:rounded-xl" showCloseButton={false}>
         <ServerSettings
           isAdmin={isAdmin}

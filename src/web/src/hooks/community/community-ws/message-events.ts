@@ -13,6 +13,7 @@ import type {
 
 import {
   hasForumSidebarOwnershipEvidence,
+  getForumSidebarBase,
   isForumSidebarParent,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
@@ -28,6 +29,7 @@ import {
 
 import {
   invalidateChannelMembers,
+  invalidateForumSidebar,
   invalidateFriends,
   invalidatePins,
 } from "@/hooks/community/community-ws/invalidation-projections"
@@ -121,6 +123,9 @@ export function handleMessageCreate(
     event.parentChannelId &&
     isForumSidebarParent(queryClient, event.serverId, event.parentChannelId)
   ) {
+    if (!getForumSidebarBase(queryClient, event.serverId).threads.some(thread => thread.id === event.channelId)) {
+      invalidateForumSidebar(projection, event.serverId)
+    }
     patchForumSidebarActivityExact(
       queryClient,
       event.serverId,

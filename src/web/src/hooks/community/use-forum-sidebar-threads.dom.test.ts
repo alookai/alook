@@ -27,6 +27,7 @@ import {
   removeCanonicalCommunityChannelMembership,
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useChannelMetadata } from "./use-channel-metadata"
 import { projectForumSidebar } from "@/lib/community/forum-sidebar"
@@ -1494,6 +1495,29 @@ describe("forum sidebar canonical projection", () => {
     expect(view.getByTestId(tid.channelSidebarPending("server-1"))).toBeVisible()
     await act(async () => { release(envelope()) })
     await waitFor(() => expect(view.getByTestId(tid.forumSidebarThread("post-1"))).toBeVisible())
+    view.unmount()
+  })
+
+  it.each(["opener", "legacy-result"])("actively repairs a warm window after local %s loss without a retirement invalidation", async missing => {
+    const owner = await setup()
+    publish(owner.queryClient, envelope(), true)
+    if (missing === "legacy-result") owner.queryClient.setQueryData(communityKeys.forumSidebarThreads("server-1"), {
+      threads: [], serverNow: new Date().toISOString(), serverClockOffsetMs: 0, verifiedEpoch: -1,
+    })
+    let release!: (value: SidebarThreadEnvelope) => void
+    apiFetchMock.mockReturnValue(new Promise<SidebarThreadEnvelope>(resolve => { release = resolve }))
+    const view = renderHook(() => useForumSidebarThreads("server-1", null), { wrapper: owner.wrapper })
+    if (missing === "opener") {
+      expect(view.result.current.sidebar.status).toBe("ready")
+      expect(apiFetchMock).not.toHaveBeenCalled()
+      await act(async () => { await writeCommunityCollectionRows(owner.registry, "messages", [], row => row.id) })
+    }
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    expect(view.result.current.sidebar.status).toBe("pending")
+    expect(new URL(String(apiFetchMock.mock.calls[0]![0]), "http://localhost").pathname).toBe("/api/community/servers/server-1/channels")
+    await act(async () => { release(envelope()) })
+    await waitFor(() => expect(view.result.current.sidebar.status).toBe("ready"))
+    expect(view.result.current.threads[0]).toMatchObject({ id: "post-1", title: "Canonical title" })
     view.unmount()
   })
 

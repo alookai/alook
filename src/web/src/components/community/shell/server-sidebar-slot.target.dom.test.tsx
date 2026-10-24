@@ -104,7 +104,11 @@ it.each(["primary", "forum"])("ends a failed cold %s read with retry", async kin
 })
 
 
-it.each([{ marker: "settings", role: "owner" }, { marker: "invite", role: "owner" }, { marker: "settings", role: "member" }])("preserves a mobile first $marker intent through $role qualification", async ({ marker, role }) => {
+it.each([
+  { marker: "settings", role: "owner", order: "detail-first" }, { marker: "invite", role: "owner", order: "detail-first" },
+  { marker: "settings", role: "member", order: "detail-first" },
+  { marker: "settings", role: "owner", order: "owner-first" }, { marker: "invite", role: "owner", order: "owner-first" },
+])("preserves a mobile first $marker intent through $role qualification with $order", async ({ marker, role, order }) => {
   const { client, registry } = await createCommunityQueryOwner()
   const server = { id: "target", name: "Target server", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
   mocks.pathname = "/c/channels/target"
@@ -124,14 +128,20 @@ it.each([{ marker: "settings", role: "owner" }, { marker: "invite", role: "owner
   await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(`/c/channels/target?keep=${marker}`))
   mocks.search = `keep=${marker}`
   view.rerender(node())
+  const qualify = async () => {
+    mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role, memberId: "membership" }] })
+    await act(async () => { await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(getActiveAccountUnreadProjection(client), client), staleTime: 0 }) })
+  }
+  if (order === "owner-first") {
+    await qualify()
+    await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ onOpenSettings: expect.any(Function) })))
+    expect(view.queryByText("Server settings")).toBeNull()
+  }
   act(() => { publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: { ...server, categories: [] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } }) })
   await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ serverName: "Target server", onOpenSettings: undefined, onInvitePopoverOpenChange: undefined })))
   expect(view.queryByText("Server settings")).toBeNull()
-  mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role, memberId: "membership" }] })
-  await act(async () => {
-    await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(getActiveAccountUnreadProjection(client), client), staleTime: 0 })
-    client.setQueryData(communityKeys.server(server.id), server.id)
-  })
+  if (order === "detail-first") await qualify()
+  act(() => { client.setQueryData(communityKeys.server(server.id), server.id) })
   view.rerender(node())
   if (role === "member") {
     expect(view.queryByText("Server settings")).toBeNull()

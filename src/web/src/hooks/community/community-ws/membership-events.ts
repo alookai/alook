@@ -14,7 +14,6 @@ import { communityKeys } from "@/lib/query-keys"
 
 import { patchMemberWindows } from "@/hooks/community/use-server-members"
 import {
-  invalidateForumSidebarBaseExact,
   isKnownNonForumSidebarChannel,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
@@ -27,6 +26,7 @@ import { evictServerChannelScopes } from "./scope-eviction"
 
 import {
   invalidateChannelRefDirectory,
+  invalidateForumSidebar,
   invalidateInbox,
   invalidateChannelRoster,
   invalidateInvitableFriends,
@@ -92,7 +92,7 @@ export function handleChannelMembershipChange(event: CommunityChannelMembershipC
   invalidateInbox(projection)
   invalidateServersList(projection)
   if (event.serverId && !isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
-    void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
+    invalidateForumSidebar(projection, event.serverId)
   }
   if (event.relation === "notify") {
     if (!event.present) getAccountUnreadProjection(queryClient, event.userId).retireNotificationScope({ kind: "channel", channelId: event.channelId })

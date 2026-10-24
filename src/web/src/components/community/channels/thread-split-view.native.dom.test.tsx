@@ -65,6 +65,39 @@ function nativeGeometry(initialWidth: number) {
 }
 
 describe("ThreadSplitView actual native persistence", () => {
+  it.each(["full", "pending", "split"] as const)("keeps unresolved native content behind resolution before %s admission", async mode => {
+    nativeGeometry(905)
+    vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} })
+    const write = vi.spyOn(Storage.prototype, "setItem")
+    const thread = createElement("input", { defaultValue: "Keep target draft" })
+    const parent = createElement("span", null, "Parent")
+    const view = render(createElement(ThreadSplitView, { split: false, conversationSubtype: "unknown", resolvingParent: true, parent, thread }))
+    try {
+      const group = view.container.querySelector("[data-group]")!
+      const panel = view.container.querySelector("#thread")!
+      const input = panel.querySelector("input")!
+      expect(group).toHaveAttribute("aria-hidden", "true")
+      expect(group).toHaveAttribute("inert")
+      expect(group).toHaveClass("invisible")
+      expect(view.getByLabelText("Resolving conversation")).toBeVisible()
+      view.rerender(createElement(ThreadSplitView, { split: mode === "split", layoutPending: mode === "pending", conversationSubtype: "thread", parent, thread }))
+      expect(view.container.querySelector("[data-group]")).toBe(group)
+      expect(view.container.querySelector("#thread")).toBe(panel)
+      expect(panel.querySelector("input")).toBe(input)
+      expect(input.value).toBe("Keep target draft")
+      expect(group).not.toHaveAttribute("aria-hidden")
+      expect(group).not.toHaveAttribute("inert")
+      expect(group).not.toHaveClass("invisible")
+      expect(view.queryByLabelText("Resolving conversation")).toBeNull()
+      await act(async () => { await Promise.resolve() })
+      expect(write).not.toHaveBeenCalled()
+    } finally {
+      view.unmount()
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
+    }
+  })
+
   it("applies pending stylesheet geometry to the native group flex items", () => {
     const browser = window
     let html: string
