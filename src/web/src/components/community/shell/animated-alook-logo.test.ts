@@ -39,6 +39,16 @@ describe("AnimatedAlookLogo", () => {
     expect(purple).not.toContain('fill="black"')
   })
 
+  it("makes only the four background characters transparent in character-only mode", () => {
+    const html = renderToStaticMarkup(createElement(AnimatedAlookLogo, { characterOnly: true }))
+
+    for (const face of ["red", "purple", "teal", "blue"]) {
+      expect(html).toContain(`data-face="${face}" opacity="0"`)
+    }
+    expect(html).toContain('data-face="orange" data-motion-layer="foreground" transform="matrix(1 0 0 1 0 0)"')
+    expect(html.match(/data-face=/g)).toHaveLength(5)
+  })
+
   it("locks the approved Reveal transform and damped timing", () => {
     expect(REVEAL_MATRIX).toEqual([0.82598, 0, 0, 0.82599, 194.784, 194.424])
     expect(MOTION_DURATION_MS).toBe(300)

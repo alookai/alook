@@ -265,7 +265,7 @@ describe("logo asset generator", () => {
     expect(storyboard).toContain('<image name="SplashIcon" width="106" height="106"/>')
 
     const serverRail = await readFile(resolve(repoRoot, "src/web/src/components/community/shell/server-rail.tsx"), "utf8")
-    expect(serverRail).toContain('<AnimatedAlookLogo className="size-10" />')
+    expect(serverRail).toContain('<AnimatedAlookLogo className="size-10"')
   })
 
   it("fills Android adaptive masks while keeping the expression inside the safe zone at every density", async () => {

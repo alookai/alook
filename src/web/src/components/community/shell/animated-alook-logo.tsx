@@ -78,6 +78,7 @@ function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
 function useLogoMotion(
   svgRef: RefObject<SVGSVGElement | null>,
   foregroundRef: RefObject<SVGGElement | null>,
+  characterOnly: boolean,
 ) {
   const frameRef = useRef<number | null>(null)
   const progressRef = useRef(0)
@@ -88,6 +89,13 @@ function useLogoMotion(
     const foreground = foregroundRef.current
     const trigger = svg?.parentElement
     if (!svg || !foreground || !trigger) return
+    if (characterOnly) {
+      progressRef.current = 0
+      targetRef.current = false
+      foreground.setAttribute("transform", transformForProgress(0))
+      svg.dataset.state = "default"
+      return
+    }
 
     const expressions = [...svg.querySelectorAll<SVGGElement>('[data-part="expression"]')]
     const mobileQuery = window.matchMedia("(max-width: 639px)")
@@ -158,14 +166,14 @@ function useLogoMotion(
       mobileQuery.removeEventListener("change", onMediaChange)
       reducedMotionQuery.removeEventListener("change", onMediaChange)
     }
-  }, [foregroundRef, svgRef])
+  }, [characterOnly, foregroundRef, svgRef])
 }
 
-export function AnimatedAlookLogo({ className }: { className?: string }) {
+export function AnimatedAlookLogo({ className, characterOnly = false }: { className?: string; characterOnly?: boolean }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const foregroundRef = useRef<SVGGElement>(null)
   const clipId = `alook-logo-${useId().replaceAll(":", "")}`
-  useLogoMotion(svgRef, foregroundRef)
+  useLogoMotion(svgRef, foregroundRef, characterOnly)
 
   return (
     <svg
@@ -179,7 +187,7 @@ export function AnimatedAlookLogo({ className }: { className?: string }) {
       className={cn("pointer-events-none select-none", className)}
     >
       <g clipPath={`url(#${clipId})`}>
-        <g data-face="red">
+        <g data-face="red" opacity={characterOnly ? 0 : undefined}>
           <path d="M-26.5996 311.221L-39.86 185.057C-55.9935 31.5572 22.3761 -72.3481 148.875 -102.651C194.472 -113.822 206.766 -178.893 309.8 -189.722C482.225 -207.845 613.345 -72.8086 633.015 114.335L646.275 240.499C658.431 356.149 559.924 430.282 328.623 454.592C97.3226 478.903 -14.4443 426.871 -26.5996 311.221Z" fill="#FE4365" />
           <g data-part="expression" opacity="0">
             <path d="M210.59 140.663C225.106 139.137 234.746 117.66 232.122 92.6914C229.498 67.7233 215.603 48.7195 201.086 50.2452C186.57 51.771 176.93 73.2485 179.554 98.2166C182.178 123.185 196.073 142.189 210.59 140.663Z" fill="white" />
@@ -187,7 +195,7 @@ export function AnimatedAlookLogo({ className }: { className?: string }) {
             <path d="M328.063 167.848C333.26 162.502 341.807 162.382 347.153 167.579C352.499 172.777 352.619 181.324 347.421 186.67C334.382 200.08 319.562 208.689 302.962 210.434C286.361 212.178 270.075 206.839 254.533 196.433C248.337 192.284 246.678 183.899 250.826 177.704C254.974 171.509 263.36 169.849 269.555 173.997C281.456 181.966 291.507 184.489 300.139 183.581C308.771 182.674 318.079 178.117 328.063 167.848Z" fill="white" />
           </g>
         </g>
-        <g data-face="purple">
+        <g data-face="purple" opacity={characterOnly ? 0 : undefined}>
           <path d="M523.747 365.154L550.571 58.5595C556.271 -6.59189 611.194 -38.4735 678.261 -32.6059L1015.52 -3.09997C1082.58 2.76768 1131.14 43.7023 1125.44 108.854L1098.61 415.448C1089.89 515.091 998.635 565.034 797.433 547.431C596.23 529.828 515.03 464.797 523.747 365.154Z" fill="#8A5A9E" />
           <g data-part="expression" opacity="0">
             <path d="M746.769 191.001C764.76 192.575 780.621 179.267 782.195 161.276C783.769 143.285 770.46 127.424 752.469 125.85C734.478 124.276 718.618 137.585 717.044 155.576C715.47 173.567 728.778 189.427 746.769 191.001Z" fill="white" />
@@ -195,14 +203,14 @@ export function AnimatedAlookLogo({ className }: { className?: string }) {
             <path d="M879.218 239.983C885.568 236.076 893.884 238.055 897.791 244.405C901.699 250.755 899.719 259.07 893.37 262.978C867.707 278.77 841.761 286.237 815.871 283.972C789.981 281.707 765.725 269.847 743.194 249.839C737.62 244.888 737.114 236.355 742.065 230.78C747.016 225.206 755.549 224.7 761.124 229.651C780.399 246.769 799.403 255.428 818.224 257.075C837.045 258.721 857.264 253.493 879.218 239.983Z" fill="white" />
           </g>
         </g>
-        <g data-face="teal">
+        <g data-face="teal" opacity={characterOnly ? 0 : undefined}>
           <path d="M-78.815 606.38L-85.9302 504.628C-93.0454 402.877 -38.9437 347.969 34.4882 325.793C26.946 266.675 72.4141 234.525 120.811 268.632C135.789 214.756 212.103 209.42 232.856 262.501C282.701 219.82 339.34 249.943 336.588 308.076C405.846 323.683 449.748 366.625 456.745 466.681L463.86 568.432C470.382 661.705 389.147 718.51 202.602 731.554C16.0577 744.599 -72.2928 699.652 -78.815 606.38Z" fill="#45ADA8" />
           <g data-part="expression" opacity="0">
             <path d="M112.83 422.564C129.98 421.365 145.457 430.644 158.934 444.695C164.133 450.116 163.953 458.725 158.532 463.924C153.111 469.123 144.502 468.944 139.303 463.523C128.271 452.021 120.188 449.315 114.727 449.697C109.266 450.079 101.638 453.884 92.3142 466.809C87.92 472.9 79.4196 474.276 73.3281 469.882C67.2366 465.488 65.8599 456.988 70.254 450.896C81.644 435.107 95.6792 423.763 112.83 422.564ZM248.498 413.077C265.649 411.878 281.126 421.157 294.603 435.208C299.802 440.629 299.621 449.238 294.201 454.437C288.78 459.636 280.171 459.457 274.972 454.036C263.94 442.534 255.857 439.828 250.396 440.21C244.935 440.592 237.307 444.397 227.983 457.322C223.589 463.414 215.088 464.789 208.997 460.395C202.905 456.001 201.529 447.501 205.923 441.409C217.313 425.62 231.348 414.276 248.498 413.077Z" fill="black" />
             <path d="M237.886 492.175C243.232 487.591 251.282 488.21 255.865 493.556C260.449 498.901 259.83 506.951 254.484 511.535C234.167 528.953 212.389 539.153 189.261 540.77C166.134 542.387 143.149 535.318 120.604 520.896C114.673 517.102 112.94 509.216 116.734 503.285C120.529 497.353 128.415 495.62 134.346 499.415C153.427 511.621 171.04 516.482 187.483 515.332C203.925 514.182 220.69 506.917 237.886 492.175Z" fill="black" />
           </g>
         </g>
-        <g data-face="blue">
+        <g data-face="blue" opacity={characterOnly ? 0 : undefined}>
           <path d="M-109.988 949.35L-99.7556 851.999C-85.7718 718.952 24.7154 635.419 172.106 637.787C331.026 639.726 436.163 747.563 419.451 906.57L409.219 1003.92C399.839 1093.16 313.597 1133.31 135.12 1114.55C-43.357 1095.79 -119.367 1038.59 -109.988 949.35Z" fill="#6A8CAF" />
           <g data-part="expression" opacity="0">
             <path d="M96.9934 852.993C113.123 854.688 127.573 842.987 129.268 826.857C130.964 810.728 119.262 796.278 103.133 794.582C87.0029 792.887 72.5529 804.588 70.8576 820.718C69.1623 836.848 80.8637 851.298 96.9934 852.993Z" fill="black" />

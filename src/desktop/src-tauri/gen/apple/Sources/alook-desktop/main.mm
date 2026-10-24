@@ -13,6 +13,7 @@ static UIColor *alookDarkColor(void) {
 
 static const void *kAlookResolvedDarkThemeKey = &kAlookResolvedDarkThemeKey;
 static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
+static const void *kAlookSafeAreaTopKey = &kAlookSafeAreaTopKey;
 static const void *kAlookStartupOverlayKey = &kAlookStartupOverlayKey;
 static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
 static const NSInteger kAlookStartupLogoTag = 8738;
@@ -196,6 +197,21 @@ static NSString *const kThemeObserverScript =
 
 @end
 
+@interface AlookSafeAreaHandler : NSObject <WKScriptMessageHandlerWithReply>
+@property (nonatomic, weak) UIViewController *viewController;
+@end
+
+@implementation AlookSafeAreaHandler
+
+- (void)userContentController:(WKUserContentController *)userContentController
+      didReceiveScriptMessage:(WKScriptMessage *)message
+                 replyHandler:(void (^)(id, NSString *))replyHandler {
+    UIViewController *controller = self.viewController;
+    replyHandler(controller == nil ? NSNull.null : @(controller.view.safeAreaInsets.top), nil);
+}
+
+@end
+
 @implementation UIViewController (AlookSafeArea)
 
 + (BOOL)alook_finishStartupOverlayForController:(UIViewController *)controller
@@ -286,6 +302,21 @@ static NSString *const kThemeObserverScript =
             );
 
             WKWebView *webView = (WKWebView *)subview;
+            if (isTauriRoot) {
+                NSNumber *previousTop = objc_getAssociatedObject(webView, kAlookSafeAreaTopKey);
+                if (previousTop == nil) {
+                    AlookSafeAreaHandler *handler = [[AlookSafeAreaHandler alloc] init];
+                    handler.viewController = self;
+                    [webView.configuration.userContentController
+                        addScriptMessageHandlerWithReply:handler
+                        contentWorld:WKContentWorld.pageWorld
+                        name:@"alookSafeArea"];
+                }
+                if (previousTop == nil || previousTop.doubleValue != insets.top) {
+                    objc_setAssociatedObject(webView, kAlookSafeAreaTopKey, @(insets.top), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                    [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:safe-area-change'))" completionHandler:nil];
+                }
+            }
             static dispatch_once_t scriptToken;
             dispatch_once(&scriptToken, ^{
                 AlookThemeHandler *handler = [[AlookThemeHandler alloc] init];

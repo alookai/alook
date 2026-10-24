@@ -20,6 +20,7 @@ import { Plus } from "lucide-react"
 import { CommunityDndProvider, useCommunityDndScrolling } from "../community-dnd"
 import { RailIcon } from "./rail-icon"
 import { AnimatedAlookLogo } from "./animated-alook-logo"
+import { useNativeSafeAreaTop } from "@/hooks/use-native-safe-area-top"
 import { tid } from "@/lib/community/testids"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -149,6 +150,7 @@ function ServerRailContent({
   onOpenInvitePopover?: (serverId: string) => void
 }) {
   const [announcement, announce] = useAtom(useCreateAtom(""))
+  const characterOnly = useNativeSafeAreaTop() === 0
   const isPreview = useCommunityPreviewNavigation()
   const expandedAtom = useCreateAtom<string[]>([])
   const [expanded, setExpanded] = useAtom(expandedAtom)
@@ -348,7 +350,7 @@ function ServerRailContent({
           data-testid={tid.homeButton}
           className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
-          <AnimatedAlookLogo className="size-10" />
+          <AnimatedAlookLogo className="size-10" characterOnly={characterOnly} />
         </CommunityNavigationLink>
       </TooltipTrigger>
       <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>

@@ -23,6 +23,7 @@ class MainActivity : TauriActivity() {
     private var mainWebView: WebView? = null
     private var systemGestureInsets: Insets? = null
     @Volatile private var systemGestureRegionJson = "null"
+    @Volatile private var safeAreaTop = -1.0
     private val gestureLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         syncSystemGestureRegion()
     }
@@ -76,6 +77,11 @@ class MainActivity : TauriActivity() {
             val bottomPadding = if (imeVisible) imeInsets.bottom else chromeInsets.bottom
             systemGestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures())
             v.setPadding(chromeInsets.left, chromeInsets.top, chromeInsets.right, bottomPadding)
+            val nextSafeAreaTop = chromeInsets.top.toDouble() / resources.displayMetrics.density
+            if (safeAreaTop != nextSafeAreaTop) {
+                safeAreaTop = nextSafeAreaTop
+                mainWebView?.evaluateJavascript("window.dispatchEvent(new Event('alook:safe-area-change'))", null)
+            }
             syncSystemGestureRegion()
             WindowInsetsCompat.Builder(insets)
                 .setInsets(chromeTypes, Insets.NONE)
@@ -160,6 +166,9 @@ class MainActivity : TauriActivity() {
     }
 
     class ThemeBridge(private val activity: MainActivity) {
+        @JavascriptInterface
+        fun getSafeAreaTop(): Double = activity.safeAreaTop
+
         @JavascriptInterface
         fun getSystemGestureRegion(): String = activity.systemGestureRegionJson
 

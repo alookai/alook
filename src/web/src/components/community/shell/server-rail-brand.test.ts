@@ -6,7 +6,7 @@ describe("ServerRail Home brand mark", () => {
     const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
 
     expect(source).toContain('import { AnimatedAlookLogo } from "./animated-alook-logo"')
-    expect(source).toContain('<AnimatedAlookLogo className="size-10" />')
+    expect(source).toContain('<AnimatedAlookLogo className="size-10" characterOnly={characterOnly} />')
     expect(source).toContain('aria-label="Home"')
     expect(source).toContain('data-testid={tid.homeButton}')
     expect(source).toContain('<TooltipContent side="right" sideOffset={8}>Home</TooltipContent>')
