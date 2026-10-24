@@ -115,3 +115,11 @@ it("propagates required shutdown failure across multiple machine credentials", a
   await expect(forceCloseCommunityMachinesByDoNames({ WS_DO_WORKER: { fetch: binding } } as unknown as Env, ["healthy", "failed"], true)).rejects.toThrow()
   expect(binding).toHaveBeenCalledTimes(2)
 })
+
+it("preserves best-effort batch shutdown when no strict policy is requested", async () => {
+  const binding = vi.fn(async () => new Response(null, { status: 503 }))
+  mockFetch.mockImplementation(async () => new Response(null, { status: 503 }))
+  await expect(forceCloseCommunityMachinesByDoNames({ WS_DO_WORKER: { fetch: binding } } as unknown as Env, ["first", "second"]))
+    .resolves.toBeUndefined()
+  expect(binding).toHaveBeenCalledTimes(2)
+})
