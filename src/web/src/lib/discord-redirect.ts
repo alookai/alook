@@ -1,4 +1,4 @@
-const DISCORD_INVITE_URL = "https://discord.gg/24PHyEHU3M"
+import { DISCORD_INVITE_URL } from "./discord-invite"
 
 const discordRedirect = {
   fetch(): Response {

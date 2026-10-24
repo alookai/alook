@@ -64,7 +64,6 @@ export const siteStructuredData = [
 		"@type": "WebApplication",
 		name: "Alook",
 		url: SITE_URL,
-		slogan: BRAND_SLOGAN,
 		description: BRAND_DESCRIPTION,
 		applicationCategory: "DeveloperApplication",
 		operatingSystem: "All",
@@ -77,5 +76,6 @@ export const siteStructuredData = [
 	{
 		"@context": "https://schema.org",
 		...ALOOK_ORGANIZATION,
+		slogan: BRAND_SLOGAN,
 	},
 ];

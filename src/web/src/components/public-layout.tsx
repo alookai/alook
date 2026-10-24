@@ -1,3 +1,4 @@
+import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 import Link from "next/link";
 import Image from "next/image";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
@@ -8,7 +9,7 @@ const footerLinks = [
   { href: "/blog", label: "Blog" },
   { href: "/llms.txt", label: "llms.txt" },
   { href: "https://github.com/alookai/alook", label: "GitHub", external: true },
-  { href: "https://discord.alook.ai", label: "Discord", external: true },
+  { href: DISCORD_INVITE_URL, label: "Discord", external: true },
   { href: "https://x.com/alook_ai", label: "X", external: true },
   { href: "/privacy", label: "Privacy" },
 ];

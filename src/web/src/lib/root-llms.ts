@@ -1,3 +1,4 @@
+import { DISCORD_INVITE_URL } from "./discord-invite";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
 import type { BlogDiscoveryManifestV1, BlogDiscoveryPostV1 } from "@/lib/blog-discovery-manifest";
 
@@ -49,7 +50,7 @@ export function buildRootLlmsTxt(
 			]
 			: []),
     `- [GitHub](https://github.com/alookai/alook): Source code and self-host path`,
-    `- [Discord](https://discord.alook.ai): Community`,
+    `- [Discord](${DISCORD_INVITE_URL}): Community`,
     "",
 		...(manifest ? ["## Blog posts", "", ...blogLines, ""] : []),
     "## Machine-readable surfaces",
@@ -67,7 +68,7 @@ export function buildRootLlmsTxt(
     "",
     `- Website: ${siteUrl}`,
     "- GitHub: https://github.com/alookai/alook",
-    "- Discord: https://discord.alook.ai",
+    `- Discord: ${DISCORD_INVITE_URL}`,
     "- X: https://x.com/alook_ai",
     "- Support: support@alook.ai",
     "",

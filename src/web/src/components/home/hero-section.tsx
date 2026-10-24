@@ -1,5 +1,6 @@
 "use client";
 
+import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 /* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -257,7 +258,7 @@ export function HeroSection({
             </svg>
           </GithubOutboundLink>
           <a
-            href="https://discord.alook.ai"
+            href={DISCORD_INVITE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center p-2 transition-opacity hover:opacity-70"

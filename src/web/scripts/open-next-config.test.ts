@@ -15,10 +15,10 @@ describe("Web OpenNext configuration", () => {
     expect(resolveOverride(config.middleware?.override?.queue)).toBe(doQueue)
   })
 
-  it("does not enable D1 tag cache or cache experiments", () => {
+  it("intercepts prerendered responses without introducing a D1 tag cache", () => {
     expect(config.default.override?.tagCache).toBe("dummy")
     expect(config.middleware?.override?.tagCache).toBe("dummy")
     expect(config.default.override?.cdnInvalidation).toBe("dummy")
-    expect(config.dangerous?.enableCacheInterception).toBe(false)
+    expect(config.dangerous?.enableCacheInterception).toBe(true)
   })
 })

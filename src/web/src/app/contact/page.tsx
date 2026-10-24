@@ -1,3 +1,4 @@
+import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata"
 import Image from "next/image"
 import Link from "next/link"
@@ -60,7 +61,7 @@ export default function ContactPage() {
               <a href="https://alook.ai/c/invite/nC7ax53lwm" className={styles.communityLink}>
                 <Image src="/favicon.ico" alt="" width={20} height={20} /><span>Alook Support</span><ArrowUpRight size={20} aria-hidden="true" />
               </a>
-              <a href="https://discord.alook.ai" className={styles.communityLink}>
+              <a href={DISCORD_INVITE_URL} className={styles.communityLink}>
                 <SiDiscord size={20} aria-hidden="true" /><span>Discord</span><ArrowUpRight size={20} aria-hidden="true" />
               </a>
             </section>

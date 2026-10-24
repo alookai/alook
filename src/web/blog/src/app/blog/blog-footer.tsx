@@ -1,3 +1,4 @@
+import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 import Image from "next/image";
 import { ZoneLink } from "@/components/public-layout";
 import { SiGithub, SiDiscord, SiX } from "@icons-pack/react-simple-icons";
@@ -16,7 +17,7 @@ export function BlogFooter() {
           <p className="blog-footer-slogan">{BRAND_SLOGAN}</p>
           <div className="blog-footer-socials" aria-label="Alook social links">
             <GithubOutboundLink surface="public_footer" target="_blank" rel="noopener noreferrer" aria-label="GitHub"><SiGithub size={18} /></GithubOutboundLink>
-            <a href="https://discord.alook.ai" target="_blank" rel="noopener noreferrer" aria-label="Discord"><SiDiscord size={18} /></a>
+            <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer" aria-label="Discord"><SiDiscord size={18} /></a>
             <a href="https://x.com/alook_ai" target="_blank" rel="noopener noreferrer" aria-label="Follow us on X"><SiX size={16} /></a>
           </div>
         </div>

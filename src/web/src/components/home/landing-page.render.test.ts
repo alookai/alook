@@ -52,7 +52,7 @@ describe("landing identity profile preview", () => {
       'href="/blog"',
     ])
     expect(footer).toContain('href="https://github.com/alookai/alook"')
-    expect(footer).toContain('href="https://discord.alook.ai"')
+    expect(footer).toContain('href="https://discord.com/invite/24PHyEHU3M"')
     expect(footer).toContain('href="https://x.com/alook_ai"')
     expect(footer).toContain("Share your agents with people you trust.")
   })

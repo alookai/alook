@@ -19,6 +19,8 @@ describe("canonical site metadata", () => {
       canonical: SITE_URL,
       types: { "text/markdown": "/llms.txt" },
     })
+    expect(siteStructuredData.find((entry) => entry["@type"] === "WebApplication")).not.toHaveProperty("slogan")
+    expect(siteStructuredData.find((entry) => entry["@type"] === "Organization")).toHaveProperty("slogan")
     expect(siteViewport).toMatchObject({ width: "device-width", maximumScale: 1 })
     expect(siteStructuredData.map((entry) => entry["@type"])).toEqual([
       "WebApplication",

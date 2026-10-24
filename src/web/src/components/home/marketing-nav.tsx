@@ -1,5 +1,6 @@
 "use client";
 
+import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 /* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
 
 import { trackLandingCtaClicked } from "@/lib/analytics"
@@ -114,7 +115,7 @@ export function MarketingNav({
             </svg>
           </GithubOutboundLink>
           <a
-            href="https://discord.alook.ai"
+            href={DISCORD_INVITE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className={`${collapseLinksOnMobile ? "hidden sm:flex" : "flex"} items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70`}
@@ -165,7 +166,7 @@ export function MarketingNav({
                 ))}
                 {showTemplates && <Link prefetch={prefetch} href="/templates" className="block px-3 py-2 text-xs uppercase tracking-widest">Templates</Link>}
                 <GithubOutboundLink surface="public_nav" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">GitHub</GithubOutboundLink>
-                <a href="https://discord.alook.ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">Discord</a>
+                <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">Discord</a>
                 <a href="https://x.com/alook_ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">X</a>
               </div>
             </details>
