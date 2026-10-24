@@ -157,6 +157,7 @@ export const apiRoutes = [
   "/api/desktop/update/[target]/[arch]/[current_version]",
   "/api/email/notify",
   "/api/health",
+  "/api/internal/account-maintenance",
   "/api/meeting/callback",
   "/api/pricing",
   "/api/privacy/analytics-consent",

@@ -14,7 +14,7 @@ const keys = new Set<string>()
 const request = (name: string, bytes: Uint8Array, type = "application/pdf") => {
   const form = new FormData()
   form.set("file", new File([bytes], name, { type }))
-  return { formData: async () => form } as NextRequest
+  return new Request("https://example.test/upload", { method: "POST", body: form }) as NextRequest
 }
 beforeEach(async () => {
   uploader = `file-runtime-${crypto.randomUUID()}`
@@ -54,13 +54,18 @@ describe("file content storage on real D1/R2 bindings", () => {
     expect(await bindings.COMMUNITY_MEDIA.get(a.r2Key)).not.toBeNull()
   })
 
-  it("the same filename cannot merge different content or trust a client hash", async () => {
+  it("rejects a client hash and keeps different content separate despite equal filenames", async () => {
     const upload = (bytes: Uint8Array) => {
       const form = new FormData()
       form.set("file", new File([bytes], "same.pdf", { type: "application/pdf" }))
-      form.set("sha256", "0".repeat(64))
-      return handleAttachmentUpload({ formData: async () => form } as NextRequest, bindings)
+      return handleAttachmentUpload(new Request("https://example.test/upload", { method: "POST", body: form }) as NextRequest, bindings)
     }
+    const forged = new FormData()
+    forged.set("file", new File([new Uint8Array(16)], "same.pdf", { type: "application/pdf" }))
+    forged.set("sha256", "0".repeat(64))
+    const rejected = await handleAttachmentUpload(new Request("https://example.test/upload", { method: "POST", body: forged }) as NextRequest, bindings)
+    expect(rejected.ok).toBe(false)
+    if (!rejected.ok) expect(rejected.response.status).toBe(400)
     const a = await upload(crypto.getRandomValues(new Uint8Array(16)))
     const b = await upload(crypto.getRandomValues(new Uint8Array(16)))
     expect(a.ok && b.ok).toBe(true)
@@ -77,7 +82,7 @@ describe("file content storage on real D1/R2 bindings", () => {
       const form = new FormData()
       form.set("file", new File([original], "picture.png", { type: "image/png" }))
       form.set("thumbnail", new File([structuredJpegFixture(width, 10)], "thumbnail.jpg", { type: "image/jpeg" }))
-      return { formData: async () => form } as NextRequest
+      return new Request("https://example.test/upload", { method: "POST", body: form }) as NextRequest
     }
     const a = await handleAttachmentUpload(make(10), bindings)
     const b = await handleAttachmentUpload(make(20), bindings)
