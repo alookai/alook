@@ -85,7 +85,7 @@ describe("queue-worker workerd runtime", () => {
     expect(result.retryMessages).toEqual([])
   })
 
-  it("ACKs caught mobile and poison siblings while retrying only a transient bot failure", async () => {
+  it("ACKs poison messages while retrying transient mobile and bot failures", async () => {
     const mobileId = `runtime-mobile-${crypto.randomUUID()}`
     const botId = `runtime-bot-${crypto.randomUUID()}`
     const poisonId = `runtime-poison-${crypto.randomUUID()}`
@@ -125,7 +125,9 @@ describe("queue-worker workerd runtime", () => {
       ])
 
       expect(result.outcome).toBe("ok")
-      expect(result.explicitAcks).toEqual(expect.arrayContaining([mobileId, poisonId]))
+      expect(result.explicitAcks).toContain(poisonId)
+      expect(result.explicitAcks).not.toContain(mobileId)
+      expect(result.retryMessages).toContainEqual({ msgId: mobileId, delaySeconds: 5 })
       expect(result.explicitAcks).not.toContain(botId)
       expect(result.retryMessages).toContainEqual({ msgId: botId, delaySeconds: 5 })
     } finally {
