@@ -152,6 +152,7 @@ function ChannelRouteFrame(target: RouteTarget) {
   }, [setParentIdentity])
   const resolvingParent = split && routeModel.routeLifecycle !== "ready" &&
     (!parent || parentIdentity?.id !== parent.id || !parentIdentity.confirmed)
+  const resolvingLayout = routeModel.routeLifecycle === "pending" && routeModel.skeletonSubtype === "unknown" && !routeModel.metadataError
   const channelRefCandidates = useMemo(() => server?.categories
     .flatMap((category) => category.channels)
     .map((channel) => toChannelRefCandidate(server, channel)) ?? [], [server])
@@ -170,7 +171,7 @@ function ChannelRouteFrame(target: RouteTarget) {
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
   return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:bg-background">
     <ThreadSplitView
-      split={split} layoutPending={layoutPending} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+      split={split} layoutPending={layoutPending} resolvingParent={resolvingLayout || resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
       parent={split && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}

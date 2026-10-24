@@ -658,6 +658,7 @@ function clearChannelTransientState(
       exact: true,
     })
   }
+  if (serverId) void registry.queryClient.invalidateQueries({ queryKey: communityKeys.forumSidebarThreads(serverId), exact: true })
   if (channelIds.size === 0) return
   for (const entry of registry.runtime.messageStream.get().entries.values()) {
     if (channelIds.has(entry.scope.id)) registry.runtime.messageStream.actions.removeScope(entry.scope)

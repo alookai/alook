@@ -1,4 +1,5 @@
 import { createElement } from "react"
+import { renderToString } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, setupUser } from "@/test/react-dom-harness"
 import type { Category } from "@/lib/community/models/navigation"
@@ -65,20 +66,34 @@ describe("ChannelSidebarScope", () => {
     ])
   })
 
-  it("reveals restored rows immediately while forum projection is pending", () => {
+  it("includes both the primary tree and cached posts in the initial render", () => {
+    const html = renderToString(createElement(ChannelSidebarRevealBoundary, {
+      ...scopeProps(targetCategories),
+      categories: targetCategories,
+      primaryReady: true,
+      forumProjectionMissing: false,
+      forumThreadsByParent: {
+        "target-one": [{ id: "thread-one", parentChannelId: "target-one", parentMessageId: "opener-one", title: "Cached post", activityAt: "2026-09-25T00:00:00.000Z", expiresAt: "2026-09-28T00:00:00.000Z", unread: false }],
+      },
+    }))
+    expect(html).toContain(tid.channelRow("target-one"))
+    expect(html).toContain(tid.forumSidebarThread("thread-one"))
+    expect(html).not.toContain(tid.channelSidebarPending("target"))
+  })
+
+  it("keeps restored primary rows hidden while forum projection is pending", () => {
     render(createElement(ChannelSidebarRevealBoundary, {
       ...scopeProps(targetCategories),
       categories: targetCategories,
       primaryReady: true,
       forumProjectionMissing: true,
-      trustedRestoredPrimary: true,
     }))
 
-    expect(screen.getByTestId(tid.channelRow("target-one"))).toBeInTheDocument()
-    expect(screen.queryByTestId(tid.channelSidebarPending("target"))).not.toBeInTheDocument()
+    expect(screen.queryByTestId(tid.channelRow("target-one"))).not.toBeInTheDocument()
+    expect(screen.getByTestId(tid.channelSidebarPending("target"))).toBeInTheDocument()
   })
 
-  it("reveals asynchronously restored primary rows while forum projection stays pending", () => {
+  it("waits for forum readiness when primary restoration finishes asynchronously", () => {
     const base = {
       ...scopeProps(targetCategories),
       categories: targetCategories,
@@ -87,18 +102,16 @@ describe("ChannelSidebarScope", () => {
     const rendered = render(createElement(ChannelSidebarRevealBoundary, {
       ...base,
       primaryReady: false,
-      trustedRestoredPrimary: false,
     }))
     expect(screen.getByTestId(tid.channelSidebarPending("target"))).toBeInTheDocument()
 
     rendered.rerender(createElement(ChannelSidebarRevealBoundary, {
       ...base,
       primaryReady: true,
-      trustedRestoredPrimary: true,
     }))
 
-    expect(screen.getByTestId(tid.channelRow("target-one"))).toBeInTheDocument()
-    expect(screen.queryByTestId(tid.channelSidebarPending("target"))).not.toBeInTheDocument()
+    expect(screen.queryByTestId(tid.channelRow("target-one"))).not.toBeInTheDocument()
+    expect(screen.getByTestId(tid.channelSidebarPending("target"))).toBeInTheDocument()
   })
 
   it("keeps true-cold primary rows hidden until forum is ready, then preserves the DOM", () => {
@@ -110,7 +123,6 @@ describe("ChannelSidebarScope", () => {
       ...base,
       primaryReady: false,
       forumProjectionMissing: true,
-      trustedRestoredPrimary: false,
     }))
     expect(screen.getByTestId(tid.channelSidebarPending("target"))).toBeInTheDocument()
 
@@ -118,7 +130,6 @@ describe("ChannelSidebarScope", () => {
       ...base,
       primaryReady: true,
       forumProjectionMissing: true,
-      trustedRestoredPrimary: false,
     }))
     expect(screen.getByTestId(tid.channelSidebarPending("target"))).toBeInTheDocument()
 
@@ -126,7 +137,6 @@ describe("ChannelSidebarScope", () => {
       ...base,
       primaryReady: true,
       forumProjectionMissing: false,
-      trustedRestoredPrimary: false,
     }))
     const owner = rendered.container.querySelector("[data-community-channel-tree-scope]")
     const scroll = screen.getByTestId(tid.channelSidebarScroll)
@@ -136,7 +146,6 @@ describe("ChannelSidebarScope", () => {
       ...base,
       primaryReady: true,
       forumProjectionMissing: true,
-      trustedRestoredPrimary: false,
     }))
     expect(rendered.container.querySelector("[data-community-channel-tree-scope]")).toBe(owner)
     expect(screen.getByTestId(tid.channelSidebarScroll)).toBe(scroll)
@@ -146,7 +155,6 @@ describe("ChannelSidebarScope", () => {
       ...base,
       primaryReady: true,
       forumProjectionMissing: false,
-      trustedRestoredPrimary: false,
     }))
     expect(rendered.container.querySelector("[data-community-channel-tree-scope]")).toBe(owner)
     expect(screen.getByTestId(tid.channelSidebarScroll)).toBe(scroll)

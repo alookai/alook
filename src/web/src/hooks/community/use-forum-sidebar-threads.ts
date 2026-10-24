@@ -1,6 +1,6 @@
 "use client"
-import { useAtom,useCreateAtom } from "@tanstack/react-store"
-import { useTrustedRestoredForumProjection } from "@/lib/community-db/projections"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
+import { useMountedClock } from "@/hooks/use-mounted-clock"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
@@ -10,10 +10,11 @@ import { type CommunityChannelIdentity, normalizeCommunityChannelIdentity } from
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
+import { forumSidebarWindowComplete, readForumSidebarWindowResult, type ForumSidebarWindow } from "@/lib/community/forum-sidebar-window"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
 useAttentionScopes,
-useForumSidebarProjection,
+useServerSidebarProjection,
 } from "@/lib/community-db/projections"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
@@ -56,6 +57,7 @@ export type ForumSidebarQueryData = {
   verifiedEpoch: number
   serverNow: string
   serverClockOffsetMs: number
+  window?: ForumSidebarWindow
 }
 
 export type ChildChannelMeta = Omit<CommunityChannelIdentity, "serverId" | "name" | "parentChannelId" | "parentMessageId" | "createdAt" | "lastMessageAt"> & { [Field in "serverId" | "name" | "parentChannelId" | "parentMessageId"]: NonNullable<CommunityChannelIdentity[Field]> } & {
@@ -138,7 +140,9 @@ export function normalizeForumSidebarEnvelope(
   }
   const retainedChannel = retainId && envelope.retainedChannel?.id === retainId
     ? envelope.retainedChannel
-    : null
+    : retainId && envelope.retainedDisposition == null
+      ? canonicalChannels.find(channel => channel.id === retainId) ?? null
+      : null
   const retained = retainedChannel
     ? projectForumSidebarThreads({ ...envelope, channels: [retainedChannel] })[0] ?? null
     : null
@@ -207,6 +211,28 @@ function publishNormalizedForumSidebar(
       : null,
     proof: { token, signal },
   })
+  const reconciliation = reconcileForumSidebarNotifyMembershipsFromBase(queryClient, serverId, normalized.base, { token, signal },
+    normalized.retainedDisposition === "eligible" ? normalized.retained?.id ?? null : null)
+  const reference = ({ id, parentChannelId, parentMessageId }: ForumSidebarThread) => ({ id, parentChannelId, parentMessageId })
+  const result = {
+    ...normalized.base, threads: [], verifiedEpoch: token.accessEpoch,
+    window: {
+      version: 1 as const, accountId: token.viewerId!, serverId,
+      parents: [...new Set([...getCanonicalCommunityChannels(queryClient).filter(row => row.serverId === serverId && row.type === "forum").map(row => row.id), ...normalized.channels.flatMap(row => row.parentChannelId ? [row.parentChannelId] : [])])],
+      base: normalized.base.threads.map(reference),
+      retained: retainId ? normalized.retainedDisposition === "eligible" && normalized.retained
+        ? { id: retainId, disposition: "eligible" as const, reference: reference(normalized.retained) }
+        : { id: retainId, disposition: normalized.retainedDisposition === "opener-archived" ? "opener-archived" as const : "genuine-negative" as const }
+        : null,
+    },
+  }
+  const registry = getCommunityDbRegistry(queryClient)!
+  if (!readForumSidebarWindowResult(result) || registry.collections.servers.get(serverId)?.detailComplete
+    && !forumSidebarWindowComplete(result.window, {
+      servers: [...registry.collections.servers.values()], channels: getCanonicalCommunityChannels(queryClient),
+      channelMemberships: getCanonicalCommunityChannelMemberships(queryClient), messages: getCanonicalCommunityMessages(queryClient),
+    }, registry.accountId, serverId, retainId, Date.now() + result.serverClockOffsetMs)) throw new Error("Incomplete forum sidebar window")
+  return { data: result, reconciliation }
 }
 
 function canonicalSidebarBase(queryClient: QueryClient, serverId: string) {
@@ -327,9 +353,9 @@ async function fetchForumSidebarBaseExact(
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
   const confirmation = unreadProjection.beginAccessConfirmation()
   const token = captureCommunityLiveSnapshotToken(queryClient)
-  const requestEpoch = getCommunityRuntime(queryClient).ws.get().accessEpoch
   let normalized: NormalizedForumSidebarEnvelope | undefined
   let proof: CommunityFreshQueryProof | undefined
+  let reconciliation: { removedIds: string[] } | undefined
   await queryClient.query({
     queryKey,
     staleTime: 0,
@@ -337,7 +363,7 @@ async function fetchForumSidebarBaseExact(
       normalized = await fetchForumSidebar(queryClient, serverId, null, signal, token)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
       proof = { token, signal }
-      publishNormalizedForumSidebar(
+      const result = publishNormalizedForumSidebar(
         queryClient,
         serverId,
         normalized,
@@ -352,16 +378,13 @@ async function fetchForumSidebarBaseExact(
         })),
         confirmation,
       )
-      return {
-        ...normalized.base,
-        threads: [],
-        verifiedEpoch: requestEpoch,
-      }
+      reconciliation = result.reconciliation
+      return result.data
     },
     select: undefined,
   })
   if (!normalized || !proof) throw new Error("Forum sidebar base fetch did not settle")
-  return { normalized, proof }
+  return { normalized, proof, reconciliation: reconciliation! }
 }
 
 /**
@@ -380,13 +403,8 @@ export async function reconcileForumSidebarNotifyMemberships(
   // One authoritative query-cache fetch both refreshes active observers and
   // supplies the bounded negative proof. Avoid invalidating into a first
   // active refetch and then issuing a second direct request.
-  const { normalized, proof } = await fetchForumSidebarBaseExact(queryClient, serverId)
-  return reconcileForumSidebarNotifyMembershipsFromBase(
-    queryClient,
-    serverId,
-    normalized.base,
-    proof,
-  )
+  const { reconciliation } = await fetchForumSidebarBaseExact(queryClient, serverId)
+  return reconciliation
 }
 
 function reconcileForumSidebarNotifyMembershipsFromBase(
@@ -469,7 +487,8 @@ export async function grantForumSidebarChild(queryClient: QueryClient, serverId:
       const unreadProjection = getActiveAccountUnreadProjection(queryClient)
       const confirmation = unreadProjection.beginAccessConfirmation()
       const normalized = await fetchForumSidebar(queryClient, serverId, childId, signal, token)
-      publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, signal, token)
+      const result = publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, signal, token)
+      queryClient.setQueryData(communityKeys.forumSidebarThreads(serverId), result.data)
       if (hasForumSidebarThread(normalized.base, childId)
         || normalized.retainedDisposition === "eligible" && normalized.retained?.id === childId) {
         unreadProjection.confirmAccessScopes([{ kind: "channel", channelId: childId }], confirmation)
@@ -504,7 +523,6 @@ export function useForumSidebarThreads(
   retainId: string | null,
   enabled = true,
 ) {
-  const restoredForumProjection = useTrustedRestoredForumProjection()
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const unreadProjection = useMemo(
@@ -518,26 +536,9 @@ export function useForumSidebarThreads(
     queryFn: async ({ signal }) => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
       const confirmation = unreadProjection.beginAccessConfirmation()
-      const requestEpoch = getCommunityRuntime(queryClient).ws.get().accessEpoch
       const normalized = await fetchForumSidebar(queryClient, serverId, retainId, signal, token)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
-      publishNormalizedForumSidebar(
-          queryClient,
-          serverId,
-          normalized,
-          retainId,
-          signal,
-          token,
-        )
-        reconcileForumSidebarNotifyMembershipsFromBase(
-          queryClient,
-          serverId,
-          normalized.base,
-          { token, signal },
-          normalized.retainedDisposition === "eligible"
-            ? normalized.retained?.id ?? null
-            : null,
-        )
+      const result = publishNormalizedForumSidebar(queryClient, serverId, normalized, retainId, signal, token)
       unreadProjection.confirmAccessScopes(
         [
           ...normalized.base.threads,
@@ -547,11 +548,7 @@ export function useForumSidebarThreads(
         ].map((thread) => ({ kind: "channel" as const, channelId: thread.id })),
         confirmation,
       )
-      return {
-        ...normalized.base,
-        threads: [],
-        verifiedEpoch: requestEpoch,
-      }
+      return result.data
     },
   })
   const previousRetainId = useRef(retainId)
@@ -561,15 +558,18 @@ export function useForumSidebarThreads(
     void invalidateForumSidebarBaseExact(queryClient, serverId)
   }, [queryClient, retainId, serverId])
 
-  const [clockNowMs, setClockNowMs] = useAtom(useCreateAtom<number | null>(null))
+  const hydratedClient = useHydratedClient()
+  const [clockNowMs, setClockNowMs] = useMountedClock()
+  const serverNowMs = hydratedClient
+    ? clockNowMs + (query.data?.serverClockOffsetMs ?? 0)
+    : null
+  const result = useMemo(() => readForumSidebarWindowResult(query.data), [query.data])
+  const sidebar = useServerSidebarProjection(serverId, retainId, serverNowMs, result?.window, query.isError)
+  const canonical = sidebar.projection
   useEffect(() => {
-    const timeout = globalThis.setTimeout(() => setClockNowMs(Date.now()), 0)
-    return () => globalThis.clearTimeout(timeout)
-  }, [setClockNowMs])
-  const serverNowMs = clockNowMs === null
-    ? null
-    : clockNowMs + (query.data?.serverClockOffsetMs ?? 0)
-  const canonical = useForumSidebarProjection(serverId, retainId, serverNowMs)
+    if (!enabled || !(sidebar.needsRead || query.data !== undefined && !result && sidebar.status === "pending") || query.isFetching || query.isError) return
+    void invalidateForumSidebarBaseExact(queryClient, serverId)
+  }, [enabled, sidebar.needsRead, sidebar.status, result, query.data, query.isFetching, query.isError, queryClient, serverId])
   const attentionScopes = useAttentionScopes()
   const projection = useMemo(() => {
     const structuralProjection = canonical ?? { threads: [], parentUnread: {} }
@@ -613,10 +613,8 @@ export function useForumSidebarThreads(
     ...query,
     threads: projection.threads,
     parentUnread: projection.parentUnread,
-    projectionReady: query.isError || (
-      clockNowMs !== null
-      && (query.data !== undefined || restoredForumProjection || (canonical?.threads.length ?? 0) > 0)
-    ),
+    projectionReady: sidebar.status === "ready",
+    sidebar,
     verifiedEpoch: accessEpoch,
   }
 }

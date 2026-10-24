@@ -70,8 +70,8 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.bots())).toBe(true)
   })
 
-  it("does not restore transient transport state on reload", () => {
-    expect(shouldPersistQueryKey(communityKeys.forumSidebarThreads("srv_1"))).toBe(false)
+  it("allows the forum window resource key while excluding other transient transport", () => {
+    expect(shouldPersistQueryKey(communityKeys.forumSidebarThreads("srv_1"))).toBe(true)
     expect(shouldPersistQueryKey(communityKeys.channelMeta("srv_1", "thread_1"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.message("opener_1"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.channelRefDirectory())).toBe(false)

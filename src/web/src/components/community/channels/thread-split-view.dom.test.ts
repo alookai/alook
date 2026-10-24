@@ -180,12 +180,15 @@ describe("ThreadSplitView", () => {
   it("keeps the target input, section, panel and group across type resolution and layout changes", () => {
     const thread = createElement("input", { "data-testid": "target-input" })
     const renderer = render(createElement(ThreadSplitView, {
-      split: false, parent: null, thread, conversationSubtype: "unknown",
+      split: false, parent: null, thread, conversationSubtype: "unknown", resolvingParent: true,
     }))
     const group = screen.getByTestId("panel-group")
     const panel = screen.getByTestId("panel-thread")
     const section = screen.getByLabelText("Conversation")
     const input = screen.getByTestId("target-input") as HTMLInputElement
+    expect(group).toHaveAttribute("data-inert", "true")
+    expect(group).toHaveAttribute("data-hidden", "true")
+    expect(group).toHaveAttribute("data-persists-layout", "false")
     input.value = "Target draft"
     for (const split of [false, true, false, true]) {
       renderer.rerender(createElement(ThreadSplitView, {
@@ -196,6 +199,8 @@ describe("ThreadSplitView", () => {
       expect(screen.getByTestId("community-thread-split-panel")).toBe(section)
       expect(screen.getByTestId("target-input")).toBe(input)
       expect(input.value).toBe("Target draft")
+      expect(group).toHaveAttribute("data-inert", "undefined")
+      expect(group).toHaveAttribute("data-hidden", "undefined")
       expect(panel).toHaveAttribute("data-min-size", String(THREAD_SPLIT_PANEL_MIN_WIDTH))
       expect(panel).toHaveAttribute("data-max-size", String(THREAD_SPLIT_PANEL_MAX_WIDTH))
     }

@@ -20,6 +20,7 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCanonicalCommunityChannels, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import {
   grantForumSidebarChild,
+  getForumSidebarBase,
   hasForumSidebarOwnershipEvidence,
   isForumSidebarParent,
   patchForumSidebarActivityExact,
@@ -33,6 +34,7 @@ import {
 import { evictServerChannelScopes } from "./scope-eviction"
 import {
   invalidateChannelMessages,
+  invalidateForumSidebar,
   invalidateChannelRefDirectory,
   invalidateInvites,
   invalidateServerDetail,
@@ -41,7 +43,9 @@ import {
 } from "./invalidation-projections"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
-export function handleChildChannelCreate(event: CommunityChildChannelCreate, { projection }: StructureTreeEventContext) {
+export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
+  const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")
+  if (parent?.serverId) invalidateForumSidebar(projection, parent.serverId)
   invalidateThreads(projection, event.parentChannelId)
   if (event.parentMessageId) invalidateChannelMessages(projection, event.parentChannelId)
 }
@@ -61,7 +65,7 @@ export function handleChildChannelUpdate(
       queryKey: communityKeys.forumTags(event.parentChannelId),
     })
   }
-  const sidebarServerId = getCommunityRuntime(queryClient).ui.get().currentServerId
+  const sidebarServerId = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")?.serverId
   if (
     sidebarServerId &&
     isForumSidebarParent(queryClient, sidebarServerId, event.parentChannelId)
@@ -89,6 +93,9 @@ export function handleChildChannelUpdate(
         (changes.tags ?? []).includes(FORUM_ARCHIVE_TAG),
       )
     } else if (changes.lastMessageAt) {
+      if (!getForumSidebarBase(queryClient, sidebarServerId).threads.some(thread => thread.id === event.channelId)) {
+        invalidateForumSidebar(projection, sidebarServerId)
+      }
       patchForumSidebarActivityExact(
         queryClient,
         sidebarServerId,

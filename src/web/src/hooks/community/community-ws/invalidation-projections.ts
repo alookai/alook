@@ -125,3 +125,7 @@ export function invalidateInvites(
     exact: true,
   })
 }
+
+export function invalidateForumSidebar(projection: CommunityWsProjectionTransaction, serverId: string) {
+  projection.fence("forum-sidebar-base", { queryKey: communityKeys.forumSidebarThreads(serverId), exact: true })
+}

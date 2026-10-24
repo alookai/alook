@@ -6,6 +6,7 @@ import { act, fireEvent, screen } from "@/test/react-dom-harness"
 import { renderCommunity as render, renderCommunityHook } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelRoute } from "./channel-route"
+import { ThreadSplitView } from "./thread-split-view"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 import { ForumChannelSurface } from "./forum-channel-surface"
 import { MessageList } from "../messages/message-list"
@@ -242,7 +243,7 @@ vi.mock("@/components/community/channels/thread-split-parent-surface", () => ({
   ThreadSplitParentSurface: mockSplitParentSurface,
 }))
 vi.mock("@/components/community/channels/thread-split-view", () => ({
-  ThreadSplitView: ({
+  ThreadSplitView: vi.fn(({
     split,
     layoutPending = false,
     parent,
@@ -275,7 +276,7 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
       { "data-testid": conversationSubtype === "thread" ? "community-thread-split-panel" : undefined },
       thread,
     ),
-  ),
+  )),
 }))
 vi.mock("@/hooks/community/use-forum-opener-hint", () => ({
   useForumOpenerHint: () => mockForumOpener,
@@ -1286,6 +1287,29 @@ describe("ChannelRoute message surface ownership", () => {
     })
     expect(screen.getByRole("button", { name: "Retrying…" })).toBeDisabled()
     await act(async () => renderer.unmount())
+  })
+
+  it.each(["desktop", "mobile"] as const)("keeps unknown %s route resolution outside the changing panel without hiding terminal Retry", breakpoint => {
+    mockBreakpoint.value = breakpoint
+    Object.assign(mockRouteModel, {
+      server: null, channel: null, parent: null, currentChannelMeta: null,
+      routeLifecycle: "pending", routeHydrated: false, skeletonSubtype: "unknown",
+    })
+    const node = () => React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" })
+    const view = render(node())
+    expect(vi.mocked(ThreadSplitView).mock.lastCall?.[0]).toMatchObject({ conversationSubtype: "unknown", resolvingParent: true })
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    Object.assign(mockRouteModel, { routeLifecycle: "terminal-error", metadataError: true })
+    view.rerender(node())
+    expect(vi.mocked(ThreadSplitView).mock.lastCall?.[0]).toMatchObject({ conversationSubtype: "unknown", resolvingParent: false })
+    expect(screen.getByRole("button", { name: "Retry" })).not.toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(mockRouteModel.retryMetadata).toHaveBeenCalledTimes(1)
+    Object.assign(mockRouteModel, { routeLifecycle: "pending", retryingMetadata: true })
+    view.rerender(node())
+    expect(vi.mocked(ThreadSplitView).mock.lastCall?.[0]).toMatchObject({ resolvingParent: false })
+    expect(screen.getByRole("button", { name: "Retrying…" })).toBeDisabled()
+    view.unmount()
   })
 
   it("shows an authoritative split target before the effect-owned pointer commits", async () => {

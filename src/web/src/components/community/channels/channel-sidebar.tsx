@@ -1,6 +1,7 @@
 "use client"
 
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
+import type { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { OfficialServerBadge } from "../official-server-badge"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
@@ -79,6 +80,13 @@ function ChannelSidebarContent({
   const scrollRef = useRef<HTMLDivElement>(null)
   useCommunityDndScrolling(scrollRef, "community/channel-tree")
   const menuActionsRef = useRef<ContextMenuPrimitive.Root.Actions | null>(null)
+  const headerMenuActionsRef = useRef<MenuPrimitive.Root.Actions | null>(null)
+  useEffect(() => {
+    if (!onOpenSettings) {
+      headerMenuActionsRef.current?.close()
+      headerMenuActionsRef.current?.unmount()
+    }
+  }, [onOpenSettings])
   useEffect(() => {
     if (!isAdmin) {
       menuActionsRef.current?.close()
@@ -237,40 +245,39 @@ function ChannelSidebarContent({
       {!noHeader && (
         <header className="relative flex h-12 items-center gap-1 border-b border-border/40 px-2">
           <OfficialServerBadge official={official} className="absolute left-1 top-0.5 z-1" />
-          {serverName && onOpenSettings ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-md px-2 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-auto sm:py-1">
-                <span className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName}</span>
-                <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
-              </DropdownMenuTrigger>
+          <DropdownMenu disabled={!onOpenSettings} actionsRef={headerMenuActionsRef}>
+            <DropdownMenuTrigger disabled={!onOpenSettings} className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-md px-2 enabled:hover:bg-accent disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-auto sm:py-1">
+              <span className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName || "\u00a0"}</span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+            </DropdownMenuTrigger>
+            {onOpenSettings && (
               <DropdownMenuContent align="start" className="w-48">
                 <DropdownMenuItem onClick={() => onOpenSettings("overview")} data-testid={tid.serverSettingsOpen}><Settings className="size-4" /> Overview</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings("members")}><Users className="size-4" /> Members</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings("invites")}><Link2 className="size-4" /> Invites</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onOpenSettings("notifications")}><Bell className="size-4" /> Notifications</DropdownMenuItem>
               </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <span className="flex min-w-0 max-w-full items-center gap-2 px-2">
-              <span className="min-w-0 truncate pr-1 font-brand text-[1.75rem] leading-none font-bold">{serverName || "\u00a0"}</span>
-            </span>
-          )}
-          {serverId && onInvitePopoverOpenChange && (
+            )}
+          </DropdownMenu>
+          {serverId && (
             <>
               <button
-                onClick={() => onInvitePopoverOpenChange(true)}
-                className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                onClick={() => onInvitePopoverOpenChange?.(true)}
+                disabled={!onInvitePopoverOpenChange}
+                className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground enabled:hover:bg-accent enabled:hover:text-foreground disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 aria-label="Invite to server"
                 title="Invite to server"
               >
                 <UserPlus className="size-4" />
               </button>
-              <InviteDialog
-                open={!!invitePopoverOpen}
-                onOpenChange={onInvitePopoverOpenChange}
-                serverId={serverId}
-                serverName={serverName}
-              />
+              {onInvitePopoverOpenChange && (
+                <InviteDialog
+                  open={!!invitePopoverOpen}
+                  onOpenChange={onInvitePopoverOpenChange}
+                  serverId={serverId}
+                  serverName={serverName}
+                />
+              )}
             </>
           )}
         </header>

@@ -1,5 +1,7 @@
 "use client"
 
+import { forumSidebarWindowComplete, type ForumSidebarWindow } from "@/lib/community/forum-sidebar-window"
+
 import { createContext, createElement, useContext, useMemo, type Context, type ReactNode } from "react"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
 import { DbProvider, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
@@ -68,11 +70,6 @@ export function useTrustedRestoredPrimary() {
   return useSelector(registry?.restoration ?? absentRestoration, (state) => state.names.has("categories") && state.names.has("channels"))
 }
 
-export function useTrustedRestoredForumProjection() {
-  const registry = useOptionalCommunityDbRegistry()
-  return useSelector(registry?.restoration ?? absentRestoration, (state) => ["channels", "channelMemberships", "messages"].every((name) => state.names.has(name)))
-}
-
 export function CommunityDbProvider({
   registry,
   children,
@@ -110,9 +107,6 @@ function useCollectionRows<N extends CommunityCollectionName>(name: N, where?: C
 function useServerRows(serverId?: string) {
   return useCollectionRows("servers", ({ row }) => serverId === undefined ? eq(1, 1) : eq(row.id, serverId))
 }
-function useCategoryRows(serverId?: string) {
-  return useCollectionRows("categories", ({ row }) => serverId === undefined ? eq(1, 1) : eq(row.serverId, serverId))
-}
 function useServerMembershipRows() { return useCollectionRows("serverMemberships") }
 function useFolderRows() { return useCollectionRows("folders") }
 function useFolderItemRows() { return useCollectionRows("folderItems") }
@@ -126,10 +120,6 @@ function useChannelRows(serverId?: string, type?: ChannelRow["type"]) {
 function useChannelMembershipRows(channelIds?: string[]) {
   return useCollectionRows("channelMemberships", ({ row }) => channelIds === undefined ? eq(1, 1) : inArray(row.channelId, channelIds))
 }
-function useMessageRowsById(messageIds: string[]) {
-  return useCollectionRows("messages", ({ row }) => inArray(row.id, messageIds))
-}
-
 export function useServerRailProjection() {
   const rows = {
     registry: useOptionalCommunityDbRegistry(),
@@ -205,13 +195,13 @@ export function useServerRailProjection() {
 }
 
 export function useServerTreeProjection(serverId: string | null) {
-  const rows = {
-    servers: useServerRows(serverId ?? ""),
-    categories: useCategoryRows(serverId ?? ""),
-    channels: useChannelRows(serverId ?? ""),
-  }
+  const servers = useCollectionQuery("servers", ({ row }) => eq(row.id, serverId ?? ""))
+  const categories = useCollectionQuery("categories", ({ row }) => eq(row.serverId, serverId ?? ""))
+  const channels = useCollectionQuery("channels", ({ row }) => eq(row.serverId, serverId ?? ""))
+  const ready = servers.isReady && categories.isReady && channels.isReady
+  const rows = { servers: servers.data, categories: categories.data, channels: channels.data }
   return useMemo(() => {
-    if (!serverId || !rows.servers || !rows.categories || !rows.channels) return undefined
+    if (!ready || !serverId || !rows.servers || !rows.categories || !rows.channels) return undefined
     const server = rows.servers.find((candidate) => candidate.id === serverId)
     if (!server?.detailComplete) return undefined
     const channels = rows.channels.filter((channel) => (
@@ -255,7 +245,7 @@ export function useServerTreeProjection(serverId: string | null) {
       ownerId: server.ownerId, categories,
     }
     return view
-  }, [rows.servers, rows.categories, rows.channels, serverId])
+  }, [ready, rows.servers, rows.categories, rows.channels, serverId])
 }
 
 export function useDmProjection() {
@@ -494,30 +484,40 @@ export function useChannelRefDirectoryProjection(): ChannelRefDirectory | undefi
   }, [rows.channels, rows.servers])
 }
 
-export function useForumSidebarProjection(
-  serverId: string,
-  retainId: string | null,
-  serverNowMs: number | null,
-) {
-  const registry = useOptionalCommunityDbRegistry()
-  const channels = useChannelRows(serverId)
-  const channelIds = useMemo(() => (channels ?? []).map((channel) => channel.id), [channels])
-  const channelMemberships = useChannelMembershipRows(channelIds)
-  const openerIds = useMemo(() => (channels ?? []).flatMap((channel) => (
-    channel.parentMessageId ? [channel.parentMessageId] : []
-  )), [channels])
-  const messages = useMessageRowsById(openerIds)
-  const rows = { registry, channels, channelMemberships, messages }
+function useForumSidebarRows(serverId: string) {
+  const serverProjection = useCollectionQuery("servers", ({ row }) => eq(row.id, serverId))
+  const channelProjection = useCollectionQuery("channels", ({ row }) => eq(row.serverId, serverId))
+  const channels = channelProjection.data
+  const channelIds = useMemo(() => (channels ?? []).map(row => row.id), [channels])
+  const membershipProjection = useCollectionQuery("channelMemberships", ({ row }) => inArray(row.channelId, channelIds))
+  const openerIds = useMemo(() => (channels ?? []).flatMap(row => row.parentMessageId ? [row.parentMessageId] : []), [channels])
+  const messageProjection = useCollectionQuery("messages", ({ row }) => inArray(row.id, openerIds))
+  const ready = serverProjection.isReady && channelProjection.isReady && membershipProjection.isReady && messageProjection.isReady
+  return { registry: channelProjection.registry, ready, servers: serverProjection.data, channels,
+    channelMemberships: membershipProjection.data, messages: messageProjection.data }
+}
+
+export function useForumSidebarProjection(serverId: string, retainId: string | null, serverNowMs: number | null) {
+  const rows = useForumSidebarRows(serverId)
   return useMemo(() => {
-    if (
-      serverNowMs === null
-      || !rows.registry
-      || !rows.channels
-      || !rows.channelMemberships
-      || !rows.messages
-    ) return undefined
-    const { threads, parentUnread } = projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages,
-      rows.registry.accountId, serverId, retainId, serverNowMs)
-    return { threads, parentUnread }
-  }, [serverNowMs, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
+    if (serverNowMs === null || !rows.ready || !rows.registry || !rows.channels || !rows.channelMemberships || !rows.messages) return undefined
+    return projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages, rows.registry.accountId, serverId, retainId, serverNowMs)
+  }, [serverNowMs, rows.ready, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
+}
+
+export function useServerSidebarProjection(
+  serverId: string, retainId: string | null, serverNowMs: number | null, window: ForumSidebarWindow | undefined, failed: boolean,
+) {
+  const server = useServerTreeProjection(serverId)
+  const { ready, registry, servers, channels, channelMemberships, messages } = useForumSidebarRows(serverId)
+  return useMemo(() => {
+    if (serverNowMs === null || !ready || !registry || !servers || !channels || !channelMemberships || !messages) {
+      return { server, projection: undefined, status: failed ? "error" as const : "pending" as const, needsRead: false }
+    }
+    const complete = !!server && (!channels.some(row => row.type === "forum")
+      || !!window && forumSidebarWindowComplete(window, { servers, channels, channelMemberships, messages }, registry.accountId, serverId, retainId, serverNowMs))
+    const projection = projectForumSidebar(channels, channelMemberships, messages, registry.accountId, serverId, retainId, serverNowMs)
+    return { server, projection, status: complete ? "ready" as const : failed ? "error" as const : "pending" as const,
+      needsRead: !!server && !!window && !complete }
+  }, [server, serverNowMs, ready, registry, servers, channels, channelMemberships, messages, window, serverId, retainId, failed])
 }

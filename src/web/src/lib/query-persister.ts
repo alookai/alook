@@ -1,3 +1,4 @@
+import { forumSidebarWindowComplete, isForumSidebarWindowKey, readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
 import { messageProfileIds, type Msg } from "@/lib/community/models/message"
 import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
 import { clearPublicWorkerCaches, getPublicWorkerCacheSizeBytes } from "@/lib/service-worker/public-cache-storage"
@@ -39,7 +40,7 @@ function isCommunityDbCollectionKey(queryKey: readonly unknown[]): boolean {
 }
 
 export function shouldPersistQueryKey(queryKey: readonly unknown[]): boolean {
-  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey)
+  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isForumSidebarWindowKey(queryKey)
 }
 
 export function shouldPersistQuery(
@@ -47,6 +48,12 @@ export function shouldPersistQuery(
   data: unknown,
 ): boolean {
   return isCommunityDbCollectionKey(queryKey) || persistentCommunityListResource(queryKey, data) !== undefined
+    || isForumSidebarWindowKey(queryKey) && readForumSidebarWindowResult(data)?.window.serverId === queryKey[2]
+}
+
+export function shouldDehydrateCommunityQuery(query: { queryKey: readonly unknown[]; state: { status: string; data: unknown } }) {
+  return (query.state.status === "success" || isForumSidebarWindowKey(query.queryKey))
+    && shouldPersistQuery(query.queryKey, query.state.data)
 }
 
 export type CommunityRestoredCollections = Partial<{
@@ -223,6 +230,17 @@ function scrubDehydratedClient(
     const collectionName = q.queryKey[3] as CommunityCollectionName
     const data = windowed[collectionName]
     if (data) queries.push({ ...q, state: { ...q.state, data } })
+  }
+  const retiredServerIds = new Set(rows("channels").filter(row => retired.has(row.id)).map(row => row.serverId))
+  for (const q of client.clientState.queries) {
+    if (!userId || !isForumSidebarWindowKey(q.queryKey)) continue
+    const data = readForumSidebarWindowResult(q.state.data)
+    if (!data || data.window.serverId !== q.queryKey[2] || retiredServerIds.has(data.window.serverId)
+      || data.window.parents.some(id => retired.has(id))
+      || [...data.window.base, ...(data.window.retained?.disposition === "eligible" ? [data.window.retained.reference] : [])].some(row => retired.has(row.id) || retired.has(row.parentChannelId))
+      || !forumSidebarWindowComplete(data.window, { servers: rows("servers"), channels: retainedChannels, channelMemberships: retainedChannelMemberships, messages: retainedMessages }, userId, data.window.serverId, null, Date.now() + data.serverClockOffsetMs)) continue
+    queries.push({ ...q, state: { ...q.state, data, status: "success", error: null, errorUpdatedAt: 0,
+      errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } })
   }
   return {
     ...client,

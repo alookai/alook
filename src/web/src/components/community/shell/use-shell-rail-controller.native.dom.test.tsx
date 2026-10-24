@@ -39,7 +39,7 @@ vi.mock("@/hooks/community/use-server-members", () => ({ useServerMembers: () =>
 vi.mock("@/hooks/community/use-server-panels", async (original) => ({ ...await original<typeof import("@/hooks/community/use-server-panels")>(), usePresence: () => undefined }))
 vi.mock("@/hooks/community/use-forum-sidebar-threads", async (original) => ({
   ...await original<typeof import("@/hooks/community/use-forum-sidebar-threads")>(),
-  useForumSidebarThreads: () => ({ threads: [], parentUnread: {}, projectionReady: true }),
+  useForumSidebarThreads: (serverId: string) => ({ threads: [], parentUnread: {}, projectionReady: true, sidebar: { server: { id: serverId, categories: [] }, status: "ready" } }),
 }))
 vi.mock("@/hooks/community/use-notification-settings", async (original) => ({
   ...await original<typeof import("@/hooks/community/use-notification-settings")>(),
