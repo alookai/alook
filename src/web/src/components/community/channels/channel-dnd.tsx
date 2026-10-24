@@ -37,6 +37,12 @@ export function ChannelDndScope({ tree, onDrop, enabled = true, children }: {
     if (item?.owner === owner && result && latest.current.enabled && projectChannelTreeDrop(latest.current.tree, result)) latest.current.onDrop(result)
   }, [owner])
   useDndCancellation(useCallback(() => finish(), [finish]))
+  useLayoutEffect(() => {
+    const monitor = manager.getMonitor()
+    if (enabled || !monitor.isDragging() || (monitor.getItem() as Item | null)?.owner !== owner) return
+    finish()
+    manager.getActions().endDrag()
+  }, [enabled, finish, manager, owner])
   useLayoutEffect(() => () => {
     current.current = null
     if ((manager.getMonitor().getItem() as Item | null)?.owner === owner && manager.getMonitor().isDragging()) manager.getActions().endDrag()

@@ -55,7 +55,7 @@ async function dispatchTouchGesture(
   start: { x: number; y: number },
   end: { x: number; y: number },
   holdMs: number,
-  probe?: { source: Locator; target: Locator },
+  probe?: { source: Locator; target: Locator; expectsMenu: boolean },
   liveTargetRatio = 0.5,
   previewScreenshotPath?: string,
 ) {
@@ -72,6 +72,19 @@ async function dispatchTouchGesture(
   })
   const dispatch = (type: "touchstart" | "touchmove" | "touchend", point: { x: number; y: number }) =>
     origin.evaluate((element, args) => {
+      const pointer = (type: "pointerdown" | "pointerup") => new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        pointerId: 1,
+        pointerType: "touch",
+        isPrimary: true,
+        button: 0,
+        buttons: type === "pointerdown" ? 1 : 0,
+        clientX: args.point.x,
+        clientY: args.point.y,
+      })
+      if (args.type === "touchstart") element.dispatchEvent(pointer("pointerdown"))
       const touch = new Touch({
         identifier: 1,
         target: element,
@@ -88,10 +101,17 @@ async function dispatchTouchGesture(
         targetTouches: args.type === "touchend" ? [] : [touch],
         changedTouches: [touch],
       }))
+      if (args.type === "touchend") element.dispatchEvent(pointer("pointerup"))
     }, { type, point })
   await dispatch("touchstart", start)
   await page.waitForTimeout(20)
   if (holdMs > 0) await page.waitForTimeout(holdMs)
+  let sawHeldMenu = false
+  let sawMenuUnmounted = false
+  if (probe?.expectsMenu) {
+    await expect(page.getByRole("menu")).toBeVisible()
+    sawHeldMenu = true
+  }
   let sawDragging = false
   let sawFeedback = false
   let capturedPreview = false
@@ -114,7 +134,17 @@ async function dispatchTouchGesture(
     await dispatch("touchmove", currentPoint)
     await page.waitForTimeout(20)
     if (probe) {
-      sawDragging ||= await probe.source.getAttribute("data-dragging") === "true"
+      const dragging = await probe.source.getAttribute("data-dragging") === "true"
+      sawDragging ||= dragging
+      if (dragging && probe.expectsMenu && !sawMenuUnmounted) {
+        await expect(page.getByRole("menu")).toHaveCount(0)
+        await expect(page.locator('[data-slot="context-menu-content"]')).toHaveCount(0)
+        await expect.poll(() => probe.target.evaluate((element) => {
+          const rect = element.getBoundingClientRect()
+          return element.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))
+        })).toBe(true)
+        sawMenuUnmounted = true
+      }
       sawFeedback ||= await probe.target.evaluate((element) => !!element.closest("[data-rail-preview]"))
       if (sawFeedback && previewScreenshotPath && !capturedPreview) {
         capturedPreview = true
@@ -125,10 +155,18 @@ async function dispatchTouchGesture(
   await dispatch("touchend", currentEnd)
   await page.waitForTimeout(20)
   await expect(page.locator("[data-rail-floating-preview]")).toHaveCount(0)
+  if (probe?.expectsMenu) {
+    expect(sawHeldMenu).toBe(true)
+    expect(sawMenuUnmounted).toBe(true)
+    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expect(page.locator('[data-slot="context-menu-content"]')).toHaveCount(0)
+  }
   return {
     events: await page.evaluate(() => Reflect.get(window, "__railTouchEvents") as string[]),
     sawDragging,
     sawFeedback,
+    sawHeldMenu,
+    sawMenuUnmounted,
   }
 }
 
@@ -196,6 +234,7 @@ async function touchDrag(
   await scrollIntoView(target)
   await waitForElementMotion(source)
   const sourceTestId = await source.getAttribute("data-testid")
+  expect(sourceTestId).not.toBeNull()
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
   if (!sourceBox || !targetBox) throw new Error("touch drag target is outside the viewport")
@@ -205,7 +244,7 @@ async function touchDrag(
     { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 },
     { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height * targetRatio },
     660,
-    { source, target },
+    { source, target, expectsMenu: sourceTestId!.startsWith(tid.serverIcon("")) },
     targetRatio,
     previewScreenshotPath,
   )
@@ -530,7 +569,9 @@ test("server rail keeps scroll separate from React DnD native and touch drag", a
   expect(firstTouch.events).toContain("touchstart")
   expect(firstTouch.events).toContain("touchmove")
   expect(firstTouch.events).toContain("touchend")
-  expect(firstTouch.events).not.toContain("contextmenu")
+  expect(firstTouch.events).toContain("contextmenu")
+  expect(firstTouch.sawHeldMenu).toBe(true)
+  expect(firstTouch.sawMenuUnmounted).toBe(true)
   expect(firstTouch.sawDragging).toBe(true)
   expect(firstTouch.sawFeedback).toBe(true)
   await expect(page.locator("[data-rail-preview]")).toHaveCount(0)
@@ -774,11 +815,13 @@ test("short server rail keeps Add adjacent and desktop geometry stable", async (
   const endLongPress = await startStationaryTouch(page, onlyServer)
   try {
     await page.waitForTimeout(700)
+    await expect(page.getByRole("menu")).toBeVisible()
     await expect(onlyServer).not.toHaveAttribute("data-dragging", "true")
     await expect(page.locator("[data-rail-floating-preview]")).toHaveCount(0)
   } finally { await endLongPress() }
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__railOnlyServerClicks")))
-    .toBe(1)
+    .toBe(0)
+  await expect(page.getByRole("menu")).toBeVisible()
   expect(new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
   expect(railPatchCount).toBe(0)
 })

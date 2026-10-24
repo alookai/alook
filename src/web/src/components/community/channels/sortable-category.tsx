@@ -1,16 +1,15 @@
 "use client"
 
-import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
-import { useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
 import { ChevronDown, Plus, Settings, Folder, Lock, Trash2 } from "lucide-react"
 import { useChannelDndItem } from "./channel-dnd"
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, isKeyboardContextMenu } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { tid } from "@/lib/community/testids"
 import { DropLine } from "../drop-line"
+import { useDndContextMenu } from "../use-dnd-context-menu"
 
 export function hasCategoryMenu(h: { onAddChannel?: () => void; onSettings?: () => void; onDelete?: () => void }) {
   return !!(h.onAddChannel || h.onSettings || h.onDelete)
@@ -47,7 +46,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
     "aria-description": isPrivate ? "Private category" : "Public category",
     "aria-expanded": hasChannels ? open : undefined,
     onPointerDownCapture: resumeClick,
-    onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") resumeClick() },
+    onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " " || isKeyboardContextMenu(event.nativeEvent)) resumeClick() },
     onClick: () => { if (hasChannels && !suppressClick()) onToggle() },
     onKeyDown: (event: React.KeyboardEvent) => { if (event.target === event.currentTarget && hasChannels && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); if (!suppressClick()) onToggle() } },
     className: `group flex w-full touch-manipulation items-center gap-1 rounded px-1 py-1 text-xs font-semibold text-muted-foreground/80 select-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${placement === "append" ? "bg-primary/5 ring-1 ring-primary" : ""} ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`,
@@ -80,18 +79,12 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
     </>
   )
   const hasMenu = hasCategoryMenu({ onAddChannel, onSettings, onDelete })
-  const menuActionsRef = useRef<ContextMenuPrimitive.Root.Actions | null>(null)
-  useEffect(() => {
-    if (!hasMenu) {
-      menuActionsRef.current?.close()
-      menuActionsRef.current?.unmount()
-    }
-  }, [hasMenu])
+  const menu = useDndContextMenu({ canOpen: hasMenu, canDrag: () => canReorder, suppressOpen: suppressClick })
   return (
     <div ref={setNodeRef} data-channel-category={catDndId} style={style} className={`relative mb-4 ${pending ? "opacity-60" : ""}`}>
       {showLine && <DropLine side={lineSide} />}
-      <ContextMenu disabled={!hasMenu} actionsRef={menuActionsRef}>
-        <ContextMenuTrigger render={<div {...headerProps} />} onTouchStart={(event) => { if (canReorder) event.preventBaseUIHandler() }}>
+      <ContextMenu disabled={!hasMenu} actionsRef={menu.actionsRef} onOpenChange={menu.onOpenChange}>
+        <ContextMenuTrigger render={<div {...headerProps} />} {...menu.triggerProps}>
           {headerInner}
         </ContextMenuTrigger>
         {hasMenu && <ContextMenuContent className="w-48">

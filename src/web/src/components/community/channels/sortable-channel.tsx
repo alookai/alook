@@ -1,20 +1,19 @@
 "use client"
 
-import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
-import { useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { BellOff, Loader2, Pencil, Trash2, Users } from "lucide-react"
 import { EntityIcon } from "../entity-icon"
 import { useChannelDndItem } from "./channel-dnd"
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, isKeyboardContextMenu } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DropLine } from "../drop-line"
 import { tid } from "@/lib/community/testids"
 import type { Channel } from "@/lib/community/models/navigation"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { ChannelUnreadIndicator } from "./channel-unread-indicator"
+import { useDndContextMenu } from "../use-dnd-context-menu"
 
 export function hasChannelMenu(h: { onEdit?: () => void; onManageMembers?: () => void; onDelete?: () => void }) {
   return !!(h.onEdit || h.onManageMembers || h.onDelete)
@@ -69,7 +68,7 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
     "aria-roledescription": canReorder ? "draggable" : undefined,
     role: "button", tabIndex: 0,
     onPointerDownCapture: resumeClick,
-    onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") resumeClick() },
+    onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " " || isKeyboardContextMenu(event.nativeEvent)) resumeClick() },
     onClickCapture: (event: React.MouseEvent) => { if (suppressClick()) { event.preventDefault(); event.stopPropagation() } },
     className: [
       "group relative flex h-8 w-full cursor-pointer touch-manipulation items-center gap-2 rounded-md px-2 text-sm select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
@@ -105,17 +104,11 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
     <div {...rowProps} onClick={activate}>{content}</div>
   )
   const hasMenu = hasChannelMenu({ onEdit, onManageMembers, onDelete })
-  const menuActionsRef = useRef<ContextMenuPrimitive.Root.Actions | null>(null)
-  useEffect(() => {
-    if (!hasMenu) {
-      menuActionsRef.current?.close()
-      menuActionsRef.current?.unmount()
-    }
-  }, [hasMenu])
+  const menu = useDndContextMenu({ canOpen: hasMenu, canDrag: () => canReorder, suppressOpen: suppressClick })
   return (
     <>
-      <ContextMenu disabled={!hasMenu} actionsRef={menuActionsRef}>
-        <ContextMenuTrigger render={row} onTouchStart={(event) => { if (canReorder) event.preventBaseUIHandler() }} />
+      <ContextMenu disabled={!hasMenu} actionsRef={menu.actionsRef} onOpenChange={menu.onOpenChange}>
+        <ContextMenuTrigger render={row} {...menu.triggerProps} />
         {hasMenu && <ContextMenuContent className="w-48">
           <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
           {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit channel</ContextMenuItem>}

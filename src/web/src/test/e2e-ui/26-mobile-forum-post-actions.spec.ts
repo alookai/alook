@@ -317,6 +317,9 @@ async function expectFilterRail(
   await expect(page.locator("html")).not.toHaveClass(/dark/)
   await expect(bar).toBeVisible()
   await expect(rail).toBeVisible()
+  await expect(all).toBeVisible({ timeout: 20_000 })
+  await expect(last).toBeVisible({ timeout: 20_000 })
+  await expect(rail.getByRole("status", { name: "Loading tag filters" })).toHaveCount(0)
   const initial = await rail.evaluate((element) => {
     const style = getComputedStyle(element)
     element.scrollLeft = 0

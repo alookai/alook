@@ -336,7 +336,7 @@ describe("React DnD community scopes", () => {
     ui.drop()
     expect(onReorder).toHaveBeenCalledExactlyOnceWith(["empty", "public", "private", "private2"])
   })
-  it("reserves touch hold for dragging without stopping native input or opening a menu", async () => {
+  it("opens the held item menu without stopping native touch input needed by dragging", async () => {
     vi.useFakeTimers()
     const touchStarted = vi.fn()
     document.addEventListener("touchstart", touchStarted)
@@ -346,7 +346,7 @@ describe("React DnD community scopes", () => {
       fireEvent.touchStart(node, { touches: [{ identifier: 1, clientX: 20, clientY: 20, target: node }] })
       await act(async () => { vi.advanceTimersByTime(700) })
       expect(touchStarted).toHaveBeenCalledTimes(1)
-      expect(ui.queryByRole("menu")).not.toBeInTheDocument()
+      expect(ui.queryByRole("menu")).toBeInTheDocument()
       fireEvent.touchEnd(node, { touches: [] })
     } finally {
       document.removeEventListener("touchstart", touchStarted)

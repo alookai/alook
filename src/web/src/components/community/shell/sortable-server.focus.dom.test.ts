@@ -6,7 +6,8 @@ import { act, fireEvent, render, setupUser } from "@/test/react-dom-harness"
 
 const feedback = vi.hoisted(() => ({ tooltip: vi.fn() }))
 
-vi.mock("@/components/ui/context-menu", () => ({
+vi.mock(import("@/components/ui/context-menu"), async importOriginal => ({
+  ...await importOriginal(),
   ContextMenu: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
   ContextMenuTrigger: ({ render }: { render: ReactNode }) =>
     createElement("context-menu-trigger", null, render),

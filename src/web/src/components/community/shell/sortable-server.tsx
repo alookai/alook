@@ -9,6 +9,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  isKeyboardContextMenu,
 } from "@/components/ui/context-menu";
 import { RailIndicator } from "./rail-indicator";
 import {
@@ -27,6 +28,7 @@ import { RailDndBinding, type RailDndController } from "./use-server-rail-dnd"
 
 import { CommunityNavigationLink } from "./community-navigation-link"
 import { serverRootHref } from "@/lib/community/community-route"
+import { useDndContextMenu } from "../use-dnd-context-menu"
 
 type SortableServerProps = {
   href?: string;
@@ -66,6 +68,7 @@ function SortableServerImpl({
   const [confirmLeave, setConfirmLeave] = useAtom(useCreateAtom(false));
   const [activated, setActivated] = useAtom(useCreateAtom(false));
   const [tooltipOpen, setTooltipOpen] = useAtom(useCreateAtom(false));
+  const menu = useDndContextMenu({ canOpen: true, canDrag: () => dnd?.latest.current.canStart() ?? false, suppressOpen: () => dnd?.suppressClick() ?? false })
   useEffect(() => { if (isDragActive) setTooltipOpen(false) }, [isDragActive, setTooltipOpen])
 
   const activate = activated ? undefined : () => setActivated(true);
@@ -79,7 +82,7 @@ function SortableServerImpl({
       onPointerEnter={activate}
       onPointerDownCapture={activate}
       onFocusCapture={activate}
-      onKeyDownCapture={activate}
+      onKeyDownCapture={(event) => { activate?.(); if (isKeyboardContextMenu(event.nativeEvent)) dnd?.resumeClick() }}
       onContextMenuCapture={activate}
     >
       {dnd && <RailDndBinding dnd={dnd} entity={{ kind: "server", id: server.id }} element={rootRef} handle={linkRef} />}
@@ -131,8 +134,8 @@ function SortableServerImpl({
   );
 
   const withMenu = (
-    <ContextMenu>
-      <ContextMenuTrigger render={icon} onTouchStart={(event) => { if (dnd?.latest.current.canStart()) event.preventBaseUIHandler() }} />
+    <ContextMenu actionsRef={menu.actionsRef} onOpenChange={menu.onOpenChange}>
+      <ContextMenuTrigger render={icon} {...menu.triggerProps} />
       {activated && (
         <ContextMenuContent className="w-52">
           <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">
