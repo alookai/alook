@@ -7,7 +7,7 @@ import { HTML5Backend } from "react-dnd-html5-backend"
 import { TouchBackend } from "react-dnd-touch-backend"
 import { MouseTransition, MultiBackend, TouchTransition } from "dnd-multi-backend"
 
-export const communityTouchHoldDelay = 650
+export const communityTouchHoldDelay = 500
 
 export const communityDndOptions = {
   backends: [

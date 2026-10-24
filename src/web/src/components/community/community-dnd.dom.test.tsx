@@ -17,11 +17,13 @@ function setup(children: ReactNode) {
   let backend!: TestBackendImpl
   const sources = new Map<HTMLElement, string>()
   const targets = new Map<HTMLElement, string>()
+  const previews = new Map<string, { node: HTMLElement; options?: { captureDraggingState?: boolean } }>()
   const view = render(<DndProvider context={{}} backend={(manager, context) => {
     backend = TestBackend(manager, context) as TestBackendImpl
     Object.assign(backend, {
       connectDragSource: (id: string, node: HTMLElement) => { sources.set(node, id); return () => { sources.delete(node) } },
       connectDropTarget: (id: string, node: HTMLElement) => { targets.set(node, id); return () => { targets.delete(node) } },
+      connectDragPreview: (id: string, node: HTMLElement, options?: { captureDraggingState?: boolean }) => { previews.set(id, { node, options }); return () => { previews.delete(id) } },
     })
     return backend
   }}><CommunityDndProvider>{children}</CommunityDndProvider></DndProvider>)
@@ -32,7 +34,7 @@ function setup(children: ReactNode) {
   const hover = (id: string, y = 20) => act(() => backend.simulateHover([targets.get(node(id))!], { clientOffset: { x: 20, y } }))
   const drop = () => act(() => { backend.simulateDrop(); backend.simulateEndDrag() })
   const cancel = () => fireEvent.keyDown(window, { key: "Escape" })
-  return { ...view, node, start, hover, drop, cancel, backend, targets }
+  return { ...view, node, start, hover, drop, cancel, backend, targets, sources, previews }
 }
 
 const state: RailState = { serverIds: ["a", "b", "c"], folderIds: ["f"], folders: { f: ["c"] }, expanded: [] }
@@ -56,7 +58,7 @@ const categories: Category[] = [
 function TreeFixture({ onDrop, canReorder = true, rootBefore = true }: { onDrop: (event: ChannelTreeDrop) => void; canReorder?: boolean; rootBefore?: boolean }) {
   const tree = useChannelTree(categories)
   const settle = (event: ChannelTreeDrop) => { onDrop(event) }
-  return <ChannelDndScope tree={tree} onDrop={settle}>
+  return <ChannelDndScope tree={tree} onDrop={settle} enabled={canReorder}>
     <output data-testid="tree-order">{JSON.stringify({ cats: tree.catOrder, channels: Object.fromEntries(Object.entries(tree.order).map(([id, rows]) => [id, rows.map((row) => row.id)])) })}</output>
     {tree.catOrder.map((id) => <TreeItem key={id} id={id} kind="category" canReorder={canReorder} />)}
     {Object.values(tree.order).flat().map((row) => <TreeItem key={row.id} id={row.id} kind="channel" canReorder={canReorder} />)}
@@ -80,6 +82,176 @@ function ActualSidebarFixture({ onReorder }: { onReorder: (ids: string[]) => voi
 }
 
 describe("React DnD community scopes", () => {
+  it("renders a same-kind drag preview only in its owning scope", () => {
+    const ui = setup(<><div data-scope="first"><TreeFixture onDrop={vi.fn()} /></div><div data-scope="second"><TreeFixture onDrop={vi.fn()} /></div></>)
+    const source = ui.container.querySelector<HTMLElement>('[data-scope="second"] [data-testid="text"]')!
+    source.getBoundingClientRect = () => ({ top: 0, bottom: 32, left: 0, right: 220, width: 220, height: 32 }) as DOMRect
+    act(() => ui.backend.simulateBeginDrag([ui.sources.get(source)!], { clientOffset: { x: 20, y: 20 }, getSourceClientOffset: () => ({ x: 0, y: 0 }) }))
+    expect(document.querySelectorAll("[data-channel-floating-preview]")).toHaveLength(1)
+    ui.cancel()
+    expect(document.querySelector("[data-channel-floating-preview]")).toBeNull()
+  })
+
+  it("returns a canceled channel preview to the current source geometry and clears it after native animation", () => {
+    const nativeAnimate = Object.getOwnPropertyDescriptor(Element.prototype, "animate")
+    const media = vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as MediaQueryList)
+    const animation = { onfinish: null as (() => void) | null, cancel: vi.fn() }
+    const animate = vi.fn(() => animation)
+    Object.defineProperty(Element.prototype, "animate", { configurable: true, value: animate })
+    try {
+      const onDrop = vi.fn(), ui = setup(<TreeFixture onDrop={onDrop} />)
+      ui.node("text").getBoundingClientRect = () => ({ top: 0, bottom: 32, left: 0, right: 220, width: 220, height: 32 }) as DOMRect
+      ui.start("text"); ui.hover("empty", 130)
+      ui.node("text").getBoundingClientRect = () => ({ top: 20, bottom: 52, left: 10, right: 230, width: 220, height: 32 }) as DOMRect
+      ui.cancel()
+      expect(document.querySelector("[data-channel-preview-phase='returning']")).not.toBeNull()
+      expect(animate).toHaveBeenCalledExactlyOnceWith([
+        { transform: "translate(0px, 110px)" }, { transform: "translate(10px, 20px)" },
+      ], { duration: 150, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" })
+      act(() => { animation.onfinish?.() })
+      expect(document.querySelector("[data-channel-floating-preview]")).toBeNull()
+      expect(animation.cancel).toHaveBeenCalledTimes(1)
+      expect(onDrop).not.toHaveBeenCalled()
+    } finally {
+      media.mockRestore()
+      if (nativeAnimate) Object.defineProperty(Element.prototype, "animate", nativeAnimate)
+      else Reflect.deleteProperty(Element.prototype, "animate")
+    }
+  })
+
+  it("removes the channel preview immediately on permission loss and route exit, then permits a fresh authorized drag", () => {
+    const onDrop = vi.fn()
+    function PermissionFixture() {
+      const [enabled, setEnabled] = useState(true)
+      return <><button data-testid="permission" onClick={() => setEnabled(value => !value)}>Toggle permission</button><TreeFixture onDrop={onDrop} canReorder={enabled} /></>
+    }
+    const ui = setup(<PermissionFixture />)
+    ui.node("text").getBoundingClientRect = () => ({ top: 0, bottom: 32, left: 0, right: 220, width: 220, height: 32 }) as DOMRect
+    ui.start("text"); ui.hover("empty", 130)
+    expect(document.querySelectorAll("[data-channel-floating-preview]")).toHaveLength(1)
+    fireEvent.click(ui.node("permission"))
+    expect(document.querySelector("[data-channel-floating-preview]")).toBeNull()
+    expect(ui.backend.manager.getMonitor().isDragging()).toBe(false)
+    fireEvent.click(ui.node("permission"))
+    ui.start("text")
+    expect(document.querySelectorAll("[data-channel-floating-preview]")).toHaveLength(1)
+    ui.unmount()
+    expect(document.querySelector("[data-channel-floating-preview]")).toBeNull()
+    expect(onDrop).not.toHaveBeenCalled()
+  })
+
+  it("keeps one insertion indication across adjacent channel halves, gaps and the container end", () => {
+    function FeedbackFixture() {
+      const tree = useChannelTree([{ id: "main", name: "Main", channels: [channel("a"), channel("b"), channel("c")] }, { id: "spare", name: "Spare", channels: [channel("moving")] }])
+      return <ChannelSidebar tree={tree} serverId="server" serverName="Fixture" activeChannel="" setActiveChannel={() => {}} />
+    }
+    const ui = setup(<FeedbackFixture />)
+    for (const [id, top] of [["a", 40], ["b", 76], ["c", 112], ["moving", 190]] as const) {
+      ui.node(tid.channelRow(id)).getBoundingClientRect = () => ({ top, bottom: top + 32, left: 0, right: 220, width: 220, height: 32 }) as DOMRect
+    }
+    const end = ui.container.querySelector<HTMLElement>('[data-channel-drop-end="main"]')!
+    end.parentElement!.getBoundingClientRect = () => ({ top: 144, bottom: 144, left: 0, right: 220, width: 220, height: 0 }) as DOMRect
+    const count = () => ui.container.querySelectorAll('[data-slot="community-drop-line"]').length
+      + ui.container.querySelectorAll('[data-channel-drop-end][data-drop-visible="true"]').length
+    ui.start(tid.channelRow("moving"))
+    for (const [id, y] of [["a", 48], ["a", 68], ["b", 80], ["b", 100], ["c", 116], ["c", 140]] as const) {
+      ui.hover(tid.channelRow(id), y)
+      expect(count()).toBe(1)
+    }
+    expect(ui.container.querySelectorAll('[data-slot="community-drop-line"]')).toHaveLength(0)
+    expect(end).toHaveAttribute("data-drop-visible", "true")
+    act(() => ui.backend.simulateHover([ui.targets.get(end)!], { clientOffset: { x: 20, y: 151 } }))
+    expect(count()).toBe(1)
+    act(() => ui.backend.simulateHover([], { clientOffset: { x: 20, y: 74 } }))
+    expect(count()).toBe(0)
+    ui.cancel()
+    expect(count()).toBe(0)
+  })
+
+  it("keeps only the latest adjacent insertion when native hover changes before React commits", () => {
+    const onReorder = vi.fn()
+    function FeedbackFixture() {
+      const tree = useChannelTree([{ id: "main", name: "Main", channels: [channel("a"), channel("b"), channel("c")] }, { id: "spare", name: "Spare", channels: [channel("moving")] }])
+      return <ChannelSidebar tree={tree} serverId="server" serverName="Fixture" activeChannel="" setActiveChannel={() => {}} onReorderChannels={onReorder} />
+    }
+    const ui = setup(<FeedbackFixture />)
+    for (const [id, top] of [["a", 40], ["b", 76], ["c", 112], ["moving", 190]] as const) {
+      ui.node(tid.channelRow(id)).getBoundingClientRect = () => ({ top, bottom: top + 32, left: 0, right: 220, width: 220, height: 32 }) as DOMRect
+    }
+    const end = ui.container.querySelector<HTMLElement>('[data-channel-drop-end="main"]')!
+    end.parentElement!.getBoundingClientRect = () => ({ top: 144, bottom: 144, left: 0, right: 220, width: 220, height: 0 }) as DOMRect
+    const move = (id: string, y: number) => ui.backend.simulateHover([ui.targets.get(ui.node(tid.channelRow(id)))!], { clientOffset: { x: 20, y } })
+    const lines = () => ui.container.querySelectorAll('[data-slot="community-drop-line"]')
+    ui.start(tid.channelRow("moving"))
+    act(() => { move("a", 68); move("b", 80) })
+    expect(lines()).toHaveLength(1)
+    expect(ui.node(tid.channelRow("a")).querySelector('[data-slot="community-drop-line"]')).toBeNull()
+    expect(ui.node(tid.channelRow("b")).querySelector('[data-slot="community-drop-line"]')).not.toBeNull()
+    act(() => { move("c", 140); move("a", 68) })
+    expect(lines()).toHaveLength(1)
+    expect(end).not.toHaveAttribute("data-drop-visible")
+    ui.drop()
+    expect(lines()).toHaveLength(0)
+    expect(onReorder).toHaveBeenCalledExactlyOnceWith(["a", "moving", "b", "c"], { channelId: "moving", categoryId: "main" })
+  })
+
+  it("gives only the native hovered end ownership when end landing geometries overlap", () => {
+    const onDrop = vi.fn(), ui = setup(<TreeFixture onDrop={onDrop} rootBefore={false} />)
+    const end = ui.container.querySelector<HTMLElement>('[data-channel-drop-end="empty"]')!
+    const other = ui.container.querySelector<HTMLElement>(`[data-channel-drop-end="${UNCATEGORIZED_CATEGORY_ID}"]`)!
+    for (const node of [end, other]) node.parentElement!.getBoundingClientRect = () => ({ top: 100, bottom: 100, left: 0, right: 100, height: 0, width: 100 }) as DOMRect
+    ui.start("text")
+    act(() => ui.backend.simulateHover([ui.targets.get(end)!], { clientOffset: { x: 20, y: 108 } }))
+    expect(end).toHaveAttribute("data-drop-visible", "true")
+    expect(other).not.toHaveAttribute("data-drop-visible")
+    ui.drop()
+    expect(onDrop).toHaveBeenCalledExactlyOnceWith({ active: { id: "text", kind: "channel" }, over: { id: "empty", kind: "category" }, placement: "append" })
+  })
+
+  it("keeps a hovered category header as the sole append feedback over an overlapping end", () => {
+    const ui = setup(<TreeFixture onDrop={vi.fn()} />)
+    const end = ui.container.querySelector<HTMLElement>('[data-channel-drop-end="empty"]')!
+    end.parentElement!.getBoundingClientRect = () => ({ top: 100, bottom: 100, left: 0, right: 100, height: 0, width: 100 }) as DOMRect
+    ui.start("text"); ui.hover("empty-handle", 108)
+    expect(ui.node("empty")).toHaveAttribute("data-placement", "append")
+    expect(end).not.toHaveAttribute("data-drop-visible")
+    ui.cancel()
+  })
+
+  it("uses the valid parent category when its native header target cannot accept a category", () => {
+    const onDrop = vi.fn(), ui = setup(<TreeFixture onDrop={onDrop} />)
+    ui.node("private").getBoundingClientRect = () => ({ top: 100, bottom: 200, left: 0, right: 220, width: 220, height: 100 }) as DOMRect
+    ui.start("public-handle")
+    act(() => ui.backend.simulateHover([ui.targets.get(ui.node("private"))!, ui.targets.get(ui.node("private-handle"))!], { clientOffset: { x: 20, y: 190 } }))
+    expect(ui.node("private")).toHaveAttribute("data-placement", "after")
+    ui.drop()
+    expect(onDrop).toHaveBeenCalledExactlyOnceWith({ active: { id: "public", kind: "category" }, over: { id: "private", kind: "category" }, placement: "after" })
+  })
+
+  it.each(["text", "private-handle"])("moves one pointer-transparent preview with %s and removes it on cancellation", id => {
+    const onDrop = vi.fn()
+    const ui = setup(<TreeFixture onDrop={onDrop} />)
+    const height = id === "text" ? 32 : 24
+    ui.node(id).getBoundingClientRect = () => ({ top: 0, bottom: height, left: 0, right: 220, width: 220, height }) as DOMRect
+    ui.start(id)
+    const preview = document.querySelector<HTMLElement>("[data-channel-floating-preview]")!
+    expect(preview).not.toBeNull()
+    expect(preview).toHaveAttribute("aria-hidden", "true")
+    expect(preview).toHaveClass("pointer-events-none")
+    expect(preview).toHaveTextContent(id === "text" ? "text" : "Private")
+    expect(preview.querySelector("button,a,[role='button']")).toBeNull()
+    expect(preview.firstElementChild).toHaveStyle({ width: "220px", height: `${height}px`, transform: "translate(0px, 0px)" })
+    const nativeImage = ui.previews.get(ui.sources.get(ui.node(id))!)!
+    expect(nativeImage.node).toBeInstanceOf(HTMLImageElement)
+    expect(nativeImage.options).toMatchObject({ captureDraggingState: true })
+    ui.hover("empty", 130)
+    expect(document.querySelectorAll("[data-channel-floating-preview]")).toHaveLength(1)
+    expect(preview.firstElementChild).toHaveStyle({ transform: "translate(0px, 110px)" })
+    ui.cancel()
+    expect(document.querySelector("[data-channel-floating-preview]")).toBeNull()
+    expect(onDrop).not.toHaveBeenCalled()
+  })
+
   it("settles page-background release as cancellation, retaining only a visual return", () => {
     vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList)
     let dnd!: RailDndController
@@ -206,9 +378,9 @@ describe("React DnD community scopes", () => {
     expect(railInstructionAt(capped, source, target, 0.5)).toBeNull()
     expect(railInstructionAt(capped, source, target, 0.9)).toMatchObject({ operation: "reorder-after" })
   })
-  it("uses official touch activation settings and keeps a native HTML5 preview", () => {
+  it("uses the shared half-second touch activation and native HTML5 backend", () => {
     expect(communityDndOptions.backends.map((entry) => entry.id)).toEqual(["html5", "touch"])
-    expect(communityDndOptions.backends[1].options).toMatchObject({ delayTouchStart: 650, touchSlop: 8 })
+    expect(communityDndOptions.backends[1].options).toMatchObject({ delayTouchStart: 500, touchSlop: 8 })
   })
   it("commits one rail instruction on drop; Escape commits nothing", () => {
     const onDrop = vi.fn(), onCancel = vi.fn()

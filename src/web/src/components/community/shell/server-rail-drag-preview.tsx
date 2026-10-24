@@ -1,7 +1,6 @@
 "use client"
 
-import { createPortal } from "react-dom"
-import { useLayoutEffect, useRef } from "react"
+import { DndDragPreview } from "../dnd-drag-preview"
 import type { Server } from "@/lib/community/models/navigation"
 import { RailServerIcon } from "./rail-server-icon"
 import { RailFolderIcon } from "./rail-folder"
@@ -17,30 +16,6 @@ export function ServerRailDragPreview({ dnd, servers, folderNames, state, active
   activeServerId: string
 }) {
   const { entity, offset, returning } = useServerRailDrag(dnd)
-  const anchor = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    if (!returning || !anchor.current) return
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
-    const element = returning.element
-    const rect = element.getBoundingClientRect()
-    if (!element.isConnected || rect.width === 0 || rect.height === 0 || media.matches) {
-      dnd.completeReturn(returning)
-      return
-    }
-    const animation = anchor.current.animate([
-      { transform: `translate(${returning.offset.x}px, ${returning.offset.y}px)` },
-      { transform: `translate(${rect.left + (rect.width - 44) / 2}px, ${rect.top + (rect.height - 44) / 2}px)` },
-    ], { duration: 150, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" })
-    const complete = () => dnd.completeReturn(returning)
-    animation.onfinish = complete
-    const reduce = () => { if (media.matches) complete() }
-    media.addEventListener("change", reduce)
-    return () => {
-      animation.onfinish = null
-      animation.cancel()
-      media.removeEventListener("change", reduce)
-    }
-  }, [dnd, returning])
   if (!entity || !offset) return null
   const server = entity.kind === "server" ? servers.get(entity.id) : undefined
   const name = server?.name ?? folderNames.get(entity.id) ?? "Group"
@@ -48,9 +23,10 @@ export function ServerRailDragPreview({ dnd, servers, folderNames, state, active
     const child = servers.get(id)
     return child ? [child] : []
   })
-  return createPortal(
-    <div aria-hidden="true" data-testid={tid.serverRailDragPreview} data-rail-floating-preview={entity.kind} data-rail-preview-phase={returning ? "returning" : "dragging"} className="pointer-events-none fixed inset-0 z-50">
-      <div ref={anchor} className="absolute left-0 top-0 grid size-11 place-items-center" style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}>
+  return (
+    <DndDragPreview offset={offset} width={44} height={44} returning={returning}
+      onReturnComplete={() => { if (returning) dnd.completeReturn(returning) }} anchorClassName="size-11"
+      data-testid={tid.serverRailDragPreview} data-rail-floating-preview={entity.kind} data-rail-preview-phase={returning ? "returning" : "dragging"}>
         <span data-slot="community-server-rail-drag-glyph" className="relative grid size-11 place-items-center opacity-50">
           {server ? <RailServerIcon server={server} active={activeServerId === server.id} /> : (
             <span data-slot="community-server-rail-drag-folder" className={`grid size-10 shrink-0 place-items-center bg-accent/50 text-muted-foreground dark:bg-accent ${children.some((child) => child.id === activeServerId) ? "rounded-xl" : "rounded-[18px]"}`}>
@@ -63,7 +39,6 @@ export function ServerRailDragPreview({ dnd, servers, folderNames, state, active
           <span className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rotate-45 rounded-xs bg-foreground" />
           <span className="truncate">{name}</span>
         </span>
-      </div>
-    </div>, document.body,
+    </DndDragPreview>
   )
 }

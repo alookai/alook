@@ -36,6 +36,7 @@ export const tid = {
   serverRailInsert: (id: string) => `community-server-rail-insert-${id}`,
   serverRailInsertFolder: (id: string) => `community-server-rail-insert-folder-${id}`,
   categoryHeader: (id: string) => `community-category-header-${id}`,
+  channelDragPreview: "community-channel-drag-preview",
   channelSidebarScroll: "community-channel-sidebar-scroll",
   channelSidebarPending: (serverId: string) => `community-channel-sidebar-pending-${serverId}`,
   messageHeaderLeadingLoading: "community-message-header-leading-loading",

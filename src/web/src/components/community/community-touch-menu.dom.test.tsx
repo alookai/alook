@@ -41,11 +41,11 @@ function Rail({ drop, activate, menuAction, enabled }: { drop: (instruction: Rai
   return <>{["a", "b"].map(id => <SortableServer key={id} server={{ id, name: id, initial: id, active: false, unread: false, mentions: 0 }} onClick={activate} onOpenSettings={menuAction} dnd={dnd} />)}</>
 }
 
-function Tree({ kind, drop, activate, menuAction, enabled }: { kind: Exclude<Kind, "server">; drop: (event: ChannelTreeDrop) => void; activate: () => void; menuAction: () => void; enabled: boolean }) {
+function Tree({ kind, drop, activate, menuAction, enabled, withHref }: { kind: Exclude<Kind, "server">; drop: (event: ChannelTreeDrop) => void; activate: () => void; menuAction: () => void; enabled: boolean; withHref: boolean }) {
   const tree = useChannelTree([{ id: "category-a", name: "a", channels: [{ id: "channel-a", name: "a", unread: false, active: false }, { id: "channel-b", name: "b", unread: false, active: false }] }, { id: "category-b", name: "b", channels: [] }])
   return <ChannelDndScope tree={tree} onDrop={drop} enabled={enabled}>{[`${kind}-a`, `${kind}-b`].map(id => kind === "channel"
-    ? <SortableChannel key={id} ch={{ id, name: id, unread: false, active: false }} active={false} onClick={activate} onEdit={menuAction} canReorder={enabled} />
-    : <SortableCategory key={id} id={id} name={id} open onToggle={activate} onSettings={menuAction} canReorder={enabled} hasChannels>{null}</SortableCategory>)}</ChannelDndScope>
+    ? <SortableChannel key={id} ch={{ id, name: id, unread: false, active: false }} href={withHref ? `/c/channels/server/${id}` : undefined} active={false} onClick={activate} onEdit={menuAction} canReorder={enabled} />
+    : <SortableCategory key={id} id={id} name={id} open onToggle={activate} onAddChannel={menuAction} onSettings={menuAction} canReorder={enabled} hasChannels>{null}</SortableCategory>)}</ChannelDndScope>
 }
 
 function EmptyChannelScope({ enabled }: { enabled: boolean }) {
@@ -53,35 +53,116 @@ function EmptyChannelScope({ enabled }: { enabled: boolean }) {
   return <ChannelDndScope tree={tree} onDrop={() => {}} enabled={enabled}>{null}</ChannelDndScope>
 }
 
-function setup(kind: Kind, enabled = true, includeOtherScope = false) {
+function setup(kind: Kind, enabled = true, includeOtherScope = false, options: { target?: "row" | "text" | "settings" | "create"; channelHref?: boolean } = {}) {
   vi.useFakeTimers()
   const drop = vi.fn(), activate = vi.fn(), menuAction = vi.fn()
   let manager!: DragDropManager
-  const content = (enabled: boolean, otherEnabled = true) => <CommunityDndProvider><Probe ready={value => { manager = value }} />{kind === "server" ? <Rail drop={drop} activate={activate} menuAction={menuAction} enabled={enabled} /> : <Tree kind={kind} drop={drop} activate={activate} menuAction={menuAction} enabled={enabled} />}{includeOtherScope && <EmptyChannelScope enabled={otherEnabled} />}</CommunityDndProvider>
+  const content = (enabled: boolean, otherEnabled = true) => <CommunityDndProvider><Probe ready={value => { manager = value }} />{kind === "server" ? <Rail drop={drop} activate={activate} menuAction={menuAction} enabled={enabled} /> : <Tree kind={kind} drop={drop} activate={activate} menuAction={menuAction} enabled={enabled} withHref={options.channelHref ?? false} />}{includeOtherScope && <EmptyChannelScope enabled={otherEnabled} />}</CommunityDndProvider>
   const view = render(content(enabled))
   views.push(view)
   const testid = kind === "server" ? tid.serverIcon : kind === "channel" ? tid.channelRow : tid.categoryHeader
   const source = view.getByTestId(testid(kind === "server" ? "a" : `${kind}-a`)), target = view.getByTestId(testid(kind === "server" ? "b" : `${kind}-b`))
+  const startNode = options.target === "text"
+    ? Array.from(source.querySelectorAll("span")).find(node => node.textContent === (kind === "server" ? "a" : `${kind}-a`))
+    : options.target === "settings" || options.target === "create"
+      ? source.querySelector(`button[aria-label="${options.target === "settings" ? "Category settings for" : "Create channel in"} ${kind}-a"] svg`)
+      : source
+  if (!startNode) throw new Error("Missing touch start target")
   mockElementGeometry(source, { top: 0, left: 0, width: 100, height: 40 })
   mockElementGeometry(target, { top: 100, left: 0, width: 100, height: 40 })
   if (kind === "category") {
     mockElementGeometry(source.parentElement!, { top: 0, left: 0, width: 100, height: 40 })
     mockElementGeometry(target.parentElement!, { top: 100, left: 0, width: 100, height: 40 })
   }
-  Object.defineProperty(document, "elementFromPoint", { configurable: true, value: (_x: number, y: number) => y >= 90 ? target : source })
-  Object.defineProperty(document, "elementsFromPoint", { configurable: true, value: (_x: number, y: number) => [y >= 90 ? target : source] })
-  const touch = (y: number) => ({ identifier: 1, clientX: 20, clientY: y, target: source })
+  Object.defineProperty(document, "elementFromPoint", { configurable: true, value: (_x: number, y: number) => y >= 90 ? target : startNode })
+  Object.defineProperty(document, "elementsFromPoint", { configurable: true, value: (_x: number, y: number) => [y >= 90 ? target : startNode] })
+  const touch = (y: number) => ({ identifier: 1, clientX: 20, clientY: y, target: startNode })
   const start = () => {
-    fireEvent.pointerDown(source, { pointerType: "touch", button: 0 })
-    fireEvent.touchStart(source, { touches: [touch(20)], targetTouches: [touch(20)], changedTouches: [touch(20)] })
+    fireEvent.pointerDown(startNode, { pointerType: "touch", button: 0 })
+    fireEvent.touchStart(startNode, { touches: [touch(20)], targetTouches: [touch(20)], changedTouches: [touch(20)] })
   }
-  const move = (y: number) => fireEvent.touchMove(source, { touches: [touch(y)], targetTouches: [touch(y)], changedTouches: [touch(y)] })
-  const end = () => fireEvent.touchEnd(source, { touches: [], targetTouches: [], changedTouches: [touch(120)] })
+  const move = (y: number) => fireEvent.touchMove(startNode, { touches: [touch(y)], targetTouches: [touch(y)], changedTouches: [touch(y)] })
+  const end = () => fireEvent.touchEnd(startNode, { touches: [], targetTouches: [], changedTouches: [touch(120)] })
   const hold = async () => { await act(async () => { vi.advanceTimersByTime(communityTouchHoldDelay + 20) }) }
-  return { ...view, manager, drop, activate, menuAction, source, start, move, end, hold, setEnabled: (next: boolean) => view.rerender(content(next)), setOtherEnabled: (next: boolean) => view.rerender(content(enabled, next)) }
+  return { ...view, manager, drop, activate, menuAction, source, startNode, start, move, end, hold, setEnabled: (next: boolean) => view.rerender(content(next)), setOtherEnabled: (next: boolean) => view.rerender(content(enabled, next)) }
 }
 
 describe("native community touch menu and drag handoff", () => {
+  it.each<Kind>(["server", "channel", "category"])("opens the %s menu at 500ms and starts same-touch dragging without another hold", async kind => {
+    const ui = setup(kind, true, false, { target: "text", channelHref: true })
+    ui.start()
+    await act(async () => { vi.advanceTimersByTime(499) })
+    expect(ui.queryByRole("menu")).not.toBeInTheDocument()
+    expect(ui.manager.getMonitor().isDragging()).toBe(false)
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(ui.getByRole("menu")).toBeInTheDocument()
+    ui.move(55)
+    expect(ui.manager.getMonitor().isDragging()).toBe(true)
+    expect(ui.queryByRole("menu")).not.toBeInTheDocument()
+    ui.move(130)
+    ui.end()
+    expect(ui.drop).toHaveBeenCalledTimes(1)
+    expect(ui.activate).not.toHaveBeenCalled()
+    expect(ui.menuAction).not.toHaveBeenCalled()
+  })
+
+  it.each(["settings", "create"] as const)("keeps a category %s button hold out of the parent menu and drag", async target => {
+    const ui = setup("category", true, false, { target })
+    expect(ui.startNode.closest("button")).not.toBeNull()
+    ui.start()
+    await ui.hold()
+    expect(ui.queryByRole("menu")).not.toBeInTheDocument()
+    ui.move(55)
+    expect(ui.manager.getMonitor().isDragging()).toBe(false)
+    ui.move(130)
+    ui.end()
+    expect(ui.drop).not.toHaveBeenCalled()
+    expect(ui.activate).not.toHaveBeenCalled()
+    expect(ui.menuAction).not.toHaveBeenCalled()
+  })
+
+  it.each(["settings", "create"] as const)("activates only the category %s button on a short touch", async target => {
+    const ui = setup("category", true, false, { target })
+    ui.start()
+    ui.end()
+    fireEvent.click(ui.startNode)
+    await ui.hold()
+    expect(ui.menuAction).toHaveBeenCalledTimes(1)
+    expect(ui.activate).not.toHaveBeenCalled()
+    expect(ui.drop).not.toHaveBeenCalled()
+    expect(ui.queryByRole("menu")).not.toBeInTheDocument()
+    expect(ui.manager.getMonitor().isDragging()).toBe(false)
+  })
+
+  it.each(["settings", "create"] as const)("cancels a native mouse drag from the category %s button", target => {
+    const ui = setup("category", true, false, { target })
+    expect(fireEvent.dragStart(ui.startNode, { dataTransfer: {} })).toBe(false)
+    expect(ui.manager.getMonitor().isDragging()).toBe(false)
+    expect(ui.drop).not.toHaveBeenCalled()
+    expect(ui.activate).not.toHaveBeenCalled()
+    expect(ui.menuAction).not.toHaveBeenCalled()
+  })
+
+  it.each((["channel", "category"] as const).flatMap(kind => (["row", "text"] as const).map(target => ({ kind, target }))))("starts a $kind drag at its $target with production link rendering", async ({ kind, target }) => {
+    const ui = setup(kind, true, false, { target, channelHref: true })
+    expect(ui.source.tagName).toBe(kind === "channel" ? "A" : "DIV")
+    expect(ui.source.contains(ui.startNode)).toBe(true)
+    if (target === "text") expect(ui.startNode).not.toBe(ui.source)
+    ui.start()
+    await ui.hold()
+    expect(ui.startNode.isConnected).toBe(true)
+    expect(ui.getByRole("menu")).toBeInTheDocument()
+    ui.move(55)
+    expect(ui.manager.getMonitor().isDragging()).toBe(true)
+    expect(ui.queryByRole("menu")).not.toBeInTheDocument()
+    ui.move(130)
+    ui.end()
+    expect(ui.manager.getMonitor().isDragging()).toBe(false)
+    expect(ui.drop).toHaveBeenCalledTimes(1)
+    expect(ui.activate).not.toHaveBeenCalled()
+    expect(ui.menuAction).not.toHaveBeenCalled()
+  })
+
   it.each<Exclude<Kind, "server">>(["channel", "category"])("finishes a %s drop once when saving disables reordering", async kind => {
     const ui = setup(kind)
     ui.drop.mockImplementationOnce(() => { ui.setEnabled(false) })

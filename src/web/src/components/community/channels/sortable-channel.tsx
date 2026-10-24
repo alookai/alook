@@ -51,7 +51,7 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
 }) {
   const [confirmingDelete, setConfirmingDelete] = useAtom(useCreateAtom(false))
   const { setNodeRef, isDragging, isOver, placement, lineSide, dragActive, suppressClick, resumeClick } = useChannelDndItem(ch.id, "channel", canReorder)
-  const style = { opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
+  const style = { opacity: isDragging ? 0.3 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging && placement !== "append"
   const activate = () => { if (!suppressClick()) onClick() }
   const unread = selectUnreadPresentation({
@@ -86,12 +86,12 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
     <>
       {showLine && <DropLine side={lineSide} />}
       <ChannelUnreadIndicator visible={unread.showDot} hidden={isDragging} />
-      <span className="grid size-5 shrink-0 place-items-center opacity-70">
+      <span className="pointer-events-none grid size-5 shrink-0 place-items-center opacity-70">
       <EntityIcon kind={ch.type} className="size-4" />
       </span>
-      <span className="truncate font-semibold">{ch.name}</span>
+      <span className="pointer-events-none truncate font-semibold">{ch.name}</span>
       {ch.muted ? (
-      <BellOff className="ml-auto size-4 shrink-0 opacity-70" />
+      <BellOff className="pointer-events-none ml-auto size-4 shrink-0 opacity-70" />
       ) : null}
     </>
   )
