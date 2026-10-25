@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/field"
 import { SignInEmailField, SignInOtpField } from "./sign-in-fields"
 import { SocialSignIn } from "./social-sign-in"
+import { useSignInTerms } from "./sign-in-terms"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
 import { LandingShellMotion } from "@/components/home/landing-shell-motion"
@@ -64,6 +65,7 @@ function SignInForm({
   const [code, setCode] = useAtom(useCreateAtom(""))
   const [step, setStep] = useAtom(useCreateAtom<"email" | "code">("email"))
   const [retryAfter, setRetryAfter] = useAtom(useCreateAtom<number | null>(null))
+  const terms = useSignInTerms()
 
   useEffect(() => {
     if (retryAfter == null) return
@@ -85,6 +87,10 @@ function SignInForm({
 
   async function handleSendCode(e: React.SubmitEvent) {
     e.preventDefault()
+    terms.requestConsent(() => { void sendCode() })
+  }
+
+  async function sendCode() {
     if (retryAfter != null) return
     const observation = startAction("auth_send_code")
     setEmailError("")
@@ -117,6 +123,10 @@ function SignInForm({
     setCode(value)
     setOtpError("")
     if (value.length !== 6) return
+    terms.requestConsent(() => { void verifyCode(value) })
+  }
+
+  async function verifyCode(value: string) {
     const observation = startAction("auth_verify_code")
 
     setLoading(true)
@@ -146,6 +156,10 @@ function SignInForm({
 
   async function handleDevSignIn(e: React.SubmitEvent) {
     e.preventDefault()
+    terms.requestConsent(() => { void devSignIn() })
+  }
+
+  async function devSignIn() {
     const observation = startAction("auth_dev_sign_in")
     setEmailError("")
     setLoading(true)
@@ -289,10 +303,11 @@ function SignInForm({
         </form>
       )}
 
+      {terms.control}
       <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
         Or continue with
       </FieldSeparator>
-      <SocialSignIn postLoginUrl={postLoginUrl} appleEnabled={appleEnabled} />
+      <SocialSignIn postLoginUrl={postLoginUrl} appleEnabled={appleEnabled} requestConsent={terms.requestConsent} />
     </FieldGroup>
   )
 }

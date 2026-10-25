@@ -272,6 +272,7 @@ let caseJourneyFailure1Present = false
     await page.getByRole("textbox", { name: "Email" }).fill(
       `guide-reconnect-${process.pid}-${Date.now()}@example.com`,
     )
+    await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
     await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
     const onboarding = page.getByTestId(tid.onboardingHarnessDialog)

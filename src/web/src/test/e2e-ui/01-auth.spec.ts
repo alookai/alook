@@ -143,6 +143,7 @@ browserTest.describe("production OTP error placement", () => {
     browserTest.skip(!(await sendCode.isVisible()), "production Email OTP UI is not active")
 
     await page.getByRole("textbox", { name: "Email" }).fill("person@example.com")
+    await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
     await sendCode.click()
 
     const otp = page.getByRole("textbox", { name: "Verification code" })
@@ -230,6 +231,7 @@ browserTest.describe("production OTP error placement", () => {
 
     const email = page.getByRole("textbox", { name: "Email" })
     await email.fill("person@example.com")
+    await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
     await sendCode.click()
 
     let alert = page.getByRole("alert").filter({ hasText: "Failed to send code" })
@@ -336,6 +338,7 @@ browserTest.describe("native OAuth status actions", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto("/sign-in")
     await browserExpect(page.getByRole("button", { name: "GitHub" })).toBeEnabled()
+    await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
     await page.getByRole("button", { name: "GitHub" }).click()
     await expectCenteredNativeOauthState(page, {
       copy: "Opening sign-in in your browser…",

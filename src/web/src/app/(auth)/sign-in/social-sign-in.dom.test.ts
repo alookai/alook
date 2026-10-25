@@ -1,4 +1,4 @@
-import { createElement } from "react"
+import { createElement, type ComponentProps } from "react"
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -42,7 +42,11 @@ vi.mock("@/lib/native-oauth-client", () => ({
   },
 }))
 
-import { SocialSignIn } from "./social-sign-in"
+import { SocialSignIn as SocialSignInComponent } from "./social-sign-in"
+
+function SocialSignIn(props: Omit<ComponentProps<typeof SocialSignInComponent>, "requestConsent">) {
+  return createElement(SocialSignInComponent, { ...props, requestConsent: continuation => continuation() })
+}
 
 beforeEach(() => {
   mocks.tauri = false
@@ -64,6 +68,19 @@ const attempt = {
 }
 
 describe("social sign-in native boundary", () => {
+  it.each([false, true])("holds the selected provider until the shared consent gate admits it, native=%s", async native => {
+    mocks.tauri = native
+    let continuation: (() => void) | undefined
+    const gate = vi.fn((next: () => void) => { continuation = next })
+    render(createElement(SocialSignInComponent, { postLoginUrl: "/c/me?tab=1", appleEnabled: true, requestConsent: gate }))
+    await setupUser().click(button("native-oauth-apple"))
+    expect(gate).toHaveBeenCalledOnce()
+    expect(mocks.social).not.toHaveBeenCalled()
+    expect(mocks.start).not.toHaveBeenCalled()
+    await act(async () => continuation!())
+    if (native) expect(mocks.start).toHaveBeenCalledExactlyOnceWith("apple", "/c/me?tab=1")
+    else expect(mocks.social).toHaveBeenCalledExactlyOnceWith({ provider: "apple", callbackURL: "/c/me?tab=1" })
+  })
   it.each(["google", "github"])("forwards %s rejection details and does not count successful starts as failures", async provider => {
     const error = { code: "PROVIDER_NOT_FOUND", message: "Provider not found", status: 404 }
     mocks.social.mockResolvedValueOnce({ error })

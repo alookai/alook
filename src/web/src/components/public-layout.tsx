@@ -12,6 +12,7 @@ const footerLinks = [
   { href: DISCORD_INVITE_URL, label: "Discord", external: true },
   { href: "https://x.com/alook_ai", label: "X", external: true },
   { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
 ];
 
 export type PublicZone = "main" | "blog";

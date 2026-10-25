@@ -7,12 +7,13 @@ import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard } from "lucide-react"
+import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard, FileText } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { PrivacyPolicyContent } from "@/components/privacy/privacy-policy-content"
+import { TermsContent } from "@/components/terms/terms-content"
 import {
   clearAllPersistedCaches,
   formatBytes,
@@ -36,7 +37,7 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor },
 ] as const
 
-type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "billing"
+type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "terms" | "billing"
 
 const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "profile", label: "My Profile", icon: User },
@@ -44,6 +45,7 @@ const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "appearance", label: "Appearance", icon: Palette },
   { value: "advanced", label: "Advanced", icon: Database },
   { value: "privacy", label: "Privacy", icon: Shield },
+  { value: "terms", label: "Terms", icon: FileText },
 ]
 
 function AppearanceSettings() {
@@ -244,7 +246,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
       value={tab}
       onValueChange={setTab}
       label="User Settings"
-      title={tab === "billing" ? "Subscription & billing" : deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : "My Profile"}
+      title={tab === "billing" ? "Subscription & billing" : deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : tab === "terms" ? "Terms of Service" : "My Profile"}
       tabs={USER_SETTINGS_TABS}
       onClose={onClose}
       disabled={deletionOpen}
@@ -340,6 +342,11 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
           <SettingsShellPanel value="privacy">
             <div className="mx-auto w-full max-w-2xl pb-8">
               <PrivacyPolicyContent />
+            </div>
+          </SettingsShellPanel>
+          <SettingsShellPanel value="terms">
+            <div className="mx-auto w-full max-w-2xl pb-8">
+              <TermsContent />
             </div>
           </SettingsShellPanel>
         </>

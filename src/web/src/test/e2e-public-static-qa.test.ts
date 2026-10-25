@@ -75,7 +75,7 @@ describe("public static QA immutable input and phase controls", () => {
     const failure = new Error("UI response lost")
     const page = {
       goto: async (url: string) => { visits.push(url) },
-      getByRole: (role: string) => role === "textbox" ? { waitFor: async () => {}, fill: async () => {} } : { click: async () => { throw failure } },
+      getByRole: (role: string) => role === "textbox" ? { waitFor: async () => {}, fill: async () => {} } : role === "checkbox" ? { check: async () => {} } : { click: async () => { throw failure } },
       waitForURL: async () => {},
     } as unknown as Parameters<typeof signIn>[0]
     await expect(signIn(page, "qa@example.invalid", { singleAttempt: true, onSubmission: () => { submits.push(1) } })).rejects.toBe(failure)
