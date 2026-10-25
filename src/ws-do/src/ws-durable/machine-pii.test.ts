@@ -36,6 +36,13 @@ describe("PII results", () => {
     expect(mocks.bot).not.toHaveBeenCalled()
     expect(mocks.notify).not.toHaveBeenCalled()
   })
+  it("contains owner-notification failures without logging preview text or raw exceptions", async () => {
+    mocks.notify.mockRejectedValueOnce(new Error("PRIVATE_EXCEPTION"))
+    const preview = { ...frame, result: { ...frame.result, output: "PRIVATE_SAMPLE" } }
+    expect(await handlePiiResultFrame(context, preview, identity)).toBe(true)
+    expect(context.log.warn).toHaveBeenCalledWith("PII result unavailable", { machineId: "machine" })
+    expect(JSON.stringify(vi.mocked(context.log.warn).mock.calls)).not.toContain("PRIVATE_")
+  })
   it("relays bounded preview output with the captured revision through the same owner checks", async () => {
     const preview = { ...frame, result: { ...frame.result, output: "filtered-output" } }
     await handlePiiResultFrame(context, preview, identity)

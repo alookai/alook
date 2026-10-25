@@ -264,6 +264,35 @@ describe("PII pipeline", () => {
   });
 });
 
+describe("PII configuration recovery", () => {
+  it("keeps missing-filter removal idempotent and refuses to enable a missing filter", async () => {
+    const { store, path } = create();
+    const snapshot = store.list("a");
+    const before = readFileSync(fileFor(path), "utf8");
+    expect(await store.manage("a", { action: "remove", pluginId: "missing", expectedRevision: snapshot.revision }))
+      .toEqual({ status: "complete", snapshot });
+    expect(await store.manage("a", { action: "setEnabled", pluginId: "missing", enabled: true, expectedRevision: snapshot.revision }))
+      .toEqual({ status: "error", code: "PII_PLUGIN_NOT_FOUND" });
+    expect(readFileSync(fileFor(path), "utf8")).toBe(before);
+  });
+
+  it("blocks installed source corruption without leaking the sample or replacing the stored rules", async () => {
+    const { store, path } = create();
+    const snapshot = store.list("a");
+    const file = fileFor(path);
+    const persisted = JSON.parse(readFileSync(file, "utf8"));
+    persisted.plugins[0].source = "export default (";
+    const bytes = JSON.stringify(persisted);
+    writeFileSync(file, bytes);
+    const restarted = storeAt(path);
+    await expect(restarted.filter("a", "PRIVATE_SAMPLE")).rejects.toMatchObject({ code: "PII_INVALID_SOURCE", pluginId: snapshot.plugins[0]!.id });
+    const result = await restarted.manage("a", { action: "preview", text: "PRIVATE_SAMPLE", expectedRevision: snapshot.revision });
+    expect(result).toEqual({ status: "error", code: "PII_INVALID_SOURCE", pluginId: snapshot.plugins[0]!.id });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_SAMPLE");
+    expect(readFileSync(file, "utf8")).toBe(bytes);
+  });
+});
+
 describe("default filter categories", () => {
   it("redacts email before sentence punctuation without taking the punctuation or matching filenames", async () => {
     const { store } = create();

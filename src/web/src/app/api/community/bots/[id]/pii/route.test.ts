@@ -79,6 +79,18 @@ describe("human-only PII management", () => {
     expect(escaped.status).toBe(202)
     expect(mocks.dispatch).toHaveBeenCalledTimes(2)
   })
+  it("does not claim dispatch or expose private data when the machine relay fails", async () => {
+    for (const response of [new Response("PRIVATE_RESPONSE", { status: 503 }), new Response("PRIVATE_RESPONSE", { status: 200 })]) {
+      mocks.dispatch.mockResolvedValueOnce(response)
+      const result = await POST(request(), context)
+      expect(result.status).toBe(503)
+      expect(await result.json()).toEqual({ error: "PII_UNAVAILABLE" })
+    }
+    mocks.dispatch.mockRejectedValueOnce(new Error("PRIVATE_EXCEPTION"))
+    const result = await POST(request(), context)
+    expect(result.status).toBe(503)
+    expect(await result.json()).toEqual({ error: "PII_UNAVAILABLE" })
+  })
   it.each([[{ sent: 0, unsupported: 1 }, 409, "UPGRADE_REQUIRED"], [{ sent: 0, unsupported: 0 }, 409, "MACHINE_OFFLINE"], [{ sent: "1" }, 503, "PII_UNAVAILABLE"]])("reports %j without claiming application", async (receipt, status, error) => {
     mocks.dispatch.mockResolvedValue(Response.json(receipt))
     const response = await POST(request(), context)

@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { createServer } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,9 +9,9 @@ import { LOCAL_PII_PATH } from "./proxy.js";
 import { createProxyServerApi } from "../cli/proxyServerApi.js";
 
 const cleanup: (() => void | Promise<void>)[] = [];
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function fixture() {
+async function fixture(withPii = true) {
   const directory = mkdtempSync(join(tmpdir(), "pii-proxy-"));
   cleanup.push(() => rmSync(directory, { force: true, recursive: true }));
   const seen: { body: Record<string, unknown>; headers: Record<string, unknown>; path: string }[] = [];
@@ -31,7 +31,7 @@ async function fixture() {
   const broker = new CredentialBroker({ upstreamBaseUrl: `http://127.0.0.1:${address.port}`, voucherDir: join(directory, "vouchers") });
   const a = broker.mint("a", "launch-a", ["send", "read"], "synthetic-a");
   const b = broker.mint("b", "launch-b", ["send", "read"], "synthetic-b");
-  const proxy = await startCredentialProxy(broker, { pii: store });
+  const proxy = await startCredentialProxy(broker, withPii ? { pii: store } : {});
   cleanup.push(() => proxy.close());
   const request = (path: string, body: unknown, voucher = a.voucher) => fetch(`${proxy.url}${path}`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${voucher}` }, body: JSON.stringify(body),
@@ -81,4 +81,46 @@ it("blocks failures, empty output, invalid/oversized input and oversized UTF-8 o
   expect(seen).toEqual([]);
   expect((await request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text: "erase" }, attachments: ["file"] })).status).toBe(200);
   expect(seen[0]!.body.content).toEqual({ text: "" });
+});
+
+
+it("rejects unsupported encodings and malformed JSON before contacting upstream", async () => {
+  const { proxy, a, seen } = await fixture();
+  for (const [headers, body] of [
+    [{}, "PRIVATE_BODY"],
+    [{ "content-type": "text/plain" }, "{}"],
+    [{ "content-type": "application/json", "content-encoding": "gzip" }, "{}"],
+    [{ "content-type": "application/json" }, "{PRIVATE_BODY"],
+    [{ "content-type": "application/json" }, "null"],
+    [{ "content-type": "application/json" }, "[]"],
+  ] as const) {
+    const response = await fetch(`${proxy.url}/api/community/channels/resolve/messages`, {
+      method: "POST", headers: { ...headers, authorization: `Bearer ${a.voucher}` }, body: Buffer.from(body),
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "PII_INVALID_REQUEST", code: "PII_INVALID_REQUEST" });
+  }
+  expect(seen).toEqual([]);
+});
+
+it("rejects invalid message content but permits an attachment without text", async () => {
+  const { request, seen } = await fixture();
+  for (const content of [undefined, null, [], "PRIVATE_BODY", { text: 17 }]) {
+    expect((await request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content })).status).toBe(422);
+  }
+  expect(seen).toEqual([]);
+  expect((await request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: {}, attachments: ["file"] })).status).toBe(200);
+  expect(seen[0]!.body.content).toEqual({ text: "" });
+  expect(seen[0]!.body.attachments).toEqual(["file"]);
+});
+
+it("returns a safe unavailable error when no local PII handler exists or the handler fails", async () => {
+  const missing = await fixture(false);
+  const get = (f: Awaited<ReturnType<typeof fixture>>) => fetch(`${f.proxy.url}${LOCAL_PII_PATH}`, { headers: { authorization: `Bearer ${f.a.voucher}` } });
+  expect(await (await get(missing)).json()).toEqual({ error: "PII_UNAVAILABLE", code: "PII_UNAVAILABLE" });
+  const available = await fixture();
+  vi.spyOn(available.store, "local").mockRejectedValueOnce(new Error("PRIVATE_FAILURE"));
+  expect(await (await get(available)).json()).toEqual({ error: "PII_UNAVAILABLE", code: "PII_UNAVAILABLE" });
+  expect(missing.seen).toEqual([]);
+  expect(available.seen).toEqual([]);
 });
