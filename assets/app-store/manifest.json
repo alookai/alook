@@ -1,0 +1,110 @@
+{
+  "renderer": "156.0.8078.48",
+  "encoding": "RGB JPEG quality 80",
+  "inputs": {
+    "/index.html": "04f02bec3b1b2bbf53068fe2f25d9d97a0d1b9abd20bf2b9e1681d66f17285c6",
+    "/tablet.html": "730d5b8b0ec64b0f2d3f95940cbd8cd6a433f25bd9623487df72600e3204a1e9",
+    "/duo.html": "340f68c58ee4ff8cd5a40c1be3ab1f5e099214237e6e4b4471137dfc81fdeb18",
+    "/alook.svg": "93752523cd171706887d8c70b6511f99727478386d3842fd1efab764c119988e",
+    "/caveat.woff2": "891951df5e8b5b0f0bc760d31375405e795c666b5add70437de12d4a6482b33f",
+    "/dm-sans.woff2": "9fea608a947e67020c33cad9a6fe3d60c54119dfb8cff87768a8117a15ed7543",
+    "/identity.webp": "d96c37b4a7080ee8206d29529529ad9155968b75d8d5109df64bd7249779ed82",
+    "/profile.webp": "90755d8b6f2b2eb03cdf7d8032585a61d4818893ad5f52d531409f8516ef3566",
+    "/continuity.webp": "15b5a2e10fb1a57b5a8d252bd59cee9d45fe41426165cb3bdaade61a896e3f37",
+    "/demo-phone.png": "402a9183e37fea06cdd4a8a6183198bd7268e2a66dec092fc1a21f1be85350df",
+    "/demo-desktop.png": "fc39ef3ab09fd6bb18726ac9ceb068b0ab5c00d1d83c6b6d4189d3b72a0a75ed",
+    "/duo-open-demo.jpg": "7e57b0fe2ca764062ba75368929c60f3e84faa00b80200c74c4d6d014fb441ca",
+    "/duo-closed-demo.jpg": "90647750694fd4347aac84daea07455a2ff10f4244f5984339f30f5db5ef12c1",
+    "/face-red.svg": "d762e20ec379a14a492ca1cd438fb608267ed1870e20d0ed17d6acf16dd8924a",
+    "/face-purple.svg": "2ec902464f75486fe3433b80ad65c30de4a4fcf947403bba8a38c4c54e0e162b",
+    "/face-teal.svg": "6b53ffd30e7ae6935eaea4dffb31e7bb096d03163c99c2855c5846aec8b375e0",
+    "/face-blue.svg": "6ba47540a0c02a03d3955dc26219c2b248537890f55cb7ceafd09b080e454598",
+    "/face-orange.svg": "b26fccaf217060bd67c3874776f11d329401dc79b33a49a5168a33d3458d240e"
+  },
+  "outputs": [
+    {
+      "path": "phone-1206x2622/01-share-agents.jpg",
+      "width": 1206,
+      "height": 2622,
+      "sha256": "aeae54c1855e549e7390cc24fce6de7f3160c1d31fd01775794d2d4a9f4df769"
+    },
+    {
+      "path": "phone-1206x2622/02-teamwork.jpg",
+      "width": 1206,
+      "height": 2622,
+      "sha256": "a8bc2531c357cda6f8cd73dd314877ae6f75b2d8c1475b8d586b7fac5bd1705a"
+    },
+    {
+      "path": "phone-1206x2622/03-companion.jpg",
+      "width": 1206,
+      "height": 2622,
+      "sha256": "896a0e8b345c15b4f24e17fc3ae580bbad0e7f400d2dc84c32c3b4df1416fbf5"
+    },
+    {
+      "path": "phone-1206x2622/04-context.jpg",
+      "width": 1206,
+      "height": 2622,
+      "sha256": "72d76b9f54830ef0cf19a4bbc071306ea78cfbac6e1d76c7ba2ae5fc4c7ff507"
+    },
+    {
+      "path": "phone-1206x2622/05-phone.jpg",
+      "width": 1206,
+      "height": 2622,
+      "sha256": "0ae9be35e3ccb7ecffaae696ea6bac2bdfe1967941ab265d382f198fefd0e87a"
+    },
+    {
+      "path": "phone-1206x2622/06-existing-setup.jpg",
+      "width": 1206,
+      "height": 2622,
+      "sha256": "515dceb007bd2f839b821097a26993fe5fcfe1a30e625e252685a6db5a04a45b"
+    },
+    {
+      "path": "phone-1320x2868/01-share-agents.jpg",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "d45a315f71a2454acbcef2de969dc6c16dc4b3a3189b304247d0ae4889c58863"
+    },
+    {
+      "path": "phone-1320x2868/02-teamwork.jpg",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "15b501c09edf45708221595b9126bc7a43a245532cd77f934cf99e0dedf2a24e"
+    },
+    {
+      "path": "phone-1320x2868/03-companion.jpg",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "32d56844b511f8257087a4f091428caa9ca7fa49518aa4c76d4e3f83ea4bdbe9"
+    },
+    {
+      "path": "phone-1320x2868/04-context.jpg",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "3c1a356f97611523202e21570b263defb93192b1a15b0a15a37466c11bcbadb1"
+    },
+    {
+      "path": "phone-1320x2868/05-phone.jpg",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "9e47f80e05a6989437d394b02cb7bf10591c377bf09b7b1a60d9b57e91ed0966"
+    },
+    {
+      "path": "phone-1320x2868/06-existing-setup.jpg",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "9e75be4d9722c6a704b2e0b26edb0b639c73a09ae5a693f9d5a6a2a8269150ae"
+    },
+    {
+      "path": "tablet-2064x2752/01-share-agents.jpg",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "bb3c7273da029bb7f490ae4e28b8b6461d027595a906c0b13f5bc3c0fb3d0609"
+    },
+    {
+      "path": "duo-2007x2853/06-existing-setup.jpg",
+      "width": 2007,
+      "height": 2853,
+      "sha256": "37aff2a6300aa77c0666b7c2cf1f1fd3754467900f7dbe1beb346e0d90505275"
+    }
+  ]
+}

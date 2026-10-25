@@ -1,0 +1,79 @@
+{
+  "inputs": [
+    {
+      "file": "prototype/duo.html",
+      "bytes": 4377,
+      "sha256": "340f68c58ee4ff8cd5a40c1be3ab1f5e099214237e6e4b4471137dfc81fdeb18"
+    },
+    {
+      "file": "prototype/duo-open-demo.jpg",
+      "bytes": 94913,
+      "sha256": "7e57b0fe2ca764062ba75368929c60f3e84faa00b80200c74c4d6d014fb441ca",
+      "pixels": [
+        1426,
+        1003
+      ]
+    },
+    {
+      "file": "prototype/duo-closed-demo.jpg",
+      "bytes": 41801,
+      "sha256": "90647750694fd4347aac84daea07455a2ff10f4244f5984339f30f5db5ef12c1",
+      "pixels": [
+        466,
+        678
+      ]
+    },
+    {
+      "file": "prototype/alook.svg",
+      "bytes": 7571,
+      "sha256": "93752523cd171706887d8c70b6511f99727478386d3842fd1efab764c119988e"
+    },
+    {
+      "file": "prototype/caveat.woff2",
+      "bytes": 74932,
+      "sha256": "891951df5e8b5b0f0bc760d31375405e795c666b5add70437de12d4a6482b33f"
+    },
+    {
+      "file": "prototype/dm-sans.woff2",
+      "bytes": 36932,
+      "sha256": "9fea608a947e67020c33cad9a6fe3d60c54119dfb8cff87768a8117a15ed7543"
+    },
+    {
+      "file": "prototype/face-red.svg",
+      "bytes": 1433,
+      "sha256": "d762e20ec379a14a492ca1cd438fb608267ed1870e20d0ed17d6acf16dd8924a"
+    },
+    {
+      "file": "prototype/face-purple.svg",
+      "bytes": 1399,
+      "sha256": "2ec902464f75486fe3433b80ad65c30de4a4fcf947403bba8a38c4c54e0e162b"
+    },
+    {
+      "file": "prototype/face-teal.svg",
+      "bytes": 1860,
+      "sha256": "6b53ffd30e7ae6935eaea4dffb31e7bb096d03163c99c2855c5846aec8b375e0"
+    },
+    {
+      "file": "prototype/face-blue.svg",
+      "bytes": 1338,
+      "sha256": "6ba47540a0c02a03d3955dc26219c2b248537890f55cb7ceafd09b080e454598"
+    },
+    {
+      "file": "prototype/face-orange.svg",
+      "bytes": 1777,
+      "sha256": "b26fccaf217060bd67c3874776f11d329401dc79b33a49a5168a33d3458d240e"
+    }
+  ],
+  "output": {
+    "file": "alook-store-duo-v1-2007x2853.jpg",
+    "bytes": 316489,
+    "sha256": "a0a7a06929d9b2205ee7ef100edbaa3a28296d8d1e2154dd11d92997dba1c98b",
+    "pixels": [
+      2007,
+      2853
+    ],
+    "mode": "RGB"
+  },
+  "approved_prior_13_images_changed": false,
+  "store_upload_status": "pending at bundle creation"
+}
