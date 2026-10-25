@@ -4,54 +4,59 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PiiPluginSchema, PiiPreviewTextSchema, PiiErrorCodeSchema, PII_MAX_PLUGINS, PII_SOURCE_MAX_BYTES, PII_TEXT_MAX_BYTES, type PiiLocalRequest, type PiiOperation, type PiiResult, type PiiSnapshot } from "@alook/shared";
 import { PII_DEFAULTS } from "./defaults.js";
-import { compilePiiSource, evaluatePii, PiiError } from "./evaluator.js";
+import { compilePiiSource, PiiError, PiiRunner } from "./evaluator.js";
 
 const storedPlugin = PiiPluginSchema.extend({ source: z.string().min(1).max(PII_SOURCE_MAX_BYTES) });
-const storedPipeline = z.strictObject({ revision: z.number().int().nonnegative(), plugins: z.array(storedPlugin).max(PII_MAX_PLUGINS) });
-const storedState = z.strictObject({ version: z.literal(1), bots: z.record(z.string(), storedPipeline) });
-type State = z.infer<typeof storedState>;
+const storedPipeline = z.strictObject({ version: z.literal(1), revision: z.number().int().nonnegative(), plugins: z.array(storedPlugin).max(PII_MAX_PLUGINS) });
 type Pipeline = z.infer<typeof storedPipeline>;
 
 export class PiiStore {
-  private readonly file: string;
-  constructor(private readonly directory: string) {
-    this.file = join(directory, "pipelines.json");
-    if (!existsSync(directory)) {
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
-      this.save({ version: 1, bots: {} });
-    }
-    this.read();
+  private readonly runner = new PiiRunner();
+  private readonly pipelines = new Map<string, Pipeline>();
+  private readonly compiled = new WeakMap<Pipeline, readonly { id: string; code: string }[]>();
+  constructor(private readonly directory: string) {}
+
+  close(): Promise<void> { return this.runner.close(); }
+
+  private directoryFor(botId: string): string {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(botId)) throw new PiiError("PII_INVALID_REQUEST");
+    return join(this.directory, botId, "pii");
   }
 
-  private read(): State {
+  private read(botId: string, persist = true): Pipeline {
+    const directory = this.directoryFor(botId);
+    const cached = this.pipelines.get(botId);
+    if (cached) return cached;
+    if (!existsSync(directory)) {
+      const created: Pipeline = { version: 1, revision: 0, plugins: PII_DEFAULTS.map((plugin) => ({ ...plugin, enabled: true })) };
+      if (persist) this.save(botId, created);
+      return created;
+    }
     try {
-      if (statSync(this.file).size > 16 * 1024 * 1024) throw 0;
-      return storedState.parse(JSON.parse(readFileSync(this.file, "utf8")));
+      const file = join(directory, "pipelines.json");
+      if (statSync(file).size > 16 * 1024 * 1024) throw 0;
+      const pipeline = storedPipeline.parse(JSON.parse(readFileSync(file, "utf8")));
+      this.pipelines.set(botId, pipeline);
+      return pipeline;
     } catch {
       throw new PiiError("PII_CONFIG_UNAVAILABLE");
     }
   }
 
-  private save(state: State): void {
-    const temporary = join(this.directory, `.${randomUUID()}.tmp`);
+  private save(botId: string, pipeline: Pipeline): void {
+    const directory = this.directoryFor(botId);
+    const temporary = join(directory, `.${randomUUID()}.tmp`);
     try {
-      chmodSync(this.directory, 0o700);
-      writeFileSync(temporary, JSON.stringify(state), { mode: 0o600, flag: "wx" });
-      renameSync(temporary, this.file);
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      chmodSync(directory, 0o700);
+      writeFileSync(temporary, JSON.stringify(pipeline), { mode: 0o600, flag: "wx" });
+      renameSync(temporary, join(directory, "pipelines.json"));
+      this.pipelines.set(botId, pipeline);
     } catch {
       throw new PiiError("PII_CONFIG_UNAVAILABLE");
     } finally {
       rmSync(temporary, { force: true });
     }
-  }
-
-  private pipeline(state: State, botId: string, persist = true): Pipeline {
-    const current = Object.hasOwn(state.bots, botId) ? state.bots[botId] : undefined;
-    if (current) return current;
-    const created = { revision: 0, plugins: PII_DEFAULTS.map((plugin) => ({ ...plugin, enabled: true })) };
-    Object.defineProperty(state.bots, botId, { value: created, enumerable: true, writable: true, configurable: true });
-    if (persist) this.save(state);
-    return created;
   }
 
   private snapshot(pipeline: Pipeline): PiiSnapshot {
@@ -62,26 +67,25 @@ export class PiiStore {
   }
 
   list(botId: string): PiiSnapshot {
-    return this.snapshot(this.pipeline(this.read(), botId));
+    return this.snapshot(this.read(botId));
   }
 
   async local(botId: string, input: PiiLocalRequest): Promise<PiiSnapshot> {
     if (input.action === "list") return this.list(botId);
     const code = compilePiiSource(input.source);
-    await evaluatePii([{ id: "new-plugin", code }], "");
-    const state = this.read();
-    const pipeline = this.pipeline(state, botId);
+    await this.runner.evaluate([{ id: "new-plugin", code }], "");
+    const current = this.read(botId, false);
+    const pipeline = { ...current, plugins: [...current.plugins] };
     if (pipeline.plugins.length >= PII_MAX_PLUGINS) throw new PiiError("PII_PLUGIN_LIMIT");
     pipeline.plugins.push({ id: randomUUID(), name: input.name, description: input.description, enabled: true, source: input.source });
     pipeline.revision++;
-    this.save(state);
+    this.save(botId, pipeline);
     return this.snapshot(pipeline);
   }
 
   async manage(botId: string, operation: PiiOperation): Promise<PiiResult> {
     try {
-      const state = this.read();
-      const pipeline = this.pipeline(state, botId, operation.action !== "preview");
+      const pipeline = this.read(botId, operation.action === "list");
       if (operation.action === "list") return { status: "complete", snapshot: this.snapshot(pipeline) };
       if (operation.expectedRevision !== pipeline.revision) return { status: "error", code: "PII_CONFLICT", snapshot: this.snapshot(pipeline) };
       if (operation.action === "preview") {
@@ -95,11 +99,12 @@ export class PiiStore {
       if (index === -1) return operation.action === "remove"
         ? { status: "complete", snapshot: this.snapshot(pipeline) }
         : { status: "error", code: "PII_PLUGIN_NOT_FOUND" };
-      if (operation.action === "remove") pipeline.plugins.splice(index, 1);
-      else pipeline.plugins[index]!.enabled = operation.enabled;
-      pipeline.revision++;
-      this.save(state);
-      return { status: "complete", snapshot: this.snapshot(pipeline) };
+      const plugins = [...pipeline.plugins];
+      if (operation.action === "remove") plugins.splice(index, 1);
+      else plugins[index] = { ...plugins[index]!, enabled: operation.enabled };
+      const updated = { ...pipeline, revision: pipeline.revision + 1, plugins };
+      this.save(botId, updated);
+      return { status: "complete", snapshot: this.snapshot(updated) };
     } catch (error) {
       const code = error instanceof PiiError ? PiiErrorCodeSchema.safeParse(error.code) : undefined;
       if (operation.action === "preview" && code?.success) return {
@@ -110,15 +115,19 @@ export class PiiStore {
   }
 
   async filter(botId: string, text: string): Promise<string> {
-    const pipeline = this.pipeline(this.read(), botId);
+    const pipeline = this.read(botId);
     return this.run(pipeline, text);
   }
 
   private run(pipeline: Pipeline, text: string): Promise<string> {
-    const plugins = pipeline.plugins.filter((plugin) => plugin.enabled).map((plugin) => {
-      try { return { id: plugin.id, code: compilePiiSource(plugin.source) }; }
-      catch { throw new PiiError("PII_INVALID_SOURCE", plugin.id); }
-    });
-    return evaluatePii(plugins, text);
+    let plugins = this.compiled.get(pipeline);
+    if (!plugins) {
+      plugins = pipeline.plugins.filter((plugin) => plugin.enabled).map((plugin) => {
+        try { return { id: plugin.id, code: compilePiiSource(plugin.source) }; }
+        catch { throw new PiiError("PII_INVALID_SOURCE", plugin.id); }
+      });
+      this.compiled.set(pipeline, plugins);
+    }
+    return this.runner.evaluate(plugins, text);
   }
 }

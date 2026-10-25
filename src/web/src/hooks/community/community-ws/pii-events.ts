@@ -23,7 +23,7 @@ export function handleBotPii(event: { machineId: string; botId: string; requestI
     uncertain: !preview && !result.snapshot,
     error: result.code === "PII_CONFLICT" ? "Filters changed elsewhere. Review the updated list and try again."
       : result.code === "PII_PLUGIN_NOT_FOUND" ? "This plugin was removed. Reload filters."
-      : preview ? "The pipeline could not process this message. Check the filters and try again."
+      : preview ? "The filters could not process this message. Check the filters and try again."
       : "Filters are unavailable. Reload to try again.",
   })
 }

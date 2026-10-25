@@ -5,11 +5,9 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 import { createStore, useSelector, useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useMutationState, useQueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { useCurrentUser } from "@/contexts/community/current-user"
-import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
+import { useStartBotChat } from "@/hooks/community/use-start-bot-chat"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef } from "react"
-import { CommunityRouteContext } from "@/contexts/community/route-frame"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
 import { isPresenceOnline } from "@alook/shared"
 import { toast } from "sonner"
@@ -46,7 +44,6 @@ export function useBotListController(): BotListController {
   const source = useCommunityViewSource("bot-list")
   const uiHandlers = useUiHandlers()
   const { router, searchParams, routeCommitted } = useCommunityModuleLocation()
-  const navigation = useContext(CommunityRouteContext)?.navigation
   const botsQuery = useBots()
   const { bots } = botsQuery
   const isLoading = botsQuery.isPending || botsQuery.profilesPending === true
@@ -98,10 +95,7 @@ export function useBotListController(): BotListController {
   const resetMachineAgents = useResetMachineAgents()
   const setActive = useSetBotActive()
   const createOrGetDm = useCreateOrGetDm()
-  const currentUser = useCurrentUser()
-  const { accept: acceptDmMessage } = useDmMessageSender()
-  const [startingBotChat, setStartingBotChat] = useAtom(useCreateAtom(false))
-  const botChatInFlight = useRef(false)
+  const { start: startBotChat, pending: startingBotChat } = useStartBotChat(source)
   const onboardingState = useCommunityOnboarding()
   const guidedActive = onboardingState?.status === "active" && onboardingState.stage === "bot"
   const guidedPendingBotId = guidedActive ? onboardingState.botId : undefined
@@ -142,33 +136,12 @@ export function useBotListController(): BotListController {
 
   const askBotToCreate = async () => {
     const bot = bots.find((item) => item.isActive && profilesByUserId.get(item.id)?.presence === "online") ?? bots[0]
-    if (!bot || botChatInFlight.current) return
-    const assert = source.capture()
-    botChatInFlight.current = true
-    setStartingBotChat(true)
-    try {
-      assert()
-      uiHandlers.cancelPendingNavigation?.()
-      const intentCurrent = navigation?.captureIntent() ?? (() => true)
-      const data = await createOrGetDm.mutateAsync({ userId: bot.id, assertActive: assert })
-      assert()
-      if (!intentCurrent()) throw new DOMException("Retired bot chat navigation", "AbortError")
-      const receipt = acceptDmMessage({
-        dmId: data.conversation.id,
-        content: "Help me create a bot. Ask me what I need.",
-        author: { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar },
-        assertActive: assert,
-      })
-      if (!receipt.accepted) throw new Error("Failed to send message")
-      setCreateOpen(false)
-      router.push(`/c/me/${data.conversation.id}`)
-      await receipt.committed
-    } catch (error) {
-      toastApiError(error, "Failed to start bot creation chat", assert)
-    } finally {
-      botChatInFlight.current = false
-      setStartingBotChat(false)
-    }
+    if (bot) await startBotChat({
+      botId: bot.id,
+      content: "Help me create a bot. Ask me what I need.",
+      onAccepted: () => setCreateOpen(false),
+      errorMessage: "Failed to start bot creation chat",
+    })
   }
 
   const openGuidedBotDm = async (botId: string) => {

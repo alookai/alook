@@ -173,6 +173,21 @@ function cliCommandsSection(): string {
       `Use an online machine and its backend. The \`reason\` explains to your owner why the bot is needed and what work it will do; this text appears on the approval card. Repeat \`--create\` for up to 20 bots in one request. ` +
       `The command submits one approval card to the DM between you and your owner. It creates no bots until your human owner approves the request.`,
     "",
+    "### PII",
+    "",
+    "Alook PII filters your outgoing Alook message text locally, in pipeline order, before sending. " +
+      "Attachments and requests to AI models are outside this pipeline.",
+    "",
+    `1. \`${CLI} pii list\` — list this bot's filters in execution order.`,
+    `2. \`${CLI} pii add --file <path.ts> --description <text>\` — append a new filter to this bot's pipeline.`,
+    "",
+    "To add a filter, write a TS module with a pure, synchronous default export `(text: string) => string`. " +
+      "Use one sentence for its description. Plugins cannot import modules or access files, network, or environment variables.",
+    "Adding stores a source copy. Later edits to the input file do not update the installed filter. " +
+      "Do not edit daemon-managed copies.",
+    "The CLI only lists or appends filters; it cannot replace, reorder, enable, disable, or delete them. " +
+      "Your human owner manages enabled state and deletion in Privacy. Filter errors block sending.",
+    "",
     "### Settings",
     "",
     `1. \`${CLI} setting profile --set-bio <text> --set-avatar <path>\` — update your public bio ` +

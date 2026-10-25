@@ -376,7 +376,7 @@ void result;
 
 ## Alook PII
 
-The daemon filters outgoing Alook message body text locally, in pipeline order, before forwarding a send. Each bot has its own persisted pipeline. Attachments and requests to cloud models are outside this filter. Enabled filters fail closed: an error, invalid result, or execution limit blocks the send.
+The daemon filters outgoing Alook message body text locally, in pipeline order, before forwarding a send. Each bot has its own persisted pipeline at `<baseDir>/daemons/<machineId>/<botId>/pii/pipelines.json`, containing only that bot's plugin source and configuration. It loads that file once and reuses its configuration and compiled filters in memory; subsequent sends do not reread JSON or recompile unchanged filters. Successful management changes replace only that bot's snapshot. Manual file edits require a daemon restart. Another bot's invalid configuration does not block it. Attachments and requests to cloud models are outside this filter. Enabled filters fail closed: an error, invalid result, or execution limit blocks the send.
 
 Inside a bot session:
 

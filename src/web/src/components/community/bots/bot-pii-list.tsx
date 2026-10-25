@@ -42,16 +42,13 @@ export function BotPiiList({
         </div>
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">Enabled filters run from top to bottom.</p>
-          <ol className="flex flex-col">
-            {plugins.map((plugin, index) => (
-              <li key={plugin.id} className="relative flex items-start gap-2 pb-4 before:absolute before:top-8 before:bottom-0 before:left-3 before:w-px before:bg-border last:pb-0 last:before:hidden" data-testid={`pii-plugin-${plugin.id}`}>
-                <span aria-hidden className="relative z-10 mt-2 grid size-6 shrink-0 place-items-center bg-background font-mono text-xs tabular-nums text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
+          <ul className="flex flex-col gap-4">
+            {plugins.map((plugin) => (
+              <li key={plugin.id} className="flex items-start" data-testid={`pii-plugin-${plugin.id}`}>
                 <div className="flex min-w-0 flex-1 items-start gap-2">
                 <div className="min-w-0 flex-1 pt-2">
                   <h3 className="wrap-break-word text-base font-medium">{plugin.name}</h3>
                   <p id={`pii-description-${plugin.id}`} className="mt-2 max-w-prose wrap-break-word text-sm leading-relaxed text-muted-foreground">{plugin.description}</p>
-                  <span className="mt-2 block text-xs text-muted-foreground">{plugin.enabled ? "Enabled" : "Bypassed"}</span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <div className="flex size-11 items-center justify-center">
@@ -62,28 +59,28 @@ export function BotPiiList({
                       <MoreHorizontal className="size-4" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem variant="destructive" onClick={() => setDeletingId(plugin.id)}><Trash2 className="size-4" />Delete plugin</DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onClick={() => setDeletingId(plugin.id)}><Trash2 className="size-4" />Delete filter</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
                 </div>
               </li>
             ))}
-          </ol>
+          </ul>
         </>
       )}
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !pending) setDeletingId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>This removes the filter from {botName}’s pipeline on this machine. Disable it instead if you may need it again.</AlertDialogDescription>
+            <AlertDialogDescription>This removes the filter from {botName}’s filters on this machine. Disable it instead if you may need it again.</AlertDialogDescription>
           </AlertDialogHeader>
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           {unavailable ? <p role="status" className="text-sm text-muted-foreground">{unavailable}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
             <AlertDialogAction disabled={disabled} variant="outline" className="border-destructive text-foreground hover:text-foreground" onClick={async () => { if (deleting && await onDelete(deleting.id)) setDeletingId(null) }}>
-              {pending ? "Deleting…" : "Delete plugin"}
+              {pending ? "Deleting…" : "Delete filter"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -3283,7 +3283,7 @@ describe("createDaemon — inactive bot PII management", () => {
       const listed = await manage("before-unbind");
       expect(listed.status).toBe("complete");
       expect(listed.snapshot?.plugins).toHaveLength(8);
-      const configFile = join(workingDirectoryBase, "pii", "pipelines.json");
+      const configFile = join(workingDirectoryBase, "inactive", "pii", "pipelines.json");
       const configuration = readFileSync(configFile, "utf8");
       expect(await manage("preview", { action: "preview", text: "person@company.cn", expectedRevision: 0 }))
         .toMatchObject({ status: "complete", output: "[REDACTED_EMAIL]" });

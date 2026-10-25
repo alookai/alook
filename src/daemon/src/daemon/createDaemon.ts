@@ -23,7 +23,6 @@
  *     — the `driverFor` is INJECTED by the caller.
  */
 import { homedir } from "os";
-import { join } from "node:path";
 import { PiiStore } from "../pii/store.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createRotatingFileSink, type RotatingFileSink } from "../util/rotatingFileSink.js";
@@ -407,8 +406,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const workingDirectoryBase = opts.workingDirectoryBase ?? fallbackBase;
   const workdirFor = (agentId: string) => `${workingDirectoryBase}/${agentId}`;
   const dailyTokenUsage = new DailyTokenUsageStore(workingDirectoryBase);
-  let localPiiStore: PiiStore | undefined;
-  const piiStore = () => localPiiStore ??= new PiiStore(join(opts.fsmTraceDir ?? workingDirectoryBase, "pii"));
+  const localPiiStore = new PiiStore(opts.fsmTraceDir ?? workingDirectoryBase);
   let stopping = false;
   let usageSealed = false;
   let stopPromise: Promise<void> | undefined;
@@ -561,8 +559,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
     pii: {
-      filter: (botId, text) => piiStore().filter(botId, text),
-      local: (botId, input) => piiStore().local(botId, input),
+      filter: (botId, text) => localPiiStore.filter(botId, text),
+      local: (botId, input) => localPiiStore.local(botId, input),
     },
     onInboxPullStart: (agentId) => ({
       owner: managerRef?.timelineTurnOwner(agentId) ?? null,
@@ -1185,7 +1183,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         const bots = await listMyBotsHttp(true);
         const bound = bots.some((bot) => bot.id === command.botId);
         channel.reportPiiResult({ type: "pii_result", botId: command.botId, requestId: command.requestId,
-          result: bound ? await piiStore().manage(command.botId, command.operation) : { status: "error", code: "PII_BOT_NOT_FOUND" } });
+          result: bound ? await localPiiStore.manage(command.botId, command.operation) : { status: "error", code: "PII_BOT_NOT_FOUND" } });
       } catch {
         channel.reportPiiResult({ type: "pii_result", botId: command.botId, requestId: command.requestId, result: { status: "error", code: "PII_UNAVAILABLE" } });
       }
@@ -1257,6 +1255,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       const failures: unknown[] = [];
       stopPromise = Promise.resolve().then(async () => {
         try {
+          try { await localPiiStore.close(); } catch (error) { failures.push(error); }
           try { await proxy.close(); } catch (error) { failures.push(error); }
           try { await manager.stopAll(); } catch (error) { failures.push(error); }
         } finally {

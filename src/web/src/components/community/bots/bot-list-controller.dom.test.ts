@@ -293,7 +293,7 @@ describe("useBotListController", () => {
       "setActive",
       "dm",
     ])
-    expect(mocks.hookOrder[10]).toBe("onboarding")
+    expect(mocks.hookOrder.slice(10, 13)).toEqual(["dm", "router", "onboarding"])
 
     const source = readWebSource("src/components/community/bots/bot-list-controller.ts")
     expect(source).not.toMatch(/useState\(/)

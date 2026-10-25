@@ -27,6 +27,7 @@ async function fixture() {
   const address = upstream.address();
   if (!address || typeof address === "string") throw new Error("missing address");
   const store = new PiiStore(join(directory, "state"));
+  cleanup.push(() => store.close());
   const broker = new CredentialBroker({ upstreamBaseUrl: `http://127.0.0.1:${address.port}`, voucherDir: join(directory, "vouchers") });
   const a = broker.mint("a", "launch-a", ["send", "read"], "synthetic-a");
   const b = broker.mint("b", "launch-b", ["send", "read"], "synthetic-b");

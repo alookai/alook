@@ -1,9 +1,10 @@
 "use client"
 
 import { PII_TEXT_MAX_BYTES, utf8ByteLength } from "@alook/shared"
-import { ArrowUp } from "lucide-react"
+import { Check, ListFilter, Play } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import styles from "./bot-pii-playground.module.css"
 
 export function BotPiiPlayground({ value, onValueChange, result, pending, error, disabled, onRun }: {
   value: string
@@ -15,26 +16,38 @@ export function BotPiiPlayground({ value, onValueChange, result, pending, error,
   onRun: () => void
 }) {
   const tooLong = utf8ByteLength(value) > PII_TEXT_MAX_BYTES
+  const phase = pending ? "running" : error ? "error" : result !== undefined ? "complete" : "idle"
   return (
-    <section className="flex min-w-0 flex-col gap-8" aria-labelledby="pii-playground-heading">
-      <h2 id="pii-playground-heading" className="text-lg font-medium">Playground</h2>
-      <div className="flex min-h-40 flex-col gap-4" aria-live="polite" aria-busy={pending}>
-        <h3 id="pii-output-label" className="text-sm font-medium text-muted-foreground">Filtered output</h3>
-        {pending ? <p role="status" className="text-base text-muted-foreground">Running on your computer…</p>
-          : error ? <p role="alert" className="text-sm text-destructive">{error}</p>
-          : result !== undefined ? <output aria-labelledby="pii-output-label" className="block max-w-prose whitespace-pre-wrap wrap-anywhere text-base leading-relaxed">{result || "The filtered message is empty."}</output>
-          : <p className="max-w-prose text-base leading-relaxed text-muted-foreground">Run a message to see the filtered result here.</p>}
-      </div>
-      <form className="flex flex-col gap-2" onSubmit={event => { event.preventDefault(); if (!pending && !disabled && !tooLong && value.trim()) onRun() }}>
-        <label htmlFor="pii-playground-input" className="text-sm font-medium">Try a message</label>
-        <p id="pii-playground-notice" className="max-w-prose text-sm leading-relaxed text-muted-foreground">We don’t store this message. It is sent to your computer for testing.</p>
-        <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Type a message to test these filters…" className="min-h-32 resize-y p-4 text-base leading-relaxed" disabled={pending} />
-        {tooLong ? <p role="alert" className="text-sm text-destructive">Use 1,024 UTF-8 bytes or fewer.</p> : null}
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-4">
-          <p className="text-xs text-muted-foreground">Test only. No chat message is sent.</p>
-          <Button type="submit" disabled={pending || disabled || tooLong || !value.trim()} className="min-h-11 gap-2 px-4" data-testid="pii-playground-run">{pending ? "Running…" : "Run pipeline"}<ArrowUp className="size-4" /></Button>
+    <section className="flex min-w-0 flex-col gap-3" aria-label="Playground">
+      <div className={`${styles.workspace} overflow-hidden rounded-xl border border-input`} data-phase={phase}>
+        <div className="flex flex-col gap-4 bg-muted/30 p-4 sm:p-6" aria-live="polite" aria-busy={pending}>
+          <div className="flex items-center justify-between gap-3">
+            <h2 id="pii-output-label" className="text-xl font-semibold">Output</h2>
+            {phase === "complete" ? <Check aria-hidden="true" className="size-5 text-muted-foreground" /> : null}
+          </div>
+          <div className="max-h-64 min-h-24 overflow-y-auto thin-scrollbar">
+            {pending ? <div className="flex flex-col gap-3">
+              <div className={styles.processing} aria-hidden="true">
+                <span className={styles.packet} /><span className={`${styles.packet} ${styles.packetSecond}`} />
+                {[0, 1, 2].map(index => <span key={index} className={styles.filter} style={{ animationDelay: `${index * 180}ms` }}><ListFilter className="size-6" /></span>)}
+              </div>
+              <p role="status" className="text-sm text-muted-foreground">Filtering on your computer…</p>
+            </div>
+              : error ? <p role="alert" className="text-base leading-relaxed text-destructive">{error}</p>
+              : result !== undefined ? <output aria-labelledby="pii-output-label" className={`${styles.result} block whitespace-pre-wrap wrap-anywhere text-lg leading-relaxed`}>{result || "The filtered message is empty."}</output>
+              : <p className="text-base leading-relaxed text-muted-foreground">Your filtered text will appear here.</p>}
+          </div>
         </div>
-      </form>
+        <form className="flex flex-col gap-4 p-4 sm:p-6" onSubmit={event => { event.preventDefault(); if (!pending && !disabled && !tooLong && value.trim()) onRun() }}>
+          <label htmlFor="pii-playground-input" className="text-xl font-semibold">Input</label>
+          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="min-h-28 resize-y rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-2 dark:bg-transparent sm:text-base" disabled={pending} />
+          <div className="flex justify-end">
+            <Button type="submit" disabled={pending || disabled || tooLong || !value.trim()} className="min-h-11 gap-2 px-4" data-testid="pii-playground-run"><Play className="size-4" />{pending ? "Running…" : "Run test"}</Button>
+          </div>
+          {tooLong ? <p role="alert" className="text-sm text-destructive">Use 1,024 UTF-8 bytes or fewer.</p> : null}
+        </form>
+      </div>
+      <p id="pii-playground-notice" className="text-sm leading-relaxed text-muted-foreground">We don’t store this message. It is sent to your computer for testing.</p>
     </section>
   )
 }
