@@ -4,9 +4,9 @@
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "30cc2f9be9aff68c76e68c4584d4b0fbb0f74012",
+  "repositoryHead": "9d9fcebfe8ccdc06bb00066b5a9059db20cb6115",
   "inputs": {
-    "pnpm-lock.yaml": "77e604bc7004bdd8073e9e035c910b0997b482c17192d7336903b4b29ff63397",
+    "pnpm-lock.yaml": "46d82354b9f8fbc6318ef09afba38cab9d98c6ce2b3450cb64a3a99ee7f568ab",
     "src/web/app-store-capture/app/globals.css": "e54b13c04636964ae7738e52668de9f1356006aec256ace8bd0a9d554873124f",
     "src/web/app-store-capture/app/layout.tsx": "8b3cc05ec699f99b766dd6fa69127e089ce11b74681d92b80898b95a650aa110",
     "src/web/app-store-capture/app/page.tsx": "73fb0fff70da74672f854baa19ddd957ed9357b3f5a11e898f3105231fa57ef3",
@@ -219,7 +219,7 @@
       "path": "phone-1320x2868/01-share-agents.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "d37c16eb5d0d97d253ce163e0e14ce3abcd475724ad260b1f0eea236a0dfa46f",
+      "sha256": "a3fb4b7a88b4073f677fd8b1c931314b2fb0ffe018443c57b04cf0e16e026747",
       "surfaces": [
         {
           "scene": "workspace",
@@ -297,7 +297,7 @@
       "path": "phone-1320x2868/04-context.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "d6f337a5222a2e7b20e800df7f5d4c8a9f8b8f0ce44d68b4c5acf472472a017c",
+      "sha256": "4467600d6d482c0787d3f8cf349d9d49d1c1d67803e8c56fb68cdfaed2160d17",
       "surfaces": [
         {
           "scene": "continuity",
@@ -384,7 +384,7 @@
       "path": "tablet-2064x2752/01-share-agents.jpg",
       "width": 2064,
       "height": 2752,
-      "sha256": "2edf07846c4eee4ec778466148080c2ecf0194f26f841c955abb664f19b21235",
+      "sha256": "289ae8a6c3db975b60a783c23f122d943bd569b90e09224754a449aec6988799",
       "surfaces": [
         {
           "scene": "workspace",
@@ -401,7 +401,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "8ad80e749c6c4c6c96bbf12c650b3d20775c442281ba3102e6c9e2f62621ad6c",
+      "sha256": "90a951cd60ef774a7bdfe0ab982e74860b62c35be35d459637a46e20dbb322f0",
       "surfaces": [
         {
           "scene": "workspace",
