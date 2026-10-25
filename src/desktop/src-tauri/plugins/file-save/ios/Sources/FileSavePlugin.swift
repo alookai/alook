@@ -98,7 +98,8 @@ final class FileSavePlugin: Plugin {
             picker.completionWithItemsHandler = { [weak session] _, completed, _, error in
               session?.finish(error != nil ? "error" : completed ? "started" : "cancelled")
             }
-            if let popover = picker.popoverPresentationController {
+            if presenter.traitCollection.userInterfaceIdiom == .pad,
+               let popover = picker.popoverPresentationController {
               popover.sourceView = presenter.view
               popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
               popover.permittedArrowDirections = []

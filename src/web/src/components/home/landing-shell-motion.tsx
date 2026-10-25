@@ -402,7 +402,7 @@ const CONTINUITY_DM_MESSAGES: RenderMsg[] = [
   },
 ]
 
-const CONTINUITY_WORK_MESSAGES: RenderMsg[] = [
+export const CONTINUITY_WORK_MESSAGES: RenderMsg[] = [
   {
     id: "continuity-work-alli",
     type: "chat",
@@ -452,7 +452,7 @@ const CONTINUITY_LIFE_MESSAGES: RenderMsg[] = [
   },
 ]
 
-const LANDING_PREVIEW_PROFILES = new Map<string, CommunityProfile>(
+export const LANDING_PREVIEW_PROFILES = new Map<string, CommunityProfile>(
   [
     ...MESSAGES,
     ...Object.values(SPACE_MESSAGES).flat(),

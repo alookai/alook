@@ -1,0 +1,3 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const t=require('../src/timing.json');
+test('creation, individual stamps, invitation and team chat occur in causal order',()=>{const frames=[t.requestSent,t.proposalArrives,t.approveClick,t.created,...t.passFrames,t.serverClick,t.inviteStart,t.inviteClose,t.chatStart,t.endingStart,t.closeStart,t.duration];for(let i=1;i<frames.length;i++)assert.ok(frames[i]>frames[i-1]);});
+test('typing finishes before submission and slogan has an unobstructed reading hold',()=>{assert.ok(t.requestSent-t.requestTypeEnd>=15);assert.ok(t.chatStart-t.teamTypeEnd>=15);assert.equal(t.closeStart-t.sloganReady,2*t.fps);assert.ok(t.duration-t.closeStart>=4*t.fps);assert.equal(t.fps*60/t.bpm,t.beatFrames);});

@@ -8,7 +8,8 @@
   "include": [
     "src/**/*",
     "src/app/.well-known/**/*.ts",
-    "scripts/**/*"
+    "scripts/**/*",
+    "app-store-capture/**/*"
   ],
   "exclude": [
     "node_modules"

@@ -3,20 +3,33 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 const root = resolve(import.meta.dirname, "../../src/desktop/src-tauri")
 const read = (file: string) => readFileSync(resolve(root, file), "utf8")
-type Capability = { identifier: string; local?: boolean; remote?: { urls: string[] }; windows: string[]; platforms?: string[]; permissions: (string | { identifier: string })[] }
+type Capability = { identifier: string; local?: boolean; remote?: { urls: string[] }; windows: string[]; webviews?: string[]; platforms?: string[]; permissions: (string | { identifier: string })[] }
 type Config = { app: { security: { capabilities: (string | Capability)[] } }; build: { frontendDist: string }; plugins?: { "deep-link"?: unknown } }
 const production: Config = JSON.parse(read("tauri.conf.json"))
 const development: Config = JSON.parse(read("tauri.dev.conf.json"))
 const capabilities = (config: Config): Capability[] => config.app.security.capabilities.map(c => typeof c === "string" ? JSON.parse(read(`capabilities/${c === "desktop-capability" ? "desktop" : c}.json`)) : c)
 
 describe("desktop native OAuth security configuration", () => {
-  it.each([production, development])("grants the app-local frontend only the scoped native OAuth capability", config => {
+  it.each([production, development])("keeps desktop raw IPC disabled and scopes mobile event listeners to the trusted main window", config => {
     const merged = capabilities(config)
-    for (const permission of merged.flatMap(c => c.permissions).map(p => typeof p === "string" ? p : p.identifier)) {
-      expect(permission).not.toMatch(/^(?:core:default$|core:event:|deep-link:|store:)/)
+    const isProduction = config === production
+    const lifecycleIdentifier = isProduction ? "window-lifecycle-mobile" : "window-lifecycle-dev"
+    const lifecycle = merged.filter(c => c.identifier === lifecycleIdentifier)
+    expect(lifecycle).toHaveLength(1)
+    expect(lifecycle[0]).toMatchObject({
+      windows: ["main"],
+      platforms: ["android", "iOS"],
+      local: !isProduction,
+      remote: { urls: [isProduction ? "https://alook.ai" : "http://localhost:3000"] },
+      permissions: ["core:event:allow-listen", "core:event:allow-unlisten"],
+    })
+    expect(lifecycle[0]!.webviews ?? []).toEqual([])
+    for (const capability of merged.filter(c => c.identifier !== lifecycleIdentifier)) {
+      for (const permission of capability.permissions.map(p => typeof p === "string" ? p : p.identifier)) {
+        expect(permission).not.toMatch(/^(?:core:default$|core:event:|deep-link:|store:)/)
+      }
     }
     const oauth = merged.find(c => c.permissions.includes("native-oauth"))!
-    const isProduction = config === production
     expect(config.build.frontendDist).toBe(isProduction ? "alook-recovery://localhost/bootstrap" : "http://localhost:3000")
     expect(oauth.windows).toEqual(["main"])
     expect(oauth.platforms).toEqual(expect.arrayContaining(["linux", "macOS", "windows"]))

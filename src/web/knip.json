@@ -23,9 +23,14 @@
     "blog/scripts/**/*.ts",
     "blog/src/content/**/*.mdx",
     "auth/index.ts",
-    "scripts/**/*.{ts,mjs}"
+    "scripts/**/*.{ts,mjs}",
+    "app-store-capture/capture.mjs",
+    "app-store-capture/next.config.ts",
+    "app-store-capture/postcss.config.mjs",
+    "app-store-capture/app/**/page.tsx",
+    "app-store-capture/app/layout.tsx"
   ],
-  "project": ["src/**/*.{ts,tsx,css,mdx}", "blog/**/*.{ts,tsx,css,mdx}", "auth/**/*.{ts,tsx,mts}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
+  "project": ["src/**/*.{ts,tsx,css,mdx}", "blog/**/*.{ts,tsx,css,mdx}", "auth/**/*.{ts,tsx,mts}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts", "app-store-capture/**/*.{ts,tsx,mjs,css}", "!app-store-capture/.next/**", "!app-store-capture/next-env.d.ts"],
   "ignoreDependencies": [
     "cloudflare",
     "rehype-autolink-headings",

@@ -1292,6 +1292,14 @@ describe("Desktop image clipboard", () => {
     expect(desktopDevConfig.app.security.capabilities).toEqual([
       "desktop-capability",
       "external-links",
+      expect.objectContaining({
+        identifier: "window-lifecycle-dev",
+        local: true,
+        windows: ["main"],
+        platforms: ["android", "iOS"],
+        remote: { urls: ["http://localhost:3000"] },
+        permissions: ["core:event:allow-listen", "core:event:allow-unlisten"],
+      }),
       expect.objectContaining({ identifier: "native-oauth-dev", local: true, remote: { urls: ["http://localhost:3000"] }, permissions: ["native-oauth"] }),
       expect.objectContaining({
         identifier: "mobile-share-image-dev",

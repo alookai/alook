@@ -35,6 +35,16 @@ describe("native file save boundary", () => {
     expect(read("plugins/file-save/android/src/main/java/ai/alook/plugin/filesave/FileSavePlugin.kt")).toContain('source.name == args.attemptId + ".partial"')
     expect(read("plugins/file-save/ios/Sources/FileSavePlugin.swift")).toContain('source.lastPathComponent == args.attemptId + ".partial"')
   })
+  it("anchors the system share sheet only on iPad and preserves its source rectangle", () => {
+    const plugin = read("plugins/file-save/ios/Sources/FileSavePlugin.swift")
+    const configuration = plugin.slice(plugin.indexOf("if presenter.traitCollection.userInterfaceIdiom"), plugin.indexOf("presenter.present(picker"))
+    expect(configuration).toMatch(/^if presenter\.traitCollection\.userInterfaceIdiom == \.pad,\s+let popover = picker\.popoverPresentationController \{/)
+    expect(configuration).toContain("popover.sourceView = presenter.view")
+    expect(configuration).toContain("CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)")
+    expect(configuration).toContain("popover.permittedArrowDirections = []")
+    expect(plugin.match(/popover\.sourceView\s*=/g)).toHaveLength(1)
+    expect(plugin).not.toMatch(/picker\.(preferredContentSize|modalPresentationStyle)\s*=/)
+  })
   it("limits Android shared file access to the dedicated cache with temporary grants", () => {
     const manifest = read("plugins/file-save/android/src/main/AndroidManifest.xml")
     expect(manifest).toContain('android:exported="false"')

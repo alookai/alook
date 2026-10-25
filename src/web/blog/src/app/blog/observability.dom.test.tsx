@@ -37,10 +37,15 @@ beforeEach(() => {
   installTelemetrySink(event => events.push(event));
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
 });
-afterEach(async () => {
-  await act(async () => { retireTelemetry(); clearActions(); });
-  vi.unstubAllGlobals();
-});
+async function cleanupObservabilityTest() {
+  try {
+    await act(async () => { retireTelemetry(); clearActions(); });
+    await vi.dynamicImportSettled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
+afterEach(cleanupObservabilityTest);
 
 it("executes the actual index loader and renders ordered featured/recent links before reporting committed content", async () => {
   const navigation = beginNavigation("/blog")!;
@@ -155,4 +160,39 @@ it("renders a related article title before its summary and retains its destinati
   expect([...link.querySelectorAll("span")].map(child => child.textContent)).toEqual([
     related.title, "Decide whether I need an agent or a chatbot", related.readingTime,
   ]);
+});
+
+it("keeps globals until cleanup finishes draining the real dynamic imports", async () => {
+  const originalDrain = vi.dynamicImportSettled.bind(vi);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const drain = vi.spyOn(vi, "dynamicImportSettled").mockImplementationOnce(async () => {
+    await originalDrain();
+    await pending;
+  });
+  const originalGlobal = globalThis.matchMedia;
+  let completed = false;
+  const cleanup = cleanupObservabilityTest().then(() => { completed = true; });
+  try {
+    await waitFor(() => expect(drain).toHaveBeenCalledOnce());
+    expect(completed).toBe(false);
+    expect(globalThis.matchMedia).toBe(originalGlobal);
+  } finally {
+    release();
+    try { await cleanup; } finally { drain.mockRestore(); }
+  }
+  expect(completed).toBe(true);
+  expect(globalThis.matchMedia).not.toBe(originalGlobal);
+});
+
+it("restores globals when cleanup rejects and preserves the original rejection", async () => {
+  const error = new Error("import drain rejected");
+  const originalGlobal = globalThis.matchMedia;
+  const drain = vi.spyOn(vi, "dynamicImportSettled").mockRejectedValueOnce(error);
+  try {
+    await expect(cleanupObservabilityTest()).rejects.toBe(error);
+    expect(globalThis.matchMedia).not.toBe(originalGlobal);
+  } finally {
+    drain.mockRestore();
+  }
 });

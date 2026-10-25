@@ -198,7 +198,7 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
         await reconcileConversationLanding(client, {
           kind: target.serverId === null ? "dm" : "channel", scopeId: target.channelId,
           serverId: target.serverId ?? undefined,
-        }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages }, initial)
+        }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages }, initial, { query: original!, signal })
         assert()
       }
       return resource

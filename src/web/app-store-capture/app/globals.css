@@ -1,0 +1,8 @@
+@import "../../src/app/globals.css";
+@source "../../src/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+
+html, body { margin: 0; scrollbar-width: none; }
+html { font-size: 16px; }
+body { min-height: 100vh; }
+nextjs-portal { display: none !important; }

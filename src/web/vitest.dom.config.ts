@@ -21,6 +21,7 @@ export default mergeConfig(shared, defineConfig({
       "blog/**/*.dom.test.{ts,tsx}",
       "scripts/**/*.dom.test.{ts,tsx}",
       "readme-capture/**/*.dom.test.{ts,tsx}",
+      "app-store-capture/**/*.dom.test.{ts,tsx}",
     ],
     exclude: ["src/test/e2e/**", "src/test/e2e-ui/**"],
     setupFiles: ["src/test/react-dom-setup.ts"],

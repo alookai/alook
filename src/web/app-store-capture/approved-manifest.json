@@ -1,0 +1,151 @@
+{
+  "version": "v6-warm-orange-approved",
+  "input_files": [
+    {
+      "file": "prototype/index.html",
+      "bytes": 16581,
+      "sha256": "04f02bec3b1b2bbf53068fe2f25d9d97a0d1b9abd20bf2b9e1681d66f17285c6"
+    },
+    {
+      "file": "prototype/tablet.html",
+      "bytes": 3053,
+      "sha256": "730d5b8b0ec64b0f2d3f95940cbd8cd6a433f25bd9623487df72600e3204a1e9"
+    },
+    {
+      "file": "prototype/alook.svg",
+      "bytes": 7571,
+      "sha256": "93752523cd171706887d8c70b6511f99727478386d3842fd1efab764c119988e"
+    },
+    {
+      "file": "prototype/caveat.woff2",
+      "bytes": 74932,
+      "sha256": "891951df5e8b5b0f0bc760d31375405e795c666b5add70437de12d4a6482b33f"
+    },
+    {
+      "file": "prototype/dm-sans.woff2",
+      "bytes": 36932,
+      "sha256": "9fea608a947e67020c33cad9a6fe3d60c54119dfb8cff87768a8117a15ed7543"
+    },
+    {
+      "file": "prototype/demo-desktop.png",
+      "bytes": 534689,
+      "sha256": "fc39ef3ab09fd6bb18726ac9ceb068b0ab5c00d1d83c6b6d4189d3b72a0a75ed"
+    },
+    {
+      "file": "prototype/demo-phone.png",
+      "bytes": 529870,
+      "sha256": "402a9183e37fea06cdd4a8a6183198bd7268e2a66dec092fc1a21f1be85350df"
+    },
+    {
+      "file": "prototype/identity.webp",
+      "bytes": 15724,
+      "sha256": "d96c37b4a7080ee8206d29529529ad9155968b75d8d5109df64bd7249779ed82"
+    },
+    {
+      "file": "prototype/profile.webp",
+      "bytes": 21114,
+      "sha256": "90755d8b6f2b2eb03cdf7d8032585a61d4818893ad5f52d531409f8516ef3566"
+    },
+    {
+      "file": "prototype/continuity.webp",
+      "bytes": 20024,
+      "sha256": "15b5a2e10fb1a57b5a8d252bd59cee9d45fe41426165cb3bdaade61a896e3f37"
+    },
+    {
+      "file": "prototype/face-red.svg",
+      "bytes": 1433,
+      "sha256": "d762e20ec379a14a492ca1cd438fb608267ed1870e20d0ed17d6acf16dd8924a"
+    },
+    {
+      "file": "prototype/face-purple.svg",
+      "bytes": 1399,
+      "sha256": "2ec902464f75486fe3433b80ad65c30de4a4fcf947403bba8a38c4c54e0e162b"
+    },
+    {
+      "file": "prototype/face-teal.svg",
+      "bytes": 1860,
+      "sha256": "6b53ffd30e7ae6935eaea4dffb31e7bb096d03163c99c2855c5846aec8b375e0"
+    },
+    {
+      "file": "prototype/face-blue.svg",
+      "bytes": 1338,
+      "sha256": "6ba47540a0c02a03d3955dc26219c2b248537890f55cb7ceafd09b080e454598"
+    },
+    {
+      "file": "prototype/face-orange.svg",
+      "bytes": 1777,
+      "sha256": "b26fccaf217060bd67c3874776f11d329401dc79b33a49a5168a33d3458d240e"
+    }
+  ],
+  "approved_outputs": [
+    {
+      "file": "approved-output/alook-store-v6-phone-01-1206x2622.jpg",
+      "bytes": 229516,
+      "sha256": "f92c0cb786b07fefc4a74ca66e9a9ffc79108e9909b85796f3bafe70a90c3811"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-02-1206x2622.jpg",
+      "bytes": 208853,
+      "sha256": "4ddaba485e6f4cea3b99dd9308fa65f790f444b71799af9f3cd9eba9929597f3"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-03-1206x2622.jpg",
+      "bytes": 175992,
+      "sha256": "4a7c7946e17776433c98e29213373fcc277a5e06b4b83a50e928ec63c9efc6a3"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-04-1206x2622.jpg",
+      "bytes": 157562,
+      "sha256": "95e0c8471c5c2ca5fba7d8d55f4c602e3be3995a7a985fd3a6d1967ff286f049"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-05-1206x2622.jpg",
+      "bytes": 228149,
+      "sha256": "c1ddd8380f89114acf6a75828b301f30cfed1fd1e115de91878f8a104b0bc8b6"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-06-1206x2622.jpg",
+      "bytes": 232043,
+      "sha256": "256e9021c3ff9cc3fe05b2f1ff181bff2cb7a373d4bb734cb9440ca532c5371d"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-01-1320x2868.jpg",
+      "bytes": 255498,
+      "sha256": "35749964b17ad22b03a2a1625f343ed89fe3d4433ce61bf18a753cfbf6b1792b"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-02-1320x2868.jpg",
+      "bytes": 234652,
+      "sha256": "bb60b001cdbf6026e8cc48b4205059a2e88fc89ed8f0af015140a8cd320cce90"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-03-1320x2868.jpg",
+      "bytes": 196116,
+      "sha256": "7f688066e4f2f6ec4059115c1b27b09c7999b2d6cf51d4af1d36b31ddc47919d"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-04-1320x2868.jpg",
+      "bytes": 175680,
+      "sha256": "e7021221d8a60b0f872e34bc8efac39e656f5eeecdbda4ecd6c7854c4e8131ba"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-05-1320x2868.jpg",
+      "bytes": 254489,
+      "sha256": "aca54d194de92275b3c81df6f755591dca45b86fc66356e69bd328f5d52b4ea0"
+    },
+    {
+      "file": "approved-output/alook-store-v6-phone-06-1320x2868.jpg",
+      "bytes": 246767,
+      "sha256": "4e16b6cc87ed8d20fd6ae637bfc9a8a88381e28df2fbccc67c13696acdeda541"
+    },
+    {
+      "file": "approved-output/alook-store-v6-tablet-01-2064x2752.jpg",
+      "bytes": 279345,
+      "sha256": "ed1061fedaca98bc4fe60e1795126cd12c4ddc786c136a9d7fcb46b15d2b050c"
+    }
+  ],
+  "board": {
+    "file": "alook-six-previews-v6-warm-orange.jpg",
+    "sha256": "3d865c5a326db00fb1524f5194f48dfa3dd80a5de44a945da9b82574c09401c8"
+  }
+}

@@ -286,6 +286,7 @@ function resetMockState() {
   mockNavigator.onLine = true
   mockDocument.reset()
   mockWindow.reset()
+  Reflect.deleteProperty(mockWindow, "__TAURI__")
 }
 
 describe("useUserWs", () => {
@@ -1556,6 +1557,7 @@ describe("useUserWs", () => {
     const [{ nonce }] = connectionPings(first)
 
     await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+    await vi.advanceTimersByTimeAsync(1_000)
     await flushPromises()
     expect(first.closed).toBe(true)
     expect(onReconnect).not.toHaveBeenCalled()
@@ -1569,7 +1571,7 @@ describe("useUserWs", () => {
 
     expect(onReconnect).toHaveBeenCalledOnce()
     expect(onReconnect).toHaveBeenCalledWith({
-      reconnectDurationMs: 1_000 + mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS,
+      reconnectDurationMs: 2_000 + mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS,
     })
   })
 
@@ -1693,6 +1695,37 @@ describe("useUserWs", () => {
 
     expect(mockFetch.mock.calls.length).toBe(fetchesWhileHidden + 1)
     expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("defers heartbeat startup when the authentication callback hides the page and restores it after foreground validation", async () => {
+    setupTokenFetch()
+    const interval = vi.spyOn(globalThis, "setInterval")
+    try {
+      await mountHook(vi.fn(), {
+        requestDaemonStatusOnAuth: false,
+        onAuthenticated: () => {
+          mockDocument.visibilityState = "hidden"
+          mockDocument.dispatch("visibilitychange")
+        },
+      })
+      const ws = MockWebSocket.instances[0]!
+      ws.simulateOpen()
+      interval.mockClear()
+      ws.simulateMessage({ type: "auth.ok" })
+      expect(interval.mock.calls.filter(([, delay]) => delay === 25_000 || delay === 5_000)).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(ws.sent).not.toContain("ping")
+      expect(ws.closed).toBe(false)
+      mockDocument.visibilityState = "visible"
+      mockDocument.dispatch("visibilitychange")
+      const [{ nonce }] = connectionPings(ws)
+      ws.simulateMessage({ type: "connection.pong", nonce })
+      await vi.advanceTimersByTimeAsync(25_000)
+      expect(ws.sent.filter(frame => frame === "ping")).toHaveLength(1)
+      expect(MockWebSocket.instances).toEqual([ws])
+    } finally {
+      interval.mockRestore()
+    }
   })
 
   it("parks an authenticated hidden socket without heartbeat or reconnect work", async () => {
@@ -1958,6 +1991,7 @@ describe("useUserWs", () => {
     expect(connectionPings(first)).toEqual([{ type: "connection.ping", nonce }])
 
     await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+    await vi.advanceTimersByTimeAsync(1_000)
     await flushPromises()
 
     expect(first.closed).toBe(true)
@@ -2174,7 +2208,7 @@ describe("useUserWs", () => {
     dispatchWindowFocus()
     mockDocument.dispatch("resume")
     dispatchPageShow(true)
-    expect(onForeground).toHaveBeenCalledTimes(3)
+    expect(onForeground).toHaveBeenCalledOnce()
     expect(connectionPings(ws)).toHaveLength(1)
 
     const [{ nonce }] = connectionPings(ws)
@@ -2321,6 +2355,7 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "auth.ok" })
 
     dispatchHiddenToVisible()
+    await vi.advanceTimersByTimeAsync(1_000)
     await flushPromises()
 
     expect(onDisconnect).toHaveBeenCalledOnce()
@@ -2355,6 +2390,7 @@ describe("useUserWs", () => {
     expect(first.closed).toBe(false)
 
     await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1_000)
     mockWindow.dispatch("pageshow")
     await flushPromises()
 
@@ -2466,6 +2502,7 @@ describe("useUserWs", () => {
     const [{ nonce }] = connectionPings(ws)
 
     await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+    await vi.advanceTimersByTimeAsync(1_000)
     await flushPromises()
     expect(ws.closed).toBe(true)
     expect(MockWebSocket.instances).toHaveLength(2)
@@ -3001,4 +3038,135 @@ describe("useUserWs", () => {
     ws.simulateMessage(generic)
     expect(onMessage).toHaveBeenCalledWith(generic, undefined, 1)
   })
+  it.each(["token", "authentication", "heartbeat"] as const)("keeps one retry deadline when a timed-out %s attempt later fails", async (kind) => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.75)
+    try {
+      const tokenResponse = deferred<never>()
+      if (kind === "token") mockFetch.mockReturnValueOnce(tokenResponse.promise)
+      else setupTokenFetch()
+      const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+      const old = MockWebSocket.instances[0]
+      if (old) {
+        old.close = vi.fn(() => { old.readyState = MockWebSocket.CLOSING })
+        old.simulateOpen()
+        if (kind === "heartbeat") old.simulateMessage({ type: "auth.ok" })
+      }
+      const count = MockWebSocket.instances.length
+      await vi.advanceTimersByTimeAsync(kind === "heartbeat" ? 35_000 : mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+      expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledExactlyOnceWith({ attempt: 1, delayMs: 750, windowMs: 1000 })
+      if (kind === "token") tokenResponse.reject(new Error("late transport failure"))
+      else {
+        old!.simulateClose()
+        old!.simulateError()
+        old!.simulateMessage({ type: "auth.ok" })
+      }
+      await flushPromises()
+      expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
+      setupTokenFetch()
+      await vi.advanceTimersByTimeAsync(749)
+      expect(MockWebSocket.instances).toHaveLength(count)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(MockWebSocket.instances).toHaveLength(count + 1)
+      expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
+    } finally {
+      random.mockRestore()
+    }
+  })
+
+  it.each(["authentication", "heartbeat"] as const)("retires %s timeout without waiting for close and ignores every stale callback", async (kind) => {
+    setupTokenFetch()
+    const onDisconnect = vi.fn(), onReconnect = vi.fn(), onMessage = vi.fn(), onConnectionStateChange = vi.fn()
+    const mod = await mountHook(onMessage, { onDisconnect, onReconnect, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    const old = MockWebSocket.instances[0]!
+    old.close = vi.fn(() => { old.readyState = MockWebSocket.CLOSING })
+    old.simulateOpen()
+    if (kind === "heartbeat") old.simulateMessage({ type: "auth.ok" })
+    const deadline = kind === "authentication" ? mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS : 35_000
+    await vi.advanceTimersByTimeAsync(deadline - 1)
+    expect(old.close).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(old.close).toHaveBeenCalledOnce()
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("reconnecting")
+    expect(onDisconnect).toHaveBeenCalledTimes(kind === "heartbeat" ? 1 : 0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    const replacement = MockWebSocket.instances[1]!
+    replacement.simulateOpen()
+    replacement.simulateMessage({ type: "auth.ok" })
+    old.simulateOpen()
+    old.simulateMessage({ type: "auth.ok" })
+    old.simulateMessage({ type: "task.updated" })
+    old.simulateClose()
+    old.simulateError()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(onMessage).not.toHaveBeenCalled()
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("authenticated")
+    expect(onDisconnect).toHaveBeenCalledTimes(kind === "heartbeat" ? 1 : 0)
+    expect(onReconnect).toHaveBeenCalledTimes(kind === "heartbeat" ? 1 : 0)
+  })
+
+  it("parks on native suspend even with visible DOM and retains an early native resume until visible", async () => {
+    const listeners = new Map<string, () => void>()
+    const unlisten = vi.fn()
+    Object.assign(mockWindow, { __TAURI__: { window: { getCurrentWindow: () => ({
+      listen: async (event: string, handler: () => void) => { listeners.set(event, handler); return unlisten },
+    }) } } })
+    setupTokenFetch()
+    const onForeground = vi.fn(), onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), { onForeground, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    const sent = ws.sent.length
+    listeners.get("tauri://suspended")!()
+    dispatchWindowFocus()
+    await vi.advanceTimersByTimeAsync(40_000)
+    expect(ws.sent).toHaveLength(sent)
+    expect(ws.closed).toBe(false)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    mockDocument.visibilityState = "hidden"
+    listeners.get("tauri://resumed")!()
+    expect(onForeground).not.toHaveBeenCalled()
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    listeners.get("tauri://resumed")!()
+    mockDocument.dispatch("resume")
+    dispatchPageShow(true)
+    expect(onForeground).toHaveBeenCalledOnce()
+    expect(connectionPings(ws)).toHaveLength(1)
+    expect(MockWebSocket.instances).toHaveLength(1)
+    for (const effect of effectMemo.values()) effect.cleanup?.()
+    expect(unlisten).toHaveBeenCalledTimes(2)
+    listeners.get("tauri://resumed")!()
+    expect(onForeground).toHaveBeenCalledOnce()
+  })
+
+  it("keeps DOM recovery available when native resumed registration fails after suspended registered", async () => {
+    const callbacks = new Map<string, () => void>()
+    const resumed = deferred<() => void>()
+    const unlisten = vi.fn()
+    Object.assign(mockWindow, { __TAURI__: { window: { getCurrentWindow: () => ({
+      listen: (event: string, callback: () => void) => {
+        callbacks.set(event, callback)
+        return event === "tauri://resumed" ? resumed.promise : Promise.resolve(unlisten)
+      },
+    }) } } })
+    setupTokenFetch()
+    const onForeground = vi.fn(), onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), { onForeground, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    callbacks.get("tauri://suspended")!()
+    resumed.reject(new Error("permission denied"))
+    await flushPromises()
+    dispatchHiddenToVisible()
+    callbacks.get("tauri://suspended")!()
+    expect(onForeground).toHaveBeenCalledOnce()
+    expect(connectionPings(ws)).toHaveLength(1)
+    expect(unlisten).toHaveBeenCalledOnce()
+    expect(MockWebSocket.instances).toEqual([ws])
+  })
+
 })

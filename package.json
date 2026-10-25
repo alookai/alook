@@ -43,6 +43,7 @@
     "readme:badges": "node scripts/generate-readme-badges.mjs",
     "readme:badges:test": "node --test scripts/generate-readme-badges.test.mjs",
     "readme:capture": "node src/web/readme-capture/capture.mjs",
+    "app-store:capture": "node src/web/app-store-capture/capture.mjs",
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {

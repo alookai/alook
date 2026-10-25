@@ -44,7 +44,8 @@ import {
 } from "./test-harness"
 
 const scheduleGapRepairMock = vi.hoisted(() => vi.fn(() => null))
-vi.mock("@/hooks/community/community-ws/reconnect-messages", () => ({
+vi.mock("@/hooks/community/community-ws/reconnect-messages", async original => ({
+  ...await original<typeof import("@/hooks/community/community-ws/reconnect-messages")>(),
   scheduleFocusedMessageGapRepair: (...args: unknown[]) => scheduleGapRepairMock(...args),
 }))
 

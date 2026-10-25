@@ -171,6 +171,7 @@ async function establishScrollDistancePrecondition(
   scroller: Locator,
   label: string,
   targetDistanceToEnd: number,
+  tolerance = 1,
 ): Promise<{ scrollTop: number; scrollHeight: number; clientHeight: number; distanceToEnd: number }> {
   const readGeometry = () => scroller.evaluate((element) => ({
     scrollTop: element.scrollTop,
@@ -180,7 +181,7 @@ async function establishScrollDistancePrecondition(
   })).then((geometry) => ({
     ...geometry,
     targetDistanceToEnd,
-    atTarget: Math.abs(geometry.distanceToEnd - targetDistanceToEnd) <= 1,
+    atTarget: Math.abs(geometry.distanceToEnd - targetDistanceToEnd) <= tolerance,
   }))
   const driveToTarget = async () => {
     const geometry = await readGeometry()
@@ -895,7 +896,7 @@ test.describe("message scroll characterization", () => {
     await attachLocalTrace()
     for (const author of ["bob", "alice"] as const) {
       for (const distance of [0, 1, 2, 20, 100, 101]) {
-        await establishScrollDistancePrecondition(scroller, `${author}-${distance}`, distance)
+        await establishScrollDistancePrecondition(scroller, `${author}-${distance}`, distance, 0.01)
         const before = await waitForCommittedGeometry(scroller)
         expect(before.firstVisibleId).not.toBeNull()
         expect(Math.abs(before.distanceToEnd - distance)).toBeLessThanOrEqual(0.01)

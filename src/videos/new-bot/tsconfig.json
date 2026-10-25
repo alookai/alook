@@ -1,0 +1,68 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "../../web/src/*"
+      ],
+      "@alook/shared": [
+        "../../shared/src/index.ts"
+      ],
+      "react": [
+        "../../web/node_modules/@types/react"
+      ],
+      "react/*": [
+        "../../web/node_modules/@types/react/*"
+      ],
+      "@tanstack/react-query": [
+        "../../web/node_modules/@tanstack/react-query"
+      ],
+      "lucide-react": [
+        "../../web/node_modules/lucide-react"
+      ],
+      "react-dom": [
+        "../../web/node_modules/@types/react-dom"
+      ],
+      "react-dnd": [
+        ".render-deps/node_modules/react-dnd"
+      ],
+      "react-dnd-html5-backend": [
+        ".render-deps/node_modules/react-dnd-html5-backend"
+      ],
+      "react-dnd-scrolling": [
+        ".render-deps/node_modules/react-dnd-scrolling"
+      ],
+      "react-dnd-touch-backend": [
+        ".render-deps/node_modules/react-dnd-touch-backend"
+      ],
+      "dnd-multi-backend": [
+        ".render-deps/node_modules/dnd-multi-backend"
+      ],
+      "remark-math": [
+        ".render-deps/node_modules/remark-math"
+      ],
+      "@tanstack/store": [
+        "../../web/node_modules/@tanstack/store"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "../../web/cloudflare-env.d.ts",
+    "../../web/src/env.d.ts"
+  ]
+}

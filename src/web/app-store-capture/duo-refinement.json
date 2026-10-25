@@ -1,0 +1,66 @@
+{
+  "status": "historical",
+  "source_commit": "30cc2f9be9aff68c76e68c4584d4b0fbb0f74012",
+  "revision": "physical-scale-v2",
+  "previous_template": {
+    "file": "duo.html",
+    "bytes": 4377,
+    "sha256": "340f68c58ee4ff8cd5a40c1be3ab1f5e099214237e6e4b4471137dfc81fdeb18",
+    "git_commit": "4a61a1d57ad470896ce62c59ea8d4a8f1251b935"
+  },
+  "sources": {
+    "body_and_hardware_pixels": "https://www.apple.com/iphone-duo/specs/",
+    "store_screenshot_pixels": "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/",
+    "responsive_window_guidance": "https://developer.apple.com/iphone-duo/prepare/"
+  },
+  "geometry": {
+    "css_pixels_per_mm": 10,
+    "unfolded": {
+      "body_mm": [
+        164.6,
+        117.8
+      ],
+      "body_css_pixels": [
+        1646,
+        1178
+      ],
+      "screen_pixel_ratio": [
+        2670,
+        1878
+      ]
+    },
+    "folded": {
+      "body_mm": [
+        84.1,
+        117.8
+      ],
+      "body_css_pixels": [
+        841,
+        1178
+      ],
+      "screen_pixel_ratio": [
+        1398,
+        2034
+      ]
+    },
+    "poster_pixels": [
+      2007,
+      2853
+    ],
+    "image_fit": "contain"
+  },
+  "illustration_only": [
+    "bezel widths",
+    "corner radii",
+    "crease",
+    "hinges",
+    "button geometry",
+    "perspective"
+  ],
+  "preserved_original_manifest": "duo-manifest.json",
+  "revised_template": {
+    "file": "duo.html",
+    "bytes": 4534,
+    "sha256": "cfe5144dcb17d5abb2c3bc30a73af50df614c8bf6e8ee51b6147df4fcd4842f3"
+  }
+}

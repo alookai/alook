@@ -13,8 +13,15 @@ import {
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
+import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError } from "@/lib/community/conversation-read"
+import { messageWindowOptions } from "@/lib/community/message-window"
 import {
+  cancelMessageRepairs,
+  isFailedMessageRepair,
+  messageReconcileOptions,
   reconcileFocusedMessageQueries,
+  retryFailedMessageRepairs,
+  reconcileWindow,
   scheduleFocusedMessageGapRepair,
 } from "./reconnect-messages"
 
@@ -110,6 +117,156 @@ beforeEach(() => {
 })
 
 describe("focused message reconnect catch-up", () => {
+  it("rejects an inactive window without a live entry owner", async () => {
+    const { client } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("inactive")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    unsubscribe()
+    const before = client.getQueryData(key)
+    await reconcileWindow(client, { kind: "channel", scopeId: "inactive" }, key)
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(client.getQueryData(key)).toBe(before)
+  })
+
+  it("lets an active message observer retain shared work after its entry owner retires", async () => {
+    const { client, registry } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("handoff")
+    seedActiveQuery(client, key).unsubscribe()
+    const parentKey = ["entry-owner"]
+    client.setQueryData(parentKey, true)
+    const parent = new QueryObserver(client, { queryKey: parentKey, queryFn: async () => true, staleTime: Infinity })
+    const stopParent = parent.subscribe(() => undefined)
+    const controller = new AbortController()
+    let signal: AbortSignal | undefined
+    let release!: (value: unknown) => void
+    apiFetchMock.mockImplementation((_url: string, request: { signal: AbortSignal }) => {
+      signal = request.signal
+      return new Promise((resolve) => { release = resolve })
+    })
+    const repair = reconcileWindow(client, { kind: "channel", scopeId: "handoff" }, key, 0, undefined, {
+      query: client.getQueryCache().find({ queryKey: parentKey, exact: true })!, signal: controller.signal,
+    })
+    await vi.waitFor(() => expect(signal).toBeDefined())
+    const observer = new QueryObserver(client, { queryKey: key, queryFn: async () => undefined, staleTime: Infinity })
+    const stopWindow = observer.subscribe(() => undefined)
+    controller.abort()
+    stopParent()
+    expect(signal?.aborted).toBe(false)
+    release({ messages: [{ id: "m_2", seq: 2, content: "owned by window" }], latestSeq: 2 })
+    await repair
+    expect(registry.collections.messages.get("m_2")?.content).toBe("owned by window")
+    stopWindow()
+  })
+
+  it.each([0, 500, 502, 503, 504, "deadline"] as const)("retries transient %s through the existing Query and publishes canonical content", async (failure) => {
+    const { client, registry } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("retry")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    apiFetchMock.mockRejectedValueOnce(failure === "deadline" ? new ConversationReadTimeoutError() : new ApiError("temporary", failure))
+      .mockResolvedValueOnce({ messages: [{ id: "m_2", seq: 2, content: "refreshed" }], latestSeq: 2 })
+    await client.query({ ...messageReconcileOptions(client, { kind: "channel", scopeId: "retry" }, key), retryDelay: 0 })
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(registry.collections.messages.get("m_2")?.content).toBe("refreshed")
+    unsubscribe()
+  })
+
+  it("exhausts after two retries, keeps cached pages and lets the same repair entry recover", async () => {
+    const { client, registry } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("exhausted")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    const before = client.getQueryData(key)
+    apiFetchMock.mockRejectedValue(new ApiError("unavailable", 503))
+    await expect(client.query({ ...messageReconcileOptions(client, { kind: "channel", scopeId: "exhausted" }, key), retryDelay: 0 })).rejects.toThrow("unavailable")
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    expect(client.getQueryData(key)).toBe(before)
+    const repair = client.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true })!
+    expect(isFailedMessageRepair(client, repair)).toBe(true)
+    apiFetchMock.mockResolvedValue({ messages: [{ id: "m_2", seq: 2, content: "recovered" }], latestSeq: 2 })
+    await retryFailedMessageRepairs(client)
+    expect(apiFetchMock).toHaveBeenCalledTimes(4)
+    expect(registry.collections.messages.get("m_2")?.content).toBe("recovered")
+    expect(isFailedMessageRepair(client, repair)).toBe(false)
+    unsubscribe()
+  })
+
+  it("keeps one-page repair cursors usable by the real subsequent newer-page fetch", async () => {
+    const { client, registry } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("scroll-newer")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_2", seq: 2 }], latestSeq: 100 })
+      .mockResolvedValueOnce({ messages: [{ id: "m_3", seq: 3, createdAt: "2026-08-15T00:00:03.000Z" }], latestSeq: 100, hasMoreNewer: true, newerCursor: "next-page" })
+      .mockResolvedValueOnce({ messages: [{ id: "m_4", seq: 4, content: "from scroll" }], latestSeq: 100, hasMoreNewer: true, newerCursor: "later-page" })
+    await reconcileFocusedMessageQueries(client, "channel", "scroll-newer")
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    const observer = new InfiniteQueryObserver(client, {
+      ...messageWindowOptions(client, "scroll-newer", { mode: "newest" }), queryKey: key, staleTime: Infinity,
+    })
+    const stop = observer.subscribe(() => undefined)
+    await observer.fetchPreviousPage()
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    expect(apiFetchMock.mock.calls[2][0]).toBe("/api/community/channels/scroll-newer/messages?since=next-page")
+    expect(registry.collections.messages.get("m_4")?.content).toBe("from scroll")
+    expect(client.getQueryData<{ pages: unknown[]; pageParams: unknown[] }>(key)?.pageParams).toEqual([
+      { mode: "newer", cursor: "next-page" }, { mode: "newest" }, { mode: "older", cursor: "older-2" },
+    ])
+    stop(); unsubscribe()
+  })
+
+  it.each([400, 401, 429, 501, "unknown", "abort"] as const)("does not automatically retry terminal %s", async (failure) => {
+    const { client } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("terminal")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    const error = failure === "unknown" ? new Error("unknown") : failure === "abort" ? new DOMException("retired", "AbortError") : new ApiError("terminal", failure)
+    apiFetchMock.mockRejectedValue(error)
+    await expect(client.query({ ...messageReconcileOptions(client, { kind: "channel", scopeId: "terminal" }, key), retryDelay: 0 })).rejects.toBe(error)
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    unsubscribe()
+  })
+
+  it("bounds hung HTTP attempts with the existing deadline and aborts every request", async () => {
+    const { client } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("hung")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    const before = client.getQueryData(key)
+    const signals: AbortSignal[] = []
+    apiFetchMock.mockImplementation((_url: string, options: { signal: AbortSignal }) => {
+      signals.push(options.signal)
+      return new Promise(() => undefined)
+    })
+    vi.useFakeTimers()
+    try {
+      const result = client.query({ ...messageReconcileOptions(client, { kind: "channel", scopeId: "hung" }, key), retryDelay: 0 }).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS * 3 + 10)
+      expect(await result).toBeInstanceOf(ConversationReadTimeoutError)
+      expect(signals).toHaveLength(3)
+      expect(signals.every((signal) => signal.aborted)).toBe(true)
+      expect(client.getQueryData(key)).toBe(before)
+    } finally { vi.useRealTimers(); unsubscribe() }
+  })
+
+  it.each(["background", "window"] as const)("cancels pending retry on %s retirement and starts a fresh repair later", async (reason) => {
+    const { client } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("cancelled")
+    const first = seedActiveQuery(client, key)
+    apiFetchMock.mockRejectedValue(new ApiError("offline", 0))
+    vi.useFakeTimers()
+    try {
+      const result = reconcileFocusedMessageQueries(client, "channel", "cancelled")
+      await vi.advanceTimersByTimeAsync(1)
+      expect(apiFetchMock).toHaveBeenCalledOnce()
+      if (reason === "window") first.unsubscribe()
+      await cancelMessageRepairs(client, reason === "window")
+      await result
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(apiFetchMock).toHaveBeenCalledOnce()
+      const next = reason === "window" ? seedActiveQuery(client, key) : first
+      apiFetchMock.mockResolvedValue({ messages: [], latestSeq: 2 })
+      await reconcileFocusedMessageQueries(client, "channel", "cancelled")
+      expect(apiFetchMock).toHaveBeenCalledTimes(2)
+      next.unsubscribe()
+    } finally { vi.useRealTimers(); first.unsubscribe() }
+  })
+
   it.each(["account", "parent", "replacement"] as const)("drops old reconnect data after %s changes", async (change) => {
     const { client: queryClient } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("child")
@@ -159,6 +316,35 @@ describe("focused message reconnect catch-up", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(3)
     unsubscribe()
     client.clear()
+  })
+
+  it("propagates one shared non-cancellation failure to both callers and retains a usable retry", async () => {
+    const { client, registry } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("shared-failure")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    const before = client.getQueryData(key)
+    const error = new Error("shared read failed")
+    let reject!: (reason: unknown) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((_, rejectPromise) => { reject = rejectPromise }))
+    const first = reconcileWindow(client, { kind: "channel", scopeId: "shared-failure" }, key)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    const shared = reconcileWindow(client, { kind: "channel", scopeId: "shared-failure" }, key)
+    const settled = Promise.allSettled([first, shared])
+    reject(error)
+    for (const result of await settled) {
+      expect(result.status).toBe("rejected")
+      if (result.status === "rejected") expect(result.reason).toBe(error)
+    }
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    expect(client.getQueryData(key)).toBe(before)
+    const repair = client.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true })!
+    expect(isFailedMessageRepair(client, repair)).toBe(true)
+    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_2", seq: 2, content: "retry recovered" }], latestSeq: 2 })
+    await retryFailedMessageRepairs(client)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(registry.collections.messages.get("m_2")?.content).toBe("retry recovered")
+    expect(isFailedMessageRepair(client, repair)).toBe(false)
+    unsubscribe()
   })
 
   it("refreshes a completed query variant when another variant still holds the scope owner", async () => {
@@ -489,7 +675,7 @@ describe("focused message reconnect catch-up", () => {
     const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_offline")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
-    apiFetchMock.mockRejectedValueOnce(new ApiError("unavailable", 503))
+    apiFetchMock.mockRejectedValue(new ApiError("unavailable", 503))
 
     await expect(
       reconcileFocusedMessageQueries(queryClient, "channel", "ch_offline"),
@@ -644,7 +830,7 @@ describe("focused message reconnect catch-up", () => {
     await vi.waitFor(() => expect(observer.getCurrentResult().isSuccess).toBe(true))
     const pagination = observer.fetchNextPage()
     await vi.waitFor(() => expect(olderCalls).toBe(1))
-    apiFetchMock.mockResolvedValueOnce(newest).mockResolvedValueOnce({ ...newest, latestSeq: 5 }).mockResolvedValueOnce({
+    apiFetchMock.mockResolvedValueOnce(newest).mockResolvedValueOnce({
       messages: [3, 4, 5].map((seq) => ({ id: `m_${seq}`, seq, createdAt: `2026-08-15T00:00:0${seq}.000Z` })), latestSeq: 5, hasMoreNewer: false,
     })
     const cancel = vi.spyOn(client, "cancelQueries")
@@ -655,7 +841,7 @@ describe("focused message reconnect catch-up", () => {
     releaseReplay(older)
     releaseStale(older)
     await Promise.all([foreground, gap, pagination])
-    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(cancel).toHaveBeenCalledOnce()
     expect(olderCalls).toBe(2)
     expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages.flatMap((entry) => entry.messages.map((row) => row.id))).toEqual(["m_2", "m_3", "m_4", "m_5", "m_1"])
@@ -760,11 +946,13 @@ describe("focused message reconnect catch-up", () => {
     const { queryFn, unsubscribe } = seedEmptyActiveQuery(client, key)
     apiFetchMock.mockResolvedValue({ messages: [], latestSeq: 0, hasMore: false })
     await scheduleFocusedMessageGapRepair(client, { kind, scopeId }, 2)
-    expect(apiFetchMock).toHaveBeenCalledTimes(8)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(client.getQueryData<{ pages: Array<{ messages: unknown[] }> }>(key)?.pages[0].messages).toEqual([])
-    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_later", seq: 1 }], latestSeq: 1, hasMore: false })
+    const repair = client.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true })!
+    expect(isFailedMessageRepair(client, repair)).toBe(true)
+    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_later", seq: 2 }], latestSeq: 2, hasMore: false })
     await reconcileFocusedMessageQueries(client, kind, scopeId)
-    expect(apiFetchMock).toHaveBeenCalledTimes(9)
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
     expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages[0].messages.map((message) => message.id)).toEqual(["m_later"])
     expect(queryFn).not.toHaveBeenCalled()
     unsubscribe()
@@ -946,7 +1134,7 @@ describe("focused message reconnect catch-up", () => {
     unsubscribe()
   })
 
-  it("walks only forward delta pages and preserves every cached history page", async () => {
+  it("prefetches one forward delta page and preserves every cached history page", async () => {
     const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_1")
     const { queryFn, unsubscribe } = seedActiveQuery(queryClient, queryKey)
@@ -986,11 +1174,10 @@ describe("focused message reconnect catch-up", () => {
 
     await reconcileFocusedMessageQueries(queryClient, "channel", "ch_1")
 
-    expect(apiFetchMock).toHaveBeenCalledTimes(3)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/api/community/channels/ch_1/messages",
       "/api/community/channels/ch_1/messages?since=2026-08-15T00%3A00%3A02.000Z%7Cm_2",
-      "/api/community/channels/ch_1/messages?since=2026-08-15T00%3A00%3A03.000Z%7Cm_3",
     ])
     expect(queryFn).not.toHaveBeenCalled()
     expect(queryClient.getQueryData<{
@@ -1005,11 +1192,11 @@ describe("focused message reconnect catch-up", () => {
     }>(queryKey)).toMatchObject({
       pages: [
         {
-          messages: [{ id: "m_2" }, { id: "m_3" }, { id: "m_4" }],
+          messages: [{ id: "m_2" }, { id: "m_3" }],
           latestSeq: 4,
           hasMore: true,
           cursor: "older-2",
-          hasMoreNewer: false,
+          hasMoreNewer: true,
         },
         { messages: [{ id: "m_1" }] },
       ],
@@ -1021,7 +1208,7 @@ describe("focused message reconnect catch-up", () => {
     unsubscribe()
   })
 
-  it("caps forward catch-up at eight pages and leaves the newer cursor resumable", async () => {
+  it("caps forward catch-up at one page and leaves the newer cursor resumable", async () => {
     const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_bounded")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
@@ -1052,9 +1239,9 @@ describe("focused message reconnect catch-up", () => {
 
     await reconcileFocusedMessageQueries(queryClient, "channel", "ch_bounded")
 
-    expect(apiFetchMock).toHaveBeenCalledTimes(9)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(apiFetchMock.mock.calls.at(-1)?.[0]).toBe(
-      "/api/community/channels/ch_bounded/messages?since=2026-08-15T00%3A00%3A09.000Z%7Cm_9",
+      "/api/community/channels/ch_bounded/messages?since=2026-08-15T00%3A00%3A02.000Z%7Cm_2",
     )
     expect(queryClient.getQueryData<{
       pages: Array<{
@@ -1063,9 +1250,9 @@ describe("focused message reconnect catch-up", () => {
         newerCursor?: string
       }>
     }>(queryKey)?.pages[0]).toMatchObject({
-      messages: Array.from({ length: 9 }, (_, index) => ({ id: `m_${index + 2}` })),
+      messages: Array.from({ length: 2 }, (_, index) => ({ id: `m_${index + 2}` })),
       hasMoreNewer: true,
-      newerCursor: "2026-08-15T00:00:10.000Z|m_10",
+      newerCursor: "2026-08-15T00:00:03.000Z|m_3",
     })
     unsubscribe()
   })
