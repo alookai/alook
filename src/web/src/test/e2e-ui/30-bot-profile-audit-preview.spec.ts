@@ -1326,7 +1326,9 @@ for (const scenario of ["same-day", "cross-day"] as const) {
         await settleSheet(sheet)
         const scroller = sheet.getByRole("region", { name: "Activity log", exact: true })
         await expect(scroller).toHaveCount(1)
-        await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
+        await expect.poll(() => scroller.evaluate(element => Boolean(element.querySelector("[data-activity-event-id]"))
+          && element.scrollHeight > element.clientHeight
+          && element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
         for (const [index, target] of [0, 80].entries()) {
           await scroller.hover()
           await page.mouse.wheel(0, -1_000_000)
