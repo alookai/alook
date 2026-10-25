@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render, screen, setupUser } from "@/test/react-dom-harness"
+import { act, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   searchParams: new URLSearchParams(),
@@ -22,8 +22,8 @@ vi.mock("@/lib/auth-client", () => ({
   signIn: { email: mocks.devSignIn },
   signUp: { email: mocks.devSignUp },
 }))
-vi.mock("./sign-in-fields", () => ({
-  SignInEmailField: ({ email, onChange }: { email: string; onChange: (event: { target: { value: string } }) => void }) => createElement("input", { type: "email", "aria-label": "Email", value: email, onChange }),
+vi.mock("./sign-in-fields", async importOriginal => ({
+  ...await importOriginal<typeof import("./sign-in-fields")>(),
   SignInOtpField: ({ onChange }: { onChange: (value: string) => Promise<void> }) => { mocks.verifyInput = onChange; return null },
 }))
 vi.mock("./social-sign-in", () => ({
@@ -83,6 +83,7 @@ describe("sign-in client Apple availability", () => {
     const social = vi.fn()
     await act(async () => mocks.socialGate!(social))
     expect(social).not.toHaveBeenCalled()
+    await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
     await user.click(screen.getByRole("checkbox"))
     await user.click(screen.getByRole("button", { name: "Send Code" }))
     expect(mocks.send).toHaveBeenCalledOnce()
@@ -93,7 +94,7 @@ describe("sign-in client Apple availability", () => {
     expect(mocks.verify).not.toHaveBeenCalled()
     await user.click(screen.getByRole("checkbox"))
     await act(async () => { await mocks.verifyInput!("123456") })
-    expect(mocks.verify).toHaveBeenCalledExactlyOnceWith({ email: "", otp: "123456" })
+    expect(mocks.verify).toHaveBeenCalledExactlyOnceWith({ email: "person@example.com", otp: "123456" })
   })
 
   it("mobile confirmation starts email once and keeps the existing OTP error flow", async () => {
@@ -132,9 +133,109 @@ describe("sign-in client Apple availability", () => {
     expect(screen.getByRole("button", { name: "Sign in", exact: true })).toBeEnabled()
   })
 
+  it.each([375, 640].flatMap(width => [true, false].flatMap(isProd => ["", "not-an-email"].map(email => ({ width, isProd, email })))))
+  ("at $width with isProd=$isProd, checks consent before validating email '$email' on button clicks", async ({ width, isProd, email }) => {
+    window.matchMedia = vi.fn((query: string) => ({ matches: query.includes("max-width") && width < 640, addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never
+    mocks.devSignIn.mockResolvedValue({ error: { message: "Account not found" } })
+    mocks.devSignUp.mockResolvedValue({ error: { message: "Try again" } })
+    render(createElement(SignInPageClient, { isProd, appleEnabled: false }))
+    const user = setupUser()
+    const input = screen.getByRole("textbox", { name: "Email" }) as HTMLInputElement
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement
+    const label = isProd ? "Send Code" : "Sign in"
+    const request = isProd ? mocks.send : mocks.devSignIn
+    const invalidStates: { checked: boolean; dialog: boolean }[] = []
+    input.addEventListener("invalid", () => { invalidStates.push({ checked: checkbox.checked, dialog: screen.queryByRole("dialog") !== null }) })
+    expect(input).toBeRequired()
+    expect(input).toHaveAttribute("type", "email")
+    if (email) await user.type(input, email)
+    expect(input.validity.valid).toBe(false)
+    await user.click(screen.getByRole("button", { name: label }))
+    expect(document.getElementById("sign-in-terms-copy")).toHaveClass("text-destructive")
+    if (width < 640) {
+      expect(screen.getByRole("dialog")).toBeVisible()
+      await user.click(screen.getByTestId("sign-in-terms-cancel"))
+    }
+    expect(invalidStates).toEqual([])
+    expect(request).not.toHaveBeenCalled()
+    await user.click(checkbox)
+    await user.click(checkbox)
+    await user.click(screen.getByRole("button", { name: label }))
+    expect(document.getElementById("sign-in-terms-copy")).toHaveClass("text-destructive")
+    expect(request).not.toHaveBeenCalled()
+    if (width < 640) {
+      const confirm = screen.getByRole("button", { name: "Agree" })
+      await user.click(confirm)
+      await act(async () => confirm.click())
+    } else {
+      await user.click(checkbox)
+      await user.click(screen.getByRole("button", { name: label }))
+    }
+    expect(invalidStates).toEqual([{ checked: true, dialog: false }])
+    expect(request).not.toHaveBeenCalled()
+    expect(mocks.devSignUp).not.toHaveBeenCalled()
+    expect(checkbox).toBeChecked()
+    await user.clear(input)
+    await user.type(input, "person@example.com")
+    await user.click(screen.getByRole("button", { name: label }))
+    expect(request).toHaveBeenCalledOnce()
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ email: "person@example.com" }), ...isProd ? [] : [expect.any(Object)])
+  })
+
+  it.each([375, 640].flatMap(width => [true, false].map(isProd => ({ width, isProd }))))
+  ("at $width with isProd=$isProd, uses the same consent and email validation order on Enter", async ({ width, isProd }) => {
+    window.matchMedia = vi.fn((query: string) => ({ matches: query.includes("max-width") && width < 640, addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never
+    mocks.devSignIn.mockResolvedValue({ error: { message: "Account not found" } })
+    mocks.devSignUp.mockResolvedValue({ error: { message: "Try again" } })
+    render(createElement(SignInPageClient, { isProd, appleEnabled: false }))
+    const user = setupUser()
+    const input = screen.getByRole("textbox", { name: "Email" })
+    const request = isProd ? mocks.send : mocks.devSignIn
+    await user.click(input)
+    await user.keyboard("{Enter}")
+    expect(document.getElementById("sign-in-terms-copy")).toHaveClass("text-destructive")
+    expect(request).not.toHaveBeenCalled()
+    if (width < 640) await user.click(screen.getByRole("button", { name: "Agree" }))
+    else {
+      await user.click(screen.getByRole("checkbox"))
+      await user.click(input)
+      await user.keyboard("{Enter}")
+    }
+    expect(request).not.toHaveBeenCalled()
+    expect(input).toBeInvalid()
+    await user.type(input, "person@example.com{Enter}")
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it.each([true, false])("with isProd=%s, submits the email validated after the dialog finishes closing", async isProd => {
+    window.matchMedia = vi.fn((query: string) => ({ matches: query.includes("max-width"), addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never
+    mocks.devSignIn.mockResolvedValue({ error: { message: "Account not found" } })
+    mocks.devSignUp.mockResolvedValue({ error: { message: "Try again" } })
+    render(createElement(SignInPageClient, { isProd, appleEnabled: false }))
+    const user = setupUser()
+    const input = screen.getByRole("textbox", { name: "Email" })
+    const request = isProd ? mocks.send : mocks.devSignIn
+    await user.type(input, "old@example.com")
+    await user.click(screen.getByRole("button", { name: isProd ? "Send Code" : "Sign in" }))
+    const popup = screen.getByRole("dialog")
+    let finish!: () => void
+    const finished = new Promise<void>(resolve => { finish = resolve })
+    const getAnimations = vi.fn(() => [{ finished }])
+    Object.defineProperty(popup, "getAnimations", { value: getAnimations })
+    await user.click(screen.getByRole("button", { name: "Agree" }))
+    await waitFor(() => expect(getAnimations).toHaveBeenCalled())
+    expect(request).not.toHaveBeenCalled()
+    await user.clear(input)
+    await user.type(input, "person@example.com")
+    await act(async () => { finish(); await finished })
+    await waitFor(() => expect(request).toHaveBeenCalledOnce())
+    expect(request.mock.calls[0][0]).toEqual(expect.objectContaining({ email: "person@example.com" }))
+  })
+
   it("counts login entry once and records only bounded OTP failure dimensions", async () => {
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
     expect(mocks.capture).toHaveBeenCalledWith({ event: "login_page_view" })
+    await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
     await setupUser().click(screen.getByRole("checkbox"))
     await setupUser().click(screen.getByRole("button", { name: "Send Code" }))
     expect(mocks.capture).toHaveBeenCalledTimes(1)
@@ -147,6 +248,7 @@ describe("sign-in client Apple availability", () => {
   it("records send-code failure without mistaking it for successful authentication", async () => {
     mocks.send.mockResolvedValueOnce({ error: { status: 429 } })
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
+    await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
     await setupUser().click(screen.getByRole("checkbox"))
     await setupUser().click(screen.getByRole("button", { name: "Send Code" }))
     expect(mocks.capture).toHaveBeenLastCalledWith({ event: "sign_in_failed", method: "email_otp", failureStage: "send_code", error: { status: 429 } })
@@ -158,6 +260,7 @@ describe("sign-in client Apple availability", () => {
     const error = new TypeError("Failed to fetch")
     mocks.send.mockRejectedValueOnce(error)
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
+    await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
     await setupUser().click(screen.getByRole("checkbox"))
     await setupUser().click(screen.getByRole("button", { name: "Send Code" }))
     expect(mocks.capture).toHaveBeenLastCalledWith({ event: "sign_in_failed", method: "email_otp", failureStage: "send_code", error })

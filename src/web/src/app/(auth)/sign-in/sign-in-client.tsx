@@ -85,12 +85,19 @@ function SignInForm({
     },
   }
 
-  async function handleSendCode(e: React.SubmitEvent) {
+  function handleEmailSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
-    terms.requestConsent(() => { void sendCode() })
+    const form = e.currentTarget
+    terms.requestConsent(() => {
+      if (!form.reportValidity()) return
+      const emailInput = form.elements.namedItem("email")
+      if (!(emailInput instanceof HTMLInputElement)) return
+      if (isProd) void sendCode(emailInput.value)
+      else void devSignIn(emailInput.value)
+    })
   }
 
-  async function sendCode() {
+  async function sendCode(email: string) {
     if (retryAfter != null) return
     const observation = startAction("auth_send_code")
     setEmailError("")
@@ -154,12 +161,7 @@ function SignInForm({
     setLoading(false)
   }
 
-  async function handleDevSignIn(e: React.SubmitEvent) {
-    e.preventDefault()
-    terms.requestConsent(() => { void devSignIn() })
-  }
-
-  async function devSignIn() {
+  async function devSignIn(email: string) {
     const observation = startAction("auth_dev_sign_in")
     setEmailError("")
     setLoading(true)
@@ -229,7 +231,7 @@ function SignInForm({
 
       {isProd ? (
         step === "email" ? (
-          <form onSubmit={handleSendCode}>
+          <form noValidate onSubmit={handleEmailSubmit}>
             <FieldGroup>
               <SignInEmailField
                 email={email}
@@ -278,7 +280,7 @@ function SignInForm({
           </>
         )
       ) : (
-        <form onSubmit={handleDevSignIn}>
+        <form noValidate onSubmit={handleEmailSubmit}>
           <FieldGroup>
             <SignInEmailField
               email={email}
