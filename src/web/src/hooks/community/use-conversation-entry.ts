@@ -113,7 +113,7 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
       ? current : { path: expectedPath, intent: incomingIntent })
   }, [active, expectedPath, incomingIntent, resuming])
   const intent = (active && !resuming) || retainedIntent.path !== expectedPath ? incomingIntent : retainedIntent.intent
-  const { client, cachedResource, input, query, canonical, resource, canRead, revoked, denied, anchorMissing, localPosition } = useConversationResource(target, intent, true)
+  const { client, cachedResource, input, options: entryOptions, query, canonical, resource, canRead, revoked, denied, anchorMissing, localPosition } = useConversationResource(target, intent, true)
   const canonicalInput = useMemo(() => localPosition ? { ...input, anchorMessageId: null } : input, [input, localPosition])
   const entry = useMemo(() => {
     const pointer = cachedResource && isChannelMetadataTokenCurrent(cachedResource.proof) ? currentConversationReadState(client, input.channelId) : undefined
@@ -146,10 +146,13 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     if (!canRead || !window || !resource || hashKey(window.key) === hashKey(resource.windowKey)) return
     const landing = client.getQueryData<MessageWindowData>(resource.windowKey)
     const target = Math.max(0, ...(landing?.pages.map(page => page.latestSeq ?? 0) ?? []))
+    const owner = client.getQueryCache().find({ queryKey: entryOptions.queryKey, exact: true })
+    const controller = new AbortController()
     void reconcileWindow(client, {
       kind: input.serverId === null ? "dm" : "channel", scopeId: input.channelId, serverId: input.serverId ?? undefined,
-    }, window.key, target).catch(() => undefined)
-  }, [canRead, client, input.channelId, input.serverId, resource, window])
+    }, window.key, target, undefined, owner ? { query: owner, signal: controller.signal } : undefined).catch(() => undefined)
+    return () => controller.abort()
+  }, [canRead, client, entryOptions.queryKey, input.channelId, input.serverId, resource, window])
   const activeQuery = needsCanonicalWindow ? canonicalQuery : query
   const refetch = activeQuery.refetch
   const retry = useCallback(() => refetch({ cancelRefetch: false }), [refetch])

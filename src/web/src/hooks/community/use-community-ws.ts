@@ -5,6 +5,7 @@ import { useCommunityRuntime, type CommunityRuntime } from "@/stores/community/r
 
 import { useCallback, useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { cancelMessageRepairs } from "@/hooks/community/community-ws/reconnect-messages"
 import {
   useUserWs,
   type UserWsConnectionPhase,
@@ -240,8 +241,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     return connectionControllerRef.current
   }, [runtime.ws.actions.setConnectionStatus])
   const handleConnectionStateChange = useCallback((phase: UserWsConnectionPhase) => {
+    if (phase === "suspended") void cancelMessageRepairs(queryClient)
     getConnectionController().handlePhase(phase)
-  }, [getConnectionController])
+  }, [getConnectionController, queryClient])
+  useEffect(() => {
+    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
+      void cancelMessageRepairs(queryClient, true)
+    })
+    return () => { unsubscribe(); void cancelMessageRepairs(queryClient) }
+  }, [queryClient])
   const viewerUserIdRef = useRef<string | null>(options?.viewerUserId ?? null)
   const hasAuthenticatedRef = useRef(false)
   const viewerUserId = options?.viewerUserId ?? null

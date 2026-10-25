@@ -16,6 +16,8 @@ export const tid = {
   messageScroller: "community-message-scroller",
   wsReconnectOverlay: "community-ws-reconnect-overlay",
   wsRetry: "community-ws-retry",
+  messageRepairStatus: "community-message-repair-status",
+  messageRepairRetry: "community-message-repair-retry",
   initialFrame: "community-initial-frame",
   initialRailPending: "community-initial-rail-pending",
   initialUserBarPending: "community-initial-user-bar-pending",

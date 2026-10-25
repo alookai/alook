@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { hashKey, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query"
+import { hashKey, useInfiniteQuery, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { currentPageObservation, navigationForHref } from "@/lib/observability/context"
 import { channelHref } from "@/lib/community/community-route"
@@ -112,7 +112,12 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const options = messageWindowOptions(client, enabled ? channelId : "__none__", initial, tag, { observation })
   const queryKey = selectedWindow?.key ?? options.queryKey
   const query = useInfiniteQuery({ ...options, queryKey, enabled, subscribed: enabled })
-  const reconciliation = useQuery({ ...messageReconcileOptions(client, { kind: serverId === null ? "dm" : "channel", scopeId: channelId ?? "__none__", serverId: serverId ?? undefined }, queryKey), enabled: false, subscribed: enabled })
+  const repairKey: QueryKey = [...queryKey, "reconcile"]
+  const repairOptions = client.getQueryCache().find<{ latestSeq: number }>({ queryKey: repairKey, exact: true })?.options
+  const reconciliation = useQuery({ ...(repairOptions?.queryFn ? repairOptions : messageReconcileOptions(client, {
+    kind: serverId === null ? "dm" : "channel", scopeId: channelId ?? "__none__", serverId: serverId ?? undefined,
+  }, queryKey)),
+    queryKey: repairKey, enabled: false, subscribed: enabled })
   const originalQuery = client.getQueryCache().find({ queryKey, exact: true })
   const owner = useMemo(() => ({ present, retries, query: originalQuery, enabled }), [present, retries, originalQuery, enabled])
   const committed = useRef<typeof owner | null>(null)

@@ -1,7 +1,10 @@
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { ANALYTICS_CONSENT_CHANGE_EVENT } from "@/lib/analytics-consent"
 import * as funnel from "@/lib/community/funnel-analytics"
-import { getCapturedRuntime } from "./community-ws/test-harness"
+import { getCapturedRuntime, getCommunityApiFetchMock } from "./community-ws/test-harness"
+import { QueryObserver } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
+import { reconcileFocusedMessageQueries } from "./community-ws/reconnect-messages"
 /**
  * Root Community WebSocket boundary and transport-ownership tests.
  */
@@ -65,6 +68,41 @@ describe("useCommunityWs — non-community events bail", () => {
 })
 
 describe("useCommunityWs — public helper contracts", () => {
+  it.each(["background", "window"] as const)("cancels the real message repair when the root sees %s retirement", async (reason) => {
+    await mountHook()
+    const key = communityKeys.channelMessages("root-repair")
+    capturedQueryClient.setQueryData(key, {
+      pages: [{ messages: [{ id: "kept", seq: 2 }], latestSeq: 2 }], pageParams: [{ mode: "newest" }],
+    })
+    const observer = new QueryObserver(capturedQueryClient, { queryKey: key, queryFn: async () => undefined, staleTime: Infinity })
+    const unsubscribe = observer.subscribe(() => undefined)
+    const before = capturedQueryClient.getQueryData(key)
+    const api = getCommunityApiFetchMock()
+    const original = api.getMockImplementation()!
+    let signal: AbortSignal | undefined
+    let release!: (value: unknown) => void
+    api.mockImplementation(async (...args: unknown[]) => {
+      if (String(args[0]).includes("/root-repair/messages")) {
+        signal = (args[1] as { signal: AbortSignal }).signal
+        return new Promise((resolve) => { release = resolve })
+      }
+      return original(...args)
+    })
+    try {
+      const result = reconcileFocusedMessageQueries(capturedQueryClient, "channel", "root-repair")
+      await vi.waitFor(() => expect(signal).toBeDefined())
+      await act(async () => {
+        if (reason === "background") capturedConnectionStateChange!("suspended")
+        else unsubscribe()
+        await result
+      })
+      expect(signal?.aborted).toBe(true)
+      release({ messages: [{ id: "late", seq: 3 }], latestSeq: 3 })
+      await act(async () => { await Promise.resolve() })
+      expect(capturedQueryClient.getQueryData(key)).toBe(before)
+    } finally { api.mockImplementation(original); unsubscribe() }
+  })
+
   it("returns void after mounting the single root transport", async () => {
     expect(await mountHook({ viewerUserId: "u_viewer" })).toBeUndefined()
   })

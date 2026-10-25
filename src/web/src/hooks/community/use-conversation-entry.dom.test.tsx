@@ -797,6 +797,7 @@ describe("native entry freshness with authoritative newer attention", () => {
     if (explicitAnchor) packet.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
     load.mockResolvedValueOnce(packet)
     const original = await client.query(conversationEntryOptions(client, selectedTarget))
+    expect(client.getQueryCache().find({ queryKey: original.windowKey, exact: true })?.isActive()).toBe(false)
     load.mockClear()
     publishAccountAttentionSnapshot(client, {
       snapshot: { scopes: [{ scopeId: packet.channelId, channelId: packet.channelId, serverId: packet.channel.serverId,
@@ -828,5 +829,42 @@ describe("native entry freshness with authoritative newer attention", () => {
     }
     expect(registry.collections.readStates.get(packet.channelId)?.lastReadSeq).toBe(1)
     hook.unmount()
+  })
+
+  it.each(["cancel", "replacement", "account", "access"] as const)("retires an entry-owned repair before a message observer exists on %s", async (reason) => {
+    const { client, registry } = await setup()
+    const options = conversationEntryOptions(client, target)
+    load.mockResolvedValueOnce(fixture())
+    const original = await client.query(options)
+    const window = client.getQueryCache().find({ queryKey: original.windowKey, exact: true })!
+    expect(window.isActive()).toBe(false)
+    const before = client.getQueryData(original.windowKey)
+    const newer = fixture()
+    newer.page.latestSeq = 2
+    newer.page.hasMoreNewer = true
+    newer.page.newerCursor = "next"
+    const held = deferred<unknown>()
+    let signal: AbortSignal | undefined
+    load.mockImplementation((url: string, request: { signal: AbortSignal }) => {
+      if (url.includes("entry=1")) return Promise.resolve(newer)
+      signal = request.signal
+      return held.promise
+    })
+    const result = client.query({ ...options, staleTime: 0 }).catch((error: unknown) => error)
+    await waitFor(() => expect(signal).toBeDefined())
+    expect(window.isActive()).toBe(false)
+    await act(async () => {
+      if (reason === "cancel") await client.cancelQueries({ queryKey: options.queryKey, exact: true })
+      else if (reason === "replacement") client.removeQueries({ queryKey: options.queryKey, exact: true })
+      else if (reason === "account") registry.runtime.ws.actions.activateProfileAccount("other")
+      else registry.runtime.ws.actions.revokeChannelAccess("s1", "c1")
+    })
+    if (reason === "cancel" || reason === "replacement") expect(signal?.aborted).toBe(true)
+    await act(async () => {
+      held.resolve({ messages: [{ ...newer.messages[0], id: "m2", seq: 2 }], latestSeq: 2, hasMoreNewer: false })
+      await result
+    })
+    expect(client.getQueryData(original.windowKey)).toBe(before)
+    expect(registry.collections.messages.has("m2")).toBe(false)
   })
 })
