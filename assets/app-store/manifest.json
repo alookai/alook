@@ -4,7 +4,7 @@
   "inputs": {
     "/index.html": "04f02bec3b1b2bbf53068fe2f25d9d97a0d1b9abd20bf2b9e1681d66f17285c6",
     "/tablet.html": "730d5b8b0ec64b0f2d3f95940cbd8cd6a433f25bd9623487df72600e3204a1e9",
-    "/duo.html": "340f68c58ee4ff8cd5a40c1be3ab1f5e099214237e6e4b4471137dfc81fdeb18",
+    "/duo.html": "cfe5144dcb17d5abb2c3bc30a73af50df614c8bf6e8ee51b6147df4fcd4842f3",
     "/alook.svg": "93752523cd171706887d8c70b6511f99727478386d3842fd1efab764c119988e",
     "/caveat.woff2": "891951df5e8b5b0f0bc760d31375405e795c666b5add70437de12d4a6482b33f",
     "/dm-sans.woff2": "9fea608a947e67020c33cad9a6fe3d60c54119dfb8cff87768a8117a15ed7543",
@@ -104,7 +104,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "37aff2a6300aa77c0666b7c2cf1f1fd3754467900f7dbe1beb346e0d90505275"
+      "sha256": "e03a84e77e3bbedc95020043330db46717ba945d308a0e4e9d9dd93a4755d8b0"
     }
   ]
 }

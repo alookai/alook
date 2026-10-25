@@ -24,12 +24,17 @@ describe("approved App Store artwork", () => {
       expect(createHash("sha256").update(bytes).digest("hex"), source.file).toBe(source.sha256)
     }
     const duo = JSON.parse(await readFile(resolve(captureRoot, "duo-manifest.json"), "utf8"))
+    const refinement = JSON.parse(await readFile(resolve(captureRoot, "duo-refinement.json"), "utf8"))
     expect(duo.inputs).toHaveLength(11)
     expect(duo.approved_prior_13_images_changed).toBe(false)
+    const originalTemplate = duo.inputs.find(source => source.file === "prototype/duo.html")
+    expect(refinement.previous_template).toMatchObject({ bytes: originalTemplate.bytes, sha256: originalTemplate.sha256 })
+    expect(refinement.current_template.file).toBe("duo.html")
     for (const source of duo.inputs) {
       const bytes = await readFile(inputs[source.file.replace("prototype", "")])
-      expect(bytes.length, source.file).toBe(source.bytes)
-      expect(createHash("sha256").update(bytes).digest("hex"), source.file).toBe(source.sha256)
+      const expected = source.file === "prototype/duo.html" ? refinement.current_template : source
+      expect(bytes.length, source.file).toBe(expected.bytes)
+      expect(createHash("sha256").update(bytes).digest("hex"), source.file).toBe(expected.sha256)
       if (source.pixels) {
         const metadata = await sharp(bytes).metadata()
         expect([metadata.width, metadata.height], source.file).toEqual(source.pixels)

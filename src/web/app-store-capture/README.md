@@ -9,7 +9,7 @@ pnpm app-store:capture
 
 The generator lives next to `readme-capture`, outside the production router. It serves only its declared local files on an unused loopback port and launches the installed Chrome with `channel: "chrome"`. It waits for Caveat, DM Sans and all images, captures the fixed body rectangle, validates RGB JPEG output, then closes its own browser and HTTP server. Render errors, missing resources and external requests fail the command. It does not use an existing browser profile or stop other services.
 
-The HTML/CSS is the approved v6 source, unchanged. `clean` hides the original study footer. The large-phone source scales the original composition to 1320px wide and clips its bottom background to exactly 2868px, as in the approved generation. The tablet fits the complete desktop screenshot inside a landscape device frame, including both navigation columns and the bottom user bar.
+The phone and tablet HTML/CSS is the approved v6 source, unchanged. `clean` hides the original study footer. The large-phone source scales the original composition to 1320px wide and clips its bottom background to exactly 2868px, as in the approved generation. The tablet fits the complete desktop screenshot inside a landscape device frame, including both navigation columns and the bottom user bar.
 
 ## Outputs
 
@@ -26,7 +26,7 @@ Paths are relative to `assets/app-store/`:
 
 The thirteenth image is `tablet-2064x2752/01-share-agents.jpg` (2064×2752).
 
-The fourteenth image is `duo-2007x2853/06-existing-setup.jpg` (2007×2853). Its unchanged source places an unfolded device behind a folded device, using the supplied dark public-demo images and CSS device frames. The original 13 images and sources are retained.
+The fourteenth image is `duo-2007x2853/06-existing-setup.jpg` (2007×2853). Its revised source places an unfolded device behind a folded device at the same physical scale, using the supplied dark public-demo images and CSS device frames. The body and screen ratios are recorded in `duo-refinement.json`. The original 13 images and sources are retained.
 
 All 14 deliverables are three-channel RGB JPEGs with no alpha. `manifest.json` records the actual Chrome version, input hashes and output dimensions/SHA256. It contains no clock-dependent timestamp. JPEG encoding, colour profiles and subpixel raster edges can differ across browser versions, screenshot APIs or repeated captures; file hashes alone do not establish visual equivalence with the original CUA captures.
 
