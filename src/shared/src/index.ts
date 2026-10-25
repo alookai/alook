@@ -840,3 +840,5 @@ export { readBoundedJsonRequest } from "./http-json";
 export { channelReorderRequestSchema, type ChannelReorderRequest, type ChannelCategoryMove } from "./community-channel-order";
 
 export type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
+
+export * from "./pii-contract";

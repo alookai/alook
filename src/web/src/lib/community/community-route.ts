@@ -7,6 +7,7 @@ type CommunityModuleRoute =
   | "me-friends"
   | "me-machines"
   | "me-bots"
+  | "me-privacy"
   | "dm-detail"
   | "message-resolution"
   | "server-root"
@@ -20,6 +21,7 @@ type CommunityModuleMain =
   | { kind: "friends" }
   | { kind: "machines" }
   | { kind: "bots" }
+  | { kind: "privacy" }
   | { kind: "dm"; dmId: string }
   | { kind: "server-landing"; serverId: string }
   | { kind: "server-conversation"; serverId: string; leafId: string }
@@ -72,7 +74,7 @@ export type CommunityCheckpointPlan = {
     | { kind: "keep" }
     | { kind: "server-skeleton"; serverId: string }
     | { kind: "me-skeleton" }
-  main: { kind: "keep" } | { kind: "server-route"; href: string } | { kind: "module-route"; href: string; module: "friends" | "bots" | "machines" | "me-root" | "server-landing" | "route-resolution" } | { kind: "dm-route"; href: string; dmId: string } | {
+  main: { kind: "keep" } | { kind: "server-route"; href: string } | { kind: "module-route"; href: string; module: "friends" | "bots" | "privacy" | "machines" | "me-root" | "server-landing" | "route-resolution" } | { kind: "dm-route"; href: string; dmId: string } | {
     kind: "target-skeleton"
     href: string
   }
@@ -174,6 +176,9 @@ export function resolveCommunityModulePlan(href: string): CommunityModulePlan {
         sidebar: { kind: "me" },
         main: { kind: "machines" },
       }
+    }
+    if (leaf === "privacy") {
+      return { route: "me-privacy", surface: "detail", rail: "community", sidebar: { kind: "me" }, main: { kind: "privacy" } }
     }
     if (leaf === "bots") {
       return {

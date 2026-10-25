@@ -29,6 +29,7 @@ export type ConnectionState =
     machineId: string
     userId: string
     authenticated: boolean
+    pii?: boolean
     modelDiscovery?: boolean
     machineStop?: boolean
     controlHeartbeat?: boolean

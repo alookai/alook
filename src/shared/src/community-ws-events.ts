@@ -1,3 +1,4 @@
+import { PiiResultSchema } from "./pii-contract"
 import { z } from "zod"
 import type { CommunityContract } from "./community-contract"
 import { CommunityMachineSummarySchema, RuntimeModelDiscoveryResultSchema } from "./schemas"
@@ -455,7 +456,16 @@ const communityRuntimeModelsSchema = z.strictObject({
   result: RuntimeModelDiscoveryResultSchema,
 })
 
+const communityBotPiiSchema = z.strictObject({
+  type: z.literal("community:bot.pii"),
+  machineId: z.string().min(1),
+  botId: z.string().min(1),
+  requestId: z.string().min(1).max(128),
+  result: PiiResultSchema,
+})
+
 const commonCommunityEventSchemas = [
+  communityBotPiiSchema,
   communityMessageUpdatedSchema,
   communityMessageEditedSchema,
   communityReactionAddSchema,
@@ -676,6 +686,7 @@ export const WS_EVENTS = {
   MACHINE_STATUS: "community:machine.status",
   MACHINE_UPDATED: "community:machine.updated",
   RUNTIME_MODELS: "community:runtime.models",
+  BOT_PII: "community:bot.pii",
   MACHINE_REMOVED: "community:machine.removed",
   BOT_AUDIT_EVENT: "community:bot.audit_event",
 } as const satisfies Record<string, CommunityWsEvent["type"]>

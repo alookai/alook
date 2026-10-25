@@ -46,6 +46,7 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
   useFriendsPresence(routeCommitted)
 
   const machinesActive = pathname === "/c/me/machines"
+  const privacyActive = pathname === "/c/me/privacy"
   const botsActive = pathname === "/c/me/bots"
   const friendsActive = pathname === "/c/me/friends"
 
@@ -70,6 +71,11 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
     communityRuntime.ui.get().uiHandlers.navigatePath?.("/c/me/bots")
   }, [communityRuntime.ui])
 
+  const onShowPrivacy = useCallback(() => {
+    communityRuntime.ui.actions.setCurrentChannelId(null)
+    communityRuntime.ui.get().uiHandlers.navigatePath?.("/c/me/privacy")
+  }, [communityRuntime.ui])
+
   const blockedUserIds = useMemo(
     () => new Set(blocked.map((b) => b.userId ?? b.id)),
     [blocked],
@@ -89,11 +95,13 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
       friendRequestCount={friendRequestCount}
       onShowMachines={onShowMachines}
       onShowBots={onShowBots}
+      onShowPrivacy={onShowPrivacy}
+      privacyActive={privacyActive}
       friendsActive={friendsActive}
       machinesActive={machinesActive}
       botsActive={botsActive}
     />
-  ), [dms, currentChannelId, dmsLoading, initialError, isFetching, retryDms, blockedUserIds, enterDm, onShowFriends, friendRequestCount, onShowMachines, onShowBots, friendsActive, machinesActive, botsActive])
+  ), [dms, currentChannelId, dmsLoading, initialError, isFetching, retryDms, blockedUserIds, enterDm, onShowFriends, friendRequestCount, onShowMachines, onShowBots, onShowPrivacy, privacyActive, friendsActive, machinesActive, botsActive])
 
   return sidebar()
 }

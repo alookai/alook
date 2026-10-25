@@ -69,6 +69,26 @@ describe("WebSocketDurableObject", () => {
   beforeEach(() => resetHarness())
   afterEach(() => cleanupHarness())
 
+  it("delivers preview output to current owner sockets without DO storage or replay progress", async () => {
+    const { durable, getWebSockets, storage, store } = createDO()
+    const owner = createMockWebSocket()
+    const other = createMockWebSocket()
+    const ownerState = { type: "user", userId: "owner", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 }
+    owner.serializeAttachment(ownerState)
+    other.serializeAttachment({ ...ownerState, userId: "other" })
+    getWebSockets.mockReturnValue([owner, other])
+    const event = { type: "community:bot.pii", machineId: "machine", botId: "bot", requestId: "preview", result: { status: "complete", snapshot: { revision: 1, plugins: [] }, output: "private-output-fixture" } }
+    const response = await durable.fetch(new Request("http://internal/community-broadcast", {
+      method: "POST", headers: { [INTERNAL_USER_TARGET_HEADER]: "owner" }, body: JSON.stringify(event),
+    }))
+    expect(await response.json()).toEqual({ sent: 1 })
+    expect(owner.send).toHaveBeenCalledWith(JSON.stringify(event))
+    expect(other.send).not.toHaveBeenCalled()
+    expect(storage.put).not.toHaveBeenCalled()
+    expect(owner.deserializeAttachment()).toEqual(ownerState)
+    expect(JSON.stringify([...store])).not.toContain(event.result.output)
+  })
+
   describe("fetch — strict community broadcast", () => {
     const event = {
       type: "community:status.update",

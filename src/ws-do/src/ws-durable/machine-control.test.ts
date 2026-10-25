@@ -55,6 +55,22 @@ describe("WebSocketDurableObject", () => {
   beforeEach(() => resetHarness())
   afterEach(() => cleanupHarness())
 
+  it("forwards preview input only to PII-capable machines without persisting it", async () => {
+    const { durable, getWebSockets, storage, store } = createDO()
+    const supported = createMockWebSocket()
+    const legacy = createMockWebSocket()
+    supported.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "machine", userId: "owner", pii: true })
+    legacy.serializeAttachment({ type: "community-machine", authenticated: true, machineId: "machine", userId: "owner" })
+    getWebSockets.mockReturnValue([supported, legacy])
+    const command = { type: "pii:manage", botId: "bot", requestId: "preview", operation: { action: "preview", text: "private-input-fixture", expectedRevision: 1 } }
+    const response = await durable.fetch(new Request("http://internal/pii", { method: "POST", body: JSON.stringify(command) }))
+    expect(await response.json()).toEqual({ sent: 1, unsupported: 1 })
+    expect(JSON.parse(supported.send.mock.calls[0]![0] as string)).toEqual(command)
+    expect(legacy.send).not.toHaveBeenCalled()
+    expect(storage.put).not.toHaveBeenCalled()
+    expect(JSON.stringify([...store])).not.toContain(command.operation.text)
+  })
+
   describe("machine Stop dispatch", () => {
     it("sends only to authenticated stop-capable machines without force-closing or clearing state", async () => {
       const { durable, store, getWebSockets } = createDO()

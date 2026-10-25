@@ -31,6 +31,7 @@ export function canonicalCommunityLeafPathname(href: string): string | null {
 
   if (plan.route === "me-friends") return "/c/me/friends"
   if (plan.route === "me-machines") return "/c/me/machines"
+  if (plan.route === "me-privacy") return "/c/me/privacy"
   if (plan.route === "me-bots") return "/c/me/bots"
   if (plan.main.kind === "dm") {
     return `/c/me/${encodeURIComponent(plan.main.dmId)}`

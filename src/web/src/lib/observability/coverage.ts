@@ -29,6 +29,7 @@ export const pageRoutes = [
 ] as const
 
 export const apiRoutes = [
+  "/api/community/bots/[id]/pii",
   "/api/auth/[...all]",
   "/api/auth/native/attempt",
   "/api/auth/native/cancel",

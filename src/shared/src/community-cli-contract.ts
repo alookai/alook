@@ -1,3 +1,4 @@
+import { PiiCommandSchema, type PiiCommand, type PiiResultFrame } from "./pii-contract";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
  * Server API contract — the agent ⇄ server boundary.
@@ -781,6 +782,7 @@ export type AgentInterruptRequest = z.infer<typeof AgentInterruptRequestSchema>;
 export type HostCommand =
   | { type: "machine:heartbeat"; nonce: string }
   | RuntimeModelDiscoveryCommand
+  | PiiCommand
   | AgentInterruptRequest
   | {
     type: "agent:wake";
@@ -1035,6 +1037,7 @@ export interface HostControlChannel {
   /** Announce this host + its agents to the server (on connect AND on reconnect). */
   reportReady(ready: HostReady): Promise<void>;
   reportRuntimeModels?(frame: HostRuntimeModelsFrame): void;
+  reportPiiResult?(frame: PiiResultFrame): void;
   /**
    * On-demand resend of the current `ready` snapshot. Used by AgentRouter's
    * runtime-health mutations to push an updated report without waiting for a
@@ -1493,6 +1496,7 @@ export function formatSeq(seq: Seq): string {
 // a forward-compatible server field into a hard drop on an older daemon.
 export const HostCommandSchema = z.discriminatedUnion("type", [
   RuntimeModelDiscoveryCommandSchema,
+  PiiCommandSchema,
   z.strictObject({
     type: z.literal("machine:heartbeat"),
     nonce: z.string().min(1).max(128),

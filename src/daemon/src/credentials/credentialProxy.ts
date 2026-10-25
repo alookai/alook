@@ -46,6 +46,7 @@ import * as path from "path";
 import { URL } from "url";
 import { formatRef, parseRef, type Cursor, type Message } from "../server/contract.js";
 import { parseNameAndTag } from "@alook/shared/lib/discriminator";
+import { LOCAL_PII_PATH, handleLocalPii, filterPiiRequest, writePiiError, type PiiProxy } from "../pii/proxy.js";
 
 export const LOCAL_MESSAGE_REMINDER_PATH = "/__alook/local/message-reminder";
 const LOCAL_MESSAGE_REMINDER_BODY_MAX_BYTES = 4 * 1024;
@@ -305,6 +306,7 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
 
 export interface CredentialProxyOptions {
+  pii?: PiiProxy;
   /** Bind host (default loopback). Keep it loopback in production. */
   host?: string;
   /** Port (default 0 ⇒ OS picks a free port). */
@@ -545,8 +547,14 @@ export async function startCredentialProxy(
     }
   };
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url ?? "/", "http://placeholder").pathname;
+    if (pathname === LOCAL_PII_PATH && (req.method === "GET" || req.method === "POST")) {
+      const localVerdict = broker.check(req.headers["authorization"], req.method === "GET" ? "read" : "send");
+      if (!localVerdict.ok) { writeJson(res, localVerdict.status, { error: localVerdict.error, code: localVerdict.code }); req.resume(); return; }
+      await handleLocalPii(req, res, localVerdict.reg.agentId, options.pii);
+      return;
+    }
     if (pathname.startsWith("/__alook/local/")) {
       if (req.url !== LOCAL_MESSAGE_REMINDER_PATH) {
         writeJson(res, 404, { error: "unknown local route", code: "not_found" });
@@ -605,6 +613,17 @@ export async function startCredentialProxy(
     }
 
     const reg = verdict.reg;
+    if (/^\/api\/community\/bots\/[^/]+\/pii\/?$/.test(pathname)) {
+      writeJson(res, 403, { error: "PII management requires a human owner session", code: "forbidden" });
+      req.resume();
+      return;
+    }
+    let filteredBody: Buffer | undefined;
+    if (options.pii && req.method === "POST" && /^\/api\/community\/channels\/[^/]+\/messages\/?$/.test(pathname)) {
+      try { filteredBody = await filterPiiRequest(req, reg.agentId, options.pii); }
+      catch (error) { writePiiError(res, error); return; }
+      if (res.destroyed) return;
+    }
     // Tightened from `.endsWith("/inboxPull")` — the attachment-download
     // endpoint returns raw binary, and a loose match here would try to JSON-
     // parse it as an inbox response. Exact-path match the canonical inbox-pull
@@ -664,6 +683,10 @@ export async function startCredentialProxy(
     outHeaders[broker.headerNames.client.toLowerCase()] = broker.clientLabel;
     outHeaders[broker.headerNames.capabilities.toLowerCase()] = [...reg.capabilities].join(",");
     if (isInboxPull || isInboxAck) outHeaders["accept-encoding"] = "identity";
+    if (filteredBody) {
+      delete outHeaders["transfer-encoding"];
+      outHeaders["content-length"] = filteredBody.byteLength;
+    }
 
     // `responded` guards only against writing a second response to the
     // DOWNSTREAM client (writeHead/end can't fire twice) — it does NOT gate
@@ -852,7 +875,8 @@ export async function startCredentialProxy(
       upstreamReq.destroy();
       upstreamRes?.destroy();
     });
-    req.pipe(upstreamReq);
+    if (filteredBody) upstreamReq.end(filteredBody);
+    else req.pipe(upstreamReq);
   });
 
   await new Promise<void>((resolve, reject) => {

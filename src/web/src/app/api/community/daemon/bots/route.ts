@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { queries } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
 
 /**
@@ -14,8 +14,9 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  * into the bot's global handle; `ownerName`+`ownerDiscriminator` into the
  * owner's). No avatar (display-only, server does that).
  */
-export const GET = withCommunityDaemonAuth(async (_req, ctx) => {
-  const db = getDb(ctx.env.DB)
-  const bots = await queries.communityBot.listBotsForMachine(db, ctx.machineId)
+export const GET = withCommunityDaemonAuth(async (req, ctx) => {
+  const includeInactive = req.nextUrl.searchParams.get("includeInactive") === "true"
+  const db = includeInactive ? getPrimaryDb(ctx.env.DB) : getDb(ctx.env.DB)
+  const bots = await queries.communityBot.listBotsForMachine(db, ctx.machineId, { includeInactive })
   return NextResponse.json({ bots })
 })

@@ -51,6 +51,9 @@ export function CommunityPendingFrame({
   )
   let content: ReactNode
   switch (plan.main.kind) {
+    case "privacy":
+      content = <RouteResolutionPendingFrame />
+      break
     case "me-root":
       content = <MeRootPendingFrame />
       break

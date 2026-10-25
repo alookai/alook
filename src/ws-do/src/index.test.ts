@@ -84,6 +84,7 @@ describe("ws-do router", () => {
         "handleAuditBroadcast",
         "handleBatchPresence",
         "handleSinglePresence",
+        "handleMachinePii",
         "handleMachineModels",
         "handleMachinePush",
         "handleMachineWake",

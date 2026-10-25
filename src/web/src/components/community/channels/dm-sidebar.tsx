@@ -3,7 +3,7 @@
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { dmHref } from "@/lib/community/community-route"
 import { memo } from "react"
-import { Users, Ban, Monitor, Bot } from "lucide-react"
+import { Users, Ban, Monitor, Bot, Shield } from "lucide-react"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -13,8 +13,8 @@ import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { compactRequestCount } from "@/lib/community/friend-requests"
 
 export const DmSidebar = memo(function DmSidebar({
-  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots,
-  friendsActive, machinesActive, botsActive,
+  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy,
+  friendsActive, machinesActive, botsActive, privacyActive,
   friendRequestCount = 0,
   loadError,
 }: {
@@ -27,12 +27,14 @@ export const DmSidebar = memo(function DmSidebar({
   onShowFriends: () => void
   onShowMachines?: () => void
   onShowBots?: () => void
+  onShowPrivacy?: () => void
   friendsActive?: boolean
   friendRequestCount?: number
   machinesActive?: boolean
   botsActive?: boolean
+  privacyActive?: boolean
 }) {
-  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive)
+  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive)
   const requestCount = compactRequestCount(friendRequestCount)
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -88,6 +90,21 @@ export const DmSidebar = memo(function DmSidebar({
           >
             <Bot className="size-5 shrink-0" />
             <span className="min-w-0 flex-1 truncate">My Bots</span>
+          </CommunityNavigationLink>
+        )}
+        {onShowPrivacy && (
+          <CommunityNavigationLink
+            href="/c/me/privacy"
+            prefetchMode="visible"
+            active={privacyActive}
+            onActivate={onShowPrivacy}
+            className={[
+              "mb-2 flex h-11 w-full sm:h-9 items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              privacyActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+            ].join(" ")}
+          >
+            <Shield className="size-5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Privacy</span>
           </CommunityNavigationLink>
         )}
         <div className="my-2 h-px bg-border" />
@@ -149,6 +166,7 @@ export function DmSidebarSkeleton() {
       <div className="shrink-0 px-2 pt-4">
         <Skeleton className="mb-1 h-9 w-full rounded-md" />
         <Skeleton className="mb-1 h-9 w-full rounded-md" />
+        <Skeleton className="mb-2 h-9 w-full rounded-md" />
         <Skeleton className="mb-2 h-9 w-full rounded-md" />
         <div className="my-2 h-px bg-border" />
       </div>

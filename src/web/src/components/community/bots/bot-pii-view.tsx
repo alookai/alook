@@ -1,0 +1,58 @@
+"use client"
+
+import { useEffect } from "react"
+import { useConversationActivity } from "@/contexts/community/conversation-activity"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
+import { isPresenceOnline } from "@alook/shared"
+import { useBots } from "@/hooks/community/use-bots"
+import { useMachines } from "@/hooks/community/use-machines"
+import { useBotPii } from "@/hooks/community/use-bot-pii"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { BotPiiPanel } from "./bot-pii-panel"
+import { BotPiiList } from "./bot-pii-list"
+import { BotPiiPlayground } from "./bot-pii-playground"
+
+function BotPipeline({ botId, botName, machineId, online }: { botId: string; botName: string; machineId: string; online: boolean }) {
+  const pii = useBotPii(botId, machineId, online)
+  const [input, setInput] = useAtom(useCreateAtom(""))
+  const active = useConversationActivity()
+  const { clearPreview } = pii
+  useEffect(() => { if (!active) { setInput(""); clearPreview() } }, [active, setInput, clearPreview])
+  return (
+    <div className="grid min-w-0 grid-cols-1 items-start gap-8 @3xl:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-medium">{pii.unavailable && pii.snapshot ? "Last confirmed filters" : "PII pipeline"}</h2>
+          <Button variant="ghost" size="sm" className="min-h-11" disabled={pii.pending || !online} onClick={() => { void pii.reload() }}>Reload</Button>
+        </div>
+        {pii.snapshot ? <BotPiiList botName={botName} plugins={pii.snapshot.plugins} pending={pii.pending} error={pii.error} unavailable={pii.unavailable}
+          onSetEnabled={(id, enabled) => { void pii.setEnabled(id, enabled) }} onDelete={pii.remove} />
+          : pii.unavailable || pii.error ? <p role={pii.error ? "alert" : "status"} className="text-sm text-muted-foreground">{pii.unavailable ?? pii.error}</p>
+          : <div role="status" aria-label="Loading filters" className="flex flex-col gap-4">{[0, 1, 2].map(id => <Skeleton key={id} className="h-20 w-full rounded-md" />)}</div>}
+      </div>
+      <BotPiiPlayground value={input} onValueChange={value => { setInput(value); pii.clearPreview() }}
+        result={pii.output} pending={pii.previewPending} error={pii.previewError ?? pii.unavailable}
+        disabled={pii.pending || !pii.snapshot || Boolean(pii.unavailable)} onRun={() => { void pii.preview(input) }} />
+    </div>
+  )
+}
+
+export function BotPiiView() {
+  const owner = useCommunityWsStore(state => `${state.profileViewerId}:${state.profileAccountEpoch}`)
+  const bots = useBots()
+  const machines = useMachines()
+  const [chosenId, setChosenId] = useAtom(useCreateAtom(""))
+  const selected = bots.bots.find(bot => bot.id === chosenId) ?? bots.bots[0]
+  if (bots.isPending || bots.profilesPending) return <div role="status" aria-label="Loading bots" className="p-6"><Skeleton className="h-8 w-48" /></div>
+  if (bots.isError && !bots.data) return <div role="alert" className="flex flex-col items-start gap-3 p-6"><p>Could not load your bots.</p><Button variant="outline" className="min-h-11" onClick={() => { void bots.refetch() }}>Retry</Button></div>
+  const machine = machines.machines.find(item => item.id === selected?.machineId)
+  return (
+    <BotPiiPanel bots={bots.bots} selectedId={selected?.id ?? ""} onSelect={setChosenId}>
+      {selected && machines.isPending ? <Skeleton className="h-20 w-full" />
+        : selected && machine?.status === undefined ? <div role="status" className="flex flex-col items-start gap-3"><p className="text-sm text-muted-foreground">Could not confirm this machine’s status.</p><Button variant="outline" className="min-h-11" onClick={() => { void machines.refetch() }}>Retry</Button></div>
+        : selected ? <BotPipeline key={`${owner}:${selected.id}:${selected.machineId}`} botId={selected.id} botName={selected.name} machineId={selected.machineId} online={isPresenceOnline(machine?.status)} /> : null}
+    </BotPiiPanel>
+  )
+}

@@ -8,7 +8,7 @@ import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
 export function useMeRouteMemory(pathname: string, active: boolean) {
   const currentUser = useCurrentUser()
   useEffect(() => {
-    if (!active || !["/c/me/friends", "/c/me/machines", "/c/me/bots"].includes(pathname)
+    if (!active || !["/c/me/friends", "/c/me/machines", "/c/me/bots", "/c/me/privacy"].includes(pathname)
       || !isRememberableMeLocation(pathname)) return
     setLastMeLocation(pathname)
     commitLastCommunityRoute(currentUser.id, pathname)

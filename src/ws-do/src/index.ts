@@ -1,3 +1,4 @@
+import { handleMachinePii } from "./routes/community-machine-pii"
 import { handleMachineModels } from "./routes/community-machine-models"
 import { handleAuditBroadcast } from "./routes/audit-broadcast"
 import {
@@ -66,6 +67,8 @@ export default {
     response = await handleBatchPresence(context)
     if (response) return response
     response = await handleSinglePresence(context)
+    if (response) return response
+    response = await handleMachinePii(context)
     if (response) return response
     response = await handleMachineModels(context)
     if (response) return response

@@ -1,5 +1,5 @@
 import { readBoundedJsonRequest } from "../community-browser-event-ingress"
-import { createDb, DiagnosticCollectCommandSchema, RuntimeModelDiscoveryCommandSchema, queries } from "@alook/shared"
+import { createDb, PII_REQUEST_MAX_BYTES, PiiCommandSchema, DiagnosticCollectCommandSchema, RuntimeModelDiscoveryCommandSchema, queries } from "@alook/shared"
 import {
   HANDLE_KEY,
   IDENTITY_KEY,
@@ -40,6 +40,13 @@ export async function handleMachineControlFetch(
     if (!command.success) return new Response(JSON.stringify({ error: "invalid request" }), { status: 400, headers: { "Content-Type": "application/json" } })
     const { sent, unsupported } = forwardToCommunityMachine(context, JSON.stringify(command.data), "modelDiscovery")
     return new Response(JSON.stringify({ sent, unsupported }), { headers: { "Content-Type": "application/json" } })
+  }
+
+  if (url.pathname === "/pii" && request.method === "POST") {
+    const input = await readBoundedJsonRequest(request, PII_REQUEST_MAX_BYTES)
+    const command = PiiCommandSchema.safeParse(input.ok ? input.value : null)
+    if (!command.success) return new Response(JSON.stringify({ error: "invalid request" }), { status: 400, headers: { "Content-Type": "application/json" } })
+    return new Response(JSON.stringify(forwardToCommunityMachine(context, JSON.stringify(command.data), "pii")), { headers: { "Content-Type": "application/json" } })
   }
 
   if (url.pathname === "/stop" && request.method === "POST") {
@@ -277,7 +284,7 @@ function rejectCommunityMachine(ws: WebSocket, reason: string): void {
   try { ws.close(1008, "Unauthorized") } catch { /* ok */ }
 }
 
-function forwardToCommunityMachine(context: WsDurableContext, message: string, capability?: "modelDiscovery" | "machineStop"): { sent: number; unsupported: number } {
+function forwardToCommunityMachine(context: WsDurableContext, message: string, capability?: "modelDiscovery" | "machineStop" | "pii"): { sent: number; unsupported: number } {
   let sent = 0
   let unsupported = 0
   for (const ws of context.ctx.getWebSockets()) {

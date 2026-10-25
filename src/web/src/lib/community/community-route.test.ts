@@ -31,6 +31,7 @@ describe("community route", () => {
     ["/c/me/friends", "me-friends", "detail", "me", "friends"],
     ["/c/me/machines", "me-machines", "detail", "me", "machines"],
     ["/c/me/bots", "me-bots", "detail", "me", "bots"],
+    ["/c/me/privacy", "me-privacy", "detail", "me", "privacy"],
     ["/c/me/dm_1", "dm-detail", "detail", "me", "dm"],
     ["/c/channels/s1", "server-root", "list", "server", "server-landing"],
     ["/c/channels/s1/c1", "server-detail", "detail", "server", "server-conversation"],

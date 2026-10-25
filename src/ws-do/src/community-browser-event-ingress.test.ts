@@ -69,9 +69,9 @@ function worstEscapingTarget(index: number) {
 }
 
 describe("community browser event ingress", () => {
-  it("normalizes all 48 current fixtures without a contract version field", () => {
+  it("normalizes all 49 current fixtures without a contract version field", () => {
     const fixtures = Object.values(communityWsEventFixtures)
-    expect(fixtures).toHaveLength(48)
+    expect(fixtures).toHaveLength(49)
     for (const fixture of fixtures) {
       const normalized = normalizeCommunityBrowserEvent(fixture)
       expect(normalized).toMatchObject({ ok: true, event: fixture, envelope: fixture })

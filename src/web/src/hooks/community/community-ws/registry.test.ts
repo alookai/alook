@@ -21,6 +21,8 @@ const handlers = vi.hoisted(() => new Proxy({} as Record<string, ReturnType<type
   },
 }))
 
+vi.mock("./pii-events", () => ({ handleBotPii: handlers.handleBotPii }))
+
 vi.mock("./server-rail-reconciliation", () => ({ handleServerRailChanged: handlers.handleServerRailChanged }))
 
 vi.mock("./message-events", () => ({
@@ -90,7 +92,7 @@ describe("community WebSocket registry", () => {
   it("has exactly one entry for each runtime event type", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(48)
+    expect(eventTypes).toHaveLength(49)
     expect(registryTypes).toEqual(eventTypes)
   })
 
@@ -140,6 +142,7 @@ describe("community WebSocket registry", () => {
     ["community:profile.update", "handleProfileUpdate"],
     ["community:machine.created", "handleMachineCreated"],
     ["community:runtime.models", "handleRuntimeModels"],
+    ["community:bot.pii", "handleBotPii"],
     ["community:bot.audit_event", "handleBotAuditEvent"],
   ] as const)("dispatches %s through its existing handler group", (type, handlerName) => {
     const context = dispatchContext()

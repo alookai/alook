@@ -430,6 +430,27 @@ describe("updateBotRuntimeConfig", () => {
 })
 
 describe("listBotsForMachine", () => {
+  it("allows local configuration of inactive bots only when explicitly requested, retaining machine/deletion guards", async () => {
+    const sqlite = new Sqlite(":memory:")
+    sqlite.exec(`
+      CREATE TABLE user (id TEXT, name TEXT, discriminator TEXT, isBot INTEGER, ownerUserId TEXT, deletedAt TEXT);
+      CREATE TABLE community_bot_binding (user_id TEXT, machine_id TEXT, runtime TEXT, model_name TEXT, reasoning_effort TEXT, runtime_config_revision INTEGER, instruction TEXT, is_active INTEGER);
+      INSERT INTO user VALUES ('owner', 'Owner', '0001', 0, NULL, NULL),
+        ('active', 'Active', '0002', 1, 'owner', NULL), ('inactive', 'Inactive', '0003', 1, 'owner', NULL),
+        ('foreign', 'Foreign', '0004', 1, 'owner', NULL), ('deleted', 'Deleted', '0005', 1, 'owner', 'deleted');
+      INSERT INTO community_bot_binding VALUES ('active', 'machine', 'codex', NULL, NULL, 0, '', 1),
+        ('inactive', 'machine', 'codex', NULL, NULL, 0, '', 0), ('foreign', 'other-machine', 'codex', NULL, NULL, 0, '', 0),
+        ('deleted', 'machine', 'codex', NULL, NULL, 0, '', 0);
+    `)
+    const db = drizzleSqlite(sqlite) as unknown as Parameters<typeof q.listBotsForMachine>[0]
+    try {
+      expect((await q.listBotsForMachine(db, "machine")).map(bot => bot.id)).toEqual(["active"])
+      expect((await q.listBotsForMachine(db, "machine", { includeInactive: true })).map(bot => bot.id)).toEqual(["active", "inactive"])
+      sqlite.prepare("UPDATE user SET deletedAt = 'deleted' WHERE id = 'owner'").run()
+      expect(await q.listBotsForMachine(db, "machine", { includeInactive: true })).toEqual([])
+    } finally { sqlite.close() }
+  })
+
   function makeJoinChain(rows: unknown[]) {
     const chain: any = {}
     chain.select = vi.fn(() => chain)

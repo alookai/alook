@@ -49,6 +49,7 @@ export const communityContentAccessKinds = {
   "community:machine.status": "control",
   "community:machine.updated": "control",
   "community:runtime.models": "control",
+  "community:bot.pii": "control",
   "community:machine.removed": "control",
   "community:bot.audit_event": "control",
 } as const satisfies Record<CommunityWsEvent["type"], AccessKind>

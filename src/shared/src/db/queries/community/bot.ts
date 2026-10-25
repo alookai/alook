@@ -889,7 +889,8 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
  */
 export async function listBotsForMachine(
   db: Database,
-  machineId: string
+  machineId: string,
+  options: { includeInactive?: boolean } = {}
 ): Promise<
   Array<{
     id: string;
@@ -926,7 +927,7 @@ export async function listBotsForMachine(
     .where(
       and(
         eq(communityBotBinding.machineId, machineId),
-        eq(communityBotBinding.isActive, true),
+        options.includeInactive ? undefined : eq(communityBotBinding.isActive, true),
         eq(user.isBot, true),
         isNull(user.deletedAt),
         isNull(owner.deletedAt)

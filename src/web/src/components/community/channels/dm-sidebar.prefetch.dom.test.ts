@@ -86,6 +86,21 @@ describe("DmSidebar navigation intent", () => {
 
   })
 
+  it("places Privacy directly after My Bots without navigating on hover", () => {
+    const onShowPrivacy = vi.fn()
+    const view = render(createElement(DmSidebar, { dms: [], activeDm: null, onPickDm: vi.fn(), onShowFriends: vi.fn(), onShowMachines: vi.fn(), onShowBots: vi.fn(), onShowPrivacy, privacyActive: true }))
+    const links = view.getAllByRole("link")
+    expect(links.map(link => link.textContent)).toEqual(["Friends", "Machines", "My Bots", "Privacy"])
+    const privacy = view.getByRole("link", { name: "Privacy" })
+    expect(privacy).toHaveAttribute("href", "/c/me/privacy")
+    expect(privacy).toHaveAttribute("aria-current", "page")
+    expect(view.getByRole("link", { name: "Friends" })).not.toHaveAttribute("aria-current")
+    fireEvent.pointerEnter(privacy)
+    expect(onShowPrivacy).not.toHaveBeenCalled()
+    fireEvent.click(privacy)
+    expect(onShowPrivacy).toHaveBeenCalledOnce()
+  })
+
   it("selects the intended DM only on click or Enter", async () => {
     const onPickDm = vi.fn()
     const renderer = render(createElement(DmSidebar, {

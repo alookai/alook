@@ -16,6 +16,7 @@ import { registerPlatformCommands } from "./platform.js";
  * the sole result channel.
  */
 import { Command, CommanderError } from "commander";
+import { registerPiiCommands } from "./pii.js";
 import { realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -813,6 +814,7 @@ function buildProgram(stdin: CliInputStream): Command {
 
   registerPlatformCommands(program, getApi, printEnvelope);
 
+  registerPiiCommands(program, printEnvelope);
   const message = program.command("message").description("message operations").exitOverride();
   message.configureOutput({ writeOut: () => {}, writeErr: () => {} });
 

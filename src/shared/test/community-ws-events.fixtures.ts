@@ -282,6 +282,7 @@ export const communityWsEventFixtures = {
     lastSeenAt: "2026-01-01T00:00:00.000Z",
   },
   "community:machine.updated": { type: "community:machine.updated", machine },
+  "community:bot.pii": { type: "community:bot.pii", machineId: "machine-1", botId: "bot-1", requestId: "request-1", result: { status: "complete", snapshot: { revision: 1, plugins: [{ id: "plugin-1", name: "Email", description: "Redacts emails", enabled: true }] } } },
   "community:runtime.models": { type: "community:runtime.models", machineId: "machine-1", requestId: "request-1", runtimeId: "codex", result: { status: "complete", catalog: null } },
   "community:machine.removed": { type: "community:machine.removed", machineId: "machine-1" },
   "community:bot.audit_event": {
@@ -343,9 +344,10 @@ export const requiredFixturePaths = {
   "community:machine.status": ["lastSeenAt"],
   "community:machine.updated": ["machine"],
   "community:runtime.models": ["requestId"],
+  "community:bot.pii": ["requestId"],
   "community:machine.removed": ["machineId"],
   "community:bot.audit_event": ["payload"],
-} satisfies Record<CommunityWsEvent["type"], readonly [string, ...string[]]>
+} satisfies Record<CommunityWsEvent["type"], readonly [] | readonly [string, ...string[]]>
 
 export const communityResourceChannelFixture = {
   id: "channel-1", type: "text", serverId: "server-1", categoryId: null,

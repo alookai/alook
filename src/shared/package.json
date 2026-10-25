@@ -1,6 +1,7 @@
 {
   "name": "@alook/shared",
   "version": "0.1.59",
+  "type": "module",
   "private": true,
   "exports": {
     ".": "./src/index.ts",

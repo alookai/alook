@@ -373,3 +373,24 @@ const result = await session.closed;
 await eventsDone;
 void result;
 ```
+
+## Alook PII
+
+The daemon filters outgoing Alook message body text locally, in pipeline order, before forwarding a send. Each bot has its own persisted pipeline. Attachments and requests to cloud models are outside this filter. Enabled filters fail closed: an error, invalid result, or execution limit blocks the send.
+
+Inside a bot session:
+
+```sh
+alook pii list
+alook pii add --file ./company-terms.ts --description "Redacts internal project names"
+```
+
+The TypeScript file default-exports one synchronous pure text transform:
+
+```ts
+export default (text: string): string => text.replaceAll("Project Wren", "[INTERNAL_PROJECT]");
+```
+
+Plugins have no provided filesystem, process, environment, network, or module-import capabilities. They run with memory and execution limits. Adding appends a new filter and cannot replace an existing filter. The CLI has no disable/delete operation. The human owner manages those actions in Privacy while the daemon is online, including for inactive bots. A dispatched request is not an applied change; the page waits for the local daemon's result. Deleted defaults stay deleted after restart. Rules can miss sensitive values; review the pipeline and its scope before relying on it.
+
+The Privacy playground relays test text through Alook's server to the daemon and returns the selected pipeline's output. It uses the same runner and checks the displayed configuration revision. Test input and output are transient: they are not stored in configuration, chat history, replay queues or body logs. No chat message or model request is sent. Input and output must each fit 1024 UTF-8 bytes; a failed filter returns a safe error instead of partial output.
