@@ -62,6 +62,18 @@ async function holdSelectedWindowRepair() {
 }
 
 describe("returned entry and selected message window", () => {
+  it("qualifies complete cached rows for positioning while the selected window repair is pending", async () => {
+    const { hook, late, fresh } = await holdSelectedWindowRepair()
+    try {
+      expect(hook.result.current.readSnapshotFetching).toBe(true)
+      expect(hook.result.current.positionDataState).toBe("pending")
+      expect(hook.result.current.initialPositionKnown).toBe(true)
+      expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
+      await act(async () => late.resolve({ messages: fresh.messages, latestSeq: 2, hasMoreNewer: false }))
+      await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+    } finally { hook.unmount() }
+  })
+
   it.each(["different-key newest", "same-key anchor"] as const)("publishes the new entry into the actual feed after %s return", async kind => {
     const { wrapper, client, registry } = await setup()
     const old = fixture()

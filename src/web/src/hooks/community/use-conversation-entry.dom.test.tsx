@@ -332,7 +332,8 @@ describe("conversation entry return during accepted reading", () => {
       const props = { channel: "Channel", messages: feed.messages,
         loading: feed.isLoading, initialLoadError: feed.initialLoadError,
         newDividerBefore: projection.newDividerBefore, scrollToMessageId,
-        initialScrollReady: !feed.readSnapshotFetching && (projection.anchorFound || feed.initialPositionKnown),
+        initialScrollReady: feed.initialPositionKnown,
+        positionDataState: feed.positionDataState, positionEntry: feed.positionEntry, messageWindow: feed.messageWindow,
         hasMore: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer,
         historyStartKnown: feed.historyStartKnown,
         initialPositionMessageId: feed.initialPositionMessageId,
@@ -368,6 +369,62 @@ describe("conversation entry return during accepted reading", () => {
     }
     return { view, root, visible, get latest() { return latest } }
   }
+
+  it.each([30, 42])("reveals cached reading at %s through a slow real entry without granting reads or following late NEW", async readSeq => {
+    const owner = await readingOwner()
+    const held = deferred<ReturnType<typeof fixture>>()
+    const fresh = fixture()
+    fresh.messages = Array.from({ length: 45 }, (_, index) => ({ ...fresh.messages[0],
+      id: `m${index + 1}`, seq: index + 1,
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
+    }))
+    const readState = { channelId: "c1", lastReadMessageId: `m${readSeq}`, lastReadSeq: readSeq, lastReadAt: fresh.messages[readSeq - 1].createdAt }
+    fresh.readState = readState
+    fresh.readStateRevision = 5
+    fresh.selection = { reason: "read_pointer", anchorMessageId: `m${readSeq}` }
+    fresh.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 45 }
+    await act(async () => {
+      ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [readState] })
+      publishAccountAttentionSnapshot(owner.client, {
+        snapshot: { scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1",
+          ordinaryUnread: true, lastUnreadSeq: 45, lastAttentionSeq: null, attentionCount: 0 }], items: [], limit: 100, truncated: false,
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
+        proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined },
+      })
+    })
+    const oldLoad = load.getMockImplementation()!
+    load.mockImplementation((url: string, options: unknown) => url.includes("/messages") ? held.promise : oldLoad(url, options))
+    const view = mountReadingEntry(owner)
+    try {
+      await act(async () => vi.advanceTimersByTimeAsync(0))
+      resize()
+      expect(view.latest.feed.readSnapshotFetching).toBe(true)
+      expect(view.latest.feed.initialPositionKnown).toBe(true)
+      expect(view.latest.controller.initialPosition.contentVisible).toBe(true)
+      expect(view.latest.controller.readPositionReady).toBe(false)
+      expect(view.latest.controller.paginationEnabled).toBe(false)
+      const anchor = [...view.root.querySelectorAll<HTMLElement>("[data-msg-id]")]
+        .find(row => row.getBoundingClientRect().bottom > 0)!
+      const before = anchor.getBoundingClientRect().top
+      const id = anchor.dataset.msgId!
+      await act(async () => vi.advanceTimersByTimeAsync(6500))
+      resize()
+      expect(view.latest.controller.initialPosition.contentVisible).toBe(true)
+      expect(load.mock.calls.some(([url, options]) => url === "/api/community/channels/c1/read" && options?.method === "PUT")).toBe(false)
+      await act(async () => held.resolve(fresh))
+      await act(async () => vi.advanceTimersByTimeAsync(0))
+      resize()
+      expect(view.root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top).toBeCloseTo(before, 0)
+      expect(view.latest.feed.readSnapshot?.lastReadSeq).toBe(readSeq)
+      expect(view.latest.newDividerBefore).toBe(`m${readSeq + 1}`)
+      expect(view.latest.controller.initialPosition.contentVisible).toBe(true)
+    } finally {
+      view.view.unmount()
+      held.resolve(fresh)
+      releaseReadSurface(owner.lease)
+      await owner.finish()
+    }
+  })
 
   it.each(["before PUT confirmation", "after PUT before canonical publication", "after ACK and failed canonical readback"] as const)(
     "keeps accepted local reading in the returned viewport %s without confirming the entry snapshot", async boundary => {

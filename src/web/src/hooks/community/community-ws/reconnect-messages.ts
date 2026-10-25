@@ -1,13 +1,14 @@
+import { CommunityMessageResourceSchema } from "@alook/shared"
 import { CancelledError, hashKey, queryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages, retireCommunityChannelReading } from "@/lib/community-db/sync"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages, retireCommunityChannelReading, getCanonicalCommunityMessages } from "@/lib/community-db/sync"
 import { ConversationReadTimeoutError, withConversationReadDeadline, isConversationAnchorMissingError } from "@/lib/community/conversation-read"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
-import { messageWindowPage, type MessagesPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
+import { messageWindowPage, type MessageInput, type MessagesPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
 import { buildMessagesUrl, messageWindowIdentity } from "@/lib/community/message-window"
 
 type MessageCache = InfiniteData<MessagesWindowPage, MessagesPageParam>
@@ -30,6 +31,50 @@ function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: Mess
   const window = messageWindowPage(newest)
   pages[0] = { ...pages[0], messages: [...pages[0].messages, ...incoming.values()].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)), latestSeq: Math.max(latest(cache), refreshed.latestSeq ?? 0, ...catchUp.map((page) => page.latestSeq ?? 0)), hasMoreNewer: newest.hasMoreNewer ?? false, newerCursor: newest.newerCursor, newestCursor: [pages[0].newestCursor, window.newestCursor].filter((value): value is string => !!value).sort().at(-1) }
   return { ...cache, pages }
+}
+
+function cachedCoverage(queryClient: QueryClient, scopeId: string, cache: MessageCache, refreshed: MessagesPage, target: number, tag: string | null) {
+  if (tag !== null || !Number.isSafeInteger(target)) return
+  const byId = new Map<string, MessageInput>(getCanonicalCommunityMessages(queryClient)
+    .filter(row => row.channelId === scopeId && row.resourceComplete === true).map(row => [row.id, row]))
+  for (const message of refreshed.messages) {
+    const parsed = CommunityMessageResourceSchema.strip().safeParse(message)
+    if (parsed.success && parsed.data.channelId === scopeId) byId.set(message.id, parsed.data)
+  }
+  const rows = [...byId.values()]
+  const combined = mergeWindow(cache, refreshed, [])
+  const loaded = [...new Map(combined.pages.flatMap(page => page.messages).map(row => [row.id, row])).values()]
+  if (!loaded.length) return
+  const references = loaded.map(reference => {
+    const row = byId.get(reference.id)
+    return row && Number.isSafeInteger(row.seq) && row.seq! >= 0
+      && (reference.seq === undefined || row.seq === reference.seq) ? row : undefined
+  })
+  if (references.some(row => !row)) return
+  const first = Math.min(...references.map(row => row!.seq!))
+  const required = Math.max(target, ...references.map(row => row!.seq!))
+  const bySeq = new Map<number, typeof rows[number] | null>()
+  for (const row of rows) {
+    if (row.seq === undefined || !Number.isSafeInteger(row.seq) || row.seq < first || row.seq > required) continue
+    bySeq.set(row.seq, bySeq.has(row.seq) ? null : row)
+  }
+  const present = new Set(loaded.map(row => row.id))
+  const messages: MessagesPage["messages"] = []
+  let nextCursor: string | null = null, covered = first - 1
+  for (let seq = first; seq <= required; seq++) {
+    const row = bySeq.get(seq)
+    if (!row?.createdAt || !Number.isFinite(Date.parse(row.createdAt)) || row.id.includes("|")) break
+    const currentCursor = `${row.createdAt}|${row.id}`
+    if (nextCursor !== null && currentCursor <= nextCursor) break
+    nextCursor = currentCursor
+    covered = seq
+    if (!present.has(row.id)) messages.push(row)
+  }
+  if (!nextCursor) return
+  return { cursor: nextCursor, covered, page: {
+    messages, latestSeq: Math.max(latest(cache), refreshed.latestSeq ?? 0, covered), hasMoreNewer: covered < required,
+    newerCursor: covered < required ? nextCursor : undefined,
+  } satisfies MessagesPage }
 }
 
 type MessageRepairOwner = { query: Query; signal: AbortSignal }
@@ -121,17 +166,39 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         return page
       }
       const target = () => queryClient.getQueryData<number>(targetKey(key)) ?? 0
+      let cached: MessagesPage | undefined
+      let cachedCovered = 0
+      const published = new Set<MessagesPage>()
       const prefetch = async (current: MessageCache, refreshed: MessagesPage) => {
-        if (prefetched || Math.max(refreshed.latestSeq ?? 0, target()) <= latest(current, false)) return
-        const nextCursor = cursor(current)
+        if (prefetched) return
+        const required = Math.max(refreshed.latestSeq ?? 0, target())
+        const coverage = cachedCoverage(queryClient, scopeId, current, refreshed, required, tag)
+        cached = coverage?.page
+        cachedCovered = coverage?.covered ?? 0
+        if (coverage ? coverage.covered >= required : required <= latest(current, false)) return
+        if (cached?.messages.length) publish(refreshed)
+        const nextCursor = coverage?.cursor ?? cursor(current)
         if (!nextCursor && (refreshed.latestSeq ?? 0) >= target()) return
         const param: MessagesPageParam = nextCursor ? { mode: "since", since: nextCursor } : current.pageParams[0]
         prefetched = { param, page: await load(param) }
+        const after = originalQuery?.state.data
+        if (isMessageCache(after)) {
+          const remaining = cachedCoverage(queryClient, scopeId, after, {
+            ...prefetched.page, messages: [...refreshed.messages, ...prefetched.page.messages],
+          }, Math.max(required, target(), prefetched.page.latestSeq ?? 0), tag)
+          if (remaining) { cached = remaining.page; cachedCovered = remaining.covered }
+        }
       }
       const publish = (refreshed: MessagesPage) => {
         assert()
-        const catchUp = prefetched ? [prefetched.page] : []
-        publishCommunityMessages(queryClient, { channelId: scopeId, messages: [refreshed, ...catchUp].flatMap((page) => page.messages), proof: { token, signal } })
+        const fetchedEnd = Math.max(0, ...(prefetched?.page.messages.map(message => message.seq ?? 0) ?? []))
+        const catchUp = cached && prefetched && cachedCovered >= fetchedEnd
+          ? [prefetched.page, cached] : [...(cached ? [cached] : []), ...(prefetched ? [prefetched.page] : [])]
+        const pending = [refreshed, ...(prefetched ? [prefetched.page] : [])].filter(page => !published.has(page))
+        if (pending.length) {
+          publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), proof: { token, signal } })
+          for (const page of pending) published.add(page)
+        }
         queryClient.setQueryData<MessageCache>(key, (cache) => isMessageCache(cache) ? mergeWindow(cache, refreshed, catchUp) : cache)
       }
       try {
@@ -155,7 +222,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
           publish(refreshed)
         }
         assert()
-        const latestSeq = Math.max(refreshed.latestSeq ?? 0, prefetched?.page.latestSeq ?? 0)
+        const latestSeq = Math.max(refreshed.latestSeq ?? 0, prefetched?.page.latestSeq ?? 0, cachedCovered)
         if (latestSeq < target() && !(prefetched?.page.hasMoreNewer && prefetched.page.newerCursor)) {
           throw new Error("Messages have not caught up yet")
         }
@@ -213,7 +280,9 @@ export function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope,
 export function reconcileConversationLanding(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, page: MessagesPage, param: MessagesPageParam, owner: MessageRepairOwner) {
   const data = queryClient.getQueryData(key)
   const highWater = page.latestSeq ?? 0
-  if (!isMessageCache(data) || highWater <= latest(data)) return Promise.resolve()
+  if (!isMessageCache(data)) return Promise.resolve()
+  const ids = new Set(data.pages.flatMap(part => part.messages.map(message => message.id)))
+  if (highWater <= latest(data, false) && page.messages.every(message => ids.has(message.id))) return Promise.resolve()
   return reconcileWindow(queryClient, scope, key, highWater, { page, param }, owner)
 }
 

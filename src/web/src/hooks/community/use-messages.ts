@@ -245,7 +245,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     anchorReconciled: !!selectedWindow,
     navigationBlocked: !entry.canRead,
     readSnapshot: entry.snapshot, readSnapshotFetching,
-    initialPositionKnown: !!selectedWindow && entry.snapshot !== null && !loading && !readSnapshotFetching,
+    initialPositionKnown: windowAvailable && entry.snapshot !== null && !loading && !missingCanonical && !initialLoadError && !retrySelection.pending,
     initialPositionMessageId: entry.initialPositionMessageId, positionEntry, positionDataState, messageWindow: query.data,
     retryInitialLoad, retryingInitialLoad: entry.isFetching || query.isFetching,
     entryCanRead: entry.canRead, entryDenied: entry.denied, entryAnchorMissing: entry.anchorMissing,
