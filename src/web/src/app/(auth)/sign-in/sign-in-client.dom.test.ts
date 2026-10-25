@@ -232,6 +232,29 @@ describe("sign-in client Apple availability", () => {
     expect(request.mock.calls[0][0]).toEqual(expect.objectContaining({ email: "person@example.com" }))
   })
 
+  it.each([true, false].flatMap(isProd => ["", "not-an-email"].flatMap(email => ["button", "enter"].map(submission => ({ isProd, email, submission })))))("with isProd=$isProd, email='$email' and $submission, preserves native invalid-email focus after the mobile dialog closes", async ({ isProd, email, submission }) => {
+    window.matchMedia = vi.fn((query: string) => ({ matches: query.includes("max-width"), addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never
+    render(createElement(SignInPageClient, { isProd, appleEnabled: false }))
+    const user = setupUser()
+    const input = screen.getByRole("textbox", { name: "Email" })
+    const invalid = vi.fn(() => input.focus())
+    input.addEventListener("invalid", invalid)
+    if (email) await user.type(input, email)
+    if (submission === "button") {
+      await user.click(screen.getByRole("button", { name: isProd ? "Send Code" : "Sign in" }))
+    } else {
+      await user.click(input)
+      await user.keyboard("{Enter}")
+    }
+    await user.click(screen.getByRole("button", { name: "Agree" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await act(async () => { await Promise.resolve() })
+    expect(invalid).toHaveBeenCalledOnce()
+    expect(input).toHaveFocus()
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(mocks.devSignIn).not.toHaveBeenCalled()
+  })
+
   it("counts login entry once and records only bounded OTP failure dimensions", async () => {
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
     expect(mocks.capture).toHaveBeenCalledWith({ event: "login_page_view" })

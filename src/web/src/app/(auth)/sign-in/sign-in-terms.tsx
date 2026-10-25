@@ -89,7 +89,7 @@ export function useSignInTerms() {
         </div>
       </div>
       <Dialog open={open} onOpenChange={changeOpen} onOpenChangeComplete={next => setDialogClosed(!next)}>
-        <DialogContent showCloseButton={false} className="w-[calc(100%-2rem)] max-w-sm">
+        <DialogContent showCloseButton={false} finalFocus={!accepted} className="w-[calc(100%-2rem)] max-w-sm">
           <DialogHeader>
             <DialogTitle>Agree to continue</DialogTitle>
             <DialogDescription><PolicyLinks /></DialogDescription>
