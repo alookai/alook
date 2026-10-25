@@ -1,6 +1,9 @@
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, expectMessageVisible, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
-import type { Frame, Request } from "@playwright/test"
+import type { Frame, Page, Request, Response as PlaywrightResponse } from "@playwright/test"
+import { COMMUNITY_CONTRACT_VERSION, CommunityMessageResourceSchema, requestedCommunityContract } from "@alook/shared"
+import { decodeCommunityReadResponse } from "@/lib/community/read-response"
+import type { MessagesPage } from "@/lib/community/models/message"
 
 import {
   communityFrameEvents,
@@ -15,6 +18,42 @@ function messageFrame(frame: CapturedCommunityFrame, channelId: string, content:
     event.type === "community:message.create"
     && event.channelId === channelId
     && event.message?.content?.includes(content))
+}
+
+function captureMessageRepairs(page: Page, channelId: string) {
+  const responses: PlaywrightResponse[] = []
+  page.on("response", (response) => {
+    const url = new URL(response.url())
+    if (response.request().method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages`
+      && !url.searchParams.has("entry")) responses.push(response)
+  })
+  return responses
+}
+
+async function decodedResponse(response: PlaywrightResponse) {
+  expect(response.status()).toBe(200)
+  const request = response.request()
+  const url = new URL(response.url())
+  return decodeCommunityReadResponse(`${url.pathname}${url.search}`, request.method(),
+    new Response(null, { headers: response.headers() }), await response.json(),
+    requestedCommunityContract(new Headers(request.headers())) ?? COMMUNITY_CONTRACT_VERSION)
+}
+
+async function expectRepairedMessage(responses: PlaywrightResponse[], channelId: string, content: string) {
+  expect(responses.some((response) => new URL(response.url()).search === "")).toBe(true)
+  const pages = await Promise.all(responses.map(async (response) => ({
+    url: new URL(response.url()), page: await decodedResponse(response) as MessagesPage,
+  })))
+  const supplied = pages.find(({ page }) => page.messages.some((message) => message.content?.includes(content)))
+  expect(supplied, "repair response must supply the missing full message").toBeDefined()
+  const message = CommunityMessageResourceSchema.strip().parse(supplied!.page.messages.find((row) => row.content?.includes(content)))
+  expect(message.channelId).toBe(channelId)
+  expect(message.seq).toBe(2)
+  expect(Number.isFinite(Date.parse(message.createdAt))).toBe(true)
+  expect(supplied!.page.latestSeq).toBeGreaterThanOrEqual(message.seq)
+  const since = supplied!.url.searchParams.get("since")
+  if (since) expect(`${message.createdAt}|${message.id}` > since).toBe(true)
+  return message
 }
 
 test.describe("committed message delivery QA", () => {
@@ -88,18 +127,12 @@ test.describe("committed message delivery QA", () => {
       }
       return "forward"
     } })
-    const gapRequests: string[] = []
-    bob.page.on("request", (request) => {
-      const url = new URL(request.url())
-      if (url.pathname === `/api/community/channels/${channelId}/messages` && url.searchParams.has("since")) {
-        gapRequests.push(url.toString())
-      }
-    })
     await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
     await expect(composerEditable(bob.page)).toBeVisible()
 
     const alice = await asUser("alice")
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+    const repairResponses = captureMessageRepairs(bob.page, channelId)
     armed = true
     const editable = composerEditable(alice.page)
     await editable.click()
@@ -112,12 +145,14 @@ test.describe("committed message delivery QA", () => {
 
     await expectMessageVisible(bob.page, missing)
     await expectMessageVisible(bob.page, later)
-    expect(gapRequests.length).toBeGreaterThan(0)
+    const repaired = await expectRepairedMessage(repairResponses, channelId, missing)
     expect(proxy.heldCount()).toBe(1)
     const heldBatch = proxy.frames.find((frame) => messageFrame(frame, channelId, missing))
     expect(heldBatch?.type).toBe("community:events.batch.v2")
     expect(communityFrameEvents(heldBatch!).some((event) =>
       event.type === "community:mention.create")).toBe(true)
+    expect(communityFrameEvents(heldBatch!).find((event) => event.type === "community:message.create")?.message)
+      .toMatchObject({ id: repaired.id, seq: repaired.seq })
     expect(proxy.releaseHeld((frame) => messageFrame(frame, channelId, missing))).toBe(1)
     await bob.page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
@@ -151,7 +186,7 @@ test.describe("committed message delivery QA", () => {
     let dropped = false
     const missing = `missing dm ${Date.now()}`
     const later = `later dm ${Date.now()}`
-    await proxyCommunityWebSockets(bob.context, { decide: (frame) => {
+    const proxy = await proxyCommunityWebSockets(bob.context, { decide: (frame) => {
       if (armed && !dropped && frame.type === "community:message.create" && frame.channelId === dmId) {
         dropped = true
         return "drop"
@@ -162,18 +197,17 @@ test.describe("committed message delivery QA", () => {
       }
       return "forward"
     } })
-    const gapRequests: string[] = []
-    bob.page.on("request", (request) => {
-      const url = new URL(request.url())
-      if (url.pathname === `/api/community/channels/${dmId}/messages` && url.searchParams.has("since")) {
-        gapRequests.push(url.toString())
-      }
-    })
     await gotoAfterUserWsAuth(bob.page, `/c/me/${dmId}`)
     await expect(composerEditable(bob.page)).toBeVisible()
 
     const alice = await asUser("alice")
     await gotoAfterUserWsAuth(alice.page, `/c/me/${dmId}`)
+    const repairResponses = captureMessageRepairs(bob.page, dmId)
+    const readResponses: PlaywrightResponse[] = []
+    bob.page.on("response", (response) => {
+      if (response.request().method() === "PUT" && response.status() === 200
+        && new URL(response.url()).pathname === `/api/community/channels/${dmId}/read`) readResponses.push(response)
+    })
     armed = true
     await sendMessage(alice.page, missing)
     await expect.poll(() => dropped, { timeout: 20_000 }).toBe(true)
@@ -181,7 +215,19 @@ test.describe("committed message delivery QA", () => {
 
     await expectMessageVisible(bob.page, missing)
     await expectMessageVisible(bob.page, later)
-    expect(gapRequests.length).toBeGreaterThan(0)
+    const repaired = await expectRepairedMessage(repairResponses, dmId, missing)
+    const missingFrame = proxy.frames.find((frame) => messageFrame(frame, dmId, missing))!
+    expect(communityFrameEvents(missingFrame).find((event) => event.type === "community:message.create")?.message)
+      .toMatchObject({ id: repaired.id, seq: repaired.seq })
+    await expect(bob.page.getByTestId(tid.message(repaired.id))).toHaveCount(1)
+    await expect(bob.page.getByText(later, { exact: false })).toHaveCount(1)
+    const tail = proxy.frames.flatMap(communityFrameEvents).find((event) => event.type === "community:message.create"
+      && event.channelId === dmId && event.message?.content?.includes(later))?.message
+    expect(tail?.seq).toBe(3)
+    await expect.poll(async () => {
+      const reads = await Promise.all(readResponses.map(async (response) => await decodedResponse(response) as { targetSeq: number }))
+      return reads.some((read) => read.targetSeq === tail!.seq)
+    }, { timeout: 20_000 }).toBe(true)
   })
 
   test("Q8: capable duplicate suppression ends safely at full reload", async ({ caseActors }) => {
