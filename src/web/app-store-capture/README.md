@@ -1,15 +1,19 @@
 # App Store artwork capture
 
-Generate the approved warm-orange artwork locally from the repository root:
+Generate the warm-orange marketing compositions from the repository root:
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm app-store:capture
 ```
 
-The generator lives next to `readme-capture`, outside the production router. It serves only its declared local files on an unused loopback port and launches the installed Chrome with `channel: "chrome"`. It waits for Caveat, DM Sans and all images, captures the fixed body rectangle, validates RGB JPEG output, then closes its own browser and HTTP server. Render errors, missing resources and external requests fail the command. It does not use an existing browser profile or stop other services.
+This standalone Next app follows `readme-capture` and lives outside the production router. `captures/poster.tsx` draws the marketing layout. Each device contains a local iframe with its own logical viewport, importing real Web components and the homepage's existing demo data through `captures/surface.tsx`. No screenshot bitmap or hand-written App markup supplies the screen UI.
 
-The phone and tablet HTML/CSS is the approved v6 source, unchanged. `clean` hides the original study footer. The large-phone source scales the original composition to 1320px wide and clips its bottom background to exactly 2868px, as in the approved generation. The tablet fits the complete desktop screenshot inside a landscape device frame, including both navigation columns and the bottom user bar.
+Workspace scenes use `LandingInteractiveShell`, including the shared rail, sidebar, header, message list, composer and user bar. Identity, continuity and profile scenes reuse `LandingShellMotion`, `LandingProfileContent` and their existing fixtures. Enlarged messages use the real `Message` component with the original fixture objects. Only the marketing headline, device illustrations and surrounding artwork are capture-specific.
+
+The normal App root size is 16px; the public demo's 14px preview modifier is not applied. Desktop workspaces use 1280×800 logical pixels; phone scenes use 402×874. Duo uses 951×669 and 466×678 screen-reference rectangles. These are browser layout inputs, not measurements of a native WebView's usable safe area. See [SOURCES.md](SOURCES.md) for the geometry and evidence boundaries.
+
+The generator starts its own Next process group on an unused loopback port and launches installed Chrome with `channel: "chrome"`, without an existing profile. It opens the mobile general channel using its actual control, waits for frame readiness, fonts and images, rejects external requests/resource errors, captures the poster and validates RGB JPEG dimensions. Success, errors and signals close its owned browser and Next group; unrelated services are not stopped. Fixtures use local providers without account credentials or backend writes.
 
 ## Outputs
 
@@ -24,25 +28,19 @@ Paths are relative to `assets/app-store/`:
 | Check in from your phone | `phone-1206x2622/05-phone.jpg` | `phone-1320x2868/05-phone.jpg` |
 | Keep your existing setup | `phone-1206x2622/06-existing-setup.jpg` | `phone-1320x2868/06-existing-setup.jpg` |
 
-The thirteenth image is `tablet-2064x2752/01-share-agents.jpg` (2064×2752).
+The tablet is `tablet-2064x2752/01-share-agents.jpg` (2064×2752), retaining the complete desktop navigation and user bar. The Duo is `duo-2007x2853/06-existing-setup.jpg` (2007×2853).
 
-The fourteenth image is `duo-2007x2853/06-existing-setup.jpg` (2007×2853). Its revised source places an unfolded device behind a folded device at the same physical scale, using the supplied dark public-demo images and CSS device frames. The body and screen ratios are recorded in `duo-refinement.json`. The original 13 images and sources are retained.
-
-All 14 deliverables are three-channel RGB JPEGs with no alpha. `manifest.json` records the actual Chrome version, input hashes and output dimensions/SHA256. It contains no clock-dependent timestamp. JPEG encoding, colour profiles and subpixel raster edges can differ across browser versions, screenshot APIs or repeated captures; file hashes alone do not establish visual equivalence with the original CUA captures.
-
-For a separate output directory or an optional 1206×1679 review contact sheet:
+All 14 are three-channel sRGB JPEGs without alpha. `manifest.json` records actual Chrome version, direct input hashes, reference clock, locale/timezone, component viewports and output hashes. Browser time is fixed to 2026-10-25 UTC for stable fixture date labels; fixture timestamps are unchanged. The repository HEAD identifies the baseline; an uncommitted candidate also needs its review tree/file binding. Direct hashes are not a complete transitive dependency graph. Browser/font rasterization can change JPEG bytes between runs, so hashes do not prove visual equivalence.
 
 ```bash
 pnpm app-store:capture --output /tmp/alook-store-artwork
 pnpm app-store:capture --overview --output /tmp/alook-store-review
 ```
 
-`--overview` adds `overview.jpg` to that run's manifest. The command overwrites only its declared images and manifest; it does not clear unrelated files in the destination. A failed run can leave partial images, but does not write a successful manifest for that run. Review the exit status before using its outputs.
+`--overview` composites a 1206×1679 review sheet from the six generated small-phone images and adds it to that run's manifest. It does not recapture a second set of live UI frames. The command overwrites only its declared images and manifest, without clearing unrelated destination files. A failure can leave partial images or a previous manifest; use outputs only after the command succeeds.
 
 ## Source and updates
 
-See [SOURCES.md](SOURCES.md) [approved-manifest.json](approved-manifest.json) and [duo-manifest.json](duo-manifest.json). Normal generation reads committed static inputs and needs no online page, private account, database or credentials. The source package's font/logo/homepage assets are reused from their byte-identical repository locations. Four public demo screenshots and five extracted logo faces are stored under `assets/` here.
+See [SOURCES.md](SOURCES.md). Normal generation is local and needs no online page, private account, database or credentials. Public asset links are relative to repository logo, fonts and homepage avatars. The five face SVGs retain the official logo paths and approved crops.
 
-To update the artwork, edit the local HTML/CSS or deliberately replace the documented public input, preserve message authors/text/times, regenerate all 14 images, and compare them with the approved reference. Update the source record and contract tests when an input or mapping changes. Keep full desktop navigation in the tablet image. A change in demo fixtures is not an instruction to recapture production or private conversations automatically.
-
-These are marketing compositions using public demo/homepage scenes. They do not prove native App, Duo or build37 behavior, successful store submission, review approval or installation. The general story and the separate Maya/Home scenes retain their original attribution.
+Edit capture composition or shared fixture consumers, regenerate all 14, review all stories/crops and update contracts and provenance for intentional changes. Keep production rendering free of capture flags. The old static package manifests are historical; their former byte freeze does not constrain this component implementation. These marketing outputs do not prove native layout parity, store acceptance or a particular installed build.

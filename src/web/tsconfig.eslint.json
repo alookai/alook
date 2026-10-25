@@ -9,7 +9,7 @@
     "src/**/*",
     "src/app/.well-known/**/*.ts",
     "scripts/**/*",
-    "app-store-capture/**/*.mjs"
+    "app-store-capture/**/*"
   ],
   "exclude": [
     "node_modules"

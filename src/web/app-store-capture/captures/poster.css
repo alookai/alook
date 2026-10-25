@@ -1,0 +1,149 @@
+@font-face{font-family:Caveat;src:url(/caveat.woff2);font-weight:400 700;font-display:block}
+@font-face{font-family:DMSans;src:url(/dm-sans.woff2);font-weight:100 1000;font-display:block}
+*{box-sizing:border-box}
+.phone-poster{position:relative;width:1206px;height:2622px;overflow:hidden;background:linear-gradient(165deg,#fff8ec 0%,#fff0dc 30%,#ffd8a5 62%,#ff9b43 100%)}
+.phone-poster:before{content:"";position:absolute;width:1750px;height:1750px;border:2px solid #fff8ecaa;border-radius:50%;left:-380px;top:1100px;box-shadow:0 0 0 160px #fff8ec33,0 0 0 320px #fff8ec22}
+.phone-poster .brand{position:absolute;left:87px;top:91px;display:flex;align-items:center;gap:18px;font-family:Caveat,cursive;font-size:94px;font-weight:700;letter-spacing:-4px;line-height:1}
+.phone-poster .brand img{width:75px;height:75px}
+.phone-poster .number{position:absolute;right:90px;top:127px;font-size:26px;font-weight:700;letter-spacing:5px;color:#715340}
+.phone-poster .headline{position:absolute;left:84px;right:60px;top:247px;margin:0;font-size:137px;font-weight:1000;line-height:1.01;letter-spacing:-6px}
+.phone-poster .headline .accent{color:#b94f13}
+.phone-poster .subtitle{position:absolute;left:90px;right:90px;top:718px;font-size:47px;line-height:1.3;letter-spacing:-1px;margin:0;color:#715340;max-width:1000px}
+.phone-poster .phone{position:absolute;left:122px;top:989px;width:962px;border:18px solid #192625;border-radius:88px;background:#fff;overflow:hidden;box-shadow:0 58px 100px #7a482c33,0 9px 0 2px #fff8ec,0 0 0 3px #71534066}
+.phone-poster .phone img{display:block;width:100%}
+.phone-poster .reply{position:absolute;left:49px;top:1634px;width:1107px;height:315px;border:14px solid #fff8ec;border-radius:46px;overflow:hidden;background:#fff;box-shadow:0 30px 70px #7a482c30;transform:rotate(-3deg);z-index:3}
+.phone-poster .reply img{position:absolute;width:1085px;max-width:none;left:0;top:-491px}
+.phone-poster .window{position:absolute;overflow:hidden;border:14px solid #fff8ec;border-radius:48px;background:#fff;box-shadow:0 45px 100px #7a482c30}
+.phone-poster .window img{display:block;width:100%}
+.phone-poster .chip{position:absolute;display:inline-block;background:#192625;color:#fff8ec;border-radius:99px;padding:22px 39px;font-weight:700;font-size:37px;box-shadow:0 15px 40px #7a482c22;z-index:4}
+.phone-poster .footer{position:absolute;bottom:62px;left:90px;font-size:28px;letter-spacing:1px;color:#715340;z-index:8}
+.phone-poster.hero .headline{font-size:174px;top:255px}
+.phone-poster.hero .subtitle{top:654px;font-size:61px;color:#192625}
+.phone-poster.team .headline{font-size:126px}
+.phone-poster.team .window{left:55px;top:1077px;width:1096px;height:1285px;transform:rotate(-3deg)}
+.phone-poster.team .window img{position:absolute;width:1820px;max-width:none;left:-475px;top:0}
+.phone-poster.team .reply{top:1745px}
+.phone-poster.companion .headline{font-size:145px}
+.phone-poster.companion .window{left:-92px;top:1088px;width:1120px;transform:rotate(7deg)}
+.phone-poster.companion .profile{position:absolute;left:153px;top:1290px;width:900px;transform:rotate(-3deg);border-radius:50px;box-shadow:0 50px 90px #7a482c33;z-index:2}
+.phone-poster.companion .profile img{display:block;width:100%;border-radius:50px}
+.phone-poster.companion .chip{right:38px;top:2290px;transform:rotate(4deg)}
+.phone-poster.continuity .headline{font-size:146px}
+.phone-poster.continuity .window{left:54px;top:1100px;width:1100px;height:1250px;transform:rotate(3deg)}
+.phone-poster.continuity .window img{position:absolute;width:1770px;max-width:none;left:-455px;top:0}
+.phone-poster.continuity .focus{position:absolute;top:1650px;left:30px;width:1145px;height:435px;border:14px solid #fff8ec;border-radius:40px;overflow:hidden;box-shadow:0 35px 65px #7a482c38;transform:rotate(-3deg);z-index:3;background:#fff}
+.phone-poster.continuity .focus img{position:absolute;width:1770px;max-width:none;left:-455px;top:-85px}
+.phone-poster.reach .headline{font-size:146px}
+.phone-poster.reach .subtitle{font-size:44px}
+.phone-poster.reach .chip{left:72px;top:2050px;transform:rotate(-3deg);max-width:1040px;font-size:32px}
+.phone-poster.setup .headline{font-size:148px}
+.phone-poster.setup .window{left:55px;top:1137px;width:1096px;height:1150px;transform:rotate(-3deg)}
+.phone-poster.setup .window img{position:absolute;width:1670px;max-width:none;left:-370px;top:0}
+.phone-poster.setup .chip{left:78px;top:2100px;transform:rotate(3deg)}
+.phone-poster.setup .window img{width:1460px;left:-415px}
+.phone-poster.hero .reply,.phone-poster.team .reply{top:1730px;height:306px}
+.phone-poster.hero .reply img,.phone-poster.team .reply img{top:-1040px;width:1085px;left:0}
+.phone-poster.team .window{top:1077px;height:1285px}
+.phone-poster.team .window img{width:1068px;left:0;top:-200px}
+.phone-poster.hero .footer,.phone-poster.reach .footer{background:#fff8ecee;border-radius:12px;padding:8px 14px;font-size:23px;bottom:40px}
+.phone-poster.setup .desktop-device{position:absolute;left:86px;top:1080px;width:1380px;height:1040px;transform:perspective(2000px) rotateY(-9deg) rotateZ(-5deg);z-index:1;filter:drop-shadow(0 45px 55px #7a482c40)}
+.phone-poster .desktop-screen{width:1380px;height:902px;border:24px solid #192625;border-bottom:46px solid #192625;border-radius:42px;background:#fff;overflow:hidden;box-shadow:inset 0 0 0 2px #715340,0 0 0 3px #a5805f}
+.phone-poster .desktop-screen img{display:block;width:100%;height:100%;object-fit:contain;background:#fff}
+.phone-poster .monitor-neck{position:absolute;width:210px;height:145px;left:580px;top:898px;background:linear-gradient(100deg,#715340,#baaa95 47%,#5e4937);clip-path:polygon(18% 0,82% 0,100% 100%,0 100%)}
+.phone-poster .monitor-base{position:absolute;left:420px;top:1018px;width:540px;height:45px;border-radius:60% 60% 18% 18%;background:linear-gradient(#c7baa7,#715340);box-shadow:0 18px 26px #19262530}
+.phone-poster .tablet-device{position:absolute;left:-98px;top:1545px;width:758px;height:1010px;border:20px solid #192625;border-radius:50px;overflow:hidden;background:#fff;transform:rotate(-8deg);box-shadow:0 40px 80px #7a482c38,0 0 0 3px #a5805f;z-index:2}
+.phone-poster .tablet-device img{display:block;width:100%;height:100%;object-fit:contain}
+.phone-poster .mobile-device{position:absolute;left:698px;top:1540px;width:468px;border:16px solid #192625;border-radius:64px;overflow:hidden;background:#fff;transform:rotate(5deg);box-shadow:0 40px 80px #7a482c50,0 0 0 3px #a5805f;z-index:3}
+.phone-poster .mobile-device img{display:block;width:100%}
+.phone-poster.setup .footer{background:#fff8ecee;border-radius:12px;padding:8px 14px;font-size:23px;bottom:34px}
+.phone-poster .scattered-face{position:absolute;object-fit:contain;filter:drop-shadow(0 9px 0 #fff8ec) drop-shadow(0 16px 18px #7a482c28);z-index:5}
+.phone-poster .face-red{left:1010px;top:2390px;width:150px;transform:rotate(18deg)}
+.phone-poster .face-orange{left:45px;top:2180px;width:300px;transform:rotate(-10deg)}
+.phone-poster .face-blue{left:459px;top:2200px;width:180px;transform:rotate(15deg)}
+.phone-poster .face-purple{left:34px;top:930px;width:160px;transform:rotate(-18deg)}
+.phone-poster .face-teal{left:1055px;top:945px;width:185px;transform:rotate(12deg)}
+.phone-poster .art-face{position:absolute;object-fit:contain;filter:drop-shadow(0 8px 0 #fff8ec) drop-shadow(0 15px 19px #7a482c25);z-index:5}
+.phone-poster .hero-blue{left:1010px;top:872px;width:145px;transform:rotate(12deg)}
+.phone-poster .hero-orange{left:28px;top:2260px;width:175px;transform:rotate(-13deg)}
+.phone-poster.team{background:linear-gradient(160deg,#fff8ec,#fff0dc 35%,#f6d8b8 66%,#ff9b43)}
+.phone-poster.team .window{left:52px;top:1095px;width:1120px;height:718px;border:22px solid #192625;border-radius:47px;transform:rotate(-4deg);box-shadow:0 45px 80px #7a482c35,0 0 0 3px #a5805f}
+.phone-poster.team .window img{position:static;width:100%;height:100%;object-fit:contain}
+.phone-poster .quote-card{position:absolute;display:flex;gap:24px;align-items:flex-start;padding:26px;border:14px solid #fff8ec;border-radius:43px;background:#fff;box-shadow:0 30px 70px #7a482c35;color:#192625;z-index:4}
+.phone-poster .team-quote{left:28px;top:1760px;width:1135px;transform:rotate(3deg)}
+.phone-poster .team-teal{left:94px;top:2260px;width:220px;transform:rotate(-15deg)}
+.phone-poster .team-purple{left:480px;top:2200px;width:230px;transform:rotate(9deg)}
+.phone-poster .team-orange{left:950px;top:2310px;width:165px;transform:rotate(-9deg)}
+.phone-poster.companion .window{left:33px;top:1120px;width:1210px;border:18px solid #192625;border-radius:45px;transform:rotate(-5deg)}
+.phone-poster.companion .profile{left:190px;top:1320px;width:900px;border:14px solid #fff8ec;transform:rotate(4deg);overflow:hidden}
+.phone-poster.companion .chip{top:2340px;right:65px;transform:rotate(-3deg)}
+.phone-poster .companion-purple{left:40px;top:2070px;width:195px;transform:rotate(-14deg)}
+.phone-poster .companion-blue{left:1000px;top:1020px;width:150px;transform:rotate(14deg)}
+.phone-poster.continuity .window{left:52px;top:1100px;width:1190px;height:724px;border:18px solid #192625;border-radius:45px;transform:rotate(3deg)}
+.phone-poster.continuity .window img{position:static;width:100%;height:100%;object-fit:contain}
+.phone-poster .continuity-ask{left:23px;top:1690px;width:1110px;transform:rotate(-3deg)}
+.phone-poster .continuity-answer{left:85px;top:2070px;width:1080px;transform:rotate(3deg)}
+.phone-poster .continuity-red{left:1020px;top:930px;width:145px;transform:rotate(13deg)}
+.phone-poster .continuity-blue{left:40px;top:2380px;width:170px;transform:rotate(-14deg)}
+.phone-poster.reach{background:linear-gradient(165deg,#fff8ec,#fff0dc 35%,#f7d9b7 65%,#ff9b43)}
+.phone-poster .composer-focus{position:absolute;left:26px;top:2150px;width:1145px;height:185px;border:14px solid #fff8ec;border-radius:50px;overflow:hidden;background:#fff;box-shadow:0 30px 70px #7a482c35;transform:rotate(-3deg);z-index:4}
+.phone-poster .composer-focus img{position:absolute;width:1117px;max-width:none;left:0;top:-2275px}
+.phone-poster.reach .chip{left:130px;top:2410px;font-size:30px;transform:rotate(3deg)}
+.phone-poster .reach-teal{left:18px;top:1535px;width:135px;transform:rotate(-16deg)}
+.phone-poster .reach-red{left:1015px;top:930px;width:150px;transform:rotate(12deg)}
+.phone-poster .composer-crop{position:relative;margin:14px;width:1089px;height:128px;border-radius:65px;overflow:hidden;background:#e8e5de}
+.phone-poster .composer-focus .composer-crop img{left:-14px;top:-2290px}
+.tablet-poster{position:relative;margin:0;width:2064px;height:2752px;overflow:hidden;background:linear-gradient(165deg,#fff8ec,#fff0dc 35%,#ffd8a5 65%,#ff9b43);color:#192625;font-family:DMSans,Arial,sans-serif}
+.tablet-poster .brand{position:absolute;left:142px;top:108px;display:flex;align-items:center;gap:24px;font-family:Caveat,cursive;font-size:132px;font-weight:700;letter-spacing:-5px;line-height:1}
+.tablet-poster .brand img{width:110px;height:110px}
+.tablet-poster .number{position:absolute;right:140px;top:160px;color:#715340;font-size:32px;letter-spacing:6px;font-weight:700}
+.tablet-poster h1{position:absolute;left:134px;top:320px;font-size:240px;letter-spacing:-8px;line-height:1.03;font-weight:1000;margin:0}
+.tablet-poster .accent{color:#b94f13}
+.tablet-poster .subtitle{position:absolute;left:142px;top:865px;font-size:78px;color:#192625;margin:0;line-height:1.3}
+.tablet-poster .window{position:absolute;left:130px;top:1120px;width:1804px;height:1460px;overflow:hidden;background:#fff;border:18px solid #192625;border-radius:58px;box-shadow:0 55px 100px #7a482c35;transform:rotate(-2deg)}
+.tablet-poster .window img{position:absolute;display:block;width:1768px;left:0;top:-580px}
+.tablet-poster .reply{position:absolute;left:610px;top:1830px;width:1320px;height:219px;background:#fff;border:17px solid #fff8ec;border-radius:44px;overflow:hidden;transform:rotate(2deg);box-shadow:0 35px 80px #7a482c35}
+.tablet-poster .reply img{position:absolute;display:block;width:2010px;left:-750px;top:-1450px}
+.tablet-poster .footer{position:absolute;bottom:47px;left:145px;font-size:30px;color:#715340;letter-spacing:1px}
+.tablet-poster .window{left:122px;top:1130px;width:1820px;height:1156px;border:24px solid #192625;border-radius:72px;transform:rotate(-3deg);overflow:hidden}
+.tablet-poster .window img{position:static;display:block;width:100%;height:100%;object-fit:contain;background:#fff}
+.tablet-poster .art-face{position:absolute;object-fit:contain;filter:drop-shadow(0 12px 0 #fff8ec) drop-shadow(0 22px 25px #7a482c28);z-index:4}
+.tablet-poster .tablet-purple{left:52px;top:990px;width:170px;transform:rotate(-14deg)}
+.tablet-poster .tablet-orange{left:142px;top:2360px;width:260px;transform:rotate(-12deg)}
+.tablet-poster .tablet-teal{left:1680px;top:2300px;width:250px;transform:rotate(12deg)}
+.tablet-poster .clean .footer{display:none}
+.duo-poster{--mm:10px;position:relative;width:2007px;height:2853px;overflow:hidden;background:linear-gradient(165deg,#fff8ec 0%,#fff0dc 30%,#ffd8a5 62%,#ff9b43 100%)}
+.duo-poster:before{content:"";position:absolute;width:2500px;height:2500px;border:3px solid #fff8ecaa;border-radius:50%;left:-600px;top:1050px;box-shadow:0 0 0 210px #fff8ec33,0 0 0 420px #fff8ec22}
+.duo-poster .brand{position:absolute;left:132px;top:112px;display:flex;align-items:center;gap:26px;font-family:Caveat,cursive;font-size:144px;font-weight:700;letter-spacing:-5px;line-height:1}
+.duo-poster .brand img{width:114px;height:114px}
+.duo-poster .number{position:absolute;right:139px;top:166px;font-size:35px;font-weight:700;letter-spacing:7px;color:#715340}
+.duo-poster h1{position:absolute;left:126px;right:110px;top:345px;margin:0;font-size:226px;font-weight:1000;line-height:1.01;letter-spacing:-9px}
+.duo-poster .accent{color:#b94f13}
+.duo-poster .subtitle{position:absolute;left:136px;top:1060px;margin:0;color:#715340;font-size:65px;line-height:1.3;letter-spacing:-1px}
+.duo-poster .device{position:absolute;display:flex;align-items:center;justify-content:center;height:calc(117.8 * var(--mm));background:linear-gradient(105deg,#ded7ce,#7f7a70 20%,#f2eee5 45%,#403f3c 65%,#b1aca3);border:2px solid #4d4c49;box-shadow:0 2px 0 3px #fff8ec,0 48px 85px #7a482c55}
+.duo-poster .screen{position:relative;flex-shrink:0;overflow:hidden;background:#11110f}
+.duo-poster .screen img{display:block;width:100%;height:100%;object-fit:contain}
+.duo-poster .unfolded{left:150px;top:1300px;width:calc(164.6 * var(--mm));border-radius:83px;transform:perspective(3500px) rotateY(-7deg) rotateZ(-5deg);z-index:1}
+.duo-poster .unfolded .screen{width:calc(100% - 24px);aspect-ratio:2670 / 1878;border-radius:68px}
+.duo-poster .crease{position:absolute;left:calc(50% - 26px);top:0;bottom:0;width:52px;background:linear-gradient(90deg,transparent,#00000032 38%,#ffffff16 55%,transparent);pointer-events:none}
+.duo-poster .hinge-top,.duo-poster .hinge-bottom{position:absolute;width:24px;height:18px;left:calc(50% - 12px);background:linear-gradient(90deg,#484943,#ddd6cb,#545650);z-index:2}
+.duo-poster .hinge-top{top:-6px;border-radius:0 0 5px 5px}
+.duo-poster .hinge-bottom{bottom:-6px;border-radius:5px 5px 0 0}
+.duo-poster .folded{left:1005px;top:1545px;width:calc(84.1 * var(--mm));border-radius:86px;transform:perspective(2500px) rotateY(-10deg) rotateZ(7deg);z-index:3}
+.duo-poster .folded .screen{height:calc(100% - 24px);aspect-ratio:1398 / 2034;border-radius:70px}
+.duo-poster .folded:before{content:"";position:absolute;right:-14px;top:80px;bottom:78px;width:17px;background:linear-gradient(90deg,#d5d0c5,#56564f,#c3bdae);border-radius:0 10px 10px 0;z-index:-1}
+.duo-poster .folded:after{content:"";position:absolute;right:-20px;top:250px;width:8px;height:127px;background:#69685f;border:1px solid #d8d2c6;border-radius:0 5px 5px 0}
+.duo-poster .face{position:absolute;object-fit:contain;filter:drop-shadow(0 12px 0 #fff8ec) drop-shadow(0 22px 25px #7a482c28);z-index:5}
+.duo-poster .purple{left:50px;top:1150px;width:180px;transform:rotate(-17deg)}
+.duo-poster .teal{left:1750px;top:1010px;width:180px;transform:rotate(12deg)}
+.duo-poster .orange{left:110px;top:2610px;width:210px;transform:rotate(-11deg)}
+.duo-poster .blue{left:720px;top:2640px;width:155px;transform:rotate(14deg)}
+.duo-poster .red{left:1840px;top:2690px;width:135px;transform:rotate(16deg)}
+.capture-canvas { position: relative; overflow: hidden; background: #fff8ec; color: #192625; font-family: DMSans, sans-serif; }
+.surface-frame { position: relative; overflow: hidden; background: var(--background, #fff); }
+.surface-frame iframe { display: block; position: absolute; border: 0; transform-origin: top left; }
+.quote-card { display: block; }
+.composer-focus { height: 230px; }
+.composer-crop { height: 174px; }
+.poster-board { display: grid; grid-template-columns: repeat(3, 368px); gap: 23px; padding: 28px; background: #f3e6d4; }
+.poster-thumb { position: relative; width: 368px; height: 800px; overflow: hidden; border-radius: 16px; }
+.poster-thumb > section { transform: scale(.305); transform-origin: top left; }

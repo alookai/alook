@@ -1,41 +1,38 @@
-# Approved artwork sources
+# Artwork sources
 
-The visual source is the v6 warm-orange prototype package `alook-store-v6-actual-source-and-approved-output.zip`, SHA256 `1e883c1d1933d4996fc1748519315cf663eb513476517d53e7e86adea5455246`. It contains six phone stories and the complete tablet desktop composition. `approved-manifest.json` is the original package manifest, recording all 15 source hashes and the original 13 JPEG hashes. The local generator preserves those 15 source bytes; it adapts serving paths and the generation entry only.
+## Current component rendering
 
-| Original prototype input | Repository location |
+`app/` is a local Next application outside the production router. `captures/poster.tsx` and `poster.css` retain the selected warm-orange composition, copy and illustrated hardware. Screen content comes from imported Web components, with the same data objects used by the public [Alook homepage](https://alook.ai/):
+
+| Scene | Component and data source |
 | --- | --- |
-| `index.html`, `tablet.html` | This directory, unchanged HTML/CSS |
-| `demo-phone.png`, `demo-desktop.png` | `assets/` in this directory |
-| `face-red.svg`, `face-purple.svg`, `face-teal.svg`, `face-blue.svg`, `face-orange.svg` | `assets/` in this directory |
-| `alook.svg` | `src/web/public/alook.svg` |
-| `caveat.woff2` | `src/web/src/app/fonts/caveat-latin.woff2` |
-| `dm-sans.woff2` | `src/web/src/app/fonts/dm-sans-latin.woff2` |
-| `identity.webp`, `profile.webp`, `continuity.webp` | `src/web/public/landing/posters/` |
+| Workspace / phone / tablet / Duo | `LandingInteractiveShell`; `landing-interactive-shell-data.ts` DEMO servers, channels, profiles and messages |
+| Identity / continuity | `LandingShellMotion`; existing timeline and scene fixtures |
+| Maya profile | `LandingProfileContent`; existing profile content and avatar |
+| Enlarged general reply | `Message`; original Alli object in `DEMO_MESSAGES["demo-general"]` |
+| Enlarged continuity replies | `Message`; original first two `CONTINUITY_WORK_MESSAGES` objects |
+| Input detail | Shared `Composer`, with sending disabled in local fixture IO |
 
-The two demo screenshots are frozen public [Alook demo](https://alook.ai/demo) inputs: desktop 2880×1800, SHA256 `fc39ef3ab09fd6bb18726ac9ceb068b0ab5c00d1d83c6b6d4189d3b72a0a75ed`; phone 1206×2622, SHA256 `402a9183e37fea06cdd4a8a6183198bd7268e2a66dec092fc1a21f1be85350df`. They show the same Gus/Shelly/Alli/Tracy/Cecilia general story. Their existing times and compact 14px demo styling are retained. The Maya identity/profile and Home continuity scenes remain separate, as on the public [Alook homepage](https://alook.ai/); the normal App's default 16px styling is a different surface.
+All component paths are under `src/web/src/components/`. Shared providers retain fixture profile ownership; the capture does not fetch production conversations. Current continuity is the homepage's work scene (Alli/Shelly), rather than the old frozen Home screenshot. Message authors, bodies and timestamps come directly from those objects, without a second fixture copy. Display time uses a fixed reference clock and UTC; the original timestamp strings are unchanged.
 
-The five SVG faces are the original `data-face` groups in the official logo, with their existing expressions enabled and the approved standalone viewBoxes. No new character was generated. Refresh them only from the official SVG, preserving paths, colours, expression geometry and the approved crop.
+The capture imports production global CSS and local fonts, keeping normal 16px root type instead of the public demo's 14px preview wrapper. Each iframe sets an explicit logical viewport, independent of the poster's pixel dimensions. Public symlinks reuse `src/web/public/alook.svg`, homepage people avatars, and `src/web/src/app/fonts/`. Five `assets/face-*.svg` files are the original face groups extracted from the official logo, preserving paths, colours, expressions and approved crops. No generated character or screenshot bitmap supplies App UI.
 
-The enlarged public quotations are exact original text, with attribution and source time:
+`assets/app-store/manifest.json` records direct source/asset hashes, actual renderer, fixture clock, logical viewports and generated JPEG hashes. Transitive shared code is identified by the complete review tree or committed source, not only the direct input list. Encoding and subpixel rasterization can differ across Chrome versions or repeated captures; a byte hash is not a visual comparison.
 
-- Alli, Oct 21, 2026, 1:02 AM (public desktop screenshot): “Let visitors open a room, read what the team is doing, and ask a question in the composer. Keep the existing product story below it.”
-- Alli, Aug 7, 2026, 4:32 PM (Home continuity screenshot): “@Tracy Can we confirm the Saturday plan we discussed?”
-- Tracy, Aug 7, 2026, 4:32 PM (same Home scene): “Saturday at six works. I’ve added the address to our plan.”
+## Duo geometry
 
-The phone screenshot retains its own displayed times; the desktop quotation keeps the original desktop time. These are enlarged source quotations, not additional messages or a claim that the separate stories are one conversation.
+Both illustrated CSS bodies use 10px/mm before perspective: unfolded 1646×1178 and folded 841×1178. The dimensions follow [Apple technical specifications](https://www.apple.com/iphone-duo/specs/): 164.6×117.8mm and 84.1×117.8mm. Screen apertures retain hardware ratios 2670:1878 and 1398:2034, with component frames fitted without stretching. Bezel widths, corners, crease, hinge, buttons and perspective remain illustration approximations.
 
-For an intentional public-demo refresh, capture the same full desktop/phone rectangles from the public fixture, retaining the complete navigation and bottom user bar for desktop, then replace the two local PNGs. Record the source/viewport/time and new hashes here, review all crops and quotations, and regenerate the outputs. Do not add private accounts or production data to this pipeline. Normal generation never fetches the online demo.
+The 2007×2853 poster is a store canvas listed in [Apple screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/), distinct from the inner hardware panel's 1878×2670 pixels. Neither defines a CSS viewport. Duo's browser frames are 951×669 and 466×678 logical pixels, derived from simulator screen descriptors at UI scale 3 as reference rectangles. They do not establish the current native WebView's usable area, which can exclude safe insets. [Apple development guidance](https://developer.apple.com/iphone-duo/prepare/) requires layouts to follow the current window/view.
 
-The original package used Chrome/CUA screenshot JPEG bytes. This tool uses installed Chrome through Playwright at CSS pixel scale and quality 80. Capture metadata records the actual renderer and generated hashes; original approved hashes remain independently recorded. Changes in colour profile or JPEG encoding require a colour-aware visual comparison, not a false claim of identical bytes. Repeated captures with the same Chrome can also differ at subpixel raster edges; the input hashes and output mapping remain the stable source contract.
+These are browser marketing compositions, not screenshots from a native build. Reusing Web components does not prove native status-bar/safe-area parity or a successful store submission. No private simulator screenshot is a pipeline input.
 
-The additional Duo composition comes from `alook-store-duo-v1-actual-source-and-output.zip`, SHA256 `b7bc3a4beee1951f308771e9d94700895e6c8011c598a5926f5e831a09436e6f`. Its original `duo-manifest.json` binds 11 inputs and one 2007×2853 RGB JPEG reference. Eight inputs are byte-identical shared logo/font/face files. The package introduced `duo.html` and `assets/duo-open-demo.jpg` (1426×1003) / `assets/duo-closed-demo.jpg` (466×678). Both screenshot inputs remain byte-identical. The original template hash is retained in `duo-manifest.json`; the current template revision is recorded separately in `duo-refinement.json`.
+## Historical static packages
 
-The Duo source package records that these two images were captured from the public demo on 2026-10-25, using the actual dark theme, with no login, message send, DOM/CSS changes or rewritten text/times. The folded scene retains its displayed Chinese dates and the unfolded scene its English dates. The HTML draws the metal device frames and centre crease; it contains no hardware photograph. This is a marketing composition, not evidence of a native device or runtime test. Ordinary generation uses only these frozen local inputs. The original 13-file source/output manifest remains separate and unchanged.
+The previous implementation and its rendered files remain in Git history. The current generator does not read their HTML or screenshot inputs, and the former 13-image byte freeze no longer applies.
 
-## Duo physical-scale revision
+- `alook-store-v6-actual-source-and-approved-output.zip`, SHA256 `1e883c1d1933d4996fc1748519315cf663eb513476517d53e7e86adea5455246`: original warm-orange six-phone-story/tablet prototype. `approved-manifest.json` retains its 15 input and 13 output records.
+- `alook-store-duo-v1-actual-source-and-output.zip`, SHA256 `b7bc3a4beee1951f308771e9d94700895e6c8011c598a5926f5e831a09436e6f`: original Duo template and frozen dark public-demo images. `duo-manifest.json` retains its 11 input and one output records.
+- `duo-refinement.json` is the historical physical-scale-v2 HTML binding at commit `30cc2f9be9aff68c76e68c4584d4b0fbb0f74012`. It is not a live template manifest for the component generator.
 
-The two CSS bodies share a scale of 10px/mm, before perspective and rotation: unfolded 1646×1178 and folded 841×1178. This follows [Apple technical specifications](https://www.apple.com/iphone-duo/specs/): body width/height 164.6×117.8mm and 84.1×117.8mm. The independent screen apertures use the hardware pixel ratios 2670:1878 (inner landscape) and 1398:2034 (outer portrait). The frozen public screenshots use `object-fit:contain`, retaining their original proportions. Bezel widths, corner radii, crease, hinge, button geometry and perspective remain illustration approximations.
-
-The 2007×2853 poster is an accepted inner-display portrait canvas in [Apple screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/); it is separate from the inner hardware panel's 1878×2670 pixel resolution. Neither value defines a CSS viewport. [Apple's development guidance](https://developer.apple.com/iphone-duo/prepare/) calls for sizing native layouts from the current window/view. These frozen Web demo images are marketing inputs, not native layout or runtime evidence.
-
-`duo-refinement.json` binds the original template hash to the revised HTML and records the public sources and scale. Both original package manifests and all other original inputs remain unchanged. The original 13 generated images are retained; only the Duo image and its current generated-manifest entry are replaced.
+Those packages used public homepage/demo scenes, not private conversations or native runtime evidence. The historical static HTML and bitmap inputs have been retired from this directory. Original manifests are preserved for attribution, while current source/output metadata is recorded separately.
