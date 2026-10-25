@@ -21,6 +21,7 @@ describe("Web Vitest workspace contract", () => {
   it("keeps Web Node and DOM ownership explicit and disjoint from auth and runtime", () => {
     expect(nodeConfig).toMatchObject({
       test: {
+        include: expect.arrayContaining(["app-store-capture/**/*.test.ts"]),
         exclude: expect.arrayContaining(["**/*.dom.test.{ts,tsx}"]),
       },
     });
@@ -31,6 +32,7 @@ describe("Web Vitest workspace contract", () => {
           "blog/**/*.dom.test.{ts,tsx}",
           "scripts/**/*.dom.test.{ts,tsx}",
           "readme-capture/**/*.dom.test.{ts,tsx}",
+          "app-store-capture/**/*.dom.test.{ts,tsx}",
         ],
       },
     });

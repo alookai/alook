@@ -15,7 +15,7 @@ export default mergeConfig(shared, defineConfig({
     name: "web-node",
     testTimeout: 30_000,
     hookTimeout: 30_000,
-		include: ["src/**/*.test.ts", "scripts/**/*.test.ts", "blog/**/*.test.ts", "readme-capture/**/*.test.ts"],
+		include: ["src/**/*.test.ts", "scripts/**/*.test.ts", "blog/**/*.test.ts", "readme-capture/**/*.test.ts", "app-store-capture/**/*.test.ts"],
 		exclude: ["**/*.dom.test.{ts,tsx}", "src/test/e2e/**", "src/test/e2e-ui/**"],
   },
 }))
