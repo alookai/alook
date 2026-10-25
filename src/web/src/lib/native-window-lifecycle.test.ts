@@ -4,6 +4,86 @@ import { listenNativeWindowLifecycle } from "./native-window-lifecycle"
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe("native window lifecycle", () => {
+  it("returns a usable cleanup when the native current window lookup throws", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const handlers = { resumed: vi.fn(), suspended: vi.fn() }
+    vi.stubGlobal("window", { __TAURI__: { window: { getCurrentWindow: () => { throw new Error("window unavailable") } } } })
+    const dispose = listenNativeWindowLifecycle(handlers)
+    expect(() => { dispose(); dispose() }).not.toThrow()
+    expect(warn).toHaveBeenCalledExactlyOnceWith("[ws] native lifecycle window unavailable")
+    expect(handlers.resumed).not.toHaveBeenCalled()
+    expect(handlers.suspended).not.toHaveBeenCalled()
+  })
+
+  it.each(["sync", "async"] as const)("releases the sibling and retires callbacks when %s cleanup fails", async (failure) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const callbacks = new Map<string, () => void>()
+    const error = new Error("cleanup failed")
+    const failedRelease = vi.fn(() => { if (failure === "sync") throw error; return Promise.reject(error) })
+    const siblingRelease = vi.fn()
+    vi.stubGlobal("window", { __TAURI__: { window: { getCurrentWindow: () => ({
+      listen: async (event: string, callback: () => void) => {
+        callbacks.set(event, callback)
+        return event === "tauri://resumed" ? failedRelease : siblingRelease
+      },
+    }) } } })
+    const handlers = { resumed: vi.fn(), suspended: vi.fn() }
+    const dispose = listenNativeWindowLifecycle(handlers)
+    await Promise.resolve()
+    expect(() => { dispose(); dispose() }).not.toThrow()
+    await Promise.resolve()
+    expect(failedRelease).toHaveBeenCalledOnce()
+    expect(siblingRelease).toHaveBeenCalledOnce()
+    expect(warn).toHaveBeenCalledExactlyOnceWith("[ws] native lifecycle cleanup failed")
+    callbacks.get("tauri://resumed")!()
+    callbacks.get("tauri://suspended")!()
+    expect(handlers.resumed).not.toHaveBeenCalled()
+    expect(handlers.suspended).not.toHaveBeenCalled()
+  })
+
+  it("isolates a throwing callback while keeping the sibling and cleanup usable", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const callbacks = new Map<string, () => void>()
+    const release = vi.fn()
+    vi.stubGlobal("window", { __TAURI__: { window: { getCurrentWindow: () => ({
+      listen: async (event: string, callback: () => void) => { callbacks.set(event, callback); return release },
+    }) } } })
+    const handlers = { resumed: vi.fn(() => { throw new Error("consumer failed") }), suspended: vi.fn() }
+    const dispose = listenNativeWindowLifecycle(handlers)
+    await Promise.resolve()
+    expect(() => callbacks.get("tauri://resumed")!()).not.toThrow()
+    callbacks.get("tauri://suspended")!()
+    expect(handlers.resumed).toHaveBeenCalledOnce()
+    expect(handlers.suspended).toHaveBeenCalledOnce()
+    expect(warn).toHaveBeenCalledExactlyOnceWith("[ws] native lifecycle callback failed", { event: "resumed" })
+    dispose()
+    expect(release).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(["resumed", "suspended"] as const)("retires the group when %s registration throws synchronously", async (failed) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const callbacks = new Map<string, () => void>()
+    const releases: Array<(unlisten: () => void) => void> = []
+    const release = vi.fn()
+    const listen = vi.fn((event: string, callback: () => void) => {
+      if (event === `tauri://${failed}`) throw new Error("registration failed")
+      callbacks.set(event, callback)
+      return new Promise<() => void>((resolve) => releases.push(resolve))
+    })
+    vi.stubGlobal("window", { __TAURI__: { window: { getCurrentWindow: () => ({ listen }) } } })
+    const handlers = { resumed: vi.fn(), suspended: vi.fn() }
+    const dispose = listenNativeWindowLifecycle(handlers)
+    for (const resolve of releases) resolve(release)
+    await Promise.resolve()
+    for (const callback of callbacks.values()) callback()
+    dispose()
+    expect(listen).toHaveBeenCalledTimes(failed === "resumed" ? 1 : 2)
+    expect(release).toHaveBeenCalledTimes(failed === "resumed" ? 0 : 1)
+    expect(warn).toHaveBeenCalledExactlyOnceWith("[ws] native lifecycle listener unavailable", { event: failed })
+    expect(handlers.resumed).not.toHaveBeenCalled()
+    expect(handlers.suspended).not.toHaveBeenCalled()
+  })
+
   it("uses the current window, retires handlers immediately and releases late registrations", async () => {
     const listeners = new Map<string, () => void>()
     const releases = [vi.fn(), vi.fn()]

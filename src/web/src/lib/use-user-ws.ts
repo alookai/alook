@@ -430,10 +430,6 @@ export function useUserWs(
     if (generation !== connectionGenerationRef.current) return
     if (credentialRetryRef.current.stopped || !isCurrentWsAccount(viewerUserId)) return
     if (isBackground() || isOffline() || frozenRef.current) return
-    if (reconnectTimerRef.current !== null) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
     const windowMs = Math.min(reconnectDelay.current, WS_RECONNECT_MAX)
     const delayMs = Math.floor(Math.random() * windowMs)
     const attempt = reconnectAttemptRef.current + 1

@@ -318,6 +318,35 @@ describe("focused message reconnect catch-up", () => {
     client.clear()
   })
 
+  it("propagates one shared non-cancellation failure to both callers and retains a usable retry", async () => {
+    const { client, registry } = await createCommunityQueryOwner("a")
+    const key = communityKeys.channelMessages("shared-failure")
+    const { unsubscribe } = seedActiveQuery(client, key)
+    const before = client.getQueryData(key)
+    const error = new Error("shared read failed")
+    let reject!: (reason: unknown) => void
+    apiFetchMock.mockReturnValueOnce(new Promise((_, rejectPromise) => { reject = rejectPromise }))
+    const first = reconcileWindow(client, { kind: "channel", scopeId: "shared-failure" }, key)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    const shared = reconcileWindow(client, { kind: "channel", scopeId: "shared-failure" }, key)
+    const settled = Promise.allSettled([first, shared])
+    reject(error)
+    for (const result of await settled) {
+      expect(result.status).toBe("rejected")
+      if (result.status === "rejected") expect(result.reason).toBe(error)
+    }
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    expect(client.getQueryData(key)).toBe(before)
+    const repair = client.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true })!
+    expect(isFailedMessageRepair(client, repair)).toBe(true)
+    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_2", seq: 2, content: "retry recovered" }], latestSeq: 2 })
+    await retryFailedMessageRepairs(client)
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    expect(registry.collections.messages.get("m_2")?.content).toBe("retry recovered")
+    expect(isFailedMessageRepair(client, repair)).toBe(false)
+    unsubscribe()
+  })
+
   it("refreshes a completed query variant when another variant still holds the scope owner", async () => {
     const { client: client } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("variants")

@@ -1697,6 +1697,37 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toHaveLength(2)
   })
 
+  it("defers heartbeat startup when the authentication callback hides the page and restores it after foreground validation", async () => {
+    setupTokenFetch()
+    const interval = vi.spyOn(globalThis, "setInterval")
+    try {
+      await mountHook(vi.fn(), {
+        requestDaemonStatusOnAuth: false,
+        onAuthenticated: () => {
+          mockDocument.visibilityState = "hidden"
+          mockDocument.dispatch("visibilitychange")
+        },
+      })
+      const ws = MockWebSocket.instances[0]!
+      ws.simulateOpen()
+      interval.mockClear()
+      ws.simulateMessage({ type: "auth.ok" })
+      expect(interval.mock.calls.filter(([, delay]) => delay === 25_000 || delay === 5_000)).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(ws.sent).not.toContain("ping")
+      expect(ws.closed).toBe(false)
+      mockDocument.visibilityState = "visible"
+      mockDocument.dispatch("visibilitychange")
+      const [{ nonce }] = connectionPings(ws)
+      ws.simulateMessage({ type: "connection.pong", nonce })
+      await vi.advanceTimersByTimeAsync(25_000)
+      expect(ws.sent.filter(frame => frame === "ping")).toHaveLength(1)
+      expect(MockWebSocket.instances).toEqual([ws])
+    } finally {
+      interval.mockRestore()
+    }
+  })
+
   it("parks an authenticated hidden socket without heartbeat or reconnect work", async () => {
     setupTokenFetch()
     const onConnectionStateChange = vi.fn()
@@ -3007,6 +3038,41 @@ describe("useUserWs", () => {
     ws.simulateMessage(generic)
     expect(onMessage).toHaveBeenCalledWith(generic, undefined, 1)
   })
+  it.each(["token", "authentication", "heartbeat"] as const)("keeps one retry deadline when a timed-out %s attempt later fails", async (kind) => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.75)
+    try {
+      const tokenResponse = deferred<never>()
+      if (kind === "token") mockFetch.mockReturnValueOnce(tokenResponse.promise)
+      else setupTokenFetch()
+      const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+      const old = MockWebSocket.instances[0]
+      if (old) {
+        old.close = vi.fn(() => { old.readyState = MockWebSocket.CLOSING })
+        old.simulateOpen()
+        if (kind === "heartbeat") old.simulateMessage({ type: "auth.ok" })
+      }
+      const count = MockWebSocket.instances.length
+      await vi.advanceTimersByTimeAsync(kind === "heartbeat" ? 35_000 : mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+      expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledExactlyOnceWith({ attempt: 1, delayMs: 750, windowMs: 1000 })
+      if (kind === "token") tokenResponse.reject(new Error("late transport failure"))
+      else {
+        old!.simulateClose()
+        old!.simulateError()
+        old!.simulateMessage({ type: "auth.ok" })
+      }
+      await flushPromises()
+      expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
+      setupTokenFetch()
+      await vi.advanceTimersByTimeAsync(749)
+      expect(MockWebSocket.instances).toHaveLength(count)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(MockWebSocket.instances).toHaveLength(count + 1)
+      expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
+    } finally {
+      random.mockRestore()
+    }
+  })
+
   it.each(["authentication", "heartbeat"] as const)("retires %s timeout without waiting for close and ignores every stale callback", async (kind) => {
     setupTokenFetch()
     const onDisconnect = vi.fn(), onReconnect = vi.fn(), onMessage = vi.fn(), onConnectionStateChange = vi.fn()
