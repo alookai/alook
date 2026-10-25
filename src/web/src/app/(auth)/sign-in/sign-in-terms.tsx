@@ -77,14 +77,14 @@ export function useSignInTerms() {
         </div>
       </div>
       <Dialog open={open} onOpenChange={changeOpen}>
-        <DialogContent showCloseButton={false}>
+        <DialogContent showCloseButton={false} className="w-[calc(100%-2rem)] max-w-sm">
           <DialogHeader>
             <DialogTitle>Agree to continue</DialogTitle>
             <DialogDescription><PolicyLinks /></DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" className="h-11" data-testid="sign-in-terms-cancel" onClick={() => changeOpen(false)}>Cancel</Button>
-            <Button type="button" className="h-11" data-testid="sign-in-terms-confirm" onClick={confirm}>Agree and continue</Button>
+          <DialogFooter className="flex-row">
+            <Button type="button" variant="outline" className="h-11 flex-1" data-testid="sign-in-terms-cancel" onClick={() => changeOpen(false)}>Cancel</Button>
+            <Button type="button" className="h-11 flex-1" data-testid="sign-in-terms-confirm" onClick={confirm}>Agree and continue</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
