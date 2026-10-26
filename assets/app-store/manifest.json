@@ -4,9 +4,9 @@
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "8011613baa1f2ec5b2ac9d4bf31aa4319cc0a989",
+  "repositoryHead": "fd7a5439816604405b9b7b81ab30e22a2903ee27",
   "inputs": {
-    "pnpm-lock.yaml": "0b930a2d78c3b900b386d59cfb8710a46064a4512df8cc8d2f8cfd1f38634c82",
+    "pnpm-lock.yaml": "a9c80c439df116824117859e50afa1dc0281577815f2739c4a33ad181acfcce4",
     "src/web/app-store-capture/app/globals.css": "e54b13c04636964ae7738e52668de9f1356006aec256ace8bd0a9d554873124f",
     "src/web/app-store-capture/app/layout.tsx": "8b3cc05ec699f99b766dd6fa69127e089ce11b74681d92b80898b95a650aa110",
     "src/web/app-store-capture/app/page.tsx": "73fb0fff70da74672f854baa19ddd957ed9357b3f5a11e898f3105231fa57ef3",
@@ -80,7 +80,7 @@
       "path": "phone-1206x2622/02-teamwork.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "add088d8ee0e7025b12319633bfbe64531ab660841faa0f8fa2de06c65b245cb",
+      "sha256": "aef3835907b97a9e594aa65c50cf5bdcb184b5dd5eae7fd9901587263ce27ef4",
       "surfaces": [
         {
           "scene": "workspace",
@@ -106,7 +106,7 @@
       "path": "phone-1206x2622/03-companion.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "9e8ae789f8055d1251c6f526cadb9f8aeff7231383d7fba352f6c84d032fa58e",
+      "sha256": "8b6b15752b19106c2ed7568f010f6c4c21efb54231b866a2bb870080d227349e",
       "surfaces": [
         {
           "scene": "identity",
@@ -219,7 +219,7 @@
       "path": "phone-1320x2868/01-share-agents.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "790356303bfe6813119d3df4f1f441a9c199875a60566604ee3f3f6b1d930b52",
+      "sha256": "f368ac33cb49ff20074589d31fdad0a141cd69f7d3eacf092ce3315f31cece60",
       "surfaces": [
         {
           "scene": "workspace",
@@ -358,7 +358,7 @@
       "path": "phone-1320x2868/06-existing-setup.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "c3c1eb9ddb5ac0c30362afed2fb991daf004cf87c0a81c00384a0394c9feeaad",
+      "sha256": "f19046f4fcfd16a1596fb359ee7139ecd858b88c5910155e09b13a793fc23690",
       "surfaces": [
         {
           "scene": "workspace",
@@ -384,7 +384,7 @@
       "path": "tablet-2752x2064/01-share-agents.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "de922b70ed059e7b6728ac3a1903ddc19efc05be2649d0f2c59bf2862996014d",
+      "sha256": "32986c03e75d3b0911b732c421d8d73f96cb482e1cbc7a77890513e1eb87437a",
       "surfaces": [
         {
           "scene": "workspace",
@@ -436,7 +436,7 @@
       "path": "tablet-2752x2064/03-companion.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "be6315e33c113a0a346378ef8f0853a1c8616dc0557ca86e2d0ff8aff778ee74",
+      "sha256": "f01345b44dda10df81300616a9e3176a947ab0fa2fbb7a7ef2bdf3270a3204d9",
       "surfaces": [
         {
           "scene": "identity",
@@ -523,7 +523,7 @@
       "path": "tablet-2752x2064/06-existing-setup.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "272ae91e22e5f81efe6b30b697d4efffe74365343b058f28421dd78971b058d9",
+      "sha256": "fc345fa7533b7e4f22dfd49c7837b1d12b6c6dccb007735ff9fe6e57b7d75b22",
       "surfaces": [
         {
           "scene": "workspace",
@@ -549,7 +549,7 @@
       "path": "duo-2007x2853/01-share-agents.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "fb4279a58b374aa38a4082e5f9309bb29cfe42d9ab8be0925026870fccb8d236",
+      "sha256": "5cb2b94af11f1b43ae4a8ef9f11754d98a6328c83c50ac4b7d68cab01bfb80fe",
       "surfaces": [
         {
           "scene": "workspace",
@@ -575,7 +575,7 @@
       "path": "duo-2007x2853/02-teamwork.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "f80c716832ce414f78d4d941e685909eaac95420446690cc0cac64aad73f2bcf",
+      "sha256": "04bf417c53b92af207b5e2fc3a42e45e529fa2014b16a7d0714635034870665e",
       "surfaces": [
         {
           "scene": "workspace",
@@ -601,7 +601,7 @@
       "path": "duo-2007x2853/03-companion.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "16fb5c0b82b4acc8bb97697c498ad5e4dab0ceb6f9e3536eabed7672a22a3525",
+      "sha256": "aba2c5f88993e61c952270d853a23c4c6c3c7fdfa77d7dbd3531247eac696018",
       "surfaces": [
         {
           "scene": "identity",
@@ -627,7 +627,7 @@
       "path": "duo-2007x2853/04-context.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "0969d5d58231ac53668c2be5644c91fe9cf7f3554bb3141b57d8687a49cd1f93",
+      "sha256": "f3fed0957584cdcf1c7dabf3a19a7ad06d96af087444dd146822013ed0cae122",
       "surfaces": [
         {
           "scene": "continuity",
@@ -662,7 +662,7 @@
       "path": "duo-2007x2853/05-phone.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "d171c374c27527ac76af2027f6b19d00f58f95ab3d1e536950b53920c2c977b5",
+      "sha256": "bb1fc30b0457238cfb3fad56cfd60c47dd3618e6ec3748e39f006f8ac7215467",
       "surfaces": [
         {
           "scene": "workspace",
@@ -688,7 +688,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "59728cd89412df2f095cbcf18bc25770be07c398715c251c4db52f2f46409e18",
+      "sha256": "7096500c927ed2ea2b6ad45e2003604682668759ab9d53771cff98e60ef57298",
       "surfaces": [
         {
           "scene": "workspace",
