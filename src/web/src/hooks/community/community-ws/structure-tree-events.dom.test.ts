@@ -163,7 +163,7 @@ describe("useCommunityWs — child channel events", () => {
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }
-    capturedOnMessage!(event)
+    await act(async () => { capturedOnMessage!(event) })
     const keys = spy.mock.calls.map((c) => c[0]?.queryKey as unknown[])
     expect(keys.some((k) => k?.includes("threads"))).toBe(true)
     expect(keys.some((k) => k?.includes("forum-threads"))).toBe(false)
