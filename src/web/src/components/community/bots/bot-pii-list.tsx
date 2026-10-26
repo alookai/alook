@@ -32,7 +32,6 @@ export function BotPiiList({
 
   return (
     <div className="flex flex-col gap-4" data-testid="pii-pipeline" aria-busy={pending}>
-      {pending ? <p role="status" className="text-sm text-muted-foreground">Waiting for this machine…</p> : null}
       {unavailable ? <p role="status" className="text-sm text-muted-foreground">{unavailable}</p> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {plugins.length === 0 ? (
@@ -69,6 +68,7 @@ export function BotPiiList({
           </ul>
         </>
       )}
+      <p role="status" className="min-h-5 text-sm text-muted-foreground">{pending ? "Waiting for this machine…" : null}</p>
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !pending) setDeletingId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -813,7 +813,7 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
 describe("message send PII receipt", () => {
   const args = ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"];
   const message = { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "filtered" }, time: "" };
-  const pii = { triggeredFilters: [{ id: "builtin.secrets", name: "Passwords and keys" }] };
+  const pii = { triggeredFilters: [{ id: "builtin.secrets", name: "Keys" }] };
 
   it.each([false, true])("preserves local hit metadata in final success output, including deduped=%s", async deduped => {
     setApiForTesting(stubApi({ send: async () => ({ state: "sent", message, deduped, pii }) }));

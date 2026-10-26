@@ -378,9 +378,11 @@ void result;
 
 The daemon filters outgoing Alook message body text locally, in pipeline order, before forwarding a send. Each bot has its own persisted pipeline at `<baseDir>/daemons/<machineId>/<botId>/pii/pipelines.json`, containing only that bot's plugin source and configuration. It loads that file once and reuses its configuration and compiled filters in memory; subsequent sends do not reread JSON or recompile unchanged filters. Successful management changes replace only that bot's snapshot. Manual file edits require a daemon restart. Another bot's invalid configuration does not block it. Attachments and requests to cloud models are outside this filter. Enabled filters fail closed: an error, invalid result, or execution limit blocks the send.
 
-Fresh configurations contain five default filters: **Passwords and keys**, **Email addresses**, **ID numbers**, **Phone numbers** and **Bank cards**. Passwords and keys runs the previous private-key, recognized API-key, JWT/Authorization and credential-assignment/connection-password checks together, preserving their category-specific replacement markers. Already saved pipelines keep their installed filters, sources, flags and deletions; there is no automatic consolidation.
+Fresh configurations contain five default filters: **Keys**, **Email addresses**, **ID numbers**, **Phone numbers** and **Bank cards**. Keys runs the previous private-key, recognized API-key, JWT/Authorization and credential-assignment/connection-password checks together, preserving their category-specific replacement markers. Already saved pipelines keep their installed filters, sources, flags and deletions; there is no automatic consolidation.
 
 The default **ID numbers** filter covers selected identity, social-security and personal tax numbers across 16 countries/regions. Ambiguous numeric formats require a document label. See the [supported formats, checks and limitations](src/pii/ID_NUMBERS.md). Previously initialized configurations retain their installed rule sources.
+
+The default **Phone numbers** filter recognizes international numbers and phone-labelled national numbers using pinned Google numbering metadata, alongside the existing standalone formats. See [recognition boundaries and source attribution](src/pii/PHONE_NUMBERS.md).
 
 Inside a bot session:
 

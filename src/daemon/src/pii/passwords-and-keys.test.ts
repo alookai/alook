@@ -38,7 +38,7 @@ const run = (source: string, text: string) => runner.evaluate([{ id: "fixture", 
 
 it("initializes five real filters with one bounded credential source at the original first position", () => {
   expect(PII_DEFAULTS.map(plugin => plugin.id)).toEqual(["builtin.secrets", "builtin.emails", "builtin.id-cards", "builtin.phones", "builtin.bank-cards"]);
-  expect(definition.name).toBe("Passwords and keys");
+  expect(definition.name).toBe("Keys");
   expect(Buffer.byteLength(definition.source)).toBeLessThanOrEqual(PII_SOURCE_MAX_BYTES);
 });
 

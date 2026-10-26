@@ -1,15 +1,15 @@
-# Passwords and keys
+# Keys
 
-New configurations contain one credential filter, `builtin.secrets`, named **Passwords and keys**. It runs the previous private-key, API-key, token and password/secret checks in their original order. It keeps `[REDACTED_PRIVATE_KEY]`, `[REDACTED_API_KEY]`, `[REDACTED_TOKEN]`, `[REDACTED_PASSWORD]` and `[REDACTED_SECRET]` distinct.
+New configurations contain one credential filter, `builtin.secrets`, named **Keys**. It runs the previous private-key, API-key, token and password/secret checks in their original order. It keeps `[REDACTED_PRIVATE_KEY]`, `[REDACTED_API_KEY]`, `[REDACTED_TOKEN]`, `[REDACTED_PASSWORD]` and `[REDACTED_SECRET]` distinct.
 
 This is offline format recognition, not a check that a key was issued or remains valid. Publishable/public keys are included because the owner requested that coverage; matching one does not mean it is a secret.
 
 | Format family | Recognized forms |
 | --- | --- |
 | Private key blocks | PEM private-key headers, including RSA/encrypted/OpenSSH and PGP private-key blocks |
-| Stripe, Clerk, Paystack | `pk_`, `sk_`, `rk_` with `live_` or `test_`, followed by at least20 payload characters; base64/URL-safe payload characters and trailing padding are accepted |
-| Supabase | `sb_publishable_`, `sb_secret_` with at least20 payload characters; legacy JWTs use the token check |
-| Webhook signing secrets | `whsec_` with at least20 payload characters |
+| Stripe, Clerk, Paystack | `pk_`, `sk_`, `rk_` with `live_` or `test_`, followed by at least 20 payload characters; base64/URL-safe payload characters and trailing padding are accepted |
+| Supabase | `sb_publishable_`, `sb_secret_` with at least 20 payload characters; legacy JWTs use the token check |
+| Webhook signing secrets | `whsec_` with at least 20 payload characters |
 | Existing provider-specific formats | OpenAI/Anthropic/OpenRouter-style `sk-` keys, provider `_sk_` forms, GitHub/GitLab, Google, Slack, AWS access-key IDs, Hugging Face, Groq, xAI, npm, PyPI, DigitalOcean and SendGrid; their prior length/boundary checks are retained |
 | Alook credentials | `cmk_`, `cmt_`, `crk_`, `vch_` formats |
 | Tokens | Recognizable JWT structure and Authorization/Bearer/Basic values |

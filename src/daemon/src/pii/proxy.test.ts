@@ -160,7 +160,7 @@ it("omits PII metadata for no-hit sends and lists only enabled filters that trig
   const send = (text: string) => request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text } });
   expect(await (await send("ordinary reference")).json()).not.toHaveProperty("pii");
   const receipt = await (await send(`sk_test_${"a".repeat(32)} person@company.cn`)).json();
-  expect(receipt.pii).toEqual({ triggeredFilters: [{ id: "builtin.secrets", name: "Passwords and keys" }, { id: "builtin.emails", name: "Email addresses" }] });
+  expect(receipt.pii).toEqual({ triggeredFilters: [{ id: "builtin.secrets", name: "Keys" }, { id: "builtin.emails", name: "Email addresses" }] });
   await store.manage("a", { action: "setEnabled", pluginId: "builtin.secrets", enabled: false, expectedRevision: 0 });
   expect(await (await send(`sk_test_${"a".repeat(32)}`)).json()).not.toHaveProperty("pii");
 });
