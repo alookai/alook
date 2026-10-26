@@ -834,6 +834,18 @@ describe("message send PII receipt", () => {
     expect(parseEnvelope(cap.lines()).success).toMatchObject({ sent: "/s#0042/general#8", pii, reminder: { armed: false } });
   });
 
+  it.each(["#invalid", "#0", "#9007199254740992"])("preserves the committed hit receipt when canonical seq %s cannot arm a reminder", async seq => {
+    const send = vi.fn(async () => ({ state: "sent" as const, message: { ...message, seq }, pii }));
+    setApiForTesting(stubApi({ send }));
+    await mainWithStdin(args);
+    expect(parseEnvelope(cap.lines())).toEqual({ success: {
+      sent: `/s#0042/general${seq}`, pii,
+      reminder: { armed: false, reason: "server returned an invalid canonical message seq" },
+    } });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(mockArmMessageReminder).not.toHaveBeenCalled();
+  });
+
   it("does not turn a blocked send into success or expose PII metadata", async () => {
     setApiForTesting(stubApi({ send: async () => ({ state: "blocked", reason: "unaligned", unreadCount: 1, latestSeq: 9 }) }));
     await mainWithStdin(args);
