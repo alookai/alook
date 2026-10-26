@@ -74,6 +74,7 @@ export function ThreadSplitParentSurface({
     isNotifyUnit: false,
     currentUser: viewer,
     accessAllowed: active && metadata.canRead,
+    roleDisplayAllowed: metadata.canRead,
   })
   const notifs = useNotificationSettings()
   const { mutate: setChannelNotif } = useSetChannelNotif()

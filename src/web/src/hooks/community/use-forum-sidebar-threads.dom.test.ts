@@ -1,7 +1,7 @@
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { conversationEntryOptions } from "@/lib/community/conversation-entry"
 import "fake-indexeddb/auto"
-import { createElement, type PropsWithChildren } from "react"
+import { createElement, useLayoutEffect, type PropsWithChildren } from "react"
 import { hydrateRoot } from "react-dom/client"
 import { renderToString } from "react-dom/server"
 import { dehydrate, hydrate, CancelledError, QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -24,6 +24,7 @@ import {
   publishCommunityLiveSnapshot,
   purgeCommunityChannel,
   publishCommunityForumSidebar,
+  publishCommunityChannelMetadata,
   removeCanonicalCommunityChannelMembership,
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
@@ -230,6 +231,35 @@ function ProjectedSidebar() {
 }
 
 describe("forum sidebar canonical projection", () => {
+  it("keeps visible posts through unrelated metadata admission and a same-window post switch", async () => {
+    const { queryClient, wrapper } = await setup()
+    publish(queryClient, envelopeFor(["post-1", "post-2"]), true)
+    apiFetchMock.mockReturnValue(new Promise(() => {}))
+    const frames: string[][] = []
+    const view = renderHook(({ retainId }: { retainId: string }) => {
+      const sidebar = useForumSidebarThreads("server-1", retainId)
+      useLayoutEffect(() => { frames.push(sidebar.threads.map(({ id }) => id).sort()) })
+      return sidebar
+    }, { wrapper, initialProps: { retainId: "post-1" } })
+    await waitFor(() => expect(view.result.current.threads).toHaveLength(2))
+    frames.length = 0
+    await act(async () => {
+      publishCommunityChannelMetadata(queryClient, {
+        metadata: {
+          ...envelopeFor(["unlisted"]).channels[0],
+          parentChannelId: "forum-1",
+          parentMessageId: "unlisted-opener",
+        },
+        proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined },
+      })
+    })
+    view.rerender({ retainId: "post-2" })
+    await waitFor(() => expect(view.result.current.threads.map(({ id }) => id).sort()).toEqual(["post-1", "post-2"]))
+    expect(frames.length).toBeGreaterThan(0)
+    expect(frames.every(ids => ids.join(",") === "post-1,post-2")).toBe(true)
+    expect(view.result.current.threads.some(({ id }) => id === "unlisted")).toBe(false)
+  })
+
   it.each(["metadata-first", "archive-first"] as const)("keeps a direct archived opener excluded after notify refresh with %s completion", async (order) => {
     const { queryClient, registry, wrapper } = await setup()
     let resolveMetadata!: (value: unknown) => void

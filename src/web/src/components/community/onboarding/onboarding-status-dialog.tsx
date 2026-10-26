@@ -55,7 +55,6 @@ export function OnboardingStatusDialog({
       <DialogContent
         data-testid={tid.onboardingInitializeStatus}
         showCloseButton={false}
-        overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"
         className="gap-0 overflow-hidden border-0 p-0 shadow-(--e2) ring-0 sm:max-w-md"
         aria-busy={status === "loading"}
       >

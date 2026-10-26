@@ -159,7 +159,6 @@ export function OnboardingSelectDialog({
       <DialogContent
         data-testid={testId}
         showCloseButton={dismissible}
-        overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"
         className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-xl"
         initialFocus={false}
         aria-busy={busy}
