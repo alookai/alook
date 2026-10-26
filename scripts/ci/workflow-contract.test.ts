@@ -737,7 +737,7 @@ describe("CI dependency setup", () => {
     expect(desktopReleaseWorkflow).toContain("cache: pnpm")
     expect(desktopReleaseWorkflow).toContain("cache-dependency-path: pnpm-lock.yaml")
     expect(desktopReleaseWorkflow).toContain(
-      "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2",
+      "Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2",
     )
     expect(desktopReleaseWorkflow).toContain("key: ${{ matrix.target }}")
   })
