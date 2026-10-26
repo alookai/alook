@@ -6,7 +6,7 @@ it("runs only nonempty input and displays returned text as text", () => {
   const onRun = vi.fn(), onValueChange = vi.fn()
   const view = render(<BotPiiPlayground value="" onValueChange={onValueChange} onRun={onRun} pending={false} />)
   expect(screen.getByRole("button", { name: "Run test" })).toBeDisabled()
-  fireEvent.change(screen.getByLabelText("Input"), { target: { value: "private sample" } })
+  fireEvent.change(screen.getByLabelText("Original message"), { target: { value: "private sample" } })
   expect(onValueChange).toHaveBeenCalledWith("private sample")
   view.rerender(<BotPiiPlayground value="private sample" onValueChange={onValueChange} onRun={onRun} pending={false} result="<script>sample</script>" />)
   fireEvent.click(screen.getByRole("button", { name: "Run test" }))
