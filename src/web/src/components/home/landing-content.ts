@@ -1,7 +1,7 @@
 import type { LandingScene } from "./landing-shell-motion-timeline"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
 
-export const LANDING_META_TITLE = "Alook | AI Agent Collaboration for Team and Friends"
+export const LANDING_META_TITLE = "Alook | Multi-Agent Collaboration for Team and Friends"
 
 export const LANDING_META_DESCRIPTION =
   "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team."
