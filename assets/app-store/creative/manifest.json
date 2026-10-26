@@ -3,11 +3,11 @@
   "encoding": "RGB PNG",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "8011613baa1f2ec5b2ac9d4bf31aa4319cc0a989",
+  "repositoryHead": "d923f7514e23531fc04f5379d4f5f2080404ec65",
   "approvedPrototypeSha256": "f17b90df66ed06777834687e843137711b4ee48fdf42f4fb1c2097c49563b6a2",
   "inputs": {
-    "package.json": "5eb3c9d2bdaee86d76275a56325ae621d8c44d5fae115d7403897073d404beec",
-    "pnpm-lock.yaml": "0b930a2d78c3b900b386d59cfb8710a46064a4512df8cc8d2f8cfd1f38634c82",
+    "package.json": "f44b4035b09a94f3c5c7525f11a17999de89bdc6adadf34a1d595c99bc58d3e0",
+    "pnpm-lock.yaml": "bd7ad6e580b9e09dcc56aa1f4f0187dc4d26e365252c8daef9599a012d8a7c9e",
     "src/web/app-store-capture/assets/face-blue.svg": "6ba47540a0c02a03d3955dc26219c2b248537890f55cb7ceafd09b080e454598",
     "src/web/app-store-capture/assets/face-purple.svg": "2ec902464f75486fe3433b80ad65c30de4a4fcf947403bba8a38c4c54e0e162b",
     "src/web/app-store-capture/assets/face-red.svg": "d762e20ec379a14a492ca1cd438fb608267ed1870e20d0ed17d6acf16dd8924a",
@@ -137,7 +137,7 @@
       "asset": "search",
       "width": 1920,
       "height": 1280,
-      "sha256": "7342cc42b09acb208ae1606d2d23ef7712c890f1029589f1307a32c1814e3769",
+      "sha256": "b73280c86a35875e60acd71e025338a0aa8ea92ed974906b3cd629a63bc5d705",
       "safeArea": {
         "x": 418,
         "y": 382.5,
