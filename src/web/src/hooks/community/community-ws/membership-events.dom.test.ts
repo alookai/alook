@@ -1,3 +1,5 @@
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { conversationEntryFixture, conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import type { MessageWindowData } from "@/lib/community/message-window"
 import { canonicalMessage } from "./test-harness"
@@ -14,7 +16,6 @@ import { deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatch, p
 import { getMessageStreamState } from "@/test/community-query-owner"
 import type { PresenceResponse } from "@/hooks/community/use-server-panels"
 import { communityKeys } from "@/lib/query-keys"
-import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
   getCanonicalCommunityChannels,
   patchCanonicalCommunityChannel,
@@ -46,8 +47,8 @@ afterEach(cleanupCommunityWsHarness)
 describe("useCommunityWs — member events", () => {
   it("clears the active private route immediately when the viewer leaves the server", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    const unreadProjection = getAccountUnreadProjection(capturedQueryClient, "u_me")
-    unreadProjection.recordArrival({ channelId: "private_child", serverId: "srv_1", seq: 1 })
+
+    seedCommunityAttentionScope(capturedQueryClient, { channelId: "private_child", serverId: "srv_1", seq: 1 })
     const { useCommunityStore } = await import("@/stores/community")
     getCapturedRuntime().ui.actions.setCurrentServerId("srv_1")
     getCapturedRuntime().ui.actions.setCurrentChannelId("private_child")
@@ -92,8 +93,8 @@ describe("useCommunityWs — member events", () => {
     expect(capturedQueryClient.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_1"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_2"))).toBeDefined()
-    expect(unreadProjection.projectUnread("servers", "private_child", false)).toBe(false)
-    expect(unreadProjection.projectUnread("inbox-unreads", "private_child", true, 1)).toBe(false)
+    expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("private_child")?.ordinaryUnread)).toBe(false)
+    expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("private_child")?.ordinaryUnread)).toBe(false)
   })
 
   it("evicts an unresolved reaction-details request when the viewer leaves", async () => {
@@ -429,13 +430,13 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     seedCanonicalThread("srv_1", "private_parent", "forum", "private")
-    const projection = getAccountUnreadProjection(capturedQueryClient, "u_me")
-    projection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 1 })
+
+    seedCommunityAttentionScope(capturedQueryClient, { channelId: "private", serverId: "srv_1", seq: 1 })
     capturedOnMessage!({ type: "community:channel.membership.change", relation: "notify", present: false, serverId: "srv_1", channelId: "private", userId: "u_me" })
-    expect(projection.projectUnread("inbox-unreads", "private", true, 1)).toBe(false)
+    expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("private")?.ordinaryUnread)).toBe(false)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("private")).toBe(false)
-    projection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 2 })
-    expect(projection.projectUnread("inbox-unreads", "private", false)).toBe(true)
+    seedCommunityAttentionScope(capturedQueryClient, { channelId: "private", serverId: "srv_1", seq: 2 })
+    expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("private")?.ordinaryUnread)).toBe(true)
   })
 
 
@@ -543,7 +544,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     expect(hasCanonicalChannelAccess("post_1", "u_me")).toBe(true)
     expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
     expect(getCanonicalCommunityChannels(capturedQueryClient)
-      .find(({ id }) => id === "post_1")?.unread).toBe(true)
+      .find(({ id }) => id === "post_1")).not.toHaveProperty("unread")
     expect(readCurrentCommunityChannelMeta(capturedQueryClient)?.name).toBe("Private forum title")
 
     await act(async () => { capturedOnMessage!({
@@ -642,8 +643,8 @@ describe("membership metadata and access lifetime", () => {
     capturedQueryClient.setQueryData(otherKey, { pages: [{ messages: [{ id: "other" }] }] })
     getCapturedRuntime().ui.actions.setCurrentChannelId("dm-private")
     getCapturedRuntime().ui.actions.subscribe({ dmConversationId: "dm-private", channelId: "other-channel" })
-    const unread = getAccountUnreadProjection(capturedQueryClient, "u_me")
-    unread.recordArrival({ channelId: "dm-private", serverId: null, seq: 2 })
+
+    seedCommunityAttentionScope(capturedQueryClient, { channelId: "dm-private", serverId: null, seq: 2 })
     const api = getCommunityApiFetchMock()
     api.mockRejectedValue(new ApiError("DM blocked", 403))
     capturedOnMessage!({ type: "community:channel.membership.change", channelId: "dm-private", serverId: null, userId: "u_me", relation: "access", present: false })
@@ -651,7 +652,7 @@ describe("membership metadata and access lifetime", () => {
     expect(capturedQueryClient.getQueryData(otherKey)).toBeDefined()
     expect(getCapturedRuntime().ui.get()).toMatchObject({ currentChannelId: null, subscription: { channelId: "other-channel" } })
     expect(getCapturedRuntime().ui.get().subscription.dmConversationId).toBeUndefined()
-    expect(unread.projectUnread("inbox-unreads", "dm-private", true, 2)).toBe(false)
+    expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("dm-private")?.ordinaryUnread)).toBe(false)
     await vi.waitFor(() => expect(capturedQueryClient.getQueryState(entryKey(null, "dm-private"))?.status).toBe("error"))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm-private", null)).toBe(true)
   })
@@ -979,15 +980,15 @@ describe("membership metadata and access lifetime", () => {
     const api = getCommunityApiFetchMock()
     const base = communityKeys.forumSidebarThreads("server")
     capturedQueryClient.setQueryData(base, { threads: [], serverNow: "2026-10-01T00:00:00Z", verifiedEpoch: 0, serverClockOffsetMs: 0 })
-    const unread = getAccountUnreadProjection(capturedQueryClient, "u_me")
-    unread.recordArrival({ channelId: "child", serverId: "server", railChannelId: "forum", seq: 1, isMention: true })
+
+    seedCommunityAttentionScope(capturedQueryClient, { channelId: "child", serverId: "server", parentChannelId: "forum", seq: 1, attentionCount: 1 })
     api.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 1, creatorId: "peer", createdAt: "2026-10-01T00:00:00Z", lastMessageAt: "2026-10-01T00:00:01Z", id: "child", serverId: "server", type: "thread", parentChannelId: "forum", parentMessageId: "opener", name: "New post", archived: false }, "u_me"))
     capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
     await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
     await vi.waitFor(() => expect(hasCanonicalChannelNotify("child", "u_me")).toBe(true))
     await vi.waitFor(() => expect(capturedQueryClient.getQueryState(base)?.isInvalidated).toBe(true))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
-    expect(unread.projectUnread("servers", "child", false)).toBe(true)
+    expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("child")?.ordinaryUnread)).toBe(true)
   })
 
   it.each([403, 404, 500].flatMap((status) => (["community:channel.member_add", "community:channel.member_remove"] as const).map((type) => ({ status, type }))))("keeps unknown legacy content retired after $type when the access recheck returns $status", async ({ status, type }) => {

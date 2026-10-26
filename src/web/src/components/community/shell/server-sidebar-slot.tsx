@@ -366,15 +366,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     routeCommitted,
   ])
 
-  const displayCategories = forumSidebar.sidebar.server?.categories
-  const categories = useMemo(() => (displayCategories ?? []).map((category) => ({
-    ...category,
-    channels: category.channels.map((channel) =>
-      forumSidebar.parentUnread[channel.id] === undefined
-        ? channel
-        : { ...channel, unread: forumSidebar.parentUnread[channel.id] },
-    ),
-  })), [forumSidebar.parentUnread, displayCategories])
+  const categories = useMemo(() => forumSidebar.sidebar.server?.categories ?? [], [forumSidebar.sidebar.server?.categories])
   const sidebarDataReady = Boolean(forumSidebar.sidebar.server)
   const channelTreeScopeKey = `server:${serverId}`
 

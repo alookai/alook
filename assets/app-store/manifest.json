@@ -1,10 +1,10 @@
 {
-  "renderer": "155.0.8059.85",
+  "renderer": "156.0.8078.48",
   "encoding": "RGB JPEG quality 80",
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "bf829d93a220f3797d1a395712bdde8a7abe73c4",
+  "repositoryHead": "49f19054c43ab89976dc4ad7a507e8febc4413e5",
   "inputs": {
     "scripts/ci/pnpm-lock.mjs": "c6ad91cbd38cc08234e2da4122079d76bfef5eb61560862018cbab9d3e29f4cc",
     "src/shared/src/billing.ts": "53d36e6bbab90d72ae86b9748d97bef4116a7f567d8587067f469d294c562b4a",
@@ -256,7 +256,7 @@
     "src/web/src/components/community/messages/message-body-view.tsx": "4b5579de425640960a680b45043aada435a03b16afeaa59fe6aeebc19fb63905",
     "src/web/src/components/community/messages/message-body.tsx": "0f43cb0c2c8eb3b507efc1f93e926d0cc9226f25173cc9e2fa8f2d8815c46ffd",
     "src/web/src/components/community/messages/message-external-link.tsx": "ba22b8bfd1210f9645aa10c46a95c3d409cf87e68e0585709007f9bba1ad9d82",
-    "src/web/src/components/community/messages/message-list-controller.ts": "d71b68e94985e23a2cbee050e0d7a318132e7441ece4ee3fc02ea6c8f776ce44",
+    "src/web/src/components/community/messages/message-list-controller.ts": "038c7ab7e92cd39f395e7c553ee57a53cd1b3978b0bc0e2f6d945d8f72c9d8da",
     "src/web/src/components/community/messages/message-list-row.tsx": "e9b1e1d66b176821d96aca65e9a277aafdc96012f984a7758bff844a4b395a41",
     "src/web/src/components/community/messages/message-list-view.tsx": "3fd669f94dd5cb655b91b103264d85de119589950c36c49454926421a078291e",
     "src/web/src/components/community/messages/message-list.tsx": "6f4ddce666fc31c4e755e1f7608ebc433c4b1bde5a0177ed2d61759140ba0dd8",
@@ -392,28 +392,27 @@
     "src/web/src/contexts/community/current-user.tsx": "9f87a44b03447614fe3bbaabc4c8956a0476e7386915808f9c2d767d776adeac",
     "src/web/src/contexts/community/module-route.tsx": "94f36201313f5b5d87c3aadb465166817a731730181608642cec5a1e51e69164",
     "src/web/src/contexts/community/route-frame.tsx": "a9a9b872b53c15d9f642a169649f99bb6414629bf7a03af3d3c5293d1df15f68",
-    "src/web/src/hooks/community/account-unread-projection.ts": "118173e475c519db06a05e92d08c7f57396235beb689865bdd2f991e56e865e3",
     "src/web/src/hooks/community/channel-metadata.ts": "151aeb7e24cfce79e00ccd73e1e479249ba0f6651aa869417ec8f1af28a7ab59",
     "src/web/src/hooks/community/community-origin.ts": "aee72eac1133efddaa04d1f5622fd98704c13e751514cc1b0d4b0d1ab9e52cae",
     "src/web/src/hooks/community/community-ws/cache.ts": "e063b7a235e0cf8ad453bc389ea60597a5a45d907b3602ce1ecc9f24d434b065",
     "src/web/src/hooks/community/community-ws/channel-scope-projection.ts": "8f966b6ddce266450fabaa8ea6cd36dfc1ee8e22113cc650012d1313acb3e403",
     "src/web/src/hooks/community/community-ws/connection-status.ts": "8c56a26869bb0e9c993c34ea0c1a3e0b128f1a8124644a8601629e30a56b02b7",
     "src/web/src/hooks/community/community-ws/identity-events.ts": "7c01589fe61b138bbe7081a8aa0993ce99e4a23539143002c6d3613d1b3fe480",
-    "src/web/src/hooks/community/community-ws/invalidation-projections.ts": "d948ce7a9c65ae3ce9980cf02aae469c2593e3f01d65efcd15e6ff9e0ad077dc",
-    "src/web/src/hooks/community/community-ws/membership-events.ts": "c71bc9416b13d69690a4f4e153d51d7ffd3199a1c344fc953e909a0b6c537ce1",
+    "src/web/src/hooks/community/community-ws/invalidation-projections.ts": "b088cd2c03ffd88e1e236f8aacd22ac8530800ecd6a455ce2156cfadc8d7e7fb",
+    "src/web/src/hooks/community/community-ws/membership-events.ts": "3a1e3a7ec42e7802c4736685e8f65981d13748605b61087d30fcc79572921345",
     "src/web/src/hooks/community/community-ws/message-events.ts": "780ce7915c80bd678f90e2659e003c5d4fcece85fb7bd9df6bd3e4a9c46fd790",
     "src/web/src/hooks/community/community-ws/pii-events.ts": "ea7a0f73facfa489c4910646c2fd3cc7e60fc36e9e98daebda4786792c6d6ae6",
     "src/web/src/hooks/community/community-ws/presence-machine-events.ts": "d4b9c5cf790aec8677a6ae7e71386d695dc83aee4da623658f797404ed5b7426",
     "src/web/src/hooks/community/community-ws/projection-transaction.ts": "5f4b848c4d039fc845b34ea19ae54db73486f0a84e9181ebecb95a57b4a3275e",
     "src/web/src/hooks/community/community-ws/reaction-details-invalidation.ts": "33553bfddf9f3e7b35cf6127cce2bb132f8b7c40e519d93cc7c5c74ea7f967c0",
-    "src/web/src/hooks/community/community-ws/read-state-reconciliation.ts": "0012ff8b076604c722586e579b6af15311f8455b4a849e562c384b4da87e1073",
+    "src/web/src/hooks/community/community-ws/read-state-reconciliation.ts": "2afc8c4ebe3dc1ca7eec5b9b448587855e1ea0ffe512599736fbe87e1c309ff7",
     "src/web/src/hooks/community/community-ws/reconnect-messages.ts": "c2bba29c116268bf043a0c9b01582504f6aadea9f29a1c688c9ab4e64fd51135",
-    "src/web/src/hooks/community/community-ws/reconnect.ts": "f5337b74e93d3ba396c985adcb822dbc8fc30ce94c1b9c30d45d6940d1a415e2",
+    "src/web/src/hooks/community/community-ws/reconnect.ts": "990f4d323bf519e605293715866a122975dd83e45de86eca9be17eaa1aecbafa",
     "src/web/src/hooks/community/community-ws/registry.ts": "68020314e8efa987c4885070d80a567ae33f4683db11ae8d0752b860e47a6ed1",
     "src/web/src/hooks/community/community-ws/scope-eviction.ts": "fc96e1b312860f2e8025c6476a0cc9eecc0c52147897908e406642fde9ab3d4c",
     "src/web/src/hooks/community/community-ws/server-rail-reconciliation.ts": "0d8e3fff2b64bb4af50b9781a4d47d85f8b74e1c31dbe41a8c8f20c37dcbabf1",
-    "src/web/src/hooks/community/community-ws/social-events.ts": "7ef9faf5365cbe6a8f09ace818ce33d367574c9085625324c9eb1f23820c3250",
-    "src/web/src/hooks/community/community-ws/structure-tree-events.ts": "38e3afc10b63bbc6083469305c5631adc4cb99748cd81b742d913fd60444cedf",
+    "src/web/src/hooks/community/community-ws/social-events.ts": "4d1802b9857a15734091ae271002d1cd90694925574ecd7ccdf9084e33c41db4",
+    "src/web/src/hooks/community/community-ws/structure-tree-events.ts": "e821b9bd9f2161d225452671c367dbba32c73b2103e1e339fdd696d9454aa49e",
     "src/web/src/hooks/community/community-ws/typing-events.ts": "fca7e85e4fdd257bbf40b3593b154def5a4b82aaa35df84bdb7ec82efaf11921",
     "src/web/src/hooks/community/community-ws/typing.ts": "1a353079e44e137eaef58f54223d40c1e07b4730c5a523048b923fed3ee0f888",
     "src/web/src/hooks/community/fetch-all-server-members.ts": "6dcc38800c59590e09cde5bce56852bebfa98f1ba20fef23e16946f4e007a08e",
@@ -421,25 +420,24 @@
     "src/web/src/hooks/community/forum-opener-title-reconciliation.ts": "94882e7861f95e7fa3ab7531795e773b0136a7140c6d93b4edeb9e836c491a27",
     "src/web/src/hooks/community/inbox-read-reservation.ts": "59a5ba15d907884db551ed225233d6cdd159f77606165a106d1e5f190d33a7d0",
     "src/web/src/hooks/community/mutations/bot-creation.ts": "1cd74b5b86dabe76fccebfaf1532557933c076f5459545e71f0118ad02121a11",
-    "src/web/src/hooks/community/mutations/channels.ts": "14d008fdc4f8bf8c5d2770c0ce07f80ff192d51217920ce77c8912c8236fa873",
+    "src/web/src/hooks/community/mutations/channels.ts": "e36c6b7917284841dd8c746381b20d4eb0d5c3a43bc11d5573c586e64fe5bfc5",
     "src/web/src/hooks/community/mutations/dm.ts": "3b0df4df34ddf42f2e81b0b4090a7781dfafa2fa95507c4e5cc71243c076fa70",
-    "src/web/src/hooks/community/mutations/forum.ts": "f6b3ebbdd0ce6d0c7f2694dadd58ea2951052158aff8944a00601fc311181ec5",
+    "src/web/src/hooks/community/mutations/forum.ts": "3a70a6364faec466a03a97e7ff96939932d64006e955b119cf066743b3a2627e",
     "src/web/src/hooks/community/mutations/friends.ts": "9ae43ab3aa399ce24fec970b7f1cdc189c847ec5b9ddaf060616e0f919f45eb0",
     "src/web/src/hooks/community/mutations/index.ts": "7787dca5a073c2367c1196bb6e39d54bc8cfbec7b2b3cdaf2abf56b5e8090e1e",
     "src/web/src/hooks/community/mutations/invites.ts": "8aaf81690176230c7cbf65e4c4e63f488c99fc4ae6961ab91a29a86a1cc7b935",
     "src/web/src/hooks/community/mutations/members.ts": "e36736a85e706b4c37286d9f45f34f6641f7ee3e997171f2eff2e274379c6cbe",
     "src/web/src/hooks/community/mutations/message-memberships.ts": "3a77e3b7b5323f5457a1f7fe7ca1fce5f5bbab513318476b1ff6fb7474138b6e",
     "src/web/src/hooks/community/mutations/message-reactions.ts": "1f2a32eaf8853a4f4bbb9c7b1c845f4d416de5a8617cd866790aa70a3088dba4",
-    "src/web/src/hooks/community/mutations/messages.ts": "051845429ee21fb0a97a8456d27b44ec630024d1334f1eb6474ef0424edfc8ec",
-    "src/web/src/hooks/community/mutations/notifications.ts": "db51bd876de9dd22ca51ce7c0e13d443704c16e58a66767030acd642e49c0cdd",
+    "src/web/src/hooks/community/mutations/messages.ts": "3cf045a1a918263c550ed5bab16dfcd5bd638d77ffd04214eec617801c2fc1f5",
+    "src/web/src/hooks/community/mutations/notifications.ts": "8795f50ac099568b1017652c11c78e8c66288cbfd66caeb1b24a411ac77cff69",
     "src/web/src/hooks/community/mutations/profile.ts": "8f6a04c35ccfe7b9277be15892d44afd89220e1b3c06cebbc8291a7ca1654a26",
     "src/web/src/hooks/community/mutations/server-rail.ts": "df160394f6077f51f226d0de934b373fadb349f5ec4e0affb376a3a95c20c06e",
-    "src/web/src/hooks/community/mutations/servers.ts": "ba9b5fec4ce4856d5e38b16227b15d1ba00b79e5c58a6fd99f77d53106b434e3",
+    "src/web/src/hooks/community/mutations/servers.ts": "09a17c19bd93b80ce6218f10f0b9a7441ea10db8184ae8a864cb6002c7457f72",
     "src/web/src/hooks/community/mutations/uploads.ts": "e5c1dd10997f62dc12be31fe9f198fa23ac7774033df3b2aa017f21962493c36",
     "src/web/src/hooks/community/read-coordinator-snapshot-projection.ts": "cb910681f3832b99bdc080c7263e4cb1b93d08068b615e0b5b65c9c51673a325",
-    "src/web/src/hooks/community/read-coordinator.ts": "69056d826b210c3d244b6b702c78551f77e1ed9e4a765736daec55eb078943e8",
     "src/web/src/hooks/community/unread-presentation.ts": "34545682942b75202315747f48a8b2f1b8aa3a4a173da80b74f2c8d21b71145f",
-    "src/web/src/hooks/community/use-account-attention.ts": "34bafae5b02e94e74ee935a51fbb71223d823cd90ab3ff9d6520a858d550f19f",
+    "src/web/src/hooks/community/use-account-attention.ts": "3a5da3c25ca55bc4d0656b7bbdd65205c241d13fc2fb4e6fb6c9b4f4664ee26a",
     "src/web/src/hooks/community/use-bot-audit-log.ts": "0dd56e81e5331f764bfc7e54f423fc0018c67dc315755a8eb78ce5e4c8950e67",
     "src/web/src/hooks/community/use-bot-audit-preview.ts": "7d35c8b27517a90b5876b4e7fa9471567ae06aa62071708ae2422c11ce1a41bc",
     "src/web/src/hooks/community/use-bot-bug-report.ts": "1e773d546d425cd65c93d8b0f7a20bb51e34273ec3803992f9029b404413a14c",
@@ -450,23 +448,23 @@
     "src/web/src/hooks/community/use-channel-ref-directory.ts": "fd9c6444388e758ca27e47d149669bad6760ca06dbc033519d7ec0f3366b74de",
     "src/web/src/hooks/community/use-community-command-mutation.ts": "a07e121e349a2f49db001686c68ff6073f47050806ae84002ee7292715955c65",
     "src/web/src/hooks/community/use-community-view-source.ts": "052e7e0228ca7629d56568895e848f0647febbb1dbad3f1a0435afb9dcdaadbf",
-    "src/web/src/hooks/community/use-community-ws.ts": "dc60473c5f60a5d7706c352fcb9e71861f253d4082ebc4bfc7d4e01142a57324",
+    "src/web/src/hooks/community/use-community-ws.ts": "aa53529cf2f3e107786bdce6982a277c08a07948a625d2bfd2295292e5267b2d",
     "src/web/src/hooks/community/use-dm-message-sender.ts": "0dbd65cfe19914a8114ed13673f831ec7860f847b0bda8decbc74f82efc9a61d",
-    "src/web/src/hooks/community/use-forum-sidebar-threads.ts": "0bb24651bc2baf628e2bed3be0ab16838ba30e11aa365c4faa79b59d6c857a83",
+    "src/web/src/hooks/community/use-forum-sidebar-threads.ts": "d406e93a277b4950bfd74b30e8583bf83055c0e11341ddc4e041512153b50352",
     "src/web/src/hooks/community/use-friend-request-action-state.ts": "557902714b48aea69149571d9555b95f7c0e20abdbc0d69acd5baf83fef2e5ae",
     "src/web/src/hooks/community/use-friends.ts": "ac3dc8c659c697784765b03b1610701b34b08497433ed4aae1ec6982aaec3204",
-    "src/web/src/hooks/community/use-inbox.ts": "35ccc21841eca5855e018d2b2fc4b0869c678e03616bc351e7c01e6d53b95070",
+    "src/web/src/hooks/community/use-inbox.ts": "cb21c25c6c25edb7a493a4cddde9b0d6635480f8b6d7d981c5aa5e1eae57c142",
     "src/web/src/hooks/community/use-invitable-friends.ts": "b3af46bcf7f917c87ea018589f2b96b3cf7ae7dec1ac060c3f290687931b858d",
     "src/web/src/hooks/community/use-machines.ts": "5f8e8101ea623ca0266686ad2733906ed9e3d3e77cc4baeae8be0ced8bbb721c",
-    "src/web/src/hooks/community/use-message.ts": "8a664702fe814a40133a64320caff007e5dc71514363a19cf51ccbc68b3d76f1",
-    "src/web/src/hooks/community/use-notification-settings.ts": "0db37850b00de871726be46e40fdc38943328363fb51496ad6b8fe7bc6f08c7c",
+    "src/web/src/hooks/community/use-message.ts": "a3872c582ca42bb05320ca333cf71d26205dfe6fd281bbb7e070e735034f5e27",
+    "src/web/src/hooks/community/use-notification-settings.ts": "0896bc7b00d6463db0e8e4f934f73d7d7237de1a961ecd2c23dc35c0c3096365",
     "src/web/src/hooks/community/use-reaction-details.ts": "20775d1e585c2b4be3d356114ff3dc611b9639375c4cc5648d45daa41d7ae847",
     "src/web/src/hooks/community/use-running-owned-bots.ts": "db751eb7c096c0280a8c36d5a8a8039904331e8762c10b6957b61c898cee8f99",
     "src/web/src/hooks/community/use-runtime-models.ts": "96c78069340df4a23b6b10ab2571b5c06754bfa7f989444c69152680c1933efb",
     "src/web/src/hooks/community/use-scroll-anchor.ts": "d06f16ed85ecf2bc1a14cd2143a6c57e16846ff72b4c2dcb932e8fc30b1f1e88",
     "src/web/src/hooks/community/use-server-members.ts": "1033e6e20ff4ec321902839c44ab744cd93ada7113c9f1d92484a1a661931ad2",
     "src/web/src/hooks/community/use-server-panels.ts": "2c56d8a051f11b167845fe584827d6e648d2cd8740636f001f51ec1f1a9cbf6d",
-    "src/web/src/hooks/community/use-servers.ts": "af9f458cc99d4b18ff15212fbee395a3abcd84fc92780d4907fa10dd9302ec0a",
+    "src/web/src/hooks/community/use-servers.ts": "191cad47a31cf12a0f1bd5546f3c6cd6afbfe877a2029c5b83cc957a80099c56",
     "src/web/src/hooks/community/use-user-profile.ts": "4cf36a19dc34349eaf6e71060390cdc3e5e84c8e5e8a19fc5cb5435dff25dc13",
     "src/web/src/hooks/community/use-virtual-cursor-pagination.ts": "173fedcd81119130906467fc01e7236aa51cbc36cacc5bcc84baf369ccc235a2",
     "src/web/src/hooks/community/virtualizer-react-options.ts": "a5e918108000070d2d4de84ff58b9a5430e62ad99e1d1f892e3c8349cd5cabe1",
@@ -493,12 +491,12 @@
     "src/web/src/lib/avatar/theme.ts": "b1b2dd1df0c509b090b1fdb3b57e714bb4e97d5da78c1cc3d5c5331ac3e39692",
     "src/web/src/lib/community-db/collections.ts": "5969d9864b1518e2c6cdb782bdd0118e41b37610b06b88dd34dde88ca40d6081",
     "src/web/src/lib/community-db/live-query.ts": "a43a9c28951cc952fadc6816a1cd119a0af9aea78525d44255bd378f6d409629",
-    "src/web/src/lib/community-db/message-access-scope.ts": "dc071f7af87cb9a05f9784427ce1580b4bfa27f3daf684cb8f6bacdef36498bf",
-    "src/web/src/lib/community-db/projections.ts": "679a68175edc16a29204a8b6cfd37cebb1de33c8a143a31b6fcaf7a1c1e55f20",
+    "src/web/src/lib/community-db/message-access-scope.ts": "c4d11a1000db036e3b6a237b53191fc5b6aed1f0766d64e81f8ac4a2e62a4f95",
+    "src/web/src/lib/community-db/projections.ts": "07588cd5d5ba0465852ee6299463b26283b001463bcf09511ab86b5e5df00692",
     "src/web/src/lib/community-db/queries.ts": "2c33d376ee69510d2367a832f1887da00ede94e2a424bc4ee2c478809dccd16a",
-    "src/web/src/lib/community-db/schema.ts": "a863c9929c03fd670e7700c997e7e27722943fbdf11fc6a48e027a1b3ca9600b",
+    "src/web/src/lib/community-db/schema.ts": "b705e6de4f1707737d406b33c63396fd10447ae98da9fb28069c40c71a8151f4",
     "src/web/src/lib/community-db/server-rail.ts": "fee03f44f6aa6fbc1a801a5f2ac143dec2c1c6a7bec2aac3f03e7fe3760c1855",
-    "src/web/src/lib/community-db/sync.ts": "af2b69f0627d8638d618730556bf95e89045a25d2f8a7599234df0e316d373d7",
+    "src/web/src/lib/community-db/sync.ts": "5e27b37bf910773ee4c56274a9d128a2660326f1bb12a414f47695ebc309ea46",
     "src/web/src/lib/community-db/write.ts": "d2741760ebe6b5cbe5d2e730cfc85172f21400b51b466a2f560dec18ffdccf3b",
     "src/web/src/lib/community-onboarding.ts": "235c16a80688f783e2785fe5538b954fc30607f87b51c17bb73a06a80c87c04f",
     "src/web/src/lib/community/account-cache-lifecycle.ts": "03ff89ee6dbe39c8f0766e91a9df9ef54967923fabe06bf7a339b59818f537e0",
@@ -529,7 +527,7 @@
     "src/web/src/lib/community/eject-server.ts": "d4048569cec8b2abcfa84c31df82699df8dbe2bd25b918130d66349f55e43e9d",
     "src/web/src/lib/community/format-time.ts": "b5ab2ddf6552b4db1f217b32eb8bead713bdaf3ec015399352688e513d24b5a2",
     "src/web/src/lib/community/forum-sidebar-window.ts": "5262fdc26d684baf0a3e815db3e7e1b14ff173a825b0ec93d78f6108653a17e8",
-    "src/web/src/lib/community/forum-sidebar.ts": "74447916ababee3bcf49f286c4224f25be359008b864cc4f2950413241bb8182",
+    "src/web/src/lib/community/forum-sidebar.ts": "bd6fb6ce307aca6eb259f09cd9b52b9a0165df21d1ac1961d2ada6fc12955c8e",
     "src/web/src/lib/community/friend-requests.ts": "0ee58fd3b2576d8fcb8f3b27bbb3d6982bb5061a7240a73b9964ea3034dbd4bd",
     "src/web/src/lib/community/funnel-analytics.ts": "fba0236dcd932395405ea3fc11edb07e3ed028c673c02a960554fc9d72406347",
     "src/web/src/lib/community/highlight-range.ts": "469677da44acca865954e53696144f53897b160668016659eddb85e82b43e4b6",
@@ -602,7 +600,7 @@
     "src/web/src/lib/product-analytics.ts": "72c3410a8c79b37311200d0ef9c6375deefae038aedc736c414bb8779adf563e",
     "src/web/src/lib/query-client.ts": "2fa0ba02e04bd287ff9c1d058a7a685499aa2ab40fb1d41b28872d3c24a9bc17",
     "src/web/src/lib/query-keys.ts": "2668f3d6524d3139866cd2dc375c8d8905c3024d0d398769dba4c7b138850d2e",
-    "src/web/src/lib/query-persister.ts": "bbe0207b054d66993ea5d741436732eae24a8a9af7fb7335b095ac947ad247bc",
+    "src/web/src/lib/query-persister.ts": "1b66a36d867dc1eb9ad76c4c870292e0dbf704f47cfe6a76373eedbe57153a6f",
     "src/web/src/lib/service-worker/cache-identity.ts": "398f6799d7768f50ed6cc5ac9cd80a60be3383fe292890b1135c4e508e96bdb1",
     "src/web/src/lib/service-worker/public-cache-storage.ts": "8857e70e77421e64ae9912fcf285548382c418f5d8d17e46e6280aee80e8a733",
     "src/web/src/lib/streamdown-plugins.ts": "20295ea3fc6d583a301db5f9f766fdedf03584053843bc879836900c07f77a7d",
@@ -615,10 +613,10 @@
     "src/web/src/stores/community/index.ts": "cb7ae7859fec81d48bbe8ec0d93272d356be44fa62c2a997167cb7e25b06ae5f",
     "src/web/src/stores/community/message-stream-store.ts": "34a0e533c91a3f297832beaa090637a48f948a7b87dddd7fc7b5b5a0f61cc4ef",
     "src/web/src/stores/community/profile-preview.tsx": "61a2e3c366fcfb0b4de78889e1f4ba9bb408a20b726cff7c4cfacb98ac0a9d9b",
-    "src/web/src/stores/community/runtime-owner.ts": "24e2db673c72d590acbc91c3ca36ca24c7319dc3a9abd9e2aaf79ff628f38ee4",
-    "src/web/src/stores/community/runtime.tsx": "96d7710bf5d7b0dc9127e3956f8bef844ddc5b7883fce03669434f28a8adfa39",
+    "src/web/src/stores/community/runtime-owner.ts": "578248ebba1c9de30400a886ccb3b6a739527231d66e39768c8cda5a0c556c67",
+    "src/web/src/stores/community/runtime.tsx": "7dfe06973fd76fb7578fa97bac4c929407acc4b74ed7a66a539fe54352ba0307",
     "src/web/src/stores/community/ui-store.ts": "2ab58777ac468b11ba08db367aab27ff19ab379f263243e3d5aad75bfe4aa5ea",
-    "src/web/src/stores/community/ws-store.ts": "dae006a2047a7edfd4eb1d9ef9a3d5eabaa7c12b8dbf89e13755a0768d370706",
+    "src/web/src/stores/community/ws-store.ts": "06abdb9dc85fa41b6b4afd97a052dc4e8f4c599e1101ad05c7875589078297ca",
     "src/web/src/stores/community/ws.ts": "b834d01ab5ca62ecc846d5025b15793b73d84ddbff67d27cbef7b1d762449961",
     "renderer:pnpm-dependencies": "2a2f4aade85e54767f09e17368084f17ca87080008b892a74eb6eb27d2ec2134",
     "patches/@base-ui__react@1.9.0.patch": "51d33f6e4f128a90fe02d40ba5c0f2cd5614eabbab780845f28186dc473cab0a"
@@ -628,7 +626,7 @@
       "path": "phone-1206x2622/01-share-agents.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "67c08bcbe2abaf278d95807ee67f0bde4194e1db2a38dffd370a21c3f02a138f",
+      "sha256": "8ea52c42d5e609ec3356a3c6d14dd6e029019f1760b9e75c4213795590010e43",
       "surfaces": [
         {
           "scene": "workspace",
@@ -654,7 +652,7 @@
       "path": "phone-1206x2622/02-teamwork.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "449e517899bf6dca21feb6ba9bb4e396fe2dad45309af91a76dc3daf5288dcb3",
+      "sha256": "aef3835907b97a9e594aa65c50cf5bdcb184b5dd5eae7fd9901587263ce27ef4",
       "surfaces": [
         {
           "scene": "workspace",
@@ -680,7 +678,7 @@
       "path": "phone-1206x2622/03-companion.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "41992422965debf02f29d3ef5b6f3bb9c1e6a06edb93e2f0ca3872c1ef4cead7",
+      "sha256": "f62ac4a3d19e5abf9df0ae41bd1e4965bd5b5e9b27c0a1650127be876db42e08",
       "surfaces": [
         {
           "scene": "identity",
@@ -706,7 +704,7 @@
       "path": "phone-1206x2622/04-context.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "2662ad08618ef2a62efa93697b10b3f497990dbade7b93b847b99f1f94f199c3",
+      "sha256": "7aff1b04edb171c5379077c092d212cad2e190339394724ce75db3d42ed430ff",
       "surfaces": [
         {
           "scene": "continuity",
@@ -741,7 +739,7 @@
       "path": "phone-1206x2622/05-phone.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "9ea0770d0a086284493ecd59430f9568cc646156c77b4806d5e6a70b1403edcb",
+      "sha256": "48b911e0b0fd0abf337b6f66cbe85a3cbc83e10b8733a2f95d2030f4ef697f99",
       "surfaces": [
         {
           "scene": "workspace",
@@ -767,7 +765,7 @@
       "path": "phone-1206x2622/06-existing-setup.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "14c73e1c6f5fea3c6d02a2b5850077e137531ea1bc5e8260d0bc99466b788a21",
+      "sha256": "ef7716e477d72e694ae3f9e27ba359507109034474f8bfc20871eef3835b5e6d",
       "surfaces": [
         {
           "scene": "workspace",
@@ -793,7 +791,7 @@
       "path": "phone-1320x2868/01-share-agents.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "310b2e3df2ace678b5649543c301add45555f5057bcd9364c823c87c8ac1b6ba",
+      "sha256": "52d8cf32d86474a3ffd6950e9a5b736989f2f306bf9a4fb2326c087450c93787",
       "surfaces": [
         {
           "scene": "workspace",
@@ -819,7 +817,7 @@
       "path": "phone-1320x2868/02-teamwork.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "8e3dd3072d5b7828723b47b002c62bdf8fbf7c4e809e0197774e0adfd1750ec5",
+      "sha256": "346908178928b218416f52fef18c0f61d0f5d4e7e5a1228332cf004593032dde",
       "surfaces": [
         {
           "scene": "workspace",
@@ -845,7 +843,7 @@
       "path": "phone-1320x2868/03-companion.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "42794e949a7997c6d9c4a6fdca9e24396cd41bc310b3b0128dde24d5c0907d0c",
+      "sha256": "93dbabe22c7e77bc0fb1c9e3b24a42c859d1700c067b3c39a811907102ed09f9",
       "surfaces": [
         {
           "scene": "identity",
@@ -871,7 +869,7 @@
       "path": "phone-1320x2868/04-context.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "bd2d061c2f5f443dd6c34760a8b78708bde301a1a653f82a51bd5ae9e605caca",
+      "sha256": "58bc2850948f57ba04f74a12ec90654de400b4c327ac4c5b5a3f24b142a89a0b",
       "surfaces": [
         {
           "scene": "continuity",
@@ -906,7 +904,7 @@
       "path": "phone-1320x2868/05-phone.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "48c0436b8a9eb3ba5ba7799183866c698b3e7a87aac8dfaecd280360031465d8",
+      "sha256": "270e04dedb164cbf854c5596fcb20461cfb927d616fdc0c67578a0c5af627a2d",
       "surfaces": [
         {
           "scene": "workspace",
@@ -932,7 +930,7 @@
       "path": "phone-1320x2868/06-existing-setup.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "5deac2a6bdb05807993fe721fa194e0bfb5351bdefd4f9683e2b6c680ff9c378",
+      "sha256": "c3c1eb9ddb5ac0c30362afed2fb991daf004cf87c0a81c00384a0394c9feeaad",
       "surfaces": [
         {
           "scene": "workspace",
@@ -958,7 +956,7 @@
       "path": "tablet-2752x2064/01-share-agents.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "90579226e073bf7dda3f07671d4c032a215c222de7acb2af4e90cfd6dc211e97",
+      "sha256": "fd4725e892edfa23221a34ee95644b1601510c1876406e28f17c4b6b8229cbd4",
       "surfaces": [
         {
           "scene": "workspace",
@@ -984,7 +982,7 @@
       "path": "tablet-2752x2064/02-teamwork.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "b103d966cff5c5595b5cea5f777196e280479b42725b5e9bc7e68fd3378cd88c",
+      "sha256": "6deb347b840adc93c2f638c7e5eec7a685c14682c5a1840ff1f608ed539a78af",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1010,7 +1008,7 @@
       "path": "tablet-2752x2064/03-companion.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "78c9ad75a900f3853b322267545e64ebfe1958ecae42527cf490fed3842ae8f3",
+      "sha256": "f01345b44dda10df81300616a9e3176a947ab0fa2fbb7a7ef2bdf3270a3204d9",
       "surfaces": [
         {
           "scene": "identity",
@@ -1036,7 +1034,7 @@
       "path": "tablet-2752x2064/04-context.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "e2883c7d31f89234810cd9f77b6ad90100691f9e45ffe12a63dd7285403c07c5",
+      "sha256": "236d43a931eed51052dcbfd58462cc64036c0a6d4ea4a02a5a8c3bc368da2562",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1071,7 +1069,7 @@
       "path": "tablet-2752x2064/05-phone.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "93673a8d5eeb349eae8c5a7dc447767f1088262b0f275f45e49c11c621ace59a",
+      "sha256": "f5f1998a4efdbae47d10b766e60214e4729f180aa7521e76b14acc1bcb552f96",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1097,7 +1095,7 @@
       "path": "tablet-2752x2064/06-existing-setup.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "71edd998847b991c77a7568183937f44cc4c1ce524dfd66c98d7684e0f5214d9",
+      "sha256": "471ee8c0f3bf0ec38c3c174b271ba95df3e8a39cbd218870206569b675394690",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1123,7 +1121,7 @@
       "path": "duo-2007x2853/01-share-agents.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "41ba4dcb99285c74b855f1e824ac0a56413c101e5832e22dcbc0b4e3e4c70910",
+      "sha256": "ed65d2893e36d0d478e10e4d709cdfb86941ef21438d2efa84fd8d17024d3262",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1149,7 +1147,7 @@
       "path": "duo-2007x2853/02-teamwork.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "913c19fe269aac05993ddfd9c049ba281e1b9a827c7fdf508c72e2934722701f",
+      "sha256": "04bf417c53b92af207b5e2fc3a42e45e529fa2014b16a7d0714635034870665e",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1175,7 +1173,7 @@
       "path": "duo-2007x2853/03-companion.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "627afc8590c0a790cd16e983d1e4f63125c975beff61a94b6bd9e8e0d5c15256",
+      "sha256": "16fb5c0b82b4acc8bb97697c498ad5e4dab0ceb6f9e3536eabed7672a22a3525",
       "surfaces": [
         {
           "scene": "identity",
@@ -1201,7 +1199,7 @@
       "path": "duo-2007x2853/04-context.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "e07f2aa40054fb36b53298e65028df5ffd14bf622495acf28dbe1dab1b615e02",
+      "sha256": "0969d5d58231ac53668c2be5644c91fe9cf7f3554bb3141b57d8687a49cd1f93",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1236,7 +1234,7 @@
       "path": "duo-2007x2853/05-phone.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "611a8268b8ed0cbde480d10cf428406a45f6d04ea129d5d627582d0be4df69b5",
+      "sha256": "073a43adf519295d84cf19faac7441e595f64083b5a4be54b21e285884fabc5f",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1262,7 +1260,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "610f42c74b1cfcbdaa8a11f011c84ffdccbbb03166c4e39ff758529a98769f49",
+      "sha256": "59728cd89412df2f095cbcf18bc25770be07c398715c251c4db52f2f46409e18",
       "surfaces": [
         {
           "scene": "workspace",

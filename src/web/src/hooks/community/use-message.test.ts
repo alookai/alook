@@ -4,7 +4,6 @@ import { communityKeys } from "@/lib/query-keys"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { ingestMessages, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { findCachedMessage, messageQueryFn, prefetchCommunityMessage, prefetchCommunityLatestMessage } from "./use-message"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
@@ -60,7 +59,7 @@ describe("background canonical message hydration", () => {
 
   it("does not fetch for retired access or an inactive owner", async () => {
     const owner = await createCommunityQueryOwner()
-    getActiveAccountUnreadProjection(owner.client).retireAccessScope({ kind: "channel", channelId: payload.channelId })
+    owner.runtime.ws.actions.revokeChannelAccess("server-1", payload.channelId!)
     await prefetchCommunityMessage(owner.client, payload.id, { channelId: payload.channelId })
     await prefetchCommunityLatestMessage(owner.client, payload.channelId)
     owner.runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))

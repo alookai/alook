@@ -8,6 +8,8 @@ import {
   COMMUNITY_RESOURCE_CONTRACT_VERSION,
   type AccountAttentionSnapshot,
 } from "@alook/shared"
+import { isAbortError } from "@/lib/errors"
+import { conversationReadRetryPolicy } from "@/lib/community/conversation-read"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -15,6 +17,7 @@ import {
   useAttentionScopes,
 } from "@/lib/community-db/projections"
 import {
+  beginCommunityCommandRevision,
   captureCommunityLiveSnapshotToken,
   assertCommunityLiveSnapshotTokenCurrent,
   publishAccountAttentionSnapshot,
@@ -43,16 +46,36 @@ async function fetchAccountAttention(options: ApiRequestOptions): Promise<Accoun
   return AccountAttentionSnapshotSchema.parse(response)
 }
 
-const accountAttentionQueryFn = (queryClient: QueryClient) =>
-  async ({ signal }: { signal?: AbortSignal } = {}) => {
-    const token = captureCommunityLiveSnapshotToken(queryClient)
-    const snapshot = await fetchAccountAttention(communityRequestOptions(queryClient, token, signal))
-    publishAccountAttentionSnapshot(queryClient, {
-      snapshot,
-      proof: { token, signal },
-    })
+function currentReadRevision(registry: CommunityDbRegistry | null) {
+  let revision = registry?.collections.readStateClock.get("account")?.revision ?? -1
+  for (const row of registry?.collections.readStates.values() ?? []) revision = Math.max(revision, row.observedRevision ?? -1)
+  return revision
+}
+
+export function accountAttentionMatchesReadState(registry: CommunityDbRegistry) {
+  const query = registry.queryClient.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+  return query?.state.status === "success" && query.state.fetchStatus === "idle"
+    && query.meta?.attentionReadRevision === currentReadRevision(registry)
+}
+
+const accountAttentionQueryFn = (queryClient: QueryClient) => {
+  const token = getCommunityDbRegistry(queryClient) ? captureCommunityLiveSnapshotToken(queryClient) : null
+  return async ({ signal }: { signal?: AbortSignal } = {}) => {
+    if (!token) throw new DOMException("Attention owner retired", "AbortError")
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    const requestToken = beginCommunityCommandRevision(queryClient, token)
+    const readRevision = currentReadRevision(token.registry)
+    const query = queryClient.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+    query?.setOptions({ ...query.options, meta: { ...query.meta, attentionReadRevision: readRevision } })
+    const snapshot = await fetchAccountAttention(communityRequestOptions(queryClient, requestToken, signal))
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    if (!query || queryClient.getQueryCache().get(query.queryHash) !== query) throw new DOMException("Attention query retired", "AbortError")
+    if (currentReadRevision(token.registry) !== readRevision) throw new StaleAttentionReadError()
+    publishAccountAttentionSnapshot(queryClient, { snapshot, proof: { token: requestToken, signal } })
     return { loaded: true }
   }
+}
+
 
 export function useAccountAttention() {
   const queryClient = useQueryClient()
@@ -61,8 +84,10 @@ export function useAccountAttention() {
   const query = useQuery({
     queryKey: communityKeys.accountAttention(),
     queryFn: accountAttentionQueryFn(queryClient),
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.accountAttention() }).retry),
     staleTime: 0,
     refetchOnMount: "always",
+    refetchInterval: query => query.state.status === "error" && !isAbortError(query.state.error) ? 5_000 : false,
   })
   return { ...query, scopes, items }
 }
@@ -86,9 +111,16 @@ export function useAccountAttentionProjection() {
 export async function reconcileAccountAttention(
   registry: CommunityDbRegistry,
 ) {
+  const client = registry.queryClient, token = captureCommunityLiveSnapshotToken(client)
+  const query = client.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+  if (query?.state.fetchStatus === "fetching" && query.meta?.attentionReadRevision !== currentReadRevision(registry)) {
+    await client.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true })
+    assertCommunityLiveSnapshotTokenCurrent(client, token, undefined)
+  }
   const snapshot = await registry.queryClient.query({
     queryKey: communityKeys.accountAttention(),
     queryFn: accountAttentionQueryFn(registry.queryClient),
+    retry: (failures, error) => error instanceof StaleAttentionReadError && failures < 3,
     staleTime: 0,
     select: undefined,
   })

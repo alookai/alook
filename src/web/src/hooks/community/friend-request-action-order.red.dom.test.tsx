@@ -395,7 +395,7 @@ describe("friend-request action authority RED", () => {
             sub: {},
             viewerUserIdRef: { current: "viewer" },
             projection,
-            scheduleInboxInvalidate: vi.fn(),
+
           } satisfies SocialEventContext,
         )
       })
@@ -449,7 +449,7 @@ describe("friend-request action authority RED", () => {
           sub: {},
           viewerUserIdRef: { current: "viewer" },
           projection,
-          scheduleInboxInvalidate: vi.fn(),
+
         } satisfies SocialEventContext,
       )
       publishRows(client, ["a"], beforeBlock)

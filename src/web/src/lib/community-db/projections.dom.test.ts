@@ -418,6 +418,10 @@ describe("community DB projections", () => {
       channelId: "c1", lastReadMessageId: "m1", lastReadAt: "2026-09-25T00:00:01.000Z",
       lastReadSeq: 1,
     }])
+    collection("attentionScopes", [
+      { scopeId: "c1", channelId: "c1", serverId: "s1", parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 2, attentionCount: 2, lastAttentionSeq: 2 },
+      { scopeId: "dm1", channelId: "dm1", serverId: null, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 8, attentionCount: 0, lastAttentionSeq: null },
+    ])
     collection("readStateClock", [{ id: "account", revision: 1 }])
     collection("folders", [
       { id: "f2", name: "Later", position: 2 },
@@ -462,7 +466,7 @@ describe("community DB projections", () => {
 
     await waitFor(() => expect(rendered.result.current.restored).toBe(true))
     expect(rendered.result.current.rail?.servers).toEqual([
-      expect.objectContaining({ id: "s1", name: "Server" }),
+      expect.objectContaining({ id: "s1", name: "Server", unread: true, mentions: 2 }),
     ])
     expect(rendered.result.current.rail?.folders).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "f1", servers: [expect.objectContaining({ id: "s1" })] }),

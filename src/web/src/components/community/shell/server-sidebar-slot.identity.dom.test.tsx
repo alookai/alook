@@ -9,10 +9,9 @@ import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { normalizeCommunityHref, type CommunityCommittedFrame } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
-import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot, publishAccountAttentionSnapshot, clearAttentionScopeOptimistically, restoreAttentionScopeOptimisticSnapshot } from "@/lib/community-db/sync"
 import { createOwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
 import { serversProjectedQueryFn } from "@/hooks/community/use-servers"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { ServerSidebarSlot } from "./server-sidebar-slot"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
@@ -32,9 +31,9 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   const server = { id: "target", name: "Target server", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
   const proof = { kind: "structural" as const, token: captureCommunityLiveSnapshotToken(client), signal: undefined }
   mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role: "owner", memberId: "membership" }] })
-  await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(getActiveAccountUnreadProjection(client), client) })
+  await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client) })
   mocks.load.mockClear()
-  publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: { ...server, categories: [{ id: "category", name: grouped ? "Group" : "", private: 0, channels: [{ id: "channel", name: "Target channel", active: false, unread: false, muted: false, type: "text" }] }] } }, proof })
+  publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: { ...server, categories: [{ id: "category", name: grouped ? "Group" : "", private: 0, channels: [{ id: "channel", name: "Target channel", active: false, unread: true, muted: false, type: "text" }] }] } }, proof })
   client.setQueryData(communityKeys.server(server.id), server.id)
   client.setQueryData(communityKeys.forumSidebarThreads(server.id), { threads: [], verifiedEpoch: 0, serverNow: new Date().toISOString(), serverClockOffsetMs: 0 })
   const token = createOwnerServerDeleteRouteToken(client)
@@ -59,6 +58,27 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   const view = render(node("/c/channels/target", 0))
   const scroll = await view.findByTestId(tid.channelSidebarScroll)
   const row = view.getByTestId(tid.channelRow("channel"))
+  const indicator = () => row.querySelector('[data-slot="community-channel-unread-indicator"]')
+  expect(indicator()).toHaveClass("h-0")
+  const attention = (seq: number) => publishAccountAttentionSnapshot(client, {
+    snapshot: { scopes: [{ scopeId: "channel", channelId: "channel", serverId: server.id, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: seq, attentionCount: 0, lastAttentionSeq: null }], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
+    proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
+  })
+  await act(async () => { attention(4) })
+  await waitFor(() => expect(indicator()).toHaveClass("h-2.5"))
+  let optimistic!: ReturnType<typeof clearAttentionScopeOptimistically>
+  await act(async () => { optimistic = clearAttentionScopeOptimistically(registry, "channel", 4) })
+  await waitFor(() => expect(indicator()).toHaveClass("h-0"))
+  expect(registry.collections.channels.get("channel")).not.toHaveProperty("unread")
+  await act(async () => { attention(4) })
+  expect(indicator()).toHaveClass("h-0")
+  await act(async () => { attention(5) })
+  await waitFor(() => expect(indicator()).toHaveClass("h-2.5"))
+  await act(async () => {
+    restoreAttentionScopeOptimisticSnapshot(registry, optimistic)
+    publishAccountAttentionSnapshot(client, { snapshot: { scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }, proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+  })
+  await waitFor(() => expect(indicator()).toHaveClass("h-0"))
   const title = view.getByRole("button", { name: "Target server" })
   const invite = view.getByRole("button", { name: "Invite to server" })
   expect(row).toHaveAttribute("aria-roledescription", "draggable")

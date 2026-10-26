@@ -10,7 +10,6 @@ import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { createOwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
 import { serversProjectedQueryFn } from "@/hooks/community/use-servers"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { ServerSidebarSlot } from "./server-sidebar-slot"
 
 const mocks = vi.hoisted(() => ({ pathname: "/c/channels/source/channel", search: "settings=1", breakpoint: "desktop", replace: vi.fn(), members: vi.fn(), presence: vi.fn(), props: vi.fn(), load: vi.fn() }))
@@ -130,7 +129,7 @@ it.each([
   view.rerender(node())
   const qualify = async () => {
     mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role, memberId: "membership" }] })
-    await act(async () => { await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(getActiveAccountUnreadProjection(client), client), staleTime: 0 }) })
+    await act(async () => { await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client), staleTime: 0 }) })
   }
   if (order === "owner-first") {
     await qualify()
@@ -146,7 +145,7 @@ it.each([
   if (role === "member") {
     expect(view.queryByText("Server settings")).toBeNull()
     mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role: "owner", memberId: "membership" }] })
-    await act(async () => { await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(getActiveAccountUnreadProjection(client), client), staleTime: 0 }) })
+    await act(async () => { await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client), staleTime: 0 }) })
     await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ onOpenSettings: expect.any(Function) })))
     expect(view.queryByText("Server settings")).toBeNull()
     return

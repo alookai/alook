@@ -293,7 +293,7 @@ describe("useSendMessage — happy path", () => {
               attachments: [{ ...attachment, url: remoteAttachment.url }],
             } }, { deliveryMode: "single", queryClient: capturedQc, communityStore: runtime.ui, wsStore: runtime.ws,
               sub: { channelId: scope.id }, viewerUserIdRef: { current: "u_me" },
-              matchesFocus: event => event.channelId === scope.id, scheduleInboxInvalidate: vi.fn() }) })
+              matchesFocus: event => event.channelId === scope.id }) })
         } else if (stage === "matchingBase") {
           const { channelMessagesQueryFn } = await import("@/hooks/community/use-messages")
           const { decodeCommunityReadResponse } = await import("@/lib/community/read-response")
@@ -1200,21 +1200,6 @@ describe("useDeleteMention — rollback", () => {
       limit: 100,
       truncated: false,
     })
-    const { getActiveAccountUnreadProjection } = await import(
-      "@/hooks/community/account-unread-projection"
-    )
-    const projection = getActiveAccountUnreadProjection(capturedQc)
-    projection.setNotificationPolicy({})
-    for (const attentionId of [reply.id, mention.id]) {
-      projection.recordArrival({
-        channelId: "ch_1",
-        serverId: "srv_1",
-        messageId: "msg_1",
-        attentionId,
-        seq: 4,
-        isMention: true,
-      })
-    }
     mountHook(() => mod.useDeleteMention())
     let fail!: (error: Error) => void
     apiFetchMock.mockImplementation((path: string) => path === "/api/community/users/me/attention"
@@ -1234,13 +1219,6 @@ describe("useDeleteMention — rollback", () => {
       expect(canonicalRegistry!.collections.attentionItems.get("mention:mention-1")).toBeDefined()
       expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")?.attentionCount).toBe(1)
     })
-    expect(projection.projectUnread(
-      "inbox-mentions", "ch_1", true, 4, "mentions", null, true, mention.id,
-    )).toBe(true)
-    expect(projection.projectServerMentionCount("srv_1", [{
-      channelId: "ch_1", count: 1, lastSeq: 4,
-    }])).toBe(1)
-
     await act(async () => { fail(new Error("retry direct")); await replyPending })
     expect(cachedAttentionItems().map((item) => item.id).sort()).toEqual([
       "mention:mention-1", "mention:reply-1",
@@ -1255,12 +1233,6 @@ describe("useDeleteMention — rollback", () => {
       expect(canonicalRegistry!.collections.attentionItems.get("mention:reply-1")).toBeDefined()
       expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")?.attentionCount).toBe(1)
     })
-    expect(projection.projectUnread(
-      "inbox-mentions", "ch_1", true, 4, "mentions", null, true, reply.id,
-    )).toBe(true)
-    expect(projection.projectServerMentionCount("srv_1", [{
-      channelId: "ch_1", count: 1, lastSeq: 4,
-    }])).toBe(0)
     await act(async () => { fail(new Error("cleanup")); await mentionPending })
     expect(cachedAttentionItems().map((item) => item.id).sort()).toEqual([
       "mention:mention-1", "mention:reply-1",
@@ -1294,18 +1266,6 @@ describe("useDeleteMention — rollback", () => {
       limit: 100,
       truncated: false,
     })
-    const { getActiveAccountUnreadProjection } = await import(
-      "@/hooks/community/account-unread-projection"
-    )
-    const projection = getActiveAccountUnreadProjection(capturedQc)
-    projection.recordArrival({
-      channelId: "ch_1",
-      serverId: "srv_1",
-      messageId: "msg_1",
-      attentionId: "men_1",
-      seq: 4,
-      isMention: true,
-    })
     mountHook(() => mod.useDeleteMention())
     let fail!: (error: Error) => void
     apiFetchMock.mockImplementation((path: string) => path === "/api/community/users/me/attention"
@@ -1318,13 +1278,10 @@ describe("useDeleteMention — rollback", () => {
       ordinaryUnread: true,
       attentionCount: 0,
     })
-    expect(projection.projectUnread("inbox-unreads", "ch_1", false)).toBe(true)
-    expect(projection.projectUnread("inbox-mentions", "ch_1", false)).toBe(false)
 
     await act(async () => { fail(new Error("boom")); await pending })
     expect(canonicalRegistry!.collections.attentionItems.get("mention:men_1")).toBeDefined()
     expect(canonicalRegistry!.collections.attentionScopes.get("ch_1")?.attentionCount).toBe(1)
-    expect(projection.projectUnread("inbox-mentions", "ch_1", false)).toBe(true)
   })
 
   it("restores mention on failure", async () => {
@@ -1352,7 +1309,7 @@ describe("useDeleteMention — rollback", () => {
     expect(toastMock).toHaveBeenCalledWith("boom")
   })
 
-  it("invalidates communityKeys.servers() on success so the rail badge decrements", async () => {
+  it("keeps server structure unchanged after a native mention dismissal", async () => {
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
       mentions: [{ id: "men_1" }],
     })
@@ -1365,7 +1322,7 @@ describe("useDeleteMention — rollback", () => {
       const key = c[0]?.queryKey as unknown[] | undefined
       return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
     })
-    expect(serversInvalidates).toHaveLength(1)
+    expect(serversInvalidates).toHaveLength(0)
   })
 })
 
@@ -1386,7 +1343,7 @@ describe("confirmed send failures", () => {
         dispatchCommunityWsEvent({ type: "community:message.create", serverId: scope.serverId, channelId: scope.id,
           message: { ...confirmed, authorName: "Me", authorAvatar: "M", authorAvatarVersion: 0, createdAt: "2026-08-07T10:00:00.000Z" } }, {
           deliveryMode: "single", queryClient: capturedQc, communityStore: canonicalRegistry.runtime.ui, wsStore: canonicalRegistry.runtime.ws,
-          sub: { channelId: scope.id }, viewerUserIdRef: { current: "u_me" }, matchesFocus: event => event.channelId === scope.id, scheduleInboxInvalidate: vi.fn(),
+          sub: { channelId: scope.id }, viewerUserIdRef: { current: "u_me" }, matchesFocus: event => event.channelId === scope.id,
         })
       } else {
         ingestMessages(canonicalRegistry, scope.id, [confirmed])

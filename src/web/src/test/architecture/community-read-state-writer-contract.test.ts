@@ -104,26 +104,18 @@ describe("human account read-state writer contract", () => {
     ])
   })
 
-  it("keeps the account unread ledger synchronous and I/O-free", () => {
-    const projection = source(
-      "src/web/src/hooks/community/account-unread-projection.ts",
-    )
-    expect(projection).not.toMatch(/\b(?:apiFetch|fetch|setTimeout|setInterval)\s*\(/)
-    expect(projection).not.toMatch(
-      /queryClient\.(?:setQueryData|invalidateQueries|fetchQuery|query|fetchInfiniteQuery|infiniteQuery|refetchQueries|cancelQueries)\s*\(/,
-    )
-  })
-
-  it("keeps optimistic unread clearing owned by the visible-row observer", () => {
+  it("keeps read and reservation projections in the existing native owners", () => {
     const webSourceRoot = resolve(repositoryRoot, "src/web/src")
     const owners = walkTypeScript(webSourceRoot)
       .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts"))
-      .filter((path) => /\.recordOptimisticRead\s*\(/.test(readFileSync(path, "utf8")))
+      .filter((path) => /\bclearAttentionScopeOptimistically\s*\(/.test(readFileSync(path, "utf8")))
       .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/"))
       .sort()
 
     expect(owners).toEqual([
-      "src/web/src/hooks/community/use-read-observer.ts",
+      "src/web/src/hooks/community/inbox-read-reservation.ts",
+      "src/web/src/hooks/community/read-coordinator.ts",
+      "src/web/src/lib/community-db/sync.ts",
     ])
   })
 

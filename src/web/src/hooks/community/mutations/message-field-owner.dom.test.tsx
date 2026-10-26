@@ -67,7 +67,7 @@ describe("actual canonical message field command", () => {
     act(() => dispatchCommunityWsEvent(kind === "edit"
       ? { type: "community:message.edited", messageId: "m1", channelId: "c1", content: "newer-ws" }
       : { type: "community:reaction.add", messageId: "m1", channelId: "c1", emoji: "👍", userId: "peer" },
-      { deliveryMode: "single", queryClient: original, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "A" }, matchesFocus: () => false, scheduleInboxInvalidate: vi.fn() }))
+      { deliveryMode: "single", queryClient: original, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "A" }, matchesFocus: () => false }))
     expect(original.getQueryData(communityKeys.message("m1"))).toBe("m1")
     if (kind === "edit") expect(screen.getByTestId("exact").textContent).toBe("newer-ws")
     else expect(getCommunityDbRegistry(original)!.collections.messages.get("m1")?.reactions).toMatchObject([{ emoji: "👍", userIds: ["peer"] }])

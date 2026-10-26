@@ -30,7 +30,7 @@ it("refreshes only the account rail and reference directory, keeping inactive qu
   client.setQueryData(communityKeys.channelRefDirectory(), ["old"])
   await dispatchCommunityWsEvent({ type: "community:server_rail.changed" }, {
     queryClient: client, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, deliveryMode: "single",
-    viewerUserIdRef: { current: "viewer" }, matchesFocus: () => false, scheduleInboxInvalidate: vi.fn(),
+    viewerUserIdRef: { current: "viewer" }, matchesFocus: () => false,
   })
   expect(servers.queryFn).toHaveBeenCalledTimes(1)
   expect(folders.queryFn).toHaveBeenCalledTimes(1)

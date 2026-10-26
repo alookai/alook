@@ -25,7 +25,6 @@ import {
   isForumSidebarParent,
   patchForumSidebarActivityExact,
   reconcileForumSidebarArchiveTag,
-  removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
@@ -41,7 +40,6 @@ import {
   invalidateServersList,
   invalidateThreads,
 } from "./invalidation-projections"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
   const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")
@@ -71,7 +69,6 @@ export function handleChildChannelUpdate(
     isForumSidebarParent(queryClient, sidebarServerId, event.parentChannelId)
   ) {
     if (changes.archived === true || changes.archived === false) {
-      removeForumSidebarUnreadChild(queryClient, sidebarServerId, event.channelId)
       void reconcileForumSidebarArchiveTag(
         queryClient,
         sidebarServerId,
@@ -172,10 +169,6 @@ export function handleChannelEvent(
         exact: true,
       })
     } else {
-      getActiveAccountUnreadProjection(queryClient).retireAccessScope({
-        kind: "channel",
-        channelId: event.channelId,
-      })
       const registry = getCommunityDbRegistry(queryClient)
       if (registry) retireCommunityChannelReading(registry, event.channelId, { reason: "resource-deleted", serverId: event.serverId })
     }

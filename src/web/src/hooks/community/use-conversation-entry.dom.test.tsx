@@ -23,7 +23,6 @@ import type { FlatItem } from "@/lib/community/message-list-items"
 import { renderMessageListRow } from "@/components/community/messages/message-list-row"
 import { confirmReadSurface, disposeReadCoordinator, getReadCoordinator, registerReadSurface, releaseReadSurface, submitReadIntentGeneration } from "./read-coordinator"
 import { disposeAccountReadStateReconciliation } from "./community-ws/read-state-reconciliation"
-import { getAccountUnreadProjection } from "./account-unread-projection"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async (original) => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
@@ -426,7 +425,7 @@ describe("conversation entry return during accepted reading", () => {
     }
   })
 
-  it.each(["before PUT confirmation", "after PUT before canonical publication", "after ACK and failed canonical readback"] as const)(
+  it.each(["before PUT confirmation", "after ACK before canonical readback", "after ACK and failed canonical readback"] as const)(
     "keeps accepted local reading in the returned viewport %s without confirming the entry snapshot", async boundary => {
       const owner = await readingOwner()
       const first = mountReadingEntry(owner)
@@ -440,7 +439,6 @@ describe("conversation entry return during accepted reading", () => {
         const generation = submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })
         expect(generation).not.toBeNull()
         expect(owner.scope().accepted?.intent).toEqual({ kind: "timeline", channelId: "c1", messageId: "m42", seq: 42 })
-        getAccountUnreadProjection(owner.client, "viewer").recordOptimisticRead("c1", 42, generation!)
         expect(submitReadIntentGeneration(owner.lease, { kind: "timeline", channelId: "c1", messageId: "m31", seq: 31 })).toBeNull()
         first.view.unmount()
         releaseReadSurface(owner.lease)
@@ -464,11 +462,11 @@ describe("conversation entry return during accepted reading", () => {
           expect(owner.scope().confirmedSeq).toBe(30)
           expect(load.mock.calls.some(([url]) => url === "/api/community/users/me/read-state")).toBe(false)
         }
-        expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(30)
+        expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(boundary === "before PUT confirmation" ? 30 : 42)
         returned = mountReadingEntry(owner)
         expect(returned.latest.feed.messages).toHaveLength(42)
-        expect(returned.latest.feed.readSnapshot?.lastReadSeq).toBe(30)
-        expect(returned.latest.newDividerBefore).toBe("m31")
+        expect(returned.latest.feed.readSnapshot?.lastReadSeq).toBe(boundary === "before PUT confirmation" ? 30 : 42)
+        expect(returned.latest.newDividerBefore).toBe(boundary === "before PUT confirmation" ? "m31" : undefined)
         expect(returned.latest.controller.readPositionReady).toBe(true)
         expect(returned.visible("m42")).toBe(true)
         const offset = returned.root.scrollTop, captured = returned.latest.feed.readSnapshot

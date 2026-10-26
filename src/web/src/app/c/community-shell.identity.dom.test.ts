@@ -32,6 +32,7 @@ import { CommunityShell } from "./community-shell"
 
 const registries = new Map<string, CommunityDbRegistry>()
 const seen: Array<{ viewer: string | null; presence: string[] }> = []
+const selfProfileCalls = () => fixtures.fetch.mock.calls.filter(([path]) => path === "/api/community/users/me/profile")
 const self = (id: string) => ({ id, name: "Jane Roe", discriminator: "4242", aboutMe: "hello", avatar: "new-avatar", avatarVersion: 3, statusEmoji: null, statusText: "" })
 function Probe() {
   const client = useQueryClient()
@@ -61,7 +62,11 @@ beforeEach(async () => {
   }))
   await clearAllPersistedCaches()
   fixtures.user = { id: "user-a", name: "A", email: "a@example.test", avatar: "A" }
-  fixtures.fetch.mockReset().mockImplementation(() => Promise.resolve(self(fixtures.user.id)))
+  fixtures.fetch.mockReset().mockImplementation((path: string) => {
+    if (path === "/api/community/users/me/profile") return Promise.resolve(self(fixtures.user.id))
+    if (path === "/api/community/users/me/read-state") return Promise.resolve({ revision: 0, readStates: [] })
+    throw new Error(`Unexpected bootstrap endpoint: ${path}`)
+  })
   fixtures.notifications.mockClear()
   registries.clear(); seen.length = 0
 })
@@ -94,7 +99,7 @@ describe("CommunityShell actual identity and bootstrap boundary", () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => undefined)
     try {
       render(React.createElement(React.StrictMode, null, tree()))
-      await waitFor(() => expect(fixtures.fetch).toHaveBeenCalledOnce())
+      await waitFor(() => expect(selfProfileCalls()).toHaveLength(1))
       await waitFor(() => expect(registries.get("user-a")!.collections.profiles.get("user-a")?.aboutMe).toBe("hello"))
       expect(report.mock.calls.flat().join("\n")).not.toMatch(/Cannot update a component|while rendering a different component/)
     } finally { report.mockRestore() }
@@ -117,11 +122,13 @@ describe("CommunityShell actual identity and bootstrap boundary", () => {
 
   it("physically cancels A's held self-profile and rejects its late payload after B mounts", async () => {
     let finish!: (data: ReturnType<typeof self>) => void
-    fixtures.fetch.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    const normal = fixtures.fetch.getMockImplementation()!
+    fixtures.fetch.mockImplementation((path: string, options: { authenticationAccount?: string }) => path === "/api/community/users/me/profile" && options.authenticationAccount === "user-a"
+      ? new Promise((resolve) => { finish = resolve }) : normal(path, options))
     const view = render(tree())
-    await waitFor(() => expect(fixtures.fetch).toHaveBeenCalledOnce())
+    await waitFor(() => expect(selfProfileCalls()).toHaveLength(1))
     const original = registries.get("user-a")!
-    const signal = fixtures.fetch.mock.calls[0][1].signal as AbortSignal
+    const signal = selfProfileCalls()[0][1].signal as AbortSignal
     fixtures.user = { id: "user-b", name: "B", email: "b@example.test", avatar: "B" }
     view.rerender(tree())
     await waitFor(() => expect(signal.aborted).toBe(true))

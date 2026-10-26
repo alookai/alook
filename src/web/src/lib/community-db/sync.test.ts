@@ -1,9 +1,9 @@
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { projectPostedMessage } from "@/lib/community/message-wire"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AccountAttentionSnapshotSchema, CommunityMessageResourceSchema, communityMessagePreviewFromLegacy, type CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
-import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { rememberMessageAccessScope } from "./message-access-scope"
 import { getLastChannel, setLastChannel } from "@/lib/community/last-channel"
 import {
@@ -124,6 +124,22 @@ afterEach(async () => {
 })
 
 describe("community DB sync", () => {
+  it("keeps a partial eligible count unknown until fresh authoritative readback, and restores it on rollback", async () => {
+    const db = await registry()
+    const scope = { scopeId: "dm", channelId: "dm", serverId: null, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 9, attentionCount: 0, lastAttentionSeq: null, unreadCount: 3 }
+    const seed = (unreadCount: number) => ingestAttentionSnapshot(db, { scopes: [{ ...scope, unreadCount }], items: [], limit: 100, truncated: false })
+    seed(3)
+    const first = clearAttentionScopeOptimistically(db, "dm", 5)
+    expect(db.collections.attentionScopes.get("dm")?.unreadCount).toBeUndefined()
+    restoreAttentionScopeOptimisticSnapshot(db, first)
+    expect(db.collections.attentionScopes.get("dm")?.unreadCount).toBe(3)
+    const next = clearAttentionScopeOptimistically(db, "dm", 5)
+    publishCommunityConversationReadState(db.queryClient, { channelId: "dm", lastReadMessageId: "m5", lastReadAt: "2026-10-27T00:00:05.000Z", lastReadSeq: 5 }, 2, { token: captureCommunityLiveSnapshotToken(db.queryClient) }, "advance")
+    seed(1)
+    await commitAttentionScopeOptimisticSnapshot(db, next)
+    expect(db.collections.attentionScopes.get("dm")?.unreadCount).toBe(1)
+  })
+
   it("keeps unloaded and partial member data unknown but prunes a fresh complete roster without requiring profiles", async () => {
     const db = await registry()
     publishCommunityChannelMetadata(db.queryClient, {
@@ -465,7 +481,7 @@ describe("community DB sync", () => {
     expect(db.collections.serverMemberships.get(membership.id)).toStrictEqual(membership)
     expect(db.collections.servers.get("s2")).toMatchObject({ id: "s2", position: 1,
       name: "New", discriminator: "0003", description: "", ownerId: "", icon: null,
-      official: false, isOwner: false, unread: false, mentions: 0, detailComplete: false })
+      official: false, isOwner: false, detailComplete: false })
     expect([...db.collections.serverMemberships.values()].find((row) => row.serverId === "s2"))
       .toMatchObject({ serverId: "s2", userId: "viewer", role: "member", viewer: true })
   })
@@ -1657,14 +1673,12 @@ describe("community DB sync", () => {
         muted: true,
         preview: "keep preview",
         lastMessageAt: "2026-09-28T00:00:07.000Z",
-        lastUnreadSeq: 7,
       })
       expect(db.collections.channels.get("new")).toMatchObject({
         position: 1,
         muted: false,
         preview: "",
         lastMessageAt: "2026-09-28T00:00:08.000Z",
-        lastUnreadSeq: 8,
       })
     })
   })
@@ -2249,7 +2263,7 @@ describe("community DB sync", () => {
       setItem: (key: string, value: string) => navigationMemory.set(key, value),
       removeItem: (key: string) => navigationMemory.delete(key),
     })
-    const unreadProjection = getAccountUnreadProjection(db.queryClient, "viewer")
+
     ingestServers(db, {
       servers: [{
         id: "s1", name: "Server", initial: "S", active: false, unread: false,
@@ -2282,7 +2296,7 @@ describe("community DB sync", () => {
       id: "m1", type: "chat", authorId: "thread-author", authorName: "Thread Author",
       content: "thread", createdAt: "2026-09-25T00:00:01.000Z",
     }])
-    unreadProjection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    seedCommunityAttentionScope(db.queryClient, { channelId: "c1", serverId: "s1", seq: 1 })
     db.queryClient.setQueryData(communityKeys.inboxUnreads(), {
       friendRequests: [],
       servers: [{
@@ -2318,7 +2332,7 @@ describe("community DB sync", () => {
     expect(db.collections.messages.get("m1")).toBeUndefined()
     expect(db.collections.channelMemberships.get("c1:viewer:access")).toBeUndefined()
     expect(db.collections.profiles.get("thread-author")).toBeUndefined()
-    expect(unreadProjection.projectUnread("inbox-unreads", "c1", true)).toBe(false)
+    expect(Boolean(db.collections.attentionScopes.get("c1")?.ordinaryUnread)).toBe(false)
     expect(db.queryClient.getQueryData<{ servers: unknown[] }>(
       communityKeys.inboxUnreads(),
     )?.servers).toEqual([])
@@ -2334,7 +2348,7 @@ describe("community DB sync", () => {
       id: "dm-message", type: "chat", authorId: "peer", authorName: "Peer",
       content: "dm", createdAt: "2026-09-25T00:00:02.000Z",
     }])
-    unreadProjection.recordArrival({ channelId: "dm1", seq: 2 })
+    seedCommunityAttentionScope(db.queryClient, { channelId: "dm1", seq: 2 })
     db.queryClient.setQueryData(communityKeys.inboxUnreads(), {
       friendRequests: [],
       servers: [],
@@ -2347,7 +2361,7 @@ describe("community DB sync", () => {
     expect(db.collections.channelMemberships.get("dm1:peer:access")).toBeUndefined()
     expect(db.collections.messages.get("dm-message")).toBeUndefined()
     expect(db.collections.profiles.get("peer")).toBeUndefined()
-    expect(unreadProjection.projectUnread("inbox-unreads", "dm1", true)).toBe(false)
+    expect(Boolean(db.collections.attentionScopes.get("dm1")?.ordinaryUnread)).toBe(false)
     expect(db.queryClient.getQueryData<{ dms: unknown[] }>(
       communityKeys.inboxUnreads(),
     )?.dms).toEqual([])
@@ -2961,8 +2975,8 @@ describe("community DB sync", () => {
     event({ type: "community:member.leave", serverId: "s1", userId: "peer" })
     event({ type: "community:category.delete", serverId: "s1", categoryId: "cat2" })
 
-    expect(db.collections.servers.get("s1")).toMatchObject({ name: "Renamed", unread: true, mentions: 1 })
-    expect(db.collections.channels.get("c1")).toMatchObject({ name: "renamed", position: 9, unread: true })
+    expect(db.collections.servers.get("s1")).toMatchObject({ name: "Renamed" })
+    expect(db.collections.channels.get("c1")).toMatchObject({ name: "renamed", position: 9 })
     expect(db.collections.channels.get("thread1")).toMatchObject({ name: "Thread renamed", tags: ["tag"] })
     expect(db.collections.messages.get("m1")?.reactions).toEqual([
       { emoji: "👍", count: 1, me: true, userIds: ["viewer"] },

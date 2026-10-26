@@ -61,7 +61,7 @@ it.each([null, false, true].flatMap(blockMode => (["accepted", "incoming"] as co
     expect(ids).toContain("m2")
     if (blocked) act(() => dispatchCommunityWsEvents([{ type: "community:friend.block", userId: "peer", ...(blockMode ? { blockedByViewer: true } : {}) }], {
       deliveryMode: "batch", contract: 2, queryClient: registry!.queryClient, communityStore: registry!.runtime.ui, wsStore: registry!.runtime.ws,
-      sub: { dmConversationId: "c1" }, viewerUserIdRef: { current: "viewer" }, matchesFocus: event => event.channelId === "c1", scheduleInboxInvalidate: () => {},
+      sub: { dmConversationId: "c1" }, viewerUserIdRef: { current: "viewer" }, matchesFocus: event => event.channelId === "c1",
     }))
     expect(registry!.runtime.ws.actions.isChannelAccessRevoked("c1", null)).toBe(blocked)
     await act(async () => { release!(); await Promise.resolve() })

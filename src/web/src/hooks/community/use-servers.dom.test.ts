@@ -8,7 +8,6 @@ import { captureCommunityLiveSnapshotToken, publishAccountAttentionSnapshot, pub
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
 import { forumConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
-import { AccountUnreadProjection, getActiveAccountUnreadProjection } from "./account-unread-projection"
 import { serversQueryFn, serversProjectedQueryFn, serverProjectedQueryFn, useServers, useServer, useViewerServerRole, type ServersResponse, type ServerDetail } from "./use-servers"
 
 const apiFetchMock = vi.fn()
@@ -47,8 +46,8 @@ function attention(channelId: string, count = 1, parentChannelId: string | null 
     proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
   })
 }
-function fetchList(projection = getActiveAccountUnreadProjection(client)) {
-  return client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(projection, client), staleTime: 0 })
+function fetchList() {
+  return client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client), staleTime: 0 })
 }
 function fetchDetail() {
   return client.query({ queryKey: communityKeys.server(identity.id), queryFn: ({ signal }) => serverProjectedQueryFn(client, identity.id, signal)(), staleTime: 0 })
@@ -73,14 +72,14 @@ describe("useServers / serversQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce({ servers: [{ ...identity, official: true, role: "owner", mentions: 3, unread: true }, { ...identity, id: "srv_2", name: "Beta", discriminator: "12345", role: "member", description: undefined }] })
     const data = await rawList()
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
-    expect(data.servers[0]).toMatchObject({ ...identity, official: true, initial: "A", isOwner: true, mentions: 3, active: false, unread: true })
+    expect(data.servers[0]).toMatchObject({ ...identity, official: true, initial: "A", isOwner: true, mentions: 0, active: false, unread: false })
     expect(data.servers[1]).toMatchObject({ official: false, mentions: 0, isOwner: false, unread: false, description: "" })
     expect(client.getQueryData(["server-transform"])).toEqual(["srv_1", "srv_2"])
   })
 
   it("preserves mentions when provided; defaults to 0 when omitted", async () => {
     apiFetchMock.mockResolvedValueOnce({ servers: [{ ...identity, mentions: 7 }, { ...identity, id: "srv_2" }] })
-    expect((await rawList()).servers.map((server) => server.mentions)).toEqual([7, 0])
+    expect((await rawList()).servers.map((server) => server.mentions)).toEqual([0, 0])
   })
 
   it("passes TanStack's abort signal to the canonical request", async () => {
@@ -97,33 +96,15 @@ describe("useServers / serversQueryFn", () => {
     expect(registry.collections.servers.get(identity.id)).toMatchObject(identity)
   })
 
-  it("uses a complete server list as authoritative unread negative evidence", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [] })
-    const projection = getActiveAccountUnreadProjection(client)
-    projection.setNotificationPolicy({})
-    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 2 })
-    await fetchList(projection)
-    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
-  })
-
-  it("cancels server-list snapshot coverage when the transport fails", async () => {
-    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
-    const projection = getActiveAccountUnreadProjection(client)
-    await expect(fetchList(projection)).rejects.toThrow("offline")
-    expect(projection.inspectForTests().pendingSnapshots).toBe(0)
-  })
-
   it("rejects a server-list response captured for an earlier account epoch", async () => {
     let release!: (value: { servers: typeof identity[] }) => void
     apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
-    const projection = getActiveAccountUnreadProjection(client)
-    const pending = fetchList(projection)
+    const pending = fetchList()
     const result = pending.catch((error) => error)
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     registry.runtime.ws.actions.activateProfileAccount("replacement")
     release({ servers: [identity] })
     expect(await result).toMatchObject({ name: "AbortError" })
-    expect(projection.inspectForTests().pendingSnapshots).toBe(0)
     expect(registry.collections.servers.size).toBe(0)
   })
 
@@ -179,21 +160,8 @@ describe("useServers / serversQueryFn", () => {
     expect(rendered.result.current.isLiveAuthoritative).toBe(false)
   })
 
-  it("correlates cold rail unread sources with their attention facets", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [{ ...identity, unreadSources: [{ channelId: "attention", lastUnreadSeq: 10 }, { channelId: "ordinary", lastUnreadSeq: 3 }], mentionSources: [{ channelId: "attention", count: 1, lastSeq: 5 }, { channelId: "ignored", count: 0, lastSeq: 99 }] }] })
-    const projection = new AccountUnreadProjection("viewer")
-    projection.setNotificationPolicy({ server: { srv_1: "mentions" } })
-    await fetchList(projection)
-    expect(projection.projectUnread("servers", "attention", false)).toBe(true)
-    expect(projection.projectUnread("servers", "ordinary", false)).toBe(false)
-    expect(projection.projectUnread("servers", "ignored", false)).toBe(false)
-    projection.recordRead("attention", 5)
-    expect(projection.projectUnread("servers", "attention", false)).toBe(false)
-  })
-
   it("does not let the legacy unread ledger override canonical attention", async () => {
     seedList([canonical(), { ...canonical("s2"), unread: true, mentions: 2 }, { ...canonical("s3"), unread: true }])
-    getActiveAccountUnreadProjection(client).recordArrival({ channelId: "c1", serverId: identity.id, seq: 1 })
     const rendered = renderHook(() => useServers(), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.servers).toHaveLength(3))
     expect(rendered.result.current.servers.map(({ unread, mentions }) => ({ unread, mentions }))).toEqual(Array.from({ length: 3 }, () => ({ unread: false, mentions: 0 })))
@@ -228,7 +196,7 @@ describe("useServers / serversQueryFn", () => {
     await waitFor(() => expect(rendered.result.current.servers[0]?.unread).toBe(false))
     act(() => publish({ kind: "servers", data: { servers: [{ ...canonical(), unread: true, unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }] }] } }))
     await waitFor(() => expect(rendered.result.current.servers[0]?.unread).toBe(false))
-    act(() => getActiveAccountUnreadProjection(client).acceptPrimarySnapshot({ revision: 1, readStates: [{ channelId: "c1", lastReadSeq: 4 }] }))
+    act(() => publish({ kind: "read-state", data: { revision: 1, readStates: [{ channelId: "c1", lastReadMessageId: "m4", lastReadAt: null, lastReadSeq: 4 }] } }))
     expect(rendered.result.current.servers[0]?.unread).toBe(false)
   })
 })
@@ -345,27 +313,6 @@ describe("useServer / projected canonical detail", () => {
     expect(client.getQueryData(communityKeys.server(identity.id))).toBe(identity.id)
   })
 
-  it("starts server-detail coverage before transport and preserves a later arrival", async () => {
-    seedList()
-    let release!: (value: { channels: [] }) => void
-    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? new Promise((resolve) => { release = resolve }) : Promise.resolve(detailApi(url)))
-    const projection = getActiveAccountUnreadProjection(client)
-    projection.setNotificationPolicy({})
-    projection.recordArrival({ channelId: "before", serverId: identity.id, seq: 1 })
-    const request = fetchDetail()
-    await waitFor(() => expect(release).toBeTypeOf("function"))
-    projection.recordArrival({ channelId: "after", serverId: identity.id, seq: 2 })
-    release({ channels: [] }); await request
-    expect(projection.projectUnread("server-detail:srv_1", "before", false)).toBe(false)
-    expect(projection.projectUnread("server-detail:srv_1", "after", false)).toBe(true)
-  })
-
-  it("cancels server-detail snapshot coverage when transport fails before unread data", async () => {
-    seedList(); apiFetchMock.mockRejectedValue(new Error("offline"))
-    await expect(fetchDetail()).rejects.toThrow("offline")
-    expect(getActiveAccountUnreadProjection(client).inspectForTests().pendingSnapshots).toBe(0)
-  })
-
   it.each([["offline", new Error("offline")], ["5xx", new ApiError("unavailable", 503)]])("keeps the cached server list on a transient %s failure", async (_label, error) => {
     seedDetail(); apiFetchMock.mockRejectedValue(error)
     await expect(fetchDetail()).rejects.toBe(error)
@@ -387,22 +334,14 @@ describe("useServer / projected canonical detail", () => {
   it("does not merge stale positives from the retired server unread endpoint", async () => {
     seedList(); apiFetchMock.mockImplementation((url: string) => url.endsWith("/unreads") ? { channelIds: ["c1"], sources: [{ channelId: "c1", lastUnreadSeq: 3 }], stale: true } : detailApi(url))
     await expect(fetchDetail()).resolves.toBe(identity.id)
-    expect(getActiveAccountUnreadProjection(client).projectUnread("server-detail:srv_1", "c1", false)).toBe(false)
     expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 
   it("projects child scope metadata and confirms every loaded channel", async () => {
     seedList()
     apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [{ id: "forum_1", name: "Forum", type: "forum", categoryId: "cat_1" }] } : detailApi(url))
-    const projection = getActiveAccountUnreadProjection(client)
-    projection.setNotificationPolicy({ server: { srv_1: "all" }, channel: { forum_1: "nothing" } })
-    projection.retireAccessScope({ kind: "channel", channelId: "forum_1" }); projection.grantAccessScope({ kind: "channel", channelId: "forum_1" })
     await fetchDetail()
     expect(registry.collections.channels.get("forum_1")).toMatchObject({ serverId: identity.id, type: "forum" })
-    expect(projection.allowsAccess({ channelId: "forum_1", serverId: identity.id })).toBe(true)
-    expect(projection.projectUnread("server-detail:srv_1", "post_1", false, 4)).toBe(false)
-    projection.recordArrival({ channelId: "forum_1", serverId: identity.id, seq: 5 })
-    expect(projection.projectUnread("server-detail:srv_1", "forum_1", false, 5)).toBe(false)
   })
 
   it("projects server-detail channels from canonical sources only", async () => {

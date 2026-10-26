@@ -4,6 +4,7 @@ import { useConversationActivity } from "@/contexts/community/conversation-activ
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useMemo } from "react"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
+import { useMessageUnreadCount } from "./use-message-unread-count"
 import { useChannelWatermark } from "./use-channel-watermark"
 import { useMessages } from "./use-messages"
 import { usePins, useThreads } from "./use-channel-panels"
@@ -60,10 +61,11 @@ export function useChannelMessageFeed({
     confirmedSeq: readSnapshot?.lastReadSeq ?? 0,
     catchUp: () => messagesQuery.refetch(),
   })
-  const unreadCount = useMemo(() => {
-    const difference = messagesQuery.latestSeq - (readSnapshot?.lastReadSeq ?? 0)
-    return Math.max(0, difference)
-  }, [messagesQuery.latestSeq, readSnapshot])
+  const unreadCount = useMessageUnreadCount({ channelId, viewerUserId, messages: messagesQuery.messages,
+    entryReadSeq: readSnapshot?.lastReadSeq, latestSeq: messagesQuery.latestSeq,
+    historyStartKnown: messagesQuery.historyStartKnown, hasMoreNewer: messagesQuery.hasMoreNewer,
+    ready: !!readSnapshot && !messagesQuery.readSnapshotFetching && !messagesQuery.isPending && !messagesQuery.isError,
+  })
   const threadsQuery = useThreads(channelId)
   const pinsQuery = usePins(channelId)
   return {

@@ -20,7 +20,6 @@ import {
   publishInboxProjectionGenerationTerminal,
   settleInboxReadReservationGeneration,
 } from "./inbox-read-reservation"
-import { getAccountUnreadProjection } from "./account-unread-projection"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import type { ReadStateRow } from "@/lib/community-db/schema"
 import {
@@ -28,7 +27,7 @@ import {
   captureCommunityLiveSnapshotToken,
   commitAttentionScopeOptimisticSnapshot,
   hasAttentionScopeOptimisticFence,
-  projectConfirmedAttention,
+  publishCommunityConversationReadState,
   restoreAttentionScopeOptimisticSnapshot,
   type AttentionScopeOptimisticSnapshot,
 } from "@/lib/community-db/sync"
@@ -51,6 +50,8 @@ type QueuedReadIntent = {
   dueAt: number
   ownerToken: symbol
   request: ReturnType<typeof communityRequestOptions>
+  proof: ReturnType<typeof captureCommunityLiveSnapshotToken>
+  messageCreatedAt?: string
 }
 
 export type PendingReadFlushOutcome = {
@@ -82,6 +83,7 @@ type SurfaceLease = {
 type ScopeState = {
   surface: ReadSurface
   authority: ReturnType<typeof communityRequestOptions>
+  proof: ReturnType<typeof captureCommunityLiveSnapshotToken>
   localPosition: QueuedReadIntent | null
   epoch: number
   leases: Set<symbol>
@@ -170,9 +172,10 @@ class ReadCoordinator {
       if (previous.attentionOptimistic) commitAttentionScopeOptimisticSnapshot(previous.attentionOptimistic.registry, previous.attentionOptimistic.snapshot)
     }
     if (current?.releaseTimer !== null && current?.releaseTimer !== undefined) clearTimeout(current.releaseTimer)
+    const proof = current?.proof ?? captureCommunityLiveSnapshotToken(this.queryClient, surface.channelId)
     const state: ScopeState = current
       ? { ...current, confirmedSeq: Math.max(current.confirmedSeq, confirmedSeq), releaseTimer: null, leases: new Set([...current.leases, token]) }
-      : { surface: { ...surface }, authority: communityRequestOptions(this.queryClient, captureCommunityLiveSnapshotToken(this.queryClient, surface.channelId)), localPosition: null,
+      : { surface: { ...surface }, proof, authority: communityRequestOptions(this.queryClient, proof), localPosition: null,
         epoch: (previous?.epoch ?? -1) + 1, leases: new Set([token]), releaseTimer: null, timer: null, accepted: null, dirty: null, inFlight: null, attemptEpoch: (previous?.attemptEpoch ?? -1) + 1, confirmedSeq, attentionOptimistic: null }
     this.state.setState((owner) => ({ ...owner, scopes: new Map(owner.scopes).set(key, state) }))
     if ([state.accepted, state.dirty, state.inFlight?.target].some(target => target && target.intent.seq <= state.confirmedSeq)) this.cancelConfirmedWork(key)
@@ -202,7 +205,6 @@ class ReadCoordinator {
         this.update(lease.key, (scope) => ({ ...scope, timer: null }))
       }
       for (const generation of canceled) {
-        getAccountUnreadProjection(this.queryClient, this.ownerUserId).settleOptimisticRead(generation, false)
         void settleInboxReadReservationGeneration(this.queryClient, generation, false, state.surface.channelId).catch(() => undefined)
       }
       if (!remaining.accepted && !remaining.dirty && !remaining.inFlight) this.rollbackAttentionOptimisticRead(lease.key)
@@ -225,15 +227,14 @@ class ReadCoordinator {
     if (!state || state.surface.channelId !== intent.channelId || state.confirmedSeq >= intent.seq) return null
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return null
     if (Math.max(state.accepted?.intent.seq ?? 0, state.dirty?.intent.seq ?? 0, state.inFlight?.target.intent.seq ?? 0) >= intent.seq) return null
-    const superseded = [state.accepted, state.dirty].filter((pending) => pending && pending.intent.seq < intent.seq && pending.generation !== state.inFlight?.target.generation)
     const generation = this.latestIntentGeneration + 1
-    const queued: QueuedReadIntent = { intent: { ...intent }, generation, dueAt: Date.now() + READ_COORDINATOR_DEBOUNCE_MS, ownerToken: lease.token, request: state.authority }
+    const message = getCommunityDbRegistry(this.queryClient)?.collections.messages.get(intent.messageId)
+    const queued: QueuedReadIntent = { messageCreatedAt: message?.channelId === intent.channelId && message.seq === intent.seq ? message.createdAt : undefined, intent: { ...intent }, generation, dueAt: Date.now() + READ_COORDINATOR_DEBOUNCE_MS, ownerToken: lease.token, request: state.authority, proof: state.proof }
     queued.request.assertActive()
     this.state.setState((owner) => ({ ...owner, latestIntentGeneration: generation }))
     this.update(lease.key, (scope) => ({ ...scope, accepted: laterIntent(scope.accepted, queued), dirty: laterIntent(scope.dirty, queued),
       localPosition: lease.releasePolicy === "flush" ? laterIntent(scope.localPosition, queued) : scope.localPosition }))
     this.beginAttentionOptimisticRead(lease.key)
-    for (const pending of superseded) getAccountUnreadProjection(this.queryClient, this.ownerUserId).settleOptimisticRead(pending!.generation, false)
     this.schedule(lease.key, READ_COORDINATOR_DEBOUNCE_MS)
     return generation
   }
@@ -372,7 +373,6 @@ class ReadCoordinator {
           return response
         } catch (error) {
           assertActive()
-          getAccountUnreadProjection(this.queryClient, this.ownerUserId).settleOptimisticRead(target.generation, false)
           const current = this.scope(key)!
           if (![current.accepted, current.dirty].some((pending) => pending && pending.generation > target.generation)) this.rollbackAttentionOptimisticRead(key)
           await settleInboxReadReservationGeneration(this.queryClient, target.generation, false, target.intent.channelId)
@@ -411,7 +411,6 @@ class ReadCoordinator {
       if (!this.attemptActive(key, attemptEpoch, identityEpoch)) return { committed: false, reconciled: false }
       await settleInboxReadReservationGeneration(this.queryClient, target.generation, false, target.intent.channelId)
       if (!this.attemptActive(key, attemptEpoch, identityEpoch)) return { committed: false, reconciled: false }
-      getAccountUnreadProjection(this.queryClient, this.ownerUserId).settleOptimisticRead(target.generation, false)
       const current = this.scope(key)!
       if (![current.accepted, current.dirty].some((pending) => pending && pending.generation > target.generation)) this.rollbackAttentionOptimisticRead(key)
       if (!retryable(error)) this.update(key, (scope) => ({ ...scope, dirty: scope.dirty && sameIntent(scope.dirty, target) ? null : scope.dirty }))
@@ -419,22 +418,20 @@ class ReadCoordinator {
       return { committed: false, reconciled: false }
     }
     if (!this.attemptActive(key, attemptEpoch, identityEpoch)) return { committed: false, reconciled: false }
-    const unreadProjection = getAccountUnreadProjection(this.queryClient, this.ownerUserId)
-    unreadProjection.recordRead(target.intent.channelId, response.targetSeq)
-    const registry = getCommunityDbRegistry(this.queryClient)
-    if (registry) projectConfirmedAttention(registry)
+    if (target.intent.seq === response.targetSeq && target.messageCreatedAt) publishCommunityConversationReadState(this.queryClient, {
+      channelId: target.intent.channelId,
+      lastReadMessageId: target.intent.messageId,
+      lastReadAt: target.messageCreatedAt,
+      lastReadSeq: response.targetSeq,
+    }, response.revision, { token: target.proof, signal: target.request.signal ?? undefined }, "advance")
     await settleInboxReadReservationGeneration(this.queryClient, target.generation, true, target.intent.channelId)
     if (!this.attemptActive(key, attemptEpoch, identityEpoch)) return { committed: false, reconciled: false }
     this.update(key, (scope) => ({ ...scope, confirmedSeq: Math.max(scope.confirmedSeq, response.targetSeq), dirty: sameIntent(scope.dirty ?? target, target) ? null : scope.dirty, inFlight: scope.inFlight ? { ...scope.inFlight, phase: "reconciling" } : null }))
-    getAccountUnreadProjection(this.queryClient, this.ownerUserId).settleOptimisticRead(target.generation, true, response.targetSeq)
     const current = this.scope(key)!, active = current.inFlight!
     const defer = active.deferInboxDms?.() === true || active.drainCutoff !== undefined && current.accepted !== null && current.accepted.generation > active.drainCutoff
     try {
       target.request.assertActive()
-      await Promise.all([
-        reconcileAccountReadState(this.queryClient, { surfaceMode: defer ? "non-inbox" : "all", awaitSurfaceMode: defer ? "none" : "inbox-dms", targetRevision: response.revision }),
-        registry ? reconcileAccountAttention(registry).catch(() => undefined) : Promise.resolve(),
-      ])
+      await reconcileAccountReadState(this.queryClient, { targetRevision: response.revision })
       if (!this.attemptActive(key, attemptEpoch, identityEpoch)) return { committed: true, reconciled: false }
       target.request.assertActive()
       publishInboxProjectionGenerationTerminal(this.queryClient, target.generation, defer ? "deferred" : "success")
@@ -471,7 +468,7 @@ class ReadCoordinator {
     if (canceled) scope.inFlight!.controller.abort()
     const latest = this.scope(key)!
     if (accepted && !latest.inFlight) this.schedule(key, Math.max(0, accepted.dueAt - Date.now()))
-    if (!accepted && !dirty && !latest.inFlight) {
+    if (!accepted && !dirty && !latest.inFlight && scope.attentionOptimistic) {
       this.commitAttentionOptimisticRead(key)
       const registry = getCommunityDbRegistry(this.queryClient)
       if (registry) void reconcileAccountAttention(registry).catch(() => undefined)

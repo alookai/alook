@@ -1,3 +1,4 @@
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, useLayoutEffect, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { skipToken, useQuery, type InfiniteData } from "@tanstack/react-query"
@@ -12,7 +13,6 @@ import { mapForumFeedPages } from "../use-forum-feed"
 import { useForumTags } from "../use-channel-panels"
 import { normalizeThreadResources, forumFeedWindow, forumFeedMatchesTags, type ForumFeedPage, type ForumFeedTransportPage } from "../forum-feed-window"
 import { getForumSidebarBase } from "../use-forum-sidebar-threads"
-import { getAccountUnreadProjection } from "../account-unread-projection"
 import { applyForumPostUnitClientEffects } from "../community-ws/channel-scope-projection"
 import { useCreateForumThread, useUpdatePostTags, useDeleteForumThread } from "./forum"
 
@@ -269,10 +269,10 @@ describe("Native forum tag transactions", () => {
 
 describe("Native forum post deletion", () => {
   it("clears local stream, unread and active route once without requiring a self WS frame", async () => {
-    const view = await setup(), projection = getAccountUnreadProjection(view.client, view.registry.accountId!)
+    const view = await setup()
     const disk = vi.spyOn(view.registry, "retireReadingDisk").mockResolvedValue(undefined)
     act(() => {
-      projection.recordArrival({ channelId: "p2", serverId: "server_1", seq: 1 })
+      seedCommunityAttentionScope(view.client, { channelId: "p2", serverId: "server_1", seq: 1 })
       view.runtime.ui.actions.setCurrentServerId("server_1"); view.runtime.ui.actions.setCurrentChannelId("p2")
       view.runtime.ui.actions.registerUiHandlers({ replacePath: view.navigate })
       const message = { id: "opener_p2", seq: 1, type: "chat" as const, authorId: "u1", authorName: "Alice", content: "Post" }
@@ -288,8 +288,8 @@ describe("Native forum post deletion", () => {
     expect(mocks.clearLastChannel).toHaveBeenCalledOnce()
     expect(view.navigate).toHaveBeenCalledOnce()
     expect(view.navigate).toHaveBeenCalledWith("/c/channels/server_1/forum_1")
-    expect(projection.projectUnread("servers", "p2", false)).toBe(false)
-    expect(projection.projectUnread("inbox-unreads", "p2", true, 1)).toBe(false)
+    expect(Boolean(view.registry.collections.attentionScopes.get("p2")?.ordinaryUnread)).toBe(false)
+    expect(Boolean(view.registry.collections.attentionScopes.get("p2")?.ordinaryUnread)).toBe(false)
     act(() => applyForumPostUnitClientEffects(view.client, { serverId: "server_1", forumChannelId: "forum_1", childChannelId: "p2", openerMessageId: "opener_p2" }))
     expect(mocks.clearLastChannel).toHaveBeenCalledOnce(); expect(view.navigate).toHaveBeenCalledOnce()
     expect(disk).toHaveBeenCalledOnce()
@@ -306,8 +306,8 @@ describe("Native forum post deletion", () => {
     expect(view.client.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)
   })
   it("restores canonical post/sidebar and exact original ID windows on DELETE failure", async () => {
-    const view = await setup(), projection = getAccountUnreadProjection(view.client, view.registry.accountId!)
-    projection.recordArrival({ channelId: "p2", serverId: "server_1", seq: 1 })
+    const view = await setup()
+    seedCommunityAttentionScope(view.client, { channelId: "p2", serverId: "server_1", seq: 1 })
     view.client.setQueryData(communityKeys.channelMeta("server_1", "p2"), { id: "p2" })
     const keys = [communityKeys.channelMessages("forum_1"), communityKeys.forumFeed("forum_1", null), communityKeys.forumSidebarThreads("server_1"), communityKeys.channelMeta("server_1", "p2")], before = keys.map((key) => view.client.getQueryData(key)), sidebar = getForumSidebarBase(view.client, "server_1")
     const { held, request } = await begin(view, "remove")
@@ -316,8 +316,8 @@ describe("Native forum post deletion", () => {
     await waitFor(() => expect(view.view.result.current.all.map(({ id }) => id)).toEqual(["before", "p2", "after"]))
     keys.forEach((key, index) => expect(view.client.getQueryData(key)).toEqual(before[index]))
     expect(getForumSidebarBase(view.client, "server_1")).toEqual(sidebar)
-    expect(projection.projectUnread("servers", "p2", false)).toBe(true)
-    expect(projection.projectUnread("inbox-unreads", "p2", true, 1)).toBe(true)
+    expect(Boolean(view.registry.collections.attentionScopes.get("p2")?.ordinaryUnread)).toBe(true)
+    expect(Boolean(view.registry.collections.attentionScopes.get("p2")?.ordinaryUnread)).toBe(true)
   })
 })
 

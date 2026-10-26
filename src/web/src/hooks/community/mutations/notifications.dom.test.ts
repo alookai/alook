@@ -1,3 +1,4 @@
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { USE_SERVER_DEFAULT } from "@alook/shared"
@@ -8,7 +9,6 @@ import { communityKeys } from "@/lib/query-keys"
 import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 import { notificationSettingKey } from "@/lib/community-db/schema"
 import { captureCommunityLiveSnapshotToken, publishCommunityNotificationSetting } from "@/lib/community-db/sync"
-import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 import { useNotificationSettings } from "../use-notification-settings"
 import { useSetChannelNotif, useSetServerNotifLevel } from "./notifications"
 
@@ -50,23 +50,23 @@ beforeEach(() => { apiFetch.mockReset() })
 describe("notification mutation cache refresh", () => {
   it("changes only reversible eligibility and restores it on failure", async () => {
     const view = await setup("server", [serverSetting()])
-    const projection = getActiveAccountUnreadProjection(view.client)
-    projection.recordArrival({ channelId: "channel_1", serverId: "server_1", seq: 2 })
-    const before = projection.inspectForTests(), held = deferred()
+
+    seedCommunityAttentionScope(view.client, { channelId: "channel_1", serverId: "server_1", seq: 2 })
+    const before = [...view.registry.collections.readStates.values()], held = deferred()
     holdWrites(held, view.registry)
     let request!: Promise<unknown>
     act(() => { request = view.rendered.result.current.command.mutateAsync({ serverId: "server_1", level: "Nothing" }).catch((error) => error) })
-    await waitFor(() => expect(projection.projectUnread("servers", "channel_1", false)).toBe(false))
-    expect(projection.inspectForTests().sourceCount).toBe(before.sourceCount)
-    expect(projection.inspectForTests().readState).toEqual(before.readState)
+    await waitFor(() => expect([...view.registry.collections.notificationSettings.values()].find(row => row.serverId === "server_1")?.level).toBe("nothing"))
+    expect(view.registry.collections.attentionScopes.get("channel_1")?.ordinaryUnread).toBe(true)
+    expect([...view.registry.collections.readStates.values()]).toEqual(before)
     await act(async () => { held.reject(new Error("failed")); await request })
-    await waitFor(() => expect(projection.projectUnread("servers", "channel_1", false)).toBe(true))
+    await waitFor(() => expect(Boolean(view.registry.collections.attentionScopes.get("channel_1")?.ordinaryUnread)).toBe(true))
   })
 
   it("keeps absent canonical settings absent after a reversible server overlay fails", async () => {
     const view = await setup(), held = deferred()
-    const projection = getActiveAccountUnreadProjection(view.client)
-    projection.recordArrival({ channelId: "channel_1", serverId: "server_1", seq: 2 })
+
+    seedCommunityAttentionScope(view.client, { channelId: "channel_1", serverId: "server_1", seq: 2 })
     view.client.removeQueries({ queryKey: communityKeys.notificationSettings(), exact: true })
     holdWrites(held, view.registry)
     let request!: Promise<unknown>
@@ -75,7 +75,7 @@ describe("notification mutation cache refresh", () => {
     expect(view.registry.collections.notificationSettings.size).toBe(1)
     await act(async () => { held.reject(new Error("failed")); await request })
     await waitFor(() => expect(view.registry.collections.notificationSettings.size).toBe(0))
-    expect(projection.projectUnread("servers", "channel_1", false)).toBe(true)
+    expect(Boolean(view.registry.collections.attentionScopes.get("channel_1")?.ordinaryUnread)).toBe(true)
   })
 
   it("rolls back one server field without clobbering a concurrent success", async () => {
@@ -89,17 +89,17 @@ describe("notification mutation cache refresh", () => {
     await waitFor(() => expect(view.rendered.result.current.settings.server).toMatchObject({ server_1: "All Messages", server_2: "Nothing" }))
   })
 
-  it("refreshes settings, inbox, and the account read-state resource after a server change", async () => {
+  it("refreshes only canonical account attention after a server policy change", async () => {
     const view = await setup()
-    const keys = [communityKeys.inbox(), communityKeys.servers(), communityKeys.accountReadStateSnapshot()]
+    const keys = [communityKeys.accountAttention()]
     for (const key of keys) view.client.setQueryData(key, { ids: [] })
     await act(async () => { await view.rendered.result.current.command.mutateAsync({ serverId: "server_1", level: "Nothing" }) })
     for (const key of keys) expect(view.client.getQueryState(key)?.isInvalidated).toBe(true)
   })
 
-  it("refreshes the account read-state resource after a parent channel change", async () => {
+  it("refreshes only canonical account attention after a parent policy change", async () => {
     const view = await setup("channel")
-    const keys = [communityKeys.inbox(), communityKeys.servers(), communityKeys.accountReadStateSnapshot()]
+    const keys = [communityKeys.accountAttention()]
     const unrelated = ["application", "unrelated"]
     for (const key of [...keys, unrelated]) view.client.setQueryData(key, { ids: [] })
     await act(async () => { await view.rendered.result.current.command.mutateAsync({ channelId: "parent_1", level: "Nothing" }) })

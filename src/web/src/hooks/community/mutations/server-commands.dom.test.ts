@@ -1,3 +1,4 @@
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -5,7 +6,6 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { ingestServers, ingestServerDetail, captureCommunityLiveSnapshotToken, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
-import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 import { useServer, useServers } from "../use-servers"
 import { createOwnerServerDeleteRouteToken, observeOwnerServerDeleteRouteCommit, claimOwnerServerDeleteNavigation, claimOwnerServerDeleteScopeFlush, isOwnerServerDeleteRouteProtected } from "@/lib/community/eject-server"
 import { flushOwnerServerDeleteRouteCommit } from "../community-ws/scope-eviction"
@@ -65,14 +65,14 @@ function seedPrivateScope(view: View) {
 
 describe("Native server membership commands", () => {
   it("fences every unread source in the departing scope and rolls back atomically", async () => {
-    const view = await setup(), projection = getActiveAccountUnreadProjection(view.client)
-    projection.recordArrival({ channelId: "c1", serverId: "srv_1", seq: 1 })
-    projection.recordArrival({ channelId: "c2", serverId: "srv_2", seq: 1 })
+    const view = await setup()
+    seedCommunityAttentionScope(view.client, { channelId: "c1", serverId: "srv_1", seq: 1 })
+    seedCommunityAttentionScope(view.client, { channelId: "c2", serverId: "srv_2", seq: 1 })
     const { request } = await begin(view, "leave")
-    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
-    expect(projection.projectUnread("servers", "c2", false)).toBe(true)
+    expect(view.view.result.current.rail.servers.some(server => server.id === "srv_1")).toBe(false)
+    expect(view.view.result.current.rail.servers.some(server => server.id === "srv_2" && server.unread)).toBe(true)
     await act(async () => { view.held.reject(new Error("failed")); await request })
-    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
+    expect(view.view.result.current.rail.servers.some(server => server.id === "srv_1" && server.unread)).toBe(true)
   })
   it.each(["leave", "remove"] as const)("%s hides the rail row optimistically and restores it on failure", async (operation) => {
     const view = await setup(), { request } = await begin(view, operation)
@@ -158,7 +158,7 @@ describe("Native server field commands", () => {
     expect(view.registry.collections.servers.get("srv_2")).toBe(untouched)
     await act(async () => { view.held.resolve(); await request })
     await waitFor(() => expect(view.view.result.current.detail.server).toMatchObject({ name: "new", description: "new description" }))
-    expect(view.registry.collections.servers.get("srv_2")).toMatchObject({ name: "untouched", description: "unchanged description", mentions: 4 })
+    expect(view.registry.collections.servers.get("srv_2")).toMatchObject({ name: "untouched", description: "unchanged description" })
   })
   it("invalidates the original channel-ref directory after settling", async () => {
     const view = await setup(); let request!: Promise<unknown>

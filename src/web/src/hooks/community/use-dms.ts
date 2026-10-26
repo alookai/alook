@@ -15,17 +15,11 @@ import {
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
-import { useEffect, useMemo } from "react"
+import { useMemo } from "react"
 import {
-  useAttentionScopes,
   useCanonicalProfilesByUserId,
 } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import {
-  getActiveAccountUnreadProjection,
-  type AccountUnreadProjection,
-  type AccountUnreadSource,
-} from "./account-unread-projection"
 import { useDmProjection } from "@/lib/community-db/projections"
 import {
   assertCommunityLiveSnapshotTokenCurrent,
@@ -56,45 +50,29 @@ const loadDms = (
     context.signal ? { signal: context.signal } : undefined, getCommunityDbRegistry(context.client),
   )
 
-function dmUnreadSources(data: readonly DM[]): AccountUnreadSource[] {
-  return data.flatMap((dm) => dm.lastUnreadSeq === undefined ? [] : [{
-    channelId: dm.id,
-    lastUnreadSeq: dm.lastUnreadSeq,
-  }])
-}
-
 export const dmsProjectedQueryFn = (
-  projection: AccountUnreadProjection,
   queryClient: QueryClient,
 ) => async (context: QueryFunctionContext) => {
   const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
-  const token = projection.beginSnapshot("dms", "dms")
   try {
     const data = await loadDms(context)
     assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, context.signal)
-    projection.absorbSnapshot(token, dmUnreadSources(data.conversations))
     publishCommunityLiveSnapshot(queryClient, {
       snapshot: { kind: "dms", data },
       proof: { kind: "structural", token: publicationToken, signal: context.signal },
     })
     return { ids: data.conversations.map((dm) => dm.id) }
   } catch (error) {
-    projection.cancelSnapshot(token)
     throw error
   }
 }
 
 export function useDms(enabled = true): UseQueryResult<{ ids: string[] }> & { dms: DM[] } {
-  const attentionScopes = useAttentionScopes()
   const dbDms = useDmProjection()
   const queryClient = useQueryClient()
-  const unreadProjection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
   const queryFn = useMemo(
-    () => dmsProjectedQueryFn(unreadProjection, queryClient),
-    [queryClient, unreadProjection],
+    () => dmsProjectedQueryFn(queryClient),
+    [queryClient],
   )
   const query = useQuery({
     queryKey: communityKeys.dms(),
@@ -108,31 +86,12 @@ export function useDms(enabled = true): UseQueryResult<{ ids: string[] }> & { dm
     staleTime: 30_000,
   })
   const profilesByUserId = useCanonicalProfilesByUserId()
-  useEffect(() => {
-    if (!dbDms) return
-    unreadProjection.mergeSources(
-      "dms",
-      dmUnreadSources(dbDms),
-      "dms",
-    )
-    unreadProjection.recordLegacySnapshot(
-      dbDms,
-      dbDms.flatMap((dm) => (
-        dm.unread && dm.lastUnreadSeq === undefined
-          ? [{ family: "dms" as const, channelId: dm.id }]
-          : []
-      )),
-    )
-  }, [dbDms, unreadProjection])
   const dms = useMemo(() => {
     const source = dbDms ?? EMPTY_DMS
     if (source.length === 0) return EMPTY_DMS as DM[]
     return sortDmsByActivity(source.map((dm) => {
       const liveProfile = profilesByUserId.get(dm.userId)
       const profile = readCommunityProfile(liveProfile, dm.userId)
-      const unread = attentionScopes.some((scope) => (
-        !scope.serverId && scope.channelId === dm.id && scope.ordinaryUnread
-      ))
       return {
         ...dm,
         name: liveProfile?.name ?? dm.name,
@@ -140,10 +99,9 @@ export function useDms(enabled = true): UseQueryResult<{ ids: string[] }> & { dm
         avatar: liveProfile?.avatar ?? dm.avatar,
         avatarVersion: liveProfile?.avatarVersion ?? dm.avatarVersion,
         status: liveProfile ? profile.presence : "offline",
-        unread,
       }
     }))
-  }, [attentionScopes, dbDms, profilesByUserId])
+  }, [dbDms, profilesByUserId])
   return {
     ...query,
     dms,

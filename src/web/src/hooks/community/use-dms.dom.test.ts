@@ -4,7 +4,6 @@ import { act, render } from "@/test/react-dom-harness"
 import { QueryClient, QueryClientProvider as BareQueryClientProvider } from "@tanstack/react-query"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 import { dmsProjectedQueryFn } from "./use-dms"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -59,7 +58,7 @@ describe("useDms / dmsQueryFn", () => {
     ]
     apiFetchMock.mockResolvedValueOnce({ conversations })
     const { client: qc, registry } = await createCommunityQueryOwner()
-    const data = await qc.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(getActiveAccountUnreadProjection(qc), qc) })
+    const data = await qc.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(qc) })
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(data).toEqual({ ids: ["dm_1"] })
     expect(registry.collections.channels.get("dm_1")?.type).toBe("dm")
@@ -70,26 +69,12 @@ describe("useDms / dmsQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce({ conversations: [] })
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.dms()
-    await qc.query({ queryKey: key, queryFn: dmsProjectedQueryFn(getActiveAccountUnreadProjection(qc), qc) })
+    await qc.query({ queryKey: key, queryFn: dmsProjectedQueryFn(qc) })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/dms",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(qc.getQueryData(key)).toEqual({ ids: [] })
-  })
-
-  it("uses a complete DM list as authoritative negative evidence", async () => {
-    apiFetchMock.mockResolvedValueOnce({ conversations: [] })
-    const { dmsProjectedQueryFn } = await import("./use-dms")
-    const { AccountUnreadProjection } = await import("./account-unread-projection")
-    const projection = new AccountUnreadProjection("u1")
-    projection.setNotificationPolicy({})
-    projection.recordArrival({ channelId: "dm_1", seq: 3 })
-    const { client: queryClient } = await createCommunityQueryOwner()
-
-    await queryClient.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(projection, queryClient) })
-
-    expect(projection.projectUnread("dms", "dm_1", false)).toBe(false)
   })
 
   it.each(["cancel", "account", "access"] as const)(
@@ -104,11 +89,9 @@ describe("useDms / dmsQueryFn", () => {
       const request = deferred<{ conversations: DM[] }>()
       apiFetchMock.mockReturnValueOnce(request.promise)
       const { dmsProjectedQueryFn } = await import("./use-dms")
-      const { AccountUnreadProjection } = await import("./account-unread-projection")
-      const projection = new AccountUnreadProjection("viewer")
       const controller = new AbortController()
 
-      const pending = dmsProjectedQueryFn(projection, queryClient)({
+      const pending = dmsProjectedQueryFn(queryClient)({
         client: queryClient, signal: controller.signal,
       } as never)
       await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith(
@@ -122,7 +105,6 @@ describe("useDms / dmsQueryFn", () => {
 
       await expect(pending).rejects.toMatchObject({ name: "AbortError" })
       expect(registry.collections.channels.get("dm-current")).toBeDefined()
-      expect(projection.inspectForTests().pendingSnapshots).toBe(0)
       unregister()
       await disposeRegistry()
     },
@@ -137,25 +119,12 @@ describe("useDms / dmsQueryFn", () => {
     ingestDms(registry, { conversations: [dm("dm-current")] })
     apiFetchMock.mockResolvedValueOnce({ conversations: [] })
     const { dmsProjectedQueryFn } = await import("./use-dms")
-    const { AccountUnreadProjection } = await import("./account-unread-projection")
 
-    await queryClient.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(new AccountUnreadProjection("viewer"), queryClient) })
+    await queryClient.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(queryClient) })
 
     expect(registry.collections.channels.get("dm-current")).toBeUndefined()
     unregister()
     await disposeRegistry()
-  })
-
-  it("cancels DM snapshot coverage when the transport fails", async () => {
-    apiFetchMock.mockRejectedValueOnce(new Error("offline"))
-    const { dmsProjectedQueryFn } = await import("./use-dms")
-    const { AccountUnreadProjection } = await import("./account-unread-projection")
-    const projection = new AccountUnreadProjection("u1")
-
-    const { client: qc } = await createCommunityQueryOwner()
-    await expect(qc.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(projection, qc) })).rejects.toThrow("offline")
-
-    expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })
 
   it("reuses a projected DM across layout mounts without refetching the canonical list", async () => {
@@ -329,10 +298,8 @@ describe("useDms / dmsQueryFn", () => {
     ] as DM[]
     apiFetchMock.mockResolvedValue({ conversations })
     const { useDms } = await import("./use-dms")
-    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
     const { client: qc } = await createCommunityQueryOwner()
     seedDms(qc, { conversations })
-    getActiveAccountUnreadProjection(qc).recordArrival({ channelId: "dm_1", seq: 2 })
     let latest: ReturnType<typeof useDms> | undefined
 
     function Harness() {

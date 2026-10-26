@@ -9,9 +9,6 @@ import { communityKeys } from "@/lib/query-keys"
 
 let queryClient: QueryClient
 const createQueryClient = vi.hoisted(() => vi.fn())
-const setReconcileScheduler = vi.hoisted(() => vi.fn())
-const getAccountUnreadProjection = vi.hoisted(() => vi.fn(() => ({ setReconcileScheduler })))
-const disposeAccountUnreadProjection = vi.hoisted(() => vi.fn())
 const restoreResult = vi.hoisted(() => ({ current: "success" as "success" | "error" }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }))
 vi.mock("@/lib/auth-client", () => ({ useSession: () => ({ isPending: true, data: null, error: null }), currentSessionViewer: () => undefined }))
@@ -36,13 +33,11 @@ vi.mock("@/lib/query-persister", async (importOriginal) => ({ ...await importOri
   createIdbPersister: () => ({ persistClient: vi.fn(), restoreClient: vi.fn(), removeClient: vi.fn(), retireAccount: vi.fn(), isCurrent: async () => true }),
 }))
 vi.mock("@/lib/community-db/sync", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/sync")>(), installCommunityDbSync: () => () => undefined }))
-vi.mock("@/hooks/community/account-unread-projection", async (importOriginal) => ({ ...await importOriginal<typeof import("@/hooks/community/account-unread-projection")>(), getAccountUnreadProjection, disposeAccountUnreadProjection }))
 import { QueryProvider } from "./QueryProvider"
 
 beforeEach(() => {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   createQueryClient.mockReset(); createQueryClient.mockReturnValue(queryClient)
-  setReconcileScheduler.mockClear(); getAccountUnreadProjection.mockClear(); disposeAccountUnreadProjection.mockClear()
   restoreResult.current = "success"
 })
 afterEach(async () => {
@@ -144,20 +139,6 @@ describe("QueryProvider profile account lifecycle", () => {
     expect([...registry.collections.friendships.values()]).toEqual([])
     expect(registry.hasRestoredCollection("friendships")).toBe(false)
     expect(invalidate).not.toHaveBeenCalled()
-    act(() => renderer.unmount())
-  })
-  it("routes projection reconciliation through the canonical source prefixes", async () => {
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries"), renderer = mount("viewer-c")
-    expect(getAccountUnreadProjection).toHaveBeenCalledWith(queryClient, "viewer-c")
-    const reconcile = setReconcileScheduler.mock.calls.at(-1)?.[0]
-    expect(reconcile).toBeTypeOf("function")
-    invalidate.mockClear()
-    await act(async () => reconcile())
-    for (const key of [communityKeys.inboxUnreads(), communityKeys.inboxMentions(), communityKeys.dms(), communityKeys.servers()]) expect(invalidate).toHaveBeenCalledWith({ queryKey: key, exact: true })
-    const predicate = invalidate.mock.calls.map(([filters]) => filters?.predicate).find((value) => typeof value === "function")!
-    const query = (queryKey: readonly unknown[]) => ({ queryKey } as Parameters<typeof predicate>[0])
-    expect(predicate(query(communityKeys.server("server-1")))).toBe(true)
-    for (const key of [communityKeys.members("server-1"), communityKeys.channelRefDirectory(), communityKeys.server("__none__"), communityKeys.server("__pending__")]) expect(predicate(query(key))).toBe(false)
     act(() => renderer.unmount())
   })
   it("releases collections after descendant subscriptions release on real retirement", async () => {

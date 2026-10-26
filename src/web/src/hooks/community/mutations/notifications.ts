@@ -61,7 +61,7 @@ function useNotificationCommand(kind: "server" | "channel") {
     input.assertActive?.()
     const view = source.capture(); view()
     const id = "serverId" in input ? input.serverId : input.channelId
-    return { input, id, original: origin.begin().token, view, resources: client.getQueryCache().findAll({ predicate: (query) => [communityKeys.notificationSettings(), communityKeys.inbox(), communityKeys.servers()].some((key) => key.length <= query.queryKey.length && key.every((part, i) => Object.is(part, query.queryKey[i]))) || query.queryKey.includes("read-state-snapshot") }) }
+    return { input, id, original: origin.begin().token, view, resources: client.getQueryCache().findAll({ predicate: (query) => [communityKeys.notificationSettings(), communityKeys.accountAttention()].some((key) => key.length <= query.queryKey.length && key.every((part, i) => Object.is(part, query.queryKey[i]))) }) }
   }, [origin, client, source])
   const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.view(); args.input.assertActive?.() }, [origin])
   return useNativeMutationFacade(native, capture, assertCurrent)

@@ -132,7 +132,7 @@ function scrubDehydratedClient(
     const fence = retired.get(row.id)
     if (!fence) return [row]
     return row.type === "dm" && !fence.deleted
-      ? [{ ...row, preview: "", unread: false, baseUnread: false, lastUnreadSeq: undefined }]
+      ? [{ ...row, preview: "" }]
       : []
   })
   const attentionScopes = rows("attentionScopes").filter((row) => !retired.has(row.channelId))

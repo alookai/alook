@@ -59,7 +59,7 @@ async function mount(contractVersion: 2 | 3 = 2, firstSeq = 1) {
   const context = { contract: contractVersion, deliveryMode: "single" as const,
     queryClient: owner.client, communityStore: owner.runtime.ui, wsStore: owner.runtime.ws,
     sub: { channelId: "forum" }, viewerUserIdRef: { current: "viewer" },
-    matchesFocus: () => false, scheduleInboxInvalidate: vi.fn() }
+    matchesFocus: () => false }
   function edit(channelId: string, messageId: string, content: string, title = false) {
     act(() => dispatchCommunityWsEvent({ type: "community:message.edited", serverId: "server",
       channelId, messageId, content, ...(title ? { parentChannelId: "forum" } : {}) }, context))

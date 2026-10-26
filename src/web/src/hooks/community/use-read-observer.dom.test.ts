@@ -23,9 +23,6 @@ const reservation = vi.hoisted(() => ({
   promote: vi.fn(),
   negative: vi.fn(() => true),
 }))
-const projection = vi.hoisted(() => ({
-  recordOptimisticRead: vi.fn(),
-}))
 const hookState = vi.hoisted(() => ({
   candidate: null as null | {
     channelId: string
@@ -55,11 +52,6 @@ vi.mock("./inbox-read-reservation", async () => ({
   releaseInboxReadReservationSurface: (...args: unknown[]) => reservation.release(...args),
   promoteInboxReadReservation: (...args: unknown[]) => reservation.promote(...args),
   takeInboxReadReservationNegative: (...args: unknown[]) => reservation.negative(...args),
-}))
-
-vi.mock("./account-unread-projection", async () => ({
-  ...await vi.importActual<typeof import("./account-unread-projection")>("./account-unread-projection"),
-  getAccountUnreadProjection: () => projection,
 }))
 
 import { useTimelineReadObserver } from "./use-read-observer"
@@ -302,7 +294,6 @@ describe("useTimelineReadObserver", () => {
       expect(coordinator.submit).toHaveBeenCalledExactlyOnceWith({ lease: "timeline" }, {
         kind: "timeline", channelId: "channel-1", messageId: "message-4", seq: 4,
       })
-      expect(projection.recordOptimisticRead).toHaveBeenCalledWith("channel-1", 4, 1)
     } finally { clock.mockRestore() }
   })
 
@@ -361,7 +352,6 @@ describe("useTimelineReadObserver", () => {
       messageId: "message-4",
       seq: 4,
     })
-    expect(projection.recordOptimisticRead).toHaveBeenCalledWith("channel-1", 4, 1)
   })
 
   it("does not clear projection or promote an Inbox lease when the coordinator rejects intent", () => {
@@ -371,7 +361,6 @@ describe("useTimelineReadObserver", () => {
 
     trigger(observers[0]!, row)
 
-    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
     expect(reservation.promote).not.toHaveBeenCalled()
   })
 
@@ -454,7 +443,6 @@ describe("useTimelineReadObserver", () => {
     trigger(observers[0]!, row)
     for (const listener of pageShowListeners) listener()
     expect(coordinator.submit).not.toHaveBeenCalled()
-    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
     expect(coordinator.resume).not.toHaveBeenCalled()
     parent.removeAttribute("inert")
     act(() => mutationCallback!([{
@@ -487,7 +475,6 @@ describe("useTimelineReadObserver", () => {
     for (const listener of pageShowListeners) listener()
 
     expect(coordinator.submit).not.toHaveBeenCalled()
-    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
     expect(reservation.promote).not.toHaveBeenCalled()
     expect(reservation.negative).not.toHaveBeenCalled()
     expect(coordinator.resume).not.toHaveBeenCalled()
@@ -505,7 +492,6 @@ describe("useTimelineReadObserver", () => {
     queueEntry(record, row)
     const stale = record.queued[0]!
     expect(coordinator.submit).not.toHaveBeenCalled()
-    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
     expect(reservation.promote).not.toHaveBeenCalled()
     boundary.setAttribute("data-read-position-ready", "true")
     act(() => mutationCallback!([presentationAttributeRecord(boundary, "data-read-position-ready")], {} as MutationObserver))
@@ -514,7 +500,6 @@ describe("useTimelineReadObserver", () => {
     expect(coordinator.submit).not.toHaveBeenCalled()
     trigger(observers.at(-1)!, row)
     expect(coordinator.submit).toHaveBeenCalledOnce()
-    expect(projection.recordOptimisticRead).toHaveBeenCalledOnce()
     expect(reservation.promote).toHaveBeenCalledOnce()
   })
 

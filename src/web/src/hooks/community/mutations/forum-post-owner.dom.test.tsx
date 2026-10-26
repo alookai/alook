@@ -56,7 +56,7 @@ async function mount() {
 const args = { serverId: "server", forumChannelId: "forum", threadId: "child", openerMessageId: "opener" }
 function command() { return remove.mutateAsync(args).catch((error) => error) }
 async function pending() { await waitFor(() => expect(api.mock.calls.some(([, options]) => options.method === "DELETE")).toBe(true)) }
-function wsDelete(qc: QueryClient) { const runtime = getCommunityRuntime(qc); dispatchCommunityWsEvent({ type: "community:channel.delete", serverId: "server", channelId: "child", parentChannelId: "forum", parentMessageId: "opener" }, { deliveryMode: "single", queryClient: qc, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: sdk.id }, matchesFocus: () => false, scheduleInboxInvalidate: vi.fn() }) }
+function wsDelete(qc: QueryClient) { const runtime = getCommunityRuntime(qc); dispatchCommunityWsEvent({ type: "community:channel.delete", serverId: "server", channelId: "child", parentChannelId: "forum", parentMessageId: "opener" }, { deliveryMode: "single", queryClient: qc, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: sdk.id }, matchesFocus: () => false }) }
 beforeEach(async () => { await clearAllPersistedCaches(); api.mockReset(); sdk.id = "A"; navigate.mockClear(); client = undefined as unknown as QueryClient })
 describe("actual native forum post-unit deletion", () => {
   it("hides both canonical identities optimistically and restores them on ordinary failure", async () => {

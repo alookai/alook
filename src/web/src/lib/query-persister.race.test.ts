@@ -145,6 +145,7 @@ function readingSnapshot(user: string): PersistedClient {
   const queryClient = new QueryClient()
   const setRows = (name: string, rows: unknown[]) => queryClient.setQueryData(communityKeys.communityDbCollection(user, name), rows)
   setRows("channels", ["dm-A", "dm-B"].map((id) => canonicalChannelRow({ id, type: "dm", name: id, preview: `body-${id}`, unread: true })))
+  setRows("attentionScopes", ["dm-A", "dm-B"].map(channelId => ({ scopeId: channelId, channelId, serverId: null, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 1, attentionCount: 0, lastAttentionSeq: null })))
   setRows("messages", ["dm-A", "dm-B"].map((channelId) => ({ id: `m-${channelId}`, channelId, type: "chat", resourceComplete: false, authorId: user, authorName: "Viewer", authorAvatar: "V", authorAvatarVersion: 0, seq: 1, content: `body-${channelId}` })))
   setRows("channelMemberships", ["dm-A", "dm-B"].map((channelId) => ({ id: `${channelId}:peer:access`, channelId, userId: "peer", relation: "access" })))
   return { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(queryClient) }
@@ -224,9 +225,11 @@ describe("native channel persistence fence", () => {
     const restored = await otherDocument.createIdbPersister(user).restoreClient()
     expect(readingRows(restored, "messages")?.map((row) => row.channelId)).toEqual(["dm-B"])
     expect(readingRows(restored, "channels")).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "dm-A", preview: "", unread: false }),
-      expect.objectContaining({ id: "dm-B", preview: "body-dm-B", unread: true }),
+      expect.objectContaining({ id: "dm-A", preview: "" }),
+      expect.objectContaining({ id: "dm-B", preview: "body-dm-B" }),
     ]))
+    expect(readingRows(restored, "channels")?.every(row => !("unread" in row))).toBe(true)
+    expect(readingRows(restored, "attentionScopes")?.map(row => row.channelId)).toEqual(["dm-B"])
     expect(readingRows(restored, "channelMemberships")).toHaveLength(2)
     const fresh = otherDocument.createIdbPersister(user)
     await fresh.persistClient(before)

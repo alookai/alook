@@ -13,7 +13,6 @@ import {
 } from "@alook/shared"
 import { getMessageStreamState } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
-import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 import { act } from "@/test/react-dom-harness"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, ingestDms, publishCommunityMessages } from "@/lib/community-db/sync"
@@ -93,106 +92,6 @@ describe("useCommunityWs — account unread projection", () => {
       }],
     }
   }
-
-  it("records a viewer bump without mutating raw server resources", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const key = communityKeys.server("srv_open")
-    const raw = serverDetailFixture("ch_random")
-    capturedQueryClient.setQueryData(key, raw)
-
-    capturedOnMessage!(unreadBump("ch_random", "u_me", { serverId: "srv_open" }))
-
-    expect(capturedQueryClient.getQueryData(key)).toBe(raw)
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    expect(projection.projectServerChannelUnread(
-      "srv_open",
-      "ch_random",
-      [],
-    )).toBe(true)
-    expect(projection.projectServerUnread("srv_open", [])).toBe(true)
-  })
-
-  it("keeps a focused bump unread until the visible-row observer submits a read", async () => {
-    const { useCommunityStore } = await import("@/stores/community")
-    getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_focused" })
-    resetHookMemoization()
-    await mountHook({ viewerUserId: "u_me" })
-
-    capturedOnMessage!(unreadBump("ch_focused", "u_me", { serverId: "srv_open" }))
-
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    expect(projection.projectUnread(
-      "server-detail:srv_open",
-      "ch_focused",
-      false,
-    )).toBe(true)
-    projection.recordRead("ch_focused", 999)
-    expect(projection.projectUnread(
-      "server-detail:srv_open",
-      "ch_focused",
-      false,
-    )).toBe(true)
-  })
-
-  it("uses railChannelId only as a parent fallback and leaves raw rows untouched", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const key = communityKeys.server("srv_open")
-    const raw = serverDetailFixture("forum_1")
-    capturedQueryClient.setQueryData(key, raw)
-
-    capturedOnMessage!(unreadBump("post_1", "u_me", {
-      serverId: "srv_open",
-      railChannelId: "forum_1",
-    }))
-
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    expect(projection.projectForumParentUnread(
-      "srv_open",
-      "forum_1",
-      false,
-      undefined,
-      new Set(),
-    )).toBe(true)
-    expect(capturedQueryClient.getQueryData(key)).toBe(raw)
-  })
-
-  it("never increments a numeric rail badge from an unsequenced isMention hint", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!(unreadBump("ch_a", "u_me", {
-      serverId: "srv_x",
-      isMention: true,
-    }))
-    expect(getActiveAccountUnreadProjection(capturedQueryClient)
-      .projectServerMentionCount("srv_x", [], 7)).toBe(0)
-  })
-
-  it("merges a valid WS bump before applying the current policy overlay", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    projection.setNotificationPolicy({ server: { srv_x: "nothing" } })
-
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
-
-    expect(projection.inspectForTests().sourceCount).toBe(1)
-    expect(projection.projectUnread("servers", "ch_a", false)).toBe(false)
-    projection.setNotificationPolicy({ server: { srv_x: "all" } })
-    expect(projection.projectUnread("servers", "ch_a", false)).toBe(true)
-  })
-
-  it("ignores bumps addressed to a different account", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!(unreadBump("ch_random", "someone_else", { serverId: "srv_open" }))
-    expect(getActiveAccountUnreadProjection(capturedQueryClient)
-      .projectServerUnread("srv_open", [])).toBe(false)
-  })
-
-  it("message.create alone syncs content but does not manufacture unread authority", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!(messageCreate("ch_random"))
-    expect(getActiveAccountUnreadProjection(capturedQueryClient)
-      .projectServerUnread("s1", [])).toBe(false)
-    expect(notificationMocks.show).not.toHaveBeenCalled()
-  })
 
   it("notifies only when message.create and the viewer's unread.bump share one bundle", async () => {
     await mountHook({ viewerUserId: "u_me" })
@@ -424,7 +323,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     }
   })
 
-  it("mention.create invalidates servers so authoritative source counts refresh", async () => {
+  it("mention.create leaves server structure untouched", async () => {
     await mountHook({ viewerUserId: "u_1" })
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityMentionCreate = {
@@ -437,41 +336,6 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(spy.mock.calls.filter((call) => {
       const key = call[0]?.queryKey as unknown[] | undefined
       return key?.length === 2 && key[0] === "community" && key[1] === "servers"
-    })).toHaveLength(1)
-  })
-
-  it("projects a mention-only delivery into its server and parent scope immediately", async () => {
-    await mountHook({ viewerUserId: "u_1" })
-    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
-    projection.setNotificationPolicy({
-      server: { srv_1: "mentions" },
-      channel: { forum_1: "mentions" },
-    })
-
-    capturedOnMessage!(await batchFor("m_1", [
-      unreadBump("post_1", "u_1", {
-        serverId: "srv_1",
-        railChannelId: "forum_1",
-        isMention: true,
-      }),
-      {
-        type: "community:mention.create",
-        userId: "u_1",
-        messageId: "m_1",
-        channelId: "post_1",
-        authorName: "A",
-      },
-    ]))
-
-    expect(projection.projectServerUnread("srv_1", [])).toBe(true)
-    expect(projection.projectForumParentUnread(
-      "srv_1",
-      "forum_1",
-      false,
-      undefined,
-      new Set(),
-    )).toBe(true)
-    projection.retireAccessScope({ kind: "server", serverId: "srv_1" })
-    expect(projection.projectServerUnread("srv_1", [])).toBe(false)
+    })).toHaveLength(0)
   })
 })

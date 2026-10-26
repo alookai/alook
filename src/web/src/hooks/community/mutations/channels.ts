@@ -16,7 +16,6 @@ import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
 import type { ChannelRow, CategoryRow } from "@/lib/community-db/schema"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelCategoryMove, type ChannelType } from "@alook/shared"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 // Prefix marks an optimistic row so every consumer can tell it from a real
 // `ch_…` id without a separate flag, and guarantees it never collides with one.
@@ -103,7 +102,7 @@ export function useCreateChannel() {
         const position = Math.max(-1, ...rows.map((row) => row.position)) + 1
         pending = { id, serverId: args.serverId, categoryId, name: args.name.trim(), type: args.type, resourceComplete: false,
           parentChannelId: null, parentMessageId: null, creatorId: db.accountId,
-          position, archived: false, muted: false, unread: false, tags: [], pending: true, lastMessageAt: null }
+          position, archived: false, muted: false, tags: [], pending: true, lastMessageAt: null }
         db.collections.channels.insert(pending)
       }, async (proof, options) => {
         const result = await apiFetch<CreateChannelResult>("/api/community/channels", { method: "POST", body: JSON.stringify({ type: args.type, serverId: args.serverId, categoryId, name: args.name }), ...options })
@@ -183,7 +182,6 @@ export function useDeleteChannel() {
     }, async (proof, options) => {
       await apiFetch(`/api/community/channels/${args.channelId}`, { method: "DELETE", ...options })
       origin.assert(proof.token)
-      getActiveAccountUnreadProjection(queryClient).retireAccessScope({ kind: "channel", channelId: args.channelId })
       retireCommunityChannelReading(origin.registry!, args.channelId, { reason: "resource-deleted", serverId: args.serverId })
     }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),

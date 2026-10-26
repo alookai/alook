@@ -87,13 +87,7 @@ export function invalidateFriends(
 export function invalidateInbox(
   projection: CommunityWsProjectionTransaction,
 ) {
-  projection.invalidate("inbox", { queryKey: communityKeys.inbox() })
-}
-
-export function invalidateDms(
-  projection: CommunityWsProjectionTransaction,
-) {
-  projection.invalidate("dms", { queryKey: communityKeys.dms() })
+  projection.invalidate("attention", { queryKey: communityKeys.accountAttention(), exact: true })
 }
 
 export function invalidatePresence(

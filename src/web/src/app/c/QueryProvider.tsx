@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useIsRestoring, type QueryClient } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
@@ -17,12 +17,7 @@ import {
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
 import {
-  disposeAccountUnreadProjection,
-  getAccountUnreadProjection,
-} from "@/hooks/community/account-unread-projection"
-import {
   communityKeys,
-  isCommunityServerDetailQueryKey,
 } from "@/lib/query-keys"
 import {
   createCommunityDbRegistry,
@@ -77,7 +72,6 @@ function CommunityDbRuntime({
         })
         disposeReadCoordinator(queryClient)
         disposeAccountReadStateReconciliation(queryClient)
-        disposeAccountUnreadProjection(queryClient)
         void registry.cleanup().finally(() => queryClient.clear()).catch((error: unknown) => {
           if (!isAbortError(error)) console.error("Community collection cleanup failed", error)
         })
@@ -140,29 +134,6 @@ function ScopedQueryProvider({
   })
   const [restoreGate] = useState(createRestoreGate)
   const [communityDb] = useState(() => createCommunityDbRegistry(queryClient, userId, { waitForRestore: restoreGate.ready }))
-  const unreadProjection = useMemo(
-    () => userId ? getAccountUnreadProjection(queryClient, userId) : null,
-    [queryClient, userId],
-  )
-  useEffect(() => {
-    if (!unreadProjection) return
-    unreadProjection.setReconcileScheduler(() => {
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.inboxUnreads(),
-        exact: true,
-      })
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.inboxMentions(),
-        exact: true,
-      })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.dms(), exact: true })
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
-      void queryClient.invalidateQueries({
-        predicate: ({ queryKey }) => isCommunityServerDetailQueryKey(queryKey),
-      })
-    })
-    return () => unreadProjection.setReconcileScheduler(null)
-  }, [queryClient, unreadProjection])
   // Persister is bound to the userId at construction; on account switch the
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.

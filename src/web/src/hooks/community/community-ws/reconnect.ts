@@ -226,13 +226,13 @@ function policyExecutors(
     "inbox-dms": async () => {
       const settled = await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: communityKeys.accountAttention(), refetchType: "active" }),
-        queryClient.invalidateQueries({ queryKey: communityKeys.inbox(), refetchType: "active" }),
+        queryClient.invalidateQueries({ queryKey: communityKeys.inboxMarked(), exact: true, refetchType: "active" }),
         queryClient.invalidateQueries({ queryKey: communityKeys.dms(), refetchType: "active" }),
       ])
       if (settled.some((result) => result.status === "rejected")) throw new Error("inbox reconciliation failed")
     },
     "cached-read-state": async () => {
-      await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
+      await reconcileAccountReadState(queryClient, { reconcileAttention: false })
     },
     "server-rail": () => reconcileCommunityServerRail(queryClient),
     "all-cached-servers": async () => {

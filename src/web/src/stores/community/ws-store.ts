@@ -97,6 +97,17 @@ const initialState = (): Pick<
   seenDeliveryOperations: new Map(),
 })
 
+export function communityScopeAllowsAccess(
+  state: Pick<CommunityWsStoreState, "revokedServerIds" | "channelAccessScopes">,
+  scope: { serverId?: string | null; channelId?: string; parentChannelId?: string | null },
+) {
+  const channel = scope.channelId ? state.channelAccessScopes.get(scope.channelId) : undefined
+  const serverId = scope.serverId ?? channel?.serverId
+  const parentId = scope.parentChannelId ?? channel?.parentChannelId
+  return !((serverId && state.revokedServerIds.has(serverId))
+    || channel?.revoked || (parentId && state.channelAccessScopes.get(parentId)?.revoked))
+}
+
 export function createCommunityWsStore(viewerId: string | null) {
   const store = createStore(initialState(), ({ setState, get }): Omit<CommunityWsStoreState, keyof ReturnType<typeof initialState>> => {
   const writePresence = (

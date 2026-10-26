@@ -26,3 +26,10 @@ export function readCurrentCommunityChannelMeta(queryClient: QueryClient) {
   const id = registry.runtime.ui.get().currentChannelId
   return id ? registry.collections.channels.get(id) ?? null : null
 }
+
+export function bindCommunityTransport(runtime: CommunityRuntime, send: (message: object) => void) {
+  const transport = runtime.transport
+  if (transport.send !== null && transport.send !== send) console.warn("[useCommunityWs] Multiple instances detected — mount this hook once at the tree root.")
+  transport.send = send
+  return () => { if (transport.send === send) transport.send = null }
+}

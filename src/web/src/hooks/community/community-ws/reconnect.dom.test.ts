@@ -196,7 +196,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const lateKeys = invalidate.mock.calls.slice(callsAtUnmount).map(
       (call) => JSON.stringify(call[0]?.queryKey),
     )
-    expect(lateKeys).not.toContain(JSON.stringify(communityKeys.inbox()))
+    expect(lateKeys).not.toContain(JSON.stringify(communityKeys.inboxMarked()))
     expect(lateKeys).not.toContain(JSON.stringify(communityKeys.dms()))
   })
 
@@ -276,9 +276,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     // schedule the single account owner generation.
     expect(
       invalidatedKeys.some(
-        (k) => Array.isArray(k) && k[0] === "community" && k[1] === "inbox",
+        (k) => JSON.stringify(k) === JSON.stringify(communityKeys.inboxMarked()),
       ),
-    ).toBe(false)
+    ).toBe(true)
     await vi.waitFor(() => expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
       path === "/api/community/users/me/attention"
     ))).toHaveLength(1))
@@ -646,7 +646,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     })
 
     const keys = spy.mock.calls.map(([filters]) => JSON.stringify(filters.queryKey))
-    expect(keys).not.toContain(JSON.stringify(communityKeys.inbox()))
+    expect(keys).not.toContain(JSON.stringify(communityKeys.inboxMarked()))
     expect(keys).not.toContain(JSON.stringify(communityKeys.dms()))
     expect(keys).toContain(JSON.stringify(communityKeys.friends()))
     expect(keys).toContain(JSON.stringify(communityKeys.servers()))
@@ -744,12 +744,12 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const work = reconcileCommunityWsReconnect(capturedQueryClient)
     await flushMicrotasks()
     expect(started).toContain(JSON.stringify(communityKeys.channelMembers("ch_priority")))
-    expect(started).not.toContain(JSON.stringify(communityKeys.inbox()))
+    expect(started).not.toContain(JSON.stringify(communityKeys.inboxMarked()))
 
     releaseMembers()
     releaseAddable()
     await work
-    expect(started).toContain(JSON.stringify(communityKeys.inbox()))
+    expect(started).toContain(JSON.stringify(communityKeys.inboxMarked()))
   })
 
   it("limits background reconciliation to three policies at a time", async () => {
@@ -769,7 +769,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const work = reconcileCommunityWsReconnect(capturedQueryClient)
     await flushMicrotasks()
     expect(started).toEqual(expect.arrayContaining([
-      JSON.stringify(communityKeys.inbox()),
+      JSON.stringify(communityKeys.inboxMarked()),
       JSON.stringify(communityKeys.dms()),
       JSON.stringify(communityKeys.friends()),
       JSON.stringify(communityKeys.servers()),

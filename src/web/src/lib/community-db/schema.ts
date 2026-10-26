@@ -17,8 +17,6 @@ export const serverSchema = z.object({
   icon: nullableString,
   official: z.boolean(),
   isOwner: z.boolean(),
-  unread: z.boolean(),
-  mentions: z.number().int().nonnegative(),
   detailComplete: z.boolean().default(false),
 })
 
@@ -34,16 +32,12 @@ export const categorySchema = z.object({
 
 export const channelLocalSchema = z.object({
   muted: z.boolean(),
-  unread: z.boolean(),
-  /** Forum channel's own unread bit, excluding participating child rows. */
-  baseUnread: z.boolean().optional(),
   tags: z.array(z.string()),
   pending: z.boolean(),
   openerSeq: z.number().int().nonnegative().optional(),
   openerUnread: z.boolean().optional(),
   preview: z.string().optional(),
   firstMessageId: z.string().min(1).nullable().optional(),
-  lastUnreadSeq: z.number().int().nonnegative().optional(),
   participantCount: z.number().int().nonnegative().optional(),
 })
 
@@ -196,7 +190,6 @@ export function canonicalChannelRow(
     position: 0,
     archived: false,
     muted: false,
-    unread: false,
     tags: [],
     pending: false,
     lastMessageAt: null,

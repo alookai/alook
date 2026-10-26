@@ -23,12 +23,6 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 
-function wrapperFor(queryClient: QueryClient) {
-  return function QueryWrapper({ children }: PropsWithChildren) {
-    return createElement(QueryClientProvider, { client: queryClient }, children)
-  }
-}
-
 const cleanups: Array<() => void | Promise<void>> = []
 
 beforeEach(() => {
@@ -91,13 +85,15 @@ describe("useForumOpenerHint", () => {
     rendered.unmount()
   })
 
-  it("does not fetch or authorize content before the route metadata is verified", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  it("does not fetch or authorize content before the route metadata is verified", async () => {
+    const { queryClient, wrapper } = await canonicalSetup()
     renderHook(() => useForumOpenerHint("server-1", "opener-1", false), {
-      wrapper: wrapperFor(queryClient),
+      wrapper,
     })
 
     expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(queryClient.getQueryCache().find({ queryKey: communityKeys.message("opener-1"), exact: true })).toBeUndefined()
+    expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
   })
 
   it("refetches a legacy seeded hint that lacks the opener seq", async () => {

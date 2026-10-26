@@ -347,6 +347,12 @@ describe("useMessageListController", () => {
     expect(latest.initialPosition).toMatchObject({ phase: "revealed", showSkeleton: false })
   })
 
+  it("keeps an incomplete jump-to-present count unknown instead of using visible rows", () => {
+    act(() => { rtlRender(React.createElement(Probe, { value: props({ hasMoreNewer: true, unreadCount: undefined }) })) })
+    expect(latest.pillMode).toBe("jump")
+    expect(latest.pillCount).toBe(0)
+  })
+
   it("passes every pagination/anchor input through and gives jump mode server-count precedence", () => {
     const loadOlder = vi.fn()
     const loadNewer = vi.fn()

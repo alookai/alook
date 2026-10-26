@@ -1,7 +1,7 @@
 import { compareAsciiSqliteBinary, FORUM_ARCHIVE_TAG } from "@alook/shared"
-import type { ChannelMembershipRow, ChannelRow, MessageRow } from "@/lib/community-db/schema"
+import type { AttentionScopeRow, ChannelMembershipRow, ChannelRow, MessageRow } from "@/lib/community-db/schema"
 
-export type ForumSidebarThread = Pick<ChannelRow, "id" | "unread"> & {
+export type ForumSidebarThread = Pick<ChannelRow, "id"> & { unread: boolean } & {
   parentChannelId: string
   parentMessageId: string
   title: string
@@ -23,7 +23,7 @@ export function compareForumSidebarThreads(left: ForumSidebarThread, right: Foru
 
 export function forumSidebarCandidates(
   channels: readonly ChannelRow[], memberships: readonly ChannelMembershipRow[], messages: readonly MessageRow[],
-  viewerId: string | null, serverId: string,
+  viewerId: string | null, serverId: string, attention: readonly AttentionScopeRow[] = [],
 ) {
   const participating = viewerNotifyChannelIds(memberships, viewerId)
   const messageById = new Map(messages.map((message) => [message.id, message]))
@@ -36,17 +36,15 @@ export function forumSidebarCandidates(
     const activityAt = channel.lastMessageAt ?? "", activityMs = Date.parse(activityAt)
     const expiresAt = Number.isFinite(activityMs) ? new Date(activityMs + FORUM_SIDEBAR_ACTIVITY_WINDOW_MS).toISOString() : activityAt
     return [{ id: channel.id, parentChannelId: channel.parentChannelId, parentMessageId: channel.parentMessageId,
-      title: messageById.get(channel.parentMessageId)?.content ?? channel.name ?? "", activityAt, expiresAt, unread: channel.unread }]
+      title: messageById.get(channel.parentMessageId)?.content ?? channel.name ?? "", activityAt, expiresAt, unread: attention.some((scope) => scope.scopeId === channel.id && (scope.ordinaryUnread || scope.attentionCount > 0)) }]
   }).sort(compareForumSidebarThreads)
 }
 
 export function projectForumSidebar(
   channels: readonly ChannelRow[], memberships: readonly ChannelMembershipRow[], messages: readonly MessageRow[],
-  viewerId: string | null, serverId: string, retainId: string | null, serverNowMs: number,
+  viewerId: string | null, serverId: string, retainId: string | null, serverNowMs: number, attention: readonly AttentionScopeRow[] = [],
 ) {
-  const parents = channels.filter((channel) => channel.serverId === serverId && channel.type === "forum")
-  const parentIds = new Set(parents.map((channel) => channel.id))
-  const candidates = forumSidebarCandidates(channels, memberships, messages, viewerId, serverId)
+  const candidates = forumSidebarCandidates(channels, memberships, messages, viewerId, serverId, attention)
     .filter((thread) => thread.id === retainId || !Number.isFinite(Date.parse(thread.expiresAt)) || Date.parse(thread.expiresAt) > serverNowMs)
   const byParent = new Map<string, ForumSidebarThread[]>()
   for (const thread of candidates) {
@@ -59,12 +57,9 @@ export function projectForumSidebar(
     if (!retained || siblings.slice(0, 5).some((thread) => thread.id === retainId)) return siblings.slice(0, 5)
     return [...siblings.filter((thread) => thread.id !== retainId).slice(0, 4), retained].sort(compareForumSidebarThreads)
   })
-  const renderedIds = new Set(threads.map((thread) => thread.id))
-  const parentUnread: Record<string, boolean> = {}
-  for (const parent of parents) parentUnread[parent.id] = parent.baseUnread ?? parent.unread
-  for (const child of channels) {
-    if (child.serverId === serverId && child.type === "thread" && child.unread && child.parentChannelId
-      && parentIds.has(child.parentChannelId) && !renderedIds.has(child.id)) parentUnread[child.parentChannelId] = true
+  const parentUnread: Record<string, boolean> = Object.fromEntries(channels.filter(channel => channel.serverId === serverId && channel.type !== "thread").map(channel => [channel.id, false]))
+  for (const scope of attention) {
+    if (scope.serverId === serverId && (scope.ordinaryUnread || scope.attentionCount > 0)) parentUnread[scope.parentChannelId ?? scope.channelId] = true
   }
   return { threads, parentUnread }
 }

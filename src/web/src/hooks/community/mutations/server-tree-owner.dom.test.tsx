@@ -1,3 +1,4 @@
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React, { useMemo } from "react"
@@ -16,7 +17,6 @@ import { flushOwnerServerDeleteRouteCommit } from "../community-ws/scope-evictio
 import { dispatchCommunityWsEvent } from "../community-ws/registry"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useCreateChannel, useCreateCategory, useDeleteCategory, useReorderChannels, useUpdateCategory, useReorderCategories, useDeleteChannel } from "./channels"
-import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 const api = vi.hoisted(() => vi.fn())
 const sdk = vi.hoisted(() => ({ id: "A" }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: api }))
@@ -281,7 +281,7 @@ describe("actual canonical server and tree command owner", () => {
     let result!: Promise<unknown>; act(() => { result = remove.mutateAsync({ serverId: "s1" }).catch((error) => error) })
     await waitFor(() => expect(api.mock.calls.some(([, o]) => o.method === "DELETE")).toBe(true))
     const runtime = getCommunityRuntime(original)
-    act(() => dispatchCommunityWsEvent({ type: "community:server.delete", serverId: "s1" }, { queryClient: original, deliveryMode: "single", communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "A" }, matchesFocus: () => false, scheduleInboxInvalidate: vi.fn() }))
+    act(() => dispatchCommunityWsEvent({ type: "community:server.delete", serverId: "s1" }, { queryClient: original, deliveryMode: "single", communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "A" }, matchesFocus: () => false }))
     expect(getCommunityDbRegistry(original)!.collections.channels.has("c1")).toBe(true)
     expect(screen.getByTestId("server-detail").textContent).toBe("original|before")
     await act(async () => { resolve(undefined); expect(await result).toBeUndefined() })
@@ -355,14 +355,14 @@ describe("actual canonical server and tree command owner", () => {
   })
   it.each(["success", "failure"] as const)("native channel DELETE %s retires unread only after confirmed success", async (outcome) => {
     const { resolve, reject, original } = await mount()
-    const projection = getActiveAccountUnreadProjection(original)
-    act(() => projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 }))
+
+    act(() => seedCommunityAttentionScope(original, { channelId: "c1", serverId: "s1", seq: 1 }))
     let result!: Promise<unknown>; act(() => { result = deleteChannel.mutateAsync({ serverId: "s1", channelId: "c1" }).catch((error) => error) })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).not.toContain("c1=general"))
-    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
+    expect(Boolean(getCommunityDbRegistry(original)!.collections.attentionScopes.get("c1")?.ordinaryUnread)).toBe(true)
     await act(async () => { if (outcome === "success") resolve(undefined); else reject(new Error("denied")); await result })
     expect(getCommunityDbRegistry(original)!.collections.channels.has("c1")).toBe(outcome === "failure")
-    expect(projection.projectUnread("servers", "c1", false)).toBe(outcome === "failure")
+    expect(Boolean(getCommunityDbRegistry(original)!.collections.attentionScopes.get("c1")?.ordinaryUnread)).toBe(outcome === "failure")
   })
   it("publishes the canonical versioned native icon through the original qualified FormData request", async () => {
     const { resolve, original } = await mount()
@@ -386,7 +386,7 @@ describe("actual canonical server and tree command owner", () => {
     await waitFor(() => expect(screen.getByTestId("server-detail").textContent).toBe("original|before"))
     const current = client, runtime = getCommunityRuntime(current)
     if (delivery === "ws") {
-      act(() => dispatchCommunityWsEvent({ type: "community:server.delete", serverId: "s1" }, { queryClient: current, deliveryMode: "single", communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "B" }, matchesFocus: () => false, scheduleInboxInvalidate: vi.fn() }))
+      act(() => dispatchCommunityWsEvent({ type: "community:server.delete", serverId: "s1" }, { queryClient: current, deliveryMode: "single", communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "B" }, matchesFocus: () => false }))
     } else {
       const previous = api.getMockImplementation()!
       api.mockImplementation((path: string, options: unknown) => path === "/api/community/servers" ? Promise.resolve({ servers: [] }) : previous(path, options))

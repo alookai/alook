@@ -13,13 +13,11 @@ import {
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
   invalidateFriends,
-  invalidateServersList,
 } from "./invalidation-projections"
 import {
   projectReadStateEnvelope,
   reconcileAccountReadState,
 } from "./read-state-reconciliation"
-import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { removeDmReactionDetails } from "./reaction-details-invalidation"
 import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { communityKeys } from "@/lib/query-keys"
@@ -36,7 +34,6 @@ export function handleReadStateAdvanced(
   context: SocialEventContext,
 ) {
   applyReadStateEnvelope(event, context)
-  scheduleAccountAttentionReconcile(context.queryClient)
 }
 
 function applyReadStateEnvelope(
@@ -45,9 +42,7 @@ function applyReadStateEnvelope(
 ) {
   const outcome = projectReadStateEnvelope(context.queryClient, event)
   if (outcome === "gap") {
-    context.scheduleInboxInvalidate({ inbox: true, dms: true })
     void reconcileAccountReadState(context.queryClient, {
-      surfaceMode: "non-inbox",
       targetRevision: event.revision,
     }).catch(() => undefined)
   }
@@ -58,10 +53,9 @@ export function handleInboxChanged(
   context: SocialEventContext,
 ) {
   if (event.reason === "notification_policy") {
-    void reconcileNotificationSettings(context.queryClient).catch(() => undefined)
+    void reconcileNotificationSettings(context.queryClient).then(() => scheduleAccountAttentionReconcile(context.queryClient)).catch(() => undefined)
   }
   applyReadStateEnvelope(event, context)
-  scheduleAccountAttentionReconcile(context.queryClient)
 }
 
 type CommunityUnreadBump = Extract<
@@ -88,16 +82,6 @@ export function handleUnreadBump(
   if (event.userId === viewerId && viewerId) {
     const evidence = unreadBumpEvidence?.get(event)
     scheduleAccountAttentionReconcile(queryClient, { channelId: event.channelId, messageId: evidence?.messageId })
-    getAccountUnreadProjection(queryClient, viewerId).recordArrival({
-      channelId: event.channelId,
-      railChannelId: event.railChannelId,
-      serverId: event.serverId,
-      isMention: event.isMention,
-      messageId: evidence?.messageId,
-      seq: evidence?.seq,
-    })
-    // Use the existing coalesced owner. This is also the sole authority
-    // refresh for legacy/orphan bumps; the ledger itself performs no I/O.
     if (evidence && isDesktop()) {
       void resolveDesktopSystemNotificationCandidate(
         evidence.messageEvent,
@@ -143,32 +127,11 @@ export function handleFriendEvent(
 export function handleMentionCreate(
   event: CommunityMentionCreate,
   {
-    projection,
     queryClient,
     viewerUserIdRef,
-    messageEvidenceByChannel,
   }: SocialEventContext,
 ) {
   const viewerId = viewerUserIdRef.current
   if (!viewerId || event.userId !== viewerId) return
   scheduleAccountAttentionReconcile(queryClient, { channelId: event.channelId, messageId: event.messageId })
-  if (event.channelId) {
-    const candidate = messageEvidenceByChannel?.get(event.channelId)
-    const evidence = candidate?.messageId === event.messageId ? candidate : undefined
-    getAccountUnreadProjection(queryClient, viewerId).recordMentionArrival({
-      channelId: event.channelId,
-      messageId: event.messageId,
-      seq: evidence?.seq,
-      isMention: true,
-    })
-  }
-  // The server rail badge counts unread mentions per server; refresh
-  // it on every new mention. `exact: true` is essential: the mention
-  // count lives in the `servers()` LIST query, but members/presence/
-  // invites/server(id) are all nested UNDER `servers()` in
-  // the key hierarchy — a non-exact invalidate prefix-matches and
-  // force-refetches that whole subtree (and invalidate overrides the
-  // staleTime: Infinity those carry). With an active bot in the server,
-  // every mention.create would otherwise storm-refetch all of them.
-  invalidateServersList(projection)
 }

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs"
-import { relative, resolve } from "node:path"
+import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
@@ -19,18 +19,14 @@ function walkTypeScript(directory: string, files: string[] = []): string[] {
 }
 
 describe("community unread projection owner contract", () => {
-  it("creates the authenticated account owner only at the query boundary", () => {
-    const webSourceRoot = resolve(repositoryRoot, "src/web/src")
-    const constructors = walkTypeScript(webSourceRoot)
-      .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts"))
-      .filter((path) => /new AccountUnreadProjection\s*\(/.test(readFileSync(path, "utf8")))
-      .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/"))
-
-    expect(constructors).toEqual([
-      "src/web/src/hooks/community/account-unread-projection.ts",
-    ])
-    expect(source("src/web/src/app/c/QueryProvider.tsx"))
-      .toContain("getAccountUnreadProjection(queryClient, userId)")
+  it("keeps every unread fact in canonical DB instead of a parallel owner", () => {
+    const production = walkTypeScript(resolve(repositoryRoot, "src/web/src"))
+      .filter((path) => !path.includes("/test/") && !/\.test\.tsx?$/.test(path))
+    for (const path of production) expect(readFileSync(path, "utf8")).not.toContain("account-unread-projection")
+    const schema = source("src/web/src/lib/community-db/schema.ts")
+    expect(schema).not.toMatch(/(?:unread|baseUnread|lastUnreadSeq|mentions): z\./)
+    expect(source("src/web/src/hooks/community/read-coordinator.ts")).toContain("publishCommunityConversationReadState")
+    expect(source("src/web/src/hooks/community/community-ws/read-state-reconciliation.ts")).not.toContain("setTimeout")
   })
 
   it("keeps dot components presentation-only", () => {

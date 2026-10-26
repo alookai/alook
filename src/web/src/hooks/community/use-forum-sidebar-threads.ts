@@ -13,7 +13,6 @@ import { communityKeys } from "@/lib/query-keys"
 import { forumSidebarWindowComplete, readForumSidebarWindowResult, type ForumSidebarWindow } from "@/lib/community/forum-sidebar-window"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
-useAttentionScopes,
 useServerSidebarProjection,
 } from "@/lib/community-db/projections"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -32,7 +31,6 @@ type CommunityFreshQueryProof,
 type CommunityForumSidebarChannel,
 type CommunityForumSidebarOpener,
 } from "@/lib/community-db/sync"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 import { forumSidebarCandidates, viewerNotifyChannelIds, compareForumSidebarThreads as compareThreads,
   FORUM_SIDEBAR_ACTIVITY_WINDOW_MS as SIDEBAR_ACTIVITY_WINDOW_MS, type ForumSidebarThread } from "@/lib/community/forum-sidebar"
 export type { ForumSidebarThread } from "@/lib/community/forum-sidebar"
@@ -100,7 +98,7 @@ function projectForumSidebarThreads(data: SidebarThreadEnvelope) {
       title: openerById.get(channel.parentMessageId)?.content || channel.name,
       activityAt: channel.activityAt,
       expiresAt: channel.expiresAt,
-      unread: channel.unread,
+      unread: false,
     }]
   })
 }
@@ -118,7 +116,7 @@ function sidebarChannelResource(
     parentChannelId: channel.parentChannelId,
     parentMessageId: channel.parentMessageId,
     activityAt: channel.activityAt,
-    unread: channel.unread,
+    unread: false,
     participating: true,
   }
 }
@@ -285,17 +283,6 @@ export function hasForumSidebarOwnershipEvidence(
   ))
 }
 
-export function removeForumSidebarUnreadChild(
-  queryClient: QueryClient,
-  _serverId: string,
-  childChannelId: string,
-) {
-  patchCanonicalCommunityChannel(queryClient, childChannelId, (row) => ({
-    ...row,
-    unread: false,
-  }))
-}
-
 export function patchForumSidebarActivityExact(
   queryClient: QueryClient,
   serverId: string,
@@ -330,7 +317,6 @@ export function removeForumSidebarProjectionExact(
   childId: string,
 ) {
   removeCanonicalCommunityChannelMembership(queryClient, childId, "notify")
-  removeForumSidebarUnreadChild(queryClient, serverId, childId)
 }
 
 export async function invalidateForumSidebarBaseExact(
@@ -350,8 +336,6 @@ async function fetchForumSidebarBaseExact(
   await queryClient.cancelQueries({ queryKey, exact: true })
   await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" })
 
-  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
-  const confirmation = unreadProjection.beginAccessConfirmation()
   const token = captureCommunityLiveSnapshotToken(queryClient)
   let normalized: NormalizedForumSidebarEnvelope | undefined
   let proof: CommunityFreshQueryProof | undefined
@@ -371,13 +355,7 @@ async function fetchForumSidebarBaseExact(
         signal,
         token,
       )
-      unreadProjection.confirmAccessScopes(
-        normalized.base.threads.map((thread) => ({
-          kind: "channel" as const,
-          channelId: thread.id,
-        })),
-        confirmation,
-      )
+
       reconciliation = result.reconciliation
       return result.data
     },
@@ -461,7 +439,7 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
       expiresAt: Number.isFinite(activityMs)
         ? new Date(activityMs + SIDEBAR_ACTIVITY_WINDOW_MS).toISOString()
         : activityAt,
-      unread: channel.unread,
+      unread: false,
     }
     if (siblings.length >= 5 && compareThreads(candidate, siblings[4]!) > 0) continue
     publishCommunityForumSidebar(queryClient, {
@@ -484,15 +462,9 @@ export async function grantForumSidebarChild(queryClient: QueryClient, serverId:
     retry: false,
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
-      const unreadProjection = getActiveAccountUnreadProjection(queryClient)
-      const confirmation = unreadProjection.beginAccessConfirmation()
       const normalized = await fetchForumSidebar(queryClient, serverId, childId, signal, token)
       const result = publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, signal, token)
       queryClient.setQueryData(communityKeys.forumSidebarThreads(serverId), result.data)
-      if (hasForumSidebarThread(normalized.base, childId)
-        || normalized.retainedDisposition === "eligible" && normalized.retained?.id === childId) {
-        unreadProjection.confirmAccessScopes([{ kind: "channel", channelId: childId }], confirmation)
-      }
       return { id: childId, disposition: normalized.retainedDisposition, verifiedEpoch: token.accessEpoch }
     },
   }
@@ -525,29 +497,16 @@ export function useForumSidebarThreads(
 ) {
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
-  const unreadProjection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
   const query = useQuery<ForumSidebarQueryData>({
     queryKey: communityKeys.forumSidebarThreads(serverId),
     enabled: !!serverId && enabled,
     staleTime: Infinity,
     queryFn: async ({ signal }) => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
-      const confirmation = unreadProjection.beginAccessConfirmation()
       const normalized = await fetchForumSidebar(queryClient, serverId, retainId, signal, token)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
       const result = publishNormalizedForumSidebar(queryClient, serverId, normalized, retainId, signal, token)
-      unreadProjection.confirmAccessScopes(
-        [
-          ...normalized.base.threads,
-          ...(normalized.retainedDisposition === "eligible" && normalized.retained
-            ? [normalized.retained]
-            : []),
-        ].map((thread) => ({ kind: "channel" as const, channelId: thread.id })),
-        confirmation,
-      )
+
       return result.data
     },
   })
@@ -570,30 +529,7 @@ export function useForumSidebarThreads(
     if (!enabled || !(sidebar.needsRead || query.data !== undefined && !result && sidebar.status === "pending") || query.isFetching || query.isError) return
     void invalidateForumSidebarBaseExact(queryClient, serverId)
   }, [enabled, sidebar.needsRead, sidebar.status, result, query.data, query.isFetching, query.isError, queryClient, serverId])
-  const attentionScopes = useAttentionScopes()
-  const projection = useMemo(() => {
-    const structuralProjection = canonical ?? { threads: [], parentUnread: {} }
-    const relevant = attentionScopes.filter((scope) => scope.serverId === serverId)
-    const unreadByScope = new Map(relevant.map((scope) => [
-      scope.scopeId,
-      scope.ordinaryUnread || scope.attentionCount > 0,
-    ]))
-    const parentUnread: Record<string, boolean> = {}
-    for (const scope of relevant) {
-      if (scope.parentChannelId && unreadByScope.get(scope.scopeId)) {
-        parentUnread[scope.parentChannelId] = true
-      } else if (!scope.parentChannelId) {
-        parentUnread[scope.channelId] = unreadByScope.get(scope.scopeId) ?? false
-      }
-    }
-    return {
-      threads: structuralProjection.threads.map((thread) => ({
-        ...thread,
-        unread: unreadByScope.get(thread.id) ?? false,
-      })),
-      parentUnread,
-    }
-  }, [attentionScopes, serverId, canonical])
+  const projection = canonical ?? { threads: [], parentUnread: {} }
 
   useEffect(() => {
     if (serverNowMs === null) return

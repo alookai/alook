@@ -10,7 +10,6 @@ import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { serversProjectedQueryFn, useServer } from "@/hooks/community/use-servers"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { beginOwnerServerDelete, commitOwnerServerDelete, createOwnerServerDeleteRouteToken, observeOwnerServerDeleteRouteCommit } from "@/lib/community/eject-server"
 import { flushOwnerServerDeleteRouteCommit } from "@/hooks/community/community-ws/scope-eviction"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
@@ -33,7 +32,7 @@ async function setup(method: "push" | "pushImmediate", { cold = false, empty = f
   const server = { id: "target", name: "Target", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
   mocks.breakpoint = mobile ? "mobile" : "desktop"
   mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role: "owner", memberId: "membership" }] })
-  await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(getActiveAccountUnreadProjection(client), client) })
+  await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client) })
   const channels = empty ? [] : [{ id: "channel", name: "Channel", active: false, unread: false, muted: false, type: "text" as const }]
   if (!cold) {
     publishCommunityLiveSnapshot(client, {

@@ -31,6 +31,7 @@ import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
+import { useMessageUnreadCount } from "@/hooks/community/use-message-unread-count"
 import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
@@ -235,16 +236,10 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     catchUp: () => refetchMessages(),
   })
 
-  // `↓ N` unread count. Same math as channel: server truth is
-  // `latestSeq - viewerLastReadSeq`. Clamp to 0 in case the read pointer
-  // overshoots (e.g. a race between the read-state snapshot and a fresh
-  // `latestSeq` fetch).
-  const unreadCount = useMemo(() => {
-    const seenSeq = readSnapshot?.lastReadSeq ?? 0
-    const diff = latestSeq - seenSeq
-    return diff > 0 ? diff : 0
-  }, [latestSeq, readSnapshot])
-
+  const unreadCount = useMessageUnreadCount({ channelId: dmId, viewerUserId: currentUser.id, messages,
+    entryReadSeq: readSnapshot?.lastReadSeq, latestSeq, historyStartKnown,
+    hasMoreNewer: hasMoreNewerMessages, ready: historyAllowed && !!readSnapshot && !readSnapshotFetching && !messagesPending && !messagesError,
+  })
 
   const typingUsers = useTypingUsersForScope(`dm:${dmId}`)
   const typingNames = useTypingNamesForScope(`dm:${dmId}`)

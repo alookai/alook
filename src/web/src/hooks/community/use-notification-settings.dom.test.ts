@@ -66,18 +66,12 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     expect(queryClient.getQueryData(key)).toBeDefined()
   })
 
-  it("projects fetched settings into the active account unread owner", async () => {
+  it("publishes fetched settings into the canonical notification collection", async () => {
     apiFetchMock.mockResolvedValue([
       { serverId: "srv_1", channelId: null, level: "nothing" },
     ])
     const { useNotificationSettings } = await import("./use-notification-settings")
-    const {
-      disposeAccountUnreadProjection,
-      getAccountUnreadProjection,
-    } = await import("./account-unread-projection")
     const queryClient = (await createCommunityQueryOwner("viewer_1")).client
-    const projection = getAccountUnreadProjection(queryClient, "viewer_1")
-    projection.recordArrival({ channelId: "channel_1", serverId: "srv_1", seq: 1 })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient, userId: "viewer_1" },
@@ -87,19 +81,13 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
 
     await waitFor(() => expect(rendered.result.current.isSuccess).toBe(true))
     expect(rendered.result.current.server).toEqual({ srv_1: "Nothing" })
-    expect(projection.projectUnread("servers", "channel_1", false)).toBe(false)
 
     rendered.unmount()
-    disposeAccountUnreadProjection(queryClient)
   })
 
   it("projects warm canonical policy while the transport request is stalled", async () => {
     apiFetchMock.mockReturnValue(new Promise(() => {}))
     const { useNotificationSettings } = await import("./use-notification-settings")
-    const {
-      disposeAccountUnreadProjection,
-      getAccountUnreadProjection,
-    } = await import("./account-unread-projection")
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const registry = createCommunityDbRegistry(queryClient, "viewer_1")
     const disposeRegistry = registry.cleanup.bind(registry)
@@ -120,8 +108,6 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
         signal: undefined,
       },
     })
-    const projection = getAccountUnreadProjection(queryClient, "viewer_1")
-    projection.recordArrival({ channelId: "channel_1", serverId: "srv_1", seq: 1 })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient, registry, userId: "viewer_1" },
@@ -130,14 +116,10 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     const rendered = renderHook(() => useNotificationSettings(), { wrapper })
 
     await waitFor(() => expect(rendered.result.current.server).toEqual({ srv_1: "Nothing" }))
-    await waitFor(() => expect(
-      projection.projectUnread("servers", "channel_1", false),
-    ).toBe(false))
     expect(rendered.result.current.fetchStatus).toBe("fetching")
 
     rendered.unmount()
     unregister()
     await disposeRegistry()
-    disposeAccountUnreadProjection(queryClient)
   })
 })

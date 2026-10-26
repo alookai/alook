@@ -49,7 +49,6 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import { clearTypingIndicator } from "@/hooks/community/community-ws/typing"
-import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { takeMessageIdsForAccessScope } from "./message-access-scope"
 import { clearLastChannel,getLastChannel } from "@/lib/community/last-channel"
 import { clearLastMeLocation,getLastMeLeaf } from "@/lib/community/last-me-location"
@@ -664,12 +663,7 @@ function clearChannelTransientState(
     if (channelIds.has(entry.scope.id)) registry.runtime.messageStream.actions.removeScope(entry.scope)
   }
   const community = registry.runtime.ui.get()
-  const unreadProjection = getAccountUnreadProjection(
-    registry.queryClient,
-    registry.accountId ?? "__anonymous__",
-  )
   for (const channelId of channelIds) {
-    unreadProjection.retireAccessScope({ kind: "channel", channelId })
     for (const scope of [`ch:${channelId}`, `dm:${channelId}`]) {
       for (const userId of community.typingByScope.get(scope)?.keys() ?? []) {
         clearTypingIndicator(registry.queryClient, scope, userId)
@@ -737,8 +731,7 @@ export function ingestServers(
     icon: server.icon ?? null,
     official: server.official === true,
     isOwner: server.isOwner === true,
-    unread: server.unread,
-    mentions: server.mentions,
+
     detailComplete: existingById.get(server.id)?.detailComplete ?? false,
   }))
   const viewerId = registry.accountId
@@ -782,8 +775,7 @@ export function ingestServerDetail(
     icon: detail.icon,
     official: detail.official === true,
     isOwner: existing?.isOwner ?? detail.ownerId === registry.accountId,
-    unread: existing?.unread ?? false,
-    mentions: existing?.mentions ?? 0,
+
     detailComplete: true,
   }
   const categories: CategoryRow[] = []
@@ -820,10 +812,6 @@ export function ingestServerDetail(
         position: resource.position ?? channelIndex,
         archived: resource.archived ?? previous?.archived ?? false,
         muted: channel.muted === true,
-        unread: channel.unread,
-        ...(channel.type === "forum" ? {
-          baseUnread: detail.forumUnreadState?.[channel.id]?.baseUnread ?? channel.unread,
-        } : {}),
         tags: channel.tags ?? [],
         pending: channel.pending === true,
         resourceComplete: complete,
@@ -841,30 +829,6 @@ export function ingestServerDetail(
   const viewerId = registry.accountId
   const accessMemberships: ChannelMembershipRow[] = viewerId
     ? channels.map((channel) => (canonicalChannelMembershipRow(channel.id, viewerId, "access", { source: "inherited" })))
-    : []
-  const existingChannels = new Map(
-    collectionRows(registry, "channels").map((row) => [row.id, row]),
-  )
-  const unreadChildOwnership = Object.entries(detail.forumUnreadState ?? {})
-    .flatMap(([parentChannelId, state]) => state.childIds.map((childId) => ({
-      childId,
-      parentChannelId,
-    })))
-  const unreadChildStubs: ChannelRow[] = unreadChildOwnership.flatMap((ownership) => {
-    if (existingChannels.has(ownership.childId)) return []
-    return [canonicalChannelRow({
-      id: ownership.childId,
-      serverId: detail.id,
-      type: "thread" as const,
-      parentChannelId: ownership.parentChannelId,
-      unread: true,
-    })]
-  })
-  const unreadChildMemberships: ChannelMembershipRow[] = viewerId
-    ? unreadChildOwnership.flatMap(({ childId }) => ([
-        canonicalChannelMembershipRow(childId, viewerId, "access", { source: "explicit" as const }),
-        canonicalChannelMembershipRow(childId, viewerId, "notify", { source: "explicit" as const }),
-      ]))
     : []
   const authoritativeTopLevelIds = new Set([...currentTopLevelIds, ...incomingTopLevelIds])
   notifyManager.batch(() => {
@@ -895,22 +859,7 @@ export function ingestServerDetail(
           && row.relation === "access"
           && authoritativeTopLevelIds.has(row.channelId),
       )
-      upsertRows(
-        registry,
-        "channelMemberships",
-        unreadChildMemberships,
-      )
     }
-    upsertRows(registry, "channels", unreadChildStubs)
-    const unreadChildren = new Set(
-      Object.values(detail.forumUnreadState ?? {}).flatMap((state) => state.childIds),
-    )
-    patchRows(
-      registry,
-      "channels",
-      (row) => ({ ...row, unread: unreadChildren.has(row.id) }),
-      (row) => row.serverId === detail.id && row.type === "thread",
-    )
   })
 }
 
@@ -949,8 +898,7 @@ export function ingestDms(
   for (const [position, dm] of response.conversations.entries()) {
     channels.push(canonicalChannelRow({
       id: dm.id, type: "dm", position,
-      unread: dm.unread === true, lastMessageAt: dm.activityAt ?? null, preview: dm.preview,
-      ...(dm.lastUnreadSeq === undefined ? {} : { lastUnreadSeq: dm.lastUnreadSeq }),
+      lastMessageAt: dm.activityAt ?? null, preview: dm.preview,
     }, registry.collections.channels.get(dm.id)))
     memberships.push(
       canonicalChannelMembershipRow(dm.id, viewerId, "access"),
@@ -1114,6 +1062,7 @@ export function ingestReadStateSnapshot(
   registry: CommunityDbRegistry,
   snapshot: AccountReadStateSnapshot,
 ) {
+  const previousReads = new Map(collectionRows(registry, "readStates").map(row => [row.channelId, row.lastReadSeq]))
   const currentRevision = collectionRows(registry, "readStateClock")
     .find((row) => row.id === "account")?.revision ?? -1
   if (snapshot.revision <= currentRevision) return
@@ -1124,10 +1073,12 @@ export function ingestReadStateSnapshot(
     ...newer,
   ]
   const clock: ReadStateClockRow = { id: "account", revision: snapshot.revision }
+  const nextReadSeq = new Map(readStates.map(row => [row.channelId, row.lastReadSeq]))
+  const changedReads = new Set([...previousReads.keys(), ...nextReadSeq.keys()].filter(id => previousReads.get(id) !== nextReadSeq.get(id)))
   notifyManager.batch(() => {
     replaceRows(registry, "readStates", readStates, () => true)
     replaceRows(registry, "readStateClock", [clock], () => true)
-    projectConfirmedAttention(registry)
+    projectConfirmedAttention(registry, changedReads)
   })
 }
 
@@ -1136,13 +1087,15 @@ export function publishCommunityConversationReadState(
   readState: ReadStateRow,
   revision: number,
   proof: CommunityFreshQueryProof,
+  mode: "snapshot" | "advance" = "snapshot",
 ) {
   return withCommunityQueryProof(queryClient, proof, (registry) => {
     const clock = collectionRows(registry, "readStateClock").find((row) => row.id === "account")?.revision ?? -1
     const current = collectionRows(registry, "readStates").find((row) => row.channelId === readState.channelId)
-    if (clock > revision || (current?.observedRevision ?? -1) >= revision) return "superseded" as const
+    if (clock > revision || (current?.observedRevision ?? -1) > revision
+      || (mode === "snapshot" ? (current?.observedRevision ?? -1) === revision : (current?.lastReadSeq ?? -1) >= readState.lastReadSeq)) return "superseded" as const
     upsertRows(registry, "readStates", [{ ...readState, observedRevision: revision }])
-    projectConfirmedAttention(registry)
+    projectConfirmedAttention(registry, new Set([readState.channelId]))
     return "published" as const
   })
 }
@@ -1153,7 +1106,7 @@ function serverSummaryRows(registry: CommunityDbRegistry, summaries: readonly Pi
     const existing = existingById.get(server.id)
     return {
       description: "", ownerId: "", icon: null, official: false, isOwner: false,
-      unread: false, mentions: 0, detailComplete: false, ...existing,
+      detailComplete: false, ...existing,
       id: server.id, position: existing?.position ?? position,
       name: server.name, discriminator: server.discriminator,
     }
@@ -1189,10 +1142,9 @@ function ingestAttentionIncluded(
       type: "dm",
       position: existing?.position ?? position,
       muted: existing?.muted ?? false,
-      unread: true,
+
       lastMessageAt: dm.lastMessageAt,
       preview: existing?.preview ?? "",
-      lastUnreadSeq: dm.lastUnreadSeq,
     }, existing)
   })
   upsertRows(registry, "channels", dmChannels)
@@ -1220,7 +1172,7 @@ function ingestAttentionIncluded(
   for (const [channelId, messages] of byChannel) ingestMessages(registry, channelId, messages)
 }
 
-type AttentionDomain = "channels" | "dms" | "mentions"
+export type AttentionDomain = "channels" | "dms" | "mentions"
 type AttentionFloor = {
   throughSeq: number
   clearedCount: number
@@ -1288,14 +1240,8 @@ function attentionIntentActive(registry: CommunityDbRegistry, intent: AttentionI
     && registry.queryClient.getQueryCache().find({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "attentionItems"), exact: true }) === intent.itemsQuery
 }
 
-function confirmedAttentionProjection(registry: CommunityDbRegistry, scopes: AttentionScopeRow[], items: AttentionItemRow[]) {
+function confirmedAttentionProjection(registry: CommunityDbRegistry, scopes: AttentionScopeRow[], items: AttentionItemRow[], changedReads: ReadonlySet<string> = new Set()) {
   const readSeq = new Map(collectionRows(registry, "readStates").map((row) => [row.channelId, row.lastReadSeq]))
-  const unreadProjection = getAccountUnreadProjection(registry.queryClient, registry.accountId ?? "__anonymous__")
-  const floorFor = (channelId: string) => {
-    const canonical = readSeq.get(channelId)
-    const confirmed = unreadProjection.getConfirmedReadSeq(channelId)
-    return confirmed === undefined ? canonical : Math.max(canonical ?? 0, confirmed)
-  }
   const scopeById = new Map(scopes.map((scope) => [scope.scopeId, scope]))
   const messages = new Map(collectionRows(registry, "messages").map((message) => [message.id, message]))
   const removedByScope = new Map<string, number>()
@@ -1306,7 +1252,7 @@ function confirmedAttentionProjection(registry: CommunityDbRegistry, scopes: Att
     const message = item.messageId ? messages.get(item.messageId) : undefined
     const channelId = item.readTarget?.channelId ?? scope?.channelId
     const seq = item.readTarget?.seq ?? (message?.channelId === channelId ? message?.seq : undefined)
-    const floor = channelId ? floorFor(channelId) : undefined
+    const floor = channelId ? readSeq.get(channelId) : undefined
     const removed = seq !== undefined && floor !== undefined && seq <= floor
     if (item.scopeId && (item.kind === "mention" || item.kind === "reply")) {
       const counts = removed ? removedByScope : survivingByScope
@@ -1315,15 +1261,15 @@ function confirmedAttentionProjection(registry: CommunityDbRegistry, scopes: Att
     return !removed
   })
   const nextScopes = scopes.flatMap((scope): AttentionScopeRow[] => {
-    const floor = floorFor(scope.channelId)
-    if (floor === undefined) return [scope]
+    const floor = readSeq.get(scope.channelId)
+    if (floor === undefined) return [changedReads.has(scope.channelId) ? { ...scope, unreadCount: undefined } : scope]
     const ordinaryUnread = scope.ordinaryUnread && scope.lastUnreadSeq > floor
     const remaining = scope.lastAttentionSeq != null && scope.lastAttentionSeq <= floor
       ? 0
       : Math.max(0, scope.attentionCount - (removedByScope.get(scope.scopeId) ?? 0))
     const attentionCount = Math.min(scope.attentionCount, Math.max(remaining, survivingByScope.get(scope.scopeId) ?? 0))
     if (!ordinaryUnread && attentionCount === 0) return []
-    return [{ ...scope, ordinaryUnread, attentionCount, lastAttentionSeq: attentionCount === 0 ? null : scope.lastAttentionSeq }]
+    return [{ ...scope, ordinaryUnread, attentionCount, ...(changedReads.has(scope.channelId) ? { unreadCount: undefined } : {}), lastAttentionSeq: attentionCount === 0 ? null : scope.lastAttentionSeq }]
   })
   return { scopes: nextScopes, items: nextItems }
 }
@@ -1342,11 +1288,11 @@ function writeAttentionProjection(registry: CommunityDbRegistry, scopes: Attenti
   return { nextScopes, previousScopes }
 }
 
-export function projectConfirmedAttention(registry: CommunityDbRegistry) {
+function projectConfirmedAttention(registry: CommunityDbRegistry, changedReads: ReadonlySet<string> = new Set()) {
   notifyManager.batch(() => {
     const scopes = collectionRows(registry, "attentionScopes")
     const items = collectionRows(registry, "attentionItems")
-    writeAttentionProjection(registry, scopes, items, confirmedAttentionProjection(registry, scopes, items))
+    writeAttentionProjection(registry, scopes, items, confirmedAttentionProjection(registry, scopes, items, changedReads))
   })
 }
 
@@ -1359,6 +1305,7 @@ function attentionProjection(
   const confirmed = confirmedAttentionProjection(registry, scopes, items)
   scopes = confirmed.scopes
   items = confirmed.items
+  const readSeqs = new Map(collectionRows(registry, "readStates").map(row => [row.channelId, row.lastReadSeq]))
   const floors = new Map<string, { ordinary: number; mentions: number; cleared: number }>()
   const itemIds = new Set<string>()
   for (const intent of intents) {
@@ -1398,7 +1345,7 @@ function attentionProjection(
     )
     const attentionCount = Math.max(0, Math.min(scope.attentionCount, remaining) - (removedByScope.get(scope.scopeId) ?? 0))
     if (!ordinaryUnread && attentionCount === 0) return []
-    return [{ ...scope, ordinaryUnread, lastAttentionSeq: attentionCount === 0 ? null : lastAttentionSeq, attentionCount }]
+    return [{ ...scope, ordinaryUnread, ...(floor && floor.ordinary > (readSeqs.get(scope.channelId) ?? -1) ? { unreadCount: undefined } : {}), lastAttentionSeq: attentionCount === 0 ? null : lastAttentionSeq, attentionCount }]
   })
   return { scopes: nextScopes, items: nextItems }
 }
@@ -1853,6 +1800,7 @@ export function publishCommunityLiveSnapshot(
     }
     switch (snapshot.kind) {
       case "servers":
+        for (const server of snapshot.data.servers) registry.runtime.ws.actions.grantServerAccess(server.id)
         ingestServers(registry, snapshot.data)
         break
       case "server-detail":
@@ -2051,7 +1999,7 @@ export function publishCommunityForumSidebar(
       parentMessageId: channel.parentMessageId,
       creatorId: channel.creatorId ?? existing?.creatorId ?? null,
       archived: channel.archived === true || channel.archived === 1,
-      unread: channel.unread,
+
       lastMessageAt: channel.lastMessageAt ?? channel.activityAt,
     }, existing)]
   })
@@ -2115,14 +2063,8 @@ export function publishCommunityForumSidebar(
           && row.userId === viewerId
           && row.relation === "notify",
       )
-      if (disposition === "genuine-negative") {
-        patchRows(
-          registry,
-          "channels",
-          (row) => ({ ...row, unread: false }),
-          (row) => row.id === id,
-        )
-      }
+      retireCommunityNotificationScope(registry, id)
+
     }
   })
     return "published" as const
@@ -2420,6 +2362,13 @@ export function patchCanonicalCommunityMessage(
   ))
 }
 
+function retireCommunityNotificationScope(registry: CommunityDbRegistry, channelId: string) {
+  const scope = collectionRows(registry, "attentionScopes").find(row => row.channelId === channelId)
+  if (!scope) return
+  if (scope.attentionCount === 0) deleteRows(registry, "attentionScopes", row => row.channelId === channelId, [scope.scopeId])
+  else patchRows(registry, "attentionScopes", row => ({ ...row, ordinaryUnread: false, unreadCount: 0 }), row => row.channelId === channelId, [scope.scopeId], ["ordinaryUnread", "unreadCount"])
+}
+
 export function removeCanonicalCommunityChannelMembership(
   queryClient: QueryClient,
   channelId: string,
@@ -2427,13 +2376,10 @@ export function removeCanonicalCommunityChannelMembership(
 ) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry?.accountId) return false
-  deleteRows(
-    registry,
-    "channelMemberships",
-    (row) => row.channelId === channelId
-      && row.userId === registry.accountId
-      && row.relation === relation,
-  )
+  withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
+    deleteRows(registry, "channelMemberships", row => row.channelId === channelId && row.userId === registry.accountId && row.relation === relation)
+    if (relation === "notify") retireCommunityNotificationScope(registry, channelId)
+  })
   return true
 }
 
@@ -2457,6 +2403,7 @@ export function setCanonicalCommunityChannelMember(queryClient: QueryClient, cha
   const write = () => {
     if (!present) {
       deleteRows(registry, "channelMemberships", (row) => row.id === id, [id])
+      if (userId === registry.accountId && relation === "notify") retireCommunityNotificationScope(registry, channelId)
       return true
     }
     const previous = collectionRows(registry, "channelMemberships").find((row) => row.id === id)
@@ -2506,13 +2453,6 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
   for (const id of removedChannelIds) registry.runtime.ws.actions.revokeChannelAccess(serverId, id)
   clearChannelTransientState(registry, removedChannelIds, serverId)
   pruneInboxCaches(registry.queryClient, removedChannelIds, serverId)
-  getAccountUnreadProjection(
-    registry.queryClient,
-    registry.accountId ?? "__anonymous__",
-  ).retireAccessScope({
-    kind: "server",
-    serverId,
-  })
   clearLastChannel(serverId)
   registry.runtime.ws.actions.revokeServerAccess(serverId)
   void registry.retireReadingDisk(removedChannelIds).catch((error: unknown) => console.error("Server cache retirement failed", error))
@@ -2607,8 +2547,8 @@ export function retireCommunityChannelReading(
     .catch((error: unknown) => console.error("Channel cache retirement failed", error))
   if (options.clearTransient !== false) clearChannelTransientState(registry, removed, serverId, options.preserveQuery, options)
   withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => notifyManager.batch(() => {
-    patchRows(registry, "channels", (row) => ({ ...row, preview: "", unread: false, baseUnread: false, lastUnreadSeq: undefined }),
-      (row) => removed.has(row.id), removed, ["preview", "unread", "baseUnread", "lastUnreadSeq"])
+    patchRows(registry, "channels", (row) => ({ ...row, preview: "" }),
+      (row) => removed.has(row.id), removed, ["preview"])
     deleteRows(registry, "messages", (row) => removed.has(row.channelId))
     deleteRows(registry, "readStates", (row) => removed.has(row.channelId))
     deleteRows(registry, "attentionScopes", (row) => removed.has(row.channelId))
@@ -2938,30 +2878,6 @@ export function projectCommunityWsEventToDb(
         event.userId ? [serverMembershipKey(event.serverId, event.userId)] : undefined,
         Object.keys(event.changes),
       )
-      return
-    case "community:unread.bump":
-      if (event.userId !== registry.accountId) return
-      patchRows(
-        registry,
-        "channels",
-        (row) => ({ ...row, unread: true }),
-        (row) => row.id === event.channelId || row.id === event.railChannelId,
-        [event.channelId, event.railChannelId]
-          .filter((channelId): channelId is string => Boolean(channelId)),
-      )
-      if (event.serverId) {
-        patchRows(
-          registry,
-          "servers",
-          (row) => ({
-            ...row,
-            unread: true,
-            mentions: row.mentions + (event.isMention ? 1 : 0),
-          }),
-          (row) => row.id === event.serverId,
-          [event.serverId],
-        )
-      }
       return
     case "community:status.update":
       projectProfilePatch(registry, event.userId, {

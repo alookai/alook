@@ -1,9 +1,9 @@
 "use client"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
-import { useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime"
+import { bindCommunityTransport, useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cancelMessageRepairs } from "@/hooks/community/community-ws/reconnect-messages"
 import {
@@ -11,7 +11,6 @@ import {
   type UserWsConnectionPhase,
 } from "@/lib/use-user-ws"
 
-import { SEEN_DELIVERY_OPERATION_MAX, SEEN_DELIVERY_OPERATION_TRIM_TO } from "@/stores/community/ws"
 import {
   reconcileCommunityWsReconnect,
   reconcileFocusedCommunityMessages,
@@ -21,20 +20,11 @@ import {
   dispatchCommunityWsEvents,
 } from "@/hooks/community/community-ws/registry"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
-import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
-import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
-import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
-import {
-  invalidateDms,
-  invalidateInbox,
-} from "@/hooks/community/community-ws/invalidation-projections"
 import type {
-  CommunityInboxRefreshRequest,
   CommunityWsDispatchContext,
   Subscription,
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
-import { flushPendingReadIntents } from "@/hooks/community/read-coordinator"
 import {
   decodeCommunityBrowserEvent,
   communityBrowserEventBatchType,
@@ -82,81 +72,10 @@ export type {
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-// Debounce inbox invalidation so a busy channel doesn't fire one refetch per
-// message. 500ms matches the mark-channel-read debounce so both fire once per
-// message burst.
-const INBOX_INVALIDATE_DEBOUNCE_MS = 500
-
-type InboxRefreshGeneration = CommunityInboxRefreshRequest & {
-  id: number
-  dueAt: number
-}
-
-type InboxRefreshOwner = {
-  current: InboxRefreshGeneration | null
-  next: InboxRefreshGeneration | null
-  timer: ReturnType<typeof setTimeout> | null
-  running: boolean
-  nextGenerationId: number
-  epoch: number
-  claimedOperationKeys: Set<string>
-  claimedOperationOrder: string[]
-  disposed: boolean
-}
-
-function mergeInboxRefresh(
-  target: CommunityInboxRefreshRequest,
-  incoming: CommunityInboxRefreshRequest,
-) {
-  target.dms ||= incoming.dms
-}
-
-function deliveryInboxRefresh(
-  events: readonly CommunityWsEvent[],
-  viewerId: string | null,
-): CommunityInboxRefreshRequest | null {
-  let inbox = false
-  let dms = false
-  for (const event of events) {
-    if (event.type === "community:unread.bump" && event.userId === viewerId) {
-      inbox = true
-      dms ||= !event.serverId
-    }
-    if (event.type === "community:mention.create" && event.userId === viewerId) inbox = true
-  }
-  return inbox ? { inbox: true, dms } : null
-}
-
 function hasCommunityFunnelTrigger(events: readonly CommunityWsEvent[]) {
   return events.some((event) => event.type === "community:machine.status"
     || event.type === "community:message.create"
     || event.type === "community:member.join")
-}
-
-function claimInboxRefreshOperation(owner: InboxRefreshOwner, key: string) {
-  if (owner.claimedOperationKeys.has(key)) return false
-  owner.claimedOperationKeys.add(key)
-  owner.claimedOperationOrder.push(key)
-  if (owner.claimedOperationOrder.length > SEEN_DELIVERY_OPERATION_MAX) {
-    const retained = owner.claimedOperationOrder.slice(-SEEN_DELIVERY_OPERATION_TRIM_TO)
-    owner.claimedOperationOrder = retained
-    owner.claimedOperationKeys = new Set(retained)
-  }
-  return true
-}
-
-function armInboxRefreshGeneration(
-  owner: InboxRefreshOwner,
-  generation: InboxRefreshGeneration,
-  run: (generation: InboxRefreshGeneration, epoch: number) => Promise<void>,
-) {
-  if (owner.disposed) return
-  owner.timer = setTimeout(() => {
-    if (owner.disposed) return
-    owner.timer = null
-    owner.running = true
-    void run(generation, owner.epoch)
-  }, Math.max(0, generation.dueAt - Date.now()))
 }
 
 // ── Public hook ────────────────────────────────────────────────────────────
@@ -251,118 +170,24 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     return () => { unsubscribe(); void cancelMessageRepairs(queryClient) }
   }, [queryClient])
   const viewerUserIdRef = useRef<string | null>(options?.viewerUserId ?? null)
-  const hasAuthenticatedRef = useRef(false)
   const viewerUserId = options?.viewerUserId ?? null
-  if (viewerUserId) getAccountUnreadProjection(queryClient, viewerUserId)
-  viewerUserIdRef.current = viewerUserId
+  const viewToken = useMemo(() => ({ queryClient, runtime, viewerUserId }), [queryClient, runtime, viewerUserId])
+  const activeViewRef = useRef<typeof viewToken | null>(null)
+
+  useLayoutEffect(() => {
+    viewerUserIdRef.current = viewerUserId
+    activeViewRef.current = viewToken
+    return () => { if (activeViewRef.current === viewToken) activeViewRef.current = null }
+  }, [viewerUserId, viewToken])
   useEffect(() => {
     if (!viewerUserId) return
     runtime.ws.actions.setPresence(viewerUserId, "online")
   }, [runtime.ws.actions, viewerUserId])
 
-  const inboxRefreshOwner = useRef<InboxRefreshOwner | null>(null)
-  if (inboxRefreshOwner.current === null) {
-    inboxRefreshOwner.current = {
-      current: null,
-      next: null,
-      timer: null,
-      running: false,
-      nextGenerationId: 0,
-      epoch: 0,
-      claimedOperationKeys: new Set(),
-      claimedOperationOrder: [],
-      disposed: false,
-    }
-  }
-  const runInboxGeneration = useCallback(async function runInboxGeneration(
-    generation: InboxRefreshGeneration,
-    epoch: number,
-  ) {
-    const owner = inboxRefreshOwner.current
-    if (
-      !owner
-      || owner.disposed
-      || owner.epoch !== epoch
-      || owner.current?.id !== generation.id
-    ) {
-      /* istanbul ignore next -- the sole timer caller validates and enters synchronously */
-      return
-    }
-    let consumed = false
-    let deferred = false
-    try {
-      const outcome = await flushPendingReadIntents(queryClient, {
-        deferInboxDms: () => {
-          const latest = inboxRefreshOwner.current
-          return latest?.epoch === epoch
-            && latest.current?.id === generation.id
-            && latest.next !== null
-        },
-      })
-      consumed = outcome.consumed
-      deferred = outcome.deferred === true
-    } catch {
-      /* istanbul ignore next -- the coordinator normalizes every real failure into an outcome */
-      consumed = false
-      /* istanbul ignore next -- the coordinator normalizes every real failure into an outcome */
-      deferred = false
-    }
-    const current = inboxRefreshOwner.current
-    if (
-      !current
-      || current.disposed
-      || current.epoch !== epoch
-      || current.current?.id !== generation.id
-    ) return
-    if (deferred && current.next) mergeInboxRefresh(current.next, generation)
-    if (!consumed && !deferred) {
-      runCommunityWsProjectionTransaction(queryClient, (projection) => {
-        if (generation.inbox) invalidateInbox(projection)
-        if (generation.dms) invalidateDms(projection)
-      })
-    }
-    current.current = current.next
-    current.next = null
-    current.running = false
-    if (current.current) {
-      armInboxRefreshGeneration(current, current.current, runInboxGeneration)
-    }
-  }, [queryClient])
-  const scheduleInboxInvalidate = useCallback((
-    request: CommunityInboxRefreshRequest,
-    operationKey?: string,
-  ) => {
-    const owner = inboxRefreshOwner.current
-    if (!owner || owner.disposed) return
-    if (operationKey && !claimInboxRefreshOperation(owner, operationKey)) return
-    if (owner.current === null) {
-      owner.current = {
-        ...request,
-        id: ++owner.nextGenerationId,
-        dueAt: Date.now() + INBOX_INVALIDATE_DEBOUNCE_MS,
-      }
-      armInboxRefreshGeneration(owner, owner.current, runInboxGeneration)
-      return
-    }
-    if (!owner.running) {
-      mergeInboxRefresh(owner.current, request)
-      return
-    }
-    if (owner.next === null) {
-      owner.next = {
-        ...request,
-        id: ++owner.nextGenerationId,
-        dueAt: Date.now() + INBOX_INVALIDATE_DEBOUNCE_MS,
-      }
-      return
-    }
-    mergeInboxRefresh(owner.next, request)
-  }, [runInboxGeneration])
-
   const handleMessage = useCallback(
     async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void, contract: CommunityContract = 2) => {
       if (!msg.type.startsWith("community:")) return
-      if (!runtime.lifecycle.get().active) return
+      if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
       const communityStore = runtime.ui
       const sub = communityStore.get().subscription
       const wsStore = runtime.ws
@@ -380,7 +205,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       }
       const context = (
         deliveryMode: "single" | "batch",
-        requestInboxRefresh = scheduleInboxInvalidate,
       ): CommunityWsDispatchContext => ({
         contract,
         deliveryMode,
@@ -390,16 +214,13 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         sub,
         viewerUserIdRef,
         matchesFocus,
-        scheduleInboxInvalidate: requestInboxRefresh,
       })
       const reconcileAfterBatchFailure = (
         reason: "digest-conflict" | "projection-failed",
-        inboxOwned: boolean,
       ) => {
         void reconcileCommunityWsReconnect(
           queryClient,
           0,
-          inboxOwned ? { excludePolicies: ["inbox-dms"] } : undefined,
         ).catch(() => {
           console.warn("[ws] batch reconciliation failed", {
             event: "community_ws_batch_reconciliation_failed",
@@ -418,7 +239,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         const admission = admitCommunityBrowserEventBatch(msg)
         const decoded = admission instanceof Promise ? await admission : admission
         try { assertAdmissionCurrent?.(); assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined) } catch { return }
-        if (!runtime.lifecycle.get().active) return
+        if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
         if (!decoded.ok) {
           const reason = decoded.reason === "oversized" ? "oversized" : "invalid-payload"
           const metadata = {
@@ -437,11 +258,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )
-        const batchRefresh = deliveryInboxRefresh(
-          decoded.events,
-          viewerUserIdRef.current,
-        )
-        const operationKey = `delivery:${decoded.batch.operationId}:${decoded.batch.operationDigest}`
         if (operationStatus === "duplicate") return
         if (operationStatus === "conflict") {
           console.warn("[ws] delivery operation digest conflict", {
@@ -450,27 +266,13 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
             operationDigest: decoded.batch.operationDigest,
             eventCount: decoded.events.length,
           })
-          if (batchRefresh) {
-            scheduleInboxInvalidate(
-              batchRefresh,
-              `conflict:${decoded.batch.operationId}:${decoded.batch.operationDigest}`,
-            )
-          }
-          reconcileAfterBatchFailure("digest-conflict", batchRefresh !== null)
+          reconcileAfterBatchFailure("digest-conflict")
           return
-        }
-        let collectedRefresh: CommunityInboxRefreshRequest | null = null
-        const collectInboxRefresh = (request: CommunityInboxRefreshRequest) => {
-          if (collectedRefresh === null) {
-            collectedRefresh = { ...request }
-          } else {
-            mergeInboxRefresh(collectedRefresh, request)
-          }
         }
         try {
           const publication = dispatchCommunityWsEvents(
             decoded.events,
-            context("batch", collectInboxRefresh),
+            context("batch"),
           )
           if (publication) await publication
         } catch {
@@ -480,8 +282,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
             operationDigest: decoded.batch.operationDigest,
             eventCount: decoded.events.length,
           })
-          if (batchRefresh) scheduleInboxInvalidate(batchRefresh, operationKey)
-          reconcileAfterBatchFailure("projection-failed", batchRefresh !== null)
+          reconcileAfterBatchFailure("projection-failed")
           return
         }
         // Complete dedup only after every child projected successfully. The
@@ -493,7 +294,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         // Keeping the failed operation locked but incomplete lets the
         // identical bundle retry, so idempotent child projections can finish
         // converging even when authoritative reconnect reconciliation fails.
-        if (collectedRefresh) scheduleInboxInvalidate(collectedRefresh, operationKey)
         runtime.ws.actions.completeDeliveryOperation(
           decoded.batch.operationId,
           decoded.batch.operationDigest,
@@ -524,39 +324,29 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         void drainInvitedHumanJoined(runtime.lifecycle)
       }
     },
-    [queryClient, runtime.lifecycle, runtime.ui, runtime.ws, scheduleInboxInvalidate],
+    [queryClient, runtime.lifecycle, runtime.ui, runtime.ws, viewToken],
   )
 
   const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
-    try {
-      await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs, {
-        excludePolicies: ["inbox-dms"],
-        viewerUserId: viewerUserIdRef.current,
-      })
-    } finally {
-      scheduleAccountAttentionReconcile(queryClient)
-    }
-  }, [queryClient])
+    if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
+    await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs, { viewerUserId: viewerUserIdRef.current })
+  }, [queryClient, runtime.lifecycle, viewToken])
   const handleAuthenticated = useCallback(async () => {
+    if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
     void drainInvitedHumanJoined(runtime.lifecycle)
     runtime.ws.actions.markAccessConnected()
     const viewerId = viewerUserIdRef.current
     if (viewerId) {
       runtime.ws.actions.setPresence(viewerId, "online")
     }
-    const firstAuthentication = !hasAuthenticatedRef.current
-    hasAuthenticatedRef.current = true
-    if (firstAuthentication) {
-      scheduleAccountAttentionReconcile(queryClient)
-    }
-    await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
-  }, [queryClient, runtime.ws.actions, runtime.lifecycle])
+    await reconcileAccountReadState(queryClient)
+  }, [queryClient, runtime.ws.actions, runtime.lifecycle, viewToken])
   const handleForeground = useCallback(() => {
-    if (inboxRefreshOwner.current?.disposed
+    if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active
       || viewerUserIdRef.current !== viewerUserId
       || (viewerUserId !== null && runtime.ws.get().profileViewerId !== viewerUserId)) return
     return reconcileFocusedCommunityMessages(queryClient)
-  }, [queryClient, runtime.ws, viewerUserId])
+  }, [queryClient, runtime.ws, runtime.lifecycle, viewerUserId, viewToken])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     viewerUserId,
     communityContract: options?.communityContract,
@@ -580,13 +370,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   useEffect(() => {
     if (typeof document === "undefined" || typeof window === "undefined") return
     const reconcileVisible = () => {
-      if (document.visibilityState !== "visible") return
-      if (runtime.ws.get().accessConnected) {
-        scheduleAccountAttentionReconcile(queryClient)
-      }
-      void reconcileAccountReadState(queryClient, {
-        surfaceMode: "non-inbox",
-      }).catch(() => undefined)
+      if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active || document.visibilityState !== "visible") return
+      void reconcileAccountReadState(queryClient).catch(() => undefined)
     }
     document.addEventListener("visibilitychange", reconcileVisible)
     window.addEventListener("pageshow", reconcileVisible)
@@ -594,19 +379,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       document.removeEventListener("visibilitychange", reconcileVisible)
       window.removeEventListener("pageshow", reconcileVisible)
     }
-  }, [queryClient, runtime.ws])
+  }, [queryClient, runtime.lifecycle, viewToken])
 
-  useEffect(() => {
-    if (runtime.transport.send !== null && runtime.transport.send !== send) {
-      console.warn(
-        "[useCommunityWs] Multiple instances detected — mount this hook once at the tree root.",
-      )
-    }
-    runtime.transport.send = send
-    return () => {
-      if (runtime.transport.send === send) runtime.transport.send = null
-    }
-  }, [send, runtime])
+  useEffect(() => bindCommunityTransport(runtime, send), [send, runtime])
 
   useEffect(() => {
     const controller = getConnectionController()
@@ -624,19 +399,4 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     }
   }, [getConnectionController, runtime.ws, runtime.ws.actions])
 
-  useEffect(() => {
-    const owner = inboxRefreshOwner.current
-    if (owner) owner.disposed = false
-    return () => {
-      const current = inboxRefreshOwner.current
-      if (!current) return
-      current.disposed = true
-      current.epoch += 1
-      if (current.timer !== null) clearTimeout(current.timer)
-      current.timer = null
-      current.current = null
-      current.next = null
-      current.running = false
-    }
-  }, [])
 }

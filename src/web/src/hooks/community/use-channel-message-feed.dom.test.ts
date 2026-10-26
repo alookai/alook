@@ -1,6 +1,8 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook } from "@/test/react-dom-harness"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { useChannelMessageFeed } from "./use-channel-message-feed"
 import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 
@@ -17,7 +19,10 @@ vi.mock("./use-messages", () => ({ useMessages: (...args: unknown[]) => { mocks.
 vi.mock("./use-channel-watermark", () => ({ useChannelWatermark: (...args: unknown[]) => mocks.watermark(...args) }))
 vi.mock("./use-channel-panels", () => ({ useThreads: () => ({ threads: [], isLoading: true }), usePins: () => ({ pins: [], isLoading: true }) }))
 const target = { channelId: "c1", serverId: "s1", viewerUserId: "viewer", isChildChannel: false, anchorMessageId: null }
-beforeEach(() => {
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+function Owner({ children }: { children: React.ReactNode }) { return React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry }, children) }
+beforeEach(async () => {
+  owner = await createCommunityQueryOwner("viewer")
   mocks.useMessages.mockClear(); mocks.watermark.mockClear(); mocks.messages.retryInitialLoad.mockClear()
   Object.assign(mocks.messages, { readSnapshot: { channelId: "c1", lastReadMessageId: "read", lastReadSeq: 1, lastReadAt: null }, readSnapshotFetching: false,
     entryDenied: false, initialLoadError: null, isPending: false, isError: false, anchorReconciled: true, initialPositionKnown: true })
@@ -26,7 +31,7 @@ beforeEach(() => {
 describe("message feed consumes the entry snapshot", () => {
   it("keeps the canonical feed visible while retiring the background watermark scope", () => {
     function Wrapper({ children }: { children: React.ReactNode }) {
-      return React.createElement(ConversationActivityContext, { value: false }, children)
+      return React.createElement(Owner, null, React.createElement(ConversationActivityContext, { value: false }, children))
     }
     const hook = renderHook(() => useChannelMessageFeed(target), { wrapper: Wrapper })
     expect(hook.result.current.messages).toBe(mocks.messages.messages)
@@ -34,7 +39,7 @@ describe("message feed consumes the entry snapshot", () => {
     expect(mocks.watermark).toHaveBeenLastCalledWith(expect.objectContaining({ channelId: null }))
   })
   it("projects NEW and unread count independently of secondary pins and threads", () => {
-    const hook = renderHook(() => useChannelMessageFeed(target))
+    const hook = renderHook(() => useChannelMessageFeed(target), { wrapper: Owner })
     expect(hook.result.current.newDividerBefore).toBe("peer")
     expect(hook.result.current.unreadCount).toBe(1)
     expect(hook.result.current.anchorInCache).toBe(true)
@@ -45,7 +50,7 @@ describe("message feed consumes the entry snapshot", () => {
 
   it("keeps an unresolved entry pointer pending without a second leaf-read gate", () => {
     mocks.messages.readSnapshot = null; mocks.messages.readSnapshotFetching = true; mocks.messages.initialPositionKnown = false
-    const hook = renderHook(() => useChannelMessageFeed({ ...target, anchorMessageId: "deep" }))
+    const hook = renderHook(() => useChannelMessageFeed({ ...target, anchorMessageId: "deep" }), { wrapper: Owner })
     expect(hook.result.current.newDividerBefore).toBeUndefined()
     expect(mocks.watermark).toHaveBeenLastCalledWith(expect.objectContaining({ snapshotStatus: "pending" }))
     expect(mocks.useMessages).toHaveBeenLastCalledWith("c1", { serverId: "s1", viewerUserId: "viewer", anchorMessageId: "deep" })
@@ -55,7 +60,7 @@ describe("message feed consumes the entry snapshot", () => {
   it("stops watermark writes on denial and exposes the unified retry", () => {
     const error = Object.assign(new Error("denied"), { status: 403 })
     Object.assign(mocks.messages, { entryDenied: true, initialLoadError: error, isError: true })
-    const hook = renderHook(() => useChannelMessageFeed(target))
+    const hook = renderHook(() => useChannelMessageFeed(target), { wrapper: Owner })
     expect(mocks.watermark).toHaveBeenLastCalledWith(expect.objectContaining({ snapshotStatus: "error", feedStatus: "error" }))
     hook.result.current.retryInitialLoad()
     expect(mocks.messages.retryInitialLoad).toHaveBeenCalledOnce()

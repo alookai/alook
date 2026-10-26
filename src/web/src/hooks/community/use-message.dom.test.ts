@@ -7,7 +7,6 @@ import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { ingestMessages } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { useMessage } from "./use-message"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 import { takeMessageIdsForAccessScope } from "@/lib/community-db/message-access-scope"
 
 const apiFetchMock = vi.fn(() => new Promise(() => {}))
@@ -64,23 +63,29 @@ describe("useMessage cache-first placeholder", () => {
     expect(rendered.result.current.message).toBeNull()
   })
 
-  it("keeps the access index empty while fenced and restores it after rollback or grant", async () => {
+  it.each(["current", "retired"] as const)("observes a %s native server retirement without copying access state", async lifetime => {
+    ingestMessages(registry, scope.channelId, [message])
+    client.setQueryData(communityKeys.message(message.id), message.id)
+    const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
+    await waitFor(() => expect(rendered.result.current.message?.id).toBe(message.id))
+    let reject!: (error: Error) => void
+    const held = new Promise<void>((_resolve, fail) => { reject = fail })
+    const mutation = client.getMutationCache().build<void, Error, { serverId: string; original: { registry: unknown } }, unknown>(client, { mutationKey: ["community", "server-retirement", "leave"], mutationFn: async () => held })
+    let pending!: Promise<unknown>
+    await act(async () => { pending = mutation.execute({ serverId: scope.serverId, original: { registry: lifetime === "current" ? registry : {} } }).catch(error => error) })
+    await waitFor(() => expect(rendered.result.current.message?.id).toBe(lifetime === "current" ? undefined : message.id))
+    await act(async () => { reject(new Error("denied")); await pending })
+    await waitFor(() => expect(rendered.result.current.message?.id).toBe(message.id))
+  })
+
+  it("keeps the access index empty after revocation and restores it after a fresh grant", async () => {
     client.setQueryData(communityKeys.message(message.id), message.id)
     const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
     await waitFor(() => expect(takeMessageIdsForAccessScope(client, new Set([scope.channelId]), null)).toEqual([message.id]))
-    const projection = getActiveAccountUnreadProjection(client)
-    let retirement!: ReturnType<typeof projection.beginScopeRetirement>
-    act(() => { retirement = projection.beginScopeRetirement({ kind: "channel", channelId: scope.channelId }) })
+    act(() => registry.runtime.ws.actions.revokeChannelAccess(scope.serverId, scope.channelId))
     expect(rendered.result.current.message).toBeNull()
     await waitFor(() => expect(takeMessageIdsForAccessScope(client, new Set([scope.channelId]), null)).toEqual([]))
-    act(() => projection.rollbackScopeRetirement(retirement))
-    await waitFor(() => expect(takeMessageIdsForAccessScope(client, new Set([scope.channelId]), null)).toEqual([message.id]))
-    act(() => projection.retireAccessScope({ kind: "channel", channelId: scope.channelId }))
-    expect(takeMessageIdsForAccessScope(client, new Set([scope.channelId]), null)).toEqual([])
-    act(() => {
-      projection.grantAccessScope({ kind: "channel", channelId: scope.channelId })
-      projection.confirmAccessScopes([{ kind: "channel", channelId: scope.channelId }], projection.beginAccessConfirmation())
-    })
+    act(() => registry.runtime.ws.actions.rememberChannelAccess(scope.serverId, scope.channelId))
     await waitFor(() => expect(takeMessageIdsForAccessScope(client, new Set([scope.channelId]), null)).toEqual([message.id]))
     expect(rendered.result.current.message).toBeNull()
   })

@@ -1,10 +1,10 @@
 "use client"
-import { useSelector } from "@tanstack/react-store"
 
 
 import { useEffect, useMemo } from "react"
 import {
   useQuery,
+  useMutationState,
   useQueryClient,
   queryOptions,
   type QueryClient,
@@ -22,10 +22,13 @@ import {
   useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
 import {
+  communityServerRetirementId,
+  communityServerRetirementKey,
   rememberMessageAccessScope,
   type MessageAccessScope,
 } from "@/lib/community-db/message-access-scope"
-import { accountUnreadAllowsAccess, getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { communityScopeAllowsAccess } from "@/stores/community/ws-store"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import {
   captureCommunityLiveSnapshotToken,
@@ -85,7 +88,8 @@ function messageQueryOptions(queryClient: QueryClient, messageId: string, channe
 export async function prefetchCommunityMessage(queryClient: QueryClient, messageId: string, scope: MessageAccessScope) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry?.runtime.lifecycle.get().active
-    || !accountUnreadAllowsAccess(getActiveAccountUnreadProjection(queryClient).state.get(), scope)) return
+    || !communityScopeAllowsAccess(registry.runtime.ws.get(), scope)
+    || queryClient.getMutationCache().findAll({ mutationKey: communityServerRetirementKey, status: "pending" }).some(mutation => communityServerRetirementId(mutation, registry) === scope.serverId && scope.serverId != null)) return
   rememberMessageAccessScope(queryClient, messageId, scope)
   if (registry.collections.messages.get(messageId)?.resourceComplete) return
   await queryClient.query({ ...messageQueryOptions(queryClient, messageId, scope.channelId), staleTime: 0, select: undefined })
@@ -96,7 +100,8 @@ export async function prefetchCommunityLatestMessage(queryClient: QueryClient, c
   const registry = token.registry
   if (!registry?.runtime.lifecycle.get().active) return
   const scope = { channelId, serverId: registry.collections.channels.get(channelId)?.serverId }
-  if (!accountUnreadAllowsAccess(getActiveAccountUnreadProjection(queryClient).state.get(), scope)) return
+  if (!communityScopeAllowsAccess(registry.runtime.ws.get(), scope)
+    || queryClient.getMutationCache().findAll({ mutationKey: communityServerRetirementKey, status: "pending" }).some(mutation => communityServerRetirementId(mutation, registry) === scope.serverId && scope.serverId != null)) return
   const queryKey = communityKeys.channelLatestMessage(channelId)
   await queryClient.cancelQueries({ queryKey, exact: true })
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
@@ -144,11 +149,9 @@ export function useMessage(
   const selectedIds = useMemo(() => messageId ? [messageId] : [], [messageId])
   const canonicalMessages = useCanonicalMessagesById(selectedIds)
   const queryClient = useQueryClient()
-  const accessProjection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
-  const accessAllowed = useSelector(accessProjection.state, (state) => !accessScope || accountUnreadAllowsAccess(state, accessScope))
+  const retiringServers = useMutationState({ filters: { mutationKey: communityServerRetirementKey, status: "pending" }, select: mutation => communityServerRetirementId(mutation, registry) })
+  const accessAllowed = useCommunityWsStore((state) => !accessScope || communityScopeAllowsAccess(state, accessScope))
+    && !(accessScope?.serverId && retiringServers.includes(accessScope.serverId))
   const enabled = !!messageId && accessAllowed
   useEffect(() => {
     if (!messageId || !accessScope || !accessAllowed) return

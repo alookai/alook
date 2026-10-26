@@ -1,294 +1,55 @@
-import { seedCommunityReadState } from "@/test/community-query-owner"
-import { currentConversationReadState } from "@/lib/community/conversation-entry"
-import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { currentConversationReadState } from "@/lib/community/conversation-entry"
+import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
-
-const apiFetch = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/api/client", () => ({
-  apiFetch: (...args: unknown[]) => apiFetch(...args),
-}))
-
 import { dispatchCommunityWsEvent } from "./registry"
 import type { CommunityWsDispatchContext } from "./handler-context"
-import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { notificationSettingsQueryFn } from "@/hooks/community/use-notification-settings"
 import { disposeAccountReadStateReconciliation } from "./read-state-reconciliation"
 
-function context(
-  queryClient: QueryClient,
-  scheduleInboxInvalidate = vi.fn(),
-): CommunityWsDispatchContext {
-  const runtime = createCommunityDbRegistry(queryClient, "u1").runtime
-  return {
-    deliveryMode: "single",
-    queryClient,
-    communityStore: runtime.ui,
-    wsStore: runtime.ws,
-    sub: {},
-    viewerUserIdRef: { current: "u1" },
-    matchesFocus: () => false,
-    scheduleInboxInvalidate,
-  }
-}
+const apiFetch = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+const emptyAttention = { scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
+function context(): CommunityWsDispatchContext { return { deliveryMode: "single", queryClient: owner.client, communityStore: owner.runtime.ui, wsStore: owner.runtime.ws, sub: {}, viewerUserIdRef: { current: "u1" }, matchesFocus: () => false } }
+beforeEach(async () => { owner = await createCommunityQueryOwner("u1"); apiFetch.mockReset() })
+afterEach(async () => { disposeAccountReadStateReconciliation(owner.client); await owner.registry.cleanup(); owner.client.clear() })
 
-describe("same-account read-state WS events", () => {
-  let queryClient: QueryClient
+it.each(["community:read_state.advanced", "community:inbox.changed"] as const)("repairs canonical read state and attention once for %s and ignores an old hint", async type => {
+  const snapshot = { revision: 8, readStates: [{ channelId: "c1", lastReadMessageId: "m8", lastReadAt: "2026-10-27T00:00:08.000Z", lastReadSeq: 8 }] }
+  apiFetch.mockImplementation(async (path: string) => path.endsWith("/read-state") ? snapshot : emptyAttention)
+  const event = { type, revision: 8, inboxChanged: true, ...(type === "community:inbox.changed" ? { reason: "read_all" as const } : {}) }
+  dispatchCommunityWsEvent(event, context())
+  await vi.waitFor(() => expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(8))
+  await vi.waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/attention"))).toHaveLength(1))
+  dispatchCommunityWsEvent(event, context())
+  expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
+  expect(apiFetch.mock.calls.some(([path]) => path === "/api/community/servers" || path.endsWith("/dms"))).toBe(false)
+})
 
-  beforeEach(async () => {
-    queryClient = (await createCommunityQueryOwner("u1")).client
-    apiFetch.mockReset()
+it("refreshes notification policy and invalidates native attention even after its read revision was observed", async () => {
+  ingestReadStateSnapshot(owner.registry, { revision: 2, readStates: [] })
+  owner.client.setQueryData(communityKeys.accountAttention(), { loaded: true })
+  apiFetch.mockResolvedValue([{ serverId: "s1", channelId: null, level: "nothing" }])
+  dispatchCommunityWsEvent({ type: "community:inbox.changed", revision: 2, inboxChanged: true, reason: "notification_policy" }, context())
+  await vi.waitFor(() => expect(owner.registry.collections.notificationSettings.get("server:s1")?.level).toBe("nothing"))
+  await vi.waitFor(() => expect(owner.client.getQueryState(communityKeys.accountAttention())?.isInvalidated).toBe(true))
+  expect(apiFetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/users/me/notifications"])
+})
+
+it("cancels an older policy transport and rejects its ignored-abort response", async () => {
+  ingestReadStateSnapshot(owner.registry, { revision: 2, readStates: [] })
+  let release!: (rows: unknown) => void, policyCalls = 0
+  apiFetch.mockImplementation((path: string) => {
+    if (path.endsWith("/notifications")) return ++policyCalls === 1 ? new Promise(done => { release = done }) : Promise.resolve([])
+    return Promise.resolve(emptyAttention)
   })
-
-  afterEach(() => {
-    disposeAccountReadStateReconciliation(queryClient)
-    queryClient.clear()
-  })
-
-  it("pulls and projects the authoritative replacement for an exact-next hint", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 2,
-      readStates: [],
-    })
-    seedCommunityReadState(queryClient, "dm1", {
-      lastReadMessageId: null,
-      lastReadAt: null,
-      lastReadSeq: 0,
-    })
-
-    apiFetch.mockResolvedValue({
-      revision: 3,
-      readStates: [{
-        channelId: "dm1",
-        lastReadMessageId: "m4",
-        lastReadAt: "2026-08-24T00:00:04.000Z",
-        lastReadSeq: 4,
-      }],
-    })
-    dispatchCommunityWsEvent({
-      type: "community:read_state.advanced",
-      revision: 3,
-      inboxChanged: true,
-    }, context(queryClient))
-
-    await vi.waitFor(() => expect(currentConversationReadState(queryClient, "dm1",
-    )).toMatchObject({
-      lastReadMessageId: "m4",
-      lastReadSeq: 4,
-    }))
-    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
-  })
-
-  it("repairs a revision gap from the authoritative snapshot", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 2,
-      readStates: [],
-    })
-    apiFetch.mockResolvedValue({
-      revision: 5,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m8",
-        lastReadAt: "2026-08-24T00:00:08.000Z",
-        lastReadSeq: 8,
-      }],
-    })
-
-    dispatchCommunityWsEvent({
-      type: "community:read_state.advanced",
-      revision: 5,
-      inboxChanged: true,
-    }, context(queryClient))
-
-    await vi.waitFor(() => expect(queryClient.getQueryData(
-      communityKeys.accountReadStateSnapshot(),
-    )).toMatchObject({ revision: 5 }))
-    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
-  })
-
-  it("pulls one full read-all replacement and ignores its stale replay", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 7,
-      readStates: [],
-    })
-    seedCommunityReadState(queryClient, "c1", { lastReadSeq: 0 })
-
-    apiFetch.mockResolvedValue({
-      revision: 8,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m8",
-        lastReadAt: "2026-08-24T00:00:08.000Z",
-        lastReadSeq: 8,
-      }],
-    })
-
-    const event = {
-      type: "community:inbox.changed",
-      revision: 8,
-      inboxChanged: true,
-      reason: "read_all",
-    } as const
-    dispatchCommunityWsEvent(event, context(queryClient))
-    await vi.waitFor(() => expect(currentConversationReadState(queryClient, "c1",
-    )).toMatchObject({
-      lastReadSeq: 8,
-    }))
-    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
-
-    dispatchCommunityWsEvent(event, context(queryClient))
-    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
-  })
-
-  it("absorbs an authoritative repair failure after receiving a newer hint", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 2,
-      readStates: [],
-    })
-    apiFetch.mockRejectedValue(new Error("temporary snapshot failure"))
-
-    dispatchCommunityWsEvent({
-      type: "community:read_state.advanced",
-      revision: 3,
-      inboxChanged: true,
-    }, context(queryClient))
-
-    await vi.waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1))
-    await vi.waitFor(() => expect(queryClient.getQueryState(
-      communityKeys.accountReadStateSnapshot(),
-    )?.fetchStatus).toBe("idle"))
-    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
-      .toMatchObject({ revision: 2 })
-  })
-
-  it("schedules the owner immediately while the snapshot repairs only non-Inbox surfaces", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 2,
-      readStates: [],
-    })
-    let resolveSnapshot!: (value: unknown) => void
-    apiFetch.mockReturnValue(new Promise((resolve) => { resolveSnapshot = resolve }))
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
-    const scheduleInboxInvalidate = vi.fn()
-
-    dispatchCommunityWsEvent({
-      type: "community:inbox.changed",
-      revision: 3,
-      inboxChanged: true,
-      reason: "read_all",
-    }, context(queryClient, scheduleInboxInvalidate))
-
-    expect(scheduleInboxInvalidate).toHaveBeenCalledOnce()
-    expect(scheduleInboxInvalidate).toHaveBeenCalledWith({ inbox: true, dms: true })
-    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
-      queryKey: communityKeys.inbox(),
-    }), expect.anything())
-    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
-      queryKey: communityKeys.dms(),
-    }), expect.anything())
-
-    resolveSnapshot({ revision: 3, readStates: [] })
-    await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledWith(
-        expect.objectContaining({ queryKey: communityKeys.servers() }),
-        expect.anything(),
-      )
-    })
-    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
-      queryKey: communityKeys.inbox(),
-    }), expect.anything())
-    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
-      queryKey: communityKeys.dms(),
-    }), expect.anything())
-  })
-
-  it.each([
-    ["nothing", "all", [], true],
-    ["all", "nothing", [{ serverId: "s1", channelId: null, level: "nothing" }], false],
-  ] as const)("reconciles a peer tab from %s to %s policy", async (
-    initial,
-    _next,
-    settings,
-    expected,
-  ) => {
-    const sourceClient = (await createCommunityQueryOwner("u1")).client
-    const peerClient = (await createCommunityQueryOwner("u1")).client
-    const source = getAccountUnreadProjection(sourceClient, "u1")
-    const peer = getAccountUnreadProjection(peerClient, "u1")
-    source.setNotificationPolicy({ server: { s1: expected ? "all" : "nothing" } })
-    peer.setNotificationPolicy({ server: { s1: initial } })
-    source.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
-    peer.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
-    peerClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 1,
-      readStates: [],
-    })
-    apiFetch.mockImplementation(async (path: string) => (
-      path === "/api/community/users/me/notifications"
-        ? settings
-        : { revision: 2, readStates: [] }
-    ))
-
-    dispatchCommunityWsEvent({
-      type: "community:inbox.changed",
-      revision: 2,
-      inboxChanged: true,
-      reason: "notification_policy",
-    }, context(peerClient))
-
-    await vi.waitFor(() => expect(
-      peer.projectUnread("servers", "c1", false),
-    ).toBe(expected))
-    expect(peer.projectUnread("servers", "c1", false)).toBe(
-      source.projectUnread("servers", "c1", false),
-    )
-  })
-
-  it("cancels an older in-flight policy fetch and keeps an old unread snapshot positive-only", async () => {
-    const projection = getAccountUnreadProjection(queryClient, "u1")
-    projection.setNotificationPolicy({ server: { s1: "nothing" } })
-    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
-    const stalePolicySnapshot = projection.beginSnapshot("servers", "channels")
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 1,
-      readStates: [],
-    })
-    let resolveOldPolicy!: (value: unknown) => void
-    let policyCalls = 0
-    apiFetch.mockImplementation((path: string) => {
-      if (path !== "/api/community/users/me/notifications") {
-        return Promise.resolve({ revision: 2, readStates: [] })
-      }
-      policyCalls += 1
-      if (policyCalls === 1) {
-        return new Promise((resolve) => { resolveOldPolicy = resolve })
-      }
-      return Promise.resolve([])
-    })
-    const oldRequest = queryClient.query({
-      queryKey: communityKeys.notificationSettings(),
-      queryFn: notificationSettingsQueryFn,
-    }).catch(() => undefined)
-    await vi.waitFor(() => expect(policyCalls).toBe(1))
-
-    dispatchCommunityWsEvent({
-      type: "community:inbox.changed",
-      revision: 2,
-      inboxChanged: true,
-      reason: "notification_policy",
-    }, context(queryClient))
-    await vi.waitFor(() => expect(policyCalls).toBe(2))
-    resolveOldPolicy([{ serverId: "s1", channelId: null, level: "nothing" }])
-    await oldRequest
-    await vi.waitFor(() => expect(projection.getPolicyGeneration()).toBeGreaterThan(1))
-    expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
-      ids: [],
-    })
-    expect(createCommunityDbRegistry(queryClient, "u1").collections.notificationSettings.size).toBe(0)
-
-    projection.absorbSnapshot(stalePolicySnapshot, [], { truncated: false })
-    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
-  })
+  const old = owner.client.query({ queryKey: communityKeys.notificationSettings(), queryFn: notificationSettingsQueryFn }).catch(() => undefined)
+  await vi.waitFor(() => expect(policyCalls).toBe(1))
+  dispatchCommunityWsEvent({ type: "community:inbox.changed", revision: 2, inboxChanged: true, reason: "notification_policy" }, context())
+  await vi.waitFor(() => expect(policyCalls).toBe(2))
+  release([{ serverId: "s1", channelId: null, level: "nothing" }]); await old
+  await vi.waitFor(() => expect(owner.client.getQueryData(communityKeys.notificationSettings())).toEqual({ ids: [] }))
+  expect(owner.registry.collections.notificationSettings.size).toBe(0)
 })

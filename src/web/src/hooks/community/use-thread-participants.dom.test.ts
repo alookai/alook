@@ -1,3 +1,4 @@
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -6,7 +7,6 @@ import { communityKeys } from "@/lib/query-keys"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, ingestServerDetail, publishCommunityForumSidebar } from "@/lib/community-db/sync"
-import { getAccountUnreadProjection } from "./account-unread-projection"
 import { getForumSidebarBase } from "./use-forum-sidebar-threads"
 import { useAddThreadParticipant, useRemoveThreadParticipant } from "./use-thread-participants"
 
@@ -49,8 +49,8 @@ describe("useRemoveThreadParticipant", () => {
     seedSidebar()
     const metaKey = communityKeys.channelMeta("server_1", "post_1")
     client.setQueryData(metaKey, { id: "post_1", parentChannelId: "forum_1" })
-    const projection = getAccountUnreadProjection(client, "viewer_1")
-    projection.recordArrival({ channelId: "post_1", serverId: "server_1", seq: 7 })
+
+    seedCommunityAttentionScope(client, { channelId: "post_1", serverId: "server_1", seq: 7 })
     const rendered = renderHook(() => useRemoveThreadParticipant("post_1", "server_1", "viewer_1"), { wrapper: Owner })
     await command(() => rendered.result.current.mutateAsync("viewer_1"))
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/post_1/participants/viewer_1", expect.objectContaining({ method: "DELETE", signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
@@ -58,29 +58,29 @@ describe("useRemoveThreadParticipant", () => {
     expect(registry.collections.channelMemberships.get("post_1:viewer_1:access")).toBeDefined()
     expect(registry.collections.channelMemberships.get("post_1:viewer_1:notify")).toBeUndefined()
     expect(client.getQueryData(metaKey)).toEqual({ id: "post_1", parentChannelId: "forum_1" })
-    expect(projection.projectUnread("inbox-unreads", "post_1", false, 7)).toBe(false)
+    expect(Boolean(registry.collections.attentionScopes.get("post_1")?.ordinaryUnread)).toBe(false)
   })
 
   it("does not retire viewer unread scope when participant removal fails", async () => {
     seedSidebar()
-    const projection = getAccountUnreadProjection(client, "viewer_1")
-    projection.recordArrival({ channelId: "post_1", serverId: "server_1", seq: 7 })
+
+    seedCommunityAttentionScope(client, { channelId: "post_1", serverId: "server_1", seq: 7 })
     apiFetchMock.mockRejectedValueOnce(new Error("failed"))
     const rendered = renderHook(() => useRemoveThreadParticipant("post_1", "server_1", "viewer_1"), { wrapper: Owner })
     await act(async () => { await expect(rendered.result.current.mutateAsync("viewer_1")).rejects.toThrow("failed") })
-    expect(projection.projectUnread("inbox-unreads", "post_1", false, 7)).toBe(true)
+    expect(Boolean(registry.collections.attentionScopes.get("post_1")?.ordinaryUnread)).toBe(true)
     expect(getForumSidebarBase(client, "server_1").threads).toHaveLength(1)
     expect(registry.collections.channelMemberships.get("post_1:viewer_1:notify")).toBeDefined()
   })
 
   it("keeps the viewer's sidebar row when the creator removes someone else", async () => {
     seedSidebar()
-    const projection = getAccountUnreadProjection(client, "viewer_1")
-    projection.recordArrival({ channelId: "post_1", serverId: "server_1", seq: 7 })
+
+    seedCommunityAttentionScope(client, { channelId: "post_1", serverId: "server_1", seq: 7 })
     const rendered = renderHook(() => useRemoveThreadParticipant("post_1", "server_1", "viewer_1"), { wrapper: Owner })
     await command(() => rendered.result.current.mutateAsync("other_1"))
     expect(getForumSidebarBase(client, "server_1").threads).toHaveLength(1)
-    expect(projection.projectUnread("inbox-unreads", "post_1", false, 7)).toBe(true)
+    expect(Boolean(registry.collections.attentionScopes.get("post_1")?.ordinaryUnread)).toBe(true)
   })
 
   it("does not revalidate the viewer's forum access when adding someone else", async () => {

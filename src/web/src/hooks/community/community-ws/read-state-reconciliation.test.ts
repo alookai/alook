@@ -1,937 +1,108 @@
-import { seedCommunityReadState } from "@/test/community-query-owner"
-import { currentConversationReadState } from "@/lib/community/conversation-entry"
-import { createCommunityDbRegistry } from "@/lib/community-db/collections"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { QueryClient, QueryObserver } from "@tanstack/react-query"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
-import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
+import { captureCommunityLiveSnapshotToken, publishCommunityConversationReadState } from "@/lib/community-db/sync"
+import { currentConversationReadState } from "@/lib/community/conversation-entry"
+import { disposeAccountReadStateReconciliation, projectReadStateEnvelope, reconcileAccountReadState } from "./read-state-reconciliation"
 
 const apiFetch = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/api/client", () => ({
-  apiFetch: (...args: unknown[]) => apiFetch(...args),
-}))
+vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+const row = (seq: number) => ({ channelId: "c1", lastReadMessageId: `m${seq}`, lastReadAt: `2026-10-27T00:00:0${seq}.000Z`, lastReadSeq: seq })
+const snapshot = (revision: number, seq = revision) => ({ revision, readStates: [row(seq)] })
+const attention = { scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
+beforeEach(async () => { apiFetch.mockReset(); owner = await createCommunityQueryOwner(); apiFetch.mockImplementation(async (path: string) => path.endsWith("/attention") ? attention : snapshot(1)) })
+afterEach(async () => { await owner.client.cancelQueries(); await owner.registry.cleanup(); owner.client.clear(); vi.useRealTimers() })
 
-import {
-  disposeAccountReadStateReconciliation,
-  projectReadStateEnvelope,
-  reconcileAccountReadState,
-  type AccountReadStateSnapshot,
-} from "./read-state-reconciliation"
-
-describe("account read-state reconciliation", () => {
-  let queryClient: QueryClient
-
-  beforeEach(() => {
-    vi.useRealTimers()
-    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    createCommunityDbRegistry(queryClient, "viewer")
-    apiFetch.mockReset()
+describe("native account read-state reconciliation", () => {
+  it("publishes canonical cursors and caches only the transport revision", async () => {
+    await reconcileAccountReadState(owner.client)
+    expect(currentConversationReadState(owner.client, "c1")).toMatchObject(row(1))
+    expect(owner.client.getQueryData(communityKeys.accountReadStateSnapshot())).toEqual({ revision: 1 })
+    expect(apiFetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/users/me/read-state", "/api/community/users/me/attention", "/api/community/users/me/attention"])
+    expect(projectReadStateEnvelope(owner.client, { revision: 1, inboxChanged: true })).toBe("stale")
+    expect(projectReadStateEnvelope(owner.client, { revision: 2, inboxChanged: true })).toBe("gap")
   })
 
-  it("treats every newer bounded hint as an authoritative-snapshot gap", () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 6,
-      readStates: [],
-    })
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 6,
-      inboxChanged: true,
-    })).toBe("stale")
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 7,
-      inboxChanged: true,
-    })).toBe("gap")
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 8,
-      inboxChanged: true,
-    })).toBe("gap")
-    queryClient.removeQueries({ queryKey: communityKeys.accountReadStateSnapshot() })
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 1,
-      inboxChanged: true,
-    })).toBe("gap")
+  it("shares both native transports without a second attention read when the confirmed revision stays current", async () => {
+    await reconcileAccountReadState(owner.client, { reconcileAttention: false })
+    apiFetch.mockClear()
+    await Promise.all([reconcileAccountReadState(owner.client), reconcileAccountReadState(owner.client)])
+    expect(apiFetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/users/me/read-state", "/api/community/users/me/attention"])
   })
 
-  it("loads the authoritative full replacement, including regression and removal", async () => {
-    seedCommunityReadState(queryClient, "c1", { lastReadSeq: 1 })
-    seedCommunityReadState(queryClient, "dm1", { lastReadSeq: 2 })
-    apiFetch.mockResolvedValue({
-      revision: 10,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m0",
-        lastReadAt: "2026-08-24T00:00:00.000Z",
-        lastReadSeq: 0,
-      }],
+  it("rechecks an early attention count only after a held read-state advances its confirmed revision", async () => {
+    const gate = deferred<ReturnType<typeof snapshot>>()
+    let attentionReads = 0
+    apiFetch.mockImplementation(async (path: string) => path.endsWith("/read-state") ? gate.promise : {
+      ...attention,
+      scopes: [{ scopeId: "c1", channelId: "c1", serverId: null, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 5, unreadCount: ++attentionReads === 1 ? 5 : 3, attentionCount: 0, lastAttentionSeq: null }],
+      included: { ...attention.included, dms: [{ id: "c1", userId: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 0, lastMessageAt: "2026-10-27T00:00:05.000Z", lastUnreadSeq: 5 }], profiles: [{ userId: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 0 }] },
     })
-
-    await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
-    expect(apiFetch).toHaveBeenCalledWith("/api/community/users/me/read-state", expect.objectContaining({ signal: expect.any(AbortSignal) }))
-    expect(currentConversationReadState(queryClient, "c1")).toMatchObject({
-      lastReadMessageId: "m0",
-      lastReadSeq: 0,
-    })
-    expect(currentConversationReadState(queryClient, "dm1")).toMatchObject({
-      lastReadMessageId: null,
-      lastReadAt: null,
-      lastReadSeq: 0,
-    })
-  })
-
-  it("discards an in-flight snapshot superseded by a newer target revision", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    seedCommunityReadState(queryClient, "c1", {
-      lastReadMessageId: "m4",
-      lastReadAt: "2026-08-24T00:00:04.000Z",
-      lastReadSeq: 4,
-    })
-    const releases: Array<(snapshot: AccountReadStateSnapshot) => void> = []
-    apiFetch.mockImplementation(() => new Promise<AccountReadStateSnapshot>((resolve) => {
-      releases.push(resolve)
-    }))
-
-    const first = reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })
-    await vi.waitFor(() => expect(releases).toHaveLength(1))
-    const second = reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 6,
-    })
-    releases[0]!({
-      revision: 5,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m5",
-        lastReadAt: "2026-08-24T00:00:05.000Z",
-        lastReadSeq: 5,
-      }],
-    })
-    await vi.waitFor(() => expect(releases).toHaveLength(2))
-
-    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
-      .toMatchObject({ revision: 4 })
-    expect(currentConversationReadState(queryClient, "c1"))
-      .toMatchObject({ lastReadSeq: 4 })
-
-    releases[1]!({
-      revision: 6,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m6",
-        lastReadAt: "2026-08-24T00:00:06.000Z",
-        lastReadSeq: 6,
-      }],
-    })
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      expect.objectContaining({ revision: 6 }),
-      expect.objectContaining({ revision: 6 }),
-    ])
-    expect(currentConversationReadState(queryClient, "c1"))
-      .toMatchObject({ lastReadSeq: 6 })
-  })
-
-  it("uses all surfaces when options are omitted", async () => {
-    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
-
-    await expect(reconcileAccountReadState(queryClient)).resolves.toEqual({
-      revision: 1,
-      readStates: [],
-    })
-
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: communityKeys.inbox(),
-      refetchType: "active",
-    }, { throwOnError: true, cancelRefetch: true })
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: communityKeys.servers(),
-      exact: true,
-      refetchType: "active",
-      predicate: expect.any(Function),
-    }, { throwOnError: true, cancelRefetch: true })
-  })
-
-  it("reprojects leaf caches when a lifecycle read returns the current revision", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 10,
-      readStates: [],
-    })
-    seedCommunityReadState(queryClient, "late", {
-      lastReadMessageId: null,
-      lastReadAt: null,
-      lastReadSeq: 0,
-    })
-    apiFetch.mockResolvedValue({
-      revision: 10,
-      readStates: [{
-        channelId: "late",
-        lastReadMessageId: "m3",
-        lastReadAt: "2026-08-24T00:00:03.000Z",
-        lastReadSeq: 3,
-      }],
-    })
-
-    await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
-
-    expect(currentConversationReadState(queryClient, "late"))
-      .toMatchObject({ lastReadMessageId: "m3", lastReadSeq: 3 })
-  })
-
-  it("refetches cached server details without refetching the channel-ref directory", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 1,
-      readStates: [],
-    })
-    let serverFetches = 0
-    let directoryFetches = 0
-    const serverObserver = new QueryObserver(queryClient, {
-      queryKey: communityKeys.server("server-1"),
-      queryFn: async () => {
-        serverFetches += 1
-        return { id: "server-1" }
-      },
-      staleTime: Infinity,
-    })
-    const directoryObserver = new QueryObserver(queryClient, {
-      queryKey: communityKeys.channelRefDirectory(),
-      queryFn: async () => {
-        directoryFetches += 1
-        return { servers: [] }
-      },
-      staleTime: Infinity,
-    })
-    const unsubscribeServer = serverObserver.subscribe(() => {})
-    const unsubscribeDirectory = directoryObserver.subscribe(() => {})
-    await vi.waitFor(() => {
-      expect(serverFetches).toBe(1)
-      expect(directoryFetches).toBe(1)
-    })
-    queryClient.setQueryData(communityKeys.server("__none__"), { id: "__none__" })
-    apiFetch.mockResolvedValue({ revision: 2, readStates: [] })
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
-
-    await reconcileAccountReadState(queryClient, { targetRevision: 2 })
-
-    expect(serverFetches).toBe(2)
-    expect(directoryFetches).toBe(1)
-    expect(invalidate).toHaveBeenCalledWith(
-      { queryKey: communityKeys.server("server-1"), exact: true, refetchType: "active", predicate: expect.any(Function) },
-      { throwOnError: true, cancelRefetch: true },
-    )
-    expect(invalidate).not.toHaveBeenCalledWith(
-      { queryKey: communityKeys.channelRefDirectory(), exact: true, refetchType: "active" },
-      expect.anything(),
-    )
-    expect(invalidate).not.toHaveBeenCalledWith(
-      { queryKey: communityKeys.server("__none__"), exact: true, refetchType: "active" },
-      expect.anything(),
-    )
-    unsubscribeDirectory()
-    unsubscribeServer()
-  })
-
-  it("deduplicates concurrent lifecycle and gap reconciliations per query client", async () => {
-    let release!: (snapshot: AccountReadStateSnapshot) => void
-    apiFetch.mockReturnValue(new Promise<AccountReadStateSnapshot>((resolve) => {
-      release = resolve
-    }))
-
-    const first = reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
-    const second = reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
-    expect(apiFetch).toHaveBeenCalledTimes(1)
-
-    release({ revision: 3, readStates: [] })
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      { revision: 3, readStates: [] },
-      { revision: 3, readStates: [] },
-    ])
-  })
-
-  it("does not lose a live revision behind a cold auth snapshot in flight", async () => {
-    let releaseAuth!: (snapshot: AccountReadStateSnapshot) => void
-    let releaseFresh!: (snapshot: AccountReadStateSnapshot) => void
-    apiFetch
-      .mockReturnValueOnce(new Promise<AccountReadStateSnapshot>((resolve) => {
-        releaseAuth = resolve
-      }))
-      .mockReturnValueOnce(new Promise<AccountReadStateSnapshot>((resolve) => {
-        releaseFresh = resolve
-      }))
-    seedCommunityReadState(queryClient, "c1", { lastReadSeq: 0 })
-    seedCommunityReadState(queryClient, "removed", { lastReadSeq: 4 })
-
-    const auth = reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 5,
-      inboxChanged: true,
-    })).toBe("gap")
-    const live = reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })
-    expect(apiFetch).toHaveBeenCalledTimes(1)
-
-    releaseAuth({ revision: 4, readStates: [] })
-    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
-    releaseFresh({
-      revision: 5,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m5",
-        lastReadAt: "2026-08-24T00:00:05.000Z",
-        lastReadSeq: 5,
-      }],
-    })
-
-    await expect(Promise.all([auth, live])).resolves.toEqual([
-      {
-        revision: 5,
-        readStates: [{
-          channelId: "c1",
-          lastReadMessageId: "m5",
-          lastReadAt: "2026-08-24T00:00:05.000Z",
-          lastReadSeq: 5,
-        }],
-      },
-      {
-        revision: 5,
-        readStates: [{
-          channelId: "c1",
-          lastReadMessageId: "m5",
-          lastReadAt: "2026-08-24T00:00:05.000Z",
-          lastReadSeq: 5,
-        }],
-      },
-    ])
-    expect(currentConversationReadState(queryClient, "c1")).toMatchObject({
-      lastReadMessageId: "m5",
-      lastReadSeq: 5,
-    })
-    expect(currentConversationReadState(queryClient, "removed")).toMatchObject({
-      lastReadMessageId: null,
-      lastReadAt: null,
-      lastReadSeq: 0,
-    })
-  })
-
-  it("immediately refetches when a successful snapshot remains below the live target", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    apiFetch
-      .mockResolvedValueOnce({ revision: 4, readStates: [] })
-      .mockResolvedValueOnce({ revision: 5, readStates: [] })
-
-    await expect(reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })).resolves.toEqual({ revision: 5, readStates: [] })
-
-    expect(apiFetch).toHaveBeenCalledTimes(2)
-  })
-
-  it("retains a live target after a transient snapshot failure and lets a later caller take over", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    seedCommunityReadState(queryClient, "c1", {
-      lastReadMessageId: null,
-      lastReadAt: null,
-      lastReadSeq: 0,
-    })
-    apiFetch
-      .mockRejectedValueOnce(new Error("temporary primary failure"))
-      .mockResolvedValueOnce({
-        revision: 5,
-        readStates: [{
-          channelId: "c1",
-          lastReadMessageId: "m5",
-          lastReadAt: "2026-08-24T00:00:05.000Z",
-          lastReadSeq: 5,
-        }],
-      })
-
-    await expect(reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })).rejects.toThrow("temporary primary failure")
-
-    await expect(reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })).resolves.toMatchObject({ revision: 5 })
-    expect(apiFetch).toHaveBeenCalledTimes(2)
-    expect(currentConversationReadState(queryClient, "c1"))
-      .toMatchObject({ lastReadSeq: 5 })
-  })
-
-  it("automatically retries a retained target after the bounded initial backoff", async () => {
-    vi.useFakeTimers()
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    apiFetch
-      .mockRejectedValueOnce(new Error("temporary primary failure"))
-      .mockResolvedValueOnce({ revision: 5, readStates: [] })
-
-    await expect(reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })).rejects.toThrow("temporary primary failure")
-    expect(apiFetch).toHaveBeenCalledTimes(1)
-
-    await vi.advanceTimersByTimeAsync(100)
-    await vi.waitFor(() => expect(queryClient.getQueryData(
-      communityKeys.accountReadStateSnapshot(),
-    )).toMatchObject({ revision: 5 }))
-    expect(apiFetch).toHaveBeenCalledTimes(2)
-    vi.useRealTimers()
-  })
-
-  it("contains a rejected snapshot retry and rearms the next backoff", async () => {
-    vi.useFakeTimers()
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    apiFetch
-      .mockRejectedValueOnce(new Error("first snapshot failure"))
-      .mockRejectedValueOnce(new Error("second snapshot failure"))
-      .mockResolvedValueOnce({ revision: 5, readStates: [] })
-
-    await expect(reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })).rejects.toThrow("first snapshot failure")
-    await vi.advanceTimersByTimeAsync(100)
-    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
-    await vi.advanceTimersByTimeAsync(200)
-    await vi.waitFor(() => expect(queryClient.getQueryData(
-      communityKeys.accountReadStateSnapshot(),
-    )).toMatchObject({ revision: 5 }))
-    expect(apiFetch).toHaveBeenCalledTimes(3)
-    vi.useRealTimers()
-  })
-
-  it("cancels retained retry work on exit without another GET or projection", async () => {
-    vi.useFakeTimers()
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    seedCommunityReadState(queryClient, "c1", {
-      lastReadMessageId: null,
-      lastReadAt: null,
-      lastReadSeq: 0,
-    })
-    apiFetch
-      .mockRejectedValueOnce(new Error("temporary primary failure"))
-      .mockResolvedValueOnce({
-        revision: 5,
-        readStates: [{
-          channelId: "c1",
-          lastReadMessageId: "m5",
-          lastReadAt: "2026-08-24T00:00:05.000Z",
-          lastReadSeq: 5,
-        }],
-      })
-
-    await expect(reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })).rejects.toThrow("temporary primary failure")
-    disposeAccountReadStateReconciliation(queryClient)
-    await vi.advanceTimersByTimeAsync(10_000)
-
-    expect(apiFetch).toHaveBeenCalledTimes(1)
-    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
-      .toMatchObject({ revision: 4 })
-    expect(currentConversationReadState(queryClient, "c1"))
-      .toMatchObject({ lastReadSeq: 0 })
-    await expect(reconcileAccountReadState(queryClient, {
-      targetRevision: 5,
-    })).rejects.toThrow("account read-state reconciliation disposed")
-    vi.useRealTimers()
-  })
-
-  it("aborts and fences an active primary request on exit", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    let release!: (snapshot: AccountReadStateSnapshot) => void
-    let requestSignal: AbortSignal | undefined
-    apiFetch.mockImplementationOnce((_path: string, options: { signal?: AbortSignal }) => {
-      requestSignal = options.signal
-      return new Promise<AccountReadStateSnapshot>((resolve) => {
-        release = resolve
-      })
-    })
-
-    const worker = reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    })
-    expect(requestSignal?.aborted).toBe(false)
-    disposeAccountReadStateReconciliation(queryClient)
-    expect(requestSignal?.aborted).toBe(true)
-    release({ revision: 5, readStates: [] })
-
-    await expect(worker).rejects.toThrow("account read-state reconciliation disposed")
-    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
-      .toMatchObject({ revision: 4 })
-  })
-
-  it("retains a real active-query refetch failure until same-revision takeover succeeds", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    apiFetch.mockResolvedValue({
-      revision: 5,
-      readStates: [],
-    })
-    let inboxFetches = 0
-    const inboxObserver = new QueryObserver(queryClient, {
-      queryKey: communityKeys.inbox(),
-      queryFn: async () => {
-        inboxFetches += 1
-        if (inboxFetches === 2) throw new Error("temporary inbox failure")
-        return []
-      },
-    })
-    const unsubscribe = inboxObserver.subscribe(() => undefined)
-    await vi.waitFor(() => expect(inboxObserver.getCurrentResult().status).toBe("success"))
-
-    await expect(reconcileAccountReadState(queryClient, {
-      targetRevision: 5,
-    })).rejects.toThrow("read-state surface reconciliation failed")
-    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
-      .toMatchObject({ revision: 5 })
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 5,
-      inboxChanged: true,
-    })).toBe("gap")
-
-    await expect(reconcileAccountReadState(queryClient, {
-      targetRevision: 5,
-    })).resolves.toMatchObject({ revision: 5 })
-    expect(apiFetch).toHaveBeenCalledTimes(1)
-    expect(inboxFetches).toBe(3)
-    expect(inboxObserver.getCurrentResult()).toMatchObject({
-      status: "success",
-      data: [],
-    })
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 5,
-      inboxChanged: true,
-    })).toBe("stale")
-    unsubscribe()
-  })
-
-  it("contains a rejected Inbox retry and rearms the next backoff", async () => {
-    vi.useFakeTimers()
-    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
-    let inboxFetches = 0
-    const inboxObserver = new QueryObserver(queryClient, {
-      queryKey: communityKeys.inbox(),
-      queryFn: async () => {
-        inboxFetches += 1
-        if (inboxFetches === 2 || inboxFetches === 3) {
-          throw new Error("temporary inbox failure")
-        }
-        return []
-      },
-    })
-    const unsubscribe = inboxObserver.subscribe(() => undefined)
-    await vi.waitFor(() => expect(inboxObserver.getCurrentResult().status).toBe("success"))
-
-    await expect(reconcileAccountReadState(queryClient, {
-      surfaceMode: "inbox-dms",
-      targetRevision: 1,
-    })).rejects.toThrow("read-state surface reconciliation failed")
-    await vi.advanceTimersByTimeAsync(100)
-    await vi.waitFor(() => expect(inboxFetches).toBe(3))
-    await vi.advanceTimersByTimeAsync(200)
-    await vi.waitFor(() => expect(inboxFetches).toBe(4))
-
-    expect(inboxObserver.getCurrentResult()).toMatchObject({ status: "success", data: [] })
-    unsubscribe()
-    vi.useRealTimers()
-  })
-
-  it("contains failed surface kicks after snapshot recovery and retries both families", async () => {
-    vi.useFakeTimers()
-    apiFetch
-      .mockRejectedValueOnce(new Error("snapshot unavailable"))
-      .mockResolvedValueOnce({ revision: 1, readStates: [] })
-    let inboxFetches = 0
-    const inboxObserver = new QueryObserver(queryClient, {
-      queryKey: communityKeys.inbox(),
-      queryFn: async () => {
-        inboxFetches += 1
-        if (inboxFetches === 2) throw new Error("inbox kick failed")
-        return []
-      },
-    })
-    let serverFetches = 0
-    const serverObserver = new QueryObserver(queryClient, {
-      queryKey: communityKeys.server("server-1"),
-      queryFn: async () => {
-        serverFetches += 1
-        if (serverFetches === 2) throw new Error("server kick failed")
-        return { id: "server-1" }
-      },
-    })
-    const unsubscribeInbox = inboxObserver.subscribe(() => undefined)
-    const unsubscribeServer = serverObserver.subscribe(() => undefined)
-    await Promise.all([
-      vi.waitFor(() => expect(inboxObserver.getCurrentResult().status).toBe("success")),
-      vi.waitFor(() => expect(serverObserver.getCurrentResult().status).toBe("success")),
-    ])
-
-    await expect(reconcileAccountReadState(queryClient, {
-      targetRevision: 1,
-    })).rejects.toThrow("snapshot unavailable")
-    await vi.advanceTimersByTimeAsync(100)
-    await vi.waitFor(() => {
-      expect(inboxFetches).toBe(2)
-      expect(serverFetches).toBe(2)
-    })
-    await vi.advanceTimersByTimeAsync(100)
-    await vi.waitFor(() => {
-      expect(inboxFetches).toBe(3)
-      expect(serverFetches).toBe(3)
-    })
-
-    unsubscribeInbox()
-    unsubscribeServer()
-    vi.useRealTimers()
-  })
-
-  it("coalesces repeated live hints into one retry worker without a request storm", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    let release!: (snapshot: AccountReadStateSnapshot) => void
-    apiFetch.mockReturnValue(new Promise<AccountReadStateSnapshot>((resolve) => {
-      release = resolve
-    }))
-
-    const workers = Array.from({ length: 12 }, () => reconcileAccountReadState(queryClient, {
-      invalidateSurfaces: false,
-      targetRevision: 5,
-    }))
-    expect(apiFetch).toHaveBeenCalledTimes(1)
-    release({ revision: 5, readStates: [] })
-    await expect(Promise.all(workers)).resolves.toHaveLength(12)
-    expect(apiFetch).toHaveBeenCalledTimes(1)
-  })
-
-  it("lets post-PUT consumption finish on Inbox/DM while server retry stays independent", async () => {
-    vi.useFakeTimers()
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    apiFetch.mockResolvedValue({ revision: 5, readStates: [] })
-
-    let inboxFetches = 0
-    const inboxObserver = new QueryObserver(queryClient, {
-      queryKey: communityKeys.inbox(),
-      queryFn: async () => {
-        inboxFetches += 1
-        return []
-      },
-    })
-    const unsubscribeInbox = inboxObserver.subscribe(() => undefined)
-
-    let serverFetches = 0
-    const serverObserver = new QueryObserver(queryClient, {
-      queryKey: communityKeys.server("server-1"),
-      queryFn: async () => {
-        serverFetches += 1
-        if (serverFetches === 2) throw new Error("temporary server detail failure")
-        return { id: "server-1" }
-      },
-    })
-    const unsubscribeServer = serverObserver.subscribe(() => undefined)
-    await Promise.all([
-      vi.waitFor(() => expect(inboxObserver.getCurrentResult().status).toBe("success")),
-      vi.waitFor(() => expect(serverObserver.getCurrentResult().status).toBe("success")),
-    ])
-
-    await expect(reconcileAccountReadState(queryClient, {
-      surfaceMode: "all",
-      awaitSurfaceMode: "inbox-dms",
-      targetRevision: 5,
-    })).resolves.toMatchObject({ revision: 5 })
-    await vi.waitFor(() => expect(serverFetches).toBe(2))
-    expect(inboxFetches).toBe(2)
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 5,
-      inboxChanged: true,
-    })).toBe("stale")
-
-    await vi.advanceTimersByTimeAsync(100)
-    await vi.waitFor(() => expect(serverFetches).toBe(3))
-    expect(inboxFetches).toBe(2)
-
-    unsubscribeInbox()
-    unsubscribeServer()
-    vi.useRealTimers()
-  })
-
-  it("advances the snapshot and runs a second derived pass during invalidation", async () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 4,
-      readStates: [],
-    })
-    apiFetch
-      .mockResolvedValueOnce({ revision: 5, readStates: [] })
-      .mockResolvedValueOnce({ revision: 6, readStates: [] })
-    let releaseSurface!: () => void
-    const surfaceGate = new Promise<void>((resolve) => {
-      releaseSurface = resolve
-    })
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
-    invalidate.mockReturnValueOnce(surfaceGate).mockResolvedValue(undefined)
-
-    const first = reconcileAccountReadState(queryClient, { targetRevision: 5 })
-    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledTimes(3))
-    const second = reconcileAccountReadState(queryClient, { targetRevision: 6 })
-    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
-
-    releaseSurface()
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      { revision: 6, readStates: [] },
-      { revision: 6, readStates: [] },
-    ])
-    expect(apiFetch).toHaveBeenCalledTimes(2)
-    expect(invalidate).toHaveBeenCalledTimes(6)
-  })
-
-  it("keeps a necessary cold deadline terminal through retained surface work", async () => {
-    vi.useFakeTimers()
-    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
-    let reads = 0
-    const observer = new QueryObserver(queryClient, {
-      queryKey: communityKeys.server("cold"),
-      queryFn: ({ signal }) => {
-        reads += 1
-        return withConversationReadDeadline(signal, () => new Promise<never>(() => {}))
-      },
-      retryOnMount: false,
-    })
-    const unsubscribe = observer.subscribe(() => {})
-    const failure = reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 })
-      .catch((error: unknown) => error)
-    await vi.advanceTimersByTimeAsync(15_000)
-    const error = await failure
-    expect(error).toBeInstanceOf(AggregateError)
-    expect((error as AggregateError).errors).toEqual([expect.any(ConversationReadTimeoutError)])
-    expect(observer.getCurrentResult()).toMatchObject({ status: "error", fetchStatus: "idle", data: undefined })
-    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot())).toMatchObject({ revision: 1 })
-    await vi.advanceTimersByTimeAsync(20_000)
-    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
-      .rejects.toThrow("read-state surface reconciliation failed")
-    expect(reads).toBe(1)
-    expect(apiFetch).toHaveBeenCalledTimes(1)
-    unsubscribe()
-    disposeAccountReadStateReconciliation(queryClient)
-    vi.useRealTimers()
-  })
-
-  it("retries only failed cached targets beside a terminal cold target", async () => {
-    vi.useFakeTimers()
-    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
-    const reads = { cold: 0, cached: 0, healthy: 0 }
-    const observers = [
-      new QueryObserver(queryClient, {
-        queryKey: communityKeys.server("cold"),
-        queryFn: ({ signal }) => {
-          reads.cold += 1
-          return withConversationReadDeadline(signal, () => new Promise<never>(() => {}))
-        },
-      }),
-      new QueryObserver(queryClient, {
-        queryKey: communityKeys.server("cached"),
-        initialData: { id: "cached" },
-        staleTime: Infinity,
-        queryFn: async () => {
-          reads.cached += 1
-          if (reads.cached === 1) throw new Error("temporary cached failure")
-          return { id: "cached" }
-        },
-      }),
-      new QueryObserver(queryClient, {
-        queryKey: communityKeys.server("healthy"),
-        initialData: { id: "healthy" },
-        staleTime: Infinity,
-        queryFn: async () => { reads.healthy += 1; return { id: "healthy" } },
-      }),
-    ]
-    const unsubscribes = observers.map((observer) => observer.subscribe(() => {}))
-    const failure = reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 })
-      .catch((error: unknown) => error)
-    await vi.advanceTimersByTimeAsync(15_000)
-    const error = await failure
-    expect((error as AggregateError).errors).toEqual(expect.arrayContaining([
-      expect.any(ConversationReadTimeoutError), expect.objectContaining({ message: "temporary cached failure" }),
-    ]))
-    await vi.advanceTimersByTimeAsync(100)
-    expect(reads).toEqual({ cold: 1, cached: 2, healthy: 1 })
-    expect(observers[0]!.getCurrentResult()).toMatchObject({ status: "error", fetchStatus: "idle" })
-    expect(observers[1]!.getCurrentResult().status).toBe("success")
-    await vi.advanceTimersByTimeAsync(20_000)
-    expect(reads).toEqual({ cold: 1, cached: 2, healthy: 1 })
-    unsubscribes.forEach((unsubscribe) => unsubscribe())
-    disposeAccountReadStateReconciliation(queryClient)
-    vi.useRealTimers()
-  })
-
-  it.each(["native Retry", "new authoritative generation"])("recovers cold pending work through %s", async (recovery) => {
-    vi.useFakeTimers()
-    apiFetch.mockImplementation(async () => ({ revision: apiFetch.mock.calls.length, readStates: [] }))
-    let reads = 0
-    const observer = new QueryObserver(queryClient, {
-      queryKey: communityKeys.server("cold"),
-      queryFn: ({ signal }) => {
-        reads += 1
-        return reads === 1
-          ? withConversationReadDeadline(signal, () => new Promise<never>(() => {}))
-          : Promise.resolve({ id: "cold" })
-      },
-    })
-    const unsubscribe = observer.subscribe(() => {})
-    const failure = reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 })
-      .catch((error: unknown) => error)
-    await vi.advanceTimersByTimeAsync(15_000)
-    expect(await failure).toBeInstanceOf(AggregateError)
-    if (recovery === "native Retry") await observer.refetch({ cancelRefetch: false })
-    await expect(reconcileAccountReadState(queryClient, {
-      surfaceMode: "non-inbox", targetRevision: recovery === "native Retry" ? 1 : 2,
-    })).resolves.toMatchObject({ revision: recovery === "native Retry" ? 1 : 2 })
-    expect(reads).toBe(2)
-    expect(observer.getCurrentResult().status).toBe("success")
-    await vi.advanceTimersByTimeAsync(10_000)
-    expect(reads).toBe(2)
-    unsubscribe()
-    disposeAccountReadStateReconciliation(queryClient)
-    vi.useRealTimers()
-  })
-
-  it.each(["removed", "replaced", "inactive", "disposed", "account", "access"])("does not revive a %s retry target", async (retirement) => {
-    vi.useFakeTimers()
-    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
-    let reads = 0
-    const observer = new QueryObserver(queryClient, {
-      queryKey: communityKeys.server("cached"),
-      initialData: { id: "cached" },
-      staleTime: Infinity,
-      queryFn: async () => { reads += 1; throw new Error("temporary failure") },
-    })
-    const unsubscribe = observer.subscribe(() => {})
-    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
-      .rejects.toThrow("read-state surface reconciliation failed")
-    let replacementUnsubscribe: (() => void) | undefined
-    const replacementRead = vi.fn(async () => ({ id: "replacement" }))
-    if (retirement === "disposed") disposeAccountReadStateReconciliation(queryClient)
-    else if (retirement === "inactive") unsubscribe()
-    else if (retirement === "account") createCommunityDbRegistry(queryClient, "viewer").runtime.ws.actions.activateProfileAccount("next-viewer")
-    else if (retirement === "access") createCommunityDbRegistry(queryClient, "viewer").runtime.ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 }))
-    else {
-      queryClient.removeQueries({ queryKey: communityKeys.server("cached"), exact: true })
-      if (retirement === "replaced") {
-        const replacement = new QueryObserver(queryClient, {
-          queryKey: communityKeys.server("cached"),
-          initialData: { id: "replacement" },
-          staleTime: Infinity,
-          queryFn: replacementRead,
-        })
-        replacementUnsubscribe = replacement.subscribe(() => {})
-      }
+    const outcome = reconcileAccountReadState(owner.client).then(() => null, error => error)
+    try {
+      await vi.waitFor(() => expect(owner.registry.collections.attentionScopes.get("c1")?.unreadCount).toBe(5))
+    } finally {
+      gate.resolve(snapshot(3, 2))
+      expect(await outcome).toBeNull()
     }
-    await vi.advanceTimersByTimeAsync(10_000)
-    expect(reads).toBe(1)
-    expect(replacementRead).not.toHaveBeenCalled()
-    if (retirement === "removed") expect(queryClient.getQueryState(communityKeys.server("cached"))).toBeUndefined()
-    if (retirement === "replaced") expect(queryClient.getQueryData(communityKeys.server("cached"))).toEqual({ id: "replacement" })
-    if (retirement === "inactive") {
-      await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
-        .rejects.toThrow("read-state surface reconciliation failed")
-      expect(reads).toBe(1)
-    }
-    unsubscribe()
-    replacementUnsubscribe?.()
-    disposeAccountReadStateReconciliation(queryClient)
-    vi.useRealTimers()
+    expect(owner.registry.collections.readStates.get("c1")?.lastReadSeq).toBe(2)
+    expect(owner.registry.collections.attentionScopes.get("c1")).toMatchObject({ lastUnreadSeq: 5, unreadCount: 3 })
+    expect(attentionReads).toBe(2)
   })
 
-  it("joins an explicit Retry without cancelling its in-flight cached read", async () => {
-    vi.useFakeTimers()
-    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
-    let reads = 0
-    let release!: (data: { id: string }) => void
-    let retrySignal: AbortSignal | undefined
-    const observer = new QueryObserver(queryClient, {
-      queryKey: communityKeys.server("cached"),
-      initialData: { id: "cached" },
-      staleTime: Infinity,
-      queryFn: ({ signal }) => {
-        reads += 1
-        if (reads === 1) return Promise.reject(new Error("temporary background failure"))
-        retrySignal = signal
-        return new Promise<{ id: string }>((resolve) => { release = resolve })
-      },
-    })
-    const unsubscribe = observer.subscribe(() => {})
-    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
-      .rejects.toThrow("read-state surface reconciliation failed")
-    const retry = observer.refetch({ cancelRefetch: false })
-    await vi.advanceTimersByTimeAsync(100)
-    expect(reads).toBe(2)
-    expect(retrySignal?.aborted).toBe(false)
-    release({ id: "recovered" })
-    await retry
-    await vi.advanceTimersByTimeAsync(100)
-    expect(observer.getCurrentResult()).toMatchObject({ status: "success", data: { id: "recovered" } })
-    expect(reads).toBe(2)
-    unsubscribe()
-    disposeAccountReadStateReconciliation(queryClient)
-    vi.useRealTimers()
+  it("joins simultaneous reads through the original native Query", async () => {
+    const gate = deferred<ReturnType<typeof snapshot>>()
+    apiFetch.mockReturnValue(gate.promise)
+    const first = reconcileAccountReadState(owner.client, { reconcileAttention: false })
+    const second = reconcileAccountReadState(owner.client, { reconcileAttention: false })
+    expect(apiFetch).toHaveBeenCalledOnce()
+    gate.resolve(snapshot(2))
+    expect((await Promise.all([first, second])).map(value => value.revision)).toEqual([2, 2])
+    expect(apiFetch).toHaveBeenCalledOnce()
   })
 
-  it("keeps access failure dirty without retrying it on a read-state revision", async () => {
+  it("retries an old in-flight snapshot against a later revision target without publishing it", async () => {
     vi.useFakeTimers()
-    apiFetch.mockImplementation(async () => ({ revision: apiFetch.mock.calls.length, readStates: [] }))
-    const denied = Object.assign(new Error("Forbidden"), { status: 403 })
-    const read = vi.fn(async () => { throw denied })
-    const observer = new QueryObserver(queryClient, {
-      queryKey: communityKeys.server("denied"),
-      initialData: { id: "denied" },
-      staleTime: Infinity,
-      queryFn: read,
-    })
-    const unsubscribe = observer.subscribe(() => {})
-    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
-      .rejects.toMatchObject({ errors: [denied] })
-    await vi.advanceTimersByTimeAsync(10_000)
-    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 2 }))
-      .rejects.toMatchObject({ errors: [denied] })
-    expect(read).toHaveBeenCalledOnce()
-    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot())).toMatchObject({ revision: 2 })
-    unsubscribe()
-    disposeAccountReadStateReconciliation(queryClient)
-    vi.useRealTimers()
+    const gate = deferred<ReturnType<typeof snapshot>>()
+    apiFetch.mockReturnValueOnce(gate.promise).mockResolvedValue(snapshot(5))
+    const first = reconcileAccountReadState(owner.client, { targetRevision: 2, reconcileAttention: false })
+    const second = reconcileAccountReadState(owner.client, { targetRevision: 5, reconcileAttention: false })
+    gate.resolve(snapshot(2))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(owner.registry.collections.readStates.get("c1")?.lastReadSeq).not.toBe(2)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect((await Promise.all([first, second])).map(value => value.revision)).toEqual([5, 5])
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves a newer confirmed ACK floor across an older full snapshot", async () => {
+    publishCommunityConversationReadState(owner.client, row(7), 7, { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
+    apiFetch.mockResolvedValue(snapshot(6))
+    await reconcileAccountReadState(owner.client, { reconcileAttention: false })
+    expect(currentConversationReadState(owner.client, "c1")).toMatchObject(row(7))
+    expect(owner.registry.collections.readStateClock.get("account")?.revision).toBe(6)
+  })
+
+  it.each(["query", "account", "access", "owner"] as const)("rejects an ignored-abort response after original %s retirement", async (kind) => {
+    const gate = deferred<ReturnType<typeof snapshot>>()
+    apiFetch.mockReturnValue(gate.promise)
+    const pending = reconcileAccountReadState(owner.client, { reconcileAttention: false }).catch(error => error)
+    if (kind === "query") owner.client.removeQueries({ queryKey: communityKeys.accountReadStateSnapshot(), exact: true })
+    if (kind === "account") owner.runtime.ws.actions.activateProfileAccount("different")
+    if (kind === "access") owner.runtime.ws.actions.revokeChannelAccess("s1", "c1")
+    if (kind === "owner") disposeAccountReadStateReconciliation(owner.client)
+    gate.resolve(snapshot(8))
+    expect(await pending).toBeInstanceOf(Error)
+    expect(owner.registry.collections.readStates.get("c1")).toBeUndefined()
+  })
+
+  it("reports a transport failure without blocking later lifecycle reconciliation", async () => {
+    apiFetch.mockRejectedValueOnce(new Error("offline")).mockResolvedValue(snapshot(3))
+    await expect(reconcileAccountReadState(owner.client, { targetRevision: 3, reconcileAttention: false })).rejects.toThrow("offline")
+    expect(owner.client.getQueryState(communityKeys.accountReadStateSnapshot())?.status).toBe("error")
+    expect((await reconcileAccountReadState(owner.client, { targetRevision: 3, reconcileAttention: false })).revision).toBe(3)
+    expect(apiFetch).toHaveBeenCalledTimes(2)
   })
 })

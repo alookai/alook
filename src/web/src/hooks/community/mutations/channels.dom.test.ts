@@ -1,3 +1,4 @@
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
@@ -7,7 +8,6 @@ import { CommunityDbProvider, useServerTreeProjection, useChannelRefDirectoryPro
 import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
-import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 import * as commands from "./channels"
 import { useChannelTree } from "@/components/community/channels/use-channel-tree"
 import type { ServerDetail } from "../use-servers"
@@ -209,23 +209,23 @@ describe("canonical category commands and channel deletion", () => {
     await waitFor(() => expect(rendered.result.current.tree?.categories.map((row) => row.id)).toEqual(["cat_1", "cat_2"]))
   })
   it("retires projected unread after a successful DELETE without waiting for self WS", async () => {
-    seed(); const projection = getActiveAccountUnreadProjection(client)
-    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    seed()
+    seedCommunityAttentionScope(client, { channelId: "c1", serverId: "s1", seq: 1 })
     api.mockResolvedValueOnce(undefined)
     const rendered = mount(commands.useDeleteChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync({ serverId: "s1", channelId: "c1" }) })
-    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
-    expect(projection.projectUnread("inbox-unreads", "c1", true, 1)).toBe(false)
+    expect(Boolean(registry.collections.attentionScopes.get("c1")?.ordinaryUnread)).toBe(false)
+    expect(Boolean(registry.collections.attentionScopes.get("c1")?.ordinaryUnread)).toBe(false)
     expect(registry.collections.channels.has("c1")).toBe(false)
   })
   it("keeps projected unread when DELETE fails", async () => {
-    seed(); const projection = getActiveAccountUnreadProjection(client)
-    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 1 })
+    seed()
+    seedCommunityAttentionScope(client, { channelId: "c1", serverId: "s1", seq: 1 })
     api.mockRejectedValueOnce(new Error("500"))
     const rendered = mount(commands.useDeleteChannel)
     await act(async () => { await expect(rendered.result.current.command.mutateAsync({ serverId: "s1", channelId: "c1" })).rejects.toThrow("500") })
-    expect(projection.projectUnread("servers", "c1", false)).toBe(true)
-    expect(projection.projectUnread("inbox-unreads", "c1", true, 1)).toBe(true)
+    expect(Boolean(registry.collections.attentionScopes.get("c1")?.ordinaryUnread)).toBe(true)
+    expect(Boolean(registry.collections.attentionScopes.get("c1")?.ordinaryUnread)).toBe(true)
     expect(registry.collections.channels.has("c1")).toBe(true)
   })
   it("removes a category optimistically", async () => {

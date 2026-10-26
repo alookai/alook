@@ -38,7 +38,6 @@ import {
   refreshServerReactionDetails,
   removeServerReactionDetails,
 } from "./reaction-details-invalidation"
-import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
   getCanonicalCommunityChannels,
   retireCommunityChannelReading,
@@ -69,7 +68,6 @@ function refreshChannelAccess(event: { serverId: string | null; channelId: strin
       const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
       if (channel?.archived) runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection }))
       else if (channel) {
-        getAccountUnreadProjection(queryClient, context.viewerUserIdRef.current!).grantAccessScope({ kind: "channel", channelId: event.channelId })
         if (legacyEvent && channel.type === "thread") runCommunityWsProjectionTransaction(queryClient, (projection) => {
           handleChannelMembershipChange({ ...legacyEvent, type: "community:channel.membership.change", relation: "notify", present: legacyEvent.type === "community:channel.member_add" }, { ...context, projection })
         })
@@ -95,7 +93,6 @@ export function handleChannelMembershipChange(event: CommunityChannelMembershipC
     invalidateForumSidebar(projection, event.serverId)
   }
   if (event.relation === "notify") {
-    if (!event.present) getAccountUnreadProjection(queryClient, event.userId).retireNotificationScope({ kind: "channel", channelId: event.channelId })
     return
   }
   if (!event.present) retireChannelAccess(event, context)
@@ -152,10 +149,6 @@ export function handleMemberJoin(
     const viewerId = viewerUserIdRef.current
     if (viewerId) {
       getCommunityRuntime(context.queryClient).ws.actions.grantServerAccess(event.serverId)
-      getAccountUnreadProjection(queryClient, viewerId).grantAccessScope({
-        kind: "server",
-        serverId: event.serverId,
-      })
     }
     invalidateChannelRefDirectory(projection)
     invalidateServersList(projection)

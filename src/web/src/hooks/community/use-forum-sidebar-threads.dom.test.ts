@@ -1,3 +1,4 @@
+import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { conversationEntryOptions } from "@/lib/community/conversation-entry"
 import "fake-indexeddb/auto"
@@ -319,8 +320,8 @@ describe("forum sidebar canonical projection", () => {
       name: "Readable archived post", archived: false, pending: false, tags: ["archived"],
       parentChannelId: "forum-1", parentMessageId: "opener-1",
     })
-    expect(registry.collections.channelMemberships.get("post-1:viewer:notify")).toBeDefined()
-    expect(registry.collections.channelMemberships.get("post-1:viewer:access")).toBeDefined()
+    expect(registry.collections.channelMemberships.get("post-1:viewer:notify")).toBeUndefined()
+    expect(registry.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(false)
     expect(rendered.result.current.metadata.isVerified).toBe(true)
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
     rendered.unmount()
@@ -501,11 +502,12 @@ describe("forum sidebar canonical projection", () => {
     const expired = new Date(Date.now() - 73 * 60 * 60 * 1000).toISOString()
     Object.assign(response.channels[5]!, { activityAt: expired, lastMessageAt: expired, expiresAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(), unread: true })
     publish(queryClient, response)
+    seedCommunityAttentionScope(queryClient, { channelId: "post-6", serverId: "server-1", parentChannelId: "forum-1" })
     const rendered = renderHook(() => useForumSidebarProjection("server-1", "post-6", Date.now()), { wrapper })
     await waitFor(() => expect(rendered.result.current?.threads).toHaveLength(5))
     expect(rendered.result.current).toMatchObject({
       threads: expect.arrayContaining([expect.objectContaining({ id: "post-6", unread: true })]),
-      parentUnread: { "forum-1": false },
+      parentUnread: { "forum-1": true },
     })
     rendered.rerender()
     rendered.unmount()
@@ -530,7 +532,7 @@ describe("forum sidebar canonical projection", () => {
     const result = await reconcileForumSidebarNotifyMemberships(queryClient, "server-1")
     expect(result.removedIds).toEqual([])
     expect(registry.collections.channelMemberships.get("post-1:other:notify")).toBeDefined()
-    expect(registry.collections.channels.get("post-1")?.unread).toBe(true)
+    expect(registry.collections.channels.get("post-1")).not.toHaveProperty("unread")
     rendered.unmount()
   })
 
@@ -916,10 +918,11 @@ describe("forum sidebar canonical projection", () => {
   it("keeps normalized child unread and parent ownership in the canonical view", async () => {
     const { queryClient, wrapper } = await setup()
     publish(queryClient, envelope())
+    seedCommunityAttentionScope(queryClient, { channelId: "post-1", serverId: "server-1", parentChannelId: "forum-1" })
     const rendered = renderHook(() => useForumSidebarProjection("server-1", null, Date.now()), { wrapper })
     await waitFor(() => expect(rendered.result.current).toEqual({
       threads: [expect.objectContaining({ id: "post-1", unread: true })],
-      parentUnread: { "forum-1": false },
+      parentUnread: { "forum-1": true },
     }))
     rendered.unmount()
   })
@@ -1250,7 +1253,7 @@ describe("forum sidebar canonical projection", () => {
       threads: [],
       parentUnread: {},
     }))
-    expect(registry.collections.channels.get("post-1")).toMatchObject({ unread: false })
+    expect(registry.collections.channels.get("post-1")).not.toHaveProperty("unread")
     expect(registry.collections.channelMemberships.get("post-1:viewer:access"))
       .toBeDefined()
     expect(registry.collections.channelMemberships.get("post-1:viewer:notify"))
@@ -1259,7 +1262,7 @@ describe("forum sidebar canonical projection", () => {
   })
 
   it("keeps cold hidden-child unread ownership in canonical rows", async () => {
-    const { registry, wrapper } = await setup()
+    const { queryClient, registry, wrapper } = await setup()
     ingestServerDetail(registry, {
       id: "server-1", name: "Server", discriminator: "0001", description: "",
       icon: null, ownerId: "viewer", categories: [{
@@ -1271,6 +1274,7 @@ describe("forum sidebar canonical projection", () => {
         "forum-1": { baseUnread: false, childIds: ["hidden-child"] },
       },
     })
+    seedCommunityAttentionScope(queryClient, { channelId: "hidden-child", serverId: "server-1", parentChannelId: "forum-1" })
     const rendered = renderHook(
       () => useForumSidebarProjection("server-1", null, Date.now()),
       { wrapper },
@@ -1279,16 +1283,15 @@ describe("forum sidebar canonical projection", () => {
       threads: [],
       parentUnread: { "forum-1": true },
     }))
-    expect(registry.collections.channels.get("hidden-child")).toMatchObject({
-      type: "thread", parentChannelId: "forum-1", parentMessageId: null, unread: true,
-    })
+    expect(registry.collections.channels.get("hidden-child")).toBeUndefined()
     rendered.unmount()
   })
 
   it("aggregates persisted unread child ownership even without notify membership", async () => {
-    const { queryClient, wrapper } = await setup()
+    const { queryClient, registry, wrapper } = await setup()
     publish(queryClient)
-    act(() => { removeCanonicalCommunityChannelMembership(queryClient, "post-1", "notify") });
+    registry.collections.channelMemberships.utils.writeDelete("post-1:viewer:notify")
+    seedCommunityAttentionScope(queryClient, { channelId: "post-1", serverId: "server-1", parentChannelId: "forum-1" })
     const rendered = renderHook(
       () => useForumSidebarProjection("server-1", null, Date.now()),
       { wrapper },

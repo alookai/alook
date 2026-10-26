@@ -166,8 +166,10 @@ describe("community foreground message reconciliation", () => {
     await mountHook()
     flushEffects()
     const old = capturedUseUserWsOptions!.onForeground!
+    const authenticate = capturedUseUserWsOptions!.onAuthenticated!
+    const reconnect = capturedOnReconnect!
     unmountHook()
-    await old()
+    await Promise.all([old(), authenticate(), reconnect({ reconnectDurationMs: 1_000 })])
     expect(getCommunityApiFetchMock()).not.toHaveBeenCalled()
   })
 })

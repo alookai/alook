@@ -35,14 +35,14 @@ describe("community WS projection transaction", () => {
   it("deduplicates only identical owner and filter pairs in first-seen order", () => {
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
-    const first = { queryKey: ["community", "inbox"] as const }
-    const conflict = { queryKey: ["community", "inbox"] as const, exact: true }
+    const first = { queryKey: ["community", "attention"] as const, exact: true }
+    const conflict = { queryKey: ["community", "attention"] as const }
     const second = { queryKey: ["community", "servers"] as const, exact: true }
 
     runCommunityWsProjectionTransaction(queryClient, (transaction) => {
       invalidateInbox(transaction)
       invalidateInbox(transaction)
-      transaction.invalidate("inbox", conflict)
+      transaction.invalidate("attention", conflict)
       transaction.invalidate("servers", second)
     })
 

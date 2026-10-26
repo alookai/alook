@@ -9,7 +9,6 @@ import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
 import { friendsQueryFn } from "@/hooks/community/use-friends"
 import { dmsProjectedQueryFn } from "@/hooks/community/use-dms"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import FriendsRoute from "../social/friends-route"
 import { DmSidebarSlot } from "./dm-sidebar-slot"
 
@@ -84,7 +83,7 @@ it.each([
   const owner = await createCommunityQueryOwner()
   load.mockImplementation(async (path: string) => response(path, populated))
   const queryKey = key(kind)
-  await owner.client.query({ queryKey, queryFn: kind === "friends" ? friendsQueryFn : dmsProjectedQueryFn(getActiveAccountUnreadProjection(owner.client), owner.client) })
+  await owner.client.query({ queryKey, queryFn: kind === "friends" ? friendsQueryFn : dmsProjectedQueryFn(owner.client) })
   let reject!: (error: Error) => void
   const held = new Promise<never>((_, fail) => { reject = fail })
   load.mockImplementation((path: string) => path === primaryPath(kind) ? held : Promise.resolve(response(path, populated)))

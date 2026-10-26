@@ -16,15 +16,11 @@ import {
 import { notifLevelDisplay } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback } from "react"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { useCommunityViewSource } from "./use-community-view-source"
 
 import { notificationSettingKey } from "@/lib/community-db/schema"
-import {
-  getActiveAccountUnreadProjection,
-  type AccountUnreadProjection,
-} from "./account-unread-projection"
 import {
   useNotificationSettingsProjection,
   } from "@/lib/community-db/projections"
@@ -100,16 +96,6 @@ export const notificationSettingsQueryFn = async (
   return { ids: rows.filter((row) => Boolean(row.serverId) !== Boolean(row.channelId)).map((row) => notificationSettingKey(row)) }
 }
 
-function projectNotificationSettings(
-  projection: AccountUnreadProjection,
-  settings: Pick<NotificationSettings, "server" | "channel"> | undefined,
-) {
-  projection.setNotificationPolicy({
-    server: settings?.server ?? {},
-    channel: settings?.channel ?? {},
-  })
-}
-
 export async function reconcileNotificationSettings(queryClient: QueryClient) {
   const token = captureCommunityLiveSnapshotToken(queryClient)
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
@@ -125,7 +111,6 @@ export async function reconcileNotificationSettings(queryClient: QueryClient) {
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
   const settings: NotificationSettings = { raw: [...token.registry!.collections.notificationSettings.values()], server: {}, channel: {} }
   for (const row of settings.raw) { if (row.channelId) settings.channel[row.channelId] = displayNotifLevel(row.level); else if (row.serverId) settings.server[row.serverId] = displayNotifLevel(row.level) }
-  projectNotificationSettings(getActiveAccountUnreadProjection(queryClient), settings)
   return settings
 }
 
@@ -134,19 +119,10 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
   channel: Record<string, string>
 } {
   const dbSettings = useNotificationSettingsProjection()
-  const queryClient = useQueryClient()
-  const projection = useMemo(
-    () => getActiveAccountUnreadProjection(queryClient),
-    [queryClient],
-  )
   const query = useQuery({
     queryKey: communityKeys.notificationSettings(),
     queryFn: notificationSettingsQueryFn,
   })
-  const projectedSettings = dbSettings
-  useEffect(() => {
-    if (projectedSettings) projectNotificationSettings(projection, projectedSettings)
-  }, [projectedSettings, projection])
   return {
     ...query,
     data: dbSettings,

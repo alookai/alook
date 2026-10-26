@@ -84,7 +84,7 @@ function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchCo
     sub: {},
     viewerUserIdRef: { current: null },
     matchesFocus: () => false,
-    scheduleInboxInvalidate: vi.fn(),
+
   }
 }
 
