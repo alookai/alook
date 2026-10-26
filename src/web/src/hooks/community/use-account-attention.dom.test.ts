@@ -2,10 +2,12 @@ import { createElement, type PropsWithChildren } from "react"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { COMMUNITY_CONTRACT_HEADER, type AccountAttentionSnapshot } from "@alook/shared"
-import { renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { scheduleAccountAttentionReconcile, useAccountAttention } from "./use-account-attention"
+import { accountAttentionMatchesReadState, scheduleAccountAttentionReconcile, useAccountAttention, useAccountAttentionProjection } from "./use-account-attention"
+import { reconcileAccountReadState } from "./community-ws/read-state-reconciliation"
+import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
@@ -38,12 +40,147 @@ async function mountOwner(value: AccountAttentionSnapshot) {
   const hook = renderHook(() => useAccountAttention(), { wrapper: Wrapper })
   await waitFor(() => {
     if (hook.result.current.error) throw hook.result.current.error
-    expect(hook.result.current.data).toEqual({ loaded: true })
+    expect(hook.result.current.data).toEqual({ loaded: true, readRevision: -1 })
   })
   return { ...owner, hook }
 }
 
 describe("closed-Inbox account attention message hydration", () => {
+  it("lets the native shell retry a stale D1 response even when transport retries are disabled", async () => {
+    const owner = await createCommunityQueryOwner()
+    apiFetchMock.mockResolvedValueOnce({ ...snapshot(), stale: true }).mockResolvedValue(snapshot())
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(QueryClientProvider, { client: owner.client }, createElement(CommunityDbProvider, { registry: owner.registry }, children))
+    }
+    vi.useFakeTimers()
+    const hook = renderHook(useAccountAttention, { wrapper: Wrapper })
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(apiFetchMock).toHaveBeenCalledOnce()
+      expect(owner.registry.collections.attentionScopes.size).toBe(0)
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000) })
+      expect(apiFetchMock).toHaveBeenCalledTimes(2)
+      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: -1 })
+      expect(owner.registry.collections.attentionScopes.get("channel")?.lastUnreadSeq).toBe(4)
+    } finally {
+      hook.unmount()
+      await owner.client.cancelQueries()
+      vi.useRealTimers()
+      await owner.registry.cleanup()
+      owner.client.clear()
+    }
+  })
+
+  it("retains the configured transport retry policy and recovers through the same native owner", async () => {
+    const owner = await createCommunityQueryOwner()
+    apiFetchMock.mockRejectedValueOnce(new Error("offline")).mockResolvedValue(snapshot())
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(QueryClientProvider, { client: owner.client }, createElement(CommunityDbProvider, { registry: owner.registry }, children))
+    }
+    const hook = renderHook(useAccountAttention, { wrapper: Wrapper })
+    try {
+      await waitFor(() => expect(hook.result.current.error?.message).toBe("offline"))
+      expect(apiFetchMock).toHaveBeenCalledOnce()
+      await act(async () => { await hook.result.current.refetch() })
+      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: -1 })
+      expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      hook.unmount()
+      await owner.client.cancelQueries()
+      await owner.registry.cleanup()
+      owner.client.clear()
+    }
+  })
+
+  it("finishes the newer exact read while the cancelled old HTTP remains physically held", async () => {
+    const owner = await createCommunityQueryOwner()
+    let releaseAttention: ((value: AccountAttentionSnapshot) => void) | undefined
+    let oldReleased = false
+    const signals: AbortSignal[] = []
+    let revision = 0
+    apiFetchMock.mockImplementation(async (path: string, options: { signal: AbortSignal }) => {
+      if (path.endsWith("/read-state")) return { revision, readStates: [] }
+      signals.push(options.signal)
+      if (signals.length === 1) return new Promise<AccountAttentionSnapshot>(resolve => {
+        releaseAttention = value => { oldReleased = true; resolve(value) }
+      })
+      const value = snapshot(3)
+      value.scopes[0].unreadCount = 3
+      return value
+    })
+    await reconcileAccountReadState(owner.client, { reconcileAttention: false })
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(QueryClientProvider, { client: owner.client }, createElement(CommunityDbProvider, { registry: owner.registry }, children))
+    }
+    const hook = renderHook(() => ({ shell: useAccountAttention(), consumer: useAccountAttentionProjection() }), { wrapper: Wrapper })
+    let settled: Promise<unknown> | undefined
+    try {
+      await waitFor(() => expect(releaseAttention).toBeTypeOf("function"))
+      const original = owner.client.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+      hook.rerender()
+      revision = 1
+      settled = Promise.all([reconcileAccountReadState(owner.client), reconcileAccountReadState(owner.client)]).then(() => null, error => error)
+      await waitFor(() => expect(owner.registry.collections.attentionScopes.get("channel")?.unreadCount).toBe(3))
+      expect(await settled).toBeNull()
+      expect(oldReleased).toBe(false)
+      expect(signals).toHaveLength(2)
+      expect(signals[0].aborted).toBe(true)
+      expect(owner.client.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })).toBe(original)
+      await act(async () => { releaseAttention!(snapshot(5)); await Promise.resolve() })
+      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: 1 })
+      expect(owner.registry.collections.attentionScopes.get("channel")).toMatchObject({ lastUnreadSeq: 3, unreadCount: 3 })
+      expect(accountAttentionMatchesReadState(owner.registry)).toBe(true)
+    } finally {
+      releaseAttention?.(snapshot())
+      hook.unmount()
+      await owner.client.cancelQueries()
+      await settled
+      await owner.registry.cleanup()
+      owner.client.clear()
+    }
+  })
+
+  it("keeps the original shell read qualified across read-only consumer renders and auth settlement", async () => {
+    const owner = await createCommunityQueryOwner()
+    let releaseRead: (() => void) | undefined
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("/read-state")) return { revision: 0, readStates: [] }
+      return snapshot()
+    })
+    await reconcileAccountReadState(owner.client, { reconcileAttention: false })
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(QueryClientProvider, { client: owner.client }, createElement(CommunityDbProvider, { registry: owner.registry }, children))
+    }
+    const hook = renderHook(() => ({ shell: useAccountAttention(), consumer: useAccountAttentionProjection() }), { wrapper: Wrapper })
+    try {
+      await waitFor(() => expect(hook.result.current.shell.isSuccess).toBe(true))
+      const original = owner.client.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+      apiFetchMock.mockClear()
+      apiFetchMock.mockImplementation(async (path: string) => {
+        if (path.endsWith("/read-state")) {
+          await new Promise<void>(resolve => { releaseRead = resolve })
+          return { revision: 0, readStates: [] }
+        }
+        return snapshot()
+      })
+      const settled = reconcileAccountReadState(owner.client).then(() => null, error => error)
+      await waitFor(() => expect(releaseRead).toBeTypeOf("function"))
+      await waitFor(() => expect(hook.result.current.consumer.isFetching).toBe(false))
+      hook.rerender()
+      await act(async () => { releaseRead!(); expect(await settled).toBeNull() })
+      expect(owner.client.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })).toBe(original)
+      expect(accountAttentionMatchesReadState(owner.registry)).toBe(true)
+      expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/community/users/me/read-state", "/api/community/users/me/attention"])
+      expect(owner.registry.collections.attentionScopes.get("channel")?.ordinaryUnread).toBe(true)
+    } finally {
+      releaseRead?.()
+      hook.unmount()
+      await owner.client.cancelQueries()
+      await owner.registry.cleanup()
+      owner.client.clear()
+    }
+  })
+
   it("hydrates an ID-bearing mention without any Inbox component or message window", async () => {
     const owner = await mountOwner(snapshot())
     const attentionCall = apiFetchMock.mock.calls.find(([path]) => path.endsWith("/attention"))!

@@ -24,8 +24,8 @@ vi.mock("@/components/ui/tooltip", () => ({
 
 const baseProps = {
   typingNames: [] as string[],
-  scrollCount: 4,
-  scrollMode: "jump" as const,
+  scrollCount: 4 as number | undefined,
+  scrollMode: "jump" as "jump" | "scroll",
   onScroll: vi.fn(),
 }
 
@@ -56,6 +56,7 @@ describe("ComposerAccessoryRail", () => {
       const renderer = renderRail({
         typingNames: typing ? ["Alice"] : [],
         scrollCount: center ? 2 : 0,
+        scrollMode: "scroll",
       })
       const rails = renderer.queryAllByTestId(tid.composerAccessoryRail)
       expect(rails).toHaveLength(layout === "empty" ? 0 : 1)
@@ -78,6 +79,17 @@ describe("ComposerAccessoryRail", () => {
     const scroll = renderer.getByTestId(tid.scrollToPresent)
     expect(scroll).toHaveAttribute("aria-label", "Jump to present, 4 unread below")
     fireEvent.click(scroll)
+    expect(baseProps.onScroll).toHaveBeenCalledOnce()
+  })
+
+  it.each([undefined, 0])("keeps jump available without inventing a positive unread count: %s", (scrollCount) => {
+    const renderer = renderRail({ scrollCount })
+    const jump = renderer.getByRole("button", { name: "Jump to present", exact: true })
+    expect(jump).toHaveAttribute("data-testid", tid.scrollToPresent)
+    expect(renderer.getByTestId(tid.composerAccessoryRail)).toHaveAttribute("data-layout", "centered")
+    expect(jump.querySelector("mock-ticker")).toBeNull()
+    expect(jump).not.toHaveTextContent("0")
+    fireEvent.click(jump)
     expect(baseProps.onScroll).toHaveBeenCalledOnce()
   })
 

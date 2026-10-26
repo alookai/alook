@@ -17,6 +17,25 @@ function retiredInitialReader(onInitialPositionSettled?: () => void) {
 }
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it("hands a pending native tail command to real upward intent before exact one-pixel positioning", () => {
+    const h = mount()
+    const native = scrollFixture.latest.virtualizer
+    const max = h.root.scrollHeight - h.root.clientHeight
+    const cancel = vi.spyOn(native, "cancelScroll")
+    act(() => native.scrollToEnd())
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    expect(cancel).toHaveBeenCalledOnce()
+    act(() => h.root.scrollTo({ top: max - 1 }))
+    runFrames(3)
+    expect(h.root.scrollTop).toBe(max - 1)
+    h.stage({ items: Array.from({ length: 14 }, (_, index) => message(`m${index}`)) })
+    resize()
+    expect(h.root.scrollTop).toBe(max - 1)
+    h.stage({ items: Array.from({ length: 15 }, (_, index) => message(`m${index}`)) })
+    resize()
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
+  })
+
   it("sends the first initial end only against the measured React sizer and accepts a long final message", () => {
     scrollFixture.bodyHeights.set("m0", 1200)
     scrollFixture.bodyHeights.set("m13", 1000)

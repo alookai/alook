@@ -244,10 +244,10 @@ test.describe("committed message delivery QA", () => {
     let armed = false
     let duplicated = false
     const body = `atomic duplicate ${Date.now()}`
-    const serverRequests: string[] = []
+    const attentionRequests: string[] = []
     bob.page.on("request", (request) => {
-      if (new URL(request.url()).pathname === "/api/community/servers") {
-        serverRequests.push(request.url())
+      if (new URL(request.url()).pathname === "/api/community/users/me/attention") {
+        attentionRequests.push(request.url())
       }
     })
     const proxy = await proxyCommunityWebSockets(bob.context, { decide: (frame) => {
@@ -293,7 +293,7 @@ test.describe("committed message delivery QA", () => {
     expect(messageId).toBeTruthy()
     await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
 
-    const requestsBeforeReload = serverRequests.length
+    const requestsBeforeReload = attentionRequests.length
     const pendingReloadRequests = new Set<Request>()
     const reloadFailures: string[] = []
     let reloadCommitted = false
@@ -303,14 +303,14 @@ test.describe("committed message delivery QA", () => {
     }
     const trackReloadRequest = (request: Request) => {
       if (reloadCommitted && request.method() === "GET"
-        && new URL(request.url()).pathname === "/api/community/servers") {
+        && new URL(request.url()).pathname === "/api/community/users/me/attention") {
         pendingReloadRequests.add(request)
       }
     }
     const finishReloadRequest = (request: Request) => {
       if (!pendingReloadRequests.has(request)) return
       void request.response().then(async (response) => {
-        if (!response) throw new Error("Reload servers response missing")
+        if (!response) throw new Error("Reload attention response missing")
         const failure = await response.finished()
         if (response.status() !== 200 || failure !== null) {
           reloadFailures.push(`HTTP ${response.status()}: ${failure?.message ?? "unexpected status"}`)
@@ -323,7 +323,7 @@ test.describe("committed message delivery QA", () => {
     }
     const failReloadRequest = (request: Request) => {
       if (!pendingReloadRequests.delete(request)) return
-      reloadFailures.push(request.failure()?.errorText ?? "Reload servers request failed")
+      reloadFailures.push(request.failure()?.errorText ?? "Reload attention request failed")
     }
     bob.page.on("framenavigated", trackReloadCommit)
     bob.page.on("request", trackReloadRequest)
@@ -333,7 +333,7 @@ test.describe("committed message delivery QA", () => {
       await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
       await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
       await expect.poll(() => ({
-        requestsIncreased: serverRequests.length > requestsBeforeReload,
+        requestsIncreased: attentionRequests.length > requestsBeforeReload,
         responseCompleted: completedReloadRequests > 0,
         pending: pendingReloadRequests.size,
         failures: reloadFailures,
@@ -346,9 +346,9 @@ test.describe("committed message delivery QA", () => {
       bob.page.off("requestfinished", finishReloadRequest)
       bob.page.off("requestfailed", failReloadRequest)
     }
-    const requestsBeforeReplay = serverRequests.length
+    const requestsBeforeReplay = attentionRequests.length
     proxy.replay(batch)
-    await expect.poll(() => serverRequests.length, { timeout: 20_000 })
+    await expect.poll(() => attentionRequests.length, { timeout: 20_000 })
       .toBeGreaterThan(requestsBeforeReplay)
     await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
   })

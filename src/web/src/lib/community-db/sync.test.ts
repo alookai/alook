@@ -47,6 +47,7 @@ import {
   purgeCommunityChannel,
   purgeCommunityServer,
   retireCommunityChannelReading,
+  removeCanonicalCommunityChannelMembership,
   removeAttentionItemsOptimistically,
   restoreAttentionScopeOptimisticSnapshot,
   type CommunityLiveSnapshot,
@@ -92,6 +93,19 @@ function forumAttentionSnapshot(seq = 4) {
     },
   })
 }
+
+it("keeps explicit attention when ordinary thread notifications are retired", async () => {
+  const db = await registry()
+  const attention = forumAttentionSnapshot()
+  ingestAttentionSnapshot(db, attention)
+  setCanonicalCommunityChannelMember(db.queryClient, "post", "viewer", "notify", true, { event: true })
+  expect(removeCanonicalCommunityChannelMembership(db.queryClient, "post", "notify")).toBe(true)
+  expect(db.collections.channelMemberships.get("post:viewer:notify")).toBeUndefined()
+  expect(db.collections.attentionScopes.get("post")).toMatchObject({ ordinaryUnread: false, unreadCount: 0, attentionCount: 1, lastAttentionSeq: 4 })
+  expect(db.collections.attentionItems.get("reply:m4")).toMatchObject(attention.items[0]!)
+  expect(db.collections.messages.get("m4")?.content).toBe("Reply")
+  expect(db.collections.channels.has("post")).toBe(true)
+})
 
 function publishCommunityLiveSnapshot(
   queryClient: QueryClient,

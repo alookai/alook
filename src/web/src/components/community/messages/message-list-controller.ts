@@ -219,7 +219,7 @@ export function useMessageListController({
   }, [jumped, jumpRevision, scrollRef, setJumped])
 
   const jumpMode = !!hasMoreNewer
-  const pillCount = jumpMode ? (unreadCount ?? 0) : belowCount
+  const pillCount = jumpMode ? unreadCount : belowCount
   const jumpToPresent = useCallback(() => {
     requestPresentPosition(onJumpToPresent?.())
   }, [onJumpToPresent, requestPresentPosition])

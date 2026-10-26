@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { currentConversationReadState } from "@/lib/community/conversation-entry"
-import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot, publishCommunityConversationReadState } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { dispatchCommunityWsEvent } from "./registry"
 import type { CommunityWsDispatchContext } from "./handler-context"
@@ -16,15 +16,23 @@ function context(): CommunityWsDispatchContext { return { deliveryMode: "single"
 beforeEach(async () => { owner = await createCommunityQueryOwner("u1"); apiFetch.mockReset() })
 afterEach(async () => { disposeAccountReadStateReconciliation(owner.client); await owner.registry.cleanup(); owner.client.clear() })
 
-it.each(["community:read_state.advanced", "community:inbox.changed"] as const)("repairs canonical read state and attention once for %s and ignores an old hint", async type => {
-  const snapshot = { revision: 8, readStates: [{ channelId: "c1", lastReadMessageId: "m8", lastReadAt: "2026-10-27T00:00:08.000Z", lastReadSeq: 8 }] }
+it.each(["community:read_state.advanced", "community:inbox.changed"] as const)("fills the account snapshot after a confirmed read once for %s and ignores an old hint", async type => {
+  const snapshot = { revision: 8, readStates: [
+    { channelId: "c1", lastReadMessageId: "m8", lastReadAt: "2026-10-27T00:00:08.000Z", lastReadSeq: 8 },
+    { channelId: "c2", lastReadMessageId: "m7", lastReadAt: "2026-10-27T00:00:07.000Z", lastReadSeq: 7 },
+  ] }
+  publishCommunityConversationReadState(owner.client, snapshot.readStates[0], 8, { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
+  expect(owner.registry.collections.readStateClock.get("account")).toBeUndefined()
   apiFetch.mockImplementation(async (path: string) => path.endsWith("/read-state") ? snapshot : emptyAttention)
   const event = { type, revision: 8, inboxChanged: true, ...(type === "community:inbox.changed" ? { reason: "read_all" as const } : {}) }
   dispatchCommunityWsEvent(event, context())
-  await vi.waitFor(() => expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(8))
+  await vi.waitFor(() => expect(owner.registry.collections.readStateClock.get("account")?.revision).toBe(8))
+  expect(currentConversationReadState(owner.client, "c1")?.lastReadSeq).toBe(8)
+  expect(currentConversationReadState(owner.client, "c2")?.lastReadSeq).toBe(7)
   await vi.waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/attention"))).toHaveLength(1))
   dispatchCommunityWsEvent(event, context())
   expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
+  expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/attention"))).toHaveLength(1)
   expect(apiFetch.mock.calls.some(([path]) => path === "/api/community/servers" || path.endsWith("/dms"))).toBe(false)
 })
 

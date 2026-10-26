@@ -4,7 +4,7 @@
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "49f19054c43ab89976dc4ad7a507e8febc4413e5",
+  "repositoryHead": "58d73359f9714278c37453c6146c9d1c75521e19",
   "inputs": {
     "scripts/ci/pnpm-lock.mjs": "c6ad91cbd38cc08234e2da4122079d76bfef5eb61560862018cbab9d3e29f4cc",
     "src/shared/src/billing.ts": "53d36e6bbab90d72ae86b9748d97bef4116a7f567d8587067f469d294c562b4a",
@@ -237,7 +237,7 @@
     "src/web/src/components/community/messages/caret-text-insertion.ts": "7f3e0a70a1cbc76470d524a1eeceff77c14dd102b8593d2fa540a35f0f106660",
     "src/web/src/components/community/messages/channel-ref-pill.tsx": "ed5f6ef481877ee63b9635f9a62624311060ecbffbb25a2338f22993a26f63ba",
     "src/web/src/components/community/messages/composer-accessory-rail-layout.ts": "50ef57a41de96183fe956a85e360d5b9f5bfbc483fe0940cbfd6d14e7f49a645",
-    "src/web/src/components/community/messages/composer-accessory-rail.tsx": "ba53382043ad165df75c9327184459f2c1018c68d2d9994a64ffb58bdd280e07",
+    "src/web/src/components/community/messages/composer-accessory-rail.tsx": "ede856478b4ef4ce636e1dbf15bdae8f34f0db6f0ac16678462f7f4f7ddcdebe",
     "src/web/src/components/community/messages/composer-file-utils.ts": "1df082cd48b29632365fc33e61338439fecd7b750804fb3449859a121f7f82c1",
     "src/web/src/components/community/messages/composer-keydown.ts": "42c4e454c7b0049632dcc4147de40090df6fc6f9614ba537755924d40249713d",
     "src/web/src/components/community/messages/composer-ordered-list.ts": "5d6f44700df6c4e0116502210c68be8b6da363e6b54e0fcb1332385c4f110e63",
@@ -256,7 +256,7 @@
     "src/web/src/components/community/messages/message-body-view.tsx": "4b5579de425640960a680b45043aada435a03b16afeaa59fe6aeebc19fb63905",
     "src/web/src/components/community/messages/message-body.tsx": "0f43cb0c2c8eb3b507efc1f93e926d0cc9226f25173cc9e2fa8f2d8815c46ffd",
     "src/web/src/components/community/messages/message-external-link.tsx": "ba22b8bfd1210f9645aa10c46a95c3d409cf87e68e0585709007f9bba1ad9d82",
-    "src/web/src/components/community/messages/message-list-controller.ts": "038c7ab7e92cd39f395e7c553ee57a53cd1b3978b0bc0e2f6d945d8f72c9d8da",
+    "src/web/src/components/community/messages/message-list-controller.ts": "2f6d71a0905578f69fd0bf9c00227869d2c0a7007cafee36503abd93078f2070",
     "src/web/src/components/community/messages/message-list-row.tsx": "e9b1e1d66b176821d96aca65e9a277aafdc96012f984a7758bff844a4b395a41",
     "src/web/src/components/community/messages/message-list-view.tsx": "3fd669f94dd5cb655b91b103264d85de119589950c36c49454926421a078291e",
     "src/web/src/components/community/messages/message-list.tsx": "6f4ddce666fc31c4e755e1f7608ebc433c4b1bde5a0177ed2d61759140ba0dd8",
@@ -405,7 +405,7 @@
     "src/web/src/hooks/community/community-ws/presence-machine-events.ts": "d4b9c5cf790aec8677a6ae7e71386d695dc83aee4da623658f797404ed5b7426",
     "src/web/src/hooks/community/community-ws/projection-transaction.ts": "5f4b848c4d039fc845b34ea19ae54db73486f0a84e9181ebecb95a57b4a3275e",
     "src/web/src/hooks/community/community-ws/reaction-details-invalidation.ts": "33553bfddf9f3e7b35cf6127cce2bb132f8b7c40e519d93cc7c5c74ea7f967c0",
-    "src/web/src/hooks/community/community-ws/read-state-reconciliation.ts": "2afc8c4ebe3dc1ca7eec5b9b448587855e1ea0ffe512599736fbe87e1c309ff7",
+    "src/web/src/hooks/community/community-ws/read-state-reconciliation.ts": "da3e7b7cde19dbdc845b5a207de2c3a01bd055a30d12c7c10877e40f17fc73ef",
     "src/web/src/hooks/community/community-ws/reconnect-messages.ts": "c2bba29c116268bf043a0c9b01582504f6aadea9f29a1c688c9ab4e64fd51135",
     "src/web/src/hooks/community/community-ws/reconnect.ts": "990f4d323bf519e605293715866a122975dd83e45de86eca9be17eaa1aecbafa",
     "src/web/src/hooks/community/community-ws/registry.ts": "68020314e8efa987c4885070d80a567ae33f4683db11ae8d0752b860e47a6ed1",
@@ -437,7 +437,7 @@
     "src/web/src/hooks/community/mutations/uploads.ts": "e5c1dd10997f62dc12be31fe9f198fa23ac7774033df3b2aa017f21962493c36",
     "src/web/src/hooks/community/read-coordinator-snapshot-projection.ts": "cb910681f3832b99bdc080c7263e4cb1b93d08068b615e0b5b65c9c51673a325",
     "src/web/src/hooks/community/unread-presentation.ts": "34545682942b75202315747f48a8b2f1b8aa3a4a173da80b74f2c8d21b71145f",
-    "src/web/src/hooks/community/use-account-attention.ts": "3a5da3c25ca55bc4d0656b7bbdd65205c241d13fc2fb4e6fb6c9b4f4664ee26a",
+    "src/web/src/hooks/community/use-account-attention.ts": "3a4e61944de697441383be2c2f098b6faee48502415d47f33f7d8012e0562972",
     "src/web/src/hooks/community/use-bot-audit-log.ts": "0dd56e81e5331f764bfc7e54f423fc0018c67dc315755a8eb78ce5e4c8950e67",
     "src/web/src/hooks/community/use-bot-audit-preview.ts": "7d35c8b27517a90b5876b4e7fa9471567ae06aa62071708ae2422c11ce1a41bc",
     "src/web/src/hooks/community/use-bot-bug-report.ts": "1e773d546d425cd65c93d8b0f7a20bb51e34273ec3803992f9029b404413a14c",
@@ -652,7 +652,7 @@
       "path": "phone-1206x2622/02-teamwork.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "aef3835907b97a9e594aa65c50cf5bdcb184b5dd5eae7fd9901587263ce27ef4",
+      "sha256": "add088d8ee0e7025b12319633bfbe64531ab660841faa0f8fa2de06c65b245cb",
       "surfaces": [
         {
           "scene": "workspace",
@@ -678,7 +678,7 @@
       "path": "phone-1206x2622/03-companion.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "f62ac4a3d19e5abf9df0ae41bd1e4965bd5b5e9b27c0a1650127be876db42e08",
+      "sha256": "052587efc5557f46915e6d673f7af1f7527b6b50614e82590caaad94e6b33a49",
       "surfaces": [
         {
           "scene": "identity",
@@ -930,7 +930,7 @@
       "path": "phone-1320x2868/06-existing-setup.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "c3c1eb9ddb5ac0c30362afed2fb991daf004cf87c0a81c00384a0394c9feeaad",
+      "sha256": "2233e52d9f379900773604602ed8425796438bf00db0371702dedb88db3578e0",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1034,7 +1034,7 @@
       "path": "tablet-2752x2064/04-context.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "236d43a931eed51052dcbfd58462cc64036c0a6d4ea4a02a5a8c3bc368da2562",
+      "sha256": "d3accee044a1710c7cda914673d229e6c2064e23741b4a133a34ec2eedffe202",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1121,7 +1121,7 @@
       "path": "duo-2007x2853/01-share-agents.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "ed65d2893e36d0d478e10e4d709cdfb86941ef21438d2efa84fd8d17024d3262",
+      "sha256": "9f026ce5bc0e0508f7d2faa6b742d7121e517dad09770bf3dd32f8c81d365c5c",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1147,7 +1147,7 @@
       "path": "duo-2007x2853/02-teamwork.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "04bf417c53b92af207b5e2fc3a42e45e529fa2014b16a7d0714635034870665e",
+      "sha256": "c0ad7bcd8dfcefbfa0fd560eecc165b3c6ce7dc273a1630a71453a736b8245fe",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1199,7 +1199,7 @@
       "path": "duo-2007x2853/04-context.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "0969d5d58231ac53668c2be5644c91fe9cf7f3554bb3141b57d8687a49cd1f93",
+      "sha256": "e95476c8129a50eb5a39167dfd17b44bb1587b84b39405e039872c5058c27bcf",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1234,7 +1234,7 @@
       "path": "duo-2007x2853/05-phone.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "073a43adf519295d84cf19faac7441e595f64083b5a4be54b21e285884fabc5f",
+      "sha256": "d10a3ee6c826a6fd416b5c8d54667c1c53cbab8861a35c77a68c85e70a8b6f8d",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1260,7 +1260,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "59728cd89412df2f095cbcf18bc25770be07c398715c251c4db52f2f46409e18",
+      "sha256": "48d4b518796420c7f79a7b1fa99bbb742c293f43d257bf618a0d1aae5c795e57",
       "surfaces": [
         {
           "scene": "workspace",

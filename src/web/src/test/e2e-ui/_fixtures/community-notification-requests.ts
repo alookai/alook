@@ -6,6 +6,7 @@ export const notificationPaths = [
   "/api/community/users/me/attention",
   "/api/community/users/me/dms",
 ]
+const accountStartupPaths = [...notificationPaths, "/api/community/users/me/read-state"]
 
 export async function notificationResponsesFinished(page: Page, paths = notificationPaths) {
   await Promise.all(paths.map(async (path) => {
@@ -47,7 +48,7 @@ export function captureNotificationRequests(page: Page) {
     requestIds.set(request, requestIds.size + 1)
     requests.push(path)
     record({ kind: "request-start", id: requestIds.get(request), path, method: request.method() })
-    if (notificationPaths.includes(path)) pendingNotifications.add(request)
+    if (accountStartupPaths.includes(path)) pendingNotifications.add(request)
   })
   page.on("requestfinished", (request) => {
     pendingNotifications.delete(request)
@@ -70,14 +71,14 @@ export async function gotoAfterNotificationStartup(
   const proxy = await proxyCommunityWebSockets(context, {
     decideConnectionFrame: (frame) => frame.type === "auth.ok" && holdAuthentication ? "hold" : "forward",
   })
-  const initial = notificationResponsesFinished(page)
+  const initial = notificationResponsesFinished(page, accountStartupPaths)
   await page.goto("/c/me", { waitUntil: "commit" })
   await initial
   await expect.poll(() => proxy.heldConnectionCount()).toBe(1)
   trace.phase("auth-release")
   const authenticatedRefresh = notificationResponsesFinished(
     page,
-    notificationPaths.filter((path) => path.endsWith("/attention")),
+    accountStartupPaths.filter((path) => !path.endsWith("/dms")),
   )
   holdAuthentication = false
   expect(proxy.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)

@@ -77,6 +77,34 @@ describe("native account read-state reconciliation", () => {
     expect(apiFetch).toHaveBeenCalledTimes(2)
   })
 
+  it("reads the newer target when it arrives during native successful-result publication", async () => {
+    vi.useFakeTimers()
+    const newer = deferred<ReturnType<typeof snapshot>>()
+    apiFetch.mockResolvedValueOnce(snapshot(2)).mockReturnValueOnce(newer.promise).mockResolvedValue(snapshot(5))
+    let second: ReturnType<typeof reconcileAccountReadState> | undefined
+    const unsubscribe = owner.client.getQueryCache().subscribe(event => {
+      if (event.type === "updated" && event.action.type === "success"
+        && event.query.queryHash === owner.client.getQueryCache().find({ queryKey: communityKeys.accountReadStateSnapshot(), exact: true })?.queryHash
+        && (event.query.state.data as { revision?: number } | undefined)?.revision === 2) {
+        second = reconcileAccountReadState(owner.client, { targetRevision: 5, reconcileAttention: false })
+      }
+    })
+    const first = reconcileAccountReadState(owner.client, { targetRevision: 2, reconcileAttention: false })
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(apiFetch).toHaveBeenCalledTimes(2)
+      newer.resolve(snapshot(3))
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect((await Promise.all([first, second!])).map(value => value.revision)).toEqual([5, 5])
+      expect(apiFetch).toHaveBeenCalledTimes(3)
+      expect(owner.registry.collections.readStates.get("c1")?.lastReadSeq).toBe(5)
+    } finally {
+      unsubscribe()
+      newer.resolve(snapshot(5))
+      await Promise.allSettled([first, second])
+    }
+  })
+
   it("preserves a newer confirmed ACK floor across an older full snapshot", async () => {
     publishCommunityConversationReadState(owner.client, row(7), 7, { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
     apiFetch.mockResolvedValue(snapshot(6))

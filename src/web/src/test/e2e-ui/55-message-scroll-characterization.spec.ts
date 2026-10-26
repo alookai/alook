@@ -18,6 +18,7 @@ import {
   markScrollTrace,
   scrollTraceSelfTest,
   startScrollTrace,
+  startAnalyzedScrollTrace,
   summarizeScrollTrace,
   type ScrollTraceResult,
 } from "./_fixtures/scroll-trace"
@@ -894,12 +895,23 @@ test.describe("message scroll characterization", () => {
       await newest.dispose()
     }
     await attachLocalTrace()
+    const finishPassiveTrace = await startAnalyzedScrollTrace(alice.page, {
+      scenario: "passive-append-position-admission",
+      identity: identity(channelId),
+      dataTransitionSource: "overlay-ws",
+    })
+    const attachPassiveTrace = async () => {
+      await finishPassiveTrace(testInfo)
+    }
+    actors.onCleanup(attachPassiveTrace)
     for (const author of ["bob", "alice"] as const) {
       for (const distance of [0, 1, 2, 20, 100, 101]) {
+        await markScrollTrace(alice.page, `${author}-${distance}-admission-start`)
         await establishScrollDistancePrecondition(scroller, `${author}-${distance}`, distance, 0.01)
         const before = await waitForCommittedGeometry(scroller)
         expect(before.firstVisibleId).not.toBeNull()
         expect(Math.abs(before.distanceToEnd - distance)).toBeLessThanOrEqual(0.01)
+        await markScrollTrace(alice.page, `${author}-${distance}-precondition`, { detail: before })
         const nonce = `scroll186_${author}_${distance}_${Date.now()}`
         const content = `passive ${author} at ${distance} ${nonce}`
         const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/messages`, {
@@ -932,6 +944,7 @@ test.describe("message scroll characterization", () => {
       }
     }
     expect(newestGets).toBe(1)
+    await attachPassiveTrace()
   })
 
   test("remote receive states and sustained upward input produce diagnostic traces", async ({ caseActors }, testInfo) => {

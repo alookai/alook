@@ -228,19 +228,13 @@ test.describe("mobile server header direct hierarchy", () => {
     const expectStartupFinished = async (generation: StartupPhase, paths: string[]) => {
       await expect.poll(() => {
         const records = [...startupRequests].map(([request, record]) => ({ ...record, timing: request.timing() }))
-        const readStateEnd = Math.max(-1, ...records.filter((record) => record.phase === "authenticated"
-          && record.pathname === readStatePath && record.method === "GET"
-          && record.terminal === "finished" && record.status === 200 && record.timing.responseEnd >= 0)
-          .map((record) => record.timing.startTime + record.timing.responseEnd))
         return {
           failed: records.filter((record) => record.terminal === "failed"
             || (record.status !== undefined && (record.status < 200 || record.status >= 300))),
           pending: records.filter((record) => record.terminal === "pending"),
           missing: paths.filter((pathname) => !records.some((record) => record.phase === generation
             && record.pathname === pathname && record.method === "GET"
-            && record.terminal === "finished" && record.status === 200
-            && (generation === "initial" || !directoryPaths.includes(pathname)
-              || (readStateEnd >= 0 && record.timing.startTime >= readStateEnd)))),
+            && record.terminal === "finished" && record.status === 200)),
         }
       }).toEqual({ failed: [], pending: [], missing: [] })
     }
@@ -252,17 +246,20 @@ test.describe("mobile server header direct hierarchy", () => {
       expect(await threadComposer.isVisible()).toBe(true)
     }).toPass({ timeout: 20_000 })
     await expectMobileBack(page)
-    // RULE: Cold HTTP reads and first-auth read-state/directory reconciliation
+    // RULE: Cold HTTP reads and first-auth read-state/attention reconciliation
     // must finish before the all-community resize measurement begins.
-    await expectStartupFinished("initial", ["/api/community/users/me/attention", ...directoryPaths])
+    const canonicalPaths = [readStatePath, "/api/community/users/me/attention"]
+    await expectStartupFinished("initial", [...canonicalPaths, ...directoryPaths])
     await expect.poll(() => proxy.heldConnectionCount()).toBe(1)
     expect(proxy.connectionCount()).toBe(1)
     phase = "authenticated"
     holdAuthentication = false
     expect(proxy.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)
-    await expectStartupFinished("authenticated", [readStatePath, ...directoryPaths])
+    await expectStartupFinished("authenticated", canonicalPaths)
     await page.waitForLoadState("networkidle")
-    await expectStartupFinished("authenticated", [readStatePath, ...directoryPaths])
+    await expectStartupFinished("authenticated", canonicalPaths)
+    expect([...startupRequests.values()].filter(record => record.phase === "authenticated"
+      && directoryPaths.includes(record.pathname))).toEqual([])
     expect(proxy.connectionCount()).toBe(1)
 
     await page.evaluate(({ composerTestId, threadPanelTestId }) => {

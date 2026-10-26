@@ -1,5 +1,5 @@
 import type { queries, CommunityInboxChanged } from "@alook/shared"
-import { queryOptions, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { CancelledError, queryOptions, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -77,11 +77,16 @@ export async function reconcileAccountReadState(
   }
   const pending = read()
   if (options.reconcileAttention === false) return pending
-  const [snapshot, attention] = await Promise.allSettled([pending, reconcileAccountAttention(token.registry!)])
+  const initialAttention = reconcileAccountAttention(token.registry!)
+  const qualifiedRead = pending.then(async snapshot => {
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+    if (!accountAttentionMatchesReadState(token.registry!)) await reconcileAccountAttention(token.registry!)
+    return snapshot
+  })
+  const [snapshot, attention] = await Promise.allSettled([qualifiedRead, initialAttention])
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
   if (snapshot.status === "rejected") throw snapshot.reason
-  if (attention.status === "rejected") throw attention.reason
-  if (!accountAttentionMatchesReadState(token.registry!)) await reconcileAccountAttention(token.registry!)
+  if (attention.status === "rejected" && !(attention.reason instanceof CancelledError)) throw attention.reason
   return snapshot.value
 }
 

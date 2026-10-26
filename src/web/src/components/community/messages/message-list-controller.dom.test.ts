@@ -350,7 +350,7 @@ describe("useMessageListController", () => {
   it("keeps an incomplete jump-to-present count unknown instead of using visible rows", () => {
     act(() => { rtlRender(React.createElement(Probe, { value: props({ hasMoreNewer: true, unreadCount: undefined }) })) })
     expect(latest.pillMode).toBe("jump")
-    expect(latest.pillCount).toBe(0)
+    expect(latest.pillCount).toBeUndefined()
   })
 
   it("passes every pagination/anchor input through and gives jump mode server-count precedence", () => {
