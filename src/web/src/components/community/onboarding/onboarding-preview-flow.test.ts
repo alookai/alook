@@ -35,15 +35,16 @@ describe("onboarding preview flow", () => {
     expect(previewSource).toContain('setMode("status")')
   })
 
-  it("keeps a blurred backdrop across every onboarding dialog", () => {
+  it("inherits the shared Dialog backdrop across every onboarding dialog", () => {
     for (const filename of [
       "onboarding-select-dialog.tsx",
       "onboarding-machine-dialog.tsx",
       "onboarding-status-dialog.tsx",
+      "onboarding-model-dialog.tsx",
     ]) {
-      expect(readFileSync(resolve(directory, filename), "utf8")).toContain(
-        'overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm"',
-      )
+      const source = readFileSync(resolve(directory, filename), "utf8")
+      expect(source).toContain("<DialogContent")
+      expect(source).not.toContain("overlayClassName=")
     }
   })
 

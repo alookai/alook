@@ -18,7 +18,7 @@ export function OnboardingModelDialog({ runtime, model, onModelChange, onContinu
   const backendLabel = ONBOARDING_HARNESSES.find((option) => option.value === runtime.id)?.label ?? runtime.id
   return (
     <Dialog open>
-      <DialogContent showCloseButton={false} overlayClassName="bg-black/20 supports-backdrop-filter:backdrop-blur-sm" className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-md">
+      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-md">
         <form onSubmit={(event) => { event.preventDefault(); if (!error) onContinue() }}>
           <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
             <div className="flex gap-1.5" aria-label="Step 3 of 4">
