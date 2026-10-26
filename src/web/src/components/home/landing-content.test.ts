@@ -246,7 +246,7 @@ describe("landing content contract", () => {
     expect(BRAND_TITLE).toBe("Alook — Share your agents with people you trust")
     expect(BRAND_DESCRIPTION).toContain("agents you already use")
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
-    expect(LANDING_META_TITLE).toBe("Alook | AI Agent Collaboration for Claude Code & Codex")
+    expect(LANDING_META_TITLE).toBe("Alook | AI Agent Collaboration for Team and Friends")
     expect(LANDING_META_DESCRIPTION).toBe(
       "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team.",
     )
