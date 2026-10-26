@@ -19,7 +19,7 @@ function verificationScript(): string {
 
 it("installs the iOS LLVM prerequisite and checks it before caches or Swift builds", () => {
   const rust = iosJob.slice(iosJob.indexOf("      - name: Install Rust stable"), iosJob.indexOf(`      - name: ${verificationName}`))
-  expect(rust).toContain("dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c")
+  expect(rust).toMatch(/uses: dtolnay\/rust-toolchain@[a-f0-9]{40}(?:\s+#.*)?$/m)
   expect(rust).toMatch(/^          components: llvm-tools$/m)
   expect(rust).toContain("targets: aarch64-apple-ios,aarch64-apple-ios-sim")
   const verify = iosJob.indexOf(`      - name: ${verificationName}`)

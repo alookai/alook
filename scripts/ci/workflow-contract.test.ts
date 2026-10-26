@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -9,6 +9,16 @@ function normalizeWorkflow(text: string): string {
 }
 
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
+
+it("pins every external workflow action to a full commit SHA", () => {
+  for (const filename of readdirSync(workflowRoot).filter(name => /\.ya?ml$/.test(name))) {
+    const text = readFileSync(resolve(workflowRoot, filename), "utf8")
+    const actions = [...text.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)].map(match => match[1])
+    for (const action of actions.filter(action => !action.startsWith("./"))) {
+      expect(action, `${filename}:${action}`).toMatch(/^[A-Za-z0-9_./-]+@[a-f0-9]{40}$/)
+    }
+  }
+})
 const workflow = ciWorkflow
 const dependabotConfig = normalizeWorkflow(
   readFileSync(resolve(repositoryRoot, ".github/dependabot.yml"), "utf8"),
@@ -388,15 +398,17 @@ describe("Bun workflow setup", () => {
   })
 
   it("installs pinned Bun in every CI job that builds a daemon package fixture", () => {
+    const selectedBun = ciJob("static-checks").match(/bun-version: (\d+\.\d+\.\d+)$/m)?.[1]
+    expect(selectedBun).toMatch(/^\d+\.\d+\.\d+$/)
     const bunJobs = ["static-checks", "test-linux", "test-windows", "app-packed-artifact"]
     expect(ciWorkflow.match(/oven-sh\/setup-bun/g)).toHaveLength(bunJobs.length)
     for (const job of bunJobs) {
       expect(ciJob(job)).toContain("oven-sh/setup-bun")
-      expect(ciJob(job)).toContain("bun-version: 1.3.11")
+      expect(ciJob(job).match(/bun-version: (\d+\.\d+\.\d+)$/m)?.[1]).toBe(selectedBun)
     }
     for (const publishWorkflow of publishWorkflows) {
       expect(publishWorkflow).toContain("oven-sh/setup-bun")
-      expect(publishWorkflow).toContain("bun-version: 1.3.11")
+      expect(publishWorkflow.match(/bun-version: (\d+\.\d+\.\d+)$/m)?.[1]).toBe(selectedBun)
     }
   })
 })
@@ -722,9 +734,7 @@ describe("CI dependency setup", () => {
 
   it("installs cargo-machete from the pinned release action", () => {
     const desktopRust = ciJob("desktop-rust")
-    expect(desktopRust).toContain(
-      "taiki-e/install-action@d9585d8b553a3309cc2e7a695952297e311e4c10 # cargo-machete",
-    )
+    expect(desktopRust).toMatch(/uses: taiki-e\/install-action@[a-f0-9]{40} # cargo-machete$/m)
     expect(desktopRust).not.toContain("cargo install cargo-machete")
     expect(desktopRust).toContain("run: cargo machete")
   })
@@ -736,9 +746,7 @@ describe("CI dependency setup", () => {
     expect(nodeSetup).toBeGreaterThan(pnpmSetup)
     expect(desktopReleaseWorkflow).toContain("cache: pnpm")
     expect(desktopReleaseWorkflow).toContain("cache-dependency-path: pnpm-lock.yaml")
-    expect(desktopReleaseWorkflow).toContain(
-      "Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2",
-    )
+    expect(desktopReleaseWorkflow).toMatch(/uses: Swatinem\/rust-cache@[a-f0-9]{40}(?:\s+#.*)?$/m)
     expect(desktopReleaseWorkflow).toContain("key: ${{ matrix.target }}")
   })
 })
@@ -830,7 +838,7 @@ describe("Turbo CI execution", () => {
   const cachedJobs = ["auth-build", "blog-build", "static-checks", "test-linux", "test-windows"]
 
   it("persists a task cache isolated by operating system, architecture, and job", () => {
-    expect(ciWorkflow.match(/actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/g))
+    expect(ciWorkflow.match(/uses: actions\/cache@[a-f0-9]{40}(?:\s+#.*)?$/gm))
       .toHaveLength(cachedJobs.length)
     for (const job of cachedJobs) {
       const definition = ciJob(job)
@@ -1131,12 +1139,8 @@ describe("Desktop updater release", () => {
     expect(desktopReleaseWorkflow).toContain("group: desktop-release-${{ github.ref }}")
     expect(desktopReleaseWorkflow).toContain("cancel-in-progress: false")
     expect(desktopReleaseWorkflow).toContain("needs: [build-unix, build-windows]")
-    expect(desktopReleaseWorkflow).toContain(
-      "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7",
-    )
-    expect(desktopReleaseWorkflow).toContain(
-      "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8",
-    )
+    expect(desktopReleaseWorkflow).toMatch(/uses: actions\/upload-artifact@[a-f0-9]{40}(?:\s+#.*)?$/m)
+    expect(desktopReleaseWorkflow).toMatch(/uses: actions\/download-artifact@[a-f0-9]{40}(?:\s+#.*)?$/m)
     expect(desktopReleaseWorkflow).toContain("pattern: desktop-release-*")
     expect(desktopReleaseWorkflow).toContain("merge-multiple: false")
     expect(desktopReleaseWorkflow).toContain("desktop-release-artifacts.mjs aggregate")
@@ -1391,7 +1395,7 @@ describe("Mobile release availability", () => {
       'entitlements["aps-environment"] == "production"',
     )
     expect(mobileReleaseWorkflow).toContain("xcrun altool --upload-app")
-    expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9")
+    expect(mobileReleaseWorkflow).toMatch(/uses: actions\/upload-artifact@[a-f0-9]{40}(?:\s+#.*)?$/m)
     expect(bumpScript).toContain('args.includes("--mobile")')
     expect(bumpScript).toContain("src/desktop/.deploy-version-mobile")
     expect(bumpScript).toContain("automatic TestFlight upload")
@@ -1426,9 +1430,9 @@ describe("Mobile release availability", () => {
     expect(mobileReleaseWorkflow).toContain("ANDROID_KEY_ALIAS:")
     expect(mobileReleaseWorkflow).toContain("ANDROID_KEY_PASSWORD:")
     expect(mobileReleaseWorkflow).toContain("aarch64-linux-android,armv7-linux-androideabi")
-    expect(mobileReleaseWorkflow).toContain('"platforms;android-36"')
-    expect(mobileReleaseWorkflow).toContain('"build-tools;36.0.0"')
-    expect(mobileReleaseWorkflow).toContain('"ndk;29.0.13846066"')
+    expect(mobileReleaseWorkflow).toContain('sdk_selection="$(node scripts/ci/android-toolchain.mjs)"')
+    expect(mobileReleaseWorkflow).toContain('"$sdkmanager" "${sdk_components[@]}"')
+    expect(mobileReleaseWorkflow).toContain('ndk_home="$ANDROID_HOME/ndk/${sdk_components[2]#ndk;}"')
     expect(mobileReleaseWorkflow).toContain("pnpm tauri android init --ci --skip-targets-install")
     expect(mobileReleaseWorkflow).toContain("pnpm tauri android build")
     expect(mobileReleaseWorkflow).toContain("--target aarch64 armv7")

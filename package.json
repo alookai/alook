@@ -55,7 +55,7 @@
     "badge-maker": "6.0.0",
     "sharp": "^0.35.5",
     "simple-git-hooks": "^2.14.0",
-    "turbo": "^2.11.8",
+    "turbo": "^2.11.10",
     "typescript": "^6.0.3",
     "vitest": "4.1.12",
     "wrangler": "4.152.0"

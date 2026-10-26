@@ -46,11 +46,11 @@
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.4",
     "eslint": "^9.39.5",
     "knip": "^6.32.2",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.2",
+    "typescript-eslint": "^8.72.0",
     "vitest": "4.1.12"
   }
 }

@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { chromium } from "@playwright/test"
 import sharp from "sharp"
+import { artworkInputHashes } from "../provenance.mjs"
 
 const directory = path.dirname(fileURLToPath(import.meta.url))
 const captureRoot = path.dirname(directory)
@@ -46,9 +47,7 @@ ${faces.map(color => `<img class="face face-${color}" src="/faces/face-${color}.
 export async function creativeInputHashes() {
   const files = new Set(["capture.mjs", "artwork.css", "noise.svg", "source.json"].map(file => path.join(directory, file)))
   for (const resource of resources.values()) files.add(resource.file)
-  files.add(path.join(repositoryRoot, "package.json"))
-  files.add(path.join(repositoryRoot, "pnpm-lock.yaml"))
-  return Object.fromEntries(await Promise.all([...files].sort().map(async file => [path.relative(repositoryRoot, file).split(path.sep).join("/"), createHash("sha256").update(await readFile(file)).digest("hex")])))
+  return artworkInputHashes([...files], ["@playwright/test", "sharp"].map(name => ({ importer: "src/web", name })))
 }
 
 export async function startCreativeServer() {

@@ -1,3 +1,4 @@
+import faroPackage from "@grafana/faro-web-sdk/package.json"
 import { afterEach, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
 import type { Faro } from "@grafana/faro-web-sdk"
@@ -49,7 +50,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(JSON.stringify(sent)).toContain("business.result")
   expect(sent.length).toBeGreaterThan(0)
   expect(sent.some(body => (body as { events?: Array<{ name: string }> }).events?.some(event => event.name === "session_start"))).toBe(true)
-  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" } } })
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: faroPackage.version } } })
   const controls = document.createElement("div")
   controls.innerHTML = '<a href="/c/me/machines">Machines</a><button>Command</button>'
   document.body.append(controls)
@@ -166,7 +167,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(child).toMatchObject({ name: "POST /api/community/channels/[id]/messages", kind: 3, traceId: dmContext.traceId, parentSpanId: dmContext.spanId })
   expect(attributes(child)).toMatchObject({ "http.request.method": "POST", "http.response.status_code": "201", session_id: extended })
   expect(JSON.stringify(sent.slice(beforeDm))).not.toContain("fixture-private-body")
-  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" } } })
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: faroPackage.version } } })
   consent("denied")
   const size = sent.length
   emitTelemetry("business.result", { outcome: "success" })

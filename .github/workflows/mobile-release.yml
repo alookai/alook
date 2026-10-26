@@ -268,11 +268,12 @@ jobs:
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null || [[ ${PIPESTATUS[1]} -eq 0 ]]
-          "$sdkmanager" \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "ndk;29.0.13846066"
-          ndk_home="$ANDROID_HOME/ndk/29.0.13846066"
+          sdk_selection="$(node scripts/ci/android-toolchain.mjs)"
+          sdk_components=()
+          while IFS= read -r component; do sdk_components+=("$component"); done <<< "$sdk_selection"
+          test "${#sdk_components[@]}" -eq 3
+          "$sdkmanager" "${sdk_components[@]}"
+          ndk_home="$ANDROID_HOME/ndk/${sdk_components[2]#ndk;}"
           test -x "$ndk_home/ndk-build"
           echo "NDK_HOME=$ndk_home" >> "$GITHUB_ENV"
 
