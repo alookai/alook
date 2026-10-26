@@ -112,7 +112,7 @@
     "react-dnd-touch-backend": "16.0.1",
     "react-dom": "19.3.1",
     "react-easy-crop": "^6.2.4",
-    "react-resizable-panels": "4.14.5",
+    "react-resizable-panels": "4.14.8",
     "rehype-autolink-headings": "^7.1.0",
     "rehype-external-links": "^3.0.0",
     "rehype-harden": "^1.1.8",
