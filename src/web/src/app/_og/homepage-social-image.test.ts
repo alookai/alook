@@ -18,7 +18,7 @@ describe("homepage social images", () => {
     expect(siteMetadata.twitter).toMatchObject({ images: [SITE_OG_IMAGE_URL] })
     expect(await sharp(og).metadata()).toMatchObject({ format: "png", width: 1200, height: 630 })
     expect(og.byteLength).toBeLessThan(5 * 1024 * 1024)
-    expect(SITE_OG_IMAGE.alt).toBe("Alook — Share your agents with people you trust")
+    expect(SITE_OG_IMAGE.alt).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(existsSync(new URL("opengraph-image.tsx", home))).toBe(false)
     expect(existsSync(new URL("twitter-image.tsx", home))).toBe(false)
   })

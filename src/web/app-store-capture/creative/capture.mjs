@@ -39,7 +39,7 @@ export function creativeDocument(asset = "header") {
   const faces = asset === "header" ? ["teal", "purple", "blue", "red"] : colors
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Alook creative artwork</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/artwork.css"></head><body><div id="capture-creative" style="width:${capture.width}px;height:${capture.height}px"><section class="canvas ${asset}-art" style="transform:scale(${capture.width / capture.logicalWidth})" role="img" aria-label="Alook ${asset} artwork">
 <div class="brand" data-creative-critical="brand"><img src="/alook.svg" alt="" data-creative-critical="logo">Alook</div>
-<h2 class="headline" data-creative-critical="headline"><span>SHARE YOUR</span> <span class="accent">AGENTS.</span></h2><p class="subline" data-creative-critical="subline">with people you trust.</p>
+<h2 class="headline" data-creative-critical="headline"><span>Multi-Agent</span> <span class="accent">Collaboration</span></h2><p class="subline" data-creative-critical="subline">for Team and Friends</p>
 ${faces.map(color => `<img class="face face-${color}" src="/faces/face-${color}.svg" alt="" data-creative-critical="face-${color}">`).join("")}</section></div></body></html>`
 }
 

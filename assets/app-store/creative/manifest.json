@@ -1,9 +1,9 @@
 {
-  "renderer": "156.0.8078.48",
+  "renderer": "155.0.8059.85",
   "encoding": "RGB PNG",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "d923f7514e23531fc04f5379d4f5f2080404ec65",
+  "repositoryHead": "c5cd005f420c00ef8db527df986846f3d0120174",
   "approvedPrototypeSha256": "f17b90df66ed06777834687e843137711b4ee48fdf42f4fb1c2097c49563b6a2",
   "inputs": {
     "package.json": "f44b4035b09a94f3c5c7525f11a17999de89bdc6adadf34a1d595c99bc58d3e0",
@@ -12,8 +12,8 @@
     "src/web/app-store-capture/assets/face-purple.svg": "2ec902464f75486fe3433b80ad65c30de4a4fcf947403bba8a38c4c54e0e162b",
     "src/web/app-store-capture/assets/face-red.svg": "d762e20ec379a14a492ca1cd438fb608267ed1870e20d0ed17d6acf16dd8924a",
     "src/web/app-store-capture/assets/face-teal.svg": "6b53ffd30e7ae6935eaea4dffb31e7bb096d03163c99c2855c5846aec8b375e0",
-    "src/web/app-store-capture/creative/artwork.css": "1385e7911ac73a9a61da25f4fe2ea983a449dee1a5e82d8aef29cc1343fc31e6",
-    "src/web/app-store-capture/creative/capture.mjs": "f6b7673341448a039b7e6624c2d5338861919981630fe8f00b6f14b3f36d333b",
+    "src/web/app-store-capture/creative/artwork.css": "1e2d4d4f36fbb9f00caa5badb3d43aa35e3b1ced88b946609689ac3311489573",
+    "src/web/app-store-capture/creative/capture.mjs": "0b3dbcf54e79209f9f4c8d32c4f580bc8cb02378ce290954a1fb88f170865411",
     "src/web/app-store-capture/creative/noise.svg": "2e971d9c2cd03b14873ff01911b5d2ce13f1990e6ac67efdc0a094c5a183b96e",
     "src/web/app-store-capture/creative/source.json": "268198d8b4d183ed71c4b08ecce7716e7f5936129b4e63f33ebd0c24dbfe5279",
     "src/web/public/alook.svg": "93752523cd171706887d8c70b6511f99727478386d3842fd1efab764c119988e",
@@ -26,7 +26,7 @@
       "asset": "header",
       "width": 3840,
       "height": 1646,
-      "sha256": "6c1ea659a7f9b4a18ba56313374e35e00a88df16f256e5873e91f0bc6be5d980",
+      "sha256": "77d4820e5cfe8d7021602607718ad42d30e51936d3c956d2fef2542f11872bce",
       "safeArea": {
         "x": 1097,
         "y": 493,
@@ -81,7 +81,7 @@
           "x": 1123.2000732421875,
           "y": 897.6000366210938,
           "width": 1593.5999755859375,
-          "height": 156.22503662109375
+          "height": 131.02496337890625
         },
         {
           "name": "subline",
@@ -137,7 +137,7 @@
       "asset": "search",
       "width": 1920,
       "height": 1280,
-      "sha256": "b73280c86a35875e60acd71e025338a0aa8ea92ed974906b3cd629a63bc5d705",
+      "sha256": "5d7ec02a3a0639338002d36fa76c1e3f36e6f74dc6a300bb95a5894d78ea8f90",
       "safeArea": {
         "x": 418,
         "y": 382.5,
@@ -192,7 +192,7 @@
           "x": 432,
           "y": 668.7999877929688,
           "width": 1056,
-          "height": 104.1500244140625
+          "height": 87.35003662109375
         },
         {
           "name": "subline",

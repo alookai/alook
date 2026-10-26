@@ -20,8 +20,8 @@ export const LANDING_SECTION_ORDER = [
 
 export const LANDING_HERO = {
   headline: BRAND_SLOGAN,
-  headlineLead: "Share your agents",
-  headlineTail: "with people you trust.",
+  headlineLead: "Multi-Agent Collaboration",
+  headlineTail: "for Team and Friends",
   subline:
     "Bring Claude Code and Codex agents into shared chats. Work with your team without relaying every message.",
   loggedOutCta: "Get started",

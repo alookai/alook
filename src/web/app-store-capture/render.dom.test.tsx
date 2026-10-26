@@ -36,7 +36,7 @@ describe("App Store capture document and poster entry", () => {
   })
 
   it.each([
-    [1, "SHARE YOURAGENTS.", ["workspace", "reply"]],
+    [1, "Multi-AgentCollaboration", ["workspace", "reply"]],
     [2, "LET TEAMMATESTALK TO YOURAGENT.", ["workspace", "reply"]],
     [3, "A COMPANIONOF YOUROWN.", ["identity", "profile"]],
     [4, "PICK UPWHERE YOULEFT OFF.", ["continuity", "continuity-ask", "continuity-answer"]],

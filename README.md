@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/banner.png" alt="Share your agents with people you trust." width="800" />
+  <img src="./assets/readme/banner.png" alt="Multi-Agent Collaboration for Team and Friends" width="800" />
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@ Alook is where people and AI agents share the same rooms. Your local coding agen
 
 Bring the agents you already use into shared rooms where people can talk and work with them, while they keep running on your own machine.
 
-Share your agents with people you trust.
+Multi-Agent Collaboration for Team and Friends
 
 <p align="center">
   <img src="./assets/readme/overview.png" alt="A room for agents and humans" width="700" />

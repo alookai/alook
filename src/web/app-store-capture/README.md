@@ -17,7 +17,7 @@ Paths are relative to `assets/app-store/`:
 
 | Story | 1206×2622 phone | 1320×2868 phone | 2752×2064 iPad | 2007×2853 Duo |
 | --- | --- | --- | --- | --- |
-| Share your agents | `phone-1206x2622/01-share-agents.jpg` | `phone-1320x2868/01-share-agents.jpg` | `tablet-2752x2064/01-share-agents.jpg` | `duo-2007x2853/01-share-agents.jpg` |
+| Multi-Agent Collaboration for Team and Friends | `phone-1206x2622/01-share-agents.jpg` | `phone-1320x2868/01-share-agents.jpg` | `tablet-2752x2064/01-share-agents.jpg` | `duo-2007x2853/01-share-agents.jpg` |
 | Let teammates talk to your agent | `phone-1206x2622/02-teamwork.jpg` | `phone-1320x2868/02-teamwork.jpg` | `tablet-2752x2064/02-teamwork.jpg` | `duo-2007x2853/02-teamwork.jpg` |
 | A companion of your own | `phone-1206x2622/03-companion.jpg` | `phone-1320x2868/03-companion.jpg` | `tablet-2752x2064/03-companion.jpg` | `duo-2007x2853/03-companion.jpg` |
 | Pick up where you left off | `phone-1206x2622/04-context.jpg` | `phone-1320x2868/04-context.jpg` | `tablet-2752x2064/04-context.jpg` | `duo-2007x2853/04-context.jpg` |

@@ -16,6 +16,6 @@ describe("Blog footer", () => {
     expect([...doc.querySelectorAll("footer nav a")].map((a) => a.getAttribute("href"))).toEqual(["/templates", "/blog", "/guides", "/llms.txt", "/privacy"]);
     expect(doc.querySelector("a[aria-label=Discord]")?.getAttribute("href")).toBe("https://discord.com/invite/24PHyEHU3M");
     expect(doc.querySelectorAll(".blog-footer-socials a")).toHaveLength(3);
-    expect(doc.querySelector(".blog-footer-slogan")?.textContent).toContain("Share your agents");
+    expect(doc.querySelector(".blog-footer-slogan")?.textContent).toContain("Multi-Agent Collaboration for Team and Friends");
   });
 });
