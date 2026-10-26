@@ -3,7 +3,7 @@ import { BRAND_DESCRIPTION, BRAND_SLOGAN, BRAND_TITLE } from "@/lib/brand-copy";
 import { ALOOK_ORGANIZATION } from "@/lib/seo/entities";
 
 export const SITE_URL = "https://alook.ai";
-export const SITE_OG_IMAGE_URL = "/social/readme-card-58c75311e5ba.png";
+export const SITE_OG_IMAGE_URL = "/social/readme-card-7470c72ef1c3.png";
 export const SITE_OG_IMAGE = {
 	url: SITE_OG_IMAGE_URL,
 	width: 1200,

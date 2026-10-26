@@ -24,10 +24,10 @@ describe("landing content contract", () => {
   it("uses plain product language in the hero", () => {
     const hero = LANDING_HERO.headline
 
-    expect(hero).toBe("Share your agents with people you trust.")
+    expect(hero).toBe("Multi-Agent Collaboration for Team and Friends")
     expect(LANDING_HERO).toMatchObject({
-      headlineLead: "Share your agents",
-      headlineTail: "with people you trust.",
+      headlineLead: "Multi-Agent Collaboration",
+      headlineTail: "for Team and Friends",
       loggedOutCta: "Get started",
       loggedInCta: "Open Alook",
       secondaryCta: "View on GitHub",
@@ -242,11 +242,11 @@ describe("landing content contract", () => {
     expect(legacyRoute).toContain("getSession")
     expect(legacyRoute).toContain("index: false")
     expect(legacyRoute).toContain("follow: false")
-    expect(BRAND_SLOGAN).toBe("Share your agents with people you trust.")
-    expect(BRAND_TITLE).toBe("Alook — Share your agents with people you trust")
+    expect(BRAND_SLOGAN).toBe("Multi-Agent Collaboration for Team and Friends")
+    expect(BRAND_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(BRAND_DESCRIPTION).toContain("agents you already use")
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
-    expect(LANDING_META_TITLE).toBe("Alook | AI Agent Collaboration for Claude Code & Codex")
+    expect(LANDING_META_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(LANDING_META_DESCRIPTION).toBe(
       "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team.",
     )
@@ -293,14 +293,14 @@ describe("landing content contract", () => {
     expect(ogRenderer).not.toContain("Personal Company")
     expect(publicLayout).toContain("BRAND_SLOGAN")
     expect(publicLayout).not.toContain("Personal Company")
-    expect(manifest.name).toBe("Alook — Share your agents with people you trust")
+    expect(manifest.name).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(manifest.description).toContain("people you trust")
-    expect(tauriConfig.bundle.shortDescription).toBe("Share your agents with people you trust")
+    expect(tauriConfig.bundle.shortDescription).toBe("Multi-Agent Collaboration for Team and Friends")
     expect(tauriConfig.bundle.longDescription).toContain("shared rooms")
-    expect(cargoManifest).toContain('description = "Alook — Share your agents with people you trust"')
+    expect(cargoManifest).toContain('description = "Alook | Multi-Agent Collaboration for Team and Friends"')
     for (const preview of [githubPreview, readmePreview, twitterPreview]) {
-      expect(preview).toContain('<div class="title">Share your agents</div>')
-      expect(preview).toContain('<div class="tagline">with people you trust.</div>')
+      expect(preview).toContain('<div class="title">Multi-Agent Collaboration</div>')
+      expect(preview).toContain('<div class="tagline">for Team and Friends</div>')
       expect(preview).not.toContain("Your Personal Company")
     }
     expect(readmePreview).toContain("width: 1280px")

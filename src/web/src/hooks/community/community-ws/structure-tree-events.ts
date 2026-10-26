@@ -46,7 +46,7 @@ import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unre
 export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
   const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")
   if (parent?.serverId) invalidateForumSidebar(projection, parent.serverId)
-  invalidateThreads(projection, event.parentChannelId)
+  projection.fence("threads", { queryKey: communityKeys.threads(event.parentChannelId) })
   if (event.parentMessageId) invalidateChannelMessages(projection, event.parentChannelId)
 }
 

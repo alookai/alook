@@ -15,7 +15,7 @@ function Face({ color, className }: { color: string; className: string }) {
 }
 
 const stories = [
-  { kind: "hero", lines: ["SHARE YOUR", "AGENTS."], subtitle: <>with people you trust.</> },
+  { kind: "hero", lines: ["Multi-Agent", "Collaboration"], subtitle: <>for Team and Friends</> },
   { kind: "team", lines: ["LET TEAMMATES", "TALK TO YOUR", "AGENT."], subtitle: <>Coordinate multi-agent workflows<br />in one conversation.</> },
   { kind: "companion", lines: ["A COMPANION", "OF YOUR", "OWN."], subtitle: <>Your agent belongs to you.<br />Bring them along to any room or team you join.</> },
   { kind: "continuity", lines: ["PICK UP", "WHERE YOU", "LEFT OFF."], subtitle: <>Keep the context</> },
@@ -73,7 +73,7 @@ function PhonePoster({ story, large = false }: { story: number; large?: boolean 
 function StoryHeading({ story, tablet = false }: { story: number; tablet?: boolean }) {
   const data = stories[story - 1]
   const lines = tablet ? [
-    ["SHARE YOUR AGENTS."], ["LET TEAMMATES TALK", "TO YOUR AGENT."], ["A COMPANION", "OF YOUR OWN."],
+    ["Multi-Agent Collaboration"], ["LET TEAMMATES TALK", "TO YOUR AGENT."], ["A COMPANION", "OF YOUR OWN."],
     ["PICK UP WHERE", "YOU LEFT OFF."], ["CHECK IN FROM", "YOUR IPAD."], ["KEEP YOUR", "EXISTING SETUP."],
   ][story - 1] : story === 5 ? ["CHECK IN", "ON THE", "GO."] : data.lines
   return <>

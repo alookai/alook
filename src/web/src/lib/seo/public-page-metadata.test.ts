@@ -14,7 +14,7 @@ import { metadata as blog } from "@blog/app/blog/(index)/page";
 import { metadata as guides } from "@blog/app/guides/page";
 
 const pages = [
-  ["home", home, "https://alook.ai", "Alook | AI Agent Collaboration for Claude Code & Codex"],
+  ["home", home, "https://alook.ai", "Alook | Multi-Agent Collaboration for Team and Friends"],
   ["pricing", pricing, "https://alook.ai/pricing", "Pricing — Free, Studio & House Plans — Alook"],
   ["blog", blog, "https://alook.ai/blog", "Blog — AI Agent Collaboration & Workflows — Alook"],
   ["guides", guides, "https://alook.ai/guides", "Guides — Coding Agent Collaboration — Alook"],

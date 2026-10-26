@@ -41,9 +41,13 @@ describe("Tauri startup release separation", () => {
   })
 
   it("pins the host and every local native plugin to the same Tauri release", () => {
-    for (const path of ["Cargo.toml", ...["file-save", "mobile-share-image", "mobile-push"].map(plugin => `plugins/${plugin}/Cargo.toml`)]) {
-      expect(read(path)).toContain('version = "=2.12.1"')
-      expect(read(path)).not.toContain('version = "=2.11.2"')
+    const declarations = (text: string) => [...text.matchAll(/^tauri\s*=\s*\{[^\n]*version\s*=\s*"(=[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/gm)].map(match => match[1])
+    const selected = declarations(read("Cargo.toml"))
+    expect(selected).toHaveLength(1)
+    for (const plugin of ["file-save", "mobile-share-image", "mobile-push"]) {
+      const versions = declarations(read(`plugins/${plugin}/Cargo.toml`))
+      expect(versions.length, plugin).toBeGreaterThan(0)
+      for (const version of versions) expect(version, plugin).toBe(selected[0])
     }
   })
 

@@ -1,4 +1,4 @@
-import webPackage from "../../../package.json"
+import faroPackage from "@grafana/faro-web-sdk/package.json"
 import { afterEach, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
@@ -32,7 +32,7 @@ it("exports actual native Faro events with only the Collector configured", async
   await vi.waitFor(() => expect(sent.some(body => body.events?.some(event => event.name === "session_start"))).toBe(true), { timeout: 5000 })
   expect(sent.some(body => body.events?.some(event => event.name === "business.result"))).toBe(true)
   for (const body of sent) {
-    expect(body.meta.sdk).toEqual({ name: "faro-web", version: webPackage.dependencies["@grafana/faro-web-sdk"] })
+    expect(body.meta.sdk).toEqual({ name: "faro-web", version: faroPackage.version })
     expect(body.meta.app).not.toHaveProperty("environment")
     expect(body.meta.app).not.toHaveProperty("release")
     expect(body.meta.app.version).toBe("0.1.44")

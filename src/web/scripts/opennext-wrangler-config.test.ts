@@ -1,5 +1,9 @@
 import { existsSync, readFileSync } from "node:fs"
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { lockedDependency, parsePnpmLock, projectDependencies } from "../../../scripts/ci/pnpm-lock.mjs"
 
 type PackageJson = {
   dependencies?: Record<string, string>
@@ -45,18 +49,30 @@ describe("OpenNext and Wrangler refresh", () => {
     expect(dependency("src/web/package.json", "wrangler-e2e")).toBeUndefined()
   })
 
-  it("locks the reviewed OpenNext patches and keeps one Workers types range", () => {
-    expect(dependency("src/web/package.json", "@opennextjs/cloudflare")).toBe("^1.20.10")
-
+  it("binds selected OpenNext resolutions to their declared patches and keeps one Workers types range", () => {
+    const lock = parsePnpmLock(readRepositoryFile("pnpm-lock.yaml"))
+    const selected = lockedDependency(lock, "src/web", "@opennextjs/cloudflare")
+    expect(selected.specifier).toBe(dependency("src/web/package.json", "@opennextjs/cloudflare"))
+    const requireFromWeb = createRequire(new URL("src/web/package.json", repositoryRoot))
+    const cloudflareRoot = join(dirname(requireFromWeb.resolve("@opennextjs/cloudflare")), "../..")
+    const installed = JSON.parse(readFileSync(join(cloudflareRoot, "package.json"), "utf8")) as { version: string; dependencies: Record<string, string> }
+    expect(selected.version.split("(")[0]).toBe(installed.version)
+    const requireFromCloudflare = createRequire(join(cloudflareRoot, "package.json"))
+    const aws = JSON.parse(readFileSync(join(dirname(requireFromCloudflare.resolve("@opennextjs/aws/index.js")), "../package.json"), "utf8")) as { version: string }
+    const projection = projectDependencies(lock, [{ importer: "src/web", name: "@opennextjs/cloudflare" }])
+    expect(Object.keys(projection)).toContain(`package:@opennextjs/aws@${aws.version}`)
+    expect(installed.dependencies["@opennextjs/aws"]).toBeTruthy()
     const rootManifest = readPackage("package.json")
-    expect(rootManifest.pnpm?.patchedDependencies).toEqual({
-      "@base-ui/react@1.9.0": "patches/@base-ui__react@1.9.0.patch",
-      "@opennextjs/cloudflare@1.20.10": "patches/@opennextjs__cloudflare@1.20.10.patch",
-    })
-    expect(existsSync(new URL("patches/@opennextjs__aws@4.1.4.patch", repositoryRoot))).toBe(false)
-    expect(existsSync(new URL("patches/@opennextjs__cloudflare@1.20.6.patch", repositoryRoot))).toBe(false)
-    expect(existsSync(new URL("patches/@opennextjs__cloudflare@1.20.10.patch", repositoryRoot))).toBe(true)
-    expect(existsSync(new URL("patches/@opennextjs__aws@4.1.0.patch", repositoryRoot))).toBe(false)
+    const patches = rootManifest.pnpm?.patchedDependencies
+    expect(patches).toBeDefined()
+    const selectedPatch = patches?.[`@opennextjs/cloudflare@${installed.version}`]
+    expect(selectedPatch).toBeTruthy()
+    for (const [identity, path] of Object.entries(patches ?? {})) {
+      expect(lock.packages.has(identity), identity).toBe(true)
+      expect(lock.patches.get(identity), identity).toContain(`path: ${path}`)
+      expect(existsSync(new URL(path, repositoryRoot)), path).toBe(true)
+      expect(fileURLToPath(new URL(path, repositoryRoot))).toMatch(/\.patch$/)
+    }
 
     const workerManifests = [
       "src/email-worker/package.json",
@@ -71,12 +87,6 @@ describe("OpenNext and Wrangler refresh", () => {
         .toBe(workersTypesRange)
     }
 
-    const lockfile = readRepositoryFile("pnpm-lock.yaml")
-    expect(lockfile).toContain("'@opennextjs/aws@4.1.9':")
-    expect(lockfile).toContain("'@opennextjs/cloudflare@1.20.10':")
-    expect(lockfile).not.toContain("'@opennextjs/aws@4.1.4':")
-    expect(lockfile).not.toContain("'@opennextjs/cloudflare@1.20.6':")
-    expect(lockfile).not.toContain("'@opennextjs/aws@4.1.0':")
   })
 
   it("minifies the Web Worker with keep_names disabled and bundling enabled", () => {

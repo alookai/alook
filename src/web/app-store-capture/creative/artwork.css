@@ -14,7 +14,7 @@ body{margin:0;background:#f6f4ee;color:#192625;font-family:Sans,-apple-system,Bl
 .subline{position:absolute;line-height:1.3;font-weight:450;text-align:center;margin:0;z-index:3}
 .face{position:absolute;display:block;z-index:4;filter:drop-shadow(0 5px 0 #fff8ec) drop-shadow(0 12px 14px #6d3e2320)}
 .header-art .brand{left:500px;top:212px}
-.header-art .headline{left:468px;top:374px;width:664px;letter-spacing:-2.8px;white-space:nowrap}
+.header-art .headline{font-size:52px;left:468px;top:374px;width:664px;letter-spacing:-2.8px;white-space:nowrap}
 .header-art .subline{left:475px;top:445px;width:650px;font-size:24px;letter-spacing:-.5px}
 .header-art .face-blue{left:480px;top:220px;width:74px;transform:rotate(12deg)}
 .header-art .face-teal{left:1040px;top:220px;width:74px;transform:rotate(15deg)}
@@ -22,7 +22,7 @@ body{margin:0;background:#f6f4ee;color:#192625;font-family:Sans,-apple-system,Bl
 .header-art .face-red{left:1045px;top:298px;width:62px;transform:rotate(12deg)}
 .search-art:before{right:-450px;top:195px;width:1160px;height:1160px}
 .search-art .brand{left:300px;top:245px}
-.search-art .headline{left:270px;top:418px;width:660px}
+.search-art .headline{font-size:52px;left:270px;top:418px;width:660px}
 .search-art .subline{left:275px;top:510px;width:650px;font-size:27px;letter-spacing:-.2px}
 .search-art .face-blue{left:280px;top:255px;width:74px;transform:rotate(12deg)}
 .search-art .face-teal{left:850px;top:255px;width:74px;transform:rotate(15deg)}

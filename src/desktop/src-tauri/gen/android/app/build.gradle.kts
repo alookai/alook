@@ -7,6 +7,10 @@ plugins {
     id("rust")
 }
 
+val alookToolchain = Properties().apply {
+    rootProject.file("gradle.properties").inputStream().use { load(it) }
+}
+
 val generatedWebViewClient = file("src/main/java/ai/alook/android/generated/RustWebViewClient.kt")
 val modernErrorMethod = """
     override fun onReceivedError(
@@ -132,13 +136,15 @@ val tauriProperties = Properties().apply {
 }
 
 android {
-    compileSdk = 36
+    compileSdk = alookToolchain.getProperty("alook.compileSdk").toInt()
+    buildToolsVersion = alookToolchain.getProperty("alook.buildTools")
+    ndkVersion = alookToolchain.getProperty("alook.ndk")
     namespace = "ai.alook.android"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "ai.alook.android"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = alookToolchain.getProperty("alook.compileSdk").toInt()
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }

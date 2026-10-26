@@ -14,7 +14,7 @@
 .phone-poster .window img{display:block;width:100%}
 .phone-poster .chip{position:absolute;display:inline-block;background:#192625;color:#fff8ec;border-radius:99px;padding:22px 39px;font-weight:700;font-size:37px;box-shadow:0 15px 40px #7a482c22;z-index:4}
 .phone-poster .footer{position:absolute;bottom:62px;left:90px;font-size:28px;letter-spacing:1px;color:#715340;z-index:8}
-.phone-poster.hero .headline{font-size:174px;top:255px}
+.phone-poster.hero .headline{font-size:137px;top:255px}
 .phone-poster.hero .subtitle{top:654px;font-size:61px;color:#192625}
 .phone-poster.team .headline{font-size:126px}
 .phone-poster.team .window{left:55px;top:1077px;width:1096px;height:1285px;transform:rotate(-3deg)}
@@ -95,7 +95,7 @@
 .tablet-poster .headline>span,.duo-poster .headline>span{display:block}
 .tablet-poster .accent,.duo-poster .accent{color:#b94f13}
 .tablet-poster .subtitle{position:absolute;left:160px;right:160px;top:448px;text-align:center;font-size:46px;line-height:1.3;letter-spacing:-1px;margin:0;color:#715340}
-.tablet-poster.hero .headline{top:117px;font-size:191px}
+.tablet-poster.hero .headline{top:117px;font-size:155px}
 .tablet-poster.hero .subtitle{top:352px;font-size:58px}
 .tablet-poster .tablet-window{position:absolute;left:336px;top:625px;width:2080px;border:24px solid #192625;border-radius:60px;overflow:hidden;background:#fff;transform:rotate(-1.5deg);box-shadow:0 42px 90px #7a482c38}
 .tablet-poster.hero .tablet-window{top:540px}
@@ -115,7 +115,7 @@
 .duo-poster:before{content:"";position:absolute;width:2500px;height:2500px;border:3px solid #fff8ecaa;border-radius:50%;left:-600px;top:1050px;box-shadow:0 0 0 210px #fff8ec33,0 0 0 420px #fff8ec22}
 .duo-poster .headline{position:absolute;left:126px;right:110px;top:135px;margin:0;font-size:210px;font-weight:1000;line-height:1.01;letter-spacing:-8px}
 .duo-poster .subtitle{position:absolute;left:136px;right:120px;top:850px;margin:0;color:#715340;font-size:59px;line-height:1.3;letter-spacing:-1px}
-.duo-poster.hero .headline{font-size:248px}
+.duo-poster.hero .headline{font-size:215px}
 .duo-poster.hero .subtitle{top:705px;font-size:70px}
 .duo-poster.team .headline{font-size:195px}
 .duo-poster .device{position:absolute;display:flex;align-items:center;justify-content:center;height:calc(117.8 * var(--mm));background:linear-gradient(105deg,#ded7ce,#7f7a70 20%,#f2eee5 45%,#403f3c 65%,#b1aca3);border:2px solid #4d4c49;box-shadow:0 2px 0 3px #fff8ec,0 48px 85px #7a482c55}

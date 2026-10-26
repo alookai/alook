@@ -1,4 +1,4 @@
-import webPackage from "../../../package.json"
+import faroPackage from "@grafana/faro-web-sdk/package.json"
 import { afterEach, expect, it, vi } from "vitest"
 import { initializeFaro, InternalLoggerLevel, SessionInstrumentation, VolatileSessionsManager } from "@grafana/faro-web-sdk"
 import { act } from "@/test/react-dom-harness"
@@ -58,6 +58,6 @@ it("resumes the actual previous SDK document and preserves its initial session_r
   for (const { event, meta } of earlyExport) expect(event.attributes).toMatchObject({ action_id: early!.id, action_name: "message.edit", session_id: meta.session.id, start_ms: String(early!.start) })
   expect(Date.parse(earlyExport[0]!.event.timestamp)).toBe(earlyTimestamp)
   expect(Date.parse(earlyExport[1]!.event.timestamp)).toBe(earlyTimestamp)
-  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: webPackage.dependencies["@grafana/faro-web-sdk"] }, session: { id: prior.sessionId } } })
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: faroPackage.version }, session: { id: prior.sessionId } } })
   expect(JSON.stringify(sent)).not.toContain("alook_account")
 })

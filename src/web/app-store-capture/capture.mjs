@@ -1,7 +1,7 @@
 import { spawn, execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
+import { mkdir, readdir, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { createRequire } from "node:module"
 import path from "node:path"
@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { chromium } from "@playwright/test"
 import sharp from "sharp"
+import { artworkInputHashes, sourceInputs } from "./provenance.mjs"
 
 const captureRoot = path.dirname(fileURLToPath(import.meta.url))
 const webRoot = path.resolve(captureRoot, "..")
@@ -44,12 +45,13 @@ export async function captureInputHashes() {
   }
   await walk(path.join(captureRoot, "app"))
   await walk(path.join(captureRoot, "captures"))
-  files.push(path.join(repositoryRoot, "pnpm-lock.yaml"), path.join(webRoot, "src/app/globals.css"), path.join(webRoot, "src/app/fonts.ts"), path.join(webRoot, "src/app/favicon.ico"), path.join(webRoot, "public/alook.svg"))
+  files.push(path.join(webRoot, "src/app/globals.css"), path.join(webRoot, "src/app/fonts.ts"), path.join(webRoot, "src/app/favicon.ico"), path.join(webRoot, "public/alook.svg"))
   for (const name of ["landing-interactive-shell.tsx", "landing-interactive-shell-data.ts", "landing-interactive-shell.module.css", "landing-shell-motion.tsx", "landing-shell-motion-timeline.ts", "landing-shell-motion.module.css", "landing-profile-content.tsx", "landing-human-avatars.ts", "landing-demo-copy.ts"]) files.push(path.join(webRoot, "src/components/home", name))
   for (const name of ["caveat-latin", "dm-sans-latin", "dm-mono-latin-400", "instrument-serif-latin-400", "instrument-serif-latin-400-italic", "literata-latin", "vt323-latin-400"]) files.push(path.join(webRoot, "src/app/fonts", `${name}.woff2`))
   for (const color of ["red", "purple", "teal", "blue", "orange"]) files.push(path.join(captureRoot, "assets", `face-${color}.svg`))
   for (const name of ["lin", "alex", "nina", "priya", "sam"]) files.push(path.join(webRoot, "public/landing/people", `${name}.webp`))
-  return Object.fromEntries(await Promise.all(files.sort().map(async filename => [path.relative(repositoryRoot, filename), createHash("sha256").update(await readFile(filename)).digest("hex")])))
+  const inputs = sourceInputs(files)
+  return artworkInputHashes(inputs.files, [...inputs.roots, ...["next", "@tailwindcss/postcss"].map(name => ({ importer: "src/web", name }))])
 }
 
 function availablePort() {
