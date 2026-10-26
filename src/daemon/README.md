@@ -378,6 +378,8 @@ void result;
 
 The daemon filters outgoing Alook message body text locally, in pipeline order, before forwarding a send. Each bot has its own persisted pipeline at `<baseDir>/daemons/<machineId>/<botId>/pii/pipelines.json`, containing only that bot's plugin source and configuration. It loads that file once and reuses its configuration and compiled filters in memory; subsequent sends do not reread JSON or recompile unchanged filters. Successful management changes replace only that bot's snapshot. Manual file edits require a daemon restart. Another bot's invalid configuration does not block it. Attachments and requests to cloud models are outside this filter. Enabled filters fail closed: an error, invalid result, or execution limit blocks the send.
 
+Fresh configurations contain five default filters: **Passwords and keys**, **Email addresses**, **ID numbers**, **Phone numbers** and **Bank cards**. Passwords and keys runs the previous private-key, recognized API-key, JWT/Authorization and credential-assignment/connection-password checks together, preserving their category-specific replacement markers. Already saved pipelines keep their installed filters, sources, flags and deletions; there is no automatic consolidation.
+
 The default **ID numbers** filter covers selected identity, social-security and personal tax numbers across 16 countries/regions. Ambiguous numeric formats require a document label. See the [supported formats, checks and limitations](src/pii/ID_NUMBERS.md). Previously initialized configurations retain their installed rule sources.
 
 Inside a bot session:
@@ -387,11 +389,20 @@ alook pii list
 alook pii add --file ./company-terms.ts --description "Redacts internal project names"
 ```
 
-The TypeScript file default-exports one synchronous pure text transform:
+The TypeScript file default-exports a synchronous pure transform returning `{ text: string, triggered: boolean }`:
 
 ```ts
-export default (text: string): string => text.replaceAll("Project Wren", "[INTERNAL_PROJECT]");
+export default (text: string) => {
+  let triggered = false;
+  const output = text.replace(/Project Wren/g, () => {
+    triggered = true;
+    return "[INTERNAL_PROJECT]";
+  });
+  return { text: output, triggered };
+};
 ```
+
+The bool is explicit per plugin, including when a later plugin restores the text. Legacy string-returning sources remain executable with per-node input/output comparison as a compatibility estimate; that cannot report no-op matches. Successful sends include `pii.triggeredFilters` only when a filter reports a hit, without original values. See [credential formats, protocol and receipt limits](src/pii/CREDENTIALS.md).
 
 Plugins have no provided filesystem, process, environment, network, or module-import capabilities. They run with memory and execution limits. Adding appends a new filter and cannot replace an existing filter. The CLI has no disable/delete operation. The human owner manages those actions in Privacy while the daemon is online, including for inactive bots. A dispatched request is not an applied change; the page waits for the local daemon's result. Deleted defaults stay deleted after restart. Rules can miss sensitive values; review the pipeline and its scope before relying on it.
 

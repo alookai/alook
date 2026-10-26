@@ -103,7 +103,7 @@ it("handles a multi-country message and maximum-size adversarial numeric input i
 });
 
 
-it("preserves unlabeled ordinary references through the entire eight-filter chain, while redacting labeled IDs", async () => {
+it("preserves unlabeled ordinary references through the entire default filter chain, while redacting labeled IDs", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pii-id-chain-"));
   const store = new PiiStore(directory);
   try {

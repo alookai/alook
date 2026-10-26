@@ -119,7 +119,20 @@ export class PiiStore {
     return this.run(pipeline, text);
   }
 
+  async filterWithResult(botId: string, text: string): Promise<{ text: string; triggeredFilters: { id: string; name: string }[] }> {
+    const pipeline = this.read(botId);
+    const result = await this.runWithResult(pipeline, text);
+    return { text: result.text, triggeredFilters: result.triggers.filter(trigger => trigger.triggered).map(trigger => {
+      const plugin = pipeline.plugins.find(plugin => plugin.id === trigger.pluginId)!;
+      return { id: plugin.id, name: plugin.name };
+    }) };
+  }
+
   private run(pipeline: Pipeline, text: string): Promise<string> {
+    return this.runWithResult(pipeline, text).then(result => result.text);
+  }
+
+  private runWithResult(pipeline: Pipeline, text: string) {
     let plugins = this.compiled.get(pipeline);
     if (!plugins) {
       plugins = pipeline.plugins.filter((plugin) => plugin.enabled).map((plugin) => {
@@ -128,6 +141,6 @@ export class PiiStore {
       });
       this.compiled.set(pipeline, plugins);
     }
-    return this.runner.evaluate(plugins, text);
+    return this.runner.evaluateWithResult(plugins, text);
   }
 }

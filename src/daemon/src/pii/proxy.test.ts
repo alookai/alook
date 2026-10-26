@@ -11,7 +11,7 @@ import { createProxyServerApi } from "../cli/proxyServerApi.js";
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function fixture(withPii = true) {
+async function fixture(withPii = true, reply?: { status?: number; body?: string; abort?: boolean }) {
   const directory = mkdtempSync(join(tmpdir(), "pii-proxy-"));
   cleanup.push(() => rmSync(directory, { force: true, recursive: true }));
   const seen: { body: Record<string, unknown>; headers: Record<string, unknown>; path: string }[] = [];
@@ -20,6 +20,9 @@ async function fixture(withPii = true) {
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
     seen.push({ body: JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>, headers: req.headers, path: req.url! });
     res.setHeader("content-type", "application/json");
+    res.statusCode = reply?.status ?? 200;
+    if (reply?.abort) { res.write('{"state":"sent","message":'); setImmediate(() => res.destroy()); return; }
+    if (reply?.body !== undefined) { res.end(reply.body); return; }
     res.end(JSON.stringify({ state: "sent", message: { seq: "#1", channel: "/test#1234/general" } }));
   });
   await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
@@ -43,7 +46,8 @@ it("filters the real CLI API transport and direct canonical POST, preserving the
   const { proxy, a, seen, request } = await fixture();
   const body = { agentId: "a", channel: "/test#1234/general", content: { text: "给 person@company.cn 发消息", extra: "keep" }, nonce: "stable", replyToSeq: 4, attachments: ["existing-file"], force: true };
   const api = createProxyServerApi({ proxyUrl: proxy.url, voucher: a.voucher });
-  await api.send(body);
+  const receipt = await api.send(body);
+  expect(receipt).toMatchObject({ state: "sent", pii: { triggeredFilters: [{ id: "builtin.emails", name: "Email addresses" }] } });
   expect(seen[0]!.body).toEqual({ ...body, agentId: undefined, content: { text: "给 [REDACTED_EMAIL] 发消息", extra: "keep" } });
   expect(Number(seen[0]!.headers["content-length"])).toBe(Buffer.byteLength(JSON.stringify(seen[0]!.body)));
   expect(seen[0]!.headers["transfer-encoding"]).toBeUndefined();
@@ -60,8 +64,8 @@ it("binds local list/add to voucher identity and never exposes remove/disable/up
   expect((await request(LOCAL_PII_PATH, { action: "add", botId: "b", name: "wrong", description: "cross bot", source: "export default (x: string) => x" })).status).toBe(422);
   const response = await request(LOCAL_PII_PATH, { action: "add", name: "append", description: "append x", source: 'export default (text: string) => text + "x";' });
   expect(response.status).toBe(200);
-  expect(store.list("a").plugins).toHaveLength(9);
-  expect(store.list("b").plugins).toHaveLength(8);
+  expect(store.list("a").plugins).toHaveLength(6);
+  expect(store.list("b").plugins).toHaveLength(5);
   expect((await request("/api/community/bots/b/pii", { action: "remove" })).status).toBe(403);
   expect((await request("/api/community/bots/a/pii", { action: "list" }, b.voucher)).status).toBe(403);
   expect((await fetch(`${proxy.url}${LOCAL_PII_PATH}`, { headers: { authorization: `Bearer ${a.voucher}` } })).status).toBe(200);
@@ -135,4 +139,58 @@ it("filters multinational IDs over the actual send transport and preserves unlab
   expect(seen[0]!.body.content).toEqual({ text: expected });
   expect((await request("/api/community/channels/channel-id/messages", { ...body, nonce: "id-numbers-direct" })).status).toBe(200);
   expect(seen[1]!.body.content).toEqual({ text: expected });
+});
+
+
+it("filters all combined credential classes on the canonical send transport", async () => {
+  const { request, seen } = await fixture();
+  const text = `-----BEGIN PRIVATE KEY-----\nprivate material\n-----END PRIVATE KEY-----; sk-${"a".repeat(24)}; Authorization: Bearer synthetic-token; DB_PASSWORD=aB12345678; postgres://u:pass1234@host/db; order=abc123456789.`;
+  const expected = "[REDACTED_PRIVATE_KEY]; [REDACTED_API_KEY]; Authorization: Bearer [REDACTED_TOKEN]; DB_PASSWORD=[REDACTED_SECRET]; postgres://u:[REDACTED_PASSWORD]@host/db; order=abc123456789.";
+  expect((await request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text }, nonce: "combined-credentials" })).status).toBe(200);
+  expect(seen).toHaveLength(1);
+  expect(seen[0]!.body).toMatchObject({ content: { text: expected }, nonce: "combined-credentials" });
+  expect(JSON.stringify(seen)).not.toContain("private material");
+  expect(JSON.stringify(seen)).not.toContain("synthetic-token");
+  expect(JSON.stringify(seen)).not.toContain("aB12345678");
+});
+
+
+it("omits PII metadata for no-hit sends and lists only enabled filters that trigger", async () => {
+  const { request, store } = await fixture();
+  const send = (text: string) => request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text } });
+  expect(await (await send("ordinary reference")).json()).not.toHaveProperty("pii");
+  const receipt = await (await send(`sk_test_${"a".repeat(32)} person@company.cn`)).json();
+  expect(receipt.pii).toEqual({ triggeredFilters: [{ id: "builtin.secrets", name: "Passwords and keys" }, { id: "builtin.emails", name: "Email addresses" }] });
+  await store.manage("a", { action: "setEnabled", pluginId: "builtin.secrets", enabled: false, expectedRevision: 0 });
+  expect(await (await send(`sk_test_${"a".repeat(32)}`)).json()).not.toHaveProperty("pii");
+});
+
+it("keeps explicit trigger notices after later restoration and supports existing custom string plugins", async () => {
+  const { request, store } = await fixture();
+  await store.local("a", { action: "add", name: "first", description: "explicit trigger", source: 'export default () => ({text:"changed",triggered:true});' });
+  await store.local("a", { action: "add", name: "restore", description: "restore", source: 'export default () => ({text:"original",triggered:false});' });
+  const send = () => request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text: "original" } });
+  const receipt = await (await send()).json();
+  expect(receipt.pii.triggeredFilters.map((filter: { name: string }) => filter.name)).toEqual(["first"]);
+  await store.local("a", { action: "add", name: "legacy", description: "stored string plugin", source: 'export default (text: string) => text + " legacy";' });
+  expect((await (await send()).json()).pii.triggeredFilters.map((filter: { name: string }) => filter.name)).toEqual(["first", "legacy"]);
+});
+
+it.each([
+  [200, '{"state":"blocked","reason":"unaligned","unreadCount":1,"latestSeq":2}'],
+  [422, '{"error":"denied"}'],
+  [503, '{"error":"unavailable"}'],
+  [200, 'not JSON'],
+  [200, '{"state":"sent"}'],
+  [200, JSON.stringify({ state: "sent", message: { channel: "/test#1234/general", seq: "#1" }, padding: "x".repeat(65537) })],
+])("preserves upstream status/body without a fabricated notice for status %s", async (status, body) => {
+  const { request } = await fixture(true, { status, body });
+  const response = await request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text: "person@company.cn" } });
+  expect(response.status).toBe(status);
+  expect(await response.text()).toBe(body);
+});
+
+it("does not report a successful send when the annotated upstream response breaks mid-body", async () => {
+  const { request } = await fixture(true, { abort: true });
+  await expect(request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text: "person@company.cn" } }).then(response => response.text())).rejects.toThrow();
 });

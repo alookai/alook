@@ -40,7 +40,7 @@ describe("PII pipeline", () => {
       snapshot = result.snapshot;
     }
     expect(storeAt(path).list("a").plugins).toEqual([]);
-    expect(store.list("b").plugins).toHaveLength(8);
+    expect(store.list("b").plugins).toHaveLength(5);
     snapshot = await store.local("a", { action: "add", name: "first", description: "replace seed", source: 'export default (text: string): string => text.replace("seed", "middle");' });
     snapshot = await store.local("a", { action: "add", name: "second", description: "replace middle", source: 'export default function(text: string): string { return text.replace("middle", "done"); }' });
     expect(await store.filter("a", "seed")).toBe("done");
@@ -57,8 +57,8 @@ describe("PII pipeline", () => {
     const input = { action: "add" as const, name: "extra", description: "identity", source: 'export default (text: string) => text;' };
     await Promise.all([store.local("a", input), store.local("a", input)]);
     const snapshot = store.list("a");
-    expect(snapshot.plugins).toHaveLength(10);
-    expect(new Set(snapshot.plugins.map((plugin) => plugin.id)).size).toBe(10);
+    expect(snapshot.plugins).toHaveLength(7);
+    expect(new Set(snapshot.plugins.map((plugin) => plugin.id)).size).toBe(7);
     for (const source of ['export default () => 1;', 'export default async () => "x";', 'export default () => process.env;', 'import fs from "node:fs"; export default () => fs.readFileSync("x");']) {
       await expect(store.local("a", { ...input, source })).rejects.toThrow(/^PII_/);
     }
@@ -302,9 +302,9 @@ describe("default filter categories", () => {
     expect(await store.filter("a", "image@2x.png. Notes follow.")).toBe("image@2x.png. Notes follow.");
   });
   const fixtures = [
-    ["builtin.private-keys", "before -----BEGIN PRIVATE KEY-----\nprivate material\n-----END PRIVATE KEY----- after", "before [REDACTED_PRIVATE_KEY] after", "a public key"],
-    ["builtin.api-keys", `key sk-${"a".repeat(24)}`, "key [REDACTED_API_KEY]", "sk-short"],
-    ["builtin.tokens", "Authorization: Bearer synthetic-token", "Authorization: Bearer [REDACTED_TOKEN]", "a bearer of news"],
+    ["builtin.secrets", "before -----BEGIN PRIVATE KEY-----\nprivate material\n-----END PRIVATE KEY----- after", "before [REDACTED_PRIVATE_KEY] after", "a public key"],
+    ["builtin.secrets", `key sk-${"a".repeat(24)}`, "key [REDACTED_API_KEY]", "sk-short"],
+    ["builtin.secrets", "Authorization: Bearer synthetic-token", "Authorization: Bearer [REDACTED_TOKEN]", "a bearer of news"],
     ["builtin.secrets", 'DB_PASSWORD="aB12345678" postgres://u:pass1234@host/db', 'DB_PASSWORD="[REDACTED_SECRET]" postgres://u:[REDACTED_PASSWORD]@host/db', "token_id=abc123456789 process.env.ACCESS_TOKEN"],
     ["builtin.emails", "mail person@company.cn please", "mail [REDACTED_EMAIL] please", "@gus#1813 image@2x.png"],
     ["builtin.id-cards", "id 11010519491231002X", "id [REDACTED_ID_CARD]", "id 110105194912310021"],

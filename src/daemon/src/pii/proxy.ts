@@ -4,7 +4,7 @@ import type { PiiStore } from "./store.js";
 import { PiiError } from "./evaluator.js";
 
 export const LOCAL_PII_PATH = "/__alook/local/pii";
-export type PiiProxy = Pick<PiiStore, "filter" | "local">;
+export type PiiProxy = Pick<PiiStore, "filterWithResult" | "local">;
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
   if (!request.headers["content-type"]?.toLowerCase().startsWith("application/json")
@@ -62,16 +62,62 @@ export async function handleLocalPii(request: IncomingMessage, response: ServerR
   } catch (error) { writePiiError(response, error); }
 }
 
-export async function filterPiiRequest(request: IncomingMessage, botId: string, pii: PiiProxy): Promise<Buffer> {
+export async function filterPiiRequest(request: IncomingMessage, botId: string, pii: PiiProxy): Promise<{ body: Buffer; triggeredFilters: { id: string; name: string }[] }> {
   const body = await readJson(request);
   const content = body.content;
   if (!content || typeof content !== "object" || Array.isArray(content)
     || ((content as { text?: unknown }).text !== undefined && typeof (content as { text?: unknown }).text !== "string")) {
     throw new PiiError("PII_INVALID_REQUEST");
   }
-  const text = await pii.filter(botId, (content as { text?: string }).text ?? "");
+  const { text, triggeredFilters } = await pii.filterWithResult(botId, (content as { text?: string }).text ?? "");
   if (Buffer.byteLength(text, "utf8") > PII_TEXT_MAX_BYTES) throw new PiiError("PII_OUTPUT_TOO_LARGE");
   body.content = { ...content, text };
   if (!CommunityAgentSendRequestSchema.safeParse(body).success) throw new PiiError("PII_INVALID_RESULT");
-  return Buffer.from(JSON.stringify(body));
+  return { body: Buffer.from(JSON.stringify(body)), triggeredFilters };
+}
+
+
+export function forwardPiiSendResponse(upstream: IncomingMessage, response: ServerResponse, triggeredFilters: { id: string; name: string }[]): void {
+  const chunks: Buffer[] = [];
+  let bytes = 0, streaming = false;
+  const write = (chunk: Buffer) => {
+    if (!response.write(chunk)) {
+      upstream.pause();
+      response.once("drain", () => upstream.resume());
+    }
+  };
+  upstream.on("data", (chunk: Buffer) => {
+    if (streaming) { write(chunk); return; }
+    chunks.push(Buffer.from(chunk));
+    bytes += chunk.byteLength;
+    if (bytes > 64 * 1024) {
+      streaming = true;
+      response.writeHead(upstream.statusCode ?? 502, upstream.headers);
+      chunks.forEach(write);
+      chunks.length = 0;
+    }
+  });
+  upstream.on("end", () => {
+    if (streaming) { response.end(); return; }
+    const body = Buffer.concat(chunks);
+    let output = body;
+    try {
+      const value: unknown = JSON.parse(body.toString("utf8"));
+      if (value && typeof value === "object" && !Array.isArray(value)
+        && (value as { state?: unknown }).state === "sent"
+        && (value as { message?: unknown }).message && typeof (value as { message: unknown }).message === "object"
+        && typeof (value as { message: { channel?: unknown } }).message.channel === "string"
+        && typeof (value as { message: { seq?: unknown } }).message.seq === "string") {
+        output = Buffer.from(JSON.stringify({ ...value, pii: { triggeredFilters } }));
+      }
+    } catch {}
+    const headers = { ...upstream.headers };
+    if (output !== body) {
+      delete headers["transfer-encoding"];
+      delete headers.etag;
+      headers["content-length"] = String(output.byteLength);
+    }
+    response.writeHead(upstream.statusCode ?? 502, headers);
+    response.end(output);
+  });
 }

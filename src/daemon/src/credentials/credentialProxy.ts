@@ -46,7 +46,7 @@ import * as path from "path";
 import { URL } from "url";
 import { formatRef, parseRef, type Cursor, type Message } from "../server/contract.js";
 import { parseNameAndTag } from "@alook/shared/lib/discriminator";
-import { LOCAL_PII_PATH, handleLocalPii, filterPiiRequest, writePiiError, type PiiProxy } from "../pii/proxy.js";
+import { LOCAL_PII_PATH, handleLocalPii, filterPiiRequest, forwardPiiSendResponse, writePiiError, type PiiProxy } from "../pii/proxy.js";
 
 export const LOCAL_MESSAGE_REMINDER_PATH = "/__alook/local/message-reminder";
 const LOCAL_MESSAGE_REMINDER_BODY_MAX_BYTES = 4 * 1024;
@@ -619,8 +619,13 @@ export async function startCredentialProxy(
       return;
     }
     let filteredBody: Buffer | undefined;
+    let piiTriggeredFilters: { id: string; name: string }[] = [];
     if (options.pii && req.method === "POST" && /^\/api\/community\/channels\/[^/]+\/messages\/?$/.test(pathname)) {
-      try { filteredBody = await filterPiiRequest(req, reg.agentId, options.pii); }
+      try {
+        const filtered = await filterPiiRequest(req, reg.agentId, options.pii);
+        filteredBody = filtered.body;
+        piiTriggeredFilters = filtered.triggeredFilters;
+      }
       catch (error) { writePiiError(res, error); return; }
       if (res.destroyed) return;
     }
@@ -697,6 +702,7 @@ export async function startCredentialProxy(
     // tracked so close/timeout can destroy it too once it exists — an
     // in-flight `.pipe(res)` doesn't end `res` on a non-graceful destroy.
     let responded = false;
+    if (piiTriggeredFilters.length) outHeaders["accept-encoding"] = "identity";
     let upstreamRes: http.IncomingMessage | undefined;
 
     const upstreamReq = upstreamClient.request(
@@ -827,6 +833,9 @@ export async function startCredentialProxy(
             res.writeHead(res_.statusCode!, res_.headers);
             res.end(body);
           });
+        } else if (piiTriggeredFilters.length && res_.statusCode !== undefined && res_.statusCode >= 200 && res_.statusCode < 300
+          && normalizeContentEncoding(res_.headers["content-encoding"]) === "identity") {
+          forwardPiiSendResponse(res_, res, piiTriggeredFilters);
         } else {
           res.writeHead(res_.statusCode ?? 502, res_.headers);
           res_.pipe(res);

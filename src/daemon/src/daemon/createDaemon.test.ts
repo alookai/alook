@@ -3287,9 +3287,9 @@ describe("createDaemon — inactive bot PII management", () => {
     try {
       const listed = await manage("before-unbind");
       expect(listed.status).toBe("complete");
-      expect(listed.snapshot?.plugins).toHaveLength(8);
+      expect(listed.snapshot?.plugins).toHaveLength(5);
       expect(await credentialProxyHarness.pii!.local("inactive", { action: "list" })).toMatchObject({ revision: 0, plugins: expect.any(Array) });
-      expect(await credentialProxyHarness.pii!.filter("inactive", "person@company.cn")).toBe("[REDACTED_EMAIL]");
+      expect(await credentialProxyHarness.pii!.filterWithResult("inactive", "person@company.cn")).toEqual({ text: "[REDACTED_EMAIL]", triggeredFilters: [{ id: "builtin.emails", name: "Email addresses" }] });
       const configFile = join(workingDirectoryBase, "inactive", "pii", "pipelines.json");
       const configuration = readFileSync(configFile, "utf8");
       expect(await manage("preview", { action: "preview", text: "person@company.cn", expectedRevision: 0 }))

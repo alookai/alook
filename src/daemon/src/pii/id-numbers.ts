@@ -1,4 +1,5 @@
-export const ID_NUMBERS_SOURCE = String.raw`export default (text: string): string => {
+export const ID_NUMBERS_SOURCE = String.raw`export default (text: string) => {
+  let triggered = false;
   const marker = "[REDACTED_ID_CARD]";
   const digits = (value: string) => [...value].map(Number);
   const weighted = (value: string, weights: number[]) => digits(value).reduce((sum, n, i) => sum + n * weights[i], 0);
@@ -13,7 +14,9 @@ export const ID_NUMBERS_SOURCE = String.raw`export default (text: string): strin
       if (/[A-Za-z0-9_]$/.test(before) || /^[A-Za-z0-9_]/.test(after) || /[A-Za-z0-9_][./-]$/.test(before) || /^[./-][A-Za-z0-9_]/.test(after)) return value;
       const contextMatch = context?.exec(before);
       if (context && (!contextMatch || contextMatch[0].length > 96 || /^\d/.test(value) && /^[ .-]\d/.test(after))) return value;
-      return valid(value.replace(/[ .()-]/g, "").toUpperCase()) ? marker : value;
+      if (!valid(value.replace(/[ .()-]/g, "").toUpperCase())) return value;
+      triggered = true;
+      return marker;
     });
   };
   const varied = (value: string) => !/^(\d)\1+$/.test(value);
@@ -106,5 +109,5 @@ export const ID_NUMBERS_SOURCE = String.raw`export default (text: string): strin
     }
     return true;
   }, label("cpf|cadastro[ ]+de[ ]+pessoas[ ]+físicas"));
-  return text;
+  return { text, triggered };
 };`;

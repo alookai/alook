@@ -25,6 +25,7 @@ getQuickJS().then(engine => {
   parentPort.on("message", ({ taskId, plugins, text: input }) => {
   const send = message => parentPort.postMessage({ ...message, taskId });
   let text = input;
+  const triggers = [];
   for (const plugin of plugins) {
     const runtime = engine.newRuntime();
     runtime.setMemoryLimit(8 * 1024 * 1024);
@@ -36,14 +37,24 @@ getQuickJS().then(engine => {
     try {
       send({ active: plugin.id });
       const program = '(function(){"use strict";const exports={};\n' + plugin.code +
-        '\nif(typeof exports.default!=="function")throw 0;return exports.default(' + JSON.stringify(text) + ');})()';
+        '\nif(typeof exports.default!=="function")throw 0;const input=' + JSON.stringify(text) + ';const value=exports.default(input);' +
+        'if(typeof value==="string")return JSON.stringify({text:value,triggered:value!==input,legacy:true});' +
+        'if(!value||typeof value!=="object"||Array.isArray(value)||typeof value.then==="function")return "null";' +
+        'const output=value.text,triggered=value.triggered;if(typeof output!=="string"||typeof triggered!=="boolean")return "null";' +
+        'return JSON.stringify({text:output,triggered});})()';
       result = context.evalCode(program);
       if (result.error) throw 0;
       if (context.typeof(result.value) !== "string") {
         send({ error: "PII_INVALID_RESULT", pluginId: plugin.id });
         return;
       }
-      text = context.getString(result.value);
+      const output = JSON.parse(context.getString(result.value));
+      if (!output || typeof output.text !== "string" || typeof output.triggered !== "boolean") {
+        send({ error: "PII_INVALID_RESULT", pluginId: plugin.id });
+        return;
+      }
+      text = output.text;
+      triggers.push({ pluginId: plugin.id, triggered: output.triggered, ...(output.legacy ? { legacy: true } : {}) });
       if (Buffer.byteLength(text, "utf8") > 64 * 1024) {
         send({ error: "PII_OUTPUT_TOO_LARGE", pluginId: plugin.id });
         return;
@@ -57,13 +68,14 @@ getQuickJS().then(engine => {
       runtime.dispose();
     }
   }
-  send({ text });
+  send({ text, triggers });
   });
   parentPort.postMessage({ ready: true });
 }).catch(() => parentPort.postMessage({ error: "PII_UNAVAILABLE" }));
 `;
 
 type CompiledPlugin = { id: string; code: string };
+export type PiiEvaluation = { text: string; triggers: { pluginId: string; triggered: boolean; legacy?: true }[] };
 
 export class PiiRunner {
   private worker: Worker | undefined;
@@ -74,6 +86,10 @@ export class PiiRunner {
   private tail: Promise<unknown> = Promise.resolve();
 
   evaluate(plugins: readonly CompiledPlugin[], text: string): Promise<string> {
+    return this.evaluateWithResult(plugins, text).then(result => result.text);
+  }
+
+  evaluateWithResult(plugins: readonly CompiledPlugin[], text: string): Promise<PiiEvaluation> {
     if (this.closed || this.pending >= 32) return Promise.reject(new PiiError("PII_UNAVAILABLE"));
     this.pending++;
     return new Promise((resolve, reject) => {
@@ -90,7 +106,7 @@ export class PiiRunner {
         this.pending--;
         clearTimeout(timeout);
         if (this.closed) { reject(new PiiError("PII_UNAVAILABLE")); return; }
-        try { resolve(plugins.length === 0 ? text : await this.execute(plugins, text)); }
+        try { resolve(plugins.length === 0 ? { text, triggers: [] } : await this.execute(plugins, text)); }
         catch (error) { reject(error); }
       });
     });
@@ -102,7 +118,7 @@ export class PiiRunner {
     await this.tail;
   }
 
-  private execute(plugins: readonly CompiledPlugin[], text: string): Promise<string> {
+  private execute(plugins: readonly CompiledPlugin[], text: string): Promise<PiiEvaluation> {
     return new Promise((resolve, reject) => {
       let worker = this.worker;
       if (!worker) {
@@ -126,7 +142,7 @@ export class PiiRunner {
       let finished = false;
       let active: string | undefined;
       let deadline: ReturnType<typeof setTimeout>;
-      const finish = (error?: PiiError, output?: string) => {
+      const finish = (error?: PiiError, output?: PiiEvaluation) => {
         if (finished) return;
         finished = true;
         clearTimeout(deadline);
@@ -147,13 +163,13 @@ export class PiiRunner {
       };
       const start = () => { arm(250); current.postMessage({ taskId, plugins, text }); };
       const onError = () => finish(new PiiError("PII_PLUGIN_FAILED", active));
-      const onMessage = (message: { taskId?: number; ready?: boolean; active?: string; error?: string; pluginId?: string; text?: string }) => {
+      const onMessage = (message: { taskId?: number; ready?: boolean; active?: string; error?: string; pluginId?: string; text?: string; triggers?: PiiEvaluation["triggers"] }) => {
         if (message.ready) { this.ready = true; start(); }
         else if (!this.ready && message.error === "PII_UNAVAILABLE") finish(new PiiError("PII_UNAVAILABLE"));
         else if (message.taskId !== taskId) return;
         else if (message.active !== undefined) { active = message.active; arm(250); }
         else if (message.error !== undefined) finish(new PiiError(message.error, message.pluginId));
-        else if (typeof message.text === "string") finish(undefined, message.text);
+        else if (typeof message.text === "string" && Array.isArray(message.triggers)) finish(undefined, { text: message.text, triggers: message.triggers });
         else onError();
       };
       current.on("message", onMessage);

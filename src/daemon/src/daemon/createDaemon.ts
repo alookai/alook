@@ -559,7 +559,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
     pii: {
-      filter: (botId, text) => localPiiStore.filter(botId, text),
+      filterWithResult: (botId, text) => localPiiStore.filterWithResult(botId, text),
       local: (botId, input) => localPiiStore.local(botId, input),
     },
     onInboxPullStart: (agentId) => ({

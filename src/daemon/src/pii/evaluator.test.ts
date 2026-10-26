@@ -17,7 +17,7 @@ vi.mock("node:worker_threads", async () => {
     postMessage(message: { taskId: number; text: string; plugins: Array<{ id: string }> }) {
       queueMicrotask(() => this.emit("message", state.malformed ? { taskId: message.taskId } : state.stall
         ? { taskId: message.taskId, active: message.plugins[0]!.id }
-        : { taskId: message.taskId, text: message.text }));
+        : { taskId: message.taskId, text: message.text, triggers: [] }));
     }
   } };
 });

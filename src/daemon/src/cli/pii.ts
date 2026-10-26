@@ -24,7 +24,7 @@ export function registerPiiCommands(program: Command, output: (value: { success:
     output({ success: PiiSnapshotSchema.parse(body) });
   };
   pii.command("list").description("show this bot's filters in execution order").exitOverride().action(() => request());
-  const add = pii.command("add").description("append a pure default-exported (text: string) => string TS function").exitOverride()
+  const add = pii.command("add").description("append a pure synchronous TS function returning { text, triggered: boolean }").exitOverride()
     .requiredOption("--file <path>", "local TypeScript module; imports and host APIs are unavailable")
     .requiredOption("--description <text>", "one sentence describing this filter");
   add.action(async () => {

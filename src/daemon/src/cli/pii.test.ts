@@ -43,14 +43,14 @@ it("lists defaults and appends a working local TS filter only to the voucher-bou
   const { directory, store, run } = await fixture();
   const listed = await run("list");
   expect(listed).toHaveBeenCalledWith({ success: expect.objectContaining({ revision: 0, plugins: expect.any(Array) }) });
-  expect(store.list("old-bot").plugins).toHaveLength(8);
+  expect(store.list("old-bot").plugins).toHaveLength(5);
   const source = join(directory, "project.ts");
   writeFileSync(source, 'export default (text: string) => text.replace("PROJECT", "[INTERNAL]");');
   const added = await run("add", "--file", source, "--description", "Hide the project name");
   expect(added).toHaveBeenCalledWith({ success: expect.objectContaining({ revision: 1 }) });
   expect(store.list("old-bot").plugins.at(-1)).toMatchObject({ name: "project", description: "Hide the project name", enabled: true });
   expect(await store.filter("old-bot", "PROJECT person@company.cn")).toBe("[INTERNAL] [REDACTED_EMAIL]");
-  expect(store.list("other-bot").plugins).toHaveLength(8);
+  expect(store.list("other-bot").plugins).toHaveLength(5);
   expect(JSON.stringify([listed.mock.calls, added.mock.calls])).not.toContain("export default");
 });
 

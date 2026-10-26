@@ -22,25 +22,25 @@ export function BotPiiPlayground({ value, onValueChange, result, pending, error,
       <div className={`${styles.workspace} overflow-hidden rounded-xl border border-input`} data-phase={phase}>
         <div className="flex flex-col gap-4 bg-muted/30 p-4 sm:p-6" aria-live="polite" aria-busy={pending}>
           <div className="flex items-center justify-between gap-3">
-            <h2 id="pii-output-label" className="text-xl font-semibold">Output</h2>
+            <h2 id="pii-output-label" className="text-sm font-medium">Public message</h2>
             {phase === "complete" ? <Check aria-hidden="true" className="size-5 text-muted-foreground" /> : null}
           </div>
           <div className="max-h-64 min-h-24 overflow-y-auto thin-scrollbar">
-            {pending ? <div className="flex flex-col gap-3">
-              <div className={styles.processing} aria-hidden="true">
+            {pending ? <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
+              <div className={`${styles.processing} w-full`} aria-hidden="true">
                 <span className={styles.packet} /><span className={`${styles.packet} ${styles.packetSecond}`} />
                 {[0, 1, 2].map(index => <span key={index} className={styles.filter} style={{ animationDelay: `${index * 180}ms` }}><ListFilter className="size-6" /></span>)}
               </div>
               <p role="status" className="text-sm text-muted-foreground">Filtering on your computer…</p>
             </div>
-              : error ? <p role="alert" className="text-base leading-relaxed text-destructive">{error}</p>
-              : result !== undefined ? <output aria-labelledby="pii-output-label" className={`${styles.result} block whitespace-pre-wrap wrap-anywhere text-lg leading-relaxed`}>{result || "The filtered message is empty."}</output>
-              : <p className="text-base leading-relaxed text-muted-foreground">Your filtered text will appear here.</p>}
+              : error ? <p role="alert" className="text-sm leading-relaxed text-destructive">{error}</p>
+              : result !== undefined ? <output aria-labelledby="pii-output-label" className={`${styles.result} block whitespace-pre-wrap wrap-anywhere text-sm leading-relaxed`}>{result || "The filtered message is empty."}</output>
+              : <p className="flex min-h-24 items-center justify-center text-center text-sm leading-relaxed text-muted-foreground">Your filtered text will appear here.</p>}
           </div>
         </div>
         <form className="flex flex-col gap-4 p-4 sm:p-6" onSubmit={event => { event.preventDefault(); if (!pending && !disabled && !tooLong && value.trim()) onRun() }}>
-          <label htmlFor="pii-playground-input" className="text-xl font-semibold">Input</label>
-          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="min-h-28 resize-y rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent sm:text-base" disabled={pending} />
+          <label htmlFor="pii-playground-input" className="text-sm font-medium">Original message</label>
+          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="max-h-64 min-h-28 resize-y overflow-y-auto rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent sm:text-base" disabled={pending} />
           <div className="flex justify-end">
             <Button type="submit" disabled={pending || disabled || tooLong || !value.trim()} className="min-h-11 gap-2 px-4" data-testid="pii-playground-run"><Play className="size-4" />{pending ? "Running…" : "Run test"}</Button>
           </div>

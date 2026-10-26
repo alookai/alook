@@ -24,16 +24,16 @@ function BotPipeline({ botId, botName, machineId, online }: { botId: string; bot
   const { clearPreview } = pii
   useEffect(() => { if (!active) { setInput(""); clearPreview() } }, [active, setInput, clearPreview])
   return (
-    <Tabs defaultValue="filters" className="gap-8" onValueChange={value => { if (value !== "playground") { setInput(""); pii.clearPreview() } }}>
+    <Tabs defaultValue="filters" className="gap-6" onValueChange={value => { if (value !== "playground") { setInput(""); pii.clearPreview() } }}>
       <TabsList variant="line" aria-label="Privacy tools" className="h-auto min-h-12 w-full border-b p-0 thin-scrollbar">
         <TabsTrigger value="filters" className="min-h-12 px-4 text-base group-data-horizontal/tabs:after:bottom-0">PII Filters</TabsTrigger>
         <TabsTrigger value="playground" className="min-h-12 px-4 text-base group-data-horizontal/tabs:after:bottom-0">Playground</TabsTrigger>
       </TabsList>
-      <TabsContent value="filters" className="mx-auto w-full max-w-3xl">
+      <TabsContent value="filters" className="mx-auto w-full max-w-2xl">
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-semibold">{pii.unavailable && pii.snapshot ? "Last confirmed filters" : "PII filters"}</h2>
+            <h2 className="text-lg font-medium">PII filters for bot message</h2>
             <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label="Reload filters" title="Reload filters" disabled={pii.pending || !online} onClick={() => { void pii.reload() }}><RefreshCw aria-hidden="true" /></Button>
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">PII is filtered on your computer before your agent’s messages reach our servers, unless you turn the filters off.</p>

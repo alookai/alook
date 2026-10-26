@@ -44,11 +44,10 @@ export function BotPiiList({
         <>
           <ul className="flex flex-col gap-4">
             {plugins.map((plugin) => (
-              <li key={plugin.id} className="flex items-start" data-testid={`pii-plugin-${plugin.id}`}>
-                <div className="flex min-w-0 flex-1 items-start gap-2">
-                <div className="min-w-0 flex-1 pt-2">
+              <li key={plugin.id} className="flex flex-col gap-1" data-testid={`pii-plugin-${plugin.id}`}>
+                <div className="flex min-w-0 items-center gap-2">
+                <div className="min-w-0 flex-1">
                   <h3 className="wrap-break-word text-base font-medium">{plugin.name}</h3>
-                  <p id={`pii-description-${plugin.id}`} className="mt-2 max-w-prose wrap-break-word text-sm leading-relaxed text-muted-foreground">{plugin.description}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <div className="flex size-11 items-center justify-center">
@@ -59,11 +58,12 @@ export function BotPiiList({
                       <MoreHorizontal className="size-4" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem variant="destructive" onClick={() => setDeletingId(plugin.id)}><Trash2 className="size-4" />Delete filter</DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" className="whitespace-nowrap" onClick={() => setDeletingId(plugin.id)}><Trash2 className="size-4" />Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
                 </div>
+                <p id={`pii-description-${plugin.id}`} className="max-w-prose wrap-break-word text-sm leading-relaxed text-muted-foreground">{plugin.description}</p>
               </li>
             ))}
           </ul>

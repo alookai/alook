@@ -408,6 +408,7 @@ export type SendResponse =
   | {
       state: "sent";
       message: Message;
+      pii?: { triggeredFilters: { id: string; name: string }[] };
       /**
        * True when this send matched an existing (author, nonce) message — i.e.
        * a retry of an already-committed send. `message` is the ORIGINAL (its
