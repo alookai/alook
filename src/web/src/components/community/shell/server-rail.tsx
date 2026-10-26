@@ -20,6 +20,7 @@ import { Plus } from "lucide-react"
 import { CommunityDndProvider, useCommunityDndScrolling } from "../community-dnd"
 import { RailIcon } from "./rail-icon"
 import { AnimatedAlookLogo } from "./animated-alook-logo"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { useNativeSafeAreaTop } from "@/hooks/use-native-safe-area-top"
 import { tid } from "@/lib/community/testids"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -150,7 +151,9 @@ function ServerRailContent({
   onOpenInvitePopover?: (serverId: string) => void
 }) {
   const [announcement, announce] = useAtom(useCreateAtom(""))
-  const characterOnly = useNativeSafeAreaTop() === 0
+  const breakpoint = useBreakpoint()
+  const safeAreaTop = useNativeSafeAreaTop()
+  const characterOnly = breakpoint === "desktop" && safeAreaTop === 0
   const isPreview = useCommunityPreviewNavigation()
   const expandedAtom = useCreateAtom<string[]>([])
   const [expanded, setExpanded] = useAtom(expandedAtom)

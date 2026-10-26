@@ -2,7 +2,7 @@
 name = "alook-desktop"
 version = "0.1.59"
 edition = "2021"
-description = "Alook — Share your agents with people you trust"
+description = "Alook | Multi-Agent Collaboration for Team and Friends"
 
 [lib]
 name = "alook_desktop_lib"
