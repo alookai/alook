@@ -124,3 +124,15 @@ it("returns a safe unavailable error when no local PII handler exists or the han
   expect(missing.seen).toEqual([]);
   expect(available.seen).toEqual([]);
 });
+
+
+it("filters multinational IDs over the actual send transport and preserves unlabeled ordinary references", async () => {
+  const { proxy, a, seen, request } = await fixture();
+  const text = 'SSN: 219099999; SIN: 123456782; 12345678Z; My Number: 621498320257; order: 219099999.';
+  const expected = 'SSN: [REDACTED_ID_CARD]; SIN: [REDACTED_ID_CARD]; [REDACTED_ID_CARD]; My Number: [REDACTED_ID_CARD]; order: 219099999.';
+  const body = { channel: "/test#1234/general", nonce: "id-numbers", content: { text } };
+  await createProxyServerApi({ proxyUrl: proxy.url, voucher: a.voucher }).send(body);
+  expect(seen[0]!.body.content).toEqual({ text: expected });
+  expect((await request("/api/community/channels/channel-id/messages", { ...body, nonce: "id-numbers-direct" })).status).toBe(200);
+  expect(seen[1]!.body.content).toEqual({ text: expected });
+});

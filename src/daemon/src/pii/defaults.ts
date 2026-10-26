@@ -1,3 +1,5 @@
+import { ID_NUMBERS_SOURCE } from "./id-numbers.js";
+
 export const PII_DEFAULTS = [
   {
     id: "builtin.private-keys", name: "Private keys", description: "Redacts PEM private key blocks.",
@@ -20,8 +22,8 @@ export const PII_DEFAULTS = [
     source: String.raw`export default (text: string): string => text.replace(/(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?![A-Za-z0-9_%+-]|\.[A-Za-z0-9-])/g, value => /\.(?:png|jpe?g|gif|webp|svg|txt|md|tsx?|jsx?|json|css|log)$/i.test(value) ? value : "[REDACTED_EMAIL]");`,
   },
   {
-    id: "builtin.id-cards", name: "Chinese ID cards", description: "Redacts 18-character Chinese ID numbers with a valid date and checksum.",
-    source: String.raw`export default (text: string): string => text.replace(/(?<![A-Za-z0-9])[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?![A-Za-z0-9])/g, value => { const year=+value.slice(6,10),month=+value.slice(10,12),day=+value.slice(12,14),date=new Date(Date.UTC(year,month-1,day)); if(date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)return value; const weights=[7,9,10,5,8,4,2,1,6,3,7,9,10,5,8,4,2]; const sum=weights.reduce((sum,w,i)=>sum+(+value[i])*w,0); return "10X98765432"[sum%11]===value[17].toUpperCase()?"[REDACTED_ID_CARD]":value; });`,
+    id: "builtin.id-cards", name: "ID numbers", description: "Redacts supported ID, social-security and personal tax numbers in CN/HK/TW/US/CA/UK/DE/FR/ES/IT/IN/JP/KR/SG/AU/BR. Ambiguous formats require a document label; checks vary by type. Not every document is supported.",
+    source: ID_NUMBERS_SOURCE,
   },
   {
     id: "builtin.phones", name: "Phone numbers", description: "Redacts mainland China mobile numbers, including +86 prefixes.",
