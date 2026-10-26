@@ -90,10 +90,10 @@ export class PiiStore {
       if (operation.expectedRevision !== pipeline.revision) return { status: "error", code: "PII_CONFLICT", snapshot: this.snapshot(pipeline) };
       if (operation.action === "preview") {
         if (!PiiPreviewTextSchema.safeParse(operation.text).success) throw new PiiError("PII_INVALID_REQUEST");
-        const output = await this.run(pipeline, operation.text);
+        const { text: output, triggeredFilters } = await this.filterPipelineWithResult(pipeline, operation.text);
         if (Buffer.byteLength(output, "utf8") > PII_TEXT_MAX_BYTES) throw new PiiError("PII_OUTPUT_TOO_LARGE");
         if (!output.trim()) throw new PiiError("PII_INVALID_RESULT");
-        return { status: "complete", snapshot: this.snapshot(pipeline), output };
+        return { status: "complete", snapshot: this.snapshot(pipeline), output, triggeredFilters };
       }
       const index = pipeline.plugins.findIndex((plugin) => plugin.id === operation.pluginId);
       if (index === -1) return operation.action === "remove"
@@ -121,6 +121,10 @@ export class PiiStore {
 
   async filterWithResult(botId: string, text: string): Promise<{ text: string; triggeredFilters: { id: string; name: string }[] }> {
     const pipeline = this.read(botId);
+    return this.filterPipelineWithResult(pipeline, text);
+  }
+
+  private async filterPipelineWithResult(pipeline: Pipeline, text: string) {
     const result = await this.runWithResult(pipeline, text);
     return { text: result.text, triggeredFilters: result.triggers.filter(trigger => trigger.triggered).map(trigger => {
       const plugin = pipeline.plugins.find(plugin => plugin.id === trigger.pluginId)!;

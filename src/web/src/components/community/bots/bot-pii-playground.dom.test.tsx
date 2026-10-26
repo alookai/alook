@@ -45,3 +45,19 @@ it("links processing to the real pending state and reveals only returned output"
   fireEvent.click(screen.getByRole("button", { name: "Run test" }))
   expect(props.onRun).toHaveBeenCalledOnce()
 })
+
+it("shows actual matched names as text and distinguishes empty from legacy metadata", () => {
+  const props = { value: "sample", onValueChange: vi.fn(), onRun: vi.fn(), pending: false, result: "filtered" }
+  const triggeredFilters = [{ id: "one", name: "Email addresses" }, { id: "two", name: "<b>Custom</b>" }]
+  const view = render(<BotPiiPlayground {...props} triggeredFilters={triggeredFilters} />)
+  expect(screen.getByTestId("pii-triggered-filters")).toHaveTextContent("Matched filters: Email addresses, <b>Custom</b>")
+  expect(view.container.querySelector("b")).toBeNull()
+  view.rerender(<BotPiiPlayground {...props} triggeredFilters={[]} />)
+  expect(screen.getByTestId("pii-triggered-filters")).toHaveTextContent("No filters matched.")
+  view.rerender(<BotPiiPlayground {...props} />)
+  expect(screen.queryByTestId("pii-triggered-filters")).toBeNull()
+  view.rerender(<BotPiiPlayground {...props} triggeredFilters={triggeredFilters} pending />)
+  expect(screen.queryByTestId("pii-triggered-filters")).toBeNull()
+  view.rerender(<BotPiiPlayground {...props} triggeredFilters={triggeredFilters} error="Failed" />)
+  expect(screen.queryByTestId("pii-triggered-filters")).toBeNull()
+})

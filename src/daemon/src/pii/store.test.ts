@@ -77,14 +77,14 @@ describe("PII pipeline", () => {
     const pending = store.manage("a", { action: "preview", text: "person@company.cn", expectedRevision: snapshot.revision });
     const changed = await store.manage("a", { action: "setEnabled", pluginId: "builtin.emails", enabled: false, expectedRevision: snapshot.revision });
     expect(changed.status).toBe("complete");
-    expect(await pending).toEqual({ status: "complete", output: "[FINAL]", snapshot });
+    expect(await pending).toEqual({ status: "complete", output: "[FINAL]", snapshot, triggeredFilters: snapshot.plugins.filter(p => p.id === "builtin.emails" || p.name === "last").map(({id, name}) => ({id, name})) });
     expect(await store.manage("a", { action: "preview", text: "person@company.cn", expectedRevision: snapshot.revision }))
       .toMatchObject({ status: "error", code: "PII_CONFLICT", snapshot: { revision: snapshot.revision + 1 } });
     const after = readFileSync(file, "utf8");
     expect(after).not.toBe(before);
     expect(after).not.toContain("person@company.cn");
     expect(await store.manage("a", { action: "preview", text: "person@company.cn", expectedRevision: snapshot.revision + 1 }))
-      .toMatchObject({ status: "complete", output: "person@company.cn" });
+      .toMatchObject({ status: "complete", output: "person@company.cn", triggeredFilters: [] });
     expect(readFileSync(file, "utf8")).toBe(after);
   });
 
@@ -97,7 +97,7 @@ describe("PII pipeline", () => {
       snapshot = result.snapshot;
     }
     expect(await store.manage("a", { action: "preview", text: "unchanged", expectedRevision: snapshot.revision }))
-      .toEqual({ status: "complete", output: "unchanged", snapshot });
+      .toEqual({ status: "complete", output: "unchanged", snapshot, triggeredFilters: [] });
     snapshot = await store.local("a", { action: "add", name: "fixture", description: "safe error fixtures", source: 'export default (text: string) => { if(!text)return text; if(text==="expand")return "中".repeat(400); if(text==="erase")return ""; if(text==="loop"){while(true){}} if(text==="number")return 1; throw new Error(text); };' });
     const before = readFileSync(fileFor(path), "utf8");
     for (const [text, code] of [["expand", "PII_OUTPUT_TOO_LARGE"], ["erase", "PII_INVALID_RESULT"], ["number", "PII_INVALID_RESULT"], ["loop", "PII_PLUGIN_FAILED"], ["private-error-text", "PII_PLUGIN_FAILED"]]) {
@@ -324,4 +324,16 @@ describe("default filter categories", () => {
     expect(once).toContain("aaaa4111-1111-1111-9007-123456789012");
     expect(await store.filter("a", once)).toBe(once);
   });
+});
+
+it("reports preview matches even when a later filter restores the original text", async () => {
+  const { store } = create();
+  await store.local("a", { action: "add", name: "first", description: "first change", source: 'export default (text: string) => text.replace("seed", "middle");' });
+  const snapshot = await store.local("a", { action: "add", name: "second", description: "restore", source: 'export default (text: string) => text.replace("middle", "seed");' });
+  const expected = snapshot.plugins.filter(plugin => plugin.name === "first" || plugin.name === "second").map(({ id, name }) => ({ id, name }));
+  expect(await store.manage("a", { action: "preview", text: "seed", expectedRevision: snapshot.revision }))
+    .toMatchObject({ status: "complete", output: "seed", triggeredFilters: expected });
+  expect(await store.filterWithResult("a", "seed")).toEqual({ text: "seed", triggeredFilters: expected });
+  expect(await store.manage("a", { action: "preview", text: "ordinary", expectedRevision: snapshot.revision }))
+    .toMatchObject({ status: "complete", output: "ordinary", triggeredFilters: [] });
 });

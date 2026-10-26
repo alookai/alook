@@ -40,7 +40,7 @@ export const PiiErrorCodeSchema = z.enum([
   "PII_INVALID_SOURCE", "PII_CONFIG_UNAVAILABLE", "PII_SOURCE_TOO_LARGE", "PII_INVALID_REQUEST",
 ]);
 export const PiiResultSchema = z.discriminatedUnion("status", [
-  z.strictObject({ status: z.literal("complete"), snapshot: PiiSnapshotSchema, output: PiiPreviewTextSchema.optional() }),
+  z.strictObject({ status: z.literal("complete"), snapshot: PiiSnapshotSchema, output: PiiPreviewTextSchema.optional(), triggeredFilters: z.array(PiiPluginSchema.pick({ id: true, name: true })).max(PII_MAX_PLUGINS).optional() }),
   z.strictObject({
     status: z.literal("error"),
     code: PiiErrorCodeSchema,

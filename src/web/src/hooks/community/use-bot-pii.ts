@@ -16,6 +16,7 @@ export type BotPiiState = {
   uncertain?: boolean
   operation?: PiiOperation["action"]
   output?: string
+  triggeredFilters?: { id: string; name: string }[]
 }
 
 export function useBotPii(botId: string, machineId: string, online: boolean) {
@@ -87,6 +88,7 @@ export function useBotPii(botId: string, machineId: string, online: boolean) {
     error: data?.operation === "preview" ? undefined : data?.error,
     previewError: data?.operation === "preview" ? data.error : undefined,
     output: online && connected && data?.operation === "preview" ? data.output : undefined,
+    triggeredFilters: online && connected && data?.operation === "preview" ? data.triggeredFilters : undefined,
     previewPending: data?.operation === "preview" && data.status === "pending",
     clearPreview,
     preview: (text: string) => data?.snapshot && !data.uncertain && text.trim() && utf8ByteLength(text) <= PII_TEXT_MAX_BYTES

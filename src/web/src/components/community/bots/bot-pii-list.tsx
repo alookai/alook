@@ -43,7 +43,9 @@ export function BotPiiList({
         <>
           <ul className="flex flex-col gap-4">
             {plugins.map((plugin) => (
-              <li key={plugin.id} className="flex flex-col gap-1" data-testid={`pii-plugin-${plugin.id}`}>
+              <li key={plugin.id} className="group/pii-node relative flex flex-col gap-1 pl-6" data-testid={`pii-plugin-${plugin.id}`}>
+                <span aria-hidden="true" className="absolute -bottom-10 left-1 top-6 w-px bg-border group-last/pii-node:hidden" />
+                <span aria-hidden="true" className={`absolute left-0 top-5 size-2 rounded-full border ${plugin.enabled ? "border-muted-foreground bg-muted-foreground" : "border-muted-foreground bg-background"}`} />
                 <div className="flex min-w-0 items-center gap-2">
                 <div className="min-w-0 flex-1">
                   <h3 className="wrap-break-word text-base font-medium">{plugin.name}</h3>
@@ -68,7 +70,6 @@ export function BotPiiList({
           </ul>
         </>
       )}
-      <p role="status" className="min-h-5 text-sm text-muted-foreground">{pending ? "Waiting for this machine…" : null}</p>
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !pending) setDeletingId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>

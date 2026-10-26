@@ -44,7 +44,7 @@ describe("PII results", () => {
     expect(JSON.stringify(vi.mocked(context.log.warn).mock.calls)).not.toContain("PRIVATE_")
   })
   it("relays bounded preview output with the captured revision through the same owner checks", async () => {
-    const preview = { ...frame, result: { ...frame.result, output: "filtered-output" } }
+    const preview = { ...frame, result: { ...frame.result, output: "filtered-output", triggeredFilters: [{ id: "email", name: "Email addresses" }] } }
     await handlePiiResultFrame(context, preview, identity)
     expect(mocks.notify).toHaveBeenCalledWith(context, "owner", { ...preview, type: "community:bot.pii", machineId: "machine" })
   })

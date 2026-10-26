@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import styles from "./bot-pii-playground.module.css"
 
-export function BotPiiPlayground({ value, onValueChange, result, pending, error, disabled, onRun }: {
+export function BotPiiPlayground({ value, onValueChange, result, triggeredFilters, pending, error, disabled, onRun }: {
   value: string
   onValueChange: (value: string) => void
   result?: string
+  triggeredFilters?: { id: string; name: string }[]
   pending: boolean
   error?: string
   disabled?: boolean
@@ -37,6 +38,9 @@ export function BotPiiPlayground({ value, onValueChange, result, pending, error,
               : result !== undefined ? <output aria-labelledby="pii-output-label" className={`${styles.result} block whitespace-pre-wrap wrap-anywhere text-sm leading-relaxed`}>{result || "The filtered message is empty."}</output>
               : <p className="flex min-h-24 items-center justify-center text-center text-sm leading-relaxed text-muted-foreground">Your filtered text will appear here.</p>}
           </div>
+          {phase === "complete" && triggeredFilters !== undefined ? <p data-testid="pii-triggered-filters" className="wrap-anywhere text-sm leading-relaxed text-muted-foreground">
+            {triggeredFilters.length ? <>Matched filters: {triggeredFilters.map(filter => filter.name).join(", ")}</> : "No filters matched."}
+          </p> : null}
         </div>
         <form className="flex flex-col gap-4 p-4 sm:p-6" onSubmit={event => { event.preventDefault(); if (!pending && !disabled && !tooLong && value.trim()) onRun() }}>
           <label htmlFor="pii-playground-input" className="text-sm font-medium">Original message</label>

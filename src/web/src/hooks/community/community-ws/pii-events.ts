@@ -14,6 +14,7 @@ export function handleBotPii(event: { machineId: string; botId: string; requestI
       requestId: event.requestId, operation: pending.operation, snapshot: result.snapshot,
       status: preview && result.output === undefined ? "error" : "complete",
       output: preview ? result.output : undefined,
+      triggeredFilters: preview && result.output !== undefined ? result.triggeredFilters : undefined,
       error: preview && result.output === undefined ? "Could not read the test result. Run it again." : undefined,
     })
     return

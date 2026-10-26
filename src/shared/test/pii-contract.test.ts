@@ -18,3 +18,15 @@ describe("PII preview contract", () => {
     expect(PiiResultFrameSchema.safeParse({ ...frame, result: { status: "error", code: "PII_PLUGIN_FAILED", message: "original exception" } }).success).toBe(false)
   })
 })
+
+it("preserves bounded matched-filter metadata and accepts legacy responses", () => {
+  const result = { status: "complete", snapshot: { revision: 1, plugins: [] }, output: "filtered" }
+  const frame = { type: "pii_result", botId: "bot", requestId: "req", result }
+  const triggeredFilters = [{ id: "email", name: "Email addresses" }]
+  expect(PiiResultFrameSchema.parse({ ...frame, result: { ...result, triggeredFilters } }).result).toMatchObject({ triggeredFilters })
+  expect(PiiResultFrameSchema.safeParse(frame).success).toBe(true)
+  expect(PiiResultFrameSchema.safeParse({ ...frame, result: { ...result, triggeredFilters: [] } }).success).toBe(true)
+  for (const invalid of [[{ id: "email", name: "" }], Array(33).fill(triggeredFilters[0]), [{ ...triggeredFilters[0], source: "secret" }]]) {
+    expect(PiiResultFrameSchema.safeParse({ ...frame, result: { ...result, triggeredFilters: invalid } }).success).toBe(false)
+  }
+})
