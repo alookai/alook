@@ -826,6 +826,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     await mobilePage.getByRole("button", { name: buttonName }).click()
     await expect.poll(() => requests).toBe(1)
     await expect(mobilePage.getByTestId(tid.imageLightboxError)).toBeVisible()
+    await waitForDialogEntrance(mobilePage)
     const frame = await boundingRect(mobilePage.getByTestId(tid.imageLightbox))
     const error = await boundingRect(mobilePage.getByTestId(tid.imageLightboxError))
     const retry = await boundingRect(mobilePage.getByTestId(tid.imageLightboxRetry))
