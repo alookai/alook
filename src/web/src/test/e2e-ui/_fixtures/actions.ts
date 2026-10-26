@@ -26,16 +26,7 @@ export async function installInputCapability(
   await page.addInitScript(({ query, matches }) => {
     const nativeMatchMedia = window.matchMedia.bind(window)
     window.matchMedia = (candidate: string) => candidate === query
-      ? {
-          matches,
-          media: candidate,
-          onchange: null,
-          addListener: () => {},
-          removeListener: () => {},
-          addEventListener: () => {},
-          removeEventListener: () => {},
-          dispatchEvent: () => false,
-        } as MediaQueryList
+      ? Object.defineProperty(nativeMatchMedia(candidate), "matches", { value: matches })
       : nativeMatchMedia(candidate)
   }, { query: HOVER_FINE_QUERY, matches: hoverCapable })
 }

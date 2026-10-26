@@ -271,9 +271,9 @@ function renderPostReturnLifecycle({ strict = false, child = "post", parent = "f
   mocks.currentHref.current = childHref
   mocks.selectedHref.current = childHref
   mocks.projectedChannel.current = { id: child, serverId: "s1", parentChannelId: parent }
-  vi.spyOn(window, "matchMedia").mockImplementation(media => ({
-    media, matches: media === "(max-width: 639px)", onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
+  const matchMedia = window.matchMedia.bind(window)
+  vi.spyOn(window, "matchMedia").mockImplementation(media => Object.defineProperty(matchMedia(media), "matches", {
+    value: media === "(max-width: 639px)",
   }))
   let frameHref = childHref
   let context!: ReturnType<typeof useCommunityRouteFrame>

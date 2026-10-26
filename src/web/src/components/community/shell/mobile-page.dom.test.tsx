@@ -18,9 +18,9 @@ function fixture() {
   let narrow = true
   let breakpoint: "mobile" | "desktop" = "mobile"
   let runtime!: ReturnType<typeof useCommunityRuntime>
-  vi.spyOn(window, "matchMedia").mockImplementation(media => ({
-    media, matches: media === "(max-width: 639px)" && narrow, onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
+  const matchMedia = window.matchMedia.bind(window)
+  vi.spyOn(window, "matchMedia").mockImplementation(media => Object.defineProperty(matchMedia(media), "matches", {
+    value: media === "(max-width: 639px)" && narrow,
   }))
   let request: MobilePageBack | null = null
   const replace = vi.fn()
