@@ -202,7 +202,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   // comment for the Playwright-verified repro of the mount-vs-Fix-3 race
   // this closes: two independently-evaluated expressions reading the same
   // inputs aren't guaranteed to agree on every commit).
-  const { newDividerBefore, anchorFound } = useMemo(() => {
+  const { newDividerBefore } = useMemo(() => {
     if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
     return resolveMessageReadProjection({
       messages,
@@ -211,10 +211,6 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
       anchorReconciled,
     })
   }, [anchorReconciled, messages, readSnapshot, currentUser.id])
-
-  // Gates `<MessageList>`'s mount-time scroll action until the anchor is
-  // actually present in the loaded `messages`.
-  const anchorInCache = anchorFound
 
   // Scroll root of the message list — needed so `useDmWatermark`'s
   // IntersectionObserver measures against the correct viewport rather
@@ -465,10 +461,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             resolveUserName={resolveUserName}
             onScrollRoot={setScrollRootEl}
             viewerUserId={currentUser.id}
-            // Delay initial scroll until the read-state snapshot resolves AND
-            // the anchor it names is actually present in `messages` — see
-            // `anchorInCache`'s doc comment above.
-            initialScrollReady={!readSnapshotFetching && (anchorInCache || initialPositionKnown)}
+            initialScrollReady={initialPositionKnown}
             hasMore={hasMoreMessages}
             historyStartKnown={historyStartKnown}
             initialPositionMessageId={initialPositionMessageId}

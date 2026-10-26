@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/field"
 import { SignInEmailField, SignInOtpField } from "./sign-in-fields"
 import { SocialSignIn } from "./social-sign-in"
+import { useSignInTerms } from "./sign-in-terms"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
 import { LandingShellMotion } from "@/components/home/landing-shell-motion"
@@ -64,6 +65,7 @@ function SignInForm({
   const [code, setCode] = useAtom(useCreateAtom(""))
   const [step, setStep] = useAtom(useCreateAtom<"email" | "code">("email"))
   const [retryAfter, setRetryAfter] = useAtom(useCreateAtom<number | null>(null))
+  const terms = useSignInTerms()
 
   useEffect(() => {
     if (retryAfter == null) return
@@ -83,8 +85,19 @@ function SignInForm({
     },
   }
 
-  async function handleSendCode(e: React.SubmitEvent) {
+  function handleEmailSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
+    const form = e.currentTarget
+    terms.requestConsent(() => {
+      if (!form.reportValidity()) return
+      const emailInput = form.elements.namedItem("email")
+      if (!(emailInput instanceof HTMLInputElement)) return
+      if (isProd) void sendCode(emailInput.value)
+      else void devSignIn(emailInput.value)
+    })
+  }
+
+  async function sendCode(email: string) {
     if (retryAfter != null) return
     const observation = startAction("auth_send_code")
     setEmailError("")
@@ -117,6 +130,10 @@ function SignInForm({
     setCode(value)
     setOtpError("")
     if (value.length !== 6) return
+    terms.requestConsent(() => { void verifyCode(value) })
+  }
+
+  async function verifyCode(value: string) {
     const observation = startAction("auth_verify_code")
 
     setLoading(true)
@@ -144,8 +161,7 @@ function SignInForm({
     setLoading(false)
   }
 
-  async function handleDevSignIn(e: React.SubmitEvent) {
-    e.preventDefault()
+  async function devSignIn(email: string) {
     const observation = startAction("auth_dev_sign_in")
     setEmailError("")
     setLoading(true)
@@ -215,7 +231,7 @@ function SignInForm({
 
       {isProd ? (
         step === "email" ? (
-          <form onSubmit={handleSendCode}>
+          <form noValidate onSubmit={handleEmailSubmit}>
             <FieldGroup>
               <SignInEmailField
                 email={email}
@@ -264,7 +280,7 @@ function SignInForm({
           </>
         )
       ) : (
-        <form onSubmit={handleDevSignIn}>
+        <form noValidate onSubmit={handleEmailSubmit}>
           <FieldGroup>
             <SignInEmailField
               email={email}
@@ -289,10 +305,11 @@ function SignInForm({
         </form>
       )}
 
+      {terms.control}
       <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
         Or continue with
       </FieldSeparator>
-      <SocialSignIn postLoginUrl={postLoginUrl} appleEnabled={appleEnabled} />
+      <SocialSignIn postLoginUrl={postLoginUrl} appleEnabled={appleEnabled} requestConsent={terms.requestConsent} />
     </FieldGroup>
   )
 }

@@ -7,6 +7,7 @@ test("first-signup mobile starts onboarding once and retains it on desktop", asy
   await page.getByRole("textbox", { name: "Email" }).fill(
     `direct-onboarding-mobile-${process.pid}-${Date.now()}@example.com`,
   )
+  await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
   await page.getByRole("button", { name: "Sign in", exact: true }).click()
   await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
 
@@ -34,6 +35,7 @@ test("first-signup desktop opens onboarding before the empty Machines guide", as
   await page.getByRole("textbox", { name: "Email" }).fill(
     `direct-onboarding-desktop-${process.pid}-${Date.now()}@example.com`,
   )
+  await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
   await page.getByRole("button", { name: "Sign in", exact: true }).click()
   await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
 

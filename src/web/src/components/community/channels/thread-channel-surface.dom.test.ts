@@ -156,6 +156,7 @@ function feed(overrides: Record<string, unknown> = {}) {
     jumpToPresent: vi.fn(),
     readSnapshotFetching: false,
     anchorInCache: true,
+    initialPositionKnown: true,
     newDividerBefore: undefined,
     unreadCount: 0,
     setScrollRootEl: vi.fn(),

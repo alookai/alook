@@ -35,6 +35,12 @@ describe("native file save boundary", () => {
     expect(read("plugins/file-save/android/src/main/java/ai/alook/plugin/filesave/FileSavePlugin.kt")).toContain('source.name == args.attemptId + ".partial"')
     expect(read("plugins/file-save/ios/Sources/FileSavePlugin.swift")).toContain('source.lastPathComponent == args.attemptId + ".partial"')
   })
+  it("enables the single-scene lifecycle without replacing Tao scene configuration", () => {
+    const project = read("gen/apple/project.yml")
+    expect(project).toMatch(/^ {8}UIApplicationSceneManifest:\n {10}UIApplicationSupportsMultipleScenes: false$/m)
+    expect(project.match(/UIApplicationSceneManifest:/g)).toHaveLength(1)
+    expect(project).not.toMatch(/UIScene(Configuration|DelegateClassName|StoryboardFile)/)
+  })
   it("anchors the system share sheet only on iPad and preserves its source rectangle", () => {
     const plugin = read("plugins/file-save/ios/Sources/FileSavePlugin.swift")
     const configuration = plugin.slice(plugin.indexOf("if presenter.traitCollection.userInterfaceIdiom"), plugin.indexOf("presenter.present(picker"))

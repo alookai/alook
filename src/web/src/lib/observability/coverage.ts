@@ -26,6 +26,7 @@ export const pageRoutes = [
   "/sign-in",
   "/templates",
   "/templates/[id]",
+  "/terms",
 ] as const
 
 export const apiRoutes = [

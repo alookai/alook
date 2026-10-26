@@ -779,6 +779,7 @@ describe("real login helper context exit", () => {
       getByRole: vi.fn(() => ({
         waitFor: vi.fn().mockResolvedValue(undefined),
         fill: vi.fn().mockResolvedValue(undefined),
+        check: vi.fn().mockResolvedValue(undefined),
         click: vi.fn().mockResolvedValue(undefined),
       })),
     }
@@ -881,6 +882,7 @@ describe("real login helper context exit", () => {
     expect(result).toMatchObject({ key: "alice", userId: "unit-login-user", storageState: "unit-state.json" })
     expect(result.name).toBe(result.email.split("@")[0])
     expect(s.page.goto).toHaveBeenCalledWith("http://fixture.test/c", { waitUntil: "load" })
+    expect(s.page.getByRole).toHaveBeenCalledWith("checkbox", { name: "I agree to the Terms of Service" })
     expect(s.context.request.get).toHaveBeenCalledWith("http://fixture.test/api/ws/token")
     expect(s.context.addCookies).toHaveBeenCalledOnce()
     expect(s.context.clearCookies).toHaveBeenCalledWith({ name: /^(?:is_new_signup|is_sign_in)$/ })

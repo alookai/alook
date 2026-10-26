@@ -3,9 +3,6 @@
 *{box-sizing:border-box}
 .phone-poster{position:relative;width:1206px;height:2622px;overflow:hidden;background:linear-gradient(165deg,#fff8ec 0%,#fff0dc 30%,#ffd8a5 62%,#ff9b43 100%)}
 .phone-poster:before{content:"";position:absolute;width:1750px;height:1750px;border:2px solid #fff8ecaa;border-radius:50%;left:-380px;top:1100px;box-shadow:0 0 0 160px #fff8ec33,0 0 0 320px #fff8ec22}
-.phone-poster .brand{position:absolute;left:87px;top:91px;display:flex;align-items:center;gap:18px;font-family:Caveat,cursive;font-size:94px;font-weight:700;letter-spacing:-4px;line-height:1}
-.phone-poster .brand img{width:75px;height:75px}
-.phone-poster .number{position:absolute;right:90px;top:127px;font-size:26px;font-weight:700;letter-spacing:5px;color:#715340}
 .phone-poster .headline{position:absolute;left:84px;right:60px;top:247px;margin:0;font-size:137px;font-weight:1000;line-height:1.01;letter-spacing:-6px}
 .phone-poster .headline .accent{color:#b94f13}
 .phone-poster .subtitle{position:absolute;left:90px;right:90px;top:718px;font-size:47px;line-height:1.3;letter-spacing:-1px;margin:0;color:#715340;max-width:1000px}
@@ -92,52 +89,60 @@
 .phone-poster .reach-red{left:1015px;top:930px;width:150px;transform:rotate(12deg)}
 .phone-poster .composer-crop{position:relative;margin:14px;width:1089px;height:128px;border-radius:65px;overflow:hidden;background:#e8e5de}
 .phone-poster .composer-focus .composer-crop img{left:-14px;top:-2290px}
-.tablet-poster{position:relative;margin:0;width:2064px;height:2752px;overflow:hidden;background:linear-gradient(165deg,#fff8ec,#fff0dc 35%,#ffd8a5 65%,#ff9b43);color:#192625;font-family:DMSans,Arial,sans-serif}
-.tablet-poster .brand{position:absolute;left:142px;top:108px;display:flex;align-items:center;gap:24px;font-family:Caveat,cursive;font-size:132px;font-weight:700;letter-spacing:-5px;line-height:1}
-.tablet-poster .brand img{width:110px;height:110px}
-.tablet-poster .number{position:absolute;right:140px;top:160px;color:#715340;font-size:32px;letter-spacing:6px;font-weight:700}
-.tablet-poster h1{position:absolute;left:134px;top:320px;font-size:240px;letter-spacing:-8px;line-height:1.03;font-weight:1000;margin:0}
-.tablet-poster .accent{color:#b94f13}
-.tablet-poster .subtitle{position:absolute;left:142px;top:865px;font-size:78px;color:#192625;margin:0;line-height:1.3}
-.tablet-poster .window{position:absolute;left:130px;top:1120px;width:1804px;height:1460px;overflow:hidden;background:#fff;border:18px solid #192625;border-radius:58px;box-shadow:0 55px 100px #7a482c35;transform:rotate(-2deg)}
-.tablet-poster .window img{position:absolute;display:block;width:1768px;left:0;top:-580px}
-.tablet-poster .reply{position:absolute;left:610px;top:1830px;width:1320px;height:219px;background:#fff;border:17px solid #fff8ec;border-radius:44px;overflow:hidden;transform:rotate(2deg);box-shadow:0 35px 80px #7a482c35}
-.tablet-poster .reply img{position:absolute;display:block;width:2010px;left:-750px;top:-1450px}
-.tablet-poster .footer{position:absolute;bottom:47px;left:145px;font-size:30px;color:#715340;letter-spacing:1px}
-.tablet-poster .window{left:122px;top:1130px;width:1820px;height:1156px;border:24px solid #192625;border-radius:72px;transform:rotate(-3deg);overflow:hidden}
-.tablet-poster .window img{position:static;display:block;width:100%;height:100%;object-fit:contain;background:#fff}
-.tablet-poster .art-face{position:absolute;object-fit:contain;filter:drop-shadow(0 12px 0 #fff8ec) drop-shadow(0 22px 25px #7a482c28);z-index:4}
-.tablet-poster .tablet-purple{left:52px;top:990px;width:170px;transform:rotate(-14deg)}
-.tablet-poster .tablet-orange{left:142px;top:2360px;width:260px;transform:rotate(-12deg)}
-.tablet-poster .tablet-teal{left:1680px;top:2300px;width:250px;transform:rotate(12deg)}
-.tablet-poster .clean .footer{display:none}
+.phone-story-content{position:absolute;inset:0;transform:translateY(-135px)}
+.tablet-poster{position:relative;width:2752px;height:2064px;overflow:hidden;background:linear-gradient(165deg,#fff8ec,#fff0dc 35%,#ffd8a5 65%,#ff9b43);color:#192625}
+.tablet-poster .headline{position:absolute;left:100px;right:100px;top:85px;margin:0;text-align:center;font-size:164px;line-height:1.02;letter-spacing:-6px;font-weight:1000}
+.tablet-poster .headline>span,.duo-poster .headline>span{display:block}
+.tablet-poster .accent,.duo-poster .accent{color:#b94f13}
+.tablet-poster .subtitle{position:absolute;left:160px;right:160px;top:448px;text-align:center;font-size:46px;line-height:1.3;letter-spacing:-1px;margin:0;color:#715340}
+.tablet-poster.hero .headline{top:117px;font-size:191px}
+.tablet-poster.hero .subtitle{top:352px;font-size:58px}
+.tablet-poster .tablet-window{position:absolute;left:336px;top:625px;width:2080px;border:24px solid #192625;border-radius:60px;overflow:hidden;background:#fff;transform:rotate(-1.5deg);box-shadow:0 42px 90px #7a482c38}
+.tablet-poster.hero .tablet-window{top:540px}
+.tablet-poster .tablet-detail,.duo-poster .duo-detail{position:absolute;border:16px solid #fff8ec;border-radius:44px;overflow:hidden;background:#fff;box-shadow:0 28px 64px #7a482c38;z-index:4}
+.tablet-poster .tablet-reply{left:810px;top:1580px;transform:rotate(2deg)}
+.tablet-poster.hero .tablet-reply{left:660px;top:1510px;transform:rotate(-2deg)}
+.tablet-poster .tablet-profile{left:1780px;top:1080px;transform:rotate(3deg)}
+.tablet-poster .tablet-ask{left:160px;top:1320px;transform:rotate(-2deg)}
+.tablet-poster .tablet-answer{left:1290px;top:1680px;transform:rotate(2deg)}
+.tablet-poster .tablet-composer{left:470px;top:1630px;transform:rotate(-2deg)}
+.tablet-poster.setup .tablet-window{left:145px;transform:rotate(-2deg)}
+.tablet-poster .tablet-setup{left:1620px;top:1280px;transform:rotate(4deg)}
+.tablet-poster .art-face{position:absolute;object-fit:contain;filter:drop-shadow(0 10px 0 #fff8ec) drop-shadow(0 18px 24px #7a482c28);z-index:5}
+.tablet-poster .tablet-left{left:90px;top:1660px;width:205px;transform:rotate(-13deg)}
+.tablet-poster .tablet-right{left:2440px;top:650px;width:180px;transform:rotate(14deg)}
 .duo-poster{--mm:10px;position:relative;width:2007px;height:2853px;overflow:hidden;background:linear-gradient(165deg,#fff8ec 0%,#fff0dc 30%,#ffd8a5 62%,#ff9b43 100%)}
 .duo-poster:before{content:"";position:absolute;width:2500px;height:2500px;border:3px solid #fff8ecaa;border-radius:50%;left:-600px;top:1050px;box-shadow:0 0 0 210px #fff8ec33,0 0 0 420px #fff8ec22}
-.duo-poster .brand{position:absolute;left:132px;top:112px;display:flex;align-items:center;gap:26px;font-family:Caveat,cursive;font-size:144px;font-weight:700;letter-spacing:-5px;line-height:1}
-.duo-poster .brand img{width:114px;height:114px}
-.duo-poster .number{position:absolute;right:139px;top:166px;font-size:35px;font-weight:700;letter-spacing:7px;color:#715340}
-.duo-poster h1{position:absolute;left:126px;right:110px;top:345px;margin:0;font-size:226px;font-weight:1000;line-height:1.01;letter-spacing:-9px}
-.duo-poster .accent{color:#b94f13}
-.duo-poster .subtitle{position:absolute;left:136px;top:1060px;margin:0;color:#715340;font-size:65px;line-height:1.3;letter-spacing:-1px}
+.duo-poster .headline{position:absolute;left:126px;right:110px;top:135px;margin:0;font-size:210px;font-weight:1000;line-height:1.01;letter-spacing:-8px}
+.duo-poster .subtitle{position:absolute;left:136px;right:120px;top:850px;margin:0;color:#715340;font-size:59px;line-height:1.3;letter-spacing:-1px}
+.duo-poster.hero .headline{font-size:248px}
+.duo-poster.hero .subtitle{top:705px;font-size:70px}
+.duo-poster.team .headline{font-size:195px}
 .duo-poster .device{position:absolute;display:flex;align-items:center;justify-content:center;height:calc(117.8 * var(--mm));background:linear-gradient(105deg,#ded7ce,#7f7a70 20%,#f2eee5 45%,#403f3c 65%,#b1aca3);border:2px solid #4d4c49;box-shadow:0 2px 0 3px #fff8ec,0 48px 85px #7a482c55}
 .duo-poster .screen{position:relative;flex-shrink:0;overflow:hidden;background:#11110f}
-.duo-poster .screen img{display:block;width:100%;height:100%;object-fit:contain}
-.duo-poster .unfolded{left:150px;top:1300px;width:calc(164.6 * var(--mm));border-radius:83px;transform:perspective(3500px) rotateY(-7deg) rotateZ(-5deg);z-index:1}
+.duo-poster .unfolded{left:170px;top:1130px;width:calc(164.6 * var(--mm));border-radius:83px;transform:perspective(3500px) rotateY(-7deg) rotateZ(-4deg);z-index:1}
+.duo-poster.hero .unfolded{top:1010px}
+.duo-poster.team .unfolded{left:100px;top:1150px;transform:perspective(3500px) rotateY(5deg) rotateZ(3deg)}
 .duo-poster .unfolded .screen{width:calc(100% - 24px);aspect-ratio:2670 / 1878;border-radius:68px}
-.duo-poster .crease{position:absolute;left:calc(50% - 26px);top:0;bottom:0;width:52px;background:linear-gradient(90deg,transparent,#00000032 38%,#ffffff16 55%,transparent);pointer-events:none}
 .duo-poster .hinge-top,.duo-poster .hinge-bottom{position:absolute;width:24px;height:18px;left:calc(50% - 12px);background:linear-gradient(90deg,#484943,#ddd6cb,#545650);z-index:2}
 .duo-poster .hinge-top{top:-6px;border-radius:0 0 5px 5px}
 .duo-poster .hinge-bottom{bottom:-6px;border-radius:5px 5px 0 0}
-.duo-poster .folded{left:1005px;top:1545px;width:calc(84.1 * var(--mm));border-radius:86px;transform:perspective(2500px) rotateY(-10deg) rotateZ(7deg);z-index:3}
+.duo-poster .folded{left:1005px;top:1500px;width:calc(84.1 * var(--mm));border-radius:86px;transform:perspective(2500px) rotateY(-10deg) rotateZ(7deg);z-index:3}
 .duo-poster .folded .screen{height:calc(100% - 24px);aspect-ratio:1398 / 2034;border-radius:70px}
 .duo-poster .folded:before{content:"";position:absolute;right:-14px;top:80px;bottom:78px;width:17px;background:linear-gradient(90deg,#d5d0c5,#56564f,#c3bdae);border-radius:0 10px 10px 0;z-index:-1}
 .duo-poster .folded:after{content:"";position:absolute;right:-20px;top:250px;width:8px;height:127px;background:#69685f;border:1px solid #d8d2c6;border-radius:0 5px 5px 0}
+.duo-poster .duo-reply{left:160px;top:2140px;transform:rotate(-2deg)}
+.duo-poster.hero .duo-reply{left:220px;top:2180px;transform:rotate(2deg)}
+.duo-poster .duo-ask{left:90px;top:1910px;transform:rotate(-3deg)}
+.duo-poster .duo-answer{left:320px;top:2380px;transform:rotate(3deg)}
+.duo-poster.reach .folded{left:570px;top:1110px;transform:rotate(-4deg)}
+.duo-poster .duo-composer{left:210px;top:2370px;transform:rotate(2deg)}
 .duo-poster .face{position:absolute;object-fit:contain;filter:drop-shadow(0 12px 0 #fff8ec) drop-shadow(0 22px 25px #7a482c28);z-index:5}
-.duo-poster .purple{left:50px;top:1150px;width:180px;transform:rotate(-17deg)}
-.duo-poster .teal{left:1750px;top:1010px;width:180px;transform:rotate(12deg)}
-.duo-poster .orange{left:110px;top:2610px;width:210px;transform:rotate(-11deg)}
-.duo-poster .blue{left:720px;top:2640px;width:155px;transform:rotate(14deg)}
-.duo-poster .red{left:1840px;top:2690px;width:135px;transform:rotate(16deg)}
+.duo-poster .purple{left:50px;top:1030px;width:160px;transform:rotate(-17deg)}
+.duo-poster .teal{left:1750px;top:900px;width:160px;transform:rotate(12deg)}
+.duo-poster .orange{left:110px;top:2630px;width:170px;transform:rotate(-11deg)}
+.duo-poster .blue{left:800px;top:2680px;width:125px;transform:rotate(14deg)}
+.duo-poster .red{left:1820px;top:2690px;width:120px;transform:rotate(16deg)}
 .capture-canvas { position: relative; overflow: hidden; background: #fff8ec; color: #192625; font-family: DMSans, sans-serif; }
 .surface-frame { position: relative; overflow: hidden; background: var(--background, #fff); }
 .surface-frame iframe { display: block; position: absolute; border: 0; transform-origin: top left; }

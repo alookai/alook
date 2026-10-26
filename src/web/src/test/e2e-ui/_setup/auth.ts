@@ -21,6 +21,7 @@ export async function signIn(page: Page, email: string, options: { singleAttempt
       const emailInput = page.getByRole("textbox", { name: "Email" })
       await emailInput.waitFor({ state: "visible", timeout: 15_000 })
       await emailInput.fill(email)
+      await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
       options.onSubmission?.()
       await page.getByRole("button", { name: "Sign in", exact: true }).click()
       await page.waitForURL((current) => !current.pathname.startsWith("/sign-in"), {

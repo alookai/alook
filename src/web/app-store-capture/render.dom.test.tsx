@@ -18,8 +18,10 @@ const posterQueries: [Record<string, string | string[] | undefined>, string, str
   [{ story: "0" }, "phone", "1", "1206px"],
   [{ story: "7" }, "phone", "1", "1206px"],
   [{ story: "invalid", kind: ["duo"] }, "phone", "1", "1206px"],
-  [{ kind: "tablet" }, "tablet", null, "2064px"],
-  [{ kind: "duo" }, "duo", null, "2007px"],
+  [{ kind: "tablet" }, "tablet", "1", "2752px"],
+  [{ kind: "tablet", story: "4" }, "tablet", "4", "2752px"],
+  [{ kind: "duo" }, "duo", "1", "2007px"],
+  [{ kind: "duo", story: "5" }, "duo", "5", "2007px"],
 ]
 
 describe("App Store capture document and poster entry", () => {
@@ -54,13 +56,32 @@ describe("App Store capture document and poster entry", () => {
     }
   })
 
+  it.each(["phone", "tablet", "duo"])("renders all six %s stories from their own real component scenes without outer branding", (kind) => {
+    const scenes = [
+      ["workspace", "reply"], ["workspace", "reply"], ["identity", "profile"],
+      ["continuity", "continuity-ask", "continuity-answer"], ["workspace", "composer"],
+      kind === "tablet" ? ["workspace", "provider"] : ["workspace", "workspace"],
+    ]
+    for (let story = 1; story <= 6; story++) {
+      const document = documentFor(<Artwork kind={kind} story={story} large={false} />)
+      expect(document.querySelector("[data-story]")?.getAttribute("data-story")).toBe(String(story))
+      expect([...document.querySelectorAll("iframe")].map(frame => new URL(frame.src).searchParams.get("scene"))).toEqual(scenes[story - 1])
+      expect(document.querySelector(".brand, .number, .crease")).toBeNull()
+      expect(document.querySelector("h1")?.textContent?.length).toBeGreaterThan(10)
+      if (kind === "duo") {
+        expect(document.querySelector(".unfolded") !== null).toBe(story !== 5)
+        expect(document.querySelector(".folded") !== null).toBe([3, 5, 6].includes(story))
+      }
+    }
+  })
+
   it("preserves the complete tablet viewport and independent Duo screen geometry", () => {
     const tablet = documentFor(<Artwork kind="tablet" story={1} large={false} />)
-    expect(tablet.querySelector<HTMLElement>("#capture-poster")?.style.width).toBe("2064px")
-    expect(tablet.querySelector<HTMLElement>("#capture-poster")?.style.height).toBe("2752px")
+    expect(tablet.querySelector<HTMLElement>("#capture-poster")?.style.width).toBe("2752px")
+    expect(tablet.querySelector<HTMLElement>("#capture-poster")?.style.height).toBe("2064px")
     expect(tablet.querySelector("iframe")?.getAttribute("width")).toBe("1280")
     expect(tablet.querySelector("iframe")?.getAttribute("height")).toBe("800")
-    expect(tablet.querySelector(".number")?.textContent).toBe("01 / 06")
+    expect(tablet.querySelector(".number, .brand")).toBeNull()
     const duo = documentFor(<Artwork kind="duo" story={6} large={false} />)
     expect(duo.querySelector<HTMLElement>("#capture-poster")?.style.width).toBe("2007px")
     expect(duo.querySelector<HTMLElement>("#capture-poster")?.style.height).toBe("2853px")
@@ -73,7 +94,7 @@ describe("App Store capture document and poster entry", () => {
       expect(parseFloat(frame.style.left)).toBeCloseTo((parseFloat(parent.style.width) - Number(frame.width) * scale) / 2)
       expect(parseFloat(frame.style.top)).toBeCloseTo((parseFloat(parent.style.height) - Number(frame.height) * scale) / 2)
     }
-    expect(duo.querySelector(".number")?.textContent).toBe("06 / 06")
+    expect(duo.querySelector(".number, .brand")).toBeNull()
     expect(duo.querySelectorAll(".face")).toHaveLength(5)
   })
 

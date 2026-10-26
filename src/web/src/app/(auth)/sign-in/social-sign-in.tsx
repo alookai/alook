@@ -32,9 +32,11 @@ const messages = {
 export function SocialSignIn({
   postLoginUrl,
   appleEnabled = false,
+  requestConsent,
 }: {
   postLoginUrl: string
   appleEnabled?: boolean
+  requestConsent: (continuation: () => void) => void
 }) {
   const observed = useRef<Action | undefined>(undefined)
   const controller = useRef<ReturnType<typeof createNativeOauthController> | null>(null)
@@ -50,7 +52,8 @@ export function SocialSignIn({
     void instance.connect()
     return () => { instance.dispose(); if (controller.current === instance) controller.current = null }
   }, [setNative])
-  const begin = (provider: NativeOauthProvider) => {
+  const begin = (provider: NativeOauthProvider) => requestConsent(() => start(provider))
+  const start = (provider: NativeOauthProvider) => {
     finishAction(observed.current, "superseded")
     observed.current = startAction("auth_social", { capability: "limited", phase: "auth" })
     lastProvider.current = provider

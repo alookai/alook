@@ -10,10 +10,6 @@ function Surface({ scene = "workspace", width, height, viewport = [1280, 800], b
   </div>
 }
 
-function Brand() {
-  return <div className="brand"><img src="/alook.svg" alt="" />Alook</div>
-}
-
 function Face({ color, className }: { color: string; className: string }) {
   return <img className={className} src={`/faces/face-${color}.svg`} alt="" />
 }
@@ -34,7 +30,7 @@ function Mobile({ width }: { width: number }) {
 function PhonePoster({ story, large = false }: { story: number; large?: boolean }) {
   const data = stories[story - 1]
   return <section className={`poster phone-poster ${data.kind}`} data-story={story} style={large ? { transform: `scale(${1320 / 1206})`, transformOrigin: "top left" } : undefined}>
-    <Brand /><div className="number">{String(story).padStart(2, "0")} / 06</div>
+    <div className="phone-story-content">
     <h1 className="headline">{data.lines.map((line, index) => <span key={line}>{index > 0 && <br />}<span className={index === data.lines.length - 1 ? "accent" : undefined}>{line}</span></span>)}</h1>
     <p className="subtitle">{data.subtitle}</p>
     {story === 1 && <>
@@ -70,27 +66,69 @@ function PhonePoster({ story, large = false }: { story: number; large?: boolean 
       <div className="mobile-device"><Mobile width={436} /></div>
       {["red", "purple", "teal", "blue", "orange"].map(color => <Face key={color} color={color} className={`scattered-face face-${color}`} />)}
     </>}
+    </div>
   </section>
 }
 
-function TabletPoster() {
-  return <section className="tablet-poster"><Brand /><div className="number">01 / 06</div><h1>SHARE YOUR<br /><span className="accent">AGENTS.</span></h1><p className="subtitle">with people you trust.</p>
-    <div className="window"><Surface width={1772} height={1108} /></div>
-    <Face color="purple" className="art-face tablet-purple" /><Face color="orange" className="art-face tablet-orange" /><Face color="teal" className="art-face tablet-teal" />
+function StoryHeading({ story, tablet = false }: { story: number; tablet?: boolean }) {
+  const data = stories[story - 1]
+  const lines = tablet ? [
+    ["SHARE YOUR AGENTS."], ["LET TEAMMATES TALK", "TO YOUR AGENT."], ["A COMPANION", "OF YOUR OWN."],
+    ["PICK UP WHERE", "YOU LEFT OFF."], ["CHECK IN FROM", "YOUR IPAD."], ["KEEP YOUR", "EXISTING SETUP."],
+  ][story - 1] : story === 5 ? ["CHECK IN", "ON THE", "GO."] : data.lines
+  return <>
+    <h1 className="headline">{lines.map((line, index) => <span key={line} className={lines.length > 1 && index === lines.length - 1 ? "accent" : undefined}>{lines.length === 1 ? <>{line.slice(0, line.lastIndexOf(" ") + 1)}<span className="accent">{line.slice(line.lastIndexOf(" ") + 1)}</span></> : line}</span>)}</h1>
+    <p className="subtitle">{data.subtitle}</p>
+  </>
+}
+
+function TabletPoster({ story }: { story: number }) {
+  const data = stories[story - 1]
+  const scene = story === 3 ? "identity" : story === 4 ? "continuity" : "workspace"
+  return <section className={`tablet-poster ${data.kind}`} data-story={story}>
+    <StoryHeading story={story} tablet />
+    <div className="tablet-window"><Surface scene={scene} beat={story === 3 ? 14 : 9} width={2032} height={1270} viewport={scene === "workspace" ? [1280, 800] : [1120, 660]} /></div>
+    {(story === 1 || story === 2) && <div className="tablet-detail tablet-reply"><Surface scene="reply" width={1640} height={360} viewport={[600, 130]} /></div>}
+    {story === 3 && <div className="tablet-detail tablet-profile"><Surface scene="profile" width={750} height={770} viewport={[300, 308]} /></div>}
+    {story === 4 && <>
+      <div className="tablet-detail tablet-ask"><Surface scene="continuity-ask" width={1320} height={350} viewport={[500, 130]} /></div>
+      <div className="tablet-detail tablet-answer"><Surface scene="continuity-answer" width={1260} height={280} viewport={[500, 110]} /></div>
+    </>}
+    {story === 5 && <div className="tablet-detail tablet-composer"><Surface scene="composer" width={1840} height={240} viewport={[700, 90]} /></div>}
+    {story === 6 && <div className="tablet-detail tablet-setup"><Surface scene="provider" width={1008} height={594} viewport={[1120, 660]} /></div>}
+    <Face color={story === 3 ? "purple" : "orange"} className="art-face tablet-left" />
+    <Face color={story === 4 ? "red" : "teal"} className="art-face tablet-right" />
   </section>
 }
 
-function DuoPoster() {
-  return <section className="duo-poster"><Brand /><div className="number">06 / 06</div><h1>KEEP YOUR<br />EXISTING<br /><span className="accent">SETUP.</span></h1><p className="subtitle">Connect the agent you already use.</p>
-    <div className="device unfolded"><div className="screen"><Surface width={1618} height={1138.05} viewport={[951, 669]} /><div className="crease" /></div><div className="hinge-top" /><div className="hinge-bottom" /></div>
-    <div className="device folded"><div className="screen"><Surface width={790.406} height={1150} viewport={[466, 678]} /></div></div>
+function DuoDevice({ form, scene = "workspace", beat = 9 }: { form: "unfolded" | "folded"; scene?: string; beat?: number }) {
+  const open = form === "unfolded"
+  const viewport: [number, number] = open ? scene === "workspace" ? [951, 669] : [1120, 660] : scene === "profile" ? [300, 437] : [466, 678]
+  return <div className={`device ${form}`}>
+    <div className="screen"><Surface scene={scene} beat={beat} width={open ? 1618 : 790.406} height={open ? 1138.05 : 1150} viewport={viewport} /></div>
+    {open && <><div className="hinge-top" /><div className="hinge-bottom" /></>}
+  </div>
+}
+
+function DuoPoster({ story }: { story: number }) {
+  const data = stories[story - 1]
+  return <section className={`duo-poster ${data.kind}`} data-story={story}>
+    <StoryHeading story={story} />
+    {story !== 5 && <DuoDevice form="unfolded" scene={story === 3 ? "identity" : story === 4 ? "continuity" : "workspace"} beat={story === 3 ? 14 : 9} />}
+    {(story === 3 || story === 5 || story === 6) && <DuoDevice form="folded" scene={story === 3 ? "profile" : "workspace"} />}
+    {(story === 1 || story === 2) && <div className="duo-detail duo-reply"><Surface scene="reply" width={1620} height={400} viewport={[550, 130]} /></div>}
+    {story === 4 && <>
+      <div className="duo-detail duo-ask"><Surface scene="continuity-ask" width={1600} height={420} viewport={[500, 130]} /></div>
+      <div className="duo-detail duo-answer"><Surface scene="continuity-answer" width={1510} height={335} viewport={[500, 110]} /></div>
+    </>}
+    {story === 5 && <div className="duo-detail duo-composer"><Surface scene="composer" width={1570} height={260} viewport={[600, 100]} /></div>}
     {["purple", "teal", "orange", "blue", "red"].map(color => <Face key={color} color={color} className={`face ${color}`} />)}
   </section>
 }
 
 export function Artwork({ kind, story, large }: { kind: string; story: number; large: boolean }) {
-  const dimensions = kind === "duo" ? [2007, 2853] : kind === "tablet" ? [2064, 2752] : large ? [1320, 2868] : [1206, 2622]
+  const dimensions = kind === "duo" ? [2007, 2853] : kind === "tablet" ? [2752, 2064] : large ? [1320, 2868] : [1206, 2622]
   return <div id="capture-poster" className="capture-canvas" style={{ width: dimensions[0], height: dimensions[1] } as CSSProperties}>
-    {kind === "duo" ? <DuoPoster /> : kind === "tablet" ? <TabletPoster /> : <PhonePoster story={story} large={large} />}
+    {kind === "duo" ? <DuoPoster story={story} /> : kind === "tablet" ? <TabletPoster story={story} /> : <PhonePoster story={story} large={large} />}
   </div>
 }
