@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
+import { RefreshCw } from "lucide-react"
 import { useConversationActivity } from "@/contexts/community/conversation-activity"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
@@ -25,17 +26,17 @@ function BotPipeline({ botId, botName, machineId, online }: { botId: string; bot
   return (
     <Tabs defaultValue="filters" className="gap-8" onValueChange={value => { if (value !== "playground") { setInput(""); pii.clearPreview() } }}>
       <TabsList variant="line" aria-label="Privacy tools" className="h-auto min-h-12 w-full border-b p-0 thin-scrollbar">
-        <TabsTrigger value="filters" className="min-h-12 px-4 text-base group-data-horizontal/tabs:after:bottom-0">Filters</TabsTrigger>
+        <TabsTrigger value="filters" className="min-h-12 px-4 text-base group-data-horizontal/tabs:after:bottom-0">PII Filters</TabsTrigger>
         <TabsTrigger value="playground" className="min-h-12 px-4 text-base group-data-horizontal/tabs:after:bottom-0">Playground</TabsTrigger>
       </TabsList>
-      <TabsContent value="filters" className="max-w-3xl">
+      <TabsContent value="filters" className="mx-auto w-full max-w-3xl">
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
             <h2 className="text-xl font-semibold">{pii.unavailable && pii.snapshot ? "Last confirmed filters" : "PII filters"}</h2>
-            <p className="text-sm leading-relaxed text-muted-foreground">PII is filtered on your computer before your agent’s messages reach our servers, unless you turn the filters off.</p>
+            <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label="Reload filters" title="Reload filters" disabled={pii.pending || !online} onClick={() => { void pii.reload() }}><RefreshCw aria-hidden="true" /></Button>
           </div>
-          <Button variant="ghost" size="sm" className="min-h-11" disabled={pii.pending || !online} onClick={() => { void pii.reload() }}>Reload</Button>
+          <p className="text-sm leading-relaxed text-muted-foreground">PII is filtered on your computer before your agent’s messages reach our servers, unless you turn the filters off.</p>
         </div>
         <BotPiiChatAction botId={botId} />
         {pii.snapshot ? <BotPiiList botName={botName} plugins={pii.snapshot.plugins} pending={pii.pending} error={pii.error} unavailable={pii.unavailable}
@@ -44,7 +45,7 @@ function BotPipeline({ botId, botName, machineId, online }: { botId: string; bot
           : <div role="status" aria-label="Loading filters" className="flex flex-col gap-4">{[0, 1, 2].map(id => <Skeleton key={id} className="h-20 w-full rounded-md" />)}</div>}
       </div>
       </TabsContent>
-      <TabsContent value="playground" className="max-w-2xl">
+      <TabsContent value="playground" className="mx-auto w-full max-w-2xl">
       <BotPiiPlayground value={input} onValueChange={value => { setInput(value); pii.clearPreview() }}
         result={pii.output} pending={pii.previewPending} error={pii.previewError ?? pii.unavailable}
         disabled={pii.pending || !pii.snapshot || Boolean(pii.unavailable)} onRun={() => { void pii.preview(input) }} />

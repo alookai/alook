@@ -40,7 +40,7 @@ export function BotPiiPlayground({ value, onValueChange, result, pending, error,
         </div>
         <form className="flex flex-col gap-4 p-4 sm:p-6" onSubmit={event => { event.preventDefault(); if (!pending && !disabled && !tooLong && value.trim()) onRun() }}>
           <label htmlFor="pii-playground-input" className="text-xl font-semibold">Input</label>
-          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="min-h-28 resize-y rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-2 dark:bg-transparent sm:text-base" disabled={pending} />
+          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="min-h-28 resize-y rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent sm:text-base" disabled={pending} />
           <div className="flex justify-end">
             <Button type="submit" disabled={pending || disabled || tooLong || !value.trim()} className="min-h-11 gap-2 px-4" data-testid="pii-playground-run"><Play className="size-4" />{pending ? "Running…" : "Run test"}</Button>
           </div>

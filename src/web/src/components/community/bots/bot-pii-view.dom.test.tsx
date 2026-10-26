@@ -45,12 +45,12 @@ it("clears draft input when switching bots, account epochs, or leaving an inacti
   expect(state.clearPreview).toHaveBeenCalled()
 })
 
-it("defaults to Filters and clears the draft when returning from Playground", () => {
+it("defaults to PII Filters and clears the draft when returning from Playground", () => {
   render(<BotPiiView />)
-  expect(screen.getByRole("tab", { name: "Filters" })).toHaveAttribute("aria-selected", "true")
+  expect(screen.getByRole("tab", { name: "PII Filters" })).toHaveAttribute("aria-selected", "true")
   fireEvent.click(screen.getByRole("tab", { name: "Playground" }))
   fireEvent.change(screen.getByLabelText("Input"), { target: { value: "private draft" } })
-  fireEvent.click(screen.getByRole("tab", { name: "Filters" }))
+  fireEvent.click(screen.getByRole("tab", { name: "PII Filters" }))
   expect(screen.queryByRole("textbox")).toBeNull()
   fireEvent.click(screen.getByRole("tab", { name: "Playground" }))
   expect(screen.getByLabelText("Input")).toHaveValue("")
