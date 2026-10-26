@@ -1,24 +1,24 @@
 {
-  "renderer": "156.0.8078.48",
+  "renderer": "155.0.8059.85",
   "encoding": "RGB JPEG quality 80",
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "05a157cee111881c31108cc14727b38b7276e974",
+  "repositoryHead": "bf829d93a220f3797d1a395712bdde8a7abe73c4",
   "inputs": {
     "scripts/ci/pnpm-lock.mjs": "c6ad91cbd38cc08234e2da4122079d76bfef5eb61560862018cbab9d3e29f4cc",
     "src/shared/src/billing.ts": "53d36e6bbab90d72ae86b9748d97bef4116a7f567d8587067f469d294c562b4a",
     "src/shared/src/community-attention.ts": "33f1670a82de25026c3e4437a6324dc57657ceb028cd528d4824d8789cd8a845",
     "src/shared/src/community-bot-creation.ts": "b3f3a70550cf35b8e094450d2652879790aab6ef1d1330f91f402a01e2208bc2",
     "src/shared/src/community-channel-order.ts": "20a65b60b53bccd2ae962738541ad46cf9a20b08b9f40f379febdbdb6b566cfe",
-    "src/shared/src/community-cli-contract.ts": "bb17c61cb7b5399b8cdcab5d0752b133d52f042111f55399014b97e0a3921041",
+    "src/shared/src/community-cli-contract.ts": "7112011a2f11b5c92bdd72a4c365e1a1ae6fec8ca175f9ffcd64df581c63aaab",
     "src/shared/src/community-contract.ts": "885285b5706082bdadc4cf34a737582ee0a5a4f19c2dabda8b33e1508e2b9ce1",
     "src/shared/src/community-friend-approval.ts": "c44b5e7a73c77c07856cb109ba1c2870994424a12f1341e6f335617589e7b570",
     "src/shared/src/community-message-delivery.ts": "3c36f3fa9e8114dbe21a78204d66e88d5a46e3ae1f35c05279acfed92e4e733c",
     "src/shared/src/community-resources.ts": "c170f755781cd3b8b5a86e15dc38ff0307cf637b6916732cacea87bb8fff71fc",
     "src/shared/src/community-server-rail.ts": "4329a4f594aef47c937e39fcb42d597a9805d246d1151ad2684343100a5d5ef5",
     "src/shared/src/community-ws-bundle.ts": "6b0de4a8e3ff35d3b96c7c3ecc1499f8f2ccb837b18d47130a831b9b89f1b607",
-    "src/shared/src/community-ws-events.ts": "3bfd5e2e416c15a7341f0efe71338504491cf5834e1ae4027443b63d57efde1d",
+    "src/shared/src/community-ws-events.ts": "22498a1a768ecfdc0a7daf1b17acfff647462e64fc33e69e810a02452255b26e",
     "src/shared/src/community/bot-activity-presets.ts": "d2ea578c2852a2b0fe67cfb2bd57c6b69c6edeecbac7e9f5b83a24d002363ef4",
     "src/shared/src/community/bot-model.ts": "759e91391a3c3008784dc6f6ee524ed6ed12c3f2d22f79a48699564dcc3d7cb3",
     "src/shared/src/community/bot-reasoning-effort.ts": "1c470349ab5c6ec9f111b1dfb5319e624df6c347c7c9b682917010ee69aea9c2",
@@ -45,7 +45,7 @@
     "src/shared/src/db/queries/community/attention.ts": "b7af9d4dd91cab62f80b874b92e04706e55410f866e45c32a801a6c4df6bc08a",
     "src/shared/src/db/queries/community/bot-audit-log.ts": "4d627a985cc94581ed2dcfd49805d62cf849ad744f28faa315af2bdc8f2aa88b",
     "src/shared/src/db/queries/community/bot-creation.ts": "b0b0536fe84e06a11f2aa5e6963c99fa1e2d29f7286d065cc00983a09f392033",
-    "src/shared/src/db/queries/community/bot.ts": "d6f9f3f395bc441769a4c378b7163c144b56b01a0c2c89221676c0c91c55071c",
+    "src/shared/src/db/queries/community/bot.ts": "98cf18030c49b3159d2b7fff15d647efcf259f5f91566a8ef1b77385955b240d",
     "src/shared/src/db/queries/community/category.ts": "f358a75697cebbf6e471b6d09d6241400cc8db5ac6fefc5e7206bf697daca8f6",
     "src/shared/src/db/queries/community/channel.ts": "fe162c4c5c2e2821463dde5aca535ecbf0201c69ebeb8d3aab60729142397a88",
     "src/shared/src/db/queries/community/delete-media.ts": "d496aacea7b9ef89672ca6aa1dac78f2652467072da2bd1efaa7d8ff2bb18986",
@@ -98,7 +98,7 @@
     "src/shared/src/db/schema.ts": "5ea32d89f510f65ad68e8624aba126dedb7933dd6c0b9007af36b035d7ae1326",
     "src/shared/src/diagnostics-contract.ts": "993e65bf8398f3cbd1aff7604652c033f9d410e4d65263a1880b94c8ae40c37c",
     "src/shared/src/http-json.ts": "60624ae70c109ab2e6d20e805acee5dd57fd13471e44a8d7444c774f6f4fd8fd",
-    "src/shared/src/index.ts": "5700e6e4f1228924e2bda83ece8ae6674bf9f17ae78b1a39d6b0bd207678cc05",
+    "src/shared/src/index.ts": "cedd56d99554bfa7027a68bdd4681d9b9d3dba6f153d03632c3539de42d9d6bf",
     "src/shared/src/lib/community-name.ts": "eb0384f04fe7b746c566a090ce0072f17ef4d2b915941df6720eb2d1dd9a48a0",
     "src/shared/src/lib/context-key.ts": "e606b9c5564247a7bab957ec610d24fa323145d92d30db023705e63bae3f89ba",
     "src/shared/src/lib/discriminator.ts": "d378fb77ab23fd7a15f2b8805c70a3946f374925717092b893364d2971a54a99",
@@ -113,6 +113,7 @@
     "src/shared/src/lib/sqlite-binary.ts": "7d85f7b45255a4f4c83aa5c34cc6c94681d0d90dbf556bc991d7f06ad5e5e3ff",
     "src/shared/src/logger.ts": "1df81601143b3b50550296f6d3926c89349a38b0c701be3453b3520512b94252",
     "src/shared/src/mode.ts": "79003038b9e0a7332e86f10e87da20f394946acfe853bd5af4952b638700f3be",
+    "src/shared/src/pii-contract.ts": "9e36fd0890a3673758c4947507ef644a10f9877ba03a600c13289d5cb53d3780",
     "src/shared/src/product-entitlements.ts": "df11f57d543145d922316f64fa3c948a4b14270499a7e0a305667ba6c9fd3f51",
     "src/shared/src/provider-telemetry.ts": "7d5bbc33fd3fd290b175ce014456dbab339ea4cde5aebc4839962174f7b49ba3",
     "src/shared/src/runtime-config.ts": "3d7f247e8575894d3c65bc73f56816c748d295e60ef4a729bfe2ca794db8e5e0",
@@ -209,7 +210,7 @@
     "src/web/src/components/community/channels/channel-unread-indicator.tsx": "643e15bea20dd691a1a13e91164be614240ba1b08b5471f7500793410480cd12",
     "src/web/src/components/community/channels/conversation-resolution-error-frame.tsx": "560b1db194115d74a9a3c6bcceefd850952922417aad968d3ea6ac7d18144074",
     "src/web/src/components/community/channels/dm-header.tsx": "2455cbc40636bd64a831a1e8a314911e617537a41942112b2d82a64372f04d98",
-    "src/web/src/components/community/channels/dm-sidebar.tsx": "e0eef67c827dd04e7404390a7acc834893bfc7c3675d1d59ed22e4ecf86154b4",
+    "src/web/src/components/community/channels/dm-sidebar.tsx": "f0348db29b1fa8eb0c1b20456ddca73746e6379817bb79e139c36b6af52fc6bf",
     "src/web/src/components/community/channels/message-header.tsx": "78329c58d1563029e05ade2f530cf33c216e8d9176c49d2a16ff1db3b7748693",
     "src/web/src/components/community/channels/sortable-category.tsx": "c0562c000e46283c0186f2ffec179f93bcb9da510215ef0c1cc7fa259faea816",
     "src/web/src/components/community/channels/sortable-channel.tsx": "2a2f9523177513cbd5f6f106d9ded0d8254b2762d3e43c880f9920961641063a",
@@ -401,13 +402,14 @@
     "src/web/src/hooks/community/community-ws/invalidation-projections.ts": "d948ce7a9c65ae3ce9980cf02aae469c2593e3f01d65efcd15e6ff9e0ad077dc",
     "src/web/src/hooks/community/community-ws/membership-events.ts": "c71bc9416b13d69690a4f4e153d51d7ffd3199a1c344fc953e909a0b6c537ce1",
     "src/web/src/hooks/community/community-ws/message-events.ts": "780ce7915c80bd678f90e2659e003c5d4fcece85fb7bd9df6bd3e4a9c46fd790",
+    "src/web/src/hooks/community/community-ws/pii-events.ts": "ea7a0f73facfa489c4910646c2fd3cc7e60fc36e9e98daebda4786792c6d6ae6",
     "src/web/src/hooks/community/community-ws/presence-machine-events.ts": "d4b9c5cf790aec8677a6ae7e71386d695dc83aee4da623658f797404ed5b7426",
     "src/web/src/hooks/community/community-ws/projection-transaction.ts": "5f4b848c4d039fc845b34ea19ae54db73486f0a84e9181ebecb95a57b4a3275e",
     "src/web/src/hooks/community/community-ws/reaction-details-invalidation.ts": "33553bfddf9f3e7b35cf6127cce2bb132f8b7c40e519d93cc7c5c74ea7f967c0",
     "src/web/src/hooks/community/community-ws/read-state-reconciliation.ts": "0012ff8b076604c722586e579b6af15311f8455b4a849e562c384b4da87e1073",
     "src/web/src/hooks/community/community-ws/reconnect-messages.ts": "c2bba29c116268bf043a0c9b01582504f6aadea9f29a1c688c9ab4e64fd51135",
     "src/web/src/hooks/community/community-ws/reconnect.ts": "f5337b74e93d3ba396c985adcb822dbc8fc30ce94c1b9c30d45d6940d1a415e2",
-    "src/web/src/hooks/community/community-ws/registry.ts": "1675789962173419dd4d38f8156a823f15be7e60ae2ab6ec09dced9a4f4544d3",
+    "src/web/src/hooks/community/community-ws/registry.ts": "68020314e8efa987c4885070d80a567ae33f4683db11ae8d0752b860e47a6ed1",
     "src/web/src/hooks/community/community-ws/scope-eviction.ts": "fc96e1b312860f2e8025c6476a0cc9eecc0c52147897908e406642fde9ab3d4c",
     "src/web/src/hooks/community/community-ws/server-rail-reconciliation.ts": "0d8e3fff2b64bb4af50b9781a4d47d85f8b74e1c31dbe41a8c8f20c37dcbabf1",
     "src/web/src/hooks/community/community-ws/social-events.ts": "7ef9faf5365cbe6a8f09ace818ce33d367574c9085625324c9eb1f23820c3250",
@@ -514,7 +516,7 @@
     "src/web/src/lib/community/channel-ref.ts": "3064fb597531cd36c765e9e5f902e5ebdf17a008e7edc6193d370e532f678903",
     "src/web/src/lib/community/chat-markdown.ts": "075cc6f1e11d3159324655fd94f70d1d4bb83778994315f1c2ab1713c8428177",
     "src/web/src/lib/community/chat-syntax-plugin.ts": "03699b5a6bfcc0cf8678e1bd543eb08a31b33259f102aa3744213748cdb41294",
-    "src/web/src/lib/community/community-route.ts": "60ef45b1f9aa576d687fbf5e3c25b51265271bae5269fa6d0f4b8f83e1cb0eef",
+    "src/web/src/lib/community/community-route.ts": "2c1b2323014fbebb594e79cdc1266577a86091ec2a9aaf10d64264f68ab2e06b",
     "src/web/src/lib/community/composer-attachment-session.ts": "fdde9849de208e6073e4cf9e85826e4230ef4cc378b6060c7927c7a4ab217207",
     "src/web/src/lib/community/composer-draft.ts": "420302eaa26a1ef887bff6d5fdfbe35ee31a49ae44eb12630a53e6bf611468f0",
     "src/web/src/lib/community/conversation-entry.ts": "a6061d0c225e2482fd7cf41ef3ac15926a1be2b7a6707c2b82752cfd6ea5f614",
@@ -533,7 +535,7 @@
     "src/web/src/lib/community/highlight-range.ts": "469677da44acca865954e53696144f53897b160668016659eddb85e82b43e4b6",
     "src/web/src/lib/community/image-crop.ts": "e61d578bff4713ce3d1a919f7555f45551b231c697036c642f9ae10807ba7a1b",
     "src/web/src/lib/community/last-channel.ts": "a7a62f33d81442bea061a153241fca75c7d3c584c25a83cb15b3265678e78a50",
-    "src/web/src/lib/community/last-community-route.ts": "7d1e89ad1aec7c221c7a7206a42f77631fd04d7907fa578bec6fb369a727cdd2",
+    "src/web/src/lib/community/last-community-route.ts": "1027dd0b8ff6847916d6df1966e22d90f1734b26e5889566c1c1d203fe284a6e",
     "src/web/src/lib/community/last-me-location.ts": "f529ec751a9411da73d81a60a1d8d69959311f2163512bd5b186f621f15e3ca9",
     "src/web/src/lib/community/list-persistence.ts": "c81dd9f5c040e4536c57964a7059d19e86dde80d814946f7ebe7d8eb6600de43",
     "src/web/src/lib/community/machine-name.ts": "ef1c1afbdbe86b081f7f7df94a3b14207a99091813490bf884f802d7991db4c8",
@@ -582,7 +584,7 @@
     "src/web/src/lib/observability/clock-tracing.ts": "d35d78c2e2b4ff621e43e3c9bd3fc00e0c7c57d38d6217faf3fa50c2f957c819",
     "src/web/src/lib/observability/clock.ts": "46ea2a702a56dc05ccd7a73e61b29fd638c78371fa96387b99e8e202276773a7",
     "src/web/src/lib/observability/context.ts": "f1a58fd85dda2ace9a4ab6d0e20f9b25ec692fa30aaaee11058fc58ea447da9a",
-    "src/web/src/lib/observability/coverage.ts": "1afd98a0449ed2650a7c2458b0c2a0ece71a0fb16872d86a85552880204080b5",
+    "src/web/src/lib/observability/coverage.ts": "0fea74dad5db5476d494e839906c97da6b236584f2fc2ee35a48201370fcb652",
     "src/web/src/lib/observability/document-timing.ts": "36010d41686a732ea04269fa25e937d76a3fdf9d590c826ed4c12bafd4331a2b",
     "src/web/src/lib/observability/messages.ts": "c7e81e37e33f19eaa42175bc4859eb1807cc454884e95320bb36b05e5a0e9a09",
     "src/web/src/lib/observability/query-observer.ts": "a63d2721c9074c12d051e4af3473886c626d90fac5124ad93378faf3ac7908d4",
@@ -599,7 +601,7 @@
     "src/web/src/lib/product-analytics-contract.ts": "104b0a343add78bbaf124488a9cb942cb0f970adc0528f82e9e5446e17baf886",
     "src/web/src/lib/product-analytics.ts": "72c3410a8c79b37311200d0ef9c6375deefae038aedc736c414bb8779adf563e",
     "src/web/src/lib/query-client.ts": "2fa0ba02e04bd287ff9c1d058a7a685499aa2ab40fb1d41b28872d3c24a9bc17",
-    "src/web/src/lib/query-keys.ts": "8a27a19bff002d20ef4d04e67dedb350215b8cabe6c2caea5fe70b5216dcc904",
+    "src/web/src/lib/query-keys.ts": "2668f3d6524d3139866cd2dc375c8d8905c3024d0d398769dba4c7b138850d2e",
     "src/web/src/lib/query-persister.ts": "bbe0207b054d66993ea5d741436732eae24a8a9af7fb7335b095ac947ad247bc",
     "src/web/src/lib/service-worker/cache-identity.ts": "398f6799d7768f50ed6cc5ac9cd80a60be3383fe292890b1135c4e508e96bdb1",
     "src/web/src/lib/service-worker/public-cache-storage.ts": "8857e70e77421e64ae9912fcf285548382c418f5d8d17e46e6280aee80e8a733",
@@ -626,7 +628,7 @@
       "path": "phone-1206x2622/01-share-agents.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "8ea52c42d5e609ec3356a3c6d14dd6e029019f1760b9e75c4213795590010e43",
+      "sha256": "67c08bcbe2abaf278d95807ee67f0bde4194e1db2a38dffd370a21c3f02a138f",
       "surfaces": [
         {
           "scene": "workspace",
@@ -652,7 +654,7 @@
       "path": "phone-1206x2622/02-teamwork.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "add088d8ee0e7025b12319633bfbe64531ab660841faa0f8fa2de06c65b245cb",
+      "sha256": "449e517899bf6dca21feb6ba9bb4e396fe2dad45309af91a76dc3daf5288dcb3",
       "surfaces": [
         {
           "scene": "workspace",
@@ -678,7 +680,7 @@
       "path": "phone-1206x2622/03-companion.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "052587efc5557f46915e6d673f7af1f7527b6b50614e82590caaad94e6b33a49",
+      "sha256": "41992422965debf02f29d3ef5b6f3bb9c1e6a06edb93e2f0ca3872c1ef4cead7",
       "surfaces": [
         {
           "scene": "identity",
@@ -704,7 +706,7 @@
       "path": "phone-1206x2622/04-context.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "7aff1b04edb171c5379077c092d212cad2e190339394724ce75db3d42ed430ff",
+      "sha256": "2662ad08618ef2a62efa93697b10b3f497990dbade7b93b847b99f1f94f199c3",
       "surfaces": [
         {
           "scene": "continuity",
@@ -739,7 +741,7 @@
       "path": "phone-1206x2622/05-phone.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "48b911e0b0fd0abf337b6f66cbe85a3cbc83e10b8733a2f95d2030f4ef697f99",
+      "sha256": "9ea0770d0a086284493ecd59430f9568cc646156c77b4806d5e6a70b1403edcb",
       "surfaces": [
         {
           "scene": "workspace",
@@ -765,7 +767,7 @@
       "path": "phone-1206x2622/06-existing-setup.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "ef7716e477d72e694ae3f9e27ba359507109034474f8bfc20871eef3835b5e6d",
+      "sha256": "14c73e1c6f5fea3c6d02a2b5850077e137531ea1bc5e8260d0bc99466b788a21",
       "surfaces": [
         {
           "scene": "workspace",
@@ -791,7 +793,7 @@
       "path": "phone-1320x2868/01-share-agents.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "52d8cf32d86474a3ffd6950e9a5b736989f2f306bf9a4fb2326c087450c93787",
+      "sha256": "310b2e3df2ace678b5649543c301add45555f5057bcd9364c823c87c8ac1b6ba",
       "surfaces": [
         {
           "scene": "workspace",
@@ -817,7 +819,7 @@
       "path": "phone-1320x2868/02-teamwork.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "7bb9b14fdbb91bf0aee6eb645bddf2b4c038e3de4dc6660d97328d71dd7fe6dc",
+      "sha256": "8e3dd3072d5b7828723b47b002c62bdf8fbf7c4e809e0197774e0adfd1750ec5",
       "surfaces": [
         {
           "scene": "workspace",
@@ -843,7 +845,7 @@
       "path": "phone-1320x2868/03-companion.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "4fbf6cbffb5464768e482637e7d6d5bf838422edcd77eecfa4a364a180083608",
+      "sha256": "42794e949a7997c6d9c4a6fdca9e24396cd41bc310b3b0128dde24d5c0907d0c",
       "surfaces": [
         {
           "scene": "identity",
@@ -869,7 +871,7 @@
       "path": "phone-1320x2868/04-context.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "58bc2850948f57ba04f74a12ec90654de400b4c327ac4c5b5a3f24b142a89a0b",
+      "sha256": "bd2d061c2f5f443dd6c34760a8b78708bde301a1a653f82a51bd5ae9e605caca",
       "surfaces": [
         {
           "scene": "continuity",
@@ -904,7 +906,7 @@
       "path": "phone-1320x2868/05-phone.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "270e04dedb164cbf854c5596fcb20461cfb927d616fdc0c67578a0c5af627a2d",
+      "sha256": "48c0436b8a9eb3ba5ba7799183866c698b3e7a87aac8dfaecd280360031465d8",
       "surfaces": [
         {
           "scene": "workspace",
@@ -930,7 +932,7 @@
       "path": "phone-1320x2868/06-existing-setup.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "c3c1eb9ddb5ac0c30362afed2fb991daf004cf87c0a81c00384a0394c9feeaad",
+      "sha256": "5deac2a6bdb05807993fe721fa194e0bfb5351bdefd4f9683e2b6c680ff9c378",
       "surfaces": [
         {
           "scene": "workspace",
@@ -956,7 +958,7 @@
       "path": "tablet-2752x2064/01-share-agents.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "fd4725e892edfa23221a34ee95644b1601510c1876406e28f17c4b6b8229cbd4",
+      "sha256": "90579226e073bf7dda3f07671d4c032a215c222de7acb2af4e90cfd6dc211e97",
       "surfaces": [
         {
           "scene": "workspace",
@@ -982,7 +984,7 @@
       "path": "tablet-2752x2064/02-teamwork.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "6deb347b840adc93c2f638c7e5eec7a685c14682c5a1840ff1f608ed539a78af",
+      "sha256": "b103d966cff5c5595b5cea5f777196e280479b42725b5e9bc7e68fd3378cd88c",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1008,7 +1010,7 @@
       "path": "tablet-2752x2064/03-companion.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "be6315e33c113a0a346378ef8f0853a1c8616dc0557ca86e2d0ff8aff778ee74",
+      "sha256": "78c9ad75a900f3853b322267545e64ebfe1958ecae42527cf490fed3842ae8f3",
       "surfaces": [
         {
           "scene": "identity",
@@ -1034,7 +1036,7 @@
       "path": "tablet-2752x2064/04-context.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "236d43a931eed51052dcbfd58462cc64036c0a6d4ea4a02a5a8c3bc368da2562",
+      "sha256": "e2883c7d31f89234810cd9f77b6ad90100691f9e45ffe12a63dd7285403c07c5",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1069,7 +1071,7 @@
       "path": "tablet-2752x2064/05-phone.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "f5f1998a4efdbae47d10b766e60214e4729f180aa7521e76b14acc1bcb552f96",
+      "sha256": "93673a8d5eeb349eae8c5a7dc447767f1088262b0f275f45e49c11c621ace59a",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1095,7 +1097,7 @@
       "path": "tablet-2752x2064/06-existing-setup.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "471ee8c0f3bf0ec38c3c174b271ba95df3e8a39cbd218870206569b675394690",
+      "sha256": "71edd998847b991c77a7568183937f44cc4c1ce524dfd66c98d7684e0f5214d9",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1121,7 +1123,7 @@
       "path": "duo-2007x2853/01-share-agents.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "d366591ea67a9fb80bcb956537fb90db5e1431ca012b3e7992d1873880c6e84e",
+      "sha256": "41ba4dcb99285c74b855f1e824ac0a56413c101e5832e22dcbc0b4e3e4c70910",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1147,7 +1149,7 @@
       "path": "duo-2007x2853/02-teamwork.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "04bf417c53b92af207b5e2fc3a42e45e529fa2014b16a7d0714635034870665e",
+      "sha256": "913c19fe269aac05993ddfd9c049ba281e1b9a827c7fdf508c72e2934722701f",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1173,7 +1175,7 @@
       "path": "duo-2007x2853/03-companion.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "aba2c5f88993e61c952270d853a23c4c6c3c7fdfa77d7dbd3531247eac696018",
+      "sha256": "627afc8590c0a790cd16e983d1e4f63125c975beff61a94b6bd9e8e0d5c15256",
       "surfaces": [
         {
           "scene": "identity",
@@ -1199,7 +1201,7 @@
       "path": "duo-2007x2853/04-context.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "ef6a3ea747bf3d90fe85dd99522be3f9c8ff80ba7b85014baf87abd4d719dc7c",
+      "sha256": "e07f2aa40054fb36b53298e65028df5ffd14bf622495acf28dbe1dab1b615e02",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1234,7 +1236,7 @@
       "path": "duo-2007x2853/05-phone.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "073a43adf519295d84cf19faac7441e595f64083b5a4be54b21e285884fabc5f",
+      "sha256": "611a8268b8ed0cbde480d10cf428406a45f6d04ea129d5d627582d0be4df69b5",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1260,7 +1262,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "59728cd89412df2f095cbcf18bc25770be07c398715c251c4db52f2f46409e18",
+      "sha256": "610f42c74b1cfcbdaa8a11f011c84ffdccbbb03166c4e39ff758529a98769f49",
       "surfaces": [
         {
           "scene": "workspace",
