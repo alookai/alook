@@ -4,9 +4,9 @@
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "c5cd005f420c00ef8db527df986846f3d0120174",
+  "repositoryHead": "888c5ee4805c37f9b6292c1cf33715c7b3495428",
   "inputs": {
-    "pnpm-lock.yaml": "bd7ad6e580b9e09dcc56aa1f4f0187dc4d26e365252c8daef9599a012d8a7c9e",
+    "pnpm-lock.yaml": "ae9c0200d458204707c6f1b15b0ae1e2d0e2eeeec7c080ecfaac51ab7dce07fb",
     "src/web/app-store-capture/app/globals.css": "e54b13c04636964ae7738e52668de9f1356006aec256ace8bd0a9d554873124f",
     "src/web/app-store-capture/app/layout.tsx": "8b3cc05ec699f99b766dd6fa69127e089ce11b74681d92b80898b95a650aa110",
     "src/web/app-store-capture/app/page.tsx": "73fb0fff70da74672f854baa19ddd957ed9357b3f5a11e898f3105231fa57ef3",
@@ -80,7 +80,7 @@
       "path": "phone-1206x2622/02-teamwork.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "aef3835907b97a9e594aa65c50cf5bdcb184b5dd5eae7fd9901587263ce27ef4",
+      "sha256": "3cf55e83eb8ca46115a7b8b545e1a399b7c8c5f91c6f6265af5b97885c9667b4",
       "surfaces": [
         {
           "scene": "workspace",
@@ -106,7 +106,7 @@
       "path": "phone-1206x2622/03-companion.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "097c5935708b190f21e16fe5b921d5931175e2da0b6698339bfb5755fa152d30",
+      "sha256": "98a0c015c8927c77a28021312b4a3b2fc39e815f8434690ff978b99d2e73fc10",
       "surfaces": [
         {
           "scene": "identity",
@@ -132,7 +132,7 @@
       "path": "phone-1206x2622/04-context.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "7aff1b04edb171c5379077c092d212cad2e190339394724ce75db3d42ed430ff",
+      "sha256": "2662ad08618ef2a62efa93697b10b3f497990dbade7b93b847b99f1f94f199c3",
       "surfaces": [
         {
           "scene": "continuity",
@@ -167,7 +167,7 @@
       "path": "phone-1206x2622/05-phone.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "48b911e0b0fd0abf337b6f66cbe85a3cbc83e10b8733a2f95d2030f4ef697f99",
+      "sha256": "9ea0770d0a086284493ecd59430f9568cc646156c77b4806d5e6a70b1403edcb",
       "surfaces": [
         {
           "scene": "workspace",
@@ -193,7 +193,7 @@
       "path": "phone-1206x2622/06-existing-setup.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "ef7716e477d72e694ae3f9e27ba359507109034474f8bfc20871eef3835b5e6d",
+      "sha256": "d0793f9946a4fad64cf295f3667a6ff087662a6e2794fa31d1c4ce6d50a40445",
       "surfaces": [
         {
           "scene": "workspace",
@@ -219,7 +219,7 @@
       "path": "phone-1320x2868/01-share-agents.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "310b2e3df2ace678b5649543c301add45555f5057bcd9364c823c87c8ac1b6ba",
+      "sha256": "261ba7f6995c49fea0610570ccfd7e1ebe440f8bf709480ab9a29860464e34e7",
       "surfaces": [
         {
           "scene": "workspace",
@@ -245,7 +245,7 @@
       "path": "phone-1320x2868/02-teamwork.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "346908178928b218416f52fef18c0f61d0f5d4e7e5a1228332cf004593032dde",
+      "sha256": "8e3dd3072d5b7828723b47b002c62bdf8fbf7c4e809e0197774e0adfd1750ec5",
       "surfaces": [
         {
           "scene": "workspace",
@@ -271,7 +271,7 @@
       "path": "phone-1320x2868/03-companion.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "93dbabe22c7e77bc0fb1c9e3b24a42c859d1700c067b3c39a811907102ed09f9",
+      "sha256": "42794e949a7997c6d9c4a6fdca9e24396cd41bc310b3b0128dde24d5c0907d0c",
       "surfaces": [
         {
           "scene": "identity",
@@ -297,7 +297,7 @@
       "path": "phone-1320x2868/04-context.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "1eacdf3fd3a7f5cdd3cdce65e52cca4cd07ea95c98dabe0ceb13e92081f8a962",
+      "sha256": "60fa1a4dd253c43c087beffcbe6af68c0390322770a0e2cb1de7e2b5d0e9787c",
       "surfaces": [
         {
           "scene": "continuity",
@@ -332,7 +332,7 @@
       "path": "phone-1320x2868/05-phone.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "270e04dedb164cbf854c5596fcb20461cfb927d616fdc0c67578a0c5af627a2d",
+      "sha256": "48c0436b8a9eb3ba5ba7799183866c698b3e7a87aac8dfaecd280360031465d8",
       "surfaces": [
         {
           "scene": "workspace",
@@ -358,7 +358,7 @@
       "path": "phone-1320x2868/06-existing-setup.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "c3c1eb9ddb5ac0c30362afed2fb991daf004cf87c0a81c00384a0394c9feeaad",
+      "sha256": "8ba71bb848a328aea214d852bd7690557e0a3f871c98e1f3f243d6e3a11861c1",
       "surfaces": [
         {
           "scene": "workspace",
@@ -410,7 +410,7 @@
       "path": "tablet-2752x2064/02-teamwork.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "338f7aa2ed5438dc7cfbcbb56b24309e0f9fab341e546079f0cabb13bcf4a59f",
+      "sha256": "69f1a628959b0a933b684ac39e0729808b8ae9c36430e4017a17e7fa5827506d",
       "surfaces": [
         {
           "scene": "workspace",
@@ -436,7 +436,7 @@
       "path": "tablet-2752x2064/03-companion.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "f01345b44dda10df81300616a9e3176a947ab0fa2fbb7a7ef2bdf3270a3204d9",
+      "sha256": "78c9ad75a900f3853b322267545e64ebfe1958ecae42527cf490fed3842ae8f3",
       "surfaces": [
         {
           "scene": "identity",
@@ -462,7 +462,7 @@
       "path": "tablet-2752x2064/04-context.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "0f2b88b622f337b06f8d7bcb35f077a7dc74303ec3a498e898ec8f29a731494f",
+      "sha256": "1210170fa30cf5b731c7fb12a3808a5f492280b82a809f7ad6c6deafda38b446",
       "surfaces": [
         {
           "scene": "continuity",
@@ -497,7 +497,7 @@
       "path": "tablet-2752x2064/05-phone.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "f5f1998a4efdbae47d10b766e60214e4729f180aa7521e76b14acc1bcb552f96",
+      "sha256": "4301c404ae301430574c8c5db8011c3180acbeff5ae8d9c2bebb2d6e9a0d2574",
       "surfaces": [
         {
           "scene": "workspace",
@@ -523,7 +523,7 @@
       "path": "tablet-2752x2064/06-existing-setup.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "272ae91e22e5f81efe6b30b697d4efffe74365343b058f28421dd78971b058d9",
+      "sha256": "852dcc191ea4bc999e940e0204609207a116e636b0390b9f24e78f2e1516aef1",
       "surfaces": [
         {
           "scene": "workspace",
@@ -549,7 +549,7 @@
       "path": "duo-2007x2853/01-share-agents.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "2c975867672cff6e16687c38b348f6e2ac2f484460ef5ae9d119ee6e1f5f490b",
+      "sha256": "18cbdcce97dcc26da0dd44858c38cc53a9a982e860a755e3d27e2d943de32b4d",
       "surfaces": [
         {
           "scene": "workspace",
@@ -575,7 +575,7 @@
       "path": "duo-2007x2853/02-teamwork.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "f80c716832ce414f78d4d941e685909eaac95420446690cc0cac64aad73f2bcf",
+      "sha256": "913c19fe269aac05993ddfd9c049ba281e1b9a827c7fdf508c72e2934722701f",
       "surfaces": [
         {
           "scene": "workspace",
@@ -601,7 +601,7 @@
       "path": "duo-2007x2853/03-companion.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "16fb5c0b82b4acc8bb97697c498ad5e4dab0ceb6f9e3536eabed7672a22a3525",
+      "sha256": "627afc8590c0a790cd16e983d1e4f63125c975beff61a94b6bd9e8e0d5c15256",
       "surfaces": [
         {
           "scene": "identity",
@@ -627,7 +627,7 @@
       "path": "duo-2007x2853/04-context.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "0969d5d58231ac53668c2be5644c91fe9cf7f3554bb3141b57d8687a49cd1f93",
+      "sha256": "e07f2aa40054fb36b53298e65028df5ffd14bf622495acf28dbe1dab1b615e02",
       "surfaces": [
         {
           "scene": "continuity",
@@ -662,7 +662,7 @@
       "path": "duo-2007x2853/05-phone.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "d10a3ee6c826a6fd416b5c8d54667c1c53cbab8861a35c77a68c85e70a8b6f8d",
+      "sha256": "45c27f64db3d08964759856a43ae12ae9a692f549a9a25edc92974809760acb1",
       "surfaces": [
         {
           "scene": "workspace",
@@ -688,7 +688,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "59728cd89412df2f095cbcf18bc25770be07c398715c251c4db52f2f46409e18",
+      "sha256": "8d23148bb0e8ae7e769510a9aeb7bed7cad35cdc364a759cea147f8e5ef2a4d9",
       "surfaces": [
         {
           "scene": "workspace",
@@ -709,134 +709,6 @@
           "positioningSkeletons": 0
         }
       ]
-    }
-  ],
-  "renderBatches": [
-    {
-      "renderer": "156.0.8078.48",
-      "repositoryHead": "d923f7514e23531fc04f5379d4f5f2080404ec65",
-      "inputs": {
-        "pnpm-lock.yaml": "bd7ad6e580b9e09dcc56aa1f4f0187dc4d26e365252c8daef9599a012d8a7c9e",
-        "src/web/app-store-capture/app/globals.css": "e54b13c04636964ae7738e52668de9f1356006aec256ace8bd0a9d554873124f",
-        "src/web/app-store-capture/app/layout.tsx": "8b3cc05ec699f99b766dd6fa69127e089ce11b74681d92b80898b95a650aa110",
-        "src/web/app-store-capture/app/page.tsx": "73fb0fff70da74672f854baa19ddd957ed9357b3f5a11e898f3105231fa57ef3",
-        "src/web/app-store-capture/app/surface/page.tsx": "fd708a2d4eebc1483840dd4eec466f737a309508c78aac91932748f5b8792e8d",
-        "src/web/app-store-capture/assets/face-blue.svg": "6ba47540a0c02a03d3955dc26219c2b248537890f55cb7ceafd09b080e454598",
-        "src/web/app-store-capture/assets/face-orange.svg": "b26fccaf217060bd67c3874776f11d329401dc79b33a49a5168a33d3458d240e",
-        "src/web/app-store-capture/assets/face-purple.svg": "2ec902464f75486fe3433b80ad65c30de4a4fcf947403bba8a38c4c54e0e162b",
-        "src/web/app-store-capture/assets/face-red.svg": "d762e20ec379a14a492ca1cd438fb608267ed1870e20d0ed17d6acf16dd8924a",
-        "src/web/app-store-capture/assets/face-teal.svg": "6b53ffd30e7ae6935eaea4dffb31e7bb096d03163c99c2855c5846aec8b375e0",
-        "src/web/app-store-capture/capture.mjs": "c74c5f7a368e54634290e278358474bbba3b7f5aa6be4f3ac6f14f292e4e3538",
-        "src/web/app-store-capture/captures/poster.css": "b5e4ce4ff0a91d1862358c4544276ced9e09fc640e06c4802557151cb49ee375",
-        "src/web/app-store-capture/captures/poster.tsx": "12c2202d70a350d424c0dda80c647bd3662202d949d0372c5ba72643722f208e",
-        "src/web/app-store-capture/captures/surface.tsx": "85cbb9cceb479761978b5d9c0b91f8a2a6c6f2867dd3e0d1327a16df83e78a98",
-        "src/web/app-store-capture/next.config.ts": "5950152b533fccc7b4731c2453556a737554f8ee67b284a8a5e086cc4bced98f",
-        "src/web/app-store-capture/postcss.config.mjs": "d8c6ca24e85236776ac135ad5ee2f92f5accb400c48ec4ad6146a1fe52546d26",
-        "src/web/app-store-capture/tsconfig.json": "4ca3402309398dbb7db42b0ca67e4380b680d9a01d362449dff6eb856d32796e",
-        "src/web/public/alook.svg": "93752523cd171706887d8c70b6511f99727478386d3842fd1efab764c119988e",
-        "src/web/public/landing/people/alex.webp": "758f2f0cc12c446b974f74499ed123355679947171b4e7da9c198aa50d105c78",
-        "src/web/public/landing/people/lin.webp": "4ece7b3297ef9484b7abfc6bb025c2ec2b8e79f6e5a0b67fa4f1cd75ad0c99ef",
-        "src/web/public/landing/people/nina.webp": "a46cdfff5c81e14b9bbe8dde8fa6ddb0b8351639315b8317a20312b66397c708",
-        "src/web/public/landing/people/priya.webp": "66785a80d418fcae8873f718407480ec2cacae7d39614414162575b01932d92c",
-        "src/web/public/landing/people/sam.webp": "4532092fb06f8b46f8db89a91a7ef11f72abd049a41ac27798033c0e333ac750",
-        "src/web/src/app/favicon.ico": "baf23e7451dca00a358f04a49a674a5776fabe56d417ae1b60131e5ef262ab87",
-        "src/web/src/app/fonts.ts": "0ed0de9e0bdc5ff3e76a8aca45ae3c6d2e5879a4b4f49ff72ae84ade3d1ee092",
-        "src/web/src/app/fonts/caveat-latin.woff2": "891951df5e8b5b0f0bc760d31375405e795c666b5add70437de12d4a6482b33f",
-        "src/web/src/app/fonts/dm-mono-latin-400.woff2": "e1896b13b2b1bb112fac2f9571bd6c40e118746e77a4511edbf43fbb41bf3e1e",
-        "src/web/src/app/fonts/dm-sans-latin.woff2": "9fea608a947e67020c33cad9a6fe3d60c54119dfb8cff87768a8117a15ed7543",
-        "src/web/src/app/fonts/instrument-serif-latin-400-italic.woff2": "5a51946dfffa82972bc98745359c46761515641fda557c25116459a9f83da4a7",
-        "src/web/src/app/fonts/instrument-serif-latin-400.woff2": "5eb09b5ac0e28b67c2f041c8ba6d244604ca0c0980d65912ab2d47fed84ddc31",
-        "src/web/src/app/fonts/literata-latin.woff2": "9adbeac5b167fe5ad6c49d9e29aa0c76e2f1bb3b46bf4ebf12a9eca7d3525384",
-        "src/web/src/app/fonts/vt323-latin-400.woff2": "8ddbebcc1048154132e1d78eb9b1f7850bca1b7d857035ccf1cb4318ebc615b6",
-        "src/web/src/app/globals.css": "98c7bce2964a19dd5df1dee12cfad1c7b6b638c384e942aab31ace654ebaf834",
-        "src/web/src/components/home/landing-demo-copy.ts": "4cca071697a56d0a6f452e782d192c215dd7d9a7514a67b1855aef85068ac9ea",
-        "src/web/src/components/home/landing-human-avatars.ts": "ff8ecf3907d8b03dae2296ab2749df9ae7c4b74a17fe339d64fdd20d860ddb3f",
-        "src/web/src/components/home/landing-interactive-shell-data.ts": "94348c7f5beebc49a3da5d87cbeea1e40b635d038bc8451c96449f55c2babce7",
-        "src/web/src/components/home/landing-interactive-shell.module.css": "fc20425992b69444cbab96cc2fe3275dbad820b0b8e55bd52f88b569a407466f",
-        "src/web/src/components/home/landing-interactive-shell.tsx": "a6a5c30c749f667f492437cf6636c521713a95f7b9df4eccddf68ff432718fb6",
-        "src/web/src/components/home/landing-profile-content.tsx": "b39df0bda2cd07876772428c4f7ab3c0c67bfeea3f1d22bd6c06b6d4f69e8812",
-        "src/web/src/components/home/landing-shell-motion-timeline.ts": "3d97b9cd687226a6a39df4e5fc5b0f370914e0970d87f8d5e11b26d6f655cd14",
-        "src/web/src/components/home/landing-shell-motion.module.css": "76d407f5ac035e9cc70cdcaef59a29325fba2b738537e0e59d2e75ef490c5113",
-        "src/web/src/components/home/landing-shell-motion.tsx": "d515bfa5ed01383fb0d338862da3373d21a0efba75c32dc67619295154cfec2d"
-      },
-      "outputPaths": [
-        "phone-1206x2622/02-teamwork.jpg",
-        "phone-1206x2622/03-companion.jpg",
-        "phone-1206x2622/04-context.jpg",
-        "phone-1206x2622/05-phone.jpg",
-        "phone-1206x2622/06-existing-setup.jpg",
-        "phone-1320x2868/02-teamwork.jpg",
-        "phone-1320x2868/03-companion.jpg",
-        "phone-1320x2868/04-context.jpg",
-        "phone-1320x2868/05-phone.jpg",
-        "phone-1320x2868/06-existing-setup.jpg",
-        "tablet-2752x2064/02-teamwork.jpg",
-        "tablet-2752x2064/03-companion.jpg",
-        "tablet-2752x2064/04-context.jpg",
-        "tablet-2752x2064/05-phone.jpg",
-        "tablet-2752x2064/06-existing-setup.jpg",
-        "duo-2007x2853/02-teamwork.jpg",
-        "duo-2007x2853/03-companion.jpg",
-        "duo-2007x2853/04-context.jpg",
-        "duo-2007x2853/05-phone.jpg",
-        "duo-2007x2853/06-existing-setup.jpg"
-      ],
-      "clock": "2026-10-25T00:00:00Z"
-    },
-    {
-      "renderer": "155.0.8059.85",
-      "repositoryHead": "c5cd005f420c00ef8db527df986846f3d0120174",
-      "inputs": {
-        "pnpm-lock.yaml": "bd7ad6e580b9e09dcc56aa1f4f0187dc4d26e365252c8daef9599a012d8a7c9e",
-        "src/web/app-store-capture/app/globals.css": "e54b13c04636964ae7738e52668de9f1356006aec256ace8bd0a9d554873124f",
-        "src/web/app-store-capture/app/layout.tsx": "8b3cc05ec699f99b766dd6fa69127e089ce11b74681d92b80898b95a650aa110",
-        "src/web/app-store-capture/app/page.tsx": "73fb0fff70da74672f854baa19ddd957ed9357b3f5a11e898f3105231fa57ef3",
-        "src/web/app-store-capture/app/surface/page.tsx": "fd708a2d4eebc1483840dd4eec466f737a309508c78aac91932748f5b8792e8d",
-        "src/web/app-store-capture/assets/face-blue.svg": "6ba47540a0c02a03d3955dc26219c2b248537890f55cb7ceafd09b080e454598",
-        "src/web/app-store-capture/assets/face-orange.svg": "b26fccaf217060bd67c3874776f11d329401dc79b33a49a5168a33d3458d240e",
-        "src/web/app-store-capture/assets/face-purple.svg": "2ec902464f75486fe3433b80ad65c30de4a4fcf947403bba8a38c4c54e0e162b",
-        "src/web/app-store-capture/assets/face-red.svg": "d762e20ec379a14a492ca1cd438fb608267ed1870e20d0ed17d6acf16dd8924a",
-        "src/web/app-store-capture/assets/face-teal.svg": "6b53ffd30e7ae6935eaea4dffb31e7bb096d03163c99c2855c5846aec8b375e0",
-        "src/web/app-store-capture/capture.mjs": "c74c5f7a368e54634290e278358474bbba3b7f5aa6be4f3ac6f14f292e4e3538",
-        "src/web/app-store-capture/captures/poster.css": "d24a737873bbe7830acc12756523eb9fa5f4ddcc44697223e612d45bd0b93bd4",
-        "src/web/app-store-capture/captures/poster.tsx": "ca1a8f933f7bb4c8ccdd3ada932eb1753ea2b0815aeef92d8c0c5535a7db19fc",
-        "src/web/app-store-capture/captures/surface.tsx": "85cbb9cceb479761978b5d9c0b91f8a2a6c6f2867dd3e0d1327a16df83e78a98",
-        "src/web/app-store-capture/next.config.ts": "5950152b533fccc7b4731c2453556a737554f8ee67b284a8a5e086cc4bced98f",
-        "src/web/app-store-capture/postcss.config.mjs": "d8c6ca24e85236776ac135ad5ee2f92f5accb400c48ec4ad6146a1fe52546d26",
-        "src/web/app-store-capture/tsconfig.json": "4ca3402309398dbb7db42b0ca67e4380b680d9a01d362449dff6eb856d32796e",
-        "src/web/public/alook.svg": "93752523cd171706887d8c70b6511f99727478386d3842fd1efab764c119988e",
-        "src/web/public/landing/people/alex.webp": "758f2f0cc12c446b974f74499ed123355679947171b4e7da9c198aa50d105c78",
-        "src/web/public/landing/people/lin.webp": "4ece7b3297ef9484b7abfc6bb025c2ec2b8e79f6e5a0b67fa4f1cd75ad0c99ef",
-        "src/web/public/landing/people/nina.webp": "a46cdfff5c81e14b9bbe8dde8fa6ddb0b8351639315b8317a20312b66397c708",
-        "src/web/public/landing/people/priya.webp": "66785a80d418fcae8873f718407480ec2cacae7d39614414162575b01932d92c",
-        "src/web/public/landing/people/sam.webp": "4532092fb06f8b46f8db89a91a7ef11f72abd049a41ac27798033c0e333ac750",
-        "src/web/src/app/favicon.ico": "baf23e7451dca00a358f04a49a674a5776fabe56d417ae1b60131e5ef262ab87",
-        "src/web/src/app/fonts.ts": "0ed0de9e0bdc5ff3e76a8aca45ae3c6d2e5879a4b4f49ff72ae84ade3d1ee092",
-        "src/web/src/app/fonts/caveat-latin.woff2": "891951df5e8b5b0f0bc760d31375405e795c666b5add70437de12d4a6482b33f",
-        "src/web/src/app/fonts/dm-mono-latin-400.woff2": "e1896b13b2b1bb112fac2f9571bd6c40e118746e77a4511edbf43fbb41bf3e1e",
-        "src/web/src/app/fonts/dm-sans-latin.woff2": "9fea608a947e67020c33cad9a6fe3d60c54119dfb8cff87768a8117a15ed7543",
-        "src/web/src/app/fonts/instrument-serif-latin-400-italic.woff2": "5a51946dfffa82972bc98745359c46761515641fda557c25116459a9f83da4a7",
-        "src/web/src/app/fonts/instrument-serif-latin-400.woff2": "5eb09b5ac0e28b67c2f041c8ba6d244604ca0c0980d65912ab2d47fed84ddc31",
-        "src/web/src/app/fonts/literata-latin.woff2": "9adbeac5b167fe5ad6c49d9e29aa0c76e2f1bb3b46bf4ebf12a9eca7d3525384",
-        "src/web/src/app/fonts/vt323-latin-400.woff2": "8ddbebcc1048154132e1d78eb9b1f7850bca1b7d857035ccf1cb4318ebc615b6",
-        "src/web/src/app/globals.css": "98c7bce2964a19dd5df1dee12cfad1c7b6b638c384e942aab31ace654ebaf834",
-        "src/web/src/components/home/landing-demo-copy.ts": "4cca071697a56d0a6f452e782d192c215dd7d9a7514a67b1855aef85068ac9ea",
-        "src/web/src/components/home/landing-human-avatars.ts": "ff8ecf3907d8b03dae2296ab2749df9ae7c4b74a17fe339d64fdd20d860ddb3f",
-        "src/web/src/components/home/landing-interactive-shell-data.ts": "94348c7f5beebc49a3da5d87cbeea1e40b635d038bc8451c96449f55c2babce7",
-        "src/web/src/components/home/landing-interactive-shell.module.css": "fc20425992b69444cbab96cc2fe3275dbad820b0b8e55bd52f88b569a407466f",
-        "src/web/src/components/home/landing-interactive-shell.tsx": "a6a5c30c749f667f492437cf6636c521713a95f7b9df4eccddf68ff432718fb6",
-        "src/web/src/components/home/landing-profile-content.tsx": "b39df0bda2cd07876772428c4f7ab3c0c67bfeea3f1d22bd6c06b6d4f69e8812",
-        "src/web/src/components/home/landing-shell-motion-timeline.ts": "3d97b9cd687226a6a39df4e5fc5b0f370914e0970d87f8d5e11b26d6f655cd14",
-        "src/web/src/components/home/landing-shell-motion.module.css": "76d407f5ac035e9cc70cdcaef59a29325fba2b738537e0e59d2e75ef490c5113",
-        "src/web/src/components/home/landing-shell-motion.tsx": "d515bfa5ed01383fb0d338862da3373d21a0efba75c32dc67619295154cfec2d"
-      },
-      "outputPaths": [
-        "phone-1206x2622/01-share-agents.jpg",
-        "phone-1320x2868/01-share-agents.jpg",
-        "tablet-2752x2064/01-share-agents.jpg",
-        "duo-2007x2853/01-share-agents.jpg"
-      ],
-      "clock": "2026-10-25T00:00:00Z"
     }
   ]
 }
