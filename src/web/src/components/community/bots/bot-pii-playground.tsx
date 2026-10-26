@@ -23,7 +23,7 @@ export function BotPiiPlayground({ value, onValueChange, result, triggeredFilter
       <div className={`${styles.workspace} overflow-hidden rounded-xl border border-input`} data-phase={phase}>
         <div className="flex flex-col gap-4 bg-muted/30 p-4 sm:p-6" aria-live="polite" aria-busy={pending}>
           <div className="flex items-center justify-between gap-3">
-            <h2 id="pii-output-label" className="text-sm font-medium">Public message</h2>
+            <h4 id="pii-output-label" className="text-sm font-medium">Public message</h4>
             {phase === "complete" ? <Check aria-hidden="true" className="size-5 text-muted-foreground" /> : null}
           </div>
           <div className="max-h-64 min-h-24 overflow-y-auto thin-scrollbar">

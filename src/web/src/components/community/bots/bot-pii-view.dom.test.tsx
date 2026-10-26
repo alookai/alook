@@ -45,8 +45,10 @@ it("shows filters and playground together and spins refresh while waiting", () =
   expect(screen.getAllByRole("tab")).toHaveLength(1)
   expect(screen.getByRole("tab", { name: "PII Filters" })).toHaveAttribute("aria-selected", "true")
   expect(screen.queryByRole("tab", { name: "Playground" })).toBeNull()
-  expect(screen.getByRole("heading", { name: "Filters", level: 2 })).toBeVisible()
-  expect(screen.getByRole("heading", { name: "Playground", level: 2 })).toBeVisible()
+  expect(screen.getByRole("heading", { name: "Filters for bot message", level: 2 })).toBeVisible()
+  const headings = Array.from(screen.getByRole("tabpanel").querySelectorAll("h2,h3")).map(heading => heading.textContent)
+  expect(headings).toEqual(["Filters for bot message", "Which bot to set up", "PII steps", "Playground"])
+  expect(screen.getByRole("heading", { name: "Playground", level: 3 })).toBeVisible()
   expect(screen.getByLabelText("Original message")).toBeVisible()
   state.pending = true
   view.rerender(<BotPiiView />)

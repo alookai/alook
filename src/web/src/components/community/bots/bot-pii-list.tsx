@@ -36,7 +36,7 @@ export function BotPiiList({
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {plugins.length === 0 ? (
         <div className="py-8">
-          <h3 className="font-medium">No filters</h3>
+          <h4 className="font-medium">No filters</h4>
           <p className="mt-1 max-w-prose text-sm text-muted-foreground">{botName} sends message text without PII filtering. Ask your bot to add a filter with Alook PII.</p>
         </div>
       ) : (
@@ -48,7 +48,7 @@ export function BotPiiList({
                 <span aria-hidden="true" className={`absolute left-0 top-5 size-2 rounded-full border ${plugin.enabled ? "border-muted-foreground bg-muted-foreground" : "border-muted-foreground bg-background"}`} />
                 <div className="flex min-w-0 items-center gap-2">
                 <div className="min-w-0 flex-1">
-                  <h3 className="wrap-break-word text-base font-medium">{plugin.name}</h3>
+                  <h4 className="wrap-break-word text-base font-medium">{plugin.name}</h4>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <div className="flex size-11 items-center justify-center">

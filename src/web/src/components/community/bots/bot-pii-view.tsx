@@ -10,7 +10,6 @@ import { useBots } from "@/hooks/community/use-bots"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useBotPii } from "@/hooks/community/use-bot-pii"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BotPiiPanel } from "./bot-pii-panel"
 import { BotPiiList } from "./bot-pii-list"
@@ -24,33 +23,27 @@ function BotPipeline({ botId, botName, machineId, online }: { botId: string; bot
   const { clearPreview } = pii
   useEffect(() => { if (!active) { setInput(""); clearPreview() } }, [active, setInput, clearPreview])
   return (
-    <Tabs defaultValue="filters" className="gap-6">
-      <TabsList variant="line" aria-label="Privacy tools" className="h-auto min-h-12 w-full border-b p-0 thin-scrollbar">
-        <TabsTrigger value="filters" className="min-h-12 px-4 text-base group-data-horizontal/tabs:after:bottom-0">PII Filters</TabsTrigger>
-      </TabsList>
-      <TabsContent value="filters" className="mx-auto flex w-full max-w-2xl flex-col gap-8">
+    <>
       <section className="flex min-w-0 flex-col gap-4" aria-labelledby="pii-filters-heading">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <h2 id="pii-filters-heading" className="text-lg font-medium">Filters</h2>
+        <div className="flex flex-col">
+        <div className="flex items-center gap-2">
+            <h3 id="pii-filters-heading" className="text-base font-medium">PII steps</h3>
             <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label="Reload filters" aria-busy={pii.pending && !pii.previewPending} title="Reload filters" disabled={pii.pending || !online} onClick={() => { void pii.reload() }}><RefreshCw aria-hidden="true" className={pii.pending && !pii.previewPending ? "animate-spin motion-reduce:animate-none" : undefined} /></Button>
-          </div>
-          <p className="text-sm leading-relaxed text-muted-foreground">PII is filtered on your computer before your agent’s messages reach our servers, unless you turn the filters off.</p>
         </div>
         <BotPiiChatAction botId={botId} />
+        </div>
         {pii.snapshot ? <BotPiiList botName={botName} plugins={pii.snapshot.plugins} pending={pii.pending} error={pii.error} unavailable={pii.unavailable}
           onSetEnabled={(id, enabled) => { void pii.setEnabled(id, enabled) }} onDelete={pii.remove} />
           : pii.unavailable || pii.error ? <p role={pii.error ? "alert" : "status"} className="text-sm text-muted-foreground">{pii.unavailable ?? pii.error}</p>
           : <div role="status" aria-label="Loading filters" className="flex flex-col gap-4">{[0, 1, 2].map(id => <Skeleton key={id} className="h-20 w-full rounded-md" />)}</div>}
       </section>
       <section className="flex min-w-0 flex-col gap-4" aria-labelledby="pii-playground-heading">
-      <h2 id="pii-playground-heading" className="text-lg font-medium">Playground</h2>
+      <h3 id="pii-playground-heading" className="text-base font-medium">Playground</h3>
       <BotPiiPlayground value={input} onValueChange={value => { setInput(value); pii.clearPreview() }}
         result={pii.output} triggeredFilters={pii.triggeredFilters} pending={pii.previewPending} error={pii.previewError ?? pii.unavailable}
         disabled={pii.pending || !pii.snapshot || Boolean(pii.unavailable)} onRun={() => { void pii.preview(input) }} />
       </section>
-      </TabsContent>
-    </Tabs>
+    </>
   )
 }
 
