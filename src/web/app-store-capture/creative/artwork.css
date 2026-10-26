@@ -1,0 +1,30 @@
+@font-face{font-family:Brand;src:url(/fonts/caveat.woff2) format('woff2');font-weight:400 700;font-display:block}
+@font-face{font-family:Sans;src:url(/fonts/dm-sans.woff2) format('woff2');font-weight:100 1000;font-display:block}
+*{box-sizing:border-box}
+body{margin:0;background:#f6f4ee;color:#192625;font-family:Sans,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#capture-creative{position:relative;overflow:hidden}
+.canvas{position:absolute;left:0;top:0;overflow:hidden;transform-origin:top left;color:#192625;background:linear-gradient(133deg,#fff9ee 0%,#fff0dc 39%,#ffdab0 68%,#ffa34b 100%)}
+.header-art{width:1600px;height:685.833333px}.search-art{width:1200px;height:800px}
+.canvas:before{content:"";position:absolute;border:1.5px solid #fff8ec9c;border-radius:50%;width:1060px;height:1060px;right:-240px;top:-100px;box-shadow:0 0 0 100px #fff8ec26,0 0 0 200px #fff8ec1f;pointer-events:none}
+.canvas:after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.11;background-image:url(/noise.svg);mix-blend-mode:multiply}
+.brand{position:absolute;display:flex;align-items:center;justify-content:center;font-family:Brand,cursive;font-weight:700;font-size:146px;line-height:1;letter-spacing:-4px;width:600px;gap:20px;z-index:5}
+.brand img{width:110px;height:110px;display:block}
+.headline{position:absolute;font-size:62px;letter-spacing:-1.8px;font-weight:1000;line-height:1.05;text-align:center;margin:0;z-index:3}
+.headline span{display:inline}.headline .accent{color:#b94f13}
+.subline{position:absolute;line-height:1.3;font-weight:450;text-align:center;margin:0;z-index:3}
+.face{position:absolute;display:block;z-index:4;filter:drop-shadow(0 5px 0 #fff8ec) drop-shadow(0 12px 14px #6d3e2320)}
+.header-art .brand{left:500px;top:212px}
+.header-art .headline{left:468px;top:374px;width:664px;letter-spacing:-2.8px;white-space:nowrap}
+.header-art .subline{left:475px;top:445px;width:650px;font-size:24px;letter-spacing:-.5px}
+.header-art .face-blue{left:480px;top:220px;width:74px;transform:rotate(12deg)}
+.header-art .face-teal{left:1040px;top:220px;width:74px;transform:rotate(15deg)}
+.header-art .face-purple{left:500px;top:298px;width:62px;transform:rotate(-12deg)}
+.header-art .face-red{left:1045px;top:298px;width:62px;transform:rotate(12deg)}
+.search-art:before{right:-450px;top:195px;width:1160px;height:1160px}
+.search-art .brand{left:300px;top:245px}
+.search-art .headline{left:270px;top:418px;width:660px}
+.search-art .subline{left:275px;top:510px;width:650px;font-size:27px;letter-spacing:-.2px}
+.search-art .face-blue{left:280px;top:255px;width:74px;transform:rotate(12deg)}
+.search-art .face-teal{left:850px;top:255px;width:74px;transform:rotate(15deg)}
+.search-art .face-purple{left:300px;top:333px;width:62px;transform:rotate(-12deg)}
+.search-art .face-red{left:860px;top:333px;width:62px;transform:rotate(12deg)}

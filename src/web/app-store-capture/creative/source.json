@@ -1,0 +1,37 @@
+{
+  "approvedPrototypeSha256": "f17b90df66ed06777834687e843137711b4ee48fdf42f4fb1c2097c49563b6a2",
+  "safeAreaSource": "https://devimages-cdn.apple.com/design/resources/download/app-store/creative_assets-templates.sketch",
+  "safeAreaSourceSha256": "0f6f6f86e89ccf8a74f9214b29481c6748e21fc677ecc72fbc623ae3470d8957",
+  "assets": [
+    {
+      "asset": "header",
+      "width": 3840,
+      "height": 1646,
+      "logicalWidth": 1600,
+      "logicalHeight": 685.833333,
+      "safeArea": {
+        "x": 1097,
+        "y": 493,
+        "width": 1646,
+        "height": 661
+      },
+      "filename": "alook-header-3840x1646.png",
+      "approvedReferenceSha256": "4b7501baf829ec7c742a66e10242532bc45ff1f7fa0bbac551f5a2d476ec47bc"
+    },
+    {
+      "asset": "search",
+      "width": 1920,
+      "height": 1280,
+      "logicalWidth": 1200,
+      "logicalHeight": 800,
+      "safeArea": {
+        "x": 418,
+        "y": 382.5,
+        "width": 1084,
+        "height": 515
+      },
+      "filename": "alook-search-1920x1280.png",
+      "approvedReferenceSha256": "fee15173da1a0884e9c28ec411c60112f53077856e7d916e99dd869d3e4c2f00"
+    }
+  ]
+}

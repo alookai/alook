@@ -50,3 +50,21 @@ The generator starts its own Next process group on an unused loopback port and l
 `manifest.json` records actual Chrome version, direct input hashes, repository HEAD, fixed fixture reference clock (2026-10-25 UTC), locale/timezone, measured viewports and output hashes. An optional `renderBatches` list preserves the actual renderer/input hashes and output paths when unchanged images are retained across a targeted rerender. The committed Duo-only revision retains the eighteen phone/iPad images under their earlier batch; the latest `inputs` belong to the new six-image Duo batch. A complete default run replaces this with a fresh single-run manifest. Uncommitted candidates additionally need their full review tree/file binding. Direct hashes are not a transitive dependency graph; browser/font rasterization can change bytes. Review actual composition and native-size changed regions as well as hashes.
 
 See [SOURCES.md](SOURCES.md) for component, reference and geometry provenance. Edit a composition or fixture consumer, regenerate the affected complete set and review every story/crop. Keep production rendering free of capture flags. Creative product-page headers/search artwork are separate from these screenshots; their central template safe area does not constrain these screenshot layouts. These marketing renders do not prove native layout parity, store acceptance or a particular installed build.
+
+## Product-page header and search creatives
+
+The separate approved centered-brand composition exports PNG artwork through the same capture tool directory and installed Chrome/sharp, without starting the gallery's Next app:
+
+```bash
+pnpm app-store:creative
+pnpm app-store:creative --asset header --output /tmp/alook-header
+pnpm app-store:creative --asset search --output /tmp/alook-search
+```
+
+Default `--asset all` writes `creative/alook-header-3840x1646.png`, `creative/alook-search-1920x1280.png` and their own `creative/manifest.json` under `assets/app-store/`. Single-asset selections emit only the selected PNG and a run-specific manifest; use separate directories for separate selections. The gallery command, default 24 JPEGs and existing gallery manifest are unchanged.
+
+A small owned loopback server serves only the artwork document, CSS/noise and declared local fonts/Logo/four face SVGs. It has no production route, account or backend state. The generator waits for loaded fonts/images, rejects external/resource errors, measures eight critical subjects against the placement's Apple safe rectangle, validates three-channel RGB PNG output without alpha, and closes its owned context/browser/server on success, failure or interruption. Unrelated destination files and services are retained. A failed run can leave partial files; rely on a manifest only after success.
+
+The composition uses the final approved HTML cascade: large centered wordmark and four supporting blue/teal/purple/red faces, with no interface thumbnail or standalone orange face. The header keeps its one-line headline. Actual critical element boxes, local resources, renderer and input/output hashes are recorded. CSS filter blur is outside element-box measurements; visual comparison against the supplied originals remains necessary. See source provenance below and in [SOURCES.md](SOURCES.md).
+
+The supplied reference PNGs were converted from browser JPEG previews. The generator captures clear PNG directly; JPEG compression pixels are not part of the composition contract. The approved HTML remains the source for fonts, assets, geometry and crop.

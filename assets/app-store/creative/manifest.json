@@ -1,0 +1,247 @@
+{
+  "renderer": "156.0.8078.48",
+  "encoding": "RGB PNG",
+  "locale": "en-US",
+  "timezone": "UTC",
+  "repositoryHead": "59973b36bd0be527985168ae8fd610631ece6c6c",
+  "approvedPrototypeSha256": "f17b90df66ed06777834687e843137711b4ee48fdf42f4fb1c2097c49563b6a2",
+  "inputs": {
+    "package.json": "5eb3c9d2bdaee86d76275a56325ae621d8c44d5fae115d7403897073d404beec",
+    "pnpm-lock.yaml": "77e604bc7004bdd8073e9e035c910b0997b482c17192d7336903b4b29ff63397",
+    "src/web/app-store-capture/assets/face-blue.svg": "6ba47540a0c02a03d3955dc26219c2b248537890f55cb7ceafd09b080e454598",
+    "src/web/app-store-capture/assets/face-purple.svg": "2ec902464f75486fe3433b80ad65c30de4a4fcf947403bba8a38c4c54e0e162b",
+    "src/web/app-store-capture/assets/face-red.svg": "d762e20ec379a14a492ca1cd438fb608267ed1870e20d0ed17d6acf16dd8924a",
+    "src/web/app-store-capture/assets/face-teal.svg": "6b53ffd30e7ae6935eaea4dffb31e7bb096d03163c99c2855c5846aec8b375e0",
+    "src/web/app-store-capture/creative/artwork.css": "1385e7911ac73a9a61da25f4fe2ea983a449dee1a5e82d8aef29cc1343fc31e6",
+    "src/web/app-store-capture/creative/capture.mjs": "f6b7673341448a039b7e6624c2d5338861919981630fe8f00b6f14b3f36d333b",
+    "src/web/app-store-capture/creative/noise.svg": "2e971d9c2cd03b14873ff01911b5d2ce13f1990e6ac67efdc0a094c5a183b96e",
+    "src/web/app-store-capture/creative/source.json": "268198d8b4d183ed71c4b08ecce7716e7f5936129b4e63f33ebd0c24dbfe5279",
+    "src/web/public/alook.svg": "93752523cd171706887d8c70b6511f99727478386d3842fd1efab764c119988e",
+    "src/web/src/app/fonts/caveat-latin.woff2": "891951df5e8b5b0f0bc760d31375405e795c666b5add70437de12d4a6482b33f",
+    "src/web/src/app/fonts/dm-sans-latin.woff2": "9fea608a947e67020c33cad9a6fe3d60c54119dfb8cff87768a8117a15ed7543"
+  },
+  "outputs": [
+    {
+      "path": "alook-header-3840x1646.png",
+      "asset": "header",
+      "width": 3840,
+      "height": 1646,
+      "sha256": "6c1ea659a7f9b4a18ba56313374e35e00a88df16f256e5873e91f0bc6be5d980",
+      "safeArea": {
+        "x": 1097,
+        "y": 493,
+        "width": 1646,
+        "height": 661
+      },
+      "fontsLoaded": true,
+      "images": [
+        {
+          "path": "/alook.svg",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "path": "/faces/face-teal.svg",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "path": "/faces/face-purple.svg",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "path": "/faces/face-blue.svg",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "path": "/faces/face-red.svg",
+          "width": 150,
+          "height": 150
+        }
+      ],
+      "criticalBounds": [
+        {
+          "name": "brand",
+          "x": 1200,
+          "y": 508.8000183105469,
+          "width": 1440,
+          "height": 350.3999938964844
+        },
+        {
+          "name": "logo",
+          "x": 1474.91259765625,
+          "y": 552,
+          "width": 264,
+          "height": 264.00006103515625
+        },
+        {
+          "name": "headline",
+          "x": 1123.2000732421875,
+          "y": 897.6000366210938,
+          "width": 1593.5999755859375,
+          "height": 156.22503662109375
+        },
+        {
+          "name": "subline",
+          "x": 1140,
+          "y": 1068,
+          "width": 1560,
+          "height": 74.85009765625
+        },
+        {
+          "name": "face-teal",
+          "x": 2476.042724609375,
+          "y": 508.04266357421875,
+          "width": 217.5146484375,
+          "height": 217.51470947265625
+        },
+        {
+          "name": "face-purple",
+          "x": 1186.1572265625,
+          "y": 701.357177734375,
+          "width": 176.485595703125,
+          "height": 176.4857177734375
+        },
+        {
+          "name": "face-blue",
+          "x": 1135.47802734375,
+          "y": 511.4779357910156,
+          "width": 210.6441650390625,
+          "height": 210.64413452148438
+        },
+        {
+          "name": "face-red",
+          "x": 2494.1572265625,
+          "y": 701.357177734375,
+          "width": 176.485595703125,
+          "height": 176.4857177734375
+        }
+      ],
+      "resources": [
+        "/",
+        "/alook.svg",
+        "/artwork.css",
+        "/faces/face-blue.svg",
+        "/faces/face-purple.svg",
+        "/faces/face-red.svg",
+        "/faces/face-teal.svg",
+        "/fonts/caveat.woff2",
+        "/fonts/dm-sans.woff2",
+        "/noise.svg"
+      ]
+    },
+    {
+      "path": "alook-search-1920x1280.png",
+      "asset": "search",
+      "width": 1920,
+      "height": 1280,
+      "sha256": "576f7a8e98109048e10cfad648550252f590beaf75f518974200241bf5bb66fd",
+      "safeArea": {
+        "x": 418,
+        "y": 382.5,
+        "width": 1084,
+        "height": 515
+      },
+      "fontsLoaded": true,
+      "images": [
+        {
+          "path": "/alook.svg",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "path": "/faces/face-blue.svg",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "path": "/faces/face-teal.svg",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "path": "/faces/face-purple.svg",
+          "width": 150,
+          "height": 150
+        },
+        {
+          "path": "/faces/face-red.svg",
+          "width": 150,
+          "height": 150
+        }
+      ],
+      "criticalBounds": [
+        {
+          "name": "brand",
+          "x": 480,
+          "y": 392,
+          "width": 960,
+          "height": 233.60003662109375
+        },
+        {
+          "name": "logo",
+          "x": 663.2750244140625,
+          "y": 420.8000183105469,
+          "width": 176,
+          "height": 175.99996948242188
+        },
+        {
+          "name": "headline",
+          "x": 432,
+          "y": 668.7999877929688,
+          "width": 1056,
+          "height": 104.1500244140625
+        },
+        {
+          "name": "subline",
+          "x": 440,
+          "y": 816,
+          "width": 1040,
+          "height": 56.1500244140625
+        },
+        {
+          "name": "face-blue",
+          "x": 436.9853210449219,
+          "y": 396.98529052734375,
+          "width": 140.42941284179688,
+          "height": 140.429443359375
+        },
+        {
+          "name": "face-teal",
+          "x": 1346.6951904296875,
+          "y": 394.6950988769531,
+          "width": 145.009765625,
+          "height": 145.00979614257812
+        },
+        {
+          "name": "face-purple",
+          "x": 470.7714538574219,
+          "y": 523.5714721679688,
+          "width": 117.65713500976562,
+          "height": 117.6571044921875
+        },
+        {
+          "name": "face-red",
+          "x": 1366.771484375,
+          "y": 523.5714721679688,
+          "width": 117.6571044921875,
+          "height": 117.6571044921875
+        }
+      ],
+      "resources": [
+        "/",
+        "/alook.svg",
+        "/artwork.css",
+        "/faces/face-blue.svg",
+        "/faces/face-purple.svg",
+        "/faces/face-red.svg",
+        "/faces/face-teal.svg",
+        "/fonts/caveat.woff2",
+        "/fonts/dm-sans.woff2",
+        "/noise.svg"
+      ]
+    }
+  ]
+}

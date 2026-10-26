@@ -44,3 +44,15 @@ The previous implementation and its rendered files remain in Git history. The cu
 - `duo-refinement.json` is the historical physical-scale-v2 HTML binding at commit `30cc2f9be9aff68c76e68c4584d4b0fbb0f74012`. It is not a live template manifest for the component generator.
 
 Those packages used public homepage/demo scenes, not private conversations or native runtime evidence. The historical static HTML and bitmap inputs have been retired from this directory. Original manifests are preserved for attribution, while current source/output metadata is recorded separately.
+
+## Centered-brand creative exports
+
+`creative/source.json` identifies the approved standalone HTML with SHA-256 `f17b90df66ed06777834687e843137711b4ee48fdf42f4fb1c2097c49563b6a2` and the two original reference PNGs. `creative/artwork.css` is the flattened final cascade from that source; the document omits its preview controls, hidden old thumbnail and unused standalone orange face. No store-account screenshot or private coordination record is a production/repository input.
+
+The embedded original Caveat, DM Sans, official Logo and four face SVG bytes were matched to their existing repository inputs. The 247-byte noise SVG is extracted unchanged from that HTML. The header uses a 1600×685.833333 logical canvas at scale 2.4; search uses 1200×800 at scale 1.6. Colors, positions, rotations and crop follow the approved source, rather than being reconstructed from a preview screenshot.
+
+Placement safety rectangles come from [Apple's creative template](https://devimages-cdn.apple.com/design/resources/download/app-store/creative_assets-templates.sketch), SHA-256 `0f6f6f86e89ccf8a74f9214b29481c6748e21fc677ecc72fbc623ae3470d8957`: header (1097,493,1646,661) on 3840×1646; search (418,382.5,1084,515) on 1920×1280. The generator records actual element bounds and resource readiness. These bounds belong to creative placements, not gallery screenshots or a native safe-area claim.
+
+The creative manifest records the real Chrome renderer, direct local input hashes, original composition identity and generated PNG hashes. Original PNG hashes identify references; another PNG encoder or browser rasterizer can produce different file bytes. Compare decoded appearance, typography and crop as well as metadata. A reproducible export does not imply store processing/review approval or App submission.
+
+The supplied reference PNGs were converted from browser JPEG previews. The generator captures clear PNG directly; JPEG compression pixels are not part of the composition contract. The approved HTML remains the source for fonts, assets, geometry and crop.
