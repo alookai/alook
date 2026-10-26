@@ -58,7 +58,7 @@
     "turbo": "^2.11.8",
     "typescript": "^6.0.3",
     "vitest": "4.1.12",
-    "wrangler": "4.151.0"
+    "wrangler": "4.152.0"
   },
   "pnpm": {
     "overrides": {
