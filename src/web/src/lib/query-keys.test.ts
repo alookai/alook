@@ -209,4 +209,10 @@ describe("communityKeys", () => {
 it("keeps message URL resolution separate from the canonical message query", () => {
   expect(communityKeys.messageRoute("message_1")).toEqual(["community","message-route","message_1"])
   expect(communityKeys.messageRoute("message_1")).not.toEqual(communityKeys.message("message_1"))
+
+})
+
+it("never treats exact ref query families as server identities", () => {
+  expect(isCommunityServerIdSegment(communityKeys.channelRefTargets()[2])).toBe(false)
+  expect(isCommunityServerDetailQueryKey(communityKeys.channelRefTargets())).toBe(false)
 })

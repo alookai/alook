@@ -25,6 +25,9 @@ export const communityKeys = {
   servers: () => [...communityKeys.all, "servers"] as const,
   channelRefDirectory: () =>
     [...communityKeys.servers(), "channel-ref-directory"] as const,
+  channelRefTargets: () => [...communityKeys.servers(), "channel-ref-target"] as const,
+  channelRefTarget: (ref: string, qualification: { accountEpoch: number; accessEpoch: number; lifetime: number; scopes: readonly (readonly [string, number, boolean])[] }) =>
+    [...communityKeys.channelRefTargets(), ref, qualification] as const,
   server: (serverId: string) =>
     [...communityKeys.servers(), serverId] as const,
   forumSidebarThreads: (serverId: string) =>
@@ -168,6 +171,7 @@ export const communityKeys = {
 
 const reservedServerIdSegments = new Set<string>([
   communityKeys.channelRefDirectory()[2],
+  communityKeys.channelRefTargets()[2],
   "__none__",
   "__pending__",
 ])
