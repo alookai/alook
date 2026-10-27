@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { within } from "@/test/react-dom-harness"
 import { redactDiagramSvg, withRedactedDiagrams } from "./redacted-diagram"
 
 describe("redacted diagrams", () => {
@@ -12,7 +13,7 @@ describe("redacted diagrams", () => {
     const doc = new DOMParser().parseFromString(result.svg, "image/svg+xml")
     expect(doc.querySelector("parsererror")).toBeNull()
     expect(result.svg).not.toContain("var(--")
-    expect(doc.querySelector("foreignObject [data-redacted]")?.textContent).toBe("redacted")
+    expect(within(doc.querySelector<HTMLElement>("foreignObject")!).getByText("redacted")).toBe(doc.querySelector("foreignObject [data-redacted]"))
     expect(doc.querySelector("style")?.textContent).toContain("[REDACTED_TOKEN]")
   })
 
@@ -25,7 +26,7 @@ describe("redacted diagrams", () => {
       const doc = new DOMParser().parseFromString(result, "image/svg+xml")
       expect(doc.querySelector("rect")?.getAttribute("transform")).toBe("translate(4 5)")
       expect(doc.querySelector("rect")?.getAttribute("width")).toBe("56")
-      expect(doc.querySelector("text [data-redacted]")?.textContent).toBe("redacted")
+      expect(within(doc.querySelector<HTMLElement>("text")!).getByText("redacted")).toBe(doc.querySelector("text [data-redacted]"))
       expect(document.body.childElementCount).toBe(before)
     } finally {
       if (previous) Object.defineProperty(SVGElement.prototype, "getBBox", previous)
