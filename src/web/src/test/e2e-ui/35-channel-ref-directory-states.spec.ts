@@ -365,7 +365,7 @@ test.describe("channel ref page navigation", () => {
     const actors = await caseActors(["alice", "bob"])
     const serverId = await actors.seed.seedServer("bob", `Private refs ${Date.now()}`)
     await actors.seed.seedJoinServer("bob", "alice", serverId)
-    const categoryId = await actors.seed.seedCategory("bob", serverId, "Private", { private: true })
+    const categoryId = await actors.seed.seedCategory("bob", serverId, "Ref permissions", { private: true })
     const forumId = await actors.seed.seedChannel("bob", serverId, "private-ref-forum", "forum", categoryId)
     const postId = await actors.seed.seedForumThread("bob", forumId, "Private title must not appear", "Private body")
     const dmId = await actors.seed.seedDm("bob", actors.userId("alice"))
