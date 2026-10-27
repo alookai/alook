@@ -12,6 +12,51 @@ const base = JSON.parse(read("tauri.conf.json"))
 const release = JSON.parse(read("tauri.ios.release.conf.json"))
 const development = JSON.parse(read("tauri.dev.conf.json"))
 
+function verifyIosArtifact(orientationKey?: string, orientations?: string[]) {
+  const workflow = readFileSync(resolve(root, ".github/workflows/mobile-release.yml"), "utf8")
+  const validator = workflow.match(/^\s+python3 - "\$app_path\/Info\.plist" "\$entitlements_path" <<'PY'\n([\s\S]*?)^\s+PY$/m)
+  expect(validator).not.toBeNull()
+  const info: Record<string, unknown> = {
+    CFBundleIdentifier: "ai.alook.ios",
+    WKAppBoundDomains: ["localhost", "alook.ai"],
+    UISupportedInterfaceOrientations: ["UIInterfaceOrientationPortrait"],
+    "UISupportedInterfaceOrientations~ipad": ["UIInterfaceOrientationPortrait"],
+    CFBundleURLTypes: [{ CFBundleURLName: "ai.alook", CFBundleURLSchemes: ["ai.alook"] }],
+  }
+  if (orientationKey) {
+    if (orientations) info[orientationKey] = orientations
+    else delete info[orientationKey]
+  }
+  return spawnSync("python3", ["-c", `
+import json
+import pathlib
+import plistlib
+import sys
+import tempfile
+import textwrap
+
+validator = textwrap.dedent(sys.argv[1])
+fixture = json.load(sys.stdin)
+with tempfile.TemporaryDirectory(prefix="alook-ipa-metadata-") as directory:
+    paths = [pathlib.Path(directory) / (name + ".plist") for name in ["info", "entitlements"]]
+    for name, path in zip(["info", "entitlements"], paths):
+        path.write_bytes(plistlib.dumps(fixture[name]))
+    sys.argv = ["ipa-metadata"] + [str(path) for path in paths]
+    exec(compile(validator, "mobile-release-ipa-metadata", "exec"))
+`, validator![1]], {
+    encoding: "utf8",
+    input: JSON.stringify({
+      info,
+      entitlements: {
+        "application-identifier": "5RF24VHDQB.ai.alook.ios",
+        "com.apple.developer.team-identifier": "5RF24VHDQB",
+        "com.apple.developer.associated-domains": ["applinks:auth.alook.ai"],
+        "aps-environment": "production",
+      },
+    }),
+  })
+}
+
 describe("Tauri startup release separation", () => {
   it("retains the complete main window and bounds only the release overlay", () => {
     expect(release.app.windows).toEqual(base.app.windows.map((window: object) => ({
@@ -49,6 +94,26 @@ describe("Tauri startup release separation", () => {
       expect(versions.length, plugin).toBeGreaterThan(0)
       for (const version of versions) expect(version, plugin).toBe(selected[0])
     }
+  })
+
+  it("accepts the final IPA metadata with portrait-only phone and tablet declarations", () => {
+    const result = verifyIosArtifact()
+    expect(result.error).toBeUndefined()
+    expect(result.status, result.stderr).toBe(0)
+  })
+
+  const invalidOrientations: [string, string, string[] | undefined][] = [
+    ["phone landscape", "UISupportedInterfaceOrientations", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft"]],
+    ["tablet landscape", "UISupportedInterfaceOrientations~ipad", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeRight"]],
+    ["tablet upside-down", "UISupportedInterfaceOrientations~ipad", ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"]],
+    ["missing phone", "UISupportedInterfaceOrientations", undefined],
+    ["missing tablet", "UISupportedInterfaceOrientations~ipad", undefined],
+  ]
+  it.each(invalidOrientations)("rejects final IPA metadata with %s declarations", (_name, key, orientations) => {
+    const result = verifyIosArtifact(key, orientations)
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/AssertionError|KeyError/)
   })
 
   it("does not require a generated plist on a fresh development checkout", () => {

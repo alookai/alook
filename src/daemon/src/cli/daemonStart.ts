@@ -13,6 +13,7 @@ import type { DaemonStatusSnapshot } from "../util/statusFile.js";
 import { resolveAlookCliPathWithFallback, detectRuntimes, type RuntimeInfo } from "../discovery.js";
 import { createLogger } from "../logger.js";
 import { readDaemonVersion } from "../version.js";
+import { withoutNpmExecPackage } from "../npmEnvironment.js";
 import { runPreparedDaemon, type DaemonReadyReceipt, type PreparedDaemon } from "./daemonRunner.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
@@ -1241,6 +1242,7 @@ function runnerArguments(): string[] {
 
 function spawnBlockedRunner(): ChildProcess {
   return spawn(process.execPath, runnerArguments(), {
+    env: withoutNpmExecPackage(process.env),
     detached: true,
     stdio: ["ignore", "ignore", "ignore", "ipc"],
   });
