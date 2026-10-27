@@ -54,7 +54,7 @@ export function ConnectDemo() {
         <div className={styles.mockTitle}><Laptop size={20} />Connect a machine</div>
         <div className={styles.mockSub}>Run this on your machine</div>
         <div className={styles.inviteUrl}>{pairingCommand}</div>
-        <div className={styles.mockFooter}><span className={styles.mockButton} data-copy><span data-copy-label>Copy</span><span data-copied hidden>Copied</span></span></div>
+        <div className={styles.mockFooter}><span className={styles.mockButton} data-copy><span data-copy-label>Copy</span><span data-copied style={{ display: "none" }}>Copied</span></span></div>
       </div>
     </div>
     <div data-demo-frame>

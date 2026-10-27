@@ -13,7 +13,8 @@ describe("tutorial action sequences", () => {
     try {
       timeline.time(3.9, false);
       expect(root.dataset.demoAction).toBe("copy-command");
-      expect(root.querySelector<HTMLElement>("[data-copied]")!.style.display).toBe("inline");
+      expect(root.querySelector("[data-copied]")).toBeVisible();
+      expect(root.querySelector("[data-copy-label]")).not.toBeVisible();
       timeline.time(6, false);
       expect(root.dataset.demoAction).toBe("paste-command");
       expect(root.querySelector<HTMLElement>("[data-command-text]")!.style.visibility).toBe("inherit");
@@ -23,7 +24,9 @@ describe("tutorial action sequences", () => {
       expect(root.dataset.demoAction).toBe("machine-online");
       timeline.restart().pause().time(0.1, false);
       expect(root.dataset.demoAction).toBe("open-connect");
+      expect(root.querySelector("[data-copy-label]")).not.toHaveAttribute("hidden");
       expect(root.querySelector<HTMLElement>("[data-copy-label]")!.style.display).toBe("inline");
+      expect(root.querySelector("[data-copied]")).not.toBeVisible();
     } finally { timeline.kill(); }
   });
   it("fills and submits Codex before starting Claude, then shows both bots", () => {
