@@ -31,6 +31,8 @@ No atomic transaction across D1 and Cloudflare is claimed. A publication PUT is 
 
 The original caller records `operation.putAcknowledged:true` in D1 only after its PUT returns a valid successful response. Missing means unknown. Recovery never infers that receipt from ownership tags or the confirming stage. After ownership matches, an application probe exception can end as `application_probe_failed` only with that durable acknowledgment: references remain, a new page has no ready URL, and an update retains the old active release. Explicit update/configure/destroy are then available. Without the acknowledgment, a probe exception reports `publication_probe_unconfirmed` and keeps the operation/prefix held. Losing the process before the receipt is durably recorded therefore stays conservative. Late callbacks remain fenced by operation ID and stage.
 
+The default native fetch is bound to globalThis before being stored as a provider method. Provider fetch uses Workers-supported `redirect:"manual"`. A3xx response is rejected without following its destination or forwarding the management header. Write redirects remain uncertain rather than being treated as completed/rejected publication proof. Native regression tests call the actual workerd global fetch with a controlled outbound provider; they cover argument validation, all management methods and non-following GET/PUT redirects.
+
 Recovery of a stopped operation before its PUT fences the old operation in D1, reports `publication_input_required` and permits an explicit `update` with the original/new artifact. A delayed pre-PUT caller must pass the operation guard before it can publish, so it cannot overwrite a later revision. Known rejected publications also allow an explicit new revision. Duplicate creates always conflict while the registration exists.
 
 Updates retain failed cleanup references. `recover` retries cleanup of recorded owned targets; deletion makes the public page unavailable before cleanup starts. Each pass processes at most16 references. Prefix reuse is allowed only after all references are confirmed absent and the D1 row is removed. A delayed deletion cannot affect a new registration because its UUID-based target differs. At64 retained references, new updates return `cleanup_required` until recovery reduces them; this bounds registry metadata rather than introducing a customer usage quota. Foreign objects are never overwritten or deleted.
@@ -131,6 +133,7 @@ Destroy registrations through the private manager and confirm native targets are
 ## Native contracts
 
 - [Worker RPC and streamed Request/Response transfer](https://developers.cloudflare.com/workers/runtime-apis/rpc/)
+- [Native Request redirect modes](https://developers.cloudflare.com/workers/runtime-apis/request/)
 - [Workers for Platforms publication API examples](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/reference/platform-examples/)
 - [Asset upload identity and serving MIME](https://developers.cloudflare.com/workers/static-assets/direct-upload/)
 - [Native static assets session and uploads](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/configuration/static-assets/)

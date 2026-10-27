@@ -32,7 +32,7 @@ export function owns(script: NativeScript, pageId: string, release: Release): bo
 
 export class CloudflareProvider implements Provider {
   private readonly base: string
-  constructor(private readonly config: Settings, private readonly token: string, private readonly request: typeof fetch = fetch) {
+  constructor(private readonly config: Settings, private readonly token: string, private readonly request: typeof fetch = fetch.bind(globalThis)) {
     this.base = `https://api.cloudflare.com/client/v4/accounts/${config.account}`
   }
 
@@ -46,7 +46,7 @@ export class CloudflareProvider implements Provider {
     if (contentType) headers.set("content-type", contentType)
     try {
       return await this.request(`${this.base}${path}`, {
-        method, headers, body, redirect: "error", signal: AbortSignal.timeout(this.config.timeoutMs),
+        method, headers, body, redirect: "manual", signal: AbortSignal.timeout(this.config.timeoutMs),
       })
     } catch {
       throw new ProviderError("provider_transport_error", method !== "GET")
@@ -56,7 +56,7 @@ export class CloudflareProvider implements Provider {
   private async result(response: Response, write: boolean): Promise<unknown> {
     if (!response.ok) {
       await response.body?.cancel()
-      throw new ProviderError(`provider_http_${response.status}`, write && (response.status >= 500 || response.status === 408 || response.status === 499))
+      throw new ProviderError(`provider_http_${response.status}`, write && (response.status >= 500 || response.status === 408 || response.status === 499 || (response.status >= 300 && response.status < 400)))
     }
     try {
       const bytes = await boundedBytes(response.body, 65_536)

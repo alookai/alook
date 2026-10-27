@@ -30,13 +30,13 @@ describe("native platform adapter", () => {
   })
   it("does not retry writes, marks transport/server/invalid success as uncertain", async () => {
     const value = await artifact()
-    for (const [response, uncertain] of [[new Response("private", { status: 400 }), false], [new Response("private", { status: 408 }), true], [new Response("private", { status: 499 }), true], [new Response("private", { status: 503 }), true], [ok({}), false]] as const) {
+    for (const [response, uncertain] of [[new Response("private", { status: 302 }), true], [new Response("private", { status: 307 }), true], [new Response("private", { status: 400 }), false], [new Response("private", { status: 408 }), true], [new Response("private", { status: 499 }), true], [new Response("private", { status: 503 }), true], [ok({}), false]] as const) {
       const request = vi.fn<typeof fetch>().mockResolvedValue(response)
       const promise = new CloudflareProvider(config, "token", request).publish("x", value, release, "page")
       if (response.ok) await promise
       else await expect(promise).rejects.toMatchObject({ uncertain })
       expect(request).toHaveBeenCalledTimes(1)
-      expect(request.mock.calls[0][1]?.redirect).toBe("error")
+      expect(request.mock.calls[0][1]?.redirect).toBe("manual")
       expect(request.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal)
     }
     const request = vi.fn<typeof fetch>().mockRejectedValue(new Error("secret network detail"))
