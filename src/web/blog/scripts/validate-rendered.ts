@@ -116,11 +116,11 @@ export function validateBlogBuild(blogRoot: string): void {
   const guidesIndex = readFileSync(resolve(serverRoot, "guides.html"), "utf8");
   samePosts("Blog index", articleLinks(mainIndex), mainSlugs);
   samePosts("Guides index", articleLinks(guidesIndex), guideSlugs);
-  const guideDocument = new JSDOM(guidesIndex).window.document;
-  const stepLinks = [...new Set([...guideDocument.querySelectorAll('a[href^="/guides/"]')].map((link) => link.getAttribute("href")!.slice(8)))];
+  const guideDocument = new JSDOM(readFileSync(resolve(serverRoot, "tutorials.html"), "utf8")).window.document;
+  const stepLinks = [...new Set([...guideDocument.querySelectorAll('a[href^="/tutorials/"]')].map((link) => link.getAttribute("href")!.slice(11)))];
   samePosts("Step guides index", stepLinks, stepGuides.map((guide) => guide.slug));
   for (const guide of stepGuides) {
-    const html = readFileSync(resolve(serverRoot, `guides/${guide.slug}.html`), "utf8");
+    const html = readFileSync(resolve(serverRoot, `tutorials/${guide.slug}.html`), "utf8");
     const failures = validateStepGuide(html, guide);
     if (failures.length) throw new Error(failures.join("\n"));
   }

@@ -43,11 +43,10 @@ describe("Guides directory", () => {
     expect(screen.queryByText("Coding guide")).not.toBeInTheDocument();
     expect(screen.queryByText("Team guide")).not.toBeInTheDocument();
   });
-  it("shows the registered step guide when there are no MDX guides", async () => {
+  it("renders the empty directory without inventing articles", async () => {
     vi.mocked(getAllPosts).mockResolvedValue([posts[2]]);
     render(await GuidesPage());
     expect(screen.getByRole("heading", { name: "Guides", level: 1 })).toBeVisible();
-    expect(screen.getByRole("link", { name: /Use Codex and Claude Code/ })).toHaveAttribute("href", "/guides/codex-and-claude-code");
-    expect(screen.queryByText("Main article")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });

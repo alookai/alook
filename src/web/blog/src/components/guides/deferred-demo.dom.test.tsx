@@ -33,6 +33,8 @@ describe("deferred guide demos", () => {
     const user = userEvent.setup();
     const view = render(<DeferredDemo scene="connect" label="Connection"><p>Static command</p></DeferredDemo>);
     expect(screen.getByText("Static command")).toBeVisible();
+    expect(screen.queryByText(/Illustrative demo/)).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Connection playback" })).toBeVisible();
     expect(scene.create).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Play Connection" })).toBeDisabled();
     await act(async () => intersect([{ isIntersecting: true }]));
@@ -66,5 +68,7 @@ describe("deferred guide demos", () => {
     await user.click(await screen.findByRole("button", { name: "Retry animation" }));
     await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
     expect(screen.getByText("Static command")).toBeVisible();
+    expect(screen.queryByText(/Illustrative demo/)).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Connection playback" })).toBeVisible();
   });
 });

@@ -4,6 +4,7 @@ import { ZoneLink } from "@/components/public-layout";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { getStepGuide, stepGuides } from "@/lib/step-guides";
 import { ConnectDemo, BotsDemo, InviteMock, SignInMock } from "@blog/components/guides/mock-scenes";
+import { Prerequisites } from "@blog/components/guides/prerequisites";
 import styles from "@blog/components/guides/guide.module.css";
 
 export const dynamicParams = false;
@@ -13,7 +14,7 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const guide = getStepGuide((await params).slug);
   if (!guide) notFound();
-  return buildPublicPageMetadata({ title: guide.title, description: guide.description, path: `/guides/${guide.slug}` });
+  return buildPublicPageMetadata({ title: guide.title, description: guide.description, path: `/tutorials/${guide.slug}` });
 }
 const steps = [
   ["sign-in", "Sign in to Alook"],
@@ -38,7 +39,7 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
   return <div className={styles.page}>
     <nav className={styles.breadcrumb} aria-label="Breadcrumb">
       <ZoneLink href="/" zone="blog">Home</ZoneLink><ChevronRight size={12} aria-hidden="true" />
-      <ZoneLink href="/guides" zone="blog">Guides</ZoneLink><ChevronRight size={12} aria-hidden="true" />
+      <ZoneLink href="/tutorials" zone="blog">Tutorials</ZoneLink><ChevronRight size={12} aria-hidden="true" />
       <span aria-current="page">Codex + Claude Code</span>
     </nav>
     <div className={styles.layout}>
@@ -46,11 +47,11 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
         <header className={styles.header}>
           <h1>{guide.title}</h1>
           <p className={styles.intro}>{guide.description}</p>
-          <p className={styles.prerequisites}><strong>Before you begin</strong><br />
+          <Prerequisites>
             Have Codex and Claude Code installed and signed in on your computer, plus Node.js and npm.
             Keep that computer online while your bots work.{" "}
             Setup: <a href="https://learn.chatgpt.com/docs/cli">Codex</a> and <a href="https://support.claude.com/en/articles/14552382-your-first-day-in-claude-code">Claude Code</a>.
-          </p>
+          </Prerequisites>
         </header>
         <details className={styles.mobileContents}><summary>On this page<ChevronDown size={14} /></summary><Contents /></details>
         <section id="sign-in" className={styles.step}>
@@ -86,7 +87,7 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
           <p>Open a channel both bots can access. Mention them by name and give them one task. You could start with:</p>
           <blockquote className={styles.sample}>“Agree on who will make the change and who will review it. Wait for my task.”</blockquote>
           <p>Choose your bots’ actual @mentions when you send the message. Their replies stay in the shared conversation, ready for you to review.</p>
-          <div className={styles.actions}><ZoneLink href="/c" zone="blog" className={styles.cta}>Open Alook<ArrowRight size={16} /></ZoneLink><ZoneLink href="/guides" zone="blog">Back to Guides</ZoneLink></div>
+          <div className={styles.actions}><ZoneLink href="/c" zone="blog" className={styles.cta}>Open Alook<ArrowRight size={16} /></ZoneLink><ZoneLink href="/tutorials" zone="blog">Back to Tutorials</ZoneLink></div>
         </section>
       </article>
       <nav className={styles.contents} aria-label="On this page"><p>On this page</p><Contents /></nav>

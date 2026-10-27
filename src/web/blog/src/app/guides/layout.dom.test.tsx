@@ -29,7 +29,7 @@ describe("Guides layout", () => {
     const footer = within(screen.getByRole("contentinfo"));
     const navigation = within(footer.getByRole("navigation", { name: "Footer navigation" }));
     expect(navigation.getAllByRole("link").map((link) => link.getAttribute("href")))
-      .toEqual(["/templates", "/blog", "/guides", "/llms.txt", "/privacy"]);
+      .toEqual(["/templates", "/blog", "/guides", "/tutorials", "/llms.txt", "/privacy"]);
     expect(navigation.getByRole("link", { name: "Blog", exact: true })).toHaveAttribute("data-next-link", "true");
     for (const name of ["Templates", "llms.txt", "Privacy"]) {
       expect(navigation.getByRole("link", { name, exact: true })).not.toHaveAttribute("data-next-link");

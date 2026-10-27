@@ -74,6 +74,7 @@ describe("Blog build gate", () => {
       put(".next/server/app/blog/feed.xml.body", "<rss><channel><item><link>https://alook.ai/blog/example</link></item></channel></rss>");
       put(".next/server/app/blog.html", '<a href="/blog/example">Example</a>');
       put(".next/server/app/guides.html", "<h1>Guides</h1>");
+      put(".next/server/app/tutorials.html", "<h1>Tutorials</h1>");
       expect(() => validateBlogBuild(root)).not.toThrow();
       put(".next/server/app/blog/example.html", html.replace("<h1>Example</h1>", ""));
       expect(() => validateBlogBuild(root)).toThrow("one H1");

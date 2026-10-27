@@ -13,7 +13,8 @@ const blogRoutes = {
 }
 const blogAppPaths = {
   "/guides/page": "guides.js",
-  "/guides/[slug]/page": "step-guide.js",
+  "/tutorials/page": "tutorials.js",
+  "/tutorials/[slug]/page": "step-guide.js",
   "/_not-found/page": "not-found.js",
   "/blog/(index)/page": "index.js",
   "/blog/[slug]/page": "post.js",
@@ -23,6 +24,12 @@ const blogAppPaths = {
 }
 
 describe("zone output verifier", () => {
+  it("requires every registered tutorial to be prerendered", () => {
+    const fixture = { mainAppPaths: { "/(home)/page": "home.js" }, mainRoutes, blogAppPaths, blogRoutes, blogPrerender: { routes: {} }, postSlugs: [], guideSlugs: ["two-agents"] };
+    expect(() => verifyZoneManifests(fixture)).toThrow("missing step guide two-agents");
+    expect(() => verifyZoneManifests({ ...fixture, blogPrerender: { routes: { "/tutorials/two-agents": {} } } })).not.toThrow();
+  })
+
   it("accepts disjoint main and Blog route inventories", () => {
     expect(() => verifyZoneManifests({
       mainAppPaths: { "/(home)/page": "home.js", "/api/health/route": "health.js" },

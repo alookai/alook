@@ -4,12 +4,12 @@ const { JSDOM } = createRequire(import.meta.url)("jsdom") as { JSDOM: new (html:
 export function validateStepGuide(html: string, guide: { slug: string; title: string }): string[] {
   const doc = new JSDOM(html).window.document;
   const errors: string[] = [];
-  const check = (valid: unknown, message: string) => { if (!valid) errors.push(`/guides/${guide.slug}: ${message}`); };
+  const check = (valid: unknown, message: string) => { if (!valid) errors.push(`/tutorials/${guide.slug}: ${message}`); };
   check(doc.querySelectorAll("h1").length === 1 && doc.querySelector("h1")?.textContent === guide.title, "expected one matching H1");
   check(doc.querySelector("title")?.textContent?.includes(guide.title), "missing title");
   check(doc.querySelector('meta[name="description"]')?.getAttribute("content"), "missing description");
   const canonicals = doc.querySelectorAll('link[rel="canonical"]');
-  check(canonicals.length === 1 && canonicals[0].getAttribute("href") === `https://alook.ai/guides/${guide.slug}`, "invalid canonical");
+  check(canonicals.length === 1 && canonicals[0].getAttribute("href") === `https://alook.ai/tutorials/${guide.slug}`, "invalid canonical");
   check(doc.querySelector('meta[property="og:image"]')?.getAttribute("content"), "missing social image");
   check(!doc.querySelector('meta[name="robots"]')?.getAttribute("content")?.includes("noindex"), "noindex");
   const article = doc.querySelector("[data-step-guide]");

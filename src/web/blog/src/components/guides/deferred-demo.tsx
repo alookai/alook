@@ -85,9 +85,9 @@ export function DeferredDemo({ scene, label, children }: { scene: keyof typeof l
   const enabled = ["ready", "playing", "paused", "ended"].includes(status);
   return (
     <figure className={styles.demo} aria-label={label} data-guide-demo={scene} data-demo-status={status}>
+      <noscript><style>{`.${styles.stage}{height:auto!important}.${styles.stage} [data-demo-frame]{position:relative;inset:auto;visibility:visible;opacity:1}.${styles.demoCaption}{display:none}`}</style></noscript>
       <div ref={root} className={styles.stage} aria-hidden="true">{children}</div>
-      <figcaption className={styles.demoCaption}>
-        <span>Illustrative demo · waiting time shortened</span>
+      <div className={styles.demoCaption} role="group" aria-label={`${label} playback`}>
         <div className={styles.controls}>
           {status === "failed" ? <button onClick={() => load.current()}>Retry animation</button> :
             <button disabled={!enabled} aria-label={status === "playing" ? `Pause ${label}` : `Play ${label}`} onClick={() => {
@@ -96,7 +96,7 @@ export function DeferredDemo({ scene, label, children }: { scene: keyof typeof l
             }}>{status === "playing" ? <Pause size={14} /> : <Play size={14} />}<span>{status === "playing" ? "Pause" : "Play"}</span></button>}
           <button disabled={!enabled} aria-label={`Replay ${label}`} onClick={() => play(true)}><RotateCcw size={14} /><span>Replay</span></button>
         </div>
-      </figcaption>
+      </div>
     </figure>
   );
 }
