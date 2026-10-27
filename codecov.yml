@@ -9,6 +9,10 @@ coverage:
         target: 70%
         paths:
           - src/email-worker/**
+      pages:
+        target: 70%
+        paths:
+          - src/pages/**
       ws-do:
         target: 70%
         paths:

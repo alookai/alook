@@ -1,0 +1,35 @@
+{
+  "name": "alook-pages-test",
+  "vars": {
+    "CF_ACCOUNT_ID": "00000000000000000000000000000000",
+    "CF_NAMESPACE": "test",
+    "BASE_DOMAIN": "alook.page",
+    "PAGE_CPU_MS": "1000",
+    "PAGE_SUBREQUESTS": "100",
+    "UPLOAD_MAX_BYTES": "16777216",
+    "FILE_MAX_BYTES": "8388608",
+    "UPLOAD_MAX_FILES": "128",
+    "CF_TIMEOUT_MS": "30000",
+    "RESERVED_EXACT": "",
+    "RESERVED_PREFIXES": "",
+    "SENSITIVE_EXACT": "",
+    "SENSITIVE_PREFIXES": ""
+  },
+  "dispatch_namespaces": [],
+  "d1_databases": [
+    {
+      "binding": "REGISTRY",
+      "database_name": "alook-pages-test",
+      "database_id": "00000000-0000-0000-0000-000000000050",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "preview_urls": false
+}

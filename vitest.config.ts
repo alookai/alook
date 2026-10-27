@@ -12,6 +12,8 @@ export default defineConfig({
       "src/email-worker",
       "src/ws-do",
       "src/queue-worker",
+      "src/pages",
+      "src/pages/vitest.runtime.config.mts",
       "src/app",
       "tests/utils",
       "scripts/ci",

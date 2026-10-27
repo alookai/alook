@@ -1,0 +1,20 @@
+{
+  "prefix": "qa50-python",
+  "compatibilityDate": "2026-10-19",
+  "compatibilityFlags": [],
+  "variables": {
+    "MESSAGE": "pages QA"
+  },
+  "files": [
+    {
+      "part": "code",
+      "path": "entry.py",
+      "role": "module",
+      "type": "text/x-python"
+    }
+  ],
+  "entry": {
+    "path": "entry.py",
+    "format": "python"
+  }
+}

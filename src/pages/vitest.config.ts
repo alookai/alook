@@ -1,0 +1,6 @@
+import { defineConfig, mergeConfig } from "vitest/config"
+import shared from "../../vitest.shared"
+
+export default mergeConfig(shared, defineConfig({
+  test: { name: "pages-node", include: ["src/**/*.test.ts"], sequence: { groupOrder: 1 } },
+}))

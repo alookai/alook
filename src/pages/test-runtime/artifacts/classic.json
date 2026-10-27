@@ -1,0 +1,20 @@
+{
+  "prefix": "qa50-classic",
+  "compatibilityDate": "2026-10-19",
+  "compatibilityFlags": [],
+  "variables": {
+    "MESSAGE": "pages QA"
+  },
+  "files": [
+    {
+      "part": "code",
+      "path": "classic.js",
+      "role": "module",
+      "type": "application/javascript"
+    }
+  ],
+  "entry": {
+    "path": "classic.js",
+    "format": "classic"
+  }
+}

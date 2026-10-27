@@ -1,0 +1,26 @@
+{
+  "prefix": "qa50-python-requirement",
+  "compatibilityDate": "2026-10-19",
+  "compatibilityFlags": [],
+  "variables": {
+    "MESSAGE": "pages QA"
+  },
+  "files": [
+    {
+      "part": "code",
+      "path": "entry.py",
+      "role": "module",
+      "type": "text/x-python"
+    },
+    {
+      "part": "requirement",
+      "path": "numpy",
+      "role": "module",
+      "type": "text/x-python-requirement"
+    }
+  ],
+  "entry": {
+    "path": "entry.py",
+    "format": "python"
+  }
+}
