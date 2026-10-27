@@ -9,7 +9,7 @@ import type {
   PersistedClient,
   Persister,
 } from "@tanstack/react-query-persist-client"
-import { createStore, promisifyRequest } from "idb-keyval"
+import { createStore, get, promisifyRequest } from "idb-keyval"
 import { isCommunityListResourceKey, persistentCommunityListResource } from "@/lib/community/list-persistence"
 import {
   communityCollectionSchemas,
@@ -337,6 +337,10 @@ async function cacheTransaction<T>(
   })
 }
 
+export function preparePersistedCache(): Promise<void> {
+  return cacheTransaction("readonly", async () => undefined)
+}
+
 async function readEligibility(store: IDBObjectStore, key: string, userId: string | null) {
   const [device, scope, account, channels] = await Promise.all([
     promisifyRequest<unknown>(store.get(DEVICE_EPOCH_KEY)),
@@ -350,7 +354,7 @@ async function readEligibility(store: IDBObjectStore, key: string, userId: strin
 // Qualification starts when the account owner is created, before restore or
 // any throttled persistence. Missing/corrupt eligibility never revives an old
 // writer or trusts its payload; generation tombstones survive payload removal.
-function qualifyPersister(key: string, userId: string | null): Promise<PersistEligibility> {
+function qualifyPersister(key: string, userId: string | null, captureSnapshot: (raw: string, decoded: NonNullable<ReturnType<typeof decodeDiskSnapshot>>) => void): Promise<PersistEligibility> {
   return cacheTransaction("readwrite", async (store) => {
     await clearAccountRows(store, userId, true)
     const raw = await promisifyRequest<unknown>(store.get(key))
@@ -360,7 +364,8 @@ function qualifyPersister(key: string, userId: string | null): Promise<PersistEl
     const account = intact ? current.account as string : crypto.randomUUID()
     const channels = intact ? current.channels as Map<string, ChannelDiskFence> : new Map<string, ChannelDiskFence>()
     const currentScope = communityScopeEpoch(current.scope)
-    const compatiblePayload = raw === undefined || Boolean(decodeDiskSnapshot(raw))
+    const decoded = decodeDiskSnapshot(raw)
+    const compatiblePayload = raw === undefined || Boolean(decoded)
     let scope = currentScope && compatiblePayload ? currentScope : crypto.randomUUID()
     if (!intact) {
       for (const domain of ["community", "application"] as const) {
@@ -376,6 +381,7 @@ function qualifyPersister(key: string, userId: string | null): Promise<PersistEl
     if (!isEpoch(current.device) || !currentScope || !compatiblePayload) store.delete(key)
     if (!isEpoch(current.device)) store.put(device, DEVICE_EPOCH_KEY)
     store.put({ version: PERSIST_VERSION, epoch: scope }, scopeEpochKey(key))
+    if (intact && isEpoch(current.device) && currentScope && decoded && typeof raw === "string") captureSnapshot(raw, decoded)
     return { device, scope, account, channels }
   })
 }
@@ -399,17 +405,16 @@ async function withEligiblePersister<T>(
 /** Native TanStack persister, qualified against durable device/account epochs. */
 export function createIdbPersister(userId: string | null): QualifiedPersister {
   const key = blobKeyFor(userId)
-  const eligibility = qualifyPersister(key, userId)
+  let initialSnapshot: { raw: string; decoded: NonNullable<ReturnType<typeof decodeDiskSnapshot>> } | undefined
+  let captureInitialSnapshot = true
+  const discardInitialSnapshot = () => { captureInitialSnapshot = false; initialSnapshot = undefined }
+  const eligibility = qualifyPersister(key, userId, (raw, decoded) => { if (captureInitialSnapshot) initialSnapshot = { raw, decoded } })
   // An unavailable IDB must also fail restore through the provider's onError;
   // attach a handler immediately so qualification cannot reject unobserved.
   void eligibility.catch(() => undefined)
-  const persister = createAsyncStoragePersister({
+  const writer = createAsyncStoragePersister({
     storage: {
-      getItem: () => observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readwrite", null, async (store, current) => {
-        const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
-        if (!decoded) store.delete(key)
-        return decoded ? JSON.stringify(scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(current, decoded.fences))) : null
-      }), persister),
+      getItem: (get<string>).bind(undefined, key, cacheStore),
       setItem: (_k: string, value: string) => withEligiblePersister(
         key, userId, eligibility, "readwrite", undefined, async (store, current, expected) => {
           const snapshot = scrubDehydratedClient(JSON.parse(value) as PersistedClient, userId, changedChannelFences(current, expected))
@@ -424,12 +429,31 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
     },
     key: "alook-query-cache",
     serialize: (client) => JSON.stringify(scrubDehydratedClient(client, userId)),
-    deserialize: (raw) => observeRestoreDecode(persister, () => scrubDehydratedClient(JSON.parse(raw) as PersistedClient, userId), PERSIST_BUSTER, PERSIST_MAX_AGE_MS),
   })
+  const persister: Persister = {
+    persistClient: (client) => { discardInitialSnapshot(); return writer.persistClient(client) },
+    restoreClient: async () => {
+      try {
+        const input = await observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readwrite", undefined, async (store, current) => {
+          const raw = await promisifyRequest<unknown>(store.get(key))
+          const decoded = initialSnapshot && initialSnapshot.raw === raw ? initialSnapshot.decoded : decodeDiskSnapshot(raw)
+          discardInitialSnapshot()
+          if (!decoded) { store.delete(key); return undefined }
+          return { ...decoded, retired: changedChannelFences(current, decoded.fences) }
+        }), persister)
+        return input && observeRestoreDecode(persister, () => scrubDehydratedClient(input.snapshot, userId, input.retired), PERSIST_BUSTER, PERSIST_MAX_AGE_MS)
+      } finally { discardInitialSnapshot() }
+    },
+    removeClient: () => { discardInitialSnapshot(); return writer.removeClient() },
+  }
   return Object.assign(persister, {
     isCurrent: () => withEligiblePersister(key, userId, eligibility, "readonly", false, async () => true),
-    retireChannels: (ids: Iterable<string>, deleted = false) => withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, deleted)),
+    retireChannels: (ids: Iterable<string>, deleted = false) => {
+      discardInitialSnapshot()
+      return withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, deleted))
+    },
     retireAccount: async () => {
+      discardInitialSnapshot()
       const retired = await withEligiblePersister(key, userId, eligibility, "readwrite", false, async (store) => { await clearAccountRows(store, userId); return true })
       if (retired) publishCacheInvalidation()
     },
@@ -447,16 +471,16 @@ async function clearAccountRows(store: IDBObjectStore, userId: string | null, le
     }
   }
   await new Promise<void>((resolve, reject) => {
-    const request = store.openCursor()
+    const request = store.openKeyCursor()
     request.onerror = () => reject(request.error)
     request.onsuccess = () => {
       const cursor = request.result
       if (!cursor) { resolve(); return }
       const match = typeof cursor.key === "string" && /^(alook:qc:[^:]+):([^:]+):((?:application:)?client(?::epoch)?|account-epoch(?::channels)?)$/.exec(cursor.key)
       if (match && match[2] === (userId ?? "anon") && (!legacyOnly || match[1] !== IDB_PREFIX)) {
-        if (match[3] === "account-epoch:channels") cursor.update(new Map())
-        else if (match[3]?.endsWith("epoch")) cursor.update(crypto.randomUUID())
-        else cursor.delete()
+        if (match[3] === "account-epoch:channels") store.put(new Map(), cursor.key)
+        else if (match[3]?.endsWith("epoch")) store.put(crypto.randomUUID(), cursor.key)
+        else store.delete(cursor.key)
       }
       cursor.continue()
     }
