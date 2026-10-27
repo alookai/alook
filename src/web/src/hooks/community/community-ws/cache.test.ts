@@ -17,21 +17,20 @@ describe("community WS canonical publication and ID windows", () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")
     ingestMessages(registry, "ch_1", [{ id: "m_1", content: "one" }])
     const row = registry.collections.messages.get("m_1"), cache = pageCache([{ id: "m_1" }])
-    projectCommunityWsEventToDb(client, { type: "community:message.edited", channelId: "ch_1", messageId: "missing", content: "New" })
+    projectCommunityWsEventToDb(client, { type: "community:reaction.add", channelId: "ch_1", messageId: "missing", emoji: "👍", userId: "peer" })
     expect(registry.collections.messages.get("m_1")).toBe(row)
     expect(registry.collections.messages.has("missing")).toBe(false)
     expect(removeThreadFromCache(undefined, "missing", "missing")).toBeUndefined()
     expect(removeThreadFromCache(cache, "missing", "missing")).toBe(cache)
   })
-  it("patches canonical approval and content while preserving non-target rows", async () => {
+  it("patches canonical approval while preserving non-target rows", async () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")
     ingestMessages(registry, "ch_1", [{ id: "m_1", content: "one" }, { id: "m_2", content: "two" }])
     const other = registry.collections.messages.get("m_2")
     const profile = { id: "u_1", name: "User", discriminator: "0001", image: null, avatarVersion: 0 }
     const approval = { friendshipId: "friendship_1", status: "approved" as const, waitingOn: null, otherProfile: profile, botProfile: { ...profile, id: "bot_1" } }
     projectCommunityWsEventToDb(client, { type: "community:message.updated", channelId: "ch_1", messageId: "m_1", approval })
-    projectCommunityWsEventToDb(client, { type: "community:message.edited", channelId: "ch_1", messageId: "m_1", content: "edited" })
-    expect(registry.collections.messages.get("m_1")).toMatchObject({ content: "edited", approval })
+    expect(registry.collections.messages.get("m_1")).toMatchObject({ content: "one", approval })
     expect(registry.collections.messages.get("m_2")).toBe(other)
   })
   it("evicts the proved opener ID across pages without changing sibling windows or page parameters", () => {

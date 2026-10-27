@@ -1,7 +1,7 @@
 "use client"
 
 import { useConversationPresentation } from "@/contexts/community/conversation-activity"
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityLegacyThreadsRead, type CommunityThreadsRead } from "@alook/shared"
@@ -13,13 +13,14 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityForumFeed } from "@/lib/community-db/sync"
-import { forumTagFromUrl, readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
+import { forumTagFromUrl, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import type { ForumThread, Msg } from "@/lib/community/models/message"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { channelHref } from "@/lib/community/community-route"
 import { currentPageObservation, navigationForHref } from "@/lib/observability/context"
 import { useForumTags } from "./use-channel-panels"
+import { useStoredForumTag } from "./use-stored-forum-tag"
 import { useConversationResource } from "./use-conversation-entry"
 import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectThread, type ForumFeedPage, type ForumFeedTransportPage } from "./forum-feed-window"
 
@@ -103,20 +104,20 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
 export function useForumFeed(serverId: string, channelId: string, options?: { routeTag?: string | null; onSelectTag?: (tag: string) => void }) {
   const presented = useConversationPresentation()
   const queryClient = useQueryClient(), channels = useCanonicalChannelsById(), profiles = useCanonicalProfilesByUserId()
-  const readTag = () => { try { return readForumTagSelection(window.localStorage, channelId) } catch { return "All" } }
-  const subscribeTag = useCallback((notify: () => void) => { window.addEventListener("storage", notify); return () => window.removeEventListener("storage", notify) }, [])
-  const persistedTag = useSyncExternalStore(subscribeTag, readTag, (): string | null => null)
+  const persistedTag = useStoredForumTag(channelId)
   const routeTag = forumTagFromUrl(options?.routeTag)
-  const [selection, setSelection] = useAtom(useCreateAtom({ channelId: null as string | null, tag: "All" }))
-  const resolvedTag = routeTag ?? (selection.channelId === channelId ? selection.tag : persistedTag)
+  const [fallbackSelection, setFallbackSelection] = useAtom(useCreateAtom<{ channelId: string | null; tag: string }>({ channelId: null, tag: "All" }))
+  const resolvedTag = routeTag ?? (fallbackSelection.channelId === channelId ? fallbackSelection.tag : persistedTag)
   const selectionReady = resolvedTag !== null
   const tag = resolvedTag ?? "All"
   const onSelectTag = options?.onSelectTag
   const selectTag = useCallback((next: string) => {
-    setSelection({ channelId, tag: next })
-    try { writeForumTagSelection(window.localStorage, channelId, next) } catch {}
+    try {
+      writeForumTagSelection(window.localStorage, channelId, next)
+      setFallbackSelection({ channelId: null, tag: "All" })
+    } catch { setFallbackSelection({ channelId, tag: next }) }
     onSelectTag?.(next)
-  }, [channelId, setSelection, onSelectTag])
+  }, [channelId, onSelectTag, setFallbackSelection])
   const tagsQuery = useForumTags(channelId, presented)
   const pendingTagCommands = useIsMutating({ mutationKey: ["community", "forum-tag-command"], exact: true, predicate: (mutation) => {
     const args = mutation.state.variables as { serverId?: string; forumChannelId?: string } | undefined

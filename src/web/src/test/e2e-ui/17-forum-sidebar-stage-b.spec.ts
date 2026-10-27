@@ -149,22 +149,37 @@ test.describe("forum sidebar Stage B request shape", () => {
     const { serverId, threadId, forumTitle } = await prepareCase1(actors)
 
     const { page } = await asUser("alice")
+    const readRequests: string[] = []
     const requests: string[] = []
     const successfulResponses: string[] = []
-    page.on("request", request => { if (request.method() === "GET") requests.push(request.url()) })
+    page.on("request", request => {
+      if (request.method() === "GET") requests.push(request.url())
+      if (request.method() === "PUT" && new URL(request.url()).pathname === `/api/community/channels/${threadId}/read`) readRequests.push(request.url())
+    })
     page.on("response", response => { if (response.request().method() === "GET" && response.ok()) successfulResponses.push(response.url()) })
     for (const refresh of [false, true]) {
       const entryGate = await holdRoute(page, url => isConversationEntryRequest(url.href, threadId), caseResources)
+      const sidebarGate = !refresh ? await holdRoute(page, url => isSidebarRequest(url.href, serverId), caseResources) : null
+      readRequests.length = 0
       requests.length = 0
       successfulResponses.length = 0
       const combined = page.waitForResponse(response => response.ok() && isSidebarRequest(response.url(), serverId))
       if (refresh) await page.reload({ waitUntil: "commit" })
       else await page.goto(`/c/channels/${serverId}/${threadId}`)
+      await expect.poll(entryGate.held).toBe(1)
+      if (sidebarGate) {
+        await expect.poll(sidebarGate.held).toBe(1)
+        await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
+        await expect(page.getByText("post body", { exact: true })).toHaveCount(0)
+        await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible()
+        await sidebarGate.release()
+      }
       await combined
       await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
       await expect.poll(entryGate.held).toBe(1)
       await expect(childPanel(page).getByText("post body", { exact: true })).toHaveCount(0)
-      await expect(childPanel(page).getByTestId(tid.composerInput)).toHaveCount(0)
+      await expect(childPanel(page).getByTestId(tid.composerInput)).toBeVisible()
+      expect(readRequests).toEqual([])
       await entryGate.release()
       await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
       await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })

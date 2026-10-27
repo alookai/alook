@@ -65,13 +65,13 @@ describe("Community browser event runtime contract", () => {
   const fixtures = Object.values(communityWsEventFixtures)
   const names = Object.values(WS_EVENTS).sort()
 
-  it("locks the exact 49-event inventory", () => {
-    expect(names).toHaveLength(49)
+  it("locks the exact 48-event inventory", () => {
+    expect(names).toHaveLength(48)
     expect(Object.keys(communityWsEventFixtures).sort()).toEqual(names)
     expect(Object.keys(requiredFixturePaths).sort()).toEqual(names)
   })
 
-  it("decodes and canonically encodes all 49 current event fixtures", () => {
+  it("decodes and canonically encodes all 48 current event fixtures", () => {
     for (const fixture of fixtures) {
       expect(decodeCommunityBrowserEvent(fixture)).toEqual({ ok: true, event: fixture })
       const encoded = encodeCommunityBrowserEvent(fixture)
@@ -166,7 +166,7 @@ describe("Community browser event runtime contract", () => {
       messageId: "message",
       content: "title",
       parentChannelId: "forum",
-    })).toMatchObject({ reason: "invalid-payload" })
+    })).toMatchObject({ reason: "unknown-community-type" })
   })
 
   it("keeps exact and candidate guards distinct", () => {

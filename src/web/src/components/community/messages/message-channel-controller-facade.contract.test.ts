@@ -28,7 +28,6 @@ type ExpectedMessageActions = {
   onMark: (id: string) => void
   onCreateThread: (id: string) => Promise<void>
   onCopy: (id: string) => void
-  onEdit: (id: string) => void
   onRetry: (id: string) => void
   onDismiss: (id: string) => void
   onPreviewImage: (image: ImagePreview) => void
@@ -130,7 +129,6 @@ describe("MessageChannelController facade contract", () => {
       "usePinMessage()",
       "useUnpinMessage()",
       "useToggleMark()",
-      "useEditMessage()",
       "useCreateThread()",
       "useUploadFile()",
       "useTypingUsersForScope(`ch:${channelId}`)",

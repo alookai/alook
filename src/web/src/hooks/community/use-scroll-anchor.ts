@@ -154,6 +154,7 @@ export function useScrollAnchor({
   const fingerprint = useMemo(() => virtualListLayoutFingerprint(items), [items])
   const [initialSnapshot] = useState(() => scrollToMessageId ? null : readVirtualListPosition(positionScope, fingerprint))
   const restorationRef = useRef(initialSnapshot)
+  const snapshotReadRef = useRef(initialSnapshot !== null || !!scrollToMessageId)
   const snapshotContextRef = useRef({ scope: positionScope, fingerprint })
   const virtualizerRef = useRef<ReactVirtualizer<HTMLDivElement, Element> | null>(null)
   const positionOwnerRef = useRef({ epoch: 0, active: true })
@@ -698,6 +699,7 @@ export function useScrollAnchor({
     finishPosition("entry_changed")
     claimPosition("initial")
     entryResolvedRef.current = false
+    snapshotReadRef.current = initialRetiredRef.current
     initialRetiredRef.current = false
     setPositionOutcome("pending")
     restorationRef.current = null
@@ -1222,6 +1224,10 @@ export function useScrollAnchor({
     if (dataState === "pending" && !initialScrollReady) return
     if (positionKind.get() !== "initial" || initialRetiredRef.current || !hasMessages) return
     if (!entryResolvedRef.current) {
+      if (!snapshotReadRef.current) {
+        snapshotReadRef.current = true
+        restorationRef.current = scrollToMessageId ? null : readVirtualListPosition(positionScope, fingerprint)
+      }
       const snapshot = restorationRef.current
       const root = scrollRef.current
       if (snapshot && (!root || root.clientWidth <= 0 || root.clientHeight <= 0)) return
@@ -1240,7 +1246,7 @@ export function useScrollAnchor({
         startIntent(initialPositionMessageId ? "target" : newDividerBefore ? "unread" : "end", initialPositionMessageId ?? newDividerBefore ?? null)
       }
     } else scheduleInitialPositionSettled()
-  }, [dataState, targetDataState, fingerprint, hasMessages, initialPositionMessageId, initialScrollReady, items, newDividerBefore, positionEntry, positionKind, releasePosition, scheduleInitialPositionSettled, setReadPositionReady, startIntent, tailPaddingEnd, virtualItems, virtualizer, visible])
+  }, [dataState, targetDataState, fingerprint, hasMessages, initialPositionMessageId, initialScrollReady, items, newDividerBefore, positionEntry, positionScope, positionKind, scrollToMessageId, releasePosition, scheduleInitialPositionSettled, setReadPositionReady, startIntent, tailPaddingEnd, virtualItems, virtualizer, visible])
 
   const scrollToBottom = useCallback(() => {
     if (!positionOwnerRef.current.active || !contextRef.current.visible) return

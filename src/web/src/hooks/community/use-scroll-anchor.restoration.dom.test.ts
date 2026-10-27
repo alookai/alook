@@ -54,6 +54,47 @@ describe("native snapshot restoration and one-shot late unread ownership", () =>
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
+  it.each([false, true])("restores 600px from tail when cached rows arrive after the initial mount (StrictMode=%s)", async strict => {
+    const { client } = await createCommunityQueryOwner()
+    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
+    const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
+    const first = mount({ positionScope, items }, strict)
+    first.move(first.root.scrollHeight - first.root.clientHeight - 600)
+    resize()
+    const snapshot = client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))!
+    const id = String(snapshot.anchorKey).slice(4)
+    const before = bodyTop(first.root, id)
+    const offset = first.root.scrollTop
+    expect(first.root.scrollHeight - first.root.clientHeight - offset).toBe(600)
+    first.view.unmount()
+    const returned = mount({ positionScope, items: [], initialScrollReady: false, positionDataState: "pending" }, strict)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(client.getQueryData(virtualListPositionKey(positionScope))).toBe(snapshot)
+    returned.update({ items, initialScrollReady: true, positionDataState: "ready" })
+    expect(returned.root.scrollTop).toBeCloseTo(offset, 0)
+    expect(bodyTop(returned.root, id)).toBeCloseTo(before, 0)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+
+  it("does not restore a late snapshot after real manual takeover", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
+    const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
+    const first = mount({ positionScope, items })
+    first.move(800)
+    first.view.unmount()
+    const returned = mount({ positionScope, items: [], initialScrollReady: false, positionDataState: "pending" })
+    const jump = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    fireEvent.wheel(returned.root, { deltaY: -10 })
+    returned.update({ items, initialScrollReady: true, positionDataState: "pending" })
+    expect(jump).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.positionOutcome).toBe("user-cancelled")
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    returned.update({ positionDataState: "ready" })
+    expect(jump).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+
   it.each(["other-channel", "other-account", "changed-rows", "changed-width", "explicit-target"] as const)("does not restore stale pixels for %s", async mode => {
     const { client } = await createCommunityQueryOwner()
     const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }

@@ -14,7 +14,6 @@ import type {
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import {
   handleMessageCreate,
-  handleMessageEdited,
   handleMessageUpdated,
   handlePinEvent,
   handleReactionEvent,
@@ -71,7 +70,6 @@ type CommunityWsRegistry = { [T in CommunityEventType]: RegistryEntry<T> }
 export const communityWsRegistry = {
   "community:message.create": { handler: handleMessageCreate, reconnectPolicies: ["focused-messages", "inbox-dms"] },
   "community:message.updated": { handler: handleMessageUpdated, reconnectPolicies: ["focused-messages", "friends"] },
-  "community:message.edited": { handler: handleMessageEdited, reconnectPolicies: ["focused-messages", "focused-opener", "focused-threads", "all-cached-servers"] },
   "community:reaction.add": { handler: handleReactionEvent, reconnectPolicies: ["focused-messages", "focused-opener"] },
   "community:reaction.remove": { handler: handleReactionEvent, reconnectPolicies: ["focused-messages", "focused-opener"] },
   "community:pin.add": { handler: handlePinEvent, reconnectPolicies: ["focused-messages", "focused-pins"] },

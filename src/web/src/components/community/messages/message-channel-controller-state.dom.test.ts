@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => {
   }
   const messageActions = {
     onToggleReaction: vi.fn(), onReact: vi.fn(), onReply: vi.fn(), onPin: vi.fn(),
-    onMark: vi.fn(), onCreateThread: vi.fn(async () => {}), onCopy: vi.fn(), onEdit: vi.fn(),
+    onMark: vi.fn(), onCreateThread: vi.fn(async () => {}), onCopy: vi.fn(),
     onRetry: vi.fn(), onDismiss: vi.fn(), onPreviewImage: vi.fn(),
     onPreviewAttachment: vi.fn(),
   }
@@ -46,7 +46,6 @@ const mocks = vi.hoisted(() => {
     pinMutation: vi.fn(),
     unpinMutation: vi.fn(),
     markMutation: vi.fn(),
-    editMutation: vi.fn(),
     threadMutation: vi.fn(),
     uploadMutation: vi.fn(),
     typingScopes: { users: [] as string[], names: [] as string[] },
@@ -97,7 +96,6 @@ vi.mock("@/hooks/community/mutations", () => ({
   usePinMessage: () => { mocks.order.push("pin"); return { mutate: mocks.pinMutation } },
   useUnpinMessage: () => { mocks.order.push("unpin"); return { mutate: mocks.unpinMutation } },
   useToggleMark: () => { mocks.order.push("mark"); return mocks.markMutation },
-  useEditMessage: () => { mocks.order.push("edit"); return { mutate: mocks.editMutation } },
   useCreateThread: () => { mocks.order.push("thread"); return { mutateAsync: mocks.threadMutation } },
   useUploadFile: () => { mocks.order.push("upload"); return { mutateAsync: mocks.uploadMutation } },
 }))
@@ -178,8 +176,8 @@ describe("useMessageChannelController", () => {
     const valueProps = props()
     let renderer: ReturnType<typeof rtlRender>
     act(() => { renderer = rtlRender(React.createElement(Probe, { value: valueProps })) })
-    expect(mocks.order.slice(0, 12)).toEqual([
-      "send", "reaction", "reaction-add", "pin", "unpin", "mark", "edit", "thread", "upload",
+    expect(mocks.order.slice(0, 11)).toEqual([
+      "send", "reaction", "reaction-add", "pin", "unpin", "mark", "thread", "upload",
       "typing-users", "typing-names", "pending-store",
     ])
     expect(mocks.typingScopes.users.length).toBeGreaterThan(0)
@@ -552,7 +550,7 @@ describe("useMessageChannelController", () => {
     ])
     const actionKeys = [
       "onToggleReaction", "onReact", "onReply", "onPin", "onMark", "onCreateThread",
-      "onCopy", "onEdit", "onRetry", "onDismiss", "onPreviewImage",
+      "onCopy", "onRetry", "onDismiss", "onPreviewImage",
       "onPreviewAttachment",
     ]
     expect(Object.keys(latest.messageActions)).toEqual(actionKeys)

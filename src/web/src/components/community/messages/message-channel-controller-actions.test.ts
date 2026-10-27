@@ -36,7 +36,6 @@ function setup() {
   const pinMessageMutate = vi.fn()
   const toggleMark = vi.fn()
   const createThreadAsync = vi.fn(async () => ({ id: "thread_1" }))
-  const editMessage = vi.fn()
   const runAcceptedIntent = vi.fn(async () => {})
   const onOpenThread = vi.fn()
   const onOpenPinned = vi.fn()
@@ -75,7 +74,6 @@ function setup() {
     pinMessageMutate,
     toggleMark,
     createThreadAsync,
-    editMessage,
     messageScope: { kind: "channel", id: "channel_1", serverId: "server_1" },
     runAcceptedIntent,
   })
@@ -90,7 +88,6 @@ function setup() {
     pinMessageMutate,
     toggleMark,
     createThreadAsync,
-    editMessage,
     runAcceptedIntent,
     onOpenThread,
     onOpenPinned,
@@ -149,7 +146,7 @@ describe("createMessageActions", () => {
     expect(harness.runAcceptedIntent).toHaveBeenCalledOnce()
   })
 
-  it("preserves pin/unpin, thread, copy, and edit guards and callbacks", async () => {
+  it("preserves pin/unpin, thread, copy guards and callbacks", async () => {
     const harness = setup()
     harness.actions.onPin("m1")
     expect(harness.pinMessageMutate).toHaveBeenCalled()
@@ -212,39 +209,7 @@ describe("createMessageActions", () => {
       ...harness.messages.get()[0], content: "hello",
     }])
 
-    vi.stubGlobal("window", { prompt: vi.fn(() => "edited") })
-    harness.actions.onEdit("m1")
-    expect(harness.editMessage).toHaveBeenCalledWith({
-      serverId: "server_1", channelId: "channel_1", messageId: "m1", content: "edited", assertActive: expect.any(Function),
-    }, expect.objectContaining({ onError: expect.any(Function) }))
-    const editOptions = harness.editMessage.mock.calls[0][1]
-    const editFailure = new Error("edit failed")
-    editOptions.onError(editFailure)
-    expect(mocks.toastApiError).toHaveBeenCalledWith(editFailure, "Failed to edit message", expect.any(Function))
 
-    const prompt = vi.mocked(window.prompt)
-    prompt.mockReturnValueOnce(null)
-    harness.actions.onEdit("m1")
-    prompt.mockReturnValueOnce("")
-    harness.actions.onEdit("m1")
-    prompt.mockReturnValueOnce("hello")
-    harness.actions.onEdit("m1")
-    expect(harness.editMessage).toHaveBeenCalledOnce()
-
-    harness.actions.onEdit("missing")
-    harness.messages.setState(() => [{
-      ...harness.messages.get()[0], authorId: "peer_1",
-    }])
-    harness.actions.onEdit("m1")
-    harness.messages.setState(() => [{
-      ...harness.messages.get()[0], authorId: "viewer_1", seq: undefined,
-    }])
-    harness.actions.onEdit("m1")
-    harness.messages.setState(() => [{
-      ...harness.messages.get()[0], seq: 4, content: "",
-    }])
-    harness.actions.onEdit("m1")
-    expect(harness.editMessage).toHaveBeenCalledOnce()
   })
 
   it("reports clipboard denial once with the original view qualification", async () => {
@@ -345,7 +310,7 @@ describe("createMessageActions", () => {
     })
   })
 
-  it("uses the complete visible reply body for actions and keeps edits exact", async () => {
+  it("uses the complete visible reply body for actions without changing it", async () => {
     const harness = setup()
     harness.messages.setState(() => [{
       ...harness.messages.get()[0],
@@ -367,15 +332,6 @@ describe("createMessageActions", () => {
     await harness.actions.onCreateThread("m1")
     expect(mocks.deriveThreadName).toHaveBeenCalledWith("@Alice Smith\n> quote\n\nbody", "general")
 
-    vi.stubGlobal("window", { prompt: vi.fn(() => "edited") })
-    harness.actions.onEdit("m1")
-    expect(window.prompt).toHaveBeenCalledWith("Edit message", "@Alice Smith\n> quote\n\nbody")
-    expect(harness.editMessage).toHaveBeenCalledWith({
-      serverId: "server_1",
-      channelId: "channel_1",
-      messageId: "m1",
-      content: "edited",
-      assertActive: expect.any(Function),
-    }, expect.objectContaining({ onError: expect.any(Function) }))
+
   })
 })

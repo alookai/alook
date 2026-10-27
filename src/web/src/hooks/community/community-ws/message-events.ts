@@ -8,7 +8,6 @@ import type {
   CommunityPinRemove,
   CommunityReactionAdd,
   CommunityReactionRemove,
-  CommunityWsEvent,
 } from "@alook/shared"
 
 import {
@@ -17,7 +16,6 @@ import {
   isForumSidebarParent,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-reconciliation"
 import { clearTypingIndicator, typingScopeKey } from "@/hooks/community/community-ws/typing"
 import type { CommunityWsHandlerContext } from "@/hooks/community/community-ws/handler-context"
 import { scheduleFocusedMessageGapRepair } from "@/hooks/community/community-ws/reconnect-messages"
@@ -35,11 +33,6 @@ import {
 } from "@/hooks/community/community-ws/invalidation-projections"
 import { channelMetadataOptions } from "@/hooks/community/channel-metadata"
 import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
-
-type CommunityMessageEdited = Extract<
-  CommunityWsEvent,
-  { type: "community:message.edited" }
->
 
 function warmLiveForumChildOwner(
   queryClient: CommunityWsHandlerContext["queryClient"],
@@ -188,24 +181,4 @@ export function handleMessageUpdated(
   if (event.approval && (event.approval.status !== "pending" || event.approval.waitingOn !== "you")) {
     invalidateFriends(context.projection)
   }
-}
-
-export function handleMessageEdited(
-  event: CommunityMessageEdited,
-  context: CommunityWsHandlerContext,
-) {
-  const { queryClient } = context
-  if (event.parentChannelId) {
-    if (!event.serverId) return
-    void reconcileForumOpenerTitle(queryClient, {
-      serverId: event.serverId,
-      forumChannelId: event.parentChannelId,
-      childChannelId: event.channelId,
-      openerMessageId: event.messageId,
-      content: event.content,
-    })
-    return
-  }
-  void event
-  void context
 }

@@ -59,15 +59,6 @@ const communityMessageUpdatedSchema = z.strictObject({
   botCreation: BotCreationPayloadSchema.optional(),
 }).refine((event) => event.approval !== undefined || event.botCreation !== undefined)
 
-const communityMessageEditedSchema = z.strictObject({
-  type: z.literal("community:message.edited"),
-  channelId: string,
-  messageId: string,
-  content: string,
-  parentChannelId: string.optional(),
-  serverId: string.optional(),
-}).refine((event) => event.parentChannelId === undefined || event.serverId !== undefined)
-
 const communityReactionAddSchema = z.strictObject({
   type: z.literal("community:reaction.add"),
   channelId: string,
@@ -467,7 +458,6 @@ const communityBotPiiSchema = z.strictObject({
 const commonCommunityEventSchemas = [
   communityBotPiiSchema,
   communityMessageUpdatedSchema,
-  communityMessageEditedSchema,
   communityReactionAddSchema,
   communityReactionRemoveSchema,
   communityPinAddSchema,
@@ -535,33 +525,8 @@ export function communityWsEventSchemaForContract(contract: CommunityContract) {
   return contract === 3 ? CommunityResourceWsEventSchema : CommunityWsEventSchema
 }
 
-type InferredCommunityWsEvent = z.infer<typeof CommunityWsEventDiscriminatedSchema>
-type InferredCommunityMessageEdited = Extract<
-  InferredCommunityWsEvent,
-  { type: "community:message.edited" }
->
-type CommunityMessageEditedOutput = Omit<
-  InferredCommunityMessageEdited,
-  "parentChannelId" | "serverId"
-> & (
-  | { parentChannelId: string; serverId: string }
-  | { parentChannelId?: never; serverId?: string }
-)
-type CommunityWsEventOutput =
-  | Exclude<InferredCommunityWsEvent, InferredCommunityMessageEdited>
-  | CommunityMessageEditedOutput
-
-export const CommunityWsEventSchema = CommunityWsEventDiscriminatedSchema.transform(
-  (event): CommunityWsEventOutput => event as CommunityWsEventOutput,
-)
-
-type CommunityResourceWsEventOutput = Exclude<
-  z.infer<typeof CommunityResourceWsEventDiscriminatedSchema>,
-  { type: "community:message.edited" }
-> | CommunityMessageEditedOutput
-export const CommunityResourceWsEventSchema = CommunityResourceWsEventDiscriminatedSchema.transform(
-  (event): CommunityResourceWsEventOutput => event as CommunityResourceWsEventOutput,
-)
+export const CommunityWsEventSchema = CommunityWsEventDiscriminatedSchema
+export const CommunityResourceWsEventSchema = CommunityResourceWsEventDiscriminatedSchema
 
 export type CommunityLegacyWsEvent = z.infer<typeof CommunityWsEventSchema>
 export type CommunityResourceWsEvent = z.infer<typeof CommunityResourceWsEventSchema>
@@ -569,7 +534,6 @@ export type CommunityWsEvent = CommunityLegacyWsEvent | CommunityResourceWsEvent
 export type CommunityLegacyMessageCreate = z.infer<typeof CommunityLegacyMessageCreateSchema>
 export type CommunityMessageCreate = Extract<CommunityWsEvent, { type: "community:message.create" }>
 export type CommunityMessageUpdated = Extract<CommunityWsEvent, { type: "community:message.updated" }>
-export type CommunityMessageEdited = Extract<CommunityWsEvent, { type: "community:message.edited" }>
 export type CommunityReactionAdd = Extract<CommunityWsEvent, { type: "community:reaction.add" }>
 export type CommunityReactionRemove = Extract<CommunityWsEvent, { type: "community:reaction.remove" }>
 export type CommunityPinAdd = Extract<CommunityWsEvent, { type: "community:pin.add" }>
@@ -642,7 +606,6 @@ export type CommunityBotHostFrame = BotAddedFrame | BotUpdatedFrame | BotRemoved
 export const WS_EVENTS = {
   MESSAGE_CREATE: "community:message.create",
   MESSAGE_UPDATED: "community:message.updated",
-  MESSAGE_EDITED: "community:message.edited",
   REACTION_ADD: "community:reaction.add",
   REACTION_REMOVE: "community:reaction.remove",
   PIN_ADD: "community:pin.add",

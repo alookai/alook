@@ -115,7 +115,7 @@ function ChannelRouteLayer({ serverParam, channelId, targetHref, routeCommitted 
     const next = intentAnchorMessageId !== undefined ? intentAnchorMessageId : routeAnchorMessageId
     setCaptured(current => current.scope === scope && current.anchorMessageId === next ? current : { scope, anchorMessageId: next })
   }, [resume, scope, captured.scope, entryIntent, intentAnchorMessageId, routeAnchorMessageId, routeCommitted, setCaptured])
-  const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id, anchorMessageId)
+  const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id, anchorMessageId, searchParams.get("tag"))
   const content = <ChannelRouteFrame key={JSON.stringify([currentUser.id, serverId])}
     serverId={serverId} serverParam={serverParam} channelId={channelId}
     searchParams={searchParams} routeCommitted={routeCommitted} resume={resume}
@@ -348,7 +348,6 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
               parentMessageId={currentChannelMeta?.parentMessageId ?? null}
               parentIsForum={isForumPostChild}
               routeLifecycle={routeCommitted ? routeModel.routeLifecycle : "pending"}
-              childCreatorId={currentChannelMeta?.creatorId}
               canRenameThread={canManageServer(myRole)}
               onNavigateParent={navigateParent}
               notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}

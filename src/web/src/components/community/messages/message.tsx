@@ -171,7 +171,7 @@ export function messageLinkClickUsesMenu({
 
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
-  onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
+  onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
   viewerUserId, hoverCapable = true,
@@ -193,7 +193,6 @@ function MessageImpl({
   onMark?: () => void
   onCreateThread?: () => void
   onCopy?: () => void
-  onEdit?: () => void
   onRetry?: () => void
   onDismiss?: () => void
   onPreviewImage?: (image: ImagePreview) => void
@@ -291,7 +290,7 @@ function MessageImpl({
     onReply, onPin, pinned,
     onMark, marked: markedData?.marked ?? false,
     onCreateThread: m.thread ? undefined : onCreateThread,
-    onCopy, onEdit,
+    onCopy,
     // Share: enter multi-select (main list) if wired, else direct single-share
     // (context-sheet). Undefined only when the surface wired NEITHER.
     onShare: canShare ? (onEnterSelect ?? onShareSingle) : undefined,
@@ -1045,7 +1044,6 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onMark === next.onMark &&
     prev.onCreateThread === next.onCreateThread &&
     prev.onCopy === next.onCopy &&
-    prev.onEdit === next.onEdit &&
     prev.onRetry === next.onRetry &&
     prev.onDismiss === next.onDismiss &&
     prev.onPreviewImage === next.onPreviewImage &&

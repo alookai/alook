@@ -25,7 +25,7 @@ import { getLocalReadingPosition } from "./read-coordinator"
 
 type EntryWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
 
-export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, useLocalPosition = false, consumer: "metadata" | "messages" | "forum" = "metadata") {
+export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, useLocalPosition = false, consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true) {
   const client = useQueryClient()
   const active = useConversationActivity()
   const presented = useConversationPresentation()
@@ -48,7 +48,7 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   const anchorMessageId = target?.anchorMessageId ?? null
   const tag = target?.tag ?? null
   const preferTail = target?.preferTail === true
-  const enabled = target !== null
+  const enabled = target !== null && networkEnabled
   const baseInput = useMemo(() => ({ channelId, serverId, anchorMessageId, tag, preferTail }), [channelId, serverId, anchorMessageId, tag, preferTail])
   const qualification = useMemo(() => ({ accountEpoch, accessEpoch, generation, parentGeneration, lifetime, parentId: canonical?.parentChannelId }),
     [accountEpoch, accessEpoch, generation, parentGeneration, lifetime, canonical?.parentChannelId])
@@ -81,12 +81,12 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     setVerification({ runtime, channelId, serverId,
       needed: !serverRevoked && runtime.ws.actions.isChannelAccessRevoked(channelId, serverId, parentId), generation })
   }
-  const query = useQuery({ ...options, enabled: presented && !!target && !revoked, refetchOnReconnect: false, refetchOnWindowFocus: false })
+  const query = useQuery({ ...options, enabled: presented && enabled && !revoked, refetchOnReconnect: false, refetchOnWindowFocus: false })
   const anchorMissing = isConversationAnchorMissingError(query.error)
   const fallbackInput = useMemo(() => ({ ...baseInput, anchorMessageId: null }), [baseInput])
   const fallbackRequest = useMemo(() => ({ qualification, options: conversationEntryOptions(client, fallbackInput) }), [client, fallbackInput, qualification])
   const fallbackOptions = fallbackRequest.options
-  const fallback = useQuery({ ...fallbackOptions, enabled: presented && !!target && anchorMissing && !revoked, subscribed: !!target && anchorMissing,
+  const fallback = useQuery({ ...fallbackOptions, enabled: presented && enabled && anchorMissing && !revoked, subscribed: !!target && anchorMissing,
     refetchOnReconnect: false, refetchOnWindowFocus: false })
   const resource = query.data && isChannelMetadataTokenCurrent(query.data.proof) ? query.data
     : fallback.data && isChannelMetadataTokenCurrent(fallback.data.proof) ? fallback.data

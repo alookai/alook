@@ -52,12 +52,6 @@ export const communityWsEventFixtures = {
     messageId: "message-1",
     approval,
   },
-  "community:message.edited": {
-    type: "community:message.edited",
-    channelId: "channel-1",
-    messageId: "message-1",
-    content: "edited",
-  },
   "community:reaction.add": {
     type: "community:reaction.add",
     channelId: "channel-1",
@@ -300,7 +294,6 @@ export const communityWsEventFixtures = {
 export const requiredFixturePaths = {
   "community:message.create": ["channelId"],
   "community:message.updated": ["approval"],
-  "community:message.edited": ["messageId"],
   "community:reaction.add": ["emoji"],
   "community:reaction.remove": ["emoji"],
   "community:pin.add": ["messageId"],

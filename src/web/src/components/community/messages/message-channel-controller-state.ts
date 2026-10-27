@@ -28,7 +28,6 @@ import {
 import {
   useAddReactionApi,
   useCreateThread,
-  useEditMessage,
   usePinMessage,
   useSendMessage,
   useToggleMark,
@@ -85,7 +84,6 @@ export function useMessageChannelController({
   const { mutate: pinMessageMutate } = usePinMessage()
   const { mutate: unpinMessageMutate } = useUnpinMessage()
   const toggleMark = useToggleMark()
-  const { mutate: editMessage } = useEditMessage()
   const { mutateAsync: createThreadAsync } = useCreateThread()
   const { mutateAsync: uploadFileAsync } = useUploadFile()
   const typingUserIds = useTypingUsersForScope(`ch:${channelId}`)
@@ -232,10 +230,9 @@ export function useMessageChannelController({
     pinMessageMutate,
     toggleMark,
     createThreadAsync,
-    editMessage,
     messageScope,
     runAcceptedIntent,
-  }), [communityRuntime, actionContext, getMessage, source.capture, serverId, channelId, viewer.id, setReplyTo, toggleReactionApi, addReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, editMessage, messageScope, runAcceptedIntent])
+  }), [communityRuntime, actionContext, getMessage, source.capture, serverId, channelId, viewer.id, setReplyTo, toggleReactionApi, addReactionApi, unpinMessageMutate, pinMessageMutate, toggleMark, createThreadAsync, messageScope, runAcceptedIntent])
 
   const { hasMoreNewer, jumpToPresent } = feed
   const acceptMessage = useCallback((

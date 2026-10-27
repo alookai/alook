@@ -27,7 +27,6 @@ vi.mock("./server-rail-reconciliation", () => ({ handleServerRailChanged: handle
 
 vi.mock("./message-events", () => ({
   handleMessageCreate: handlers.handleMessageCreate,
-  handleMessageEdited: handlers.handleMessageEdited,
   handleMessageUpdated: handlers.handleMessageUpdated,
   handlePinEvent: handlers.handlePinEvent,
   handleReactionEvent: handlers.handleReactionEvent,
@@ -92,7 +91,7 @@ describe("community WebSocket registry", () => {
   it("has exactly one entry for each runtime event type", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(49)
+    expect(eventTypes).toHaveLength(48)
     expect(registryTypes).toEqual(eventTypes)
   })
 

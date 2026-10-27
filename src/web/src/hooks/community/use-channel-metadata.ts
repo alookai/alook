@@ -1,12 +1,22 @@
 "use client"
 
 import { useMemo } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { forumTagFromUrl } from "@/lib/community/forum-tag-selection"
+import { useStoredForumTag } from "./use-stored-forum-tag"
 import { useConversationResource } from "./use-conversation-entry"
 
 type ChannelReadingStatus = "no-target" | "pending" | "readable" | "denied" | "unresolved" | "retryable-error"
 
 export function useChannelMetadata(serverId: string | null, channelId: string | undefined, intent?: { anchorMessageId?: string | null; tag?: string | null }) {
-  const entry = useConversationResource(channelId ? { channelId, serverId, ...intent } : null)
+  const client = useQueryClient()
+  const canonicalType = channelId ? getCommunityDbRegistry(client)?.collections.channels.get(channelId)?.type : undefined
+  const forumSelection = serverId !== null && (!canonicalType || canonicalType === "forum")
+  const storedTag = useStoredForumTag(forumSelection ? channelId ?? null : null)
+  const selectedTag = forumSelection ? forumTagFromUrl(intent?.tag) ?? storedTag : intent?.tag ?? "All"
+  const tag = selectedTag === "All" ? null : selectedTag
+  const entry = useConversationResource(channelId ? { channelId, serverId, ...intent, tag } : null, null, false, "metadata", selectedTag !== null)
   const { query, canonical, scope, canRead, revoked, denied } = entry
   const identityKnown = canRead && !!scope && !!canonical && canonical.id === channelId && canonical.serverId === serverId && !canonical.pending && canonical.resourceComplete === true
   const error = entry.verificationError

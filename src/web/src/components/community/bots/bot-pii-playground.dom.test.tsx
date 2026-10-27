@@ -61,3 +61,21 @@ it("shows actual matched names as text and distinguishes empty from legacy metad
   view.rerender(<BotPiiPlayground {...props} triggeredFilters={triggeredFilters} error="Failed" />)
   expect(screen.queryByTestId("pii-triggered-filters")).toBeNull()
 })
+
+
+it("shows shared badges for complete markers while preserving literal output and original input", () => {
+  const value = "Original [REDACTED_EMAIL] stays editable"
+  const result = "Email [REDACTED_EMAIL]\n[REDACTED][REDACTED_CUSTOM_2] <b>literal</b> [REDACTED [redacted]"
+  const view = render(<BotPiiPlayground value={value} onValueChange={vi.fn()} onRun={vi.fn()} pending={false} result={result} />)
+  expect(screen.getAllByRole("img", { name: "redacted" })).toHaveLength(3)
+  expect(view.container.querySelector("output")?.textContent).toBe(result)
+  expect(screen.getByLabelText("Original message")).toHaveValue(value)
+  expect(view.container.querySelector("output b")).toBeNull()
+  expect(view.container.querySelectorAll("output [data-redacted]")).toHaveLength(3)
+})
+
+it("keeps the empty filtered result explicit and renders no badge", () => {
+  render(<BotPiiPlayground value="sample" onValueChange={vi.fn()} onRun={vi.fn()} pending={false} result="" />)
+  expect(screen.getByText("The filtered message is empty.")).toBeVisible()
+  expect(screen.queryByRole("img", { name: "redacted" })).toBeNull()
+})

@@ -44,7 +44,7 @@ describe("embedded message surface ownership", () => {
     expect(materializeCanonicalMessage(transport, new Map([["m1", canonical]]))).toBe(canonical)
   })
 
-  it("publishes an empty first load once and projects WS edit/delete across every surface", async () => {
+  it("publishes an empty first load once and projects WS deletion across every surface", async () => {
     const queryClient = new QueryClient()
     registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
@@ -135,21 +135,6 @@ describe("embedded message surface ownership", () => {
       },
       forum: ["initial"],
       threads: ["initial"],
-    })
-
-    projectCommunityWsEventToDb(queryClient, {
-      type: "community:message.edited",
-      serverId: "s1",
-      channelId: "c1",
-      messageId: "m1",
-      content: "edited",
-    } as CommunityWsEvent)
-    expect(projectEverySurface()).toEqual({
-      rows: {
-        mentions: ["edited"], marked: ["edited"], pins: ["edited"], context: ["edited"],
-      },
-      forum: ["edited"],
-      threads: ["edited"],
     })
 
     projectCommunityWsEventToDb(queryClient, {
