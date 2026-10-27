@@ -26,7 +26,7 @@ let scrollCalls: number[]
 let pendingScrollEvents: Set<HTMLElement>
 let scrollDescriptor: PropertyDescriptor | undefined
 
-const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"]'
+const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"], [data-testid="community-forum-post-list"]'
 function isScrollRoot(node: HTMLElement) { return node.matches(ROOT_SELECTOR) }
 function rootFor(node: HTMLElement) { return node.closest<HTMLElement>(ROOT_SELECTOR) }
 function deliverScrollEvents() {
@@ -205,7 +205,8 @@ export function installMessageScrollFixture() {
   })
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
     return isScrollRoot(this)
-      ? Math.max(this.clientHeight, Number.parseFloat(this.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height ?? "0") || 0)
+      ? Math.max(this.clientHeight, Number.parseFloat(this.querySelector<HTMLElement>('[data-message-list-content]')?.style.height
+        || this.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height || "0") || 0)
       : rowGeometry(this).height
   })
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {

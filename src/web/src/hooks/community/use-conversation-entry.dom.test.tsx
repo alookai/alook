@@ -369,7 +369,7 @@ describe("conversation entry return during accepted reading", () => {
     return { view, root, visible, get latest() { return latest } }
   }
 
-  it.each([30, 42])("reveals cached reading at %s through a slow real entry without granting reads or following late NEW", async readSeq => {
+  it.each([30, 42])("reveals cached reading at %s through a slow real entry without granting early reads and consumes a first late NEW once", async readSeq => {
     const owner = await readingOwner()
     const held = deferred<ReturnType<typeof fixture>>()
     const fresh = fixture()
@@ -413,7 +413,12 @@ describe("conversation entry return during accepted reading", () => {
       await act(async () => held.resolve(fresh))
       await act(async () => vi.advanceTimersByTimeAsync(0))
       resize()
-      expect(view.root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top).toBeCloseTo(before, 0)
+      if (readSeq === 30) expect(view.root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top).toBeCloseTo(before, 0)
+      else {
+        const index = view.latest.controller.items.findIndex(item => item.kind === "divider" && item.newDivider && item.messageId === `m${readSeq + 1}`)
+        expect(index).toBeGreaterThanOrEqual(0)
+        expect(view.root.scrollTop).toBeCloseTo(view.latest.controller.virtualizer.getOffsetForIndex(index, "center")![0], 0)
+      }
       expect(view.latest.feed.readSnapshot?.lastReadSeq).toBe(readSeq)
       expect(view.latest.newDividerBefore).toBe(`m${readSeq + 1}`)
       expect(view.latest.controller.initialPosition.contentVisible).toBe(true)

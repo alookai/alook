@@ -21,12 +21,15 @@ const mocks = vi.hoisted(() => ({
   scrollToBottom: vi.fn(),
   requestPresentPosition: vi.fn(),
   onImageLoad: vi.fn(),
+  finishPosition: (_outcome: "pending" | "success") => {},
   captureOlderPageAnchor: vi.fn(),
   captureNewerPageAnchor: vi.fn(),
 }))
 
 vi.mock("@/hooks/community/use-scroll-anchor", () => ({
-  useScrollAnchor: (input: { tailPaddingEnd?: number; scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void; onInitialPositionSettled: () => void }) => {
+  useScrollAnchor: (input: { tailPaddingEnd?: number; scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void }) => {
+    const [positionOutcome, setPositionOutcome] = React.useState<"pending" | "success">("pending")
+    mocks.finishPosition = setPositionOutcome
     const consumed = React.useRef<string | null>(null)
     const loaded = input.items.some((item) => item.m?.id === input.scrollToMessageId)
     React.useLayoutEffect(() => {
@@ -45,6 +48,7 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       scrollToBottom: mocks.scrollToBottom,
       requestPresentPosition: mocks.requestPresentPosition,
       jumpTo: mocks.jumpToIndex,
+      positionOutcome,
       readPositionReady: false,
       paginationEnabled: false,
       captureOlderPageAnchor: mocks.captureOlderPageAnchor,
@@ -176,12 +180,15 @@ describe("useMessageListController", () => {
   it("requires a new positioning settlement for a fresh entry on the retained list", () => {
     const value = props({ positionEntry: {} })
     const view = rtlRender(React.createElement(Probe, { value }))
-    const settled = () => (mocks.scrollInputs.at(-1) as { onInitialPositionSettled: () => void }).onInitialPositionSettled()
+    const settled = () => mocks.finishPosition("success")
     act(settled)
     expect(latest.initialPosition.phase).toBe("revealed")
     view.rerender(React.createElement(Probe, { value: { ...value } }))
     expect(latest.initialPosition.phase).toBe("revealed")
-    view.rerender(React.createElement(Probe, { value: { ...value, positionEntry: {} } }))
+    act(() => {
+      mocks.finishPosition("pending")
+      view.rerender(React.createElement(Probe, { value: { ...value, positionEntry: {} } }))
+    })
     expect(latest.initialPosition.phase).toBe("positioning")
     act(settled)
     expect(latest.initialPosition.phase).toBe("revealed")
@@ -221,9 +228,12 @@ describe("useMessageListController", () => {
       initialScrollReady: true,
       positionDataState: "pending",
       positionEntry: undefined,
+      positionScope: undefined,
       initialPositionMessageId: undefined,
       messageWindow: undefined,
       active: undefined,
+      positioningActive: undefined,
+      presentRequest: undefined,
       hasMoreNewer: undefined,
       isFetchingOlder: undefined,
       isFetchingNewer: undefined,
@@ -231,7 +241,6 @@ describe("useMessageListController", () => {
       localSubmitVersion: undefined,
       hasMoreOlder: undefined,
       tailPaddingEnd: 32,
-      onInitialPositionSettled: expect.any(Function),
       scrollToMessageId: undefined,
       onScrollTargetCancelled: undefined,
       onScrollTargetPositioned: expect.any(Function),
@@ -241,6 +250,7 @@ describe("useMessageListController", () => {
         virtualizer: mocks.virtualizer,
         count: latest.items.length,
         enabled: false,
+        requestKey: undefined,
         hasMore: undefined,
         isFetching: undefined,
         isError: false,
@@ -252,6 +262,7 @@ describe("useMessageListController", () => {
         virtualizer: mocks.virtualizer,
         count: latest.items.length,
         enabled: false,
+        requestKey: undefined,
         hasMore: undefined,
         isFetching: undefined,
         isError: false,
@@ -322,7 +333,7 @@ describe("useMessageListController", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("waits for the hook-owned post-action settlement callback on ordinary windows", () => {
+  it("uses the scroll owner outcome for reveal while retaining separate read qualification", () => {
     let view: ReturnType<typeof rtlRender>
     act(() => {
       view = rtlRender(React.createElement(Probe, { value: props() }))
@@ -333,9 +344,7 @@ describe("useMessageListController", () => {
       contentVisible: false,
       contentInteractive: false,
     })
-    const settle = (mocks.scrollInputs.at(-1) as {
-      onInitialPositionSettled: () => void
-    }).onInitialPositionSettled
+    const settle = () => mocks.finishPosition("success")
     act(() => settle())
     expect(latest.initialPosition).toMatchObject({
       phase: "revealed",
@@ -378,6 +387,14 @@ describe("useMessageListController", () => {
     expect(mocks.scrollInputs.at(-1)).toEqual({
       items: expect.any(Array),
       newDividerBefore: "m1",
+      positionScope: undefined,
+      positionEntry: undefined,
+      positionDataState: undefined,
+      positioningActive: undefined,
+      messageWindow: undefined,
+      initialPositionMessageId: undefined,
+      active: undefined,
+      presentRequest: undefined,
       initialScrollReady: false,
       hasMoreNewer: true,
       isFetchingOlder: true,
@@ -386,7 +403,6 @@ describe("useMessageListController", () => {
       localSubmitVersion: undefined,
       hasMoreOlder: true,
       tailPaddingEnd: 32,
-      onInitialPositionSettled: expect.any(Function),
       scrollToMessageId: undefined,
       onScrollTargetCancelled: undefined,
       onScrollTargetPositioned: expect.any(Function),
@@ -396,6 +412,7 @@ describe("useMessageListController", () => {
         virtualizer: mocks.virtualizer,
         count: latest.items.length,
         enabled: false,
+        requestKey: undefined,
         hasMore: true,
         isFetching: true,
         isError: false,
@@ -407,6 +424,7 @@ describe("useMessageListController", () => {
         virtualizer: mocks.virtualizer,
         count: latest.items.length,
         enabled: false,
+        requestKey: undefined,
         hasMore: true,
         isFetching: true,
         isError: false,
@@ -458,9 +476,7 @@ describe("useMessageListController", () => {
     })
     expect((mocks.scrollInputs.at(-1) as { initialScrollReady: boolean }).initialScrollReady).toBe(true)
     expect(consumed).toHaveBeenCalledOnce()
-    const settleAnchor = (mocks.scrollInputs.at(-1) as {
-      onInitialPositionSettled: () => void
-    }).onInitialPositionSettled
+    const settleAnchor = () => mocks.finishPosition("success")
     act(() => settleAnchor())
     expect(latest.initialPosition.phase).toBe("revealed")
     visibleMessageIds = ["m2"]
@@ -686,9 +702,7 @@ describe("useMessageListController", () => {
         React.createElement(Probe, { value: props() })
       )
     })
-    act(() => (mocks.scrollInputs.at(-1) as {
-      onInitialPositionSettled: () => void
-    }).onInitialPositionSettled())
+    act(() => mocks.finishPosition("success"))
     expect(latest.initialPosition.phase).toBe("revealed")
     expect(latest.initialPosition.phase).toBe("revealed")
     act(() => latest.jumpTo("m1", "auto"))

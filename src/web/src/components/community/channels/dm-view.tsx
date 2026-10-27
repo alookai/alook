@@ -143,7 +143,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     navigationBlocked,
     anchorReconciled,
     readSnapshot, readSnapshotFetching, initialPositionKnown,
-    initialLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionDataState, messageWindow,
+    initialLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionScope, positionDataState, messageWindow,
   } = useDmMessages(dmId, {
     enabled: !dmBlocked && !metadata.revoked && !metadata.denied,
     viewerUserId: currentUser.id,
@@ -461,6 +461,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             historyStartKnown={historyStartKnown}
             initialPositionMessageId={initialPositionMessageId}
             positionEntry={positionEntry}
+            positionScope={positionScope}
             positionDataState={positionDataState}
             messageWindow={messageWindow}
             active={routeCommitted}
