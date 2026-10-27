@@ -4,6 +4,7 @@ import { PII_TEXT_MAX_BYTES, utf8ByteLength } from "@alook/shared"
 import { Check, ListFilter, Play } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { RedactedText } from "@/components/community/messages/redacted-text"
 import styles from "./bot-pii-playground.module.css"
 
 export function BotPiiPlayground({ value, onValueChange, result, triggeredFilters, pending, error, disabled, onRun }: {
@@ -35,7 +36,7 @@ export function BotPiiPlayground({ value, onValueChange, result, triggeredFilter
               <p role="status" className="text-sm text-muted-foreground">Filtering on your computer…</p>
             </div>
               : error ? <p role="alert" className="text-sm leading-relaxed text-destructive">{error}</p>
-              : result !== undefined ? <output aria-labelledby="pii-output-label" className={`${styles.result} block whitespace-pre-wrap wrap-anywhere text-sm leading-relaxed`}>{result || "The filtered message is empty."}</output>
+              : result !== undefined ? <output aria-labelledby="pii-output-label" className={`${styles.result} block whitespace-pre-wrap wrap-anywhere text-sm leading-relaxed`}>{result ? <RedactedText text={result} /> : "The filtered message is empty."}</output>
               : <p className="flex min-h-24 items-center justify-center text-center text-sm leading-relaxed text-muted-foreground">Your filtered text will appear here.</p>}
           </div>
           {phase === "complete" && triggeredFilters !== undefined ? <p data-testid="pii-triggered-filters" className="wrap-anywhere text-sm leading-relaxed text-muted-foreground">
