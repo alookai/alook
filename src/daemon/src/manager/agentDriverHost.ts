@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { AgentDriverHost, PreparedExecutionResource } from "@alook/agent-driver/host";
 import type { HostLaunchContext } from "./hostContext.js";
 import { buildGitIdentityEnv, readHostGitIdentity } from "../drivers/gitIdentityEnv.js";
+import { withoutNpmExecPackage } from "../npmEnvironment.js";
 
 function runtimeEnvironment(ctx: HostLaunchContext): Record<string, string | undefined> {
   const runtime = ctx.config.runtimeContext;
@@ -70,7 +71,7 @@ export function createDaemonAgentDriverHost(
       const resource: PreparedExecutionResource = {
         executablePath: ctx.agentCliPath,
         environmentLayers: {
-          base: { ...process.env },
+          base: withoutNpmExecPackage(process.env),
           hostStatic: {},
           identityProtected: buildGitIdentityEnv({
             agentName: ctx.config.agentName,

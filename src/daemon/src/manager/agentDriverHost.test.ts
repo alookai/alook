@@ -14,6 +14,7 @@ function tmp(): string {
 }
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -44,6 +45,20 @@ function broker(): CredentialBroker {
 }
 
 describe("createDaemonAgentDriverHost", () => {
+  it("does not pass the daemon launcher's npm package selection to bot tools", async () => {
+    vi.stubEnv("npm_config_package", "@alook/daemon@latest");
+    vi.stubEnv("NPM_CONFIG_PACKAGE", "@alook/daemon@latest");
+    vi.stubEnv("npm_config_registry", "https://registry.example.test");
+    const ctx = context(broker());
+    const result = await createDaemonAgentDriverHost(ctx).prepareExecution({ backend: "claude", launchId: "l", workingDirectory: ctx.workingDirectory });
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.resource.environmentLayers.base).not.toHaveProperty("npm_config_package");
+    expect(result.resource.environmentLayers.base).not.toHaveProperty("NPM_CONFIG_PACKAGE");
+    expect(result.resource.environmentLayers.base.npm_config_registry).toBe("https://registry.example.test");
+    expect(process.env.npm_config_package).toBe("@alook/daemon@latest");
+    await result.resource.release();
+  });
+
   it("fails closed without a credential proxy", async () => {
     const ctx = context(broker());
     delete ctx.credentialProxy;

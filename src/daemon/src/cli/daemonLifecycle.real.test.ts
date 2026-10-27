@@ -217,9 +217,29 @@ describe("daemon lifecycle real processes", () => {
 
   it("starts detached while offline, persists no secret, and stops by stable machine id", async () => {
     const baseDir = makeBaseDir();
-    const started = await runCli(cliArgs(baseDir));
+    const envProbe = path.join(baseDir, "runner-env.cjs");
+    const envResult = path.join(baseDir, "runner-env.json");
+    fs.writeFileSync(envProbe, [
+      'if (process.argv.slice(2).join(" ") === "daemon run") {',
+      `require("node:fs").writeFileSync(${JSON.stringify(envResult)}, JSON.stringify({`,
+      'package: process.env.npm_config_package ?? null,',
+      'upperPackage: process.env.NPM_CONFIG_PACKAGE ?? null,',
+      'registry: process.env.npm_config_registry,',
+      '})); }',
+    ].join("\n"));
+    const started = await runCli(cliArgs(baseDir), {
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${JSON.stringify(envProbe)}`].filter(Boolean).join(" "),
+      npm_config_package: "@alook/daemon@latest",
+      NPM_CONFIG_PACKAGE: "@alook/daemon@latest",
+      npm_config_registry: "https://registry.example.test",
+    });
     expect(started.code).toBe(0);
     expect(started.output).toContain("started in background");
+    expect(JSON.parse(fs.readFileSync(envResult, "utf8"))).toEqual({
+      package: null,
+      upperPackage: null,
+      registry: "https://registry.example.test",
+    });
     const owner = readOwner(baseDir);
     expect(alive(owner.pid)).toBe(true);
     expect(owner).toMatchObject({ machineId });
