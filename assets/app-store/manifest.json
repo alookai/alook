@@ -4,7 +4,7 @@
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "58d73359f9714278c37453c6146c9d1c75521e19",
+  "repositoryHead": "1f714fde7eb9323fafca2d3d57e118148c1079d4",
   "inputs": {
     "scripts/ci/pnpm-lock.mjs": "c6ad91cbd38cc08234e2da4122079d76bfef5eb61560862018cbab9d3e29f4cc",
     "src/shared/src/billing.ts": "53d36e6bbab90d72ae86b9748d97bef4116a7f567d8587067f469d294c562b4a",
@@ -170,7 +170,7 @@
     "src/web/src/app/fonts/instrument-serif-latin-400.woff2": "5eb09b5ac0e28b67c2f041c8ba6d244604ca0c0980d65912ab2d47fed84ddc31",
     "src/web/src/app/fonts/literata-latin.woff2": "9adbeac5b167fe5ad6c49d9e29aa0c76e2f1bb3b46bf4ebf12a9eca7d3525384",
     "src/web/src/app/fonts/vt323-latin-400.woff2": "8ddbebcc1048154132e1d78eb9b1f7850bca1b7d857035ccf1cb4318ebc615b6",
-    "src/web/src/app/globals.css": "98c7bce2964a19dd5df1dee12cfad1c7b6b638c384e942aab31ace654ebaf834",
+    "src/web/src/app/globals.css": "565ec69fe9b5fd5c17cec59d0c368e2ea6a80b06fb83d5de1c89513db1eb885c",
     "src/web/src/components/authenticated-context-menu-boundary.tsx": "76e9919ab24fd2e61119124e8edd43fbfbd7629cd09ea2ff59584af805aad932",
     "src/web/src/components/avatar/agent-avatar.tsx": "1d28ac3e4d523d9f05c075c03730cf15a3824e279bc70c2935f0854f5764a55f",
     "src/web/src/components/avatar/animated-avatar.tsx": "a0efddd02e2eda8f5968d12eaef1e46d0fae4dcc4bacbb850a530baa6a0e11bf",
@@ -249,18 +249,18 @@
     "src/web/src/components/community/messages/emoji-picker-interactive.tsx": "5617a4f4d800e39a03f69e214b535249dd1ab26e76ff047bd83d84ecfa05648e",
     "src/web/src/components/community/messages/emoji-picker.tsx": "9562982a2c51b0652a4d994b0a36fc15af5f3fe19f646479317278919282636c",
     "src/web/src/components/community/messages/initial-position-transition.ts": "7e10d4527ab3ee7305867550c5f6147fa50c3661786584764a024367a279ddee",
-    "src/web/src/components/community/messages/inline-marks.tsx": "829a87eb9f856b9782e0297db5a43a07c24c78c00ec6e1a6e2c03946062104da",
+    "src/web/src/components/community/messages/inline-marks.tsx": "3584263fb23ce8837d4c66d418e0fb8d6b450ea5cb872aecde210cd625237f32",
     "src/web/src/components/community/messages/media-attachment-block.tsx": "6b6ee5c83c1de98e19dc3282074ef262f4fb86b102d9015affa9e7a9102f40ab",
     "src/web/src/components/community/messages/message-author-line.tsx": "5607a10bdaae85f9b954915c3858c4f938f2058b285d047f3df5930dba860123",
-    "src/web/src/components/community/messages/message-body-full.tsx": "54ed04ee24f840b8f7ce16112827f579b47aa794d9387105bf22f12528c4953d",
-    "src/web/src/components/community/messages/message-body-view.tsx": "4b5579de425640960a680b45043aada435a03b16afeaa59fe6aeebc19fb63905",
+    "src/web/src/components/community/messages/message-body-full.tsx": "0e6b2b6677128106fd6e5d17a7818d8505c86fbc967586db01ef8e881f82f1e8",
+    "src/web/src/components/community/messages/message-body-view.tsx": "7450c28aa006fa291f7fb34f1a498bf696455072513807de309c30387b4d6ba6",
     "src/web/src/components/community/messages/message-body.tsx": "0f43cb0c2c8eb3b507efc1f93e926d0cc9226f25173cc9e2fa8f2d8815c46ffd",
     "src/web/src/components/community/messages/message-external-link.tsx": "ba22b8bfd1210f9645aa10c46a95c3d409cf87e68e0585709007f9bba1ad9d82",
     "src/web/src/components/community/messages/message-list-controller.ts": "2f6d71a0905578f69fd0bf9c00227869d2c0a7007cafee36503abd93078f2070",
     "src/web/src/components/community/messages/message-list-row.tsx": "e9b1e1d66b176821d96aca65e9a277aafdc96012f984a7758bff844a4b395a41",
     "src/web/src/components/community/messages/message-list-view.tsx": "3fd669f94dd5cb655b91b103264d85de119589950c36c49454926421a078291e",
     "src/web/src/components/community/messages/message-list.tsx": "6f4ddce666fc31c4e755e1f7608ebc433c4b1bde5a0177ed2d61759140ba0dd8",
-    "src/web/src/components/community/messages/message-markdown.tsx": "2e7d4ae585874dcf8a92c91c1cc8251768088e0b52bd060d305eb6817e6da2f5",
+    "src/web/src/components/community/messages/message-markdown.tsx": "b47f232497cd5ac2f4e8335f2b5d053c4935e474c20f673eca1dda7874507d8e",
     "src/web/src/components/community/messages/message-menu.tsx": "a5f33f187fc4dcf7acc253dd5406a89e5825a579e6950a3d11017249d816448b",
     "src/web/src/components/community/messages/message-pane-navigation.tsx": "8595d9b54fd377fa02e9e7b19b81076e76d012f0b8056279b1d7d52e5f2ae5fe",
     "src/web/src/components/community/messages/message-reactions.tsx": "80c6f8ba5c20071a94c24545f32bf75d3d73d334de7862f940c81b456b4c5a62",
@@ -270,6 +270,8 @@
     "src/web/src/components/community/messages/mobile-message-gesture.ts": "06a126402badab097f6dbe187ffa2de0539feea83cad5005c36ffb0fb862b86a",
     "src/web/src/components/community/messages/platform-link-badge.tsx": "ee4d04fb804e7a6691810325da5fdfde54f2f94117f1b66d3520deebffbf0fe2",
     "src/web/src/components/community/messages/prepend-reply-mention.ts": "d501f71d03eb93b60bd141fa48516f5ee1496b7af470a0fc74a8a8012aa01c29",
+    "src/web/src/components/community/messages/redacted-content.tsx": "b6fb7da1c73c21f6487ba7c949c5f2ccda5408910faea65fd6446e35c2b47682",
+    "src/web/src/components/community/messages/redacted-diagram.ts": "82572c7c83a35426d4164d07685eeaa086fed654f438d70f6fe1a7977f4d978c",
     "src/web/src/components/community/messages/send-stroke-rounded-icon.tsx": "f6348d4d0d9daf123ee5dc09c54614e17ce63eacaeaa7a2c671a2ddb3d60bb9b",
     "src/web/src/components/community/messages/server-ref-pill.tsx": "14ddcec25bd84f816c0d7856c8e3c9d58b12c470b263872d1febbe4aef79dc1d",
     "src/web/src/components/community/messages/typing-indicator.tsx": "b66b692b1f14ce7d589c189b551f2775e37e1bfcca4f6ac3c91183f1e94fab71",
@@ -626,7 +628,7 @@
       "path": "phone-1206x2622/01-share-agents.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "8ea52c42d5e609ec3356a3c6d14dd6e029019f1760b9e75c4213795590010e43",
+      "sha256": "67c08bcbe2abaf278d95807ee67f0bde4194e1db2a38dffd370a21c3f02a138f",
       "surfaces": [
         {
           "scene": "workspace",
@@ -652,7 +654,7 @@
       "path": "phone-1206x2622/02-teamwork.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "add088d8ee0e7025b12319633bfbe64531ab660841faa0f8fa2de06c65b245cb",
+      "sha256": "449e517899bf6dca21feb6ba9bb4e396fe2dad45309af91a76dc3daf5288dcb3",
       "surfaces": [
         {
           "scene": "workspace",
@@ -678,7 +680,7 @@
       "path": "phone-1206x2622/03-companion.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "052587efc5557f46915e6d673f7af1f7527b6b50614e82590caaad94e6b33a49",
+      "sha256": "dd5206478a5620df697896676647a2e850aad6d5e646559876c1f4ba3acd6857",
       "surfaces": [
         {
           "scene": "identity",
@@ -704,7 +706,7 @@
       "path": "phone-1206x2622/04-context.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "7aff1b04edb171c5379077c092d212cad2e190339394724ce75db3d42ed430ff",
+      "sha256": "62bb59a57603899574d0060c92d0b77c1ebf25c18aebf93cfe21eec938cf09f8",
       "surfaces": [
         {
           "scene": "continuity",
@@ -739,7 +741,7 @@
       "path": "phone-1206x2622/05-phone.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "48b911e0b0fd0abf337b6f66cbe85a3cbc83e10b8733a2f95d2030f4ef697f99",
+      "sha256": "9ea0770d0a086284493ecd59430f9568cc646156c77b4806d5e6a70b1403edcb",
       "surfaces": [
         {
           "scene": "workspace",
@@ -765,7 +767,7 @@
       "path": "phone-1206x2622/06-existing-setup.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "ef7716e477d72e694ae3f9e27ba359507109034474f8bfc20871eef3835b5e6d",
+      "sha256": "85d52aa5211f26fa070adac304b865c4d4383c9e9c517083938f5226922100b0",
       "surfaces": [
         {
           "scene": "workspace",
@@ -791,7 +793,7 @@
       "path": "phone-1320x2868/01-share-agents.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "52d8cf32d86474a3ffd6950e9a5b736989f2f306bf9a4fb2326c087450c93787",
+      "sha256": "261ba7f6995c49fea0610570ccfd7e1ebe440f8bf709480ab9a29860464e34e7",
       "surfaces": [
         {
           "scene": "workspace",
@@ -817,7 +819,7 @@
       "path": "phone-1320x2868/02-teamwork.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "346908178928b218416f52fef18c0f61d0f5d4e7e5a1228332cf004593032dde",
+      "sha256": "c1effc46c7587c1dcee4007d4da6828a1a35ae53ca6b9450d4dfe2c06c17e6f3",
       "surfaces": [
         {
           "scene": "workspace",
@@ -843,7 +845,7 @@
       "path": "phone-1320x2868/03-companion.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "93dbabe22c7e77bc0fb1c9e3b24a42c859d1700c067b3c39a811907102ed09f9",
+      "sha256": "43bebcb32b13bfdd160863e024045532bc04353186eb8ccf7312ee2ce1eade4e",
       "surfaces": [
         {
           "scene": "identity",
@@ -869,7 +871,7 @@
       "path": "phone-1320x2868/04-context.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "58bc2850948f57ba04f74a12ec90654de400b4c327ac4c5b5a3f24b142a89a0b",
+      "sha256": "b9d407cdecd7981853b54df132af13e46c5a5d6e7a8da9102aef59663752d3db",
       "surfaces": [
         {
           "scene": "continuity",
@@ -904,7 +906,7 @@
       "path": "phone-1320x2868/05-phone.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "270e04dedb164cbf854c5596fcb20461cfb927d616fdc0c67578a0c5af627a2d",
+      "sha256": "164c148aa296f6d636747b2fbc2b2e5215c4eab2eae25d4efac193ae39e2eac8",
       "surfaces": [
         {
           "scene": "workspace",
@@ -930,7 +932,7 @@
       "path": "phone-1320x2868/06-existing-setup.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "2233e52d9f379900773604602ed8425796438bf00db0371702dedb88db3578e0",
+      "sha256": "5deac2a6bdb05807993fe721fa194e0bfb5351bdefd4f9683e2b6c680ff9c378",
       "surfaces": [
         {
           "scene": "workspace",
@@ -956,7 +958,7 @@
       "path": "tablet-2752x2064/01-share-agents.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "fd4725e892edfa23221a34ee95644b1601510c1876406e28f17c4b6b8229cbd4",
+      "sha256": "90579226e073bf7dda3f07671d4c032a215c222de7acb2af4e90cfd6dc211e97",
       "surfaces": [
         {
           "scene": "workspace",
@@ -982,7 +984,7 @@
       "path": "tablet-2752x2064/02-teamwork.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "6deb347b840adc93c2f638c7e5eec7a685c14682c5a1840ff1f608ed539a78af",
+      "sha256": "69f1a628959b0a933b684ac39e0729808b8ae9c36430e4017a17e7fa5827506d",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1008,7 +1010,7 @@
       "path": "tablet-2752x2064/03-companion.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "f01345b44dda10df81300616a9e3176a947ab0fa2fbb7a7ef2bdf3270a3204d9",
+      "sha256": "f5649eaa820fa31bcafdca6a6bbc9c21101e99b025826585e049eeabdebe250b",
       "surfaces": [
         {
           "scene": "identity",
@@ -1034,7 +1036,7 @@
       "path": "tablet-2752x2064/04-context.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "d3accee044a1710c7cda914673d229e6c2064e23741b4a133a34ec2eedffe202",
+      "sha256": "f68d75a4aa0544d4cb5ecd855b2e15087fb76f603c657418acb37d2d556f1368",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1069,7 +1071,7 @@
       "path": "tablet-2752x2064/05-phone.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "f5f1998a4efdbae47d10b766e60214e4729f180aa7521e76b14acc1bcb552f96",
+      "sha256": "4301c404ae301430574c8c5db8011c3180acbeff5ae8d9c2bebb2d6e9a0d2574",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1095,7 +1097,7 @@
       "path": "tablet-2752x2064/06-existing-setup.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "471ee8c0f3bf0ec38c3c174b271ba95df3e8a39cbd218870206569b675394690",
+      "sha256": "71edd998847b991c77a7568183937f44cc4c1ce524dfd66c98d7684e0f5214d9",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1121,7 +1123,7 @@
       "path": "duo-2007x2853/01-share-agents.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "9f026ce5bc0e0508f7d2faa6b742d7121e517dad09770bf3dd32f8c81d365c5c",
+      "sha256": "18cbdcce97dcc26da0dd44858c38cc53a9a982e860a755e3d27e2d943de32b4d",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1147,7 +1149,7 @@
       "path": "duo-2007x2853/02-teamwork.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "c0ad7bcd8dfcefbfa0fd560eecc165b3c6ce7dc273a1630a71453a736b8245fe",
+      "sha256": "23d67952c38759006d0c5e138da21d4eb582ae7841dda6b6c0bfbcfe6c954257",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1173,7 +1175,7 @@
       "path": "duo-2007x2853/03-companion.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "16fb5c0b82b4acc8bb97697c498ad5e4dab0ceb6f9e3536eabed7672a22a3525",
+      "sha256": "627afc8590c0a790cd16e983d1e4f63125c975beff61a94b6bd9e8e0d5c15256",
       "surfaces": [
         {
           "scene": "identity",
@@ -1199,7 +1201,7 @@
       "path": "duo-2007x2853/04-context.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "e95476c8129a50eb5a39167dfd17b44bb1587b84b39405e039872c5058c27bcf",
+      "sha256": "87e19f75763c1bcddad772dc2dee5c2f6f71f052ad0f40f10a82d65ba42309b2",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1234,7 +1236,7 @@
       "path": "duo-2007x2853/05-phone.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "d10a3ee6c826a6fd416b5c8d54667c1c53cbab8861a35c77a68c85e70a8b6f8d",
+      "sha256": "8a3ea1385d4d1adb0c5cc31c03a78d7501de657aa0c945972d95b4d8e9578670",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1260,7 +1262,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "48d4b518796420c7f79a7b1fa99bbb742c293f43d257bf618a0d1aae5c795e57",
+      "sha256": "a93b487ca537a153d5703b2268dcc173a9ab3489c0455e693852439abe3ced24",
       "surfaces": [
         {
           "scene": "workspace",
