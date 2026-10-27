@@ -1,4 +1,5 @@
 import type React from "react"
+import { RedactedBadge, RedactedCode } from "./redacted-content"
 import { Spoiler, MentionPill } from "./inline-marks"
 import { ChannelRefPill } from "./channel-ref-pill"
 import { ServerRefPill } from "./server-ref-pill"
@@ -42,6 +43,8 @@ export function extractInviteTokens(text: string): string[] {
 // mention pill would lose its discriminator (same-name pills all resolve to
 // the first match) and @everyone loses its styling flag.
 export const MD_ALLOWED_TAGS = {
+  redacted: [],
+  redactedcode: ["dataRedactedBlock", "dataLanguage"],
   spoiler: [],
   mention: ["dataEveryone", "dataTag"],
   channelref: [],
@@ -52,7 +55,7 @@ export const MD_ALLOWED_TAGS = {
 // nested markdown children (e.g. `||**bold**||`). Handing it to Streamdown's
 // `literalTagContent` flattens all descendants into one text node, stripping
 // the nested `<strong>`/`<em>` — see message-body.test.tsx's regression case.
-export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref"]
+export const MD_LITERAL_TAGS = ["redacted", "redactedcode", "mention", "channelref", "serverref"]
 
 // A mention pill's rendered text is always `@name` (produced by
 // `chat-syntax-plugin.ts`'s `mentionReplacer`, which already drops the
@@ -65,6 +68,8 @@ export function mentionNameFromText(text: string): string {
 }
 
 export const MD_COMPONENTS = {
+  redacted: RedactedBadge,
+  redactedcode: RedactedCode,
   a: PlatformLinkBadge,
   img: RemoteMarkdownImage,
   spoiler: ({ children }: { children?: React.ReactNode }) => <Spoiler>{children}</Spoiler>,
