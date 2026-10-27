@@ -30,6 +30,7 @@ function BotPipeline({ botId, botName, machineId, online }: { botId: string; bot
             <h3 id="pii-filters-heading" className="text-base font-medium">PII steps</h3>
             <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label="Reload filters" aria-busy={pii.pending && !pii.previewPending} title="Reload filters" disabled={pii.pending || !online} onClick={() => { void pii.reload() }}><RefreshCw aria-hidden="true" className={pii.pending && !pii.previewPending ? "animate-spin motion-reduce:animate-none" : undefined} /></Button>
         </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">Our servers don’t store your PII workflow data. Each request loads it from your computer to your screen, so loading may take a moment.</p>
         <BotPiiChatAction botId={botId} />
         </div>
         {pii.snapshot ? <BotPiiList botName={botName} plugins={pii.snapshot.plugins} pending={pii.pending} error={pii.error} unavailable={pii.unavailable}
