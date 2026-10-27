@@ -16,6 +16,7 @@ import { useHydratedClient } from "@/components/community/shell/use-hydrated-cli
 import { clearCommunityColdEntryAttempts, retireCommunityColdEntryAttempt } from "@/lib/community/last-community-route"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { CommunityApplicationNavigation } from "@/contexts/community/application-navigation"
+import { preparePersistedCache } from "@/lib/query-persister"
 
 export function CommunityLayoutClient() {
   const hydrated = useHydratedClient()
@@ -42,6 +43,10 @@ function CommunityAccountEntry({ pathname }: { pathname: string }) {
   const currentUserId = currentUser?.id
   const [retry, setRetry] = useState(0)
   const [signOutFailed, setSignOutFailed] = useState(false)
+
+  useEffect(() => {
+    if (session.isPending) void preparePersistedCache().catch(() => undefined)
+  }, [session.isPending])
 
   useEffect(() => {
     if (!ready || currentUserId) return
