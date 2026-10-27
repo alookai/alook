@@ -4,7 +4,7 @@ import { captureChannelMetadataToken } from "./conversation-qualification"
 import { retireCommunityAccount } from "./account-cache-lifecycle"
 import { retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { shouldDehydrateCommunityQuery } from "@/lib/query-persister"
-import { readVirtualListPosition, saveVirtualListPosition, virtualListLayoutFingerprint, virtualListPositionKey, type VirtualListPositionScope, type VirtualListPositionSnapshot } from "./virtual-list-position"
+import { assessVirtualListPosition, readVirtualListPosition, saveVirtualListPosition, virtualListLayoutFingerprint, virtualListPositionKey, type VirtualListPositionScope, type VirtualListPositionSnapshot } from "./virtual-list-position"
 
 const snapshot = (fingerprint = "rows"): VirtualListPositionSnapshot => ({
   version: 1, fingerprint, offset: 300, width: 320, height: 500, paddingStart: 0, paddingEnd: 48,
@@ -18,7 +18,10 @@ describe("account-owned virtual layout lifetime", () => {
     const base: VirtualListPositionScope = { proof: captureChannelMetadataToken(alice.client, "A"), kind: "messages", tag: null }
     const rows = [{ key: "m1", content: "Private message text", grouped: false }]
     const fingerprint = virtualListLayoutFingerprint(rows)
+    expect(assessVirtualListPosition(undefined, fingerprint)).toEqual({ snapshot: null, reason: "no_scope" })
+    expect(assessVirtualListPosition(base, fingerprint)).toEqual({ snapshot: null, reason: "missing" })
     saveVirtualListPosition(base, snapshot(fingerprint))
+    expect(assessVirtualListPosition(base, fingerprint)).toMatchObject({ reason: "available", snapshot: { offset: 300 } })
     expect(readVirtualListPosition(base, fingerprint)?.offset).toBe(300)
     for (const scope of [
       { ...base, proof: captureChannelMetadataToken(bob.client, "A") },
@@ -26,6 +29,7 @@ describe("account-owned virtual layout lifetime", () => {
       { ...base, kind: "forum" as const }, { ...base, tag: "bug" },
     ]) expect(readVirtualListPosition(scope, fingerprint)).toBeNull()
     expect(readVirtualListPosition(base, virtualListLayoutFingerprint([{ ...rows[0], grouped: true }]))).toBeNull()
+    expect(assessVirtualListPosition(base, virtualListLayoutFingerprint([{ ...rows[0], grouped: true }]))).toEqual({ snapshot: null, reason: "fingerprint_mismatch" })
     expect(JSON.stringify(alice.client.getQueryData(virtualListPositionKey(base)))).not.toContain("Private message text")
     const query = alice.client.getQueryCache().find({ queryKey: virtualListPositionKey(base), exact: true })!
     expect(shouldDehydrateCommunityQuery(query)).toBe(false)
@@ -43,6 +47,7 @@ describe("account-owned virtual layout lifetime", () => {
     expect(readVirtualListPosition(scopes[0], "rows")).toBeNull()
     saveVirtualListPosition(scopes[0], { ...snapshot(), at: Date.now() - 300001 })
     expect(readVirtualListPosition(scopes[0], "rows")).toBeNull()
+    expect(assessVirtualListPosition(scopes[0], "rows")).toEqual({ snapshot: null, reason: "expired" })
   })
 
   it("uses the existing account and channel retirement fences for stale capture callbacks", async () => {
@@ -53,6 +58,7 @@ describe("account-owned virtual layout lifetime", () => {
     expect(client.getQueryData(virtualListPositionKey(scope))).toBeUndefined()
     saveVirtualListPosition(scope, snapshot())
     expect(readVirtualListPosition(scope, "rows")).toBeNull()
+    expect(assessVirtualListPosition(scope, "rows")).toEqual({ snapshot: null, reason: "invalid_scope" })
     retireCommunityAccount(registry)
     saveVirtualListPosition(scope, snapshot())
     expect(client.getQueryData(virtualListPositionKey(scope))).toBeUndefined()

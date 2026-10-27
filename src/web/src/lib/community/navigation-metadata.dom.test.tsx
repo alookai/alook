@@ -1,3 +1,4 @@
+import { writeForumTagSelection } from "./forum-tag-selection"
 import React, { useEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -127,6 +128,21 @@ describe("native navigation warming and DM consumer mounting", () => {
     expect(owner.registry.collections.channels.get("c1")?.resourceComplete).not.toBe(true)
     expect(owner.client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries("c1") }).reduce((n, q) => n + q.getObserversCount(), 0)).toBe(0)
     expect(load).toHaveBeenCalledOnce()
+  })
+
+  it.each(["route", "stored"] as const)("warms the actual %s Forum tag and shares that target key", async source => {
+    const owner = await createCommunityQueryOwner()
+    const value = forumConversationEntryFixture()
+    await seedConversationEntry(owner.client, value)
+    owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+    writeForumTagSelection(localStorage, "c1", source === "stored" ? "saved" : "different")
+    load.mockResolvedValue(value)
+    try {
+      const href = source === "route" ? "/c/channels/s1/c1?tag=explicit" : "/c/channels/s1/c1"
+      await prepareNavigationMetadata(owner.client, href, "prefetch")
+      await prepareNavigationMetadata(owner.client, href, "foreground")
+      expect(load.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/c1/messages?entry=1&tag=${source === "route" ? "explicit" : "saved"}`])
+    } finally { localStorage.clear() }
   })
 
 })

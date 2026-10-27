@@ -34,7 +34,7 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
     isFetching,
     refetch,
   } = useDms()
-  const { blocked } = useFriends()
+  const { blocked } = useFriends({ enabled: false })
   const initialError = isError && data === undefined
   useObservedRegion("sidebar", !dmsLoading && !initialError, dms.length)
   const friendRequestCount = useInboxUnreads().friendRequests.length

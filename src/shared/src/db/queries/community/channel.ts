@@ -549,6 +549,7 @@ export async function listChildChannelsByParentMessageIds(
   db: Database,
   parentChannelId: string,
   parentMessageIds: string[],
+  type: string | null = "thread",
 ) {
   if (parentMessageIds.length === 0) return [];
   return (
@@ -559,9 +560,10 @@ export async function listChildChannelsByParentMessageIds(
           .from(communityChannel)
           .where(and(
             eq(communityChannel.parentChannelId, parentChannelId),
-            eq(communityChannel.type, "thread"),
+            type === null ? undefined : eq(communityChannel.type, type),
             inArray(communityChannel.parentMessageId, ids),
           ))
+          .orderBy(...(type === null ? [desc(communityChannel.lastMessageAt)] : []))
       )
     )
   ).flat();

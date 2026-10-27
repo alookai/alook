@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { useLayoutEffect } from "react"
+import { StrictMode, useLayoutEffect } from "react"
 import { IsRestoringProvider, QueryClientProvider } from "@tanstack/react-query"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
@@ -7,14 +7,19 @@ import { CommunityRouteContext } from "./community-route-context"
 import { CommunityModuleRoute } from "./community-module-route"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
-import { act, render } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, resize } from "@/test/message-scroll-fixture"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, scrollFixture } from "@/test/message-scroll-fixture"
+import { useCommunityNavigationController } from "./use-community-navigation-controller"
+import { normalizeCommunityHref } from "@/lib/community/community-route"
+import { resolveCommunityLandingHref } from "@/lib/community/last-channel"
+import { virtualListPositionKey } from "@/lib/community/virtual-list-position"
+import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
 import { disposeReadCoordinator, getLocalReadingPosition } from "@/hooks/community/read-coordinator"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 
-const mocks = vi.hoisted(() => ({ load: vi.fn(), replace: vi.fn(), memory: vi.fn(), dismiss: vi.fn(), snapshots: [] as unknown[], observedRows: new Set<Element>(), href: "/c/channels/old/old" }))
+const mocks = vi.hoisted(() => ({ load: vi.fn(), push: vi.fn(), replace: vi.fn(), memory: vi.fn(), dismiss: vi.fn(), snapshots: [] as unknown[], observedRows: new Set<Element>(), href: "/c/channels/old/old" }))
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace, push: vi.fn() }),
+  useRouter: () => ({ replace: mocks.replace, push: mocks.push }),
   usePathname: () => mocks.href.split("?")[0],
   useSearchParams: () => new URLSearchParams(mocks.href.split("?")[1]),
 }))
@@ -59,6 +64,7 @@ beforeEach(async () => {
   mocks.memory.mockClear()
   mocks.dismiss.mockClear()
   mocks.replace.mockClear()
+  mocks.push.mockClear()
   mocks.href = "/c/channels/old/old"
   mocks.load.mockImplementation((url: string) => {
     if (url === "/api/community/users/me/attention") return Promise.resolve({scopes: [], items: [], limit: 100, truncated: false})
@@ -94,7 +100,80 @@ async function mount(restoring = false, target = href) {
 }
 
 describe("cached target through the real route, entry and message consumers", () => {
-  it("keeps a cold forum opener unknown through restore instead of mounting then removing the composer", async () => {
+  it.each([false, true])("keeps the restored offset through an already-active row selection after a server return (StrictMode=%s)", async strict => {
+    const entry = conversationEntryFixture()
+    entry.channel = { ...entry.channel, type: "text", messageCount: 42 }
+    entry.messages = Array.from({ length: 42 }, (_, index) => ({ ...entry.messages[0], id: `m${index + 1}`, seq: index + 1,
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
+    entry.readState = { channelId: "c1", lastReadMessageId: "m42", lastReadSeq: 42, lastReadAt: entry.messages[41].createdAt }
+    entry.selection = { reason: "tail", anchorMessageId: null }
+    entry.page = { ...entry.page, hasMoreOlder: false, hasMoreNewer: false, olderCursor: null, newerCursor: null, latestSeq: 42 }
+    await seedConversationEntry(owner.client, entry)
+    scrollFixture.width = 905
+    scrollFixture.height = 683
+    entry.messages.forEach((message, index) => scrollFixture.bodyHeights.set(message.id, 90 + index % 5 * 31))
+    mocks.href = href
+    let revision = 1
+    let navigation!: ReturnType<typeof useCommunityNavigationController>
+    function Route() {
+      const current = useCommunityNavigationController({ ...normalizeCommunityHref(mocks.href), revision })
+      const target = current.pendingHref ?? mocks.href
+      useLayoutEffect(() => { navigation = current }, [current])
+      return <CommunityRouteContext value={{ breakpoint: "desktop", frame: { revision }, navigation: current } as never}>
+        {target.startsWith("/c/channels/")
+          ? <CommunityModuleRoute key="server:s1" href={target} routeCommitted={!current.navigationPending} />
+          : <div data-testid="away">Away</div>}
+      </CommunityRouteContext>
+    }
+    const tree = () => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>
+      <CurrentUserProvider initialUser={{ id: "viewer", name: "Viewer", avatar: "V", email: "viewer@example.test" }}>
+        {strict ? <StrictMode><Route /></StrictMode> : <Route />}
+      </CurrentUserProvider>
+    </CommunityDbProvider></QueryClientProvider>
+    view = render(tree())
+    resize()
+    const root = () => view!.getByTestId("community-message-scroller")
+    const previous = root()
+    fireEvent.wheel(previous, { deltaY: -600 })
+    act(() => previous.scrollTo({ top: previous.scrollHeight - previous.clientHeight - 600 }))
+    resize()
+    const body = Array.from(previous.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find(row => row.getBoundingClientRect().bottom > 0)!
+    const id = body.dataset.msgId!
+    const top = body.getBoundingClientRect().top
+    const offset = previous.scrollTop
+    const scope = { proof: captureChannelMetadataToken(owner.client, "c1"), kind: "messages" as const, tag: null }
+    expect(owner.client.getQueryData(virtualListPositionKey(scope))).toMatchObject({ offset })
+    const go = async (target: string) => {
+      await act(async () => navigation.push(target))
+      mocks.href = target
+      revision += 1
+      await act(async () => view!.rerender(tree()))
+      resize()
+    }
+    await go("/c/me/friends")
+    await go("/c/me/dm-test")
+    expect(previous.isConnected).toBe(false)
+    await act(async () => vi.advanceTimersByTimeAsync(6000))
+    const previousLoad = mocks.load.getMockImplementation()!
+    mocks.load.mockImplementation((url: string) => url === "/api/community/channels/c1/messages?entry=1"
+      ? new Promise(() => {}) : previousLoad(url))
+    const serverTarget = resolveCommunityLandingHref({ serverId: "s1", channelIds: ["c1"], last: "c1", breakpoint: "desktop" })
+    await go(serverTarget)
+    expect(serverTarget).toBe(href)
+    expect(mocks.load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1")).toBe(true)
+    expect(root().scrollTop).toBeCloseTo(offset, 0)
+    expect(root().querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top).toBeCloseTo(top, 0)
+    const admitted = navigation.entryIntent
+    await act(async () => { navigation.cancelPendingNavigation(); navigation.push(href) })
+    resize()
+    expect(root().scrollTop).toBeCloseTo(offset, 0)
+    expect(root().querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top).toBeCloseTo(top, 0)
+    expect(navigation.entryIntent).toBe(admitted)
+    expect(mocks.load.mock.calls.filter(([url, options]) => String(url).endsWith("/read") && options?.method === "PUT")).toEqual([])
+  })
+
+  it("mounts cached forum child messages and keeps its composer while the opener remains pending", async () => {
     const entry = conversationEntryFixture()
     entry.channel = { ...entry.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
     entry.surfaceReceipt = { channelId: entry.channelId, surfaceKind: "thread" }
@@ -109,10 +188,13 @@ describe("cached target through the real route, entry and message consumers", ()
     })
     const target = `${href}?threadView=full`
     const mounted = await mount(true, target)
-    expect(mounted.queryByTestId("qualified-composer")).toBeNull()
+    const composer = mounted.getByTestId("qualified-composer")
+    const scroller = mounted.getByTestId("community-message-scroller")
+    expect(composer).toBeVisible()
     mounted.rerender(node(false, false, target))
     await act(async () => {})
-    expect(mounted.queryByTestId("qualified-composer")).toBeNull()
+    expect(mounted.getByTestId("qualified-composer")).toBe(composer)
+    expect(mounted.getByTestId("community-message-scroller")).toBe(scroller)
   })
 
   it("keeps a canonical cached forum opener and composer through restore and route commit", async () => {

@@ -76,7 +76,7 @@ export function ThreadSplitParentSurface({
     accessAllowed: active && metadata.canRead,
     roleDisplayAllowed: metadata.canRead,
   })
-  const notifs = useNotificationSettings()
+  const notifs = useNotificationSettings(false)
   const { mutate: setChannelNotif } = useSetChannelNotif()
   const notificationLevel = (notifs.channel[channel.id] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT
   const setNotificationLevel = (level: ChannelNotifLevel) => {

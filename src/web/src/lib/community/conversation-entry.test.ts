@@ -1,3 +1,4 @@
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONVERSATION_ANCHOR_MISSING, type CommunityConversationEntryRead } from "@alook/shared"
 import { ApiError } from "@/lib/errors"
@@ -5,8 +6,10 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { retireCommunityAccount } from "./account-cache-lifecycle"
-import { conversationEntryOptions, currentConversationReadState, findConversationEntryWindow, publishConversationEntry } from "./conversation-entry"
+import { assessConversationScope, conversationEntryOptions, currentConversationReadState, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationScope, publishConversationEntry } from "./conversation-entry"
+import type { ChannelRow } from "@/lib/community-db/schema"
 import type { MessageWindowData } from "./message-window"
+import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async (original) => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
@@ -15,6 +18,152 @@ beforeEach(() => { load.mockReset() })
 import { conversationEntryFixture as entry, conversationEntryTarget as target, dmConversationEntryFixture, forumConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 
 describe("conversation entry canonical publication", () => {
+  it("does not backfill entry phases when observation becomes eligible after that request began", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const events: Array<{ name: string }> = []
+    let resolve!: (value: CommunityConversationEntryRead) => void
+    configureTelemetry({}, false)
+    load.mockReturnValue(new Promise<CommunityConversationEntryRead>(done => { resolve = done }))
+    try {
+      const pending = client.query(conversationEntryOptions(client, target))
+      configureTelemetry({ session_id: "current" }, true)
+      installTelemetrySink(event => events.push(event))
+      resolve(entry())
+      await pending
+      expect(events.filter(event => event.name === "conversation.entry")).toEqual([])
+    } finally { retireTelemetry() }
+  })
+
+  it("preserves a qualified window after actual native Query garbage collection removes its entry", async () => {
+    vi.useFakeTimers()
+    try {
+      const { client } = await createCommunityQueryOwner()
+      load.mockResolvedValue(entry())
+      const options = { ...conversationEntryOptions(client, target), gcTime: 1 }
+      const resource = await client.query(options)
+      const window = client.getQueryData(resource.windowKey)
+      await vi.advanceTimersByTimeAsync(2)
+      expect(client.getQueryData(options.queryKey)).toBeUndefined()
+      expect(client.getQueryData(resource.windowKey)).toBe(window)
+      const scope = getQualifiedConversationScope(client, target)!
+      expect(findConversationEntryWindow(client, target, scope, currentConversationReadState(client, "c1"))?.key).toEqual(resource.windowKey)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each(["missing", "incomplete", "pending", "archived", "foreign", "parent-missing", "parent-foreign", "retired"] as const)("rejects a %s cache closure without deleting its retained message window", async condition => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = entry()
+    if (condition.startsWith("parent")) {
+      value.channel = { ...value.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+      value.parent = { ...entry().channel, id: "parent" }
+      value.surfaceReceipt = { channelId: "c1", surfaceKind: "thread" }
+    }
+    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const before = client.getQueryData(resource.windowKey)
+    const channels = communityKeys.communityDbCollection("viewer", "channels")
+    if (condition === "retired") registry.runtime.lifecycle.setState(state => ({ active: false, generation: state.generation + 1 }))
+    else await writeCommunityCollectionRows(registry, "channels", (client.getQueryData<ChannelRow[]>(channels) ?? []).flatMap(row => {
+      if (condition === "missing" && row.id === "c1" || condition === "parent-missing" && row.id === "parent") return []
+      if (row.id === "c1") return [{ ...row, ...(condition === "incomplete" ? { resourceComplete: false as const } : {}),
+        ...(condition === "pending" ? { pending: true } : {}), ...(condition === "archived" ? { archived: true } : {}),
+        ...(condition === "foreign" ? { serverId: "foreign" } : {}) }]
+      return [{ ...row, ...(condition === "parent-foreign" ? { serverId: "foreign" } : {}) }]
+    }), row => row.id)
+    expect(getQualifiedConversationScope(client, target)).toBeUndefined()
+    expect(assessConversationScope(client, target).reason).not.toBe("qualified")
+    expect(client.getQueryData(resource.windowKey)).toBe(before)
+  })
+
+  it("cancels an entry before response delivery and refuses an ignored-abort late body", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    let resolve!: (value: CommunityConversationEntryRead) => void
+    load.mockReturnValue(new Promise<CommunityConversationEntryRead>(done => { resolve = done }))
+    const options = conversationEntryOptions(client, target)
+    const pending = client.query(options).catch(error => error)
+    await client.cancelQueries({ queryKey: options.queryKey, exact: true })
+    resolve(entry())
+    await pending
+    await Promise.resolve()
+    expect(registry.collections.messages.has("m1")).toBe(false)
+    expect(getQualifiedConversationScope(client, target)).toBeUndefined()
+  })
+
+  it.each(["text", "dm", "forum", "thread"] as const)("qualifies the canonical %s closure after every short-lived entry is removed", async kind => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = kind === "dm" ? dmConversationEntryFixture() : kind === "forum" ? forumConversationEntryFixture() : entry()
+    if (kind === "thread") {
+      value.channel = { ...value.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+      value.parent = { ...entry().channel, id: "parent" }
+      value.surfaceReceipt = { channelId: "c1", surfaceKind: "thread" }
+    }
+    const destination = { channelId: "c1", serverId: value.channel.serverId }
+    const options = conversationEntryOptions(client, destination)
+    const resource = publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    client.setQueryData(options.queryKey, resource)
+    client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+    const scope = getQualifiedConversationScope(client, destination)
+    expect(scope).toBeDefined()
+    expect(scope).not.toHaveProperty("access")
+    expect(findConversationDisplayWindow(client, destination, scope!)?.key).toEqual(resource.windowKey)
+    expect(findConversationEntryWindow(client, destination, scope!, value.readState)?.key).toEqual(resource.windowKey)
+    registry.runtime.ws.actions.revokeChannelAccess(destination.serverId, "c1")
+    expect(getQualifiedConversationScope(client, destination)).toBeUndefined()
+  })
+
+  it("rejects residual entities without viewer access and retires the same cache on an account change", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    expect(getQualifiedConversationScope(client, target)).toBeDefined()
+    const key = communityKeys.communityDbCollection("viewer", "channelMemberships")
+    const rows = client.getQueryData(key)
+    await writeCommunityCollectionRows(registry, "channelMemberships", [], (row: { id: string }) => row.id)
+    expect(getQualifiedConversationScope(client, target)).toBeUndefined()
+    expect(registry.collections.messages.has("m1")).toBe(true)
+    client.setQueryData(key, rows)
+    registry.runtime.ws.actions.activateProfileAccount("other")
+    expect(getQualifiedConversationScope(client, target)).toBeUndefined()
+  })
+
+  it("keeps a real cached display window distinct from an uncovered target and an isolated canonical entity", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = entry()
+    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const scope = getQualifiedConversationScope(client, target)!
+    const selected = { ...target, anchorMessageId: "elsewhere" }
+    expect(findConversationDisplayWindow(client, selected, scope)?.key).toEqual(resource.windowKey)
+    expect(findConversationEntryWindow(client, selected, scope, value.readState)).toBeUndefined()
+    client.removeQueries({ queryKey: communityKeys.channelMessages("c1") })
+    expect(registry.collections.messages.has("m1")).toBe(true)
+    expect(findConversationDisplayWindow(client, target, scope)).toBeUndefined()
+  })
+
+  it.each([false, true])("delivers entry while reconciliation is held and preserves its own result after repair failure=%s", async fail => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const options = conversationEntryOptions(client, target)
+    load.mockResolvedValueOnce(entry())
+    const previous = await client.query(options)
+    const before = client.getQueryData(previous.windowKey)
+    const next = entry()
+    next.page = { ...next.page, latestSeq: 2, hasMoreNewer: true, newerCursor: "next" }
+    let resolve!: (value: unknown) => void
+    let reject!: (error: unknown) => void
+    const held = new Promise((yes, no) => { resolve = yes; reject = no })
+    load.mockImplementation((url: string) => url.includes("entry=1") ? Promise.resolve(next) : held)
+    const delivered = await client.query({ ...options, staleTime: 0 })
+    const repairKey = [...previous.windowKey, "reconcile"]
+    expect(delivered).toMatchObject({ channelId: "c1", readStateRevision: 4 })
+    expect(client.getQueryState(options.queryKey)?.status).toBe("success")
+    expect(client.getQueryState(repairKey)?.fetchStatus).toBe("fetching")
+    expect(client.getQueryData(previous.windowKey)).toBe(before)
+    const repair = client.getQueryCache().find({ queryKey: repairKey, exact: true })!.promise!.catch(error => error)
+    if (fail) reject(new Error("held repair failed"))
+    else resolve({ messages: [{ ...next.messages[0], id: "m2", seq: 2 }], latestSeq: 2, hasMoreNewer: false })
+    await repair
+    expect(client.getQueryState(options.queryKey)?.status).toBe("success")
+    expect(client.getQueryState(repairKey)?.status).toBe(fail ? "error" : "success")
+    expect(registry.collections.messages.has("m2")).toBe(!fail)
+  })
+
   it("keeps one failed DM verification attempt local until an explicit retry", async () => {
     const { client } = await createCommunityQueryOwner()
     const temporary = new ApiError("temporary", 503)
@@ -40,6 +189,33 @@ describe("conversation entry canonical publication", () => {
     expect(client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages("c1") })).toHaveLength(0)
     await client.query({ ...conversationEntryOptions(client, target), select: undefined })
     expect(load).toHaveBeenCalledOnce()
+  })
+
+  it.each(["child-missing", "child-incomplete", "child-type", "child-server", "child-parent", "opener-missing", "opener-incomplete", "opener-channel"] as const)("rejects a cached Forum display window with %s without refreshing its qualification", async invalid => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = forumConversationEntryFixture()
+    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const scope = getQualifiedConversationScope(client, target)!
+    expect(findConversationDisplayWindow(client, target, scope)?.key).toEqual(resource.windowKey)
+    if (invalid === "child-missing") await registry.collections.channels.utils.writeDelete("t1")
+    else if (invalid.startsWith("child-")) {
+      const child = registry.collections.channels.get("t1")!
+      await registry.collections.channels.utils.writeUpsert({ ...child,
+        ...(invalid === "child-incomplete" ? { resourceComplete: false } : {}),
+        ...(invalid === "child-type" ? { type: "text" as const } : {}),
+        ...(invalid === "child-server" ? { serverId: "other" } : {}),
+        ...(invalid === "child-parent" ? { parentChannelId: "other" } : {}),
+      })
+    } else if (invalid === "opener-missing") await registry.collections.messages.utils.writeDelete("m1")
+    else {
+      const opener = registry.collections.messages.get("m1")!
+      await registry.collections.messages.utils.writeUpsert({ ...opener,
+        ...(invalid === "opener-incomplete" ? { resourceComplete: false } : { channelId: "other" }),
+      })
+    }
+    expect(getQualifiedConversationScope(client, target)).toBeDefined()
+    expect(findConversationDisplayWindow(client, target, scope)).toBeUndefined()
+    expect(load).not.toHaveBeenCalled()
   })
   it.each(["empty-query", "failed-query", "empty-pages", "mismatched-params"] as const)("installs the real first window over %s for text and forum", async state => {
     for (const forum of [false, true]) {

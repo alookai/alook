@@ -40,7 +40,7 @@ export async function enrichMessages(
     !isDm
       ? scope.isForum
         ? queries.communityChannel.listChildChannelsByParentMessageIds(db, scope.channelId, messageIds)
-        : queries.communityChannel.listChildChannels(db, scope.channelId)
+        : queries.communityChannel.listChildChannelsByParentMessageIds(db, scope.channelId, messageIds, null)
       : Promise.resolve([]),
     queries.communityMessage.getLatestMessageSeq(db, { channelId: scope.channelId }),
     // Friend-approval cards only ever live in DMs — skip the hydration query

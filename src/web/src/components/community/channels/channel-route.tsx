@@ -2,7 +2,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ComponentProps } from "react"
 import { useSearchParams } from "next/navigation"
 import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { toastApiError } from "@/lib/api/client"
@@ -35,11 +35,9 @@ import {
   useThreadOpenerRouteGate,
 } from "@/hooks/community/thread-opener-read-handoff"
 import { useThreadSplitMode } from "@/hooks/community/use-thread-split-mode"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
-import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { MobilePage } from "@/components/community/shell/mobile-page"
-import { ConversationActivityContext, ConversationPresentationContext, useConversationActivity } from "@/contexts/community/conversation-activity"
+import { ConversationActivityContext, ConversationPresentationContext, useConversationActivity, useConversationPresentation } from "@/contexts/community/conversation-activity"
 import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 
@@ -117,7 +115,7 @@ function ChannelRouteLayer({ serverParam, channelId, targetHref, routeCommitted 
     const next = intentAnchorMessageId !== undefined ? intentAnchorMessageId : routeAnchorMessageId
     setCaptured(current => current.scope === scope && current.anchorMessageId === next ? current : { scope, anchorMessageId: next })
   }, [resume, scope, captured.scope, entryIntent, intentAnchorMessageId, routeAnchorMessageId, routeCommitted, setCaptured])
-  const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id, anchorMessageId)
+  const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id, anchorMessageId, searchParams.get("tag"))
   const content = <ChannelRouteFrame key={JSON.stringify([currentUser.id, serverId])}
     serverId={serverId} serverParam={serverParam} channelId={channelId}
     searchParams={searchParams} routeCommitted={routeCommitted} resume={resume}
@@ -203,9 +201,9 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   onOpenChild: (id: string) => void
 }) {
   const active = useConversationActivity()
+  const presented = useConversationPresentation()
   const { navigation } = useCommunityRouteFrame()
   const router = useRouter()
-  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const currentAnchorMessageId = anchorMessageId
   const uiHandlers = useUiHandlers()
   const currentChannelId = useCurrentChannelId()
@@ -221,26 +219,8 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,
-    isForumPostChild && !resolvingParent && routeModel.routeHydrated,
+    presented && isForumPostChild && !resolvingParent && routeModel.routeHydrated,
   )
-  const { isFetching: fetchingOpener, refetch: refetchOpener } = forumPostOpener
-  const openerScope = JSON.stringify([currentUser.id, serverId, channelId, currentChannelMeta?.parentMessageId, accessEpoch])
-  const [openerRetryAttempt, setOpenerRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))
-  const openerRetryRef = useRef<{ scope: string } | null>(null)
-  const retryingOpener = openerRetryAttempt?.scope === openerScope
-  const openerError = isForumPostChild && (isConversationAccessError(forumPostOpener.error)
-    || (!forumPostOpener.data && (forumPostOpener.isError || retryingOpener)))
-  const retryOpener = useCallback(async () => {
-    if (!openerError || fetchingOpener || openerRetryRef.current?.scope === openerScope) return
-    const attempt = { scope: openerScope }
-    openerRetryRef.current = attempt
-    setOpenerRetryAttempt(attempt)
-    try { await refetchOpener({ cancelRefetch: false }) }
-    finally {
-      if (openerRetryRef.current === attempt) openerRetryRef.current = null
-      setOpenerRetryAttempt((current) => current === attempt ? null : current)
-    }
-  }, [fetchingOpener, refetchOpener, openerError, openerScope, setOpenerRetryAttempt])
   const channelName = useMemo(() => resolveChannelDisplayName({
     forumPostTitle: isForumPostChild ? forumPostOpener.data?.content : null,
     topLevelName: channelInServer?.name,
@@ -259,8 +239,8 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     isChildChannel,
     isNotifyUnit,
     currentUser,
-    accessAllowed: !resolvingParent && routeCommitted && routeModel.routeLifecycle === "ready",
-    roleDisplayAllowed: !resolvingParent && routeModel.routeLifecycle === "ready"
+    accessAllowed: presented && !resolvingParent && routeCommitted && routeModel.routeLifecycle === "ready",
+    roleDisplayAllowed: presented && !resolvingParent && routeModel.routeLifecycle === "ready"
       && (routeCommitted || resume && isForum && routeModel.routeHydrated),
   })
   const {
@@ -281,7 +261,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
       .flatMap((category) => category.channels)
       .map((channel) => toChannelRefCandidate(currentServer, channel))
   }, [currentServer])
-  const notifs = useNotificationSettings()
+  const notifs = useNotificationSettings(false)
   const channelNotif = notifs.channel
   const { mutate: setChannelNotif } = useSetChannelNotif()
 
@@ -323,8 +303,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   const channelReadReady =
     routeModel.routeLifecycle === "ready" &&
     routeModel.routeHydrated
-  const channelHydrated = !resolvingParent && channelReadReady &&
-    (!isForumPostChild || (Boolean(forumPostOpener.data) && !openerError))
+  const channelHydrated = !resolvingParent && channelReadReady
   const clientReady = active && routeCommitted && channelHydrated && currentChannelId === channelId
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",
@@ -351,10 +330,6 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
         retrying={routeModel.retryingMetadata}
         onRetry={() => { void routeModel.retryMetadata() }}
       />
-    }
-    if (openerError) {
-      return <ConversationResolutionErrorFrame retrying={retryingOpener}
-        onRetry={() => { void retryOpener() }} />
     }
     if (subtype === "unknown") {
       return <ConversationResolutionPendingFrame />

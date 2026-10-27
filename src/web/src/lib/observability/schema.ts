@@ -7,6 +7,7 @@ export const eventNames = [
   "request.body_parsed", "request.finish", "data.publish", "data.response_rejected",
   "ws.connect", "ws.ready", "ws.close", "ws.reconnect", "ws.event_applied",
   "main_thread.longtask", "telemetry.coverage", "telemetry.drop", "business.result", "message.milestone",
+  "conversation.cache", "conversation.entry", "conversation.reconcile", "position.finish", "region.wait_change",
 ] as const
 export type TelemetryEvent = typeof eventNames[number]
 export type Attributes = Record<string, string | number | boolean | undefined>
@@ -42,6 +43,20 @@ const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Objec
   source: ["restored_idb", "network", "ws", "local_mutation", "mixed", "unknown"],
   snapshot_source: ["rsc", "network", "restored_idb", "unknown"],
   target_coverage: ["covered", "uncovered", "unknown"],
+  cache_reason: ["account_unknown", "owner_retired", "metadata_missing", "metadata_incomplete", "scope_mismatch", "parent_missing", "parent_mismatch", "access_missing", "revoked", "archived", "qualified"],
+  cache_consumer: ["metadata", "messages", "forum"],
+  cache_window: ["missing", "incomplete", "ready", "empty"],
+  entry_status: ["missing", "current", "stale", "pending", "error"],
+  entry_stage: ["start", "validated", "published", "delivered", "error", "cancelled"],
+  reconcile_stage: ["start", "settled", "error", "cancelled", "retired"],
+  request_role: ["entry", "window", "reconcile", "pagination"],
+  window_mode: ["newest", "anchor", "since", "older", "newer"],
+  position_owner: ["idle", "initial", "target", "late-new", "present", "pagination", "restore"],
+  position_reason: ["settled", "empty", "target_missing", "manual_takeover", "hidden", "entry_changed", "retired", "data_error", "cancelled", "superseded", "origin_changed"],
+  position_source: ["snapshot", "read_anchor", "explicit_target", "new_divider", "tail", "unknown"],
+  position_snapshot: ["no_scope", "invalid_scope", "missing", "invalid_version", "fingerprint_mismatch", "expired", "available", "not_requested", "entry_changed", "viewport_mismatch", "padding_mismatch", "anchor_missing", "accepted"],
+  initial_wait_reason: ["none", "entry", "window", "projection", "identity", "restore", "position", "unknown"],
+  last_wait_reason: ["none", "entry", "window", "projection", "identity", "restore", "position", "unknown"],
   wait_reason: ["none", "entry", "window", "projection", "identity", "restore", "position", "unknown"],
   eligibility: ["eligible", "rejected", "unknown", "denied"],
   request_reason: ["foreground", "prefetch", "background", "restore_invalidate", "pagination", "command", "router", "unknown"],

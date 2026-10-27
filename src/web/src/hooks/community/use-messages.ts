@@ -1,5 +1,7 @@
 "use client"
 
+import { useConversationPresentation } from "@/contexts/community/conversation-activity"
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { hashKey, useInfiniteQuery, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
@@ -84,10 +86,11 @@ export function useDmMessages(dmId: string | null, opts?: MessagesOpts) {
 
 function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefined, serverId: string | null) {
   const client = useQueryClient()
+  const presented = useConversationPresentation()
   const tag = opts?.tag ?? null
   const anchorMessageId = opts?.anchorMessageId ?? null
   const entry = useConversationEntry(channelId && opts?.enabled !== false ? { channelId, serverId, anchorMessageId, tag } : null)
-  const proof = entry.resource?.proof
+  const proof = entry.scope?.proof
   const positionScope = useMemo<VirtualListPositionScope | undefined>(() => entry.canRead && proof
     ? { proof, kind: "messages", tag } : undefined, [entry.canRead, proof, tag])
   const viewKey = hashKey([channelId, serverId, anchorMessageId, tag, proof?.accountEpoch ?? -1, proof?.accessEpoch ?? -1,
@@ -114,15 +117,15 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   }, [channelId, serverId])
   const options = messageWindowOptions(client, enabled ? channelId : "__none__", initial, tag, { observation })
   const queryKey = selectedWindow?.key ?? options.queryKey
-  const query = useInfiniteQuery({ ...options, queryKey, enabled, subscribed: enabled })
+  const query = useInfiniteQuery({ ...options, queryKey, enabled: enabled && presented, subscribed: enabled })
   const repairKey: QueryKey = [...queryKey, "reconcile"]
   const repairOptions = client.getQueryCache().find<{ latestSeq: number }>({ queryKey: repairKey, exact: true })?.options
-  const reconciliation = useQuery({ ...(repairOptions?.queryFn ? repairOptions : messageReconcileOptions(client, {
+  useQuery({ ...(repairOptions?.queryFn ? repairOptions : messageReconcileOptions(client, {
     kind: serverId === null ? "dm" : "channel", scopeId: channelId ?? "__none__", serverId: serverId ?? undefined,
   }, queryKey)),
-    queryKey: repairKey, enabled: false, subscribed: enabled })
+    queryKey: repairKey, enabled: false, subscribed: enabled, notifyOnChangeProps: "all" })
   const originalQuery = client.getQueryCache().find({ queryKey, exact: true })
-  const owner = useMemo(() => ({ present, retries, query: originalQuery, enabled }), [present, retries, originalQuery, enabled])
+  const owner = useMemo(() => ({ present, retries, query: originalQuery, enabled: enabled && presented }), [present, retries, originalQuery, enabled, presented])
   const committed = useRef<typeof owner | null>(null)
   useLayoutEffect(() => {
     committed.current = owner
@@ -160,8 +163,11 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const latestSeq = Math.max(0, ...(query.data?.pages.map((page) => page.latestSeq ?? 0) ?? []))
   const landingWindow = entry.resource ? client.getQueryData<MessageWindowData>(entry.resource.windowKey) : undefined
   const landingLatestSeq = Math.max(0, ...(landingWindow?.pages.map(page => page.latestSeq ?? 0) ?? []))
-  const readSnapshotFetching = entry.isPending || ids.some(id => !canonicalById.has(id))
-    || !anchorMessageId && !tag && (landingLatestSeq > latestSeq && (!reconciliation.isError || reconciliation.isFetching)
+  const repairTarget = client.getQueryData<number>([...queryKey, "reconcile-target"]) ?? 0
+  const coveredLatestSeq = Math.max(0, ...canonicalBase.map(message => message.seq))
+  const readSnapshotFetching = !entry.snapshot || !entry.targetCovered && !selection.window || entry.isPending || ids.some(id => !canonicalById.has(id))
+    || repairTarget > coveredLatestSeq
+    || !anchorMessageId && !tag && (landingLatestSeq > latestSeq
       || entry.isFetching && !!channelId && knownConversationLatestSeq(client, channelId) > latestSeq)
   const pages = query.data?.pages ?? []
   const oldest = pages.at(-1)
@@ -231,12 +237,15 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
       retries.setState(() => ({ attempt, pending: false, error: result.error }))
     })
   }, [channelId, client, entryWindow, retryEntry, refetchWindow, retries])
-  const positionDataState: MessagePositionState = retrySelection.pending ? "pending"
+  const targetPositionDataState: MessagePositionState = retrySelection.pending ? "pending"
     : initialLoadError || retrySelection.error || entry.denied || !windowAvailable && entry.anchorMissing && !entry.isFetching ? "error"
-      : !windowAvailable || !entry.snapshot || loading || readSnapshotFetching ? "pending"
+      : !windowAvailable || loading || missingCanonical || !!anchorMessageId && !entry.targetCovered && !selection.window && !entry.anchorMissing ? "pending"
         : messages.length ? "ready" : "empty"
+  const positionDataState: MessagePositionState = targetPositionDataState === "error" ? "error"
+    : !windowAvailable || !entry.snapshot || loading || readSnapshotFetching || retrySelection.pending ? "pending"
+      : messages.length ? "ready" : "empty"
   return {
-    ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: windowAvailable ? "covered" as const : "uncovered" as const,
+    ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: entry.targetCovered || selection.window ? "covered" as const : "uncovered" as const,
       wait_reason: !entry.canRead ? "entry" as const : !windowAvailable ? "window" as const : loading ? "projection" as const : "none" as const },
     messages, canonicalMessages: canonicalBase, canonicalById,
     latestSeq, hasMoreOlder, hasMoreNewer, historyStartKnown, hasMore: hasMoreOlder,
@@ -245,11 +254,11 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     isFetchingOlder: query.isFetchingNextPage,
     isFetchingNewer: query.isFetchingPreviousPage || selection.pending,
     fetchOlder, fetchNewer, jumpToPresent, presentVersion: selection.version, presentRequest: selection.request,
-    anchorReconciled: !!selectedWindow,
+    anchorReconciled: entry.targetCovered || !!selection.window,
     navigationBlocked: !entry.canRead,
     readSnapshot: entry.snapshot, readSnapshotFetching,
-    initialPositionKnown: windowAvailable && entry.snapshot !== null && !loading && !missingCanonical && !initialLoadError && !retrySelection.pending,
-    initialPositionMessageId: entry.initialPositionMessageId, positionEntry, positionScope, positionDataState, messageWindow: query.data,
+    initialPositionKnown: windowAvailable && entry.snapshot !== null && !loading && !missingCanonical && !initialLoadError && !retrySelection.pending && !entry.initialPositionPending,
+    initialPositionMessageId: entry.initialPositionMessageId, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow: query.data,
     retryInitialLoad, retryingInitialLoad: entry.isFetching || query.isFetching,
     entryCanRead: entry.canRead, entryDenied: entry.denied, entryAnchorMissing: entry.anchorMissing,
   }

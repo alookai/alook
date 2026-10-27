@@ -1,6 +1,7 @@
 import { reconcileConversationLanding } from "@/hooks/community/community-ws/reconnect-messages"
 import { channelHref } from "./community-route"
-import { currentPageObservation, navigationForHref } from "@/lib/observability/context"
+import { actionAttributes, currentPageObservation, navigationForHref } from "@/lib/observability/context"
+import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { hashKey, notifyManager, queryOptions, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { COMMUNITY_CONTRACT_HEADER, CommunityConversationEntryReadSchema, type CommunityConversationEntryRead, type CommunityReadStateResource } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
@@ -8,7 +9,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { communityRequestOptions } from "./account-cache-lifecycle"
 import { isChannelMetadataTokenCurrent } from "./conversation-qualification"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import type { ChannelRow, MessageRow, ReadStateRow } from "@/lib/community-db/schema"
+import { channelMembershipKey, type ReadStateRow } from "@/lib/community-db/schema"
 import { ApiError } from "@/lib/errors"
 import {
   assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken,
@@ -39,6 +40,37 @@ export type ConversationEntryResource = {
   selection: CommunityConversationEntryRead["selection"]
   access: CommunityConversationEntryRead["access"]
   proof: ReturnType<typeof captureCommunityLiveSnapshotToken>
+}
+
+export type ConversationWindowScope = Pick<ConversationEntryResource, "channelId" | "proof">
+  & Partial<Pick<ConversationEntryResource, "windowKey" | "readStateAtEntry" | "selection">>
+
+export function assessConversationScope(client: QueryClient, target: ConversationEntryTarget) {
+  const registry = getCommunityDbRegistry(client)
+  if (!registry?.accountId || registry.sessionViewer() !== registry.accountId || registry.runtime.ws.get().profileViewerId !== registry.accountId) return { reason: "account_unknown" as const }
+  if (!registry.runtime.lifecycle.get().active) return { reason: "owner_retired" as const }
+  const channel = registry.collections.channels.get(target.channelId)
+  if (registry.runtime.ws.actions.isChannelAccessRevoked(target.channelId, target.serverId, channel?.parentChannelId ?? undefined)) return { reason: "revoked" as const }
+  if (!channel) return { reason: "metadata_missing" as const }
+  if (!channel.resourceComplete || channel.pending) return { reason: "metadata_incomplete" as const }
+  if (channel.archived) return { reason: "archived" as const }
+  if (channel.serverId !== target.serverId || (target.serverId === null ? channel.type !== "dm" : channel.type === "dm")) return { reason: "scope_mismatch" as const }
+  const parent = channel.parentChannelId
+    ? registry.collections.channels.get(channel.parentChannelId) : undefined
+  if (channel.type !== "thread" && channel.parentChannelId) return { reason: "scope_mismatch" as const }
+  if (channel.type === "thread") {
+    if (!parent?.resourceComplete || parent.pending) return { reason: "parent_missing" as const }
+    if (parent.archived || parent.serverId !== target.serverId || parent.type !== "text" && parent.type !== "forum" || !channel.parentMessageId) return { reason: "parent_mismatch" as const }
+  }
+  const access = (id: string) => !!registry.collections.channelMemberships.get(channelMembershipKey(id, registry.accountId!, "access"))
+  if (!access(channel.id) || parent && !access(parent.id)) return { reason: "access_missing" as const }
+  const proof = { ...captureCommunityLiveSnapshotToken(client, channel.id), channelLineage: { parentChannelId: channel.parentChannelId ?? undefined } }
+  if (!isChannelMetadataTokenCurrent(proof)) return { reason: "owner_retired" as const }
+  return { reason: "qualified" as const, scope: { channelId: channel.id, proof } satisfies ConversationWindowScope }
+}
+
+export function getQualifiedConversationScope(client: QueryClient, target: ConversationEntryTarget): ConversationWindowScope | undefined {
+  return assessConversationScope(client, target).scope
 }
 
 export function publishConversationEntry(
@@ -110,39 +142,53 @@ export function currentConversationReadState(client: QueryClient, channelId: str
   return clock ? { channelId, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0, observedRevision: clock.revision } : undefined
 }
 
-export function findConversationEntryWindow(client: QueryClient, target: ConversationEntryTarget, resource: ConversationEntryResource, pointer: CommunityReadStateResource) {
+function conversationDisplayWindows(client: QueryClient, target: ConversationEntryTarget, resource: ConversationWindowScope) {
   if (!isChannelMetadataTokenCurrent(resource.proof) || resource.channelId !== target.channelId) return
   const registry = resource.proof.registry!
-  const channel = client.getQueryData<ChannelRow[]>(communityKeys.communityDbCollection(registry.scopeId, "channels"))?.find((row) => row.id === target.channelId)
-    ?? registry.collections.channels.get(target.channelId)
+  const channel = registry.collections.channels.get(target.channelId)
   if (!channel || channel.serverId !== target.serverId || channel.archived) return
-  const rows = client.getQueryData<MessageRow[]>(communityKeys.communityDbCollection(registry.scopeId, "messages"))
-  const messages = rows ? new Map(rows.map((row) => [row.id, row])) : registry.collections.messages
+  const messages = registry.collections.messages
   if (channel.type === "forum" && !target.anchorMessageId) {
     const key = communityKeys.forumFeed(channel.id, target.tag ?? null)
     const feed = client.getQueryData<{ pages: ForumFeedPage[]; pageParams: Array<string | null> }>(key)
     if (!feed?.pages.length || !Array.isArray(feed.pageParams) || feed.pages.length !== feed.pageParams.length) return
-    const channels = client.getQueryData<ChannelRow[]>(communityKeys.communityDbCollection(registry.scopeId, "channels"))
-    const byId = channels ? new Map(channels.map(row => [row.id, row])) : registry.collections.channels
-    if (feed.pages.some(page => !Array.isArray(page.threads) || page.threads.some(thread => byId.get(thread.id)?.parentChannelId !== channel.id || !!thread.openerMessageId && messages.get(thread.openerMessageId)?.resourceComplete !== true))) return
-    return { key, initial: { mode: "newest" as const }, tag: target.tag ?? null }
+    const byId = registry.collections.channels
+    if (feed.pages.some(page => !Array.isArray(page.threads) || page.threads.some(thread => {
+      const child = byId.get(thread.id)
+      const opener = thread.openerMessageId ? messages.get(thread.openerMessageId) : undefined
+      return !child?.resourceComplete || child.type !== "thread" || child.serverId !== channel.serverId || child.parentChannelId !== channel.id
+        || !!thread.openerMessageId && (!opener?.resourceComplete || opener.channelId !== channel.id)
+    }))) return
+    return [{ key, initial: { mode: "newest" as const }, tag: target.tag ?? null }]
   }
-  const anchor = target.anchorMessageId ?? (target.preferTail ? null : pointer.lastReadMessageId)
   const windows = client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages(target.channelId) })
-    .sort((left, right) => Number(hashKey(right.queryKey) === hashKey(resource.windowKey)) - Number(hashKey(left.queryKey) === hashKey(resource.windowKey)) || right.state.dataUpdatedAt - left.state.dataUpdatedAt)
-  for (const window of windows) {
+    .sort((left, right) => Number(hashKey(right.queryKey) === hashKey(resource.windowKey ?? [])) - Number(hashKey(left.queryKey) === hashKey(resource.windowKey ?? [])) || right.state.dataUpdatedAt - left.state.dataUpdatedAt)
+  return windows.flatMap(window => {
     const identity = messageWindowIdentity(window.queryKey)
-    if (!identity || identity.tag !== (target.tag ?? null) || identity.initial.mode === "since") continue
+    if (!identity || identity.tag !== (target.tag ?? null) || identity.initial.mode === "since") return []
     const data = window.state.data as MessageWindowData | undefined
-    if (!Array.isArray(data?.pages) || !Array.isArray(data.pageParams) || !data.pages.length || data.pageParams.length !== data.pages.length || data.pages.some((page) => !Array.isArray(page.messages))) continue
+    if (!Array.isArray(data?.pages) || !Array.isArray(data.pageParams) || !data.pages.length || data.pageParams.length !== data.pages.length || data.pages.some((page) => !Array.isArray(page.messages))) return []
     const ids = data.pages.flatMap((page) => page.messages.map((message) => message.id))
-    if (ids.length && !ids.some((id) => messages.get(id)?.resourceComplete === true)) continue
-    const anchored = !!anchor && ids.includes(anchor) && messages.get(anchor)?.resourceComplete === true
-    const missingPointer = !target.anchorMessageId && pointer.lastReadMessageId === resource.readStateAtEntry.lastReadMessageId && resource.selection.reason === "read_pointer_missing"
-      && hashKey(window.queryKey) === hashKey(resource.windowKey) && identity.initial.mode === "newest" && data.pages[0].hasMoreNewer === false
-    if (anchor ? !anchored && !missingPointer : data.pages[0].hasMoreNewer !== false) continue
-    return { key: window.queryKey, initial: identity.initial, tag: identity.tag }
-  }
+    if (ids.some(id => messages.get(id)?.resourceComplete !== true || messages.get(id)?.channelId !== target.channelId)) return []
+    return [{ key: window.queryKey, initial: identity.initial, tag: identity.tag }]
+  })
+}
+
+export function findConversationDisplayWindow(client: QueryClient, target: ConversationEntryTarget, scope: ConversationWindowScope) {
+  return conversationDisplayWindows(client, target, scope)?.[0]
+}
+
+export function findConversationEntryWindow(client: QueryClient, target: ConversationEntryTarget, resource: ConversationWindowScope, pointer: CommunityReadStateResource | undefined) {
+  if (!pointer && !target.anchorMessageId) return
+  const anchor = target.anchorMessageId ?? (target.preferTail ? null : pointer?.lastReadMessageId)
+  return conversationDisplayWindows(client, target, resource)?.find(window => {
+    if (!messageWindowIdentity(window.key)) return true
+    const data = client.getQueryData<MessageWindowData>(window.key)!
+    const anchored = !!anchor && data.pages.some(page => page.messages.some(message => message.id === anchor))
+    const missingPointer = !target.anchorMessageId && pointer?.lastReadMessageId === resource.readStateAtEntry?.lastReadMessageId && resource.selection?.reason === "read_pointer_missing"
+      && hashKey(window.key) === hashKey(resource.windowKey ?? []) && window.initial.mode === "newest" && data.pages[0].hasMoreNewer === false
+    return anchor ? anchored || missingPointer : data.pages[0].hasMoreNewer === false
+  })
 }
 
 export function knownConversationLatestSeq(client: QueryClient, channelId: string) {
@@ -176,32 +222,46 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
       const action = typeof window !== "undefined" && window.location.pathname === expectedPath ? navigationForHref(window.location.pathname + window.location.search) : undefined
       const captured = observation ?? (typeof window === "undefined" || window.location.pathname !== expectedPath ? { page: undefined, reason: "unknown" as const }
         : action && !action.done ? { action, reason: "foreground" as const } : { page: currentPageObservation(), reason: "background" as const })
-      let entry: CommunityConversationEntryRead
+      const generation = telemetryGeneration()
+      const observed = isTelemetryEligible()
+      const record = (entry_stage: "start" | "validated" | "published" | "delivered" | "error" | "cancelled") => {
+        if (observed && generation === telemetryGeneration()) emitTelemetry("conversation.entry", {
+          ...actionAttributes(captured?.action ?? captured?.page), entry_stage, request_role: "entry",
+          window_mode: target.anchorMessageId ? "anchor" : "newest",
+        })
+      }
+      record("start")
       try {
-        entry = await withConversationReadDeadline(signal, (readSignal) => apiFetch<CommunityConversationEntryRead>(
+        const entry = await withConversationReadDeadline(signal, (readSignal) => apiFetch<CommunityConversationEntryRead>(
           `/api/community/channels/${encodeURIComponent(target.channelId)}/messages?${search}`,
-          { ...communityRequestOptions(client, token, readSignal, assert), headers: { [COMMUNITY_CONTRACT_HEADER]: "3" }, observation: captured },
+          { ...communityRequestOptions(client, token, readSignal, assert), headers: { [COMMUNITY_CONTRACT_HEADER]: "3" },
+            observation: { ...captured, role: "entry", windowMode: target.anchorMessageId ? "anchor" : "newest" } },
         ))
         assert()
+        const initial: InitialMessageWindow = entry.selection.anchorMessageId
+          ? { mode: "anchor", anchor: entry.selection.anchorMessageId } : { mode: "newest" }
+        const windowKey = communityKeys.channelMessagesWindow(target.channelId, initial, target.tag)
+        const hadWindow = !!client.getQueryData<MessageWindowData>(windowKey)?.pages.length
+        const resource = publishConversationEntry(client, target, entry, { token, signal })
+        record("validated")
+        record("published")
+        if (hadWindow && !entry.forumFeed) {
+          void reconcileConversationLanding(client, {
+            kind: target.serverId === null ? "dm" : "channel", scopeId: target.channelId,
+            serverId: target.serverId ?? undefined,
+          }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages }, initial,
+          { query: original!, signal, lifetime: "query", observation: captured }).catch(() => undefined)
+        }
+        record("delivered")
+        return resource
       } catch (error) {
+        const current = !signal.aborted && isChannelMetadataTokenCurrent(token)
+          && !!original && client.getQueryCache().get(original.queryHash) === original
+        record(!current || error instanceof Error && error.name === "AbortError" ? "cancelled" : "error")
         assert()
         if (error instanceof ApiError && (error.status === 403 || error.status === 404) && !isConversationAnchorMissingError(error)) retireCommunityChannelReading(token.registry!, target.channelId, { reason: "read-denied", serverId: target.serverId, preserveQuery: original })
         throw error
       }
-      assert()
-      const initial: InitialMessageWindow = entry.selection.anchorMessageId
-        ? { mode: "anchor", anchor: entry.selection.anchorMessageId } : { mode: "newest" }
-      const windowKey = communityKeys.channelMessagesWindow(target.channelId, initial, target.tag)
-      const hadWindow = !!client.getQueryData<MessageWindowData>(windowKey)?.pages.length
-      const resource = publishConversationEntry(client, target, entry, { token, signal })
-      if (hadWindow && !entry.forumFeed) {
-        await reconcileConversationLanding(client, {
-          kind: target.serverId === null ? "dm" : "channel", scopeId: target.channelId,
-          serverId: target.serverId ?? undefined,
-        }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages }, initial, { query: original!, signal })
-        assert()
-      }
-      return resource
     },
     staleTime: (query) => {
       const resource = query.state.data

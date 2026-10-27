@@ -338,6 +338,31 @@ describe("conversation entry positioning through real reading owners", () => {
     }
   })
 
+  it("preserves600px of real cached message-owner layout on a stale-entry remount", async () => {
+    const view = await setup("channel", true)
+    await view.tail()
+    const oldRoot = view.root()
+    fireEvent.wheel(oldRoot, { deltaY: -600 })
+    act(() => oldRoot.scrollTo({ top: oldRoot.scrollHeight - oldRoot.clientHeight - 600 }))
+    resize()
+    const bodies = Array.from(oldRoot.querySelectorAll<HTMLElement>("[data-msg-id]"))
+    const original = bodies.find(body => body.getBoundingClientRect().bottom > 0)!
+    const id = original.dataset.msgId!
+    const before = original.getBoundingClientRect().top
+    const offset = oldRoot.scrollTop
+    expect(oldRoot.scrollHeight - oldRoot.clientHeight - offset).toBe(600)
+    await view.navigate("/c/channels/s1/c2")
+    expect(oldRoot.isConnected).toBe(false)
+    await act(async () => vi.advanceTimersByTimeAsync(6000))
+    const previousLoad = load.getMockImplementation()!
+    load.mockImplementation((url: string, options: unknown) => url === "/api/community/channels/c1/messages?entry=1" ? new Promise(() => {}) : previousLoad(url, options))
+    await view.navigate("/c/channels/s1/c1")
+    expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1")).toBe(true)
+    expect(view.root().scrollTop).toBeCloseTo(offset, 0)
+    expect(view.root().querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top).toBeCloseTo(before, 0)
+    expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+  })
+
   it.each([
     { kind: "channel", strict: false }, { kind: "post", strict: false },
     { kind: "thread", strict: false }, { kind: "channel", strict: true },

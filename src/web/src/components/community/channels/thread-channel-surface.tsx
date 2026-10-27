@@ -125,6 +125,7 @@ export function ThreadChannelSurface({
     viewerUserId: viewer.id,
     isChildChannel: true,
     anchorMessageId,
+    threadsEnabled: rightPanel === "threads",
   })
   const displayName = localName ?? channelName
   const Body = embedded ? "div" : "main"
@@ -255,7 +256,7 @@ export function ThreadChannelSurface({
                   initialPositionMessageId={controller.feed.initialPositionMessageId}
                   positionEntry={controller.feed.positionEntry}
                   positionScope={controller.feed.positionScope}
-                  positionDataState={controller.feed.positionDataState}
+                  positionDataState={controller.feed.positionDataState} targetPositionDataState={controller.feed.targetPositionDataState}
                   messageWindow={controller.feed.messageWindow}
                   isFetching={controller.feed.isFetching}
                   isFetchingOlder={controller.feed.isFetchingOlder}

@@ -26,6 +26,8 @@ const POSITION_GC_MS = 5 * 60 * 1000
 const MAX_POSITION_LISTS = 32
 const MAX_POSITION_MEASUREMENTS = 2048
 
+export type VirtualListPositionReadReason = "no_scope" | "invalid_scope" | "missing" | "invalid_version" | "fingerprint_mismatch" | "expired" | "available"
+
 export function virtualListPositionKey({ proof, kind, tag }: VirtualListPositionScope) {
   const channelId = proof.channelId!
   const parentId = proof.channelLineage?.parentChannelId
@@ -51,10 +53,19 @@ function current(scope: VirtualListPositionScope) {
   return !!scope.proof.viewerId && !!scope.proof.channelId && isChannelMetadataTokenCurrent(scope.proof)
 }
 
-export function readVirtualListPosition(scope: VirtualListPositionScope | undefined, fingerprint: string) {
-  if (!scope || !current(scope)) return null
+export function assessVirtualListPosition(scope: VirtualListPositionScope | undefined, fingerprint: string): { snapshot: VirtualListPositionSnapshot | null; reason: VirtualListPositionReadReason } {
+  if (!scope) return { snapshot: null, reason: "no_scope" }
+  if (!current(scope)) return { snapshot: null, reason: "invalid_scope" }
   const value = scope.proof.queryClient.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(scope))
-  return value?.version === 1 && value.fingerprint === fingerprint && Date.now() - value.at < POSITION_GC_MS ? value : null
+  if (!value) return { snapshot: null, reason: "missing" }
+  if (value.version !== 1) return { snapshot: null, reason: "invalid_version" }
+  if (value.fingerprint !== fingerprint) return { snapshot: null, reason: "fingerprint_mismatch" }
+  if (!(Date.now() - value.at < POSITION_GC_MS)) return { snapshot: null, reason: "expired" }
+  return { snapshot: value, reason: "available" }
+}
+
+export function readVirtualListPosition(scope: VirtualListPositionScope | undefined, fingerprint: string) {
+  return assessVirtualListPosition(scope, fingerprint).snapshot
 }
 
 export function saveVirtualListPosition(scope: VirtualListPositionScope | undefined, value: VirtualListPositionSnapshot) {

@@ -1213,7 +1213,7 @@ describe("ChannelRoute message surface ownership", () => {
     renderer.unmount()
   })
 
-  it("lets the qualified parent load while the forum opener still fences the child", () => {
+  it("mounts qualified parent and child while the Forum title is still pending", () => {
     configureThreadRoute()
     mockRouteModel.isForumPostChild = true
     mockSplitMode.value = "split"
@@ -1222,39 +1222,25 @@ describe("ChannelRoute message surface ownership", () => {
     const renderer = render(React.createElement(ChannelRoute, props))
     const split = screen.getByTestId("community-thread-split")
     expect(mockSplitParentSurface).toHaveBeenLastCalledWith(expect.objectContaining({ channel: expect.objectContaining({ id: "parent_1" }) }), undefined)
-    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
-    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
-    expect(screen.getByTestId("community-thread-split-panel").querySelector("[data-message-list-skeleton]")).not.toBeNull()
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
     Object.assign(mockForumOpener, { data: { content: "Post title" }, isLoading: false })
-    mockedUseChannelMessageFeed.mockReturnValue(feed())
     renderer.rerender(React.createElement(ChannelRoute, props))
     expect(screen.getByTestId("community-thread-split")).toBe(split)
-    expect(mockedUseChannelMessageFeed).toHaveBeenCalledOnce()
-    expect(mockCommitLastCommunityRoute).toHaveBeenCalledOnce()
+    expect(mockCommitLastCommunityRoute).toHaveBeenCalled()
     renderer.unmount()
   })
 
-  it("shows a required cold forum opener failure, keeps Retry feedback while pending, then opens body", async () => {
+  it("keeps the qualified child mounted through a failed title hint and its recovery", () => {
     configureThreadRoute()
     mockRouteModel.isForumPostChild = true
     Object.assign(mockForumOpener, { isError: true, error: new Error("deadline") })
-    let release!: () => void
-    mockForumOpener.refetch.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
     const props = { serverParam: "server_1", channelId: "channel_1" }
     const renderer = render(React.createElement(ChannelRoute, props))
-    expect(screen.getByRole("button", { name: "Retry" })).not.toBeDisabled()
-    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
-    expect(mockForumOpener.refetch).toHaveBeenCalledOnce()
-    Object.assign(mockForumOpener, { isError: false, error: null, isFetching: true, isLoading: true })
-    renderer.rerender(React.createElement(ChannelRoute, props))
-    expect(screen.getByRole("button", { name: "Retrying…" })).toBeDisabled()
-    await act(async () => { release() })
-    Object.assign(mockForumOpener, { data: { content: "Recovered title" }, isFetching: false, isLoading: false })
-    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
+    expect(screen.queryByRole("alert")).toBeNull()
+    Object.assign(mockForumOpener, { data: { content: "Recovered title" }, isError: false, error: null, isFetching: false, isLoading: false })
     renderer.rerender(React.createElement(ChannelRoute, props))
     expect(screen.queryByRole("alert")).toBeNull()
-    expect(mockedUseChannelMessageFeed).toHaveBeenCalled()
     renderer.unmount()
   })
 

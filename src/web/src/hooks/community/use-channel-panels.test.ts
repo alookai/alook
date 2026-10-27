@@ -47,7 +47,7 @@ describe("useThreads / threadsQueryFn", () => {
       .mockResolvedValueOnce({ participants: [] })
     const { threadsQueryFn } = await import("./use-channel-panels")
     const data = await threadsQueryFn("ch_1", qc)()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads?include=parentMessage,firstMessage,tags,participants", expect.objectContaining({ authenticationAccount: "viewer", signal: undefined }))
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads?include=parentMessage,firstMessage,tags,participants&archived=false", expect.objectContaining({ authenticationAccount: "viewer", signal: undefined }))
     expect(apiFetchMock).not.toHaveBeenCalledWith("/api/community/channels/ch_1/posts")
     expect(data.threads).toHaveLength(1)
     expect(project(data)[0]?.parent.text).toBe("identityless preview")

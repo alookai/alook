@@ -114,7 +114,7 @@ export async function reconcileNotificationSettings(queryClient: QueryClient) {
   return settings
 }
 
-export function useNotificationSettings(): UseQueryResult<NotificationSettings> & {
+export function useNotificationSettings(enabled = true): UseQueryResult<NotificationSettings> & {
   server: Record<string, string>
   channel: Record<string, string>
 } {
@@ -122,6 +122,7 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
   const query = useQuery({
     queryKey: communityKeys.notificationSettings(),
     queryFn: notificationSettingsQueryFn,
+    enabled,
   })
   return {
     ...query,
