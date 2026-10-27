@@ -1,9 +1,10 @@
 export type SwipeDirection = "left" | "right" | "up" | "down"
 
-const INTERACTIVE_START = [
-  "button", "a", "input", "textarea", "select", "label", "summary", "audio", "video", "canvas", "iframe",
+const INTERACTIVE_START = "button,a,[role='button'],[role='link']"
+const PROTECTED_START = [
+  "input", "textarea", "select", "label", "summary", "audio", "video", "canvas", "iframe",
   "[contenteditable]:not([contenteditable='false'])",
-  "[role='button']", "[role='link']", "[role='slider']", "[role='textbox']",
+  "[role='slider']", "[role='textbox']",
   "[role='spinbutton']", "[role='combobox']", "[role='tab']", "[role='option']", "[role='menuitem']",
   "[draggable='true']", "[data-swipe-ignore]",
   "[data-slot='resizable-handle']", "[data-dnd-handle]",
@@ -22,7 +23,11 @@ export function canStartSwipe({
   kind?: "page" | "overlay"
 }) {
   if (!enabled || pointerType !== "touch" || touches !== 1 || !(target instanceof Element)) return false
-  if (target.closest(INTERACTIVE_START)) return false
+  if (target.closest(PROTECTED_START)) return false
+  for (let control: Element | null = target; control; control = control.parentElement) {
+    if (control.matches(INTERACTIVE_START)
+      && (kind !== "page" || !root.contains(control) || !control.hasAttribute("data-page-swipe-navigation-row"))) return false
+  }
   const document = root.ownerDocument
   const view = document.defaultView
   const selection = document.getSelection()
