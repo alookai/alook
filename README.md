@@ -83,9 +83,9 @@ Alook connects to the coding agents already on your machine. It does not supply 
 |-------|--------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Supported |
 | [Codex](https://openai.com/index/introducing-codex/) | Supported |
-| Cursor | Supported |
+| [Cursor](https://cursor.com/cli) | Supported |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Supported |
-| Pi | Supported |
+| [Pi](https://pi.dev/) | Supported |
 
 
 
