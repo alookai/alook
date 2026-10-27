@@ -35,6 +35,7 @@ import {
   invalidateChannelMessages,
   invalidateForumSidebar,
   invalidateChannelRefDirectory,
+  invalidateChannelRefTargets,
   invalidateInvites,
   invalidateServerDetail,
   invalidateServersList,
@@ -42,6 +43,7 @@ import {
 } from "./invalidation-projections"
 
 export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
+  invalidateChannelRefTargets(projection)
   const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")
   if (parent?.serverId) invalidateForumSidebar(projection, parent.serverId)
   projection.fence("threads", { queryKey: communityKeys.threads(event.parentChannelId) })
@@ -54,6 +56,7 @@ export function handleChildChannelUpdate(
 ) {
   invalidateThreads(projection, event.parentChannelId)
   const changes = event.changes
+  if (changes.name !== undefined || changes.archived !== undefined || changes.tags !== undefined) invalidateChannelRefTargets(projection)
   if (changes.tags !== undefined) {
     projection.fence("threads", {
       queryKey: communityKeys.threads(event.parentChannelId),

@@ -20,13 +20,16 @@ function observe(client: QueryClient, key: readonly unknown[], queryFn = vi.fn(a
   return { observer, queryFn }
 }
 
-it("refreshes only the account rail and reference directory, keeping inactive queries stale", async () => {
+it("refreshes only the account rail and ref resources, keeping inactive queries stale", async () => {
   const { client, runtime } = await createCommunityQueryOwner()
   const { client: other } = await createCommunityQueryOwner("other")
   const servers = observe(client, communityKeys.servers())
   const folders = observe(client, communityKeys.folders())
   const detail = observe(client, communityKeys.server("unrelated"))
   const foreign = observe(other, communityKeys.folders())
+  const refKey = communityKeys.channelRefTarget("/studio#0042/general/#1", { accountEpoch: 1, accessEpoch: 0, lifetime: 0, scopes: [] })
+  const ref = observe(client, refKey)
+  const foreignRef = observe(other, refKey)
   client.setQueryData(communityKeys.channelRefDirectory(), ["old"])
   await dispatchCommunityWsEvent({ type: "community:server_rail.changed" }, {
     queryClient: client, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, deliveryMode: "single",
@@ -34,6 +37,8 @@ it("refreshes only the account rail and reference directory, keeping inactive qu
   })
   expect(servers.queryFn).toHaveBeenCalledTimes(1)
   expect(folders.queryFn).toHaveBeenCalledTimes(1)
+  expect(ref.queryFn).toHaveBeenCalledTimes(1)
+  expect(foreignRef.queryFn).not.toHaveBeenCalled()
   expect(detail.queryFn).not.toHaveBeenCalled()
   expect(foreign.queryFn).not.toHaveBeenCalled()
   expect(client.getQueryState(communityKeys.channelRefDirectory())?.isInvalidated).toBe(true)
@@ -113,8 +118,10 @@ it("reconciles missed rail hints on reconnect without unrelated server-detail wo
   const { client } = await createCommunityQueryOwner()
   const folders = observe(client, communityKeys.folders())
   const detail = observe(client, communityKeys.server("unrelated"))
+  const ref = observe(client, communityKeys.channelRefTarget("/studio#0042/general/#1", { accountEpoch: 1, accessEpoch: 0, lifetime: 0, scopes: [] }))
   const summary = await reconcileCommunityWsReconnect(client, 10, { excludePolicies: communityWsReconnectPolicies.filter((policy) => policy !== "server-rail") })
   expect(summary).toMatchObject({ policyCount: 1, successCount: 1, failureCount: 0 })
   expect(folders.queryFn).toHaveBeenCalledTimes(1)
+  expect(ref.queryFn).toHaveBeenCalledTimes(1)
   expect(detail.queryFn).not.toHaveBeenCalled()
 })

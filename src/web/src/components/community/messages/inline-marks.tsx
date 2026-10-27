@@ -3,6 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
+import { CircleAlert, Link2Off, LoaderCircle, LockKeyhole } from "lucide-react"
 import { ChannelIcon } from "../channels/channel-icon"
 
 // Pill components the streamdown renderer maps custom tags to (see message-markdown.tsx).
@@ -69,6 +70,8 @@ export function ChannelPill({
   showIcon = true,
   seqSuffix,
   testId,
+  state,
+  statusLabel,
 }: {
   children?: React.ReactNode
   onClick?: (e: React.MouseEvent) => void
@@ -76,16 +79,13 @@ export function ChannelPill({
   muted?: boolean
   showIcon?: boolean
   testId?: string
-  // A message ref (`/server/channel#N`): render the whole thing as ONE pill —
-  // channel name + `#N` inside — with a leading `#` glyph (instead of the `/`
-  // channel glyph) so it reads as "a message in general", one clickable unit.
-  // A plain channel ref leaves this undefined and keeps the `/` glyph. (Alli
-  // uiux#118: seq is the ref's real target, so it belongs inside the pill, not
-  // floating after it as a detached muted span.)
+  state?: "loading" | "ready" | "missing" | "forbidden" | "error"
+  statusLabel?: string
   seqSuffix?: number
 }) {
-  const title = typeof children === "string" ? children : undefined
+  const title = typeof children === "string" ? `${children}${statusLabel ? ` — ${statusLabel}` : ""}` : statusLabel
   const isMsgRef = seqSuffix !== undefined
+  const StatusIcon = state === "loading" ? LoaderCircle : state === "missing" ? Link2Off : state === "forbidden" ? LockKeyhole : state === "error" ? CircleAlert : null
   const className = [
     "inline-flex max-w-[16rem] items-center gap-1 rounded-lg bg-accent px-1 align-bottom font-medium text-foreground",
     muted ? "opacity-60" : "",
@@ -93,9 +93,8 @@ export function ChannelPill({
   ].join(" ")
   const content = (
     <>
-      {/* Resolved and loading refs keep the channel glyph — a message ref still
-          points AT a channel, while a syntactic-only unresolved ref hides it. */}
       {showIcon && <ChannelIcon className="shrink-0 text-xs" />}
+      {StatusIcon && <StatusIcon aria-hidden data-ref-status={state} className={`size-3 shrink-0${state === "loading" ? " animate-spin motion-reduce:animate-none" : ""}`} />}
       {serverPrefix && (
         <span className="shrink-0 text-muted-foreground transition-colors group-hover/pill:text-primary">{serverPrefix} /</span>
       )}
@@ -105,12 +104,12 @@ export function ChannelPill({
   )
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} title={title} className={className} data-testid={testId}>
+      <button type="button" onClick={onClick} title={title} aria-label={statusLabel ? title : undefined} className={className} data-testid={testId} data-ref-state={state}>
         {content}
       </button>
     )
   }
-  return <span title={title} className={className} data-testid={testId}>{content}</span>
+  return <span title={title} aria-label={statusLabel ? title : undefined} aria-busy={state === "loading" ? true : undefined} className={className} data-testid={testId} data-ref-state={state}>{content}</span>
 }
 
 // Server-ref pill — same icon/shape/on-off pattern as `ChannelPill` (reuses

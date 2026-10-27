@@ -17,7 +17,6 @@ import {
   ConversationFooterSlotProvider,
 } from "@/components/community/messages/conversation-footer-shell"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
-import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
@@ -193,13 +192,8 @@ export function ThreadChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <MessagePaneNavigationProvider
-          channelId={channelId}
-          jumpToSeq={controller.jumpToSeq}
-          openMessageContext={controller.setContextTarget}
-        >
-          <ChannelShell
-            header={(
+        <ChannelShell
+          header={(
             <ChannelHeader
               channel={displayName}
               kind="thread"
@@ -220,7 +214,7 @@ export function ThreadChannelSurface({
               ) : undefined}
             />
           )}
-            body={(
+          body={(
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
@@ -294,7 +288,7 @@ export function ThreadChannelSurface({
               </ConversationFooterSlotProvider>
             </Body>
           )}
-            panels={(
+          panels={(
             <CommunityPanel
               open={rightPanel !== null}
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -309,7 +303,7 @@ export function ThreadChannelSurface({
               onOpenProfile={onOpenProfile}
             />
           )}
-            dialogs={(
+          dialogs={(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -328,8 +322,7 @@ export function ThreadChannelSurface({
               />
             </>
           )}
-          />
-        </MessagePaneNavigationProvider>
+        />
       )}
     </MessageChannelController>
   )
