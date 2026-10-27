@@ -39,74 +39,76 @@ export const DmSidebar = memo(function DmSidebar({
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div data-slot="dm-sidebar-shortcuts" className="shrink-0 px-2 pt-4">
-        <CommunityNavigationLink
-          aria-label={requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends"}
-          href="/c/me/friends"
-          prefetchMode="visible"
-          active={isFriendsActive}
-          onActivate={onShowFriends}
-          className={[
-            "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-            isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-          ].join(" ")}
-        >
-          <Users className="size-5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">Friends</span>
-          {requestCount && (
-            <span
-              data-testid={tid.friendsShortcutBadge}
-              className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+        <div className="flex flex-col gap-1">
+          <CommunityNavigationLink
+            aria-label={requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends"}
+            href="/c/me/friends"
+            prefetchMode="visible"
+            active={isFriendsActive}
+            onActivate={onShowFriends}
+            className={[
+              "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+            ].join(" ")}
+          >
+            <Users className="size-5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Friends</span>
+            {requestCount && (
+              <span
+                data-testid={tid.friendsShortcutBadge}
+                className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+              >
+                {requestCount}
+              </span>
+            )}
+          </CommunityNavigationLink>
+          {onShowMachines && (
+            <CommunityNavigationLink
+              data-testid={tid.machineGuideIntroSource}
+              href="/c/me/machines"
+              prefetchMode="visible"
+              active={machinesActive}
+              onActivate={onShowMachines}
+              className={[
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+              ].join(" ")}
             >
-              {requestCount}
-            </span>
+              <Monitor className="size-5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Machines</span>
+            </CommunityNavigationLink>
           )}
-        </CommunityNavigationLink>
-        {onShowMachines && (
-          <CommunityNavigationLink
-            data-testid={tid.machineGuideIntroSource}
-            href="/c/me/machines"
-            prefetchMode="visible"
-            active={machinesActive}
-            onActivate={onShowMachines}
-            className={[
-              "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-            ].join(" ")}
-          >
-            <Monitor className="size-5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Machines</span>
-          </CommunityNavigationLink>
-        )}
-        {onShowBots && (
-          <CommunityNavigationLink
-            href="/c/me/bots"
-            prefetchMode="visible"
-            active={botsActive}
-            onActivate={onShowBots}
-            className={[
-              "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-            ].join(" ")}
-          >
-            <Bot className="size-5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">My Bots</span>
-          </CommunityNavigationLink>
-        )}
-        {onShowPrivacy && (
-          <CommunityNavigationLink
-            href="/c/me/privacy"
-            prefetchMode="visible"
-            active={privacyActive}
-            onActivate={onShowPrivacy}
-            className={[
-              "mb-2 flex h-11 w-full sm:h-9 items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              privacyActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-            ].join(" ")}
-          >
-            <Shield className="size-5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Privacy</span>
-          </CommunityNavigationLink>
-        )}
+          {onShowBots && (
+            <CommunityNavigationLink
+              href="/c/me/bots"
+              prefetchMode="visible"
+              active={botsActive}
+              onActivate={onShowBots}
+              className={[
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+              ].join(" ")}
+            >
+              <Bot className="size-5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">My Bots</span>
+            </CommunityNavigationLink>
+          )}
+          {onShowPrivacy && (
+            <CommunityNavigationLink
+              href="/c/me/privacy"
+              prefetchMode="visible"
+              active={privacyActive}
+              onActivate={onShowPrivacy}
+              className={[
+                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                privacyActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+              ].join(" ")}
+            >
+              <Shield className="size-5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Privacy</span>
+            </CommunityNavigationLink>
+          )}
+        </div>
         <div className="my-2 h-px bg-border" />
       </div>
       <div data-slot="dm-sidebar-list" className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">
@@ -164,10 +166,12 @@ export function DmSidebarSkeleton() {
       className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
       <div className="shrink-0 px-2 pt-4">
-        <Skeleton className="mb-1 h-9 w-full rounded-md" />
-        <Skeleton className="mb-1 h-9 w-full rounded-md" />
-        <Skeleton className="mb-2 h-9 w-full rounded-md" />
-        <Skeleton className="mb-2 h-9 w-full rounded-md" />
+        <div className="flex flex-col gap-1">
+          <Skeleton className="h-9 w-full rounded-md" />
+          <Skeleton className="h-9 w-full rounded-md" />
+          <Skeleton className="h-9 w-full rounded-md" />
+          <Skeleton className="h-9 w-full rounded-md" />
+        </div>
         <div className="my-2 h-px bg-border" />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">
