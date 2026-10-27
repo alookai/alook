@@ -9,7 +9,7 @@ import type {
   PersistedClient,
   Persister,
 } from "@tanstack/react-query-persist-client"
-import { createStore, promisifyRequest } from "idb-keyval"
+import { createStore, get, promisifyRequest } from "idb-keyval"
 import { isCommunityListResourceKey, persistentCommunityListResource } from "@/lib/community/list-persistence"
 import {
   communityCollectionSchemas,
@@ -414,7 +414,7 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
   void eligibility.catch(() => undefined)
   const writer = createAsyncStoragePersister({
     storage: {
-      getItem: async () => null,
+      getItem: (get<string>).bind(undefined, key, cacheStore),
       setItem: (_k: string, value: string) => withEligiblePersister(
         key, userId, eligibility, "readwrite", undefined, async (store, current, expected) => {
           const snapshot = scrubDehydratedClient(JSON.parse(value) as PersistedClient, userId, changedChannelFences(current, expected))
