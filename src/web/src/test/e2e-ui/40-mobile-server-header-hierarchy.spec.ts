@@ -18,14 +18,14 @@ async function expectMobileBack(page: Page) {
   return control
 }
 
-async function expectRootListDuringCancelledSwipe(page: Page, channelId: string) {
+async function expectRootListDuringCancelledSwipe(page: Page, channelId: string, startY = 220) {
   const pathname = new URL(page.url()).pathname
   const popup = page.locator('[data-slot="mobile-page"][data-open]')
   await expect(popup).toHaveCount(1)
   await expect(popup).not.toHaveAttribute("data-starting-style")
   const session = await page.context().newCDPSession(page)
   try {
-    const point = (x: number) => [{ x, y: 220, radiusX: 1, radiusY: 1, force: 1, id: 1 }]
+    const point = (x: number) => [{ x, y: startY, radiusX: 1, radiusY: 1, force: 1, id: 1 }]
     await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(80) })
     await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: point(150) })
     await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: point(280) })
@@ -84,6 +84,80 @@ test.describe("mobile server header direct hierarchy", () => {
     const threadId: string = await seedThread("alice", openerId, threadName)
     const postId: string = await seedForumThread("alice", forumId, postTitle, "post body")
     return { serverId, textId, forumId, threadId, postId, threadName, postTitle }
+  }
+
+  for (const populated of [false, true]) {
+    test(`Forum ${populated ? "card body" : "empty body"} shares page return and keeps swipe distinct from opening a post`, async ({ caseActors, browserName }) => {
+      test.skip(browserName !== "chromium", "Existing Chromium CDP touch driver; no native-device claim")
+      const actors = await caseActors(["alice"])
+      const serverId = await actors.seed.seedServer("alice", `forum-page-swipe-${Date.now()}`)
+      const channelId = await actors.seed.seedChannel("alice", serverId, "swipe-root-text")
+      const forumId = await actors.seed.seedChannel("alice", serverId, "swipe-forum", "forum")
+      const postId = populated ? await actors.seed.seedForumThread("alice", forumId, "Swipe card", "Swipe body") : null
+      const { page } = await actors.asUser("alice", { viewport: { width: 390, height: 844 }, hasTouch: true })
+      const forumPath = `/c/channels/${serverId}/${forumId}`
+      let childEntries = 0, childReads = 0
+      const requested = (request: Request) => {
+        if (!postId) return
+        const url = new URL(request.url())
+        if (request.method() === "GET" && url.pathname === `/api/community/channels/${postId}/messages` && url.searchParams.get("entry") === "1") childEntries += 1
+        if (request.method() === "PUT" && url.pathname === `/api/community/channels/${postId}/read`) childReads += 1
+      }
+      page.on("request", requested)
+      try {
+        await page.goto(forumPath, { waitUntil: "commit" })
+        await expectMobileBack(page)
+        const foreground = page.locator('[data-mobile-page-active="true"]')
+        const body = postId
+          ? foreground.getByTestId(tid.forumThreadCard(postId)).locator("p")
+          : foreground.getByText("No posts with this tag yet. Start one with New Post.", { exact: true })
+        await expect(body).toBeVisible()
+        const rect = await body.boundingBox()
+        expect(rect).not.toBeNull()
+        const startY = rect!.y + rect!.height / 2
+        expect(80).toBeGreaterThan(rect!.x)
+        expect(80).toBeLessThan(rect!.x + rect!.width)
+        await expectRootListDuringCancelledSwipe(page, channelId, startY)
+        const popup = foreground.locator('[data-slot="mobile-page"][data-open]')
+        const session = await page.context().newCDPSession(page)
+        let touching = false
+        try {
+          const point = (x: number) => [{ x, y: startY, radiusX: 1, radiusY: 1, force: 1, id: 1 }]
+          await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(80) })
+          touching = true
+          await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: point(150) })
+          await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: point(360) })
+          await expect(popup).toHaveAttribute("data-swiping")
+          await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+          touching = false
+        } finally {
+          try { if (touching) await session.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] }) }
+          finally { await session.detach() }
+        }
+        await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
+        await expect(page.getByTestId(tid.channelRow(forumId))).toBeVisible()
+        expect(childReads).toBe(0)
+        await test.info().attach("forum-page-swipe-result", { body: JSON.stringify({ populated, forumPath, finalPath: new URL(page.url()).pathname, childEntries, childReads, startY, input: "Chromium CDP touch, not native device" }), contentType: "application/json" })
+        if (postId) {
+          await page.getByTestId(tid.channelRow(forumId)).click()
+          const card = page.locator('[data-mobile-page-active="true"]').getByTestId(tid.forumThreadCard(postId))
+          await expect(card).toBeVisible()
+          await card.tap()
+          await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}/${postId}`)
+          await expect(page.locator('[data-mobile-page-active="true"]').getByTestId(tid.composerInput)).toBeVisible()
+          for (const key of ["Enter", "Space"]) {
+            await page.locator('[data-mobile-page-active="true"]').getByRole("banner").getByRole("button", { name: "Back", exact: true }).click()
+            await expect(card).toBeVisible()
+            await card.press(key)
+            await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}/${postId}`)
+            await expect(page.locator('[data-mobile-page-active="true"]').getByTestId(tid.composerInput)).toBeVisible()
+          }
+          const metadata = await page.request.get(new URL(`/api/community/channels/${postId}`, page.url()).href)
+          expect(metadata.status()).toBe(200)
+          expect(await metadata.json()).toMatchObject({ id: postId, serverId, parentChannelId: forumId })
+        }
+      } finally { page.off("request", requested) }
+    })
   }
 
   test("top-level text and forum replace directly to the canonical server root", async ({ caseActors }) => {
