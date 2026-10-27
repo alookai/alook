@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+import { URL as NodeURL } from "node:url"
 import { describe, expect, it, vi } from "vitest"
 import { CloudflareProvider, ownership, owns, ProviderError } from "./cloudflare"
 import { parseUpload } from "./upload"
@@ -173,6 +175,28 @@ describe("native platform adapter", () => {
     expect(data.assets).toBeUndefined()
     const code = form.get("main")
     expect(code instanceof Blob && code.type).toBe(type)
+  })
+  it.each(["python", "python-requirement"])("preserves the %s example's explicit built-in SDK compatibility", async example => {
+    const fixture = (name: string) => readFile(new NodeURL(`../test-runtime/artifacts/${name}`, import.meta.url), "utf8")
+    const source = await fixture(example === "python" ? "python.py" : "python-numpy.py")
+    const parts: Record<string, Blob> = { code: new Blob([source]) }
+    if (example === "python-requirement") parts.requirement = new Blob([await fixture("requirement.txt")])
+    const value = await parseUpload(upload(JSON.parse(await fixture(`${example}.json`)), parts), config)
+    expect(value.manifest.compatibilityFlags).toEqual(["disable_python_external_sdk"])
+    const request = vi.fn<typeof fetch>().mockResolvedValue(ok({}))
+    await new CloudflareProvider(config, "token", request).publish(release.target, value, release, "page")
+    const form = request.mock.calls[0][1]?.body
+    if (!(form instanceof FormData)) throw new Error("expected multipart")
+    const metadata = form.get("metadata"); const code = form.get("entry.py")
+    if (!(metadata instanceof Blob) || !(code instanceof Blob)) throw new Error("expected modules")
+    expect(JSON.parse(await metadata.text()).compatibility_flags).toEqual(["disable_python_external_sdk", "python_workers"])
+    expect(await code.text()).toBe(source)
+    if (example === "python-requirement") {
+      const requirement = form.get("numpy")
+      if (!(requirement instanceof Blob)) throw new Error("expected requirement")
+      expect(requirement.type).toBe("text/x-python-requirement")
+      expect(await requirement.text()).toBe(await fixture("requirement.txt"))
+    }
   })
   it("accepts204 and404 deletion without attempting JSON parsing", async () => {
     for (const status of [204, 404]) await expect(new CloudflareProvider(config, "token", vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }))).destroy("x")).resolves.toBeUndefined()

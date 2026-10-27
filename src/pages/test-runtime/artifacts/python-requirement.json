@@ -1,7 +1,7 @@
 {
   "prefix": "qa50-python-requirement",
   "compatibilityDate": "2026-10-19",
-  "compatibilityFlags": [],
+  "compatibilityFlags": ["disable_python_external_sdk"],
   "variables": {
     "MESSAGE": "pages QA"
   },
