@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { URL as NodeURL } from "node:url"
 import { describe, expect, it, vi } from "vitest"
 import { CloudflareProvider, ownership, owns, ProviderError } from "./cloudflare"
+import { manifestSchema } from "./contracts"
 import { parseUpload } from "./upload"
 import { artifact, config, manifest, upload } from "../test-runtime/fixtures"
 
@@ -176,7 +178,7 @@ describe("native platform adapter", () => {
     const code = form.get("main")
     expect(code instanceof Blob && code.type).toBe(type)
   })
-  it.each(["python", "python-requirement"])("preserves the %s example's explicit built-in SDK compatibility", async example => {
+  it.each(["python", "python-requirement"])("preserves explicit SDK flags in %s fixture metadata", async example => {
     const fixture = (name: string) => readFile(new NodeURL(`../test-runtime/artifacts/${name}`, import.meta.url), "utf8")
     const source = await fixture(example === "python" ? "python.py" : "python-numpy.py")
     const parts: Record<string, Blob> = { code: new Blob([source]) }
@@ -196,6 +198,32 @@ describe("native platform adapter", () => {
       if (!(requirement instanceof Blob)) throw new Error("expected requirement")
       expect(requirement.type).toBe("text/x-python-requirement")
       expect(await requirement.text()).toBe(await fixture("requirement.txt"))
+    }
+  })
+  it("publishes the completed vendored six artifact with pinned source and intact package files", async () => {
+    const root = new NodeURL("../test-runtime/artifacts/python-vendored/", import.meta.url)
+    const supplied = manifestSchema.parse(JSON.parse(await readFile(new NodeURL("manifest.json", root), "utf8")))
+    const parts = Object.fromEntries(await Promise.all(supplied.files.map(async file => [file.part, new Blob([new Uint8Array(await readFile(new NodeURL(file.path, root)))])] as const)))
+    const value = await parseUpload(upload(supplied, parts), config)
+    expect(value.files).toHaveLength(8)
+    expect(value.files.find(file => file.path === "python_modules/six.py")).toMatchObject({ hash: "c51c91f703d3d4b3696c923cb5fec213e05e75d9215393befac7f2fa6a3904df", type: "application/octet-stream" })
+    expect(value.files.find(file => file.path === "python_modules/six-1.17.0.dist-info/LICENSE")?.hash).toBe("4375ba20e2b9c6c4e7cad2940a628fd90e95cc3d50ee92aae755715d8ba1fbd0")
+    const provenance = JSON.parse(await readFile(new NodeURL("provenance.json", root), "utf8"))
+    expect(provenance.wheel.sha256).toBe("4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274")
+    expect(provenance.expectedResponse).toMatchObject({ dependency: "six", version: "1.17.0", value: 3, moduleSha256: value.files.find(file => file.path === "python_modules/six.py")?.hash })
+    const request = vi.fn<typeof fetch>().mockResolvedValue(ok({}))
+    await new CloudflareProvider(config, "token", request).publish(release.target, value, release, "page")
+    const form = request.mock.calls[0][1]?.body
+    if (!(form instanceof FormData)) throw new Error("expected multipart")
+    expect([...form.keys()]).toHaveLength(9)
+    const metadata = form.get("metadata")
+    if (!(metadata instanceof Blob)) throw new Error("expected metadata")
+    expect(JSON.parse(await metadata.text())).toMatchObject({ main_module: "entry.py", compatibility_flags: ["disable_python_external_sdk", "python_workers"], bindings: [{ type: "plain_text", name: "MESSAGE", text: "pages QA" }] })
+    for (const file of value.files) {
+      const part = form.get(file.path)
+      if (!(part instanceof Blob)) throw new Error("expected module")
+      expect(part.type).toBe(file.type)
+      expect(createHash("sha256").update(new Uint8Array(await part.arrayBuffer())).digest("hex")).toBe(file.hash)
     }
   })
   it("accepts204 and404 deletion without attempting JSON parsing", async () => {
