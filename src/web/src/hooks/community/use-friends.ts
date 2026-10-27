@@ -102,7 +102,7 @@ export const friendsQueryFn = async (context: QueryFunctionContext) => {
   return { ids: [...acceptedData.friends.map((friend) => friend.id), ...pendingData.pending.map((pending) => pending.id), ...blockedData.blocked.map((blocked) => `blocked:${blocked.userId ?? blocked.id}`)] }
 }
 
-export function useFriends(): UseQueryResult<{ ids: string[] }> & {
+export function useFriends(options?: { enabled?: boolean }): UseQueryResult<{ ids: string[] }> & {
   friends: Friend[]
   pending: PendingRequest[]
   blocked: BlockedUser[]
@@ -110,6 +110,7 @@ export function useFriends(): UseQueryResult<{ ids: string[] }> & {
   const query = useQuery({
     queryKey: communityKeys.friends(),
     queryFn: friendsQueryFn,
+    enabled: options?.enabled,
     placeholderData: keepPreviousData,
   })
   const profilesByUserId = useCanonicalProfilesByUserId()

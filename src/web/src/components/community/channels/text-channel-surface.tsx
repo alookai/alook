@@ -86,6 +86,7 @@ export function TextChannelSurface({
     viewerUserId: viewer.id,
     isChildChannel: false,
     anchorMessageId,
+    threadsEnabled: rightPanel === "threads",
   })
   useEffect(() => {
     setRightPanel(null)
@@ -163,7 +164,7 @@ export function TextChannelSurface({
                   initialPositionMessageId={feed.initialPositionMessageId}
                   positionEntry={feed.positionEntry}
                   positionScope={feed.positionScope}
-                  positionDataState={feed.positionDataState}
+                  positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState}
                   messageWindow={feed.messageWindow}
                   isFetching={feed.isFetching}
                   isFetchingOlder={feed.isFetchingOlder}

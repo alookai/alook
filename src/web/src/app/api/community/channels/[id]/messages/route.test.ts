@@ -88,6 +88,7 @@ vi.mock("@alook/shared", async () => {
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         resolveChannelByNameForMember: (...a: unknown[]) => mockResolveChannelByNameForMember(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
+        listChildChannelsByParentMessageIds: (...a: unknown[]) => mockListChildChannels(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
@@ -1189,7 +1190,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(mockListByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockListReactionsByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
-    expect(mockListChildChannels).toHaveBeenCalledTimes(1)
+    expect(mockListChildChannels).toHaveBeenCalledExactlyOnceWith(expect.anything(), "c1", ["m-1"], null)
     expect(mockGetLatestMessageSeq).toHaveBeenCalledTimes(1)
   })
 

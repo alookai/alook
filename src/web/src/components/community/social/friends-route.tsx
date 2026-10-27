@@ -24,7 +24,7 @@ import { toastApiError } from "@/lib/api/client"
 export default function MeFriendsPage() {
   const { router, searchParams } = useCommunityModuleLocation()
   const activeTab = searchParams.get("tab") === "new" ? "new" : "all"
-  const { friends: rawFriends, pending, blocked, isPending: isLoading, data, isError, isFetching, refetch } = useFriends()
+  const { friends: rawFriends, pending, blocked, isPending: isLoading, data, isError, isFetching, refetch } = useFriends({ enabled: false })
   const uiHandlers = useUiHandlers()
   const profilesByUserId = useCanonicalProfilesByUserId()
   const friends = useMemo(

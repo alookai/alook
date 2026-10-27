@@ -1,4 +1,5 @@
 "use client"
+import { useConversationPresentation } from "@/contexts/community/conversation-activity"
 import { useMemo } from "react"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
@@ -43,7 +44,7 @@ export type ThreadsResponse = {
 
 async function loadThreadResources(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof) {
   const options = qualifiedCommunityRequestOptions(queryClient, proof.token, proof.signal)
-  const response = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead | CommunityLegacyThreadsRead>(`/api/community/channels/${channelId}/threads?include=parentMessage,firstMessage,tags,participants`, options)
+  const response = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead | CommunityLegacyThreadsRead>(`/api/community/channels/${channelId}/threads?include=parentMessage,firstMessage,tags,participants&archived=false`, options)
   assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
   if ("contractVersion" in response || response.included) return normalizeThreadResources(channelId, response)
   const openerIds = response.threads.flatMap((thread) => thread.parentMessageId ? [thread.parentMessageId] : [])
@@ -77,18 +78,19 @@ export function materializeThreadsResponse(data: ThreadsResponse | undefined, me
   })
 }
 
-export function useThreads(channelId: string | null): UseQueryResult<ThreadsResponse> & {
+export function useThreads(channelId: string | null, requested = true): UseQueryResult<ThreadsResponse> & {
   threads: Thread[]
 } {
   const queryClient = useQueryClient()
   const channels = useCanonicalChannelsById()
+  const presented = useConversationPresentation()
   const enabled = !!channelId
   const query = useQuery({
     queryKey: enabled ? communityKeys.threads(channelId!) : communityKeys.threads("__none__"),
     queryFn: enabled
       ? threadsQueryFn(channelId!, queryClient)
       : (() => Promise.reject(new Error("disabled"))),
-    enabled,
+    enabled: enabled && presented && requested,
   })
   const messageIds = useMemo(() => query.data?.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : []) ?? [], [query.data?.threads])
   const canonicalMessages = useCanonicalMessagesById(messageIds)
@@ -100,10 +102,11 @@ export function useThreads(channelId: string | null): UseQueryResult<ThreadsResp
 }
 
 export function useForumTags(channelId: string | null, enabled: boolean) {
+  const presented = useConversationPresentation()
   return useQuery({
     queryKey: communityKeys.forumTags(channelId ?? "__none__"),
     queryFn: ({ client, signal }) => apiFetch<{ tags: string[] }>(`/api/community/channels/${channelId}/messages/tags`, communityRequestOptions(client, signal)),
-    enabled: !!channelId && enabled,
+    enabled: !!channelId && enabled && presented,
   })
 }
 
@@ -135,13 +138,14 @@ export function usePins(channelId: string | null): UseQueryResult<PinsWindowResp
   canonicalPending: boolean
 } {
   const queryClient = useQueryClient()
+  const presented = useConversationPresentation()
   const enabled = !!channelId
   const query = useQuery({
     queryKey: enabled ? communityKeys.pins(channelId!) : communityKeys.pins("__none__"),
     queryFn: enabled
       ? pinsQueryFn(channelId!, queryClient)
       : (() => Promise.reject(new Error("disabled"))),
-    enabled,
+    enabled: enabled && presented,
   })
   const pending = useMutationState({ filters: { mutationKey: ["community", "pin-command"], status: "pending" }, select: (mutation) => ({ channelId: (mutation.state.variables as { channelId: string }).channelId, messageId: (mutation.state.variables as { messageId: string }).messageId, pinned: mutation.options.mutationKey?.[2] === "pin" }) })
   const ids = useMemo(() => {

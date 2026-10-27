@@ -16,12 +16,14 @@ export function useChannelMessageFeed({
   viewerUserId,
   isChildChannel: _isChildChannel,
   anchorMessageId,
+  threadsEnabled = false,
 }: {
   channelId: string | null
   serverId: string
   viewerUserId: string
   isChildChannel: boolean
   anchorMessageId: string | null
+  threadsEnabled?: boolean
 }) {
   const active = useConversationActivity()
   const messagesQuery = useMessages(channelId, {
@@ -66,7 +68,7 @@ export function useChannelMessageFeed({
     historyStartKnown: messagesQuery.historyStartKnown, hasMoreNewer: messagesQuery.hasMoreNewer,
     ready: !!readSnapshot && !messagesQuery.readSnapshotFetching && !messagesQuery.isPending && !messagesQuery.isError,
   })
-  const threadsQuery = useThreads(channelId)
+  const threadsQuery = useThreads(channelId, threadsEnabled)
   const pinsQuery = usePins(channelId)
   return {
     ...messagesQuery,

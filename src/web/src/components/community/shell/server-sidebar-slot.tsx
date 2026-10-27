@@ -149,7 +149,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   const role = useViewerServerRole(serverId, currentUser.id)
   const isAdmin = routeCommitted && canManageServer(role)
   usePresence(routeCommitted && currentServer ? serverId : null)
-  const notifs = useNotificationSettings()
+  const notifs = useNotificationSettings(false)
   const notifLevel = resolveServerNotificationDisplayLevel(notifs.server[serverId])
   const channelNotif = notifs.channel
   const currentChannelId = routeChannelId

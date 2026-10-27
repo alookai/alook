@@ -48,6 +48,7 @@ vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("@/components/community/channels/dm-header", () => ({
   DmHeader: ({ dm }: { dm: { name: string } }) => React.createElement("div", { "data-testid": "dm-header" }, dm.name),
+  DmHeaderSkeleton: () => React.createElement("div", { "data-testid": "dm-identity-pending" }),
 }))
 vi.mock("@/components/community/channels/dm-loading-frame", () => ({
   DmLoadingFrame: () => React.createElement("div", { "data-testid": "dm-loading" }),
@@ -193,8 +194,8 @@ describe("DM notification dismissal readiness", () => {
   it.each([
     ["resolved", [{ id: "dm_1", userId: "peer_1", name: "Peer", avatar: "P" }], false, false, true],
     ["blocked", [{ id: "dm_1", userId: "peer_1", name: "Peer", avatar: "P" }], false, true, false],
-    ["pending", [], true, false, false],
-    ["notFound", [], false, false, false],
+    ["pending", [], true, false, true],
+    ["notFound", [], false, false, true],
   ] as const)("passes the exact %s readiness state to dismissal", (
     _state,
     dms,

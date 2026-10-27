@@ -16,14 +16,14 @@ it("preserves the original stream, status and cache headers and uses only actual
   expect(header).toContain('db;dur=2;desc="a,b"')
   expect(header).not.toContain("private-token")
   expect(header).not.toContain("/api/community/bots")
-  expect(readTraceResponse(header, client)).toEqual({ matched: true, server, sampling: "selected" })
+  expect(readTraceResponse(header, client)).toEqual({ matched: true, server, sampling: "unavailable" })
   expect(await response.text()).toBe("body")
 })
 
-it("separates sampler selection from getter availability and never substitutes upstream identity", () => {
+it("does not infer head sampling from isTraced or native flags and never substitutes upstream identity", () => {
   for (const isTraced of [true, false]) {
     const response = traceResponse(new Response(), request(), { isTraced })
-    expect(readTraceResponse(response.headers.get("server-timing")!, client)).toEqual({ matched: true, server: undefined, sampling: isTraced ? "selected" : "not_selected" })
+    expect(readTraceResponse(response.headers.get("server-timing")!, client)).toEqual({ matched: true, server: undefined, sampling: "unavailable" })
     expect(response.headers.get("server-timing")).not.toContain("traceparent;")
   }
   for (const getter of [() => ({ ...server, traceId: "0".repeat(32) }), () => { throw new Error("missing runtime capability") }]) {

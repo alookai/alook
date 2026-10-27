@@ -1,3 +1,4 @@
+import { forumTagFromUrl, readForumTagSelection } from "./forum-tag-selection"
 import { noop, QueryObserver, type QueryClient } from "@tanstack/react-query"
 import { conversationEntryOptions } from "./conversation-entry"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -39,8 +40,17 @@ export function prepareNavigationMetadata(queryClient: QueryClient, href: string
   if (!target) return
   const { channelId, serverId } = target
   const action = intent === "prefetch" ? prefetchForHref(href) : navigationForHref(href)
-  const anchorMessageId = new URL(href, "https://alook.test").searchParams.get("msg")
-  const options = conversationEntryOptions(queryClient, { serverId, channelId, anchorMessageId }, { action, reason: intent })
+  const search = new URL(href, "https://alook.test").searchParams
+  const anchorMessageId = search.get("msg")
+  const channel = getCommunityDbRegistry(queryClient)?.collections.channels.get(channelId)
+  let tag: string | null = null
+  if (channel?.type === "forum") {
+    let stored = "All"
+    try { if (typeof window !== "undefined") stored = readForumTagSelection(window.localStorage, channelId) } catch {}
+    const selected = forumTagFromUrl(search.get("tag")) ?? stored
+    tag = selected === "All" ? null : selected
+  }
+  const options = conversationEntryOptions(queryClient, { serverId, channelId, anchorMessageId, tag }, { action, reason: intent })
   const observer = new QueryObserver(queryClient, { ...options, enabled: false })
   const unsubscribe = observer.subscribe(noop)
   return queryClient.query({ ...options, select: undefined }).catch(noop).finally(unsubscribe)

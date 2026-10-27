@@ -1,4 +1,4 @@
-import { Bell, BellOff, Check } from "lucide-react"
+import { Bell, BellOff, Check, RotateCcw } from "lucide-react"
 import { NOTIF_LEVELS, type NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -8,12 +8,14 @@ import type { DM } from "@/lib/community/models/people"
 import { tid } from "@/lib/community/testids"
 import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 
-export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetNotifLevel }: {
+export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetNotifLevel, onRetryIdentity, retryingIdentity }: {
   dm: DM
   onBack?: () => void
   titleAs?: "h1" | "div"
   notifLevel?: NotifLevel
   onSetNotifLevel?: (level: NotifLevel) => void
+  onRetryIdentity?: () => void
+  retryingIdentity?: boolean
 }) {
   return (
     <MessageHeader
@@ -33,9 +35,15 @@ export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetN
           </Title>
         </>
       )}
-      actions={notifLevel && <DmNotifDropdown level={notifLevel} onSetLevel={onSetNotifLevel} />}
+      actions={onRetryIdentity || notifLevel ? <>{onRetryIdentity && <RetryRecipient onRetry={onRetryIdentity} retrying={retryingIdentity} />}
+        {notifLevel && <DmNotifDropdown level={notifLevel} onSetLevel={onSetNotifLevel} />}</> : undefined}
     />
   )
+}
+
+function RetryRecipient({ onRetry, retrying }: { onRetry: () => void; retrying?: boolean }) {
+  return <Button variant="ghost" size="icon-sm" className="size-11 sm:size-7" aria-label="Retry recipient" disabled={retrying}
+    onClick={onRetry}><RotateCcw className="size-4" /></Button>
 }
 
 function DmNotifDropdown({ level, onSetLevel }: { level: NotifLevel; onSetLevel?: (level: NotifLevel) => void }) {
@@ -62,10 +70,10 @@ function DmNotifDropdown({ level, onSetLevel }: { level: NotifLevel; onSetLevel?
 
 // Loading placeholder for <DmHeader> — same h-12 footprint so the body below
 // stays anchored across the route change.
-export function DmHeaderSkeleton({ onBack }: { onBack?: () => void }) {
+export function DmHeaderSkeleton({ onBack, onRetryIdentity, retryingIdentity }: { onBack?: () => void; onRetryIdentity?: () => void; retryingIdentity?: boolean }) {
   return (
     <MessageHeader
-      leading={onBack ? (
+      leading={onBack && onRetryIdentity ? <MessageHeaderMobileBack onNavigate={onBack} /> : onBack ? (
         <div data-slot="loading-mobile-leading" aria-hidden className="grid size-11 shrink-0 place-items-center sm:hidden">
           <Skeleton className="size-6 rounded-md" />
         </div>
@@ -77,7 +85,7 @@ export function DmHeaderSkeleton({ onBack }: { onBack?: () => void }) {
           <Skeleton className="h-4 w-32 rounded" />
         </>
       )}
-      actions={<Skeleton className="size-7 rounded-md" />}
+      actions={onRetryIdentity ? <RetryRecipient onRetry={onRetryIdentity} retrying={retryingIdentity} /> : <Skeleton className="size-7 rounded-md" />}
     />
   )
 }

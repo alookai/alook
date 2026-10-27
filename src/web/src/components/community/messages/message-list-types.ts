@@ -37,6 +37,7 @@ export type MessageListProps = {
   positionEntry?: object | null
   positionScope?: VirtualListPositionScope
   positionDataState?: MessagePositionState
+  targetPositionDataState?: MessagePositionState
   messageWindow?: object
   active?: boolean
   positioningActive?: boolean

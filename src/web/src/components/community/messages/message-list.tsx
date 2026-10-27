@@ -26,7 +26,7 @@ function MessageListEntry({
 }: MessageListProps) {
   const [admitted, setAdmitted] = useState(false)
   const ready = initialScrollReady && (props.messages.length > 0 || !props.loading && !props.initialLoadError)
-    || !!props.scrollToMessageId && props.positionDataState === "ready" && props.messages.length > 0
+    || !!props.scrollToMessageId && (props.targetPositionDataState ?? props.positionDataState) === "ready" && props.messages.length > 0
   if (ready && !admitted) setAdmitted(true)
   if (props.positionScope && !admitted && !ready && !props.initialLoadError) return <MessageListSkeleton variant={variant} />
   return <MessageListOwner {...props} variant={variant} initialScrollReady={initialScrollReady} />

@@ -81,7 +81,9 @@ export const channelMessagesQueryFn =
       pageParam,
       tag,
     )
-    const page = await fetchMessagesTransport(originalClient, url, signal, { ...options, observation }, publicationToken)
+    const page = await fetchMessagesTransport(originalClient, url, signal, { ...options, observation: { ...observation,
+      role: pageParam.mode === "older" || pageParam.mode === "newer" ? "pagination" : "window", windowMode: pageParam.mode,
+    } }, publicationToken)
     {
       const result = publishCommunityMessages(originalClient, {
         channelId,

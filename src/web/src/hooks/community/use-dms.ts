@@ -67,7 +67,7 @@ export const dmsProjectedQueryFn = (
   }
 }
 
-export function useDms(enabled = true): UseQueryResult<{ ids: string[] }> & { dms: DM[] } {
+export function useDms(enabled = true, subscribed = enabled): UseQueryResult<{ ids: string[] }> & { dms: DM[] } {
   const dbDms = useDmProjection()
   const queryClient = useQueryClient()
   const queryFn = useMemo(
@@ -78,7 +78,7 @@ export function useDms(enabled = true): UseQueryResult<{ ids: string[] }> & { dm
     queryKey: communityKeys.dms(),
     queryFn,
     enabled,
-    subscribed: enabled,
+    subscribed,
     // Inbox navigation projects the destination into this canonical cache
     // before routing. Reusing that projection across /c/me layout mounts keeps
     // the transition request-neutral; WS and reconnect invalidations still

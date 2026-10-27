@@ -85,6 +85,16 @@ describe("enrichMessages attachment projection", () => {
     expect(mocks.getLatestSeq).toHaveBeenCalledWith(db, { channelId: "dm1" })
   })
 
+  it("loads ordinary child indicators for this page only and preserves archived/legacy child projection", async () => {
+    mocks.listAttachments.mockResolvedValue([])
+    mocks.listForumChildren.mockResolvedValue([{ id: "child", parentMessageId: "m1", type: "text", archived: true, name: "Legacy", messageCount: 2, lastMessageAt: "then" }])
+    const row = { id: "m1", channelId: "channel", seq: 1, authorId: "author", authorName: "Author", authorImage: null, content: "body", type: "default", mentionType: null, replyToId: null, embeds: null, createdAt: "now" }
+    const result = await enrichMessages({} as never, "viewer", { channelId: "channel" }, [row])
+    expect(mocks.listChildren).not.toHaveBeenCalled()
+    expect(mocks.listForumChildren).toHaveBeenCalledExactlyOnceWith({}, "channel", ["m1"], null)
+    expect(result.messages[0]).toMatchObject({ thread: { id: "child", name: "Legacy", messageCount: 2 } })
+  })
+
   it("hydrates only creation IDs in a mixed DM and does no creation lookup for ordinary/friend messages", async () => {
     mocks.listAttachments.mockResolvedValue([])
     const base = { seq: 1, authorId: "u1", authorName: "Alice", authorImage: null, content: "hello", mentionType: null, replyToId: null, embeds: null, createdAt: "2026-08-13T00:00:00.000Z", channelId: "dm1" }

@@ -94,7 +94,7 @@ async function mount(restoring = false, target = href) {
 }
 
 describe("cached target through the real route, entry and message consumers", () => {
-  it("keeps a cold forum opener unknown through restore instead of mounting then removing the composer", async () => {
+  it("mounts cached forum child messages and keeps its composer while the opener remains pending", async () => {
     const entry = conversationEntryFixture()
     entry.channel = { ...entry.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
     entry.surfaceReceipt = { channelId: entry.channelId, surfaceKind: "thread" }
@@ -109,10 +109,13 @@ describe("cached target through the real route, entry and message consumers", ()
     })
     const target = `${href}?threadView=full`
     const mounted = await mount(true, target)
-    expect(mounted.queryByTestId("qualified-composer")).toBeNull()
+    const composer = mounted.getByTestId("qualified-composer")
+    const scroller = mounted.getByTestId("community-message-scroller")
+    expect(composer).toBeVisible()
     mounted.rerender(node(false, false, target))
     await act(async () => {})
-    expect(mounted.queryByTestId("qualified-composer")).toBeNull()
+    expect(mounted.getByTestId("qualified-composer")).toBe(composer)
+    expect(mounted.getByTestId("community-message-scroller")).toBe(scroller)
   })
 
   it("keeps a canonical cached forum opener and composer through restore and route commit", async () => {

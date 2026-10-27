@@ -7,7 +7,7 @@ import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { CommunityModuleRouteContext } from "@/contexts/community/module-route"
 import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
-import { friendsQueryFn } from "@/hooks/community/use-friends"
+import { friendsQueryFn, useFriends } from "@/hooks/community/use-friends"
 import { dmsProjectedQueryFn } from "@/hooks/community/use-dms"
 import FriendsRoute from "../social/friends-route"
 import { DmSidebarSlot } from "./dm-sidebar-slot"
@@ -33,9 +33,11 @@ function response(path: string, populated = false) {
   if (path.endsWith("/dms")) return { conversations: populated ? [dm] : [] }
   throw new Error(`Unexpected list request: ${path}`)
 }
+function SharedAccountReader() { useFriends(); return null }
 function node(owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>, kind: Kind) {
   const href = kind === "friends" ? "/c/me/friends" : "/c/me"
   return <CommunityTestProvider client={owner.client} registry={owner.registry}>
+    {kind === "friends" && <SharedAccountReader />}
     <CurrentUserProvider initialUser={{ id: "viewer", name: "Viewer", avatar: "V", email: "viewer@example.test" }}>
       <CommunityRouteContext value={{ frame: { ...normalizeCommunityHref(href), revision: 1 } } as never}>
         <CommunityModuleRouteContext value={{ href, routeCommitted: false }}>
