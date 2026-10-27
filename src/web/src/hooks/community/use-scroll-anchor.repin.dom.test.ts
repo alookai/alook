@@ -6,11 +6,13 @@ import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, mess
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
-function retiredInitialReader(onInitialPositionSettled?: () => void) {
+function failedInitialReader(onInitialPositionSettled?: () => void) {
   const h = mount({ hasMoreNewer: true, onInitialPositionSettled }, false, undefined, undefined, 0)
   runFrames(1)
+  h.stage({ positionDataState: "error" })
+  h.update({ positionDataState: "ready" })
   act(() => h.root.scrollTo({ top: 0 }))
-  runFrames(320)
+  runFrames()
   expect(scrollFixture.latest.readPositionReady).toBe(false)
   expect(scrollFixture.latest.paginationEnabled).toBe(true)
   return h
@@ -104,26 +106,26 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(end).not.toHaveBeenCalled()
     expect(h.root.scrollTop).toBe(300)
   })
-  it("does not let a delayed frame send after the original nonempty-list budget expires", () => {
-    const started = Date.now()
+  it("issues the initial command only after a positive viewport even beyond the old deadline", () => {
     scrollFixture.height = 0
     const shown = vi.fn()
     const h = mount({ onInitialPositionSettled: shown }, false, undefined, undefined, 0)
     const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
-    act(() => vi.advanceTimersByTime(4900))
+    runFrames(2)
+    act(() => vi.advanceTimersByTime(20000))
+    expect(scrollFixture.frames.size).toBe(0)
+    expect(shown).not.toHaveBeenCalled()
     scrollFixture.height = 500
     resize(0)
+    expect(end).not.toHaveBeenCalled()
     expect(shown).not.toHaveBeenCalled()
-    vi.setSystemTime(started + 5001)
-    runFrames(1)
-    expect(end).not.toHaveBeenCalled()
-    expect(scrollFixture.latest.readPositionReady).toBe(false)
-    act(() => vi.advanceTimersByTime(100))
+    runFrames()
+    expect(end).toHaveBeenCalledOnce()
     expect(shown).toHaveBeenCalledOnce()
-    resize()
-    expect(end).not.toHaveBeenCalled()
-    expect(h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
   })
+
   it("does not reissue an initial end after an external scroll retires its first native command", () => {
     const h = mount({ items: Array.from({ length: 50 }, (_, index) => message(`m${index}`)) }, false, undefined, undefined, 0)
     const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
@@ -445,7 +447,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
   })
-  it("uses auto for loaded-tail Present and retires once at its finite deadline without reissue", () => {
+  it("uses auto for loaded-tail Present and waits without polling until an actual viewport change or user takeover", () => {
     const h = mount()
     h.move(0)
     const native = scrollFixture.latest.virtualizer
@@ -461,11 +463,11 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.frames.size).toBe(0)
     scrollFixture.width = 390
     resize(2)
-    expect(end).toHaveBeenCalledTimes(1)
+    expect(end).toHaveBeenCalledTimes(2)
     act(() => vi.advanceTimersByTime(2100))
     expect(offset).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    expect(cancel).toHaveBeenCalledOnce()
+    expect(cancel).not.toHaveBeenCalled()
     cancel.mockClear()
     fireEvent.wheel(h.root, { deltaY: -20 })
     expect(cancel).toHaveBeenCalledOnce()
@@ -646,7 +648,7 @@ describe("locked native adapter and existing message scroll owner", () => {
   })
   it("retires failed qualified positioning while keeping read and peer follow closed", () => {
     const shown = vi.fn()
-    const h = retiredInitialReader(shown)
+    const h = failedInitialReader(shown)
     expect(shown).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
@@ -659,7 +661,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
   it.each([0, 2, 100, 300])("preserves a retired unconfirmed reader through composer shrink and grow at %ipx", distance => {
-    const h = retiredInitialReader()
+    const h = failedInitialReader()
     const native = scrollFixture.latest.virtualizer
     const end = vi.spyOn(native, "scrollToEnd")
     const index = vi.spyOn(native, "scrollToIndex")
@@ -687,7 +689,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(index).not.toHaveBeenCalled()
   })
   it.each(["rectangle", "row"])("rejects an invalid %s during an unconfirmed reader resize", async invalid => {
-    const h = retiredInitialReader()
+    const h = failedInitialReader()
     act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight }))
     runFrames()
     const native = scrollFixture.latest.virtualizer
@@ -714,8 +716,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(native.options.followOnAppend).toBe(false)
   })
-  it("preserves and settles a prefix page after deadline retirement without opening read or peer follow", () => {
-    const h = retiredInitialReader()
+  it("preserves and settles a prefix page after explicit failure without opening read or peer follow", () => {
+    const h = failedInitialReader()
     act(() => h.root.scrollTo({ top: 0 }))
     resize()
     act(() => scrollFixture.latest.captureOlderPageAnchor())
@@ -730,7 +732,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "start", followOnAppend: false })
   })
   it.each(["m0", "m1"])("uses native row anchoring when the pending page reaches %s with an unchanged body inset", id => {
-    const h = retiredInitialReader()
+    const h = failedInitialReader()
     act(() => h.root.scrollTo({ top: 0 }))
     resize()
     act(() => scrollFixture.latest.captureOlderPageAnchor())

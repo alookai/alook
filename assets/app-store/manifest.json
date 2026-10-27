@@ -4,7 +4,7 @@
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "58d73359f9714278c37453c6146c9d1c75521e19",
+  "repositoryHead": "320a2a23778dfe1baebf8c65bfc516adab145781",
   "inputs": {
     "scripts/ci/pnpm-lock.mjs": "c6ad91cbd38cc08234e2da4122079d76bfef5eb61560862018cbab9d3e29f4cc",
     "src/shared/src/billing.ts": "53d36e6bbab90d72ae86b9748d97bef4116a7f567d8587067f469d294c562b4a",
@@ -256,10 +256,10 @@
     "src/web/src/components/community/messages/message-body-view.tsx": "4b5579de425640960a680b45043aada435a03b16afeaa59fe6aeebc19fb63905",
     "src/web/src/components/community/messages/message-body.tsx": "0f43cb0c2c8eb3b507efc1f93e926d0cc9226f25173cc9e2fa8f2d8815c46ffd",
     "src/web/src/components/community/messages/message-external-link.tsx": "ba22b8bfd1210f9645aa10c46a95c3d409cf87e68e0585709007f9bba1ad9d82",
-    "src/web/src/components/community/messages/message-list-controller.ts": "2f6d71a0905578f69fd0bf9c00227869d2c0a7007cafee36503abd93078f2070",
+    "src/web/src/components/community/messages/message-list-controller.ts": "9caab0ea7662380924db6ef0c75ce0ee747903cc9d7bffb2b41c987915d0164d",
     "src/web/src/components/community/messages/message-list-row.tsx": "e9b1e1d66b176821d96aca65e9a277aafdc96012f984a7758bff844a4b395a41",
     "src/web/src/components/community/messages/message-list-view.tsx": "3fd669f94dd5cb655b91b103264d85de119589950c36c49454926421a078291e",
-    "src/web/src/components/community/messages/message-list.tsx": "6f4ddce666fc31c4e755e1f7608ebc433c4b1bde5a0177ed2d61759140ba0dd8",
+    "src/web/src/components/community/messages/message-list.tsx": "b5ca61bf81f1e361073ba0f6107d633cfcc730476e17bbcae50e6bd27447ce14",
     "src/web/src/components/community/messages/message-markdown.tsx": "2e7d4ae585874dcf8a92c91c1cc8251768088e0b52bd060d305eb6817e6da2f5",
     "src/web/src/components/community/messages/message-menu.tsx": "a5f33f187fc4dcf7acc253dd5406a89e5825a579e6950a3d11017249d816448b",
     "src/web/src/components/community/messages/message-pane-navigation.tsx": "8595d9b54fd377fa02e9e7b19b81076e76d012f0b8056279b1d7d52e5f2ae5fe",
@@ -277,7 +277,7 @@
     "src/web/src/components/community/messages/use-composer-reply-mention.ts": "6df02cd7f9c2bad886066ec8c3b84ededb44023d133b671042d11d644a29460e",
     "src/web/src/components/community/messages/use-composer-suggestions.ts": "af22138507f69b623a98b99313683286833392f42d2023abd841b458055d35c1",
     "src/web/src/components/community/messages/use-mobile-avatar-mention.ts": "035c64733a07e4eb9f081b2c7c9facf7e30e7c59557566ad1c937e644e2f7af7",
-    "src/web/src/components/community/messages/virtual-cursor-list.tsx": "43cc4264fa3ab6244610e2919a17302af9d36e49eed34081ec5bbd0d1d70cf75",
+    "src/web/src/components/community/messages/virtual-cursor-list.tsx": "5f8685c8db88c850fa579b8712104a884213b896917837d556b780ccf0684553",
     "src/web/src/components/community/official-server-badge.tsx": "7b23606c903fd0575a40f88371fb108cf806f4321923f31443ef9bf41a54463c",
     "src/web/src/components/community/onboarding-tiles/agent-help-gallery.tsx": "fce2499c795ca7d2395b4f758b22234840d1c25b6331ee8e2bdbcfd67def2da9",
     "src/web/src/components/community/onboarding-tiles/connect-tile.tsx": "a9ed7700de61e7e1136ec90bb64c87ea3544d3459efb9e43204e610560840809",
@@ -461,7 +461,7 @@
     "src/web/src/hooks/community/use-reaction-details.ts": "20775d1e585c2b4be3d356114ff3dc611b9639375c4cc5648d45daa41d7ae847",
     "src/web/src/hooks/community/use-running-owned-bots.ts": "db751eb7c096c0280a8c36d5a8a8039904331e8762c10b6957b61c898cee8f99",
     "src/web/src/hooks/community/use-runtime-models.ts": "96c78069340df4a23b6b10ab2571b5c06754bfa7f989444c69152680c1933efb",
-    "src/web/src/hooks/community/use-scroll-anchor.ts": "d06f16ed85ecf2bc1a14cd2143a6c57e16846ff72b4c2dcb932e8fc30b1f1e88",
+    "src/web/src/hooks/community/use-scroll-anchor.ts": "568aa2d47be87e1664242389bd8587ecbc078ca995ad1f78529a6d115ff8a560",
     "src/web/src/hooks/community/use-server-members.ts": "1033e6e20ff4ec321902839c44ab744cd93ada7113c9f1d92484a1a661931ad2",
     "src/web/src/hooks/community/use-server-panels.ts": "2c56d8a051f11b167845fe584827d6e648d2cd8740636f001f51ec1f1a9cbf6d",
     "src/web/src/hooks/community/use-servers.ts": "191cad47a31cf12a0f1bd5546f3c6cd6afbfe877a2029c5b83cc957a80099c56",
@@ -568,6 +568,7 @@
     "src/web/src/lib/community/suggestion-caret-anchor.ts": "62932c474c437445f16f8079d19179c2af3a34aae31206037cd5c68989476fff",
     "src/web/src/lib/community/system-notification-route.ts": "3e8c52d0ba4fda9347b9be273f76c7ea9bbaca9cdb94fdb1d3cd690834670b06",
     "src/web/src/lib/community/testids.ts": "31e8a669a6b1102b7e9301e3b469fd451fb3e8b4de84cc9827cb5a844bfa05db",
+    "src/web/src/lib/community/virtual-list-position.ts": "03b17e5a6fc51f48a5e6d166a25f15f3ff2cac70765b76b6de960bcb424402c6",
     "src/web/src/lib/errors.ts": "b8b3839d9cbe159ee437d774568b72cec3efad3a8870c18e670bd65f908a4f73",
     "src/web/src/lib/file-download.ts": "99b23f4b0ab2be58cda6714b79b4670c84c6444cf59b2179e26626c2b1b0db8d",
     "src/web/src/lib/file-save.ts": "6e1f61ca36dccf1fd74ed82f1a9f5b44da081964a66e6962d4c21ef660516de4",
@@ -652,7 +653,7 @@
       "path": "phone-1206x2622/02-teamwork.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "add088d8ee0e7025b12319633bfbe64531ab660841faa0f8fa2de06c65b245cb",
+      "sha256": "aef3835907b97a9e594aa65c50cf5bdcb184b5dd5eae7fd9901587263ce27ef4",
       "surfaces": [
         {
           "scene": "workspace",
@@ -678,7 +679,7 @@
       "path": "phone-1206x2622/03-companion.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "052587efc5557f46915e6d673f7af1f7527b6b50614e82590caaad94e6b33a49",
+      "sha256": "097c5935708b190f21e16fe5b921d5931175e2da0b6698339bfb5755fa152d30",
       "surfaces": [
         {
           "scene": "identity",
@@ -739,7 +740,7 @@
       "path": "phone-1206x2622/05-phone.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "48b911e0b0fd0abf337b6f66cbe85a3cbc83e10b8733a2f95d2030f4ef697f99",
+      "sha256": "7bab784faa80564fa687557d2b86f9fdb8e390aec7991eee29b944ca993d2838",
       "surfaces": [
         {
           "scene": "workspace",
@@ -765,7 +766,7 @@
       "path": "phone-1206x2622/06-existing-setup.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "ef7716e477d72e694ae3f9e27ba359507109034474f8bfc20871eef3835b5e6d",
+      "sha256": "91b382a3d8ece7262bd78db02edeb2757050929a868ff24a718791a0958d18d1",
       "surfaces": [
         {
           "scene": "workspace",
@@ -791,7 +792,7 @@
       "path": "phone-1320x2868/01-share-agents.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "52d8cf32d86474a3ffd6950e9a5b736989f2f306bf9a4fb2326c087450c93787",
+      "sha256": "3a8456167ea849e761cff5239406a7f13d28cd81d60a5f79ac044ad7ac0df68e",
       "surfaces": [
         {
           "scene": "workspace",
@@ -843,7 +844,7 @@
       "path": "phone-1320x2868/03-companion.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "93dbabe22c7e77bc0fb1c9e3b24a42c859d1700c067b3c39a811907102ed09f9",
+      "sha256": "4fbf6cbffb5464768e482637e7d6d5bf838422edcd77eecfa4a364a180083608",
       "surfaces": [
         {
           "scene": "identity",
@@ -904,7 +905,7 @@
       "path": "phone-1320x2868/05-phone.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "270e04dedb164cbf854c5596fcb20461cfb927d616fdc0c67578a0c5af627a2d",
+      "sha256": "348f1885958d628300cf9c39694581ba73a6a33550cb73f3223e1c854b60f70b",
       "surfaces": [
         {
           "scene": "workspace",
@@ -930,7 +931,7 @@
       "path": "phone-1320x2868/06-existing-setup.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "2233e52d9f379900773604602ed8425796438bf00db0371702dedb88db3578e0",
+      "sha256": "c3c1eb9ddb5ac0c30362afed2fb991daf004cf87c0a81c00384a0394c9feeaad",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1034,7 +1035,7 @@
       "path": "tablet-2752x2064/04-context.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "d3accee044a1710c7cda914673d229e6c2064e23741b4a133a34ec2eedffe202",
+      "sha256": "0f2b88b622f337b06f8d7bcb35f077a7dc74303ec3a498e898ec8f29a731494f",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1095,7 +1096,7 @@
       "path": "tablet-2752x2064/06-existing-setup.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "471ee8c0f3bf0ec38c3c174b271ba95df3e8a39cbd218870206569b675394690",
+      "sha256": "21f26f0345ac790c9a6200cb11889de8d8e91bff31cb9661c74b43960fc0a5f5",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1147,7 +1148,7 @@
       "path": "duo-2007x2853/02-teamwork.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "c0ad7bcd8dfcefbfa0fd560eecc165b3c6ce7dc273a1630a71453a736b8245fe",
+      "sha256": "f80c716832ce414f78d4d941e685909eaac95420446690cc0cac64aad73f2bcf",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1199,7 +1200,7 @@
       "path": "duo-2007x2853/04-context.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "e95476c8129a50eb5a39167dfd17b44bb1587b84b39405e039872c5058c27bcf",
+      "sha256": "2be3adf9039d9f8e0d96679ca644fb2d3c20d7d63ae3ee96c3d56c27b1db4d89",
       "surfaces": [
         {
           "scene": "continuity",
@@ -1234,7 +1235,7 @@
       "path": "duo-2007x2853/05-phone.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "d10a3ee6c826a6fd416b5c8d54667c1c53cbab8861a35c77a68c85e70a8b6f8d",
+      "sha256": "073a43adf519295d84cf19faac7441e595f64083b5a4be54b21e285884fabc5f",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1260,7 +1261,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "48d4b518796420c7f79a7b1fa99bbb742c293f43d257bf618a0d1aae5c795e57",
+      "sha256": "eed125187ac9cc4d0e2a15588acf25c6b0c12b37e96e484a0c51e8d8854632b3",
       "surfaces": [
         {
           "scene": "workspace",

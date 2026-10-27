@@ -2,7 +2,7 @@
 
 /* eslint-disable react-hooks/refs -- TanStack Virtual exposes an imperative instance whose render-time getters and ref callbacks are its supported React API. */
 
-import { useLayoutEffect, type ReactNode } from "react"
+import { useLayoutEffect, type HTMLAttributes, type ReactNode } from "react"
 import type { ReactVirtualizer } from "@tanstack/react-virtual"
 import type { VirtualRowsLayoutSnapshot } from "@/hooks/community/virtualizer-react-options"
 
@@ -16,6 +16,7 @@ export function VirtualRows<T>({
   children,
   getRowAttributes,
   onLayoutCommit,
+  containerAttributes,
 }: {
   items: T[]
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
@@ -26,6 +27,7 @@ export function VirtualRows<T>({
   children?: ReactNode
   getRowAttributes?: (item: T, index: number) => Record<`data-${string}`, string | number | undefined>
   onLayoutCommit?: (snapshot: VirtualRowsLayoutSnapshot | null) => void
+  containerAttributes?: Pick<HTMLAttributes<HTMLDivElement>, "aria-hidden" | "inert"> & Record<`data-${string}`, string | number | undefined>
 }) {
   const totalSize = reactLayout ? virtualizer.getTotalSize() : null
   const virtualRows = virtualizer.getVirtualItems()
@@ -42,6 +44,7 @@ export function VirtualRows<T>({
   })
   return (
     <div
+      {...containerAttributes}
       ref={virtualizer.containerRef}
       style={{
         position: "relative",

@@ -274,6 +274,7 @@ export function ThreadChannelSurface({
                   historyStartKnown={controller.feed.historyStartKnown}
                   initialPositionMessageId={controller.feed.initialPositionMessageId}
                   positionEntry={controller.feed.positionEntry}
+                  positionScope={controller.feed.positionScope}
                   positionDataState={controller.feed.positionDataState}
                   messageWindow={controller.feed.messageWindow}
                   isFetching={controller.feed.isFetching}
