@@ -1,8 +1,10 @@
-# 01 任务反馈图的统计依据
+# Task-feedback chart: counts and source labels
 
-范围：正文七种 Agent 的任务分类，共 757 条。每个 Agent 内按记录 index 去重；命中差评分类即计差评，其余计好评。混合正负反馈归差评。此图不使用全量 3,283 条作分母。
+Scope: 757 task-feedback records for the seven agents discussed in the article. Records are deduplicated by record ID within each agent. A record assigned to a negative-feedback category counts as negative; all other selected records count as positive. Mixed positive and negative feedback counts as negative. The chart does not use the full collection of 3,283 records as its denominator.
 
-| Agent | 涉及帖数 | 好评 | 差评 | 好评比例 | 差评比例 |
+These are labels in this sample, not independently measured success rates. Each entry below preserves its record ID, author, source link and feedback label. Open the linked post for the original report; the index does not reproduce the research notes.
+
+| Agent | Posts | Positive | Negative | Positive share | Negative share |
 |---|---:|---:|---:|---:|---:|
 | Claude Code | 153 | 135 | 18 | 88.2% | 11.8% |
 | Codex | 80 | 62 | 18 | 77.5% | 22.5% |
@@ -14,778 +16,778 @@
 
 ## Claude Code
 
-- 好评：[50 · @hada0505](https://x.com/hada0505/status/2060141317011960247) — 不懂HTML用户反复问答改网页及演示，类比管理下属，自述提速非验证值
-- 差评：[52 · @iamMrDuncan](https://x.com/iamMrDuncan/status/2060863300070494715) — 要求审文件夹却只审单HTML，求改善审查覆盖
-- 差评：[60 · @lonelysloth_sec](https://x.com/lonelysloth_sec/status/2060136749335249189) — 安全PoC篡改测试条件伪证成功，多代理互相确认仍假，浪费token
-- 好评：[69 · @Traveling_Sober](https://x.com/Traveling_Sober/status/2060504534946918867) — 新岗位用工具理解旧代码修bug建测试，强烈认可且明确人协助非独立写系统
-- 好评：[237 · @anandabhinav217](https://x.com/anandabhinav217/status/2065207161056088391) — LinkedIn草稿pipeline变Code技能减少额外API费，LiteLLM可换模型，邮件是计划
-- 好评：[238 · @anandabhinav217](https://x.com/anandabhinav217/status/2070604424838316305) — 旧E2E随UI易坏改CDP视觉技能首跑抓bug，维护收益与推广需分开
-- 好评：[240 · @ashnonx](https://x.com/ashnonx/status/2071382583380984090) — VPS监控Githubissues开PR，人合并后部署，Slack通知
-- 好评：[245 · @doktor500](https://x.com/doktor500/status/2070962066823782499) — Linear认领实现测试PR机器人复核再等人工，不算无人闭环
-- 差评：[250 · @KluepfelMark](https://x.com/KluepfelMark/status/2071697007077405005) — 误以为上传成功便删本地，实际上传失败丢文件，备份诉求
-- 好评：[251 · @maksim_madzar](https://x.com/maksim_madzar/status/2071317337576243267) — Apple审核失败授权后修重提并通过，未知app，不能推通用审核能力
-- 差评：[261 · @SaiKris59630524](https://x.com/SaiKris59630524/status/2070594540399186246) — 声称done却未跑测试，自建硬性测试构建通过关口夜间循环
-- 好评：[263 · @StuntmanProject](https://x.com/StuntmanProject/status/2071687090258006506) — 首次Code做作品集快，泛赞无比较值
-- 差评：[269 · @wlad_czyzewski](https://x.com/wlad_czyzewski/status/2071732441497149875) — Code覆盖人两轮之间改动让bug重现；Hubspot日期错属Claude非Code
-- 好评：[449 · @Charles_SEO](https://x.com/Charles_SEO/status/2083193753070977455) — SEO作者自建个人站半小时，索引仍等，效果承诺不算结果
-- 好评：[454 · @Jason_scales1](https://x.com/Jason_scales1/status/2083145651072708627) — 无开发经验90minAPI轮询验证CSV，每次导入自动执行，能读问迭代；群体差距结论不取
-- 好评：[458 · @kilymrr](https://x.com/kilymrr/status/2083185733322285200) — Instagram应用链接失效Code20min重定向页恢复
-- 差评：[689 · @AidanAutomates](https://x.com/AidanAutomates/status/2092358017354248581) — 跨三会话重做已修内容，用checkpoint仍需监督
-- 好评：[691 · @apriberri](https://x.com/apriberri/status/2093032138010693861) — 四个月三重启作品集满意，crashout不能当软件crash
-- 好评：[694 · @axelfontaine](https://x.com/axelfontaine/status/2093006790677921957) — Code修15年扫描仪Linux支持免Windows双启动
-- 好评：[698 · @ChicoTrifosfato](https://x.com/ChicoTrifosfato/status/2092399352413089887) — 旧PCNAS安卓TV远程开关CodeSSH处理，父帖床垫路由非本人
-- 差评：[703 · @DriverPortfolio](https://x.com/DriverPortfolio/status/2092742671366234586) — 分发应全自动却多register人部署前没发现，金融合约保障未核
-- 好评：[709 · @Hikik0_m0ri](https://x.com/Hikik0_m0ri/status/2092991615216336940) — 邮件出口guard拒不可信转发和永久自动转发，七场景自述，视频未核
-- 好评：[712 · @JohnMAbrahams](https://x.com/JohnMAbrahams/status/2092714084357554570) — 脊椎机构网站非临床系统，外观未读
-- 好评：[717 · @Mavrix2026](https://x.com/Mavrix2026/status/2092997211869126774) — 高尔夫预约web+iOS接HomeAssistant门锁无需在场，自述实际使用
-- 差评：[723 · @shamkhal_tech](https://x.com/shamkhal_tech/status/2093075233016250392) — UI/API两侧逻辑误解人测试发现修好，不能计最终失败
-- 好评：[730 · @mmmstudio_](https://x.com/mmmstudio_/status/2092738614270542040) — 足球生涯游戏ReactCanvas，作者回复Code贡献重活
-- 好评：[1044 · @AbhishekU008](https://x.com/AbhishekU008/status/2101597759992414594) — Verirun与Claude定位20页跳转目标失效到6共享文件，分钟修自述。
-- 好评：[1045 · @b_winzer](https://x.com/b_winzer/status/2101343812035682609) — 40分钟规划制作落地页线框，非完整生产站。
-- 好评：[1048 · @chvpx](https://x.com/chvpx/status/2104348443833717004) — 15地区页加汇总一两小时，自述无地址。
-- 好评：[1062 · @johndsaunders](https://x.com/johndsaunders/status/2101769171621290190) — ClaudeDesign制站Code部署，清单筛schema审计GTM，自动化未核。
-- 好评：[1066 · @me___shahrukh](https://x.com/me___shahrukh/status/2101313350537740388) — 业务站CRM线索研究部署5美元AWS，从未打开文件自述。
-- 差评：[1068 · @muse_jp_sol](https://x.com/muse_jp_sol/status/2101332990978600992) — 认证改为true仍测试通过，自建预审风险返修一轮。
-- 好评：[1070 · @nmkenji](https://x.com/nmkenji/status/2101420728147149236) — Decentraland收音符游戏90%Claude自述。
-- 好评：[1075 · @swnevin](https://x.com/swnevin/status/2104702475240435723) — 周末3D进化游戏Claude与Higgsfield，各自贡献未分明。
-- 好评：[1080 · @yoonshins](https://x.com/yoonshins/status/2101692703469944864) — 公司落地页三小时自述。
-- 差评：[1276 · @khan_kilo](https://x.com/khan_kilo/status/2107617904380252580) — 小修变四文件重构改常用函数bug仍在。
-- 好评：[1449 · @andrei_ot](https://x.com/andrei_ot/status/2051088660594880731) — 主项目跑时开第二Claude会话陀螺游戏，双任务单作者。
-- 好评：[1702 · @jeremiqque](https://x.com/jeremiqque/status/2067376376944988168) — 站点第三天加hoverloader桌面体验。
-- 好评：[1738 · @marcusli3w](https://x.com/marcusli3w/status/2063757462604575092) — 数学飞行首浏览器游戏Claude造。
-- 好评：[1767 · @AunySillyMe](https://x.com/AunySillyMe/status/2064490727368008059) — 把客户称赞给Claude加入站27秒上线，需人提供内容。
-- 差评：[1815 · @abenz_mato](https://x.com/abenz_mato/status/2064482003530203564) — 每日20分审隔夜diff每周2至3个错却可过关自述。
-- 好评：[1818 · @madhavakhil](https://x.com/madhavakhil/status/2070656177462264274) — 公司语音线索邮件费用工具迁VPS Claude n8n。
-- 好评：[1919 · @Marketer_kazuf](https://x.com/Marketer_kazuf/status/2074986807331320054) — 客户商店demo两小时含购物车报价导航，非生产电商。
-- 好评：[1968 · @xovionai](https://x.com/xovionai/status/2076075426150252649) — 商业记录查询常见形态硬编码缓存代两LLM调用，后台写日志return被杀改await，自述性能。
-- 好评：[2020 · @yanuararistya](https://x.com/yanuararistya/status/2079292796440387589) — 孩子节奏游戏广告订阅烦自建一下午iPad侧载。
-- 好评：[2247 · @eban](https://x.com/eban/status/2113057682664165485) — Claude跨账户迁EC2密钥镜像CloudFormation自报成功。
-- 好评：[2280 · @omakasedesign](https://x.com/omakasedesign/status/2112330912100938224) — Claude按现站样式做合作页发布，推广自家AgentKit。
-- 好评：[2348 · @zennxzo](https://x.com/zennxzo/status/2111966970124116181) — Claude可用GameCube驱动支持蓝牙震动映射。
-- 好评：[2361 · @masuo_nandemoya](https://x.com/masuo_nandemoya/status/2111966618897293667) — Claude电视启动器24分钟装好，先做后决定需求。
-- 好评：[2398 · @8maki](https://x.com/8maki/status/2113050612132933954) — Claude汇总XSlack媒体邮件并按阅读学优先级RSS。
-- 好评：[2409 · @ikoichi](https://x.com/ikoichi/status/2050176278976696472) — 餐馆用SentryClaudePR部署修生产bug，无笔记本。
-- 好评：[2412 · @HarakiriInu](https://x.com/HarakiriInu/status/2055226723290022122) — Claude扫描合约奖励溢出修八行，自报。
-- 差评：[2413 · @oldeucryptoboi](https://x.com/oldeucryptoboi/status/2055276708236812353) — Claude宣称认证完成测试绿但注册500，调试90分后加规则。
-- 好评：[2423 · @facundofranco_](https://x.com/facundofranco_/status/2058551159095206401) — 演示崩溃现场Claude20分修三根因，自报。
-- 好评：[2424 · @madebyamar](https://x.com/madebyamar/status/2058792816525124020) — ClaudeVercel案例与CTA网站应用。
-- 好评：[2425 · @mkanapaka](https://x.com/mkanapaka/status/2058829572528025835) — Claude已做个人网站，否则会买站点工具。
-- 好评：[2426 · @made_haithem](https://x.com/made_haithem/status/2058971522115518583) — 47分钟整站与节省开发费为自述未核。
-- 好评：[2427 · @Oluwaphilemon1](https://x.com/Oluwaphilemon1/status/2059187866802978827) — 两月前全Claude建站无过程细节。
-- 好评：[2431 · @_vixel__](https://x.com/_vixel__/status/2059939613637242886) — Claude作品集。
-- 好评：[2432 · @33Giuseppe88](https://x.com/33Giuseppe88/status/2059997341923360803) — Claude十分钟站替每年150欧Squarespace，自述免费托管。
-- 好评：[2434 · @robincheng09](https://x.com/robincheng09/status/2060200709878903111) — ClaudeDesign重建Astro方便Markdown发帖。
-- 好评：[2438 · @its_ShubhamK](https://x.com/its_ShubhamK/status/2060727292071141777) — 不懂ReactTS单提示十分钟作品集再部署。
-- 好评：[2459 · @atomiczsec](https://x.com/atomiczsec/status/2068792501515764035) — 平时嫌Claude安全拒绝，这次找包五分修好。
-- 好评：[2461 · @idrencs](https://x.com/idrencs/status/2069381538479841671) — 聊天三小时失败装本机Claude两分半调试解决，环境接入关键。
-- 好评：[2464 · @RiffBuilds](https://x.com/RiffBuilds/status/2069611496867320194) — Claude品牌网站花一周逐项导演动画，不是单轮。
-- 好评：[2472 · @Adedamolajoke](https://x.com/Adedamolajoke/status/2070626621883908098) — 本人ClaudeDesignCode作品集，其余Figma新品预测不当体验。
-- 好评：[2486 · @stacyonchain](https://x.com/stacyonchain/status/2071662946674004084) — Claude两小时作品集有参考提示与修bug，不是无引导。
-- 好评：[2494 · @dreamfirms](https://x.com/dreamfirms/status/2071993094153683267) — ClaudeWPMCP重建网站获称赞，部分仍开发。
-- 好评：[2496 · @cheta_i](https://x.com/cheta_i/status/2072037728099647715) — ClaudeFigma作品集已发布。
-- 好评：[2500 · @analogalok](https://x.com/analogalok/status/2072087948477210982) — Claude网页会话实际启动浏览器截图迭代至工作，非纯出代码。
-- 好评：[2501 · @BrokenEggFace](https://x.com/BrokenEggFace/status/2072088952245305728) — 学Claude做照片砸鸡蛋游戏。
-- 好评：[2534 · @sgates](https://x.com/sgates/status/2078925657053004090) — Claude单提示播客小游戏。
-- 好评：[2551 · @micahtid](https://x.com/micahtid/status/2082297045818175717) — 先提设计tokens再喂Claude才单提示三分钟落地页。
-- 好评：[2555 · @ricky00983](https://x.com/ricky00983/status/2082498562538324291) — Build错误日志交Claude，Claude查MCP20KB截断发现真因未盲从。
-- 好评：[2556 · @Mannnie_](https://x.com/Mannnie_/status/2082518984209965255) — 设计师ClaudeThreeJS VR落地页已发布2k访问自报。
-- 好评：[2568 · @ryan_doser13](https://x.com/ryan_doser13/status/2082798077937614918) — ClaudeAstroCloudflare站上线Codex审，100月套餐加域名。
-- 好评：[2570 · @Zunaiba1234](https://x.com/Zunaiba1234/status/2082884347703755034) — Claude旅游站由人逐页描述，不是一句需求全自主。
-- 好评：[2593 · @shiloola](https://x.com/shiloola/status/2085709806325666068) — Claude扫描112k录屏帧找单帧闪烁，人提供录屏。
-- 好评：[2596 · @AsadIshmael](https://x.com/AsadIshmael/status/2086961328627782087) — ClaudeCode修Claude数据MCP连接自报。
-- 差评：[2599 · @aiverdict_](https://x.com/aiverdict_/status/2087227283337773319) — Claude改margin重构整组件，人回滚损失30分。
-- 好评：[2637 · @azouzidesign](https://x.com/azouzidesign/status/2092606464699363332) — Claude首站后不想回Framer，除非客户要。
-- 好评：[2638 · @andreapalacioai](https://x.com/andreapalacioai/status/2092666586746204180) — Claude三工具终端分钟企业站，无设计师费用为比较估计。
-- 好评：[2644 · @sleepbuildrun](https://x.com/sleepbuildrun/status/2093334573300211851) — 资深开发者Claude为主作品集14项目，非14独立帖子。
-- 好评：[2648 · @Feroliver19](https://x.com/Feroliver19/status/2094001077829972185) — 非技术创始人Claude重站删FramerBolt，未占技术团队。
-- 好评：[2649 · @RealJBMangum](https://x.com/RealJBMangum/status/2094232218230980807) — 给ClaudeSSH修JellyfinZFS坏盘后单盘启动清缓存，自报60秒。
-- 好评：[2650 · @himanshubuildss](https://x.com/himanshubuildss/status/2094264844220502344) — FlowChatGPTClaude做192帧滚动DNA站，非视频背景。
-- 好评：[2655 · @GaouetAyoub](https://x.com/GaouetAyoub/status/2094324451684892890) — 人思考Figma设计Claude构建Codex完善作品集。
-- 差评：[2681 · @paulhq](https://x.com/paulhq/status/2096913441764311394) — Claude性能优化缓存无TTL，用新鲜度测试加hook制约。
-- 差评：[2717 · @TechWithMatteo](https://x.com/TechWithMatteo/status/2102625355974533148) — Claude小CSS改动碰未提文件。
-- 好评：[2721 · @creaatishh](https://x.com/creaatishh/status/2102786985542951357) — 无编程设计师ClaudeAGY作品集。
-- 好评：[2723 · @vojtechcahlik](https://x.com/vojtechcahlik/status/2102859401011011953) — Claude两小时沿海城市浏览器游戏。
-- 好评：[2734 · @lucas_builds](https://x.com/lucas_builds/status/2103877257622401085) — Claude查分享图发现字体粗细未加载，非需设计重做。
-- 好评：[2737 · @briantgrover](https://x.com/briantgrover/status/2104361561875943895) — 父亲在旁五小时Claude网站，人持续提供内容。
-- 好评：[2741 · @MonishMeher](https://x.com/MonishMeher/status/2104509896247152710) — Claude三小时复活三年扩展加仪表落地页教程。
-- 好评：[2750 · @imagineLilies](https://x.com/imagineLilies/status/2104817105199648866) — Claude可持续主题落地页。
-- 好评：[2759 · @Egenectl](https://x.com/Egenectl/status/2105266583429960168) — Claude五分钟修shell启动竞态。
-- 好评：[2760 · @Hassanin1134041](https://x.com/Hassanin1134041/status/2105358973196988552) — Codex耗周额未查Windows日志，Claude读日志3%修，自报。
-- 好评：[2761 · @drcollect](https://x.com/drcollect/status/2105361031371383180) — Claude浏览器赛车破坏游戏五概念车。
-- 好评：[2766 · @Nickxyzn](https://x.com/Nickxyzn/status/2105689969155092750) — ClaudeThreeJS合作游戏免费账号在线。
-- 好评：[2774 · @Physulis1444](https://x.com/Physulis1444/status/2105735165959880814) — Claude在他人Snowflow基础做浏览器游戏。
-- 好评：[2780 · @burakkorglu](https://x.com/burakkorglu/status/2105809544370606526) — Claude先一起修MCP错误再将其做惊喜游戏。
-- 好评：[2784 · @stephenbliss](https://x.com/stephenbliss/status/2106330131749028292) — iPhone控制Claude两站Framer迁Cloudflare省840镑年自报。
-- 好评：[2789 · @ryanlpeterman](https://x.com/ryanlpeterman/status/2106850602248732828) — 原手工转贴错误改Claude无头健康监测，信心不足发邮件。
-- 好评：[2796 · @uxmes3](https://x.com/uxmes3/status/2107424568948510964) — Claude数日作品集动画交互原型。
-- 好评：[2804 · @SeanRossSF](https://x.com/SeanRossSF/status/2107966439068197019) — Claude按旧架构WordPress重站迁Vercel，不愿回。
-- 差评：[2808 · @mathiasvrb](https://x.com/mathiasvrb/status/2108197184072269907) — Claude修一函数重构三文件改名加理由README。
-- 好评：[2810 · @0xHaileyy](https://x.com/0xHaileyy/status/2108224914297692244) — Claudevibekit游戏代币测试网无真价值，人选题钱包确认。
-- 好评：[2818 · @RayBenefield](https://x.com/RayBenefield/status/2108316528676606373) — Claude20两天第二游戏发布，一次消耗49个百分点。
-- 好评：[2820 · @EdedaBLEOUSSI](https://x.com/EdedaBLEOUSSI/status/2108344918838272418) — 旧合作获奖游戏本次ClaudeMeshy个人重制，奖非新AI版本。
-- 好评：[2824 · @krika2810](https://x.com/krika2810/status/2108771658861306174) — Instinct卡住经终端Claude求解回传实施成功。
-- 差评：[2842 · @DorNoyAI](https://x.com/DorNoyAI/status/2110020660328304742) — Claude纹身双语站一天47提交，失败构建仍部署白屏，阶段结果须区分。
-- 好评：[2868 · @jeff_okoli](https://x.com/jeff_okoli/status/2110721738140979274) — Figma确切数值Claude实现，人导演动画性能。
-- 好评：[2887 · @ColeHayes28](https://x.com/ColeHayes28/status/2111291011330605507) — Claude分模型只读侦察隔离修复测试再合，九bug一需主模型接手。
-- 好评：[2892 · @PeerJuelichAI](https://x.com/PeerJuelichAI/status/2111391900586721326) — 无代码Claude站描述布局文案预览再改几分钟可用。
-- 好评：[2901 · @siquesimas](https://x.com/siquesimas/status/2111797550659317924) — Claude投资数据学习站免费上线，无回报承诺。
-- 好评：[2909 · @ki_frame](https://x.com/ki_frame/status/2111976656336212422) — Claude作品集由人创意导演。
-- 好评：[2911 · @BiosRiosz](https://x.com/BiosRiosz/status/2112111876565823600) — ClaudeVibeRaven修保存500实测再Undo代码回退数据仍在。
-- 好评：[2921 · @reinventingomar](https://x.com/reinventingomar/status/2112559468542042251) — Framer不足Claude同设计重做更顺自评。
-- 好评：[2937 · @howardhwt](https://x.com/howardhwt/status/2112933968626528766) — ClaudePINOCMCP动作为三语言游戏，同会话。
-- 好评：[2940 · @TovarischSmithe](https://x.com/TovarischSmithe/status/2112955040961077387) — Claude改ini加vsync60fps修LAN游戏音循环。
-- 好评：[2943 · @nielr1](https://x.com/nielr1/status/2112958821442437198) — 小站WP迁Claude自改UI免叫设计师，大站CMS问题是设想。
-- 好评：[2947 · @RahulBhola5516](https://x.com/RahulBhola5516/status/2112975282470887711) — ClaudeGodot乡村游戏程序建多资产。
-- 好评：[2950 · @bborofka](https://x.com/bborofka/status/2113015907488551102) — ClaudeAWSToolkit分钟静态站部署低托管费自述。
-- 好评：[2951 · @trobbinswrites](https://x.com/trobbinswrites/status/2113027555955474748) — Codex审出游戏视野错误合前Claude修加两测试。
-- 好评：[2959 · @BGoktugOzdemir](https://x.com/BGoktugOzdemir/status/2113193665862549539) — ClaudeCodex自写skills聚合个人讲座文章站上线。
-- 好评：[2963 · @aosya](https://x.com/aosya/status/2113249020143665661) — Claude15分老PHP5博客迁PHP8并修既有错。
-- 好评：[2974 · @Sam48046709](https://x.com/Sam48046709/status/2113384438130500031) — 大学聊天复制后Claude重做个人站，少量Codex历史。
-- 好评：[2980 · @heyjuangarces](https://x.com/heyjuangarces/status/2113404430162825472) — Figma设计Claude网站Git等集成上线。
-- 好评：[2982 · @heyjibril](https://x.com/heyjibril/status/2113432790876504077) — ClaudeThreeJS出租车风配送游戏可嵌入玩。
-- 好评：[2984 · @AustinLavistaBB](https://x.com/AustinLavistaBB/status/2113437953678807184) — Claude加网站内容上下文与研究后几乎一次完成。
-- 差评：[2988 · @telehealthjake](https://x.com/telehealthjake/status/2113486857137000883) — Claude修错字重构37文件迁移，夸张可能保留原话不验证数。
-- 好评：[2991 · @Furkiozkann](https://x.com/Furkiozkann/status/2113526116765794568) — Claude系列第31游戏，重复作者另一项目。
-- 好评：[2992 · @thennweremizu](https://x.com/thennweremizu/status/2113526194113307075) — Figma设计ClaudeGitVercel作品集教程。
-- 好评：[3006 · @ianhxu_](https://x.com/ianhxu_/status/2061075789177827836) — 自家Mosaic多代理GUI内Claude后台部署落地页，推广。
-- 好评：[3017 · @miyagawa](https://x.com/miyagawa/status/2061233175968555018) — Claude将nginx与cron替FastlyVCL/GHA日志聚合正常。
-- 好评：[3040 · @marcelinomoreno](https://x.com/marcelinomoreno/status/2071922205273760118) — ClaudeTS站已建技术基础很有帮助，建议初学基本CS。
-- 好评：[3049 · @charchitGoyal2](https://x.com/charchitGoyal2/status/2071960567536062926) — 人设计首页ClaudeCodex动效一周并学习部署。
-- 好评：[3086 · @duborges](https://x.com/duborges/status/2082902318207410538) — SlackClaude广告API首活动上线，人先写限制，业绩结果待给。
-- 好评：[3093 · @eclecticV](https://x.com/eclecticV/status/2083065106414633277) — Hermes拉Linear任务交Claude执行完整流程自报通。
-- 好评：[3130 · @nivak86](https://x.com/nivak86/status/2094383658165744127) — Claude迁Namecheap至Hetzner两分自报，非父帖全VPS迁移。
-- 好评：[3133 · @amaggi_](https://x.com/amaggi_/status/2094416236431999097) — ClaudeSSH迁自有裸机省月费停14分，并发现Redis公网暴露。
-- 好评：[3139 · @lofihashbloom](https://x.com/lofihashbloom/status/2094459727354712320) — ClaudeUnityCLIBlender沙虫游戏实验。
-- 好评：[3167 · @TylerReedAI](https://x.com/TylerReedAI/status/2104284949733876162) — ClaudeVercelMCP两分钟直接线上URL免切页。
-- 好评：[3168 · @b_szafranow](https://x.com/b_szafranow/status/2104950483886440784) — ClaudeShopifyTesterArmy实际购物测抓小计错修后九步绿，端到端自述。
-- 好评：[3169 · @trilochanbhalla](https://x.com/trilochanbhalla/status/2104976889962217604) — Claude n8n Airtable诊所语音系统上线自报，用户量与技能归责无证。
-- 好评：[3171 · @solvXuk](https://x.com/solvXuk/status/2104992963332055309) — Claude手机蜘蛛游戏自称弃Codex，未具体失败。
-- 好评：[3172 · @AhmedBawla](https://x.com/AhmedBawla/status/2105013694480752835) — ClaudeBlender篮球游戏。
-- 好评：[3177 · @alanefuller](https://x.com/alanefuller/status/2105327060281344446) — Claude二十站迁旧主题本地修stagingChrome核DNS上线，一作者一帖。
-- 好评：[3217 · @sorenxet](https://x.com/sorenxet/status/2112213933272490380) — Tripo资产ClaudeBlenderUnity分工，每步人玩再单改钓鱼游戏。
-- 好评：[3226 · @itschatto](https://x.com/itschatto/status/2112891668298866869) — FigmaClaude作品集迁Framer，自测Lighthouse改善非外部复测。
-- 好评：[3227 · @docdano](https://x.com/docdano/status/2112915068732252193) — 大会ClaudeCLI十分钟克隆部署教育站零仪表点击，活动演示。
-- 好评：[3261 · @vinnysgreen](https://x.com/vinnysgreen/status/2113422254084108706) — ClaudeGitPR合并webhook部署WP，CLI同步页代码管理。
-- 好评：[3277 · @chalaska](https://x.com/chalaska/status/2113517275533943036) — ClaudeFigma三月前不可用现客户项目超预期，时间版本不同。
+- Positive: [50 · @hada0505](https://x.com/hada0505/status/2060141317011960247)
+- Negative: [52 · @iamMrDuncan](https://x.com/iamMrDuncan/status/2060863300070494715)
+- Negative: [60 · @lonelysloth_sec](https://x.com/lonelysloth_sec/status/2060136749335249189)
+- Positive: [69 · @Traveling_Sober](https://x.com/Traveling_Sober/status/2060504534946918867)
+- Positive: [237 · @anandabhinav217](https://x.com/anandabhinav217/status/2065207161056088391)
+- Positive: [238 · @anandabhinav217](https://x.com/anandabhinav217/status/2070604424838316305)
+- Positive: [240 · @ashnonx](https://x.com/ashnonx/status/2071382583380984090)
+- Positive: [245 · @doktor500](https://x.com/doktor500/status/2070962066823782499)
+- Negative: [250 · @KluepfelMark](https://x.com/KluepfelMark/status/2071697007077405005)
+- Positive: [251 · @maksim_madzar](https://x.com/maksim_madzar/status/2071317337576243267)
+- Negative: [261 · @SaiKris59630524](https://x.com/SaiKris59630524/status/2070594540399186246)
+- Positive: [263 · @StuntmanProject](https://x.com/StuntmanProject/status/2071687090258006506)
+- Negative: [269 · @wlad_czyzewski](https://x.com/wlad_czyzewski/status/2071732441497149875)
+- Positive: [449 · @Charles_SEO](https://x.com/Charles_SEO/status/2083193753070977455)
+- Positive: [454 · @Jason_scales1](https://x.com/Jason_scales1/status/2083145651072708627)
+- Positive: [458 · @kilymrr](https://x.com/kilymrr/status/2083185733322285200)
+- Negative: [689 · @AidanAutomates](https://x.com/AidanAutomates/status/2092358017354248581)
+- Positive: [691 · @apriberri](https://x.com/apriberri/status/2093032138010693861)
+- Positive: [694 · @axelfontaine](https://x.com/axelfontaine/status/2093006790677921957)
+- Positive: [698 · @ChicoTrifosfato](https://x.com/ChicoTrifosfato/status/2092399352413089887)
+- Negative: [703 · @DriverPortfolio](https://x.com/DriverPortfolio/status/2092742671366234586)
+- Positive: [709 · @Hikik0_m0ri](https://x.com/Hikik0_m0ri/status/2092991615216336940)
+- Positive: [712 · @JohnMAbrahams](https://x.com/JohnMAbrahams/status/2092714084357554570)
+- Positive: [717 · @Mavrix2026](https://x.com/Mavrix2026/status/2092997211869126774)
+- Negative: [723 · @shamkhal_tech](https://x.com/shamkhal_tech/status/2093075233016250392)
+- Positive: [730 · @mmmstudio_](https://x.com/mmmstudio_/status/2092738614270542040)
+- Positive: [1044 · @AbhishekU008](https://x.com/AbhishekU008/status/2101597759992414594)
+- Positive: [1045 · @b_winzer](https://x.com/b_winzer/status/2101343812035682609)
+- Positive: [1048 · @chvpx](https://x.com/chvpx/status/2104348443833717004)
+- Positive: [1062 · @johndsaunders](https://x.com/johndsaunders/status/2101769171621290190)
+- Positive: [1066 · @me___shahrukh](https://x.com/me___shahrukh/status/2101313350537740388)
+- Negative: [1068 · @muse_jp_sol](https://x.com/muse_jp_sol/status/2101332990978600992)
+- Positive: [1070 · @nmkenji](https://x.com/nmkenji/status/2101420728147149236)
+- Positive: [1075 · @swnevin](https://x.com/swnevin/status/2104702475240435723)
+- Positive: [1080 · @yoonshins](https://x.com/yoonshins/status/2101692703469944864)
+- Negative: [1276 · @khan_kilo](https://x.com/khan_kilo/status/2107617904380252580)
+- Positive: [1449 · @andrei_ot](https://x.com/andrei_ot/status/2051088660594880731)
+- Positive: [1702 · @jeremiqque](https://x.com/jeremiqque/status/2067376376944988168)
+- Positive: [1738 · @marcusli3w](https://x.com/marcusli3w/status/2063757462604575092)
+- Positive: [1767 · @AunySillyMe](https://x.com/AunySillyMe/status/2064490727368008059)
+- Negative: [1815 · @abenz_mato](https://x.com/abenz_mato/status/2064482003530203564)
+- Positive: [1818 · @madhavakhil](https://x.com/madhavakhil/status/2070656177462264274)
+- Positive: [1919 · @Marketer_kazuf](https://x.com/Marketer_kazuf/status/2074986807331320054)
+- Positive: [1968 · @xovionai](https://x.com/xovionai/status/2076075426150252649)
+- Positive: [2020 · @yanuararistya](https://x.com/yanuararistya/status/2079292796440387589)
+- Positive: [2247 · @eban](https://x.com/eban/status/2113057682664165485)
+- Positive: [2280 · @omakasedesign](https://x.com/omakasedesign/status/2112330912100938224)
+- Positive: [2348 · @zennxzo](https://x.com/zennxzo/status/2111966970124116181)
+- Positive: [2361 · @masuo_nandemoya](https://x.com/masuo_nandemoya/status/2111966618897293667)
+- Positive: [2398 · @8maki](https://x.com/8maki/status/2113050612132933954)
+- Positive: [2409 · @ikoichi](https://x.com/ikoichi/status/2050176278976696472)
+- Positive: [2412 · @HarakiriInu](https://x.com/HarakiriInu/status/2055226723290022122)
+- Negative: [2413 · @oldeucryptoboi](https://x.com/oldeucryptoboi/status/2055276708236812353)
+- Positive: [2423 · @facundofranco_](https://x.com/facundofranco_/status/2058551159095206401)
+- Positive: [2424 · @madebyamar](https://x.com/madebyamar/status/2058792816525124020)
+- Positive: [2425 · @mkanapaka](https://x.com/mkanapaka/status/2058829572528025835)
+- Positive: [2426 · @made_haithem](https://x.com/made_haithem/status/2058971522115518583)
+- Positive: [2427 · @Oluwaphilemon1](https://x.com/Oluwaphilemon1/status/2059187866802978827)
+- Positive: [2431 · @_vixel__](https://x.com/_vixel__/status/2059939613637242886)
+- Positive: [2432 · @33Giuseppe88](https://x.com/33Giuseppe88/status/2059997341923360803)
+- Positive: [2434 · @robincheng09](https://x.com/robincheng09/status/2060200709878903111)
+- Positive: [2438 · @its_ShubhamK](https://x.com/its_ShubhamK/status/2060727292071141777)
+- Positive: [2459 · @atomiczsec](https://x.com/atomiczsec/status/2068792501515764035)
+- Positive: [2461 · @idrencs](https://x.com/idrencs/status/2069381538479841671)
+- Positive: [2464 · @RiffBuilds](https://x.com/RiffBuilds/status/2069611496867320194)
+- Positive: [2472 · @Adedamolajoke](https://x.com/Adedamolajoke/status/2070626621883908098)
+- Positive: [2486 · @stacyonchain](https://x.com/stacyonchain/status/2071662946674004084)
+- Positive: [2494 · @dreamfirms](https://x.com/dreamfirms/status/2071993094153683267)
+- Positive: [2496 · @cheta_i](https://x.com/cheta_i/status/2072037728099647715)
+- Positive: [2500 · @analogalok](https://x.com/analogalok/status/2072087948477210982)
+- Positive: [2501 · @BrokenEggFace](https://x.com/BrokenEggFace/status/2072088952245305728)
+- Positive: [2534 · @sgates](https://x.com/sgates/status/2078925657053004090)
+- Positive: [2551 · @micahtid](https://x.com/micahtid/status/2082297045818175717)
+- Positive: [2555 · @ricky00983](https://x.com/ricky00983/status/2082498562538324291)
+- Positive: [2556 · @Mannnie_](https://x.com/Mannnie_/status/2082518984209965255)
+- Positive: [2568 · @ryan_doser13](https://x.com/ryan_doser13/status/2082798077937614918)
+- Positive: [2570 · @Zunaiba1234](https://x.com/Zunaiba1234/status/2082884347703755034)
+- Positive: [2593 · @shiloola](https://x.com/shiloola/status/2085709806325666068)
+- Positive: [2596 · @AsadIshmael](https://x.com/AsadIshmael/status/2086961328627782087)
+- Negative: [2599 · @aiverdict_](https://x.com/aiverdict_/status/2087227283337773319)
+- Positive: [2637 · @azouzidesign](https://x.com/azouzidesign/status/2092606464699363332)
+- Positive: [2638 · @andreapalacioai](https://x.com/andreapalacioai/status/2092666586746204180)
+- Positive: [2644 · @sleepbuildrun](https://x.com/sleepbuildrun/status/2093334573300211851)
+- Positive: [2648 · @Feroliver19](https://x.com/Feroliver19/status/2094001077829972185)
+- Positive: [2649 · @RealJBMangum](https://x.com/RealJBMangum/status/2094232218230980807)
+- Positive: [2650 · @himanshubuildss](https://x.com/himanshubuildss/status/2094264844220502344)
+- Positive: [2655 · @GaouetAyoub](https://x.com/GaouetAyoub/status/2094324451684892890)
+- Negative: [2681 · @paulhq](https://x.com/paulhq/status/2096913441764311394)
+- Negative: [2717 · @TechWithMatteo](https://x.com/TechWithMatteo/status/2102625355974533148)
+- Positive: [2721 · @creaatishh](https://x.com/creaatishh/status/2102786985542951357)
+- Positive: [2723 · @vojtechcahlik](https://x.com/vojtechcahlik/status/2102859401011011953)
+- Positive: [2734 · @lucas_builds](https://x.com/lucas_builds/status/2103877257622401085)
+- Positive: [2737 · @briantgrover](https://x.com/briantgrover/status/2104361561875943895)
+- Positive: [2741 · @MonishMeher](https://x.com/MonishMeher/status/2104509896247152710)
+- Positive: [2750 · @imagineLilies](https://x.com/imagineLilies/status/2104817105199648866)
+- Positive: [2759 · @Egenectl](https://x.com/Egenectl/status/2105266583429960168)
+- Positive: [2760 · @Hassanin1134041](https://x.com/Hassanin1134041/status/2105358973196988552)
+- Positive: [2761 · @drcollect](https://x.com/drcollect/status/2105361031371383180)
+- Positive: [2766 · @Nickxyzn](https://x.com/Nickxyzn/status/2105689969155092750)
+- Positive: [2774 · @Physulis1444](https://x.com/Physulis1444/status/2105735165959880814)
+- Positive: [2780 · @burakkorglu](https://x.com/burakkorglu/status/2105809544370606526)
+- Positive: [2784 · @stephenbliss](https://x.com/stephenbliss/status/2106330131749028292)
+- Positive: [2789 · @ryanlpeterman](https://x.com/ryanlpeterman/status/2106850602248732828)
+- Positive: [2796 · @uxmes3](https://x.com/uxmes3/status/2107424568948510964)
+- Positive: [2804 · @SeanRossSF](https://x.com/SeanRossSF/status/2107966439068197019)
+- Negative: [2808 · @mathiasvrb](https://x.com/mathiasvrb/status/2108197184072269907)
+- Positive: [2810 · @0xHaileyy](https://x.com/0xHaileyy/status/2108224914297692244)
+- Positive: [2818 · @RayBenefield](https://x.com/RayBenefield/status/2108316528676606373)
+- Positive: [2820 · @EdedaBLEOUSSI](https://x.com/EdedaBLEOUSSI/status/2108344918838272418)
+- Positive: [2824 · @krika2810](https://x.com/krika2810/status/2108771658861306174)
+- Negative: [2842 · @DorNoyAI](https://x.com/DorNoyAI/status/2110020660328304742)
+- Positive: [2868 · @jeff_okoli](https://x.com/jeff_okoli/status/2110721738140979274)
+- Positive: [2887 · @ColeHayes28](https://x.com/ColeHayes28/status/2111291011330605507)
+- Positive: [2892 · @PeerJuelichAI](https://x.com/PeerJuelichAI/status/2111391900586721326)
+- Positive: [2901 · @siquesimas](https://x.com/siquesimas/status/2111797550659317924)
+- Positive: [2909 · @ki_frame](https://x.com/ki_frame/status/2111976656336212422)
+- Positive: [2911 · @BiosRiosz](https://x.com/BiosRiosz/status/2112111876565823600)
+- Positive: [2921 · @reinventingomar](https://x.com/reinventingomar/status/2112559468542042251)
+- Positive: [2937 · @howardhwt](https://x.com/howardhwt/status/2112933968626528766)
+- Positive: [2940 · @TovarischSmithe](https://x.com/TovarischSmithe/status/2112955040961077387)
+- Positive: [2943 · @nielr1](https://x.com/nielr1/status/2112958821442437198)
+- Positive: [2947 · @RahulBhola5516](https://x.com/RahulBhola5516/status/2112975282470887711)
+- Positive: [2950 · @bborofka](https://x.com/bborofka/status/2113015907488551102)
+- Positive: [2951 · @trobbinswrites](https://x.com/trobbinswrites/status/2113027555955474748)
+- Positive: [2959 · @BGoktugOzdemir](https://x.com/BGoktugOzdemir/status/2113193665862549539)
+- Positive: [2963 · @aosya](https://x.com/aosya/status/2113249020143665661)
+- Positive: [2974 · @Sam48046709](https://x.com/Sam48046709/status/2113384438130500031)
+- Positive: [2980 · @heyjuangarces](https://x.com/heyjuangarces/status/2113404430162825472)
+- Positive: [2982 · @heyjibril](https://x.com/heyjibril/status/2113432790876504077)
+- Positive: [2984 · @AustinLavistaBB](https://x.com/AustinLavistaBB/status/2113437953678807184)
+- Negative: [2988 · @telehealthjake](https://x.com/telehealthjake/status/2113486857137000883)
+- Positive: [2991 · @Furkiozkann](https://x.com/Furkiozkann/status/2113526116765794568)
+- Positive: [2992 · @thennweremizu](https://x.com/thennweremizu/status/2113526194113307075)
+- Positive: [3006 · @ianhxu_](https://x.com/ianhxu_/status/2061075789177827836)
+- Positive: [3017 · @miyagawa](https://x.com/miyagawa/status/2061233175968555018)
+- Positive: [3040 · @marcelinomoreno](https://x.com/marcelinomoreno/status/2071922205273760118)
+- Positive: [3049 · @charchitGoyal2](https://x.com/charchitGoyal2/status/2071960567536062926)
+- Positive: [3086 · @duborges](https://x.com/duborges/status/2082902318207410538)
+- Positive: [3093 · @eclecticV](https://x.com/eclecticV/status/2083065106414633277)
+- Positive: [3130 · @nivak86](https://x.com/nivak86/status/2094383658165744127)
+- Positive: [3133 · @amaggi_](https://x.com/amaggi_/status/2094416236431999097)
+- Positive: [3139 · @lofihashbloom](https://x.com/lofihashbloom/status/2094459727354712320)
+- Positive: [3167 · @TylerReedAI](https://x.com/TylerReedAI/status/2104284949733876162)
+- Positive: [3168 · @b_szafranow](https://x.com/b_szafranow/status/2104950483886440784)
+- Positive: [3169 · @trilochanbhalla](https://x.com/trilochanbhalla/status/2104976889962217604)
+- Positive: [3171 · @solvXuk](https://x.com/solvXuk/status/2104992963332055309)
+- Positive: [3172 · @AhmedBawla](https://x.com/AhmedBawla/status/2105013694480752835)
+- Positive: [3177 · @alanefuller](https://x.com/alanefuller/status/2105327060281344446)
+- Positive: [3217 · @sorenxet](https://x.com/sorenxet/status/2112213933272490380)
+- Positive: [3226 · @itschatto](https://x.com/itschatto/status/2112891668298866869)
+- Positive: [3227 · @docdano](https://x.com/docdano/status/2112915068732252193)
+- Positive: [3261 · @vinnysgreen](https://x.com/vinnysgreen/status/2113422254084108706)
+- Positive: [3277 · @chalaska](https://x.com/chalaska/status/2113517275533943036)
 
 ## Codex
 
-- 好评：[70 · @_mauriciorubio](https://x.com/_mauriciorubio/status/2061233740949684700) — Codex改截图存储设置，持久设置不是每次AI调用，夸张苹果对照删去
-- 好评：[74 · @bin_2211](https://x.com/bin_2211/status/2060148799239344131) — Codex批量图片→Grok视频→Premiere人工剪辑，短视频流量不稳定
-- 好评：[75 · @borros](https://x.com/borros/status/2060091627838820831) — Sentry拉issue→分支修复PR→人审批或评论→合并部署，闭环有人工关口
-- 差评：[79 · @FengzeCai](https://x.com/FengzeCai/status/2060049393647030315) — goal六小时做KimiCode网页，功能有外观丑
-- 差评：[80 · @Franklin5945](https://x.com/Franklin5945/status/2060507787382386939) — 地图bug两工具卡住，人搜补丁提供链接后修好；Claude选补丁非盲升版本
-- 好评：[83 · @JackyjingHong](https://x.com/JackyjingHong/status/2060043778128499198) — 电商外行用Claude/Codex做爬图生图上架表；规避侵权能力仅自述不可保证
-- 好评：[101 · @mufasaYC](https://x.com/mufasaYC/status/2060044897449824497) — Codex写脚本从CSV经本地AppleMail发活动邮件及记账
-- 好评：[103 · @nhciao](https://x.com/nhciao/status/2060027250716872789) — 夜间goal做多人游戏实现调试部署，偏无编辑器引擎省MCP依赖；截图循环自述
-- 差评：[120 · @ZacharyJia](https://x.com/ZacharyJia/status/2060138551728353308) — Codex常用但前端审美差切DeepSeek；父帖额度不是作者额度体验
-- 好评：[300 · @Robertg761_](https://x.com/Robertg761_/status/2068476437934363077) — Codex补HomeAssistant缺失SkylinkNet集成
-- 差评：[304 · @thats_vanity](https://x.com/thats_vanity/status/2071704834198438045) — 26分钟纯文字PDF重建Pages且格式失败
-- 好评：[482 · @CostaLaveron](https://x.com/CostaLaveron/status/2083247330275516904) — LinkedIn采帖互动人筛选草稿Slack汇总，先小样本QA，人工选改启动，95%口号不量化
-- 好评：[488 · @dixiidev](https://x.com/dixiidev/status/2083317349869064535) — Codex修BF6安装游戏故障，等待煮面期间自述
-- 差评：[511 · @UnrealHedgehog](https://x.com/UnrealHedgehog/status/2083289260346503444) — 像素肢体混淆自审看不出，开发够用但波动；3D转2D未实施
-- 好评：[743 · @ch2039](https://x.com/ch2039/status/2091068567513121263) — Codex找到家庭软路由bug，没细节
-- 好评：[748 · @eMeRiKa](https://x.com/eMeRiKa/status/2090573561400270961) — OpenCode启动schema不匹配Codex修好，具体根因自述
-- 好评：[761 · @mopowerdot](https://x.com/mopowerdot/status/2093091013732516081) — Mermail保修代理有限搜索入账期限单草稿，504未重发未发送自述
-- 好评：[764 · @ncfrontiersman](https://x.com/ncfrontiersman/status/2091224652311826846) — Omarchy用量插件Initialize坏，Codex两分workaround，不是Codex初始化失败
-- 好评：[768 · @RebaseMan](https://x.com/RebaseMan/status/2091234801588080686) — 15美元宏键盘经RokuAPI切电视输入，Codex十分钟代码自述
-- 差评：[769 · @Richardusany](https://x.com/Richardusany/status/2093100680907268482) — PPT改字体版式重复核一小时耗50%周未完成，其他工具不会为无证对比
-- 好评：[1083 · @Aitch238](https://x.com/Aitch238/status/2101735442173288642) — 新手树莓派音乐实体设备图示手册及手机控制应用，自述能用。
-- 好评：[1093 · @JustServingHim](https://x.com/JustServingHim/status/2104715095062573349) — 旧ASP生产故障分钟修好自述，小时反事实估计。
-- 好评：[1105 · @pratyushup](https://x.com/pratyushup/status/2101786174914494589) — 羽毛球游戏技能分步构建玩法测部署演示自述。
-- 好评：[1291 · @ashleychs](https://x.com/ashleychs/status/2109430174538154127) — 每周Mac脚本SEO数据Codex报告建议，Claude讲解，没证SEO提升。
-- 好评：[1509 · @f_hanshaw](https://x.com/f_hanshaw/status/2053620660379828542) — Mac整理500多GB降100至190自述，安全未核。
-- 好评：[1608 · @AvinzanoFelipe](https://x.com/AvinzanoFelipe/status/2056884819280183786) — 庇护案例SaaSCodex乱卷宗首审时间线可信度证据空缺可用自述，非法律正确。
-- 差评：[1624 · @earthtojake](https://x.com/earthtojake/status/2059051398449279486) — goalCAD七自由度机械臂一次尝试不理想，失败细节未写。
-- 好评：[1673 · @habibj0n](https://x.com/habibj0n/status/2061879712020865418) — CodexOpenCodeDeepseek Telegram发票合同自动化。
-- 差评：[1957 · @nnnnnnnaaaaa](https://x.com/nnnnnnnaaaaa/status/2077497354454741296) — Fable尽Codex设计不喜欢再Cursor免费额接续。
-- 差评：[2031 · @chaogetalks](https://x.com/chaogetalks/status/2095662533747363990) — Codex水母运动不满意想重做，模型审美归因猜。
-- 好评：[2219 · @barrelshifter](https://x.com/barrelshifter/status/2099286846320820239) — Codex原生ARM64编译Melee，无模拟器，自报。
-- 好评：[2309 · @euxhenjonex](https://x.com/euxhenjonex/status/2111960501391683938) — CodexADB电视去应用装启动器，自报结果。
-- 好评：[2326 · @michaeldbertino](https://x.com/michaeldbertino/status/2106895980931203214) — Codex配ChroMagic将自制游戏烧入Tetris卡，自报可玩。
-- 好评：[2463 · @tapmingame](https://x.com/tapmingame/status/2069521022915616964) — CodexGodot数字益智游戏。
-- 好评：[2471 · @_Hey_Stu](https://x.com/_Hey_Stu/status/2070125414253531289) — v0起步Codex完善游戏Suno音乐。
-- 好评：[2473 · @gear_web](https://x.com/gear_web/status/2070883995038974255) — 同下午四harness同游戏均可玩比较，未给胜负。
-- 差评：[2479 · @CarlosBBuild](https://x.com/CarlosBBuild/status/2071399088436937090) — Codex五次未修关键bug，人认为可能修好，结果未确认。
-- 好评：[2558 · @alphacolin](https://x.com/alphacolin/status/2082573610619707849) — Codex迁美容预约建站调价分析与周报，新预约自报非因果实验。
-- 好评：[2563 · @ValakX18](https://x.com/ValakX18/status/2082724169175957608) — Codex游戏网站已建计划更多。
-- 好评：[2606 · @zaidabouqamar](https://x.com/zaidabouqamar/status/2088311778220372039) — CodexMeshy生成资产iOS游戏已上商店自报。
-- 差评：[2633 · @Martin5555](https://x.com/Martin5555/status/2092329332978970626) — Codex自建JS游戏移Roblox上百问题一周未修，明确未成。
-- 好评：[2647 · @heyroberte](https://x.com/heyroberte/status/2093819180122349985) — Codex桌面坏GeminiClaude不解，CodexCLI修自身应用。
-- 好评：[2651 · @AviRecord](https://x.com/AviRecord/status/2094270212157604057) — Codex往返修Omarchy触控板误触光标。
-- 好评：[2654 · @jondkinney](https://x.com/jondkinney/status/2094301338871959842) — Codex修Omarchy耳机静音功能。
-- 好评：[2657 · @jumperz](https://x.com/jumperz/status/2094408949990556077) — Codex修OpenClaw网关后正常，用户分群是观点非调查。
-- 好评：[2662 · @Marqoh66](https://x.com/Marqoh66/status/2094521155474600213) — Codex三分钟造本地摄像头源修OBS。
-- 好评：[2666 · @it_is_Randy](https://x.com/it_is_Randy/status/2094575436638412890) — CodexVPS修OpenClaw更新。
-- 好评：[2705 · @nirajkvinit](https://x.com/nirajkvinit/status/2100444303927689309) — Muse嵌套schema报错最终Codex修。
-- 好评：[2708 · @IceRunnerPengy](https://x.com/IceRunnerPengy/status/2101007567467983173) — 纸草图Codex建游戏第二代理质疑计划，AppStore已上。
-- 好评：[2745 · @worldno1goodboy](https://x.com/worldno1goodboy/status/2104629153551249489) — Codex修坏Linux桌面版本，自报无细节。
-- 好评：[2782 · @JCeacc](https://x.com/JCeacc/status/2106259500726681731) — Codex修26年游戏图像问题。
-- 好评：[2786 · @hqmank](https://x.com/hqmank/status/2106652718743904572) — CodexCUA定位fish演示配置跳信任提示导致Claudehooks不运行。
-- 好评：[2793 · @itsmeblueguy](https://x.com/itsmeblueguy/status/2107336839535477225) — Codex查两应用服务器竞争，抱怨客服只理大号属主观。
-- 差评：[2801 · @nickdiazofnauts](https://x.com/nickdiazofnauts/status/2107880293709316483) — Codex八小时擅扩游戏范围未完成仅4%额，想换但不愿学终端。
-- 差评：[2812 · @Spectromachina](https://x.com/Spectromachina/status/2108271703222886426) — Codex修UI跑题碰游戏菜单，语境不足不推现实伤害。
-- 好评：[2825 · @realill](https://x.com/realill/status/2108795921706418388) — Codex反汇编重建童年ZX游戏GitHub可玩。
-- 好评：[2833 · @alex_barashkov](https://x.com/alex_barashkov/status/2109213194564845718) — Codex做Finder扩展读取NikonRAW缩略图。
-- 好评：[2837 · @joshnuss](https://x.com/joshnuss/status/2109510163585466638) — 客服称无解LinuxBot连接Codex修本地Electron并反馈。
-- 好评：[2841 · @tobiasrott](https://x.com/tobiasrott/status/2109917543179682262) — Hermes选本地模型很慢Codex调查修复。
-- 好评：[2848 · @aguerrieri](https://x.com/aguerrieri/status/2110120952776511860) — Codex音频设备采样缓冲问题用频谱分析修。
-- 好评：[2849 · @Matty86x](https://x.com/Matty86x/status/2110149972767236575) — Claude游戏mod多轮Codex轻模型慢但一轮交付，反例。
-- 好评：[2851 · @magnus_ahlden](https://x.com/magnus_ahlden/status/2110335751175213259) — Codex十分钟两提示修30年Amiga汇编问题。
-- 好评：[2870 · @TokenGremlin](https://x.com/TokenGremlin/status/2110756756200587414) — Codex接TripoCLI一小时岛屿游戏。
-- 好评：[2889 · @billyozno](https://x.com/billyozno/status/2111295362585842099) — Codex查工资Bot日志工单账单获服务方确认，生产工作已恢复额外流量费未明。
-- 好评：[2906 · @satya164](https://x.com/satya164/status/2111876373346500798) — Codex修旧游戏mod可用性bug，无先验知识自述。
-- 好评：[2912 · @ToniRMCardoso](https://x.com/ToniRMCardoso/status/2112183321916756228) — Codex修Hermes错误Go地址并从备份恢复会话消息。
-- 好评：[2914 · @singularityhack](https://x.com/singularityhack/status/2112353757153694127) — Codex确诊GitHubDesktop链接网页bug写装扩展一分钟修。
-- 好评：[2918 · @prabhathpani](https://x.com/prabhathpani/status/2112467108689015176) — Codex修T3更新解密目录导致无项目，历史仍在，自报恢复。
-- 好评：[2919 · @afterhoursbilly](https://x.com/afterhoursbilly/status/2112468276307451994) — Codex装mod崩再修后实际游玩。
-- 好评：[2936 · @Shigeti_harvest](https://x.com/Shigeti_harvest/status/2112892067936702653) — 教师无代码ChatGPTCodex数月首iPhone游戏，女儿试玩。
-- 好评：[2983 · @iENDERi](https://x.com/iENDERi/status/2113433278825074945) — 资深开发者Codex等三周旧iPad游戏重制PC，试玩可用Steam次日计划。
-- 好评：[3005 · @BuildsByBen](https://x.com/BuildsByBen/status/2061046884546818305) — UnityClaude周未解Codex日内解但更爱ClaudeUI。
-- 好评：[3046 · @YogReport](https://x.com/YogReport/status/2071950064273035663) — 同作者同项目Codex装Docker依赖重启后续配好，3045续帖。
-- 差评：[3088 · @aollivier82](https://x.com/aollivier82/status/2082914880739303686) — Codex重制memeBlender编辑效果失望，细节缺。
-- 差评：[3091 · @xsx10987](https://x.com/xsx10987/status/2082992805379797428) — CodexBlenderMCP角色难看求提升。
-- 差评：[3092 · @Mogami56481698](https://x.com/Mogami56481698/status/2083051937528992103) — CodexBlender不达期望后付Tripo。
-- 差评：[3190 · @BroadsideCode](https://x.com/BroadsideCode/status/2105410085950513525) — 同Blender比较SolOpus失望，与3194同作者同天同事件。
-- 好评：[3196 · @martinowong](https://x.com/martinowong/status/2105422841692975398) — Codex按脚本经MCP剪FCP初剪，人后接手。
-- 差评：[3258 · @kevinbclarkk](https://x.com/kevinbclarkk/status/2113395025304485937) — CodexUE两月后Claude效果明显好，自述视频仍制作。
-- 好评：[3264 · @vladchai](https://x.com/vladchai/status/2113427258291671441) — 自做只读角色OAuth MCP读取发布数据标新鲜度与缺证，免五标签。
+- Positive: [70 · @_mauriciorubio](https://x.com/_mauriciorubio/status/2061233740949684700)
+- Positive: [74 · @bin_2211](https://x.com/bin_2211/status/2060148799239344131)
+- Positive: [75 · @borros](https://x.com/borros/status/2060091627838820831)
+- Negative: [79 · @FengzeCai](https://x.com/FengzeCai/status/2060049393647030315)
+- Negative: [80 · @Franklin5945](https://x.com/Franklin5945/status/2060507787382386939)
+- Positive: [83 · @JackyjingHong](https://x.com/JackyjingHong/status/2060043778128499198)
+- Positive: [101 · @mufasaYC](https://x.com/mufasaYC/status/2060044897449824497)
+- Positive: [103 · @nhciao](https://x.com/nhciao/status/2060027250716872789)
+- Negative: [120 · @ZacharyJia](https://x.com/ZacharyJia/status/2060138551728353308)
+- Positive: [300 · @Robertg761_](https://x.com/Robertg761_/status/2068476437934363077)
+- Negative: [304 · @thats_vanity](https://x.com/thats_vanity/status/2071704834198438045)
+- Positive: [482 · @CostaLaveron](https://x.com/CostaLaveron/status/2083247330275516904)
+- Positive: [488 · @dixiidev](https://x.com/dixiidev/status/2083317349869064535)
+- Negative: [511 · @UnrealHedgehog](https://x.com/UnrealHedgehog/status/2083289260346503444)
+- Positive: [743 · @ch2039](https://x.com/ch2039/status/2091068567513121263)
+- Positive: [748 · @eMeRiKa](https://x.com/eMeRiKa/status/2090573561400270961)
+- Positive: [761 · @mopowerdot](https://x.com/mopowerdot/status/2093091013732516081)
+- Positive: [764 · @ncfrontiersman](https://x.com/ncfrontiersman/status/2091224652311826846)
+- Positive: [768 · @RebaseMan](https://x.com/RebaseMan/status/2091234801588080686)
+- Negative: [769 · @Richardusany](https://x.com/Richardusany/status/2093100680907268482)
+- Positive: [1083 · @Aitch238](https://x.com/Aitch238/status/2101735442173288642)
+- Positive: [1093 · @JustServingHim](https://x.com/JustServingHim/status/2104715095062573349)
+- Positive: [1105 · @pratyushup](https://x.com/pratyushup/status/2101786174914494589)
+- Positive: [1291 · @ashleychs](https://x.com/ashleychs/status/2109430174538154127)
+- Positive: [1509 · @f_hanshaw](https://x.com/f_hanshaw/status/2053620660379828542)
+- Positive: [1608 · @AvinzanoFelipe](https://x.com/AvinzanoFelipe/status/2056884819280183786)
+- Negative: [1624 · @earthtojake](https://x.com/earthtojake/status/2059051398449279486)
+- Positive: [1673 · @habibj0n](https://x.com/habibj0n/status/2061879712020865418)
+- Negative: [1957 · @nnnnnnnaaaaa](https://x.com/nnnnnnnaaaaa/status/2077497354454741296)
+- Negative: [2031 · @chaogetalks](https://x.com/chaogetalks/status/2095662533747363990)
+- Positive: [2219 · @barrelshifter](https://x.com/barrelshifter/status/2099286846320820239)
+- Positive: [2309 · @euxhenjonex](https://x.com/euxhenjonex/status/2111960501391683938)
+- Positive: [2326 · @michaeldbertino](https://x.com/michaeldbertino/status/2106895980931203214)
+- Positive: [2463 · @tapmingame](https://x.com/tapmingame/status/2069521022915616964)
+- Positive: [2471 · @_Hey_Stu](https://x.com/_Hey_Stu/status/2070125414253531289)
+- Positive: [2473 · @gear_web](https://x.com/gear_web/status/2070883995038974255)
+- Negative: [2479 · @CarlosBBuild](https://x.com/CarlosBBuild/status/2071399088436937090)
+- Positive: [2558 · @alphacolin](https://x.com/alphacolin/status/2082573610619707849)
+- Positive: [2563 · @ValakX18](https://x.com/ValakX18/status/2082724169175957608)
+- Positive: [2606 · @zaidabouqamar](https://x.com/zaidabouqamar/status/2088311778220372039)
+- Negative: [2633 · @Martin5555](https://x.com/Martin5555/status/2092329332978970626)
+- Positive: [2647 · @heyroberte](https://x.com/heyroberte/status/2093819180122349985)
+- Positive: [2651 · @AviRecord](https://x.com/AviRecord/status/2094270212157604057)
+- Positive: [2654 · @jondkinney](https://x.com/jondkinney/status/2094301338871959842)
+- Positive: [2657 · @jumperz](https://x.com/jumperz/status/2094408949990556077)
+- Positive: [2662 · @Marqoh66](https://x.com/Marqoh66/status/2094521155474600213)
+- Positive: [2666 · @it_is_Randy](https://x.com/it_is_Randy/status/2094575436638412890)
+- Positive: [2705 · @nirajkvinit](https://x.com/nirajkvinit/status/2100444303927689309)
+- Positive: [2708 · @IceRunnerPengy](https://x.com/IceRunnerPengy/status/2101007567467983173)
+- Positive: [2745 · @worldno1goodboy](https://x.com/worldno1goodboy/status/2104629153551249489)
+- Positive: [2782 · @JCeacc](https://x.com/JCeacc/status/2106259500726681731)
+- Positive: [2786 · @hqmank](https://x.com/hqmank/status/2106652718743904572)
+- Positive: [2793 · @itsmeblueguy](https://x.com/itsmeblueguy/status/2107336839535477225)
+- Negative: [2801 · @nickdiazofnauts](https://x.com/nickdiazofnauts/status/2107880293709316483)
+- Negative: [2812 · @Spectromachina](https://x.com/Spectromachina/status/2108271703222886426)
+- Positive: [2825 · @realill](https://x.com/realill/status/2108795921706418388)
+- Positive: [2833 · @alex_barashkov](https://x.com/alex_barashkov/status/2109213194564845718)
+- Positive: [2837 · @joshnuss](https://x.com/joshnuss/status/2109510163585466638)
+- Positive: [2841 · @tobiasrott](https://x.com/tobiasrott/status/2109917543179682262)
+- Positive: [2848 · @aguerrieri](https://x.com/aguerrieri/status/2110120952776511860)
+- Positive: [2849 · @Matty86x](https://x.com/Matty86x/status/2110149972767236575)
+- Positive: [2851 · @magnus_ahlden](https://x.com/magnus_ahlden/status/2110335751175213259)
+- Positive: [2870 · @TokenGremlin](https://x.com/TokenGremlin/status/2110756756200587414)
+- Positive: [2889 · @billyozno](https://x.com/billyozno/status/2111295362585842099)
+- Positive: [2906 · @satya164](https://x.com/satya164/status/2111876373346500798)
+- Positive: [2912 · @ToniRMCardoso](https://x.com/ToniRMCardoso/status/2112183321916756228)
+- Positive: [2914 · @singularityhack](https://x.com/singularityhack/status/2112353757153694127)
+- Positive: [2918 · @prabhathpani](https://x.com/prabhathpani/status/2112467108689015176)
+- Positive: [2919 · @afterhoursbilly](https://x.com/afterhoursbilly/status/2112468276307451994)
+- Positive: [2936 · @Shigeti_harvest](https://x.com/Shigeti_harvest/status/2112892067936702653)
+- Positive: [2983 · @iENDERi](https://x.com/iENDERi/status/2113433278825074945)
+- Positive: [3005 · @BuildsByBen](https://x.com/BuildsByBen/status/2061046884546818305)
+- Positive: [3046 · @YogReport](https://x.com/YogReport/status/2071950064273035663)
+- Negative: [3088 · @aollivier82](https://x.com/aollivier82/status/2082914880739303686)
+- Negative: [3091 · @xsx10987](https://x.com/xsx10987/status/2082992805379797428)
+- Negative: [3092 · @Mogami56481698](https://x.com/Mogami56481698/status/2083051937528992103)
+- Negative: [3190 · @BroadsideCode](https://x.com/BroadsideCode/status/2105410085950513525)
+- Positive: [3196 · @martinowong](https://x.com/martinowong/status/2105422841692975398)
+- Negative: [3258 · @kevinbclarkk](https://x.com/kevinbclarkk/status/2113395025304485937)
+- Positive: [3264 · @vladchai](https://x.com/vladchai/status/2113427258291671441)
 
 ## Cursor
 
-- 好评：[121 · @00Bohr](https://x.com/00Bohr/status/2060132261651996957) — Antigravity不可用改Cursor，Gemini给prompt，一次建日食站自述
-- 好评：[129 · @israelwegierski](https://x.com/israelwegierski/status/2060145857211646187) — Cursor+Supabase/VercelMCP优化仪表盘到近1秒，自述极端推论不用
-- 好评：[131 · @Khalidabd3laty](https://x.com/Khalidabd3laty/status/2060102344247775522) — Cursor读参考视频逐帧复刻，三分钟首版仍待打磨；父帖Codex属他人
-- 差评：[312 · @AnuranthAk](https://x.com/AnuranthAk/status/2071980013596119144) — 只修小段却重做布局色组件，需撤回改动；幽默自述不统计时间
-- 好评：[317 · @DaraMiaoX](https://x.com/DaraMiaoX/status/2069816572777038093) — 首版手控粒子后主动加辉光物理，不是bug导致返工
-- 好评：[522 · @brooksy4503](https://x.com/brooksy4503/status/2082413863115571506) — Cursor调用ego浏览器看生产UIbug修推，独立验证未做
-- 好评：[523 · @Covey_designs_](https://x.com/Covey_designs_/status/2081641286969254289) — 作品集买域名部署，自述低摩擦泛推不采用
-- 好评：[530 · @heydfung](https://x.com/heydfung/status/2081843379453751420) — 每年会议议程重做，本次Cursor8倍快自述有过滤时区
-- 好评：[788 · @bryanbeomseokoh](https://x.com/bryanbeomseokoh/status/2092994256902512664) — 复古Mac终端作品集Cursor+Claude，视频未读
-- 好评：[796 · @designbyandy](https://x.com/designbyandy/status/2092485194012086590) — Cursor代码Quiver卡图做开卡体验，两小时自述
-- 好评：[797 · @devpinkisingh](https://x.com/devpinkisingh/status/2090836584002461888) — Flutter底导航组件，他人DartNative愿望不计完成
-- 好评：[807 · @HollyT_13](https://x.com/HollyT_13/status/2093023235000455493) — 鼠标火焰灯笼SVG两小时，Quiver资产Cursor实现
-- 好评：[810 · @iamjeevanvj](https://x.com/iamjeevanvj/status/2094561111031070859) — Cursor解生产WasmC#被框架吞错，未提供具体解法
-- 好评：[816 · @kellyhe4rd](https://x.com/kellyhe4rd/status/2093034648557203537) — 工作室手机云Cursor修回归推生产数分钟自述
-- 好评：[817 · @kentcdodds](https://x.com/kentcdodds/status/2092696544810344735) — 长期云会话接小UX修自动合并部署，未给监督细节
-- 好评：[821 · @Mahad_Builds](https://x.com/Mahad_Builds/status/2092840568925864288) — 前端两天而手做两周为反事实自述
-- 好评：[826 · @nikita150819](https://x.com/nikita150819/status/2093744865070993534) — 游戏上线招反馈，玩法未写不补
-- 好评：[827 · @NotoriousLisp](https://x.com/NotoriousLisp/status/2094534650827874774) — 健身社区目录目标平台三小时Railway部署
-- 好评：[828 · @premiumtantan](https://x.com/premiumtantan/status/2092478604211110143) — 歌词互动网站Cursor拼Quiver图，同活动不同作品
-- 好评：[835 · @serraotweets](https://x.com/serraotweets/status/2093074770279428154) — 两agent论spec人一小时细化30m开发6美元，部署端点测试好仍粗糙
-- 好评：[836 · @shivek](https://x.com/shivek/status/2094079507787653457) — Bot收任务Cursor云构建部署完成邮件，自述全链
-- 差评：[838 · @simply_niels](https://x.com/simply_niels/status/2094539535656919203) — Cursor选错代码破UI，Codex回滚接手完成
-- 好评：[845 · @swunicorn](https://x.com/swunicorn/status/2092650238737891441) — Arrow资产Cursor金门桥ASCII体积雾控制，活动作品
-- 好评：[846 · @TheCyberverse](https://x.com/TheCyberverse/status/2093059035398381723) — 云agent做两知识图解站托管，内容准确未核
-- 好评：[848 · @theshajha](https://x.com/theshajha/status/2090388980747669718) — Opus多轮UI未修CursorGrok看diff修好，称正在退Max非确认完成
-- 好评：[851 · @unclebigbay143](https://x.com/unclebigbay143/status/2092619468987830562) — 百万格子售卖12h托管支付，百万是容量非用户营收
-- 好评：[854 · @vitverb](https://x.com/vitverb/status/2090202422232678892) — 干净文字ticket修错，录屏看路径状态后修对
-- 好评：[855 · @WalhimerArt](https://x.com/WalhimerArt/status/2092825592609591478) — ThreeJS生成花60s4K等规格自述
-- 好评：[1110 · @aferrari](https://x.com/aferrari/status/2105070398815588784) — Cursor周末LLM战斗游戏v1。
-- 好评：[1112 · @DesignByMoein](https://x.com/DesignByMoein/status/2103203695274135884) — 页脚CursorOpus加自有视频工具，同作者不同设计不另增用户。
-- 好评：[1113 · @DesignByMoein](https://x.com/DesignByMoein/status/2104294455268577409) — 交互404页面与视频工具，其他页不另计。
-- 好评：[1116 · @eelcodotdev](https://x.com/eelcodotdev/status/2102762774627492084) — Claude计划文案CursorGrok开发部署ChatGPTlogo，上午产物自述，获客更难判断。
-- 好评：[1119 · @hellonehha](https://x.com/hellonehha/status/2104639026170876097) — 先Expo第二提示改Swift，30分能跑，TestFlight还未测。
-- 好评：[1132 · @thezaidarif](https://x.com/thezaidarif/status/2103530159462838582) — Kali蓝牙驱动cursor-agent顺利修自述。
-- 好评：[1457 · @steve_ike_](https://x.com/steve_ike_/status/2051082801940955304) — CursorSDK静态站编辑应用由ComposerFast造，体感速度质量好有差距。
-- 好评：[1611 · @maybe_im_sam](https://x.com/maybe_im_sam/status/2058296229566844966) — 三周游戏CursorComposer，父帖作品征集。
-- 好评：[1613 · @king_marquant](https://x.com/king_marquant/status/2058268974341620055) — Mockupreel设备框演示工具GeminiComposer。
-- 好评：[2410 · @DaytonDoes](https://x.com/DaytonDoes/status/2054664626294698042) — CursorElevenLabs度假村语音订房实际网站上线，活动标签。
-- 好评：[2418 · @jr_olweb](https://x.com/jr_olweb/status/2057536476691263504) — Cursor网站简洁美观自评。
-- 好评：[2429 · @HuseynHajiyev3](https://x.com/HuseynHajiyev3/status/2059450109604295158) — CursorComposer两分钟修布局线上发布，自报。
-- 好评：[2445 · @AIRenamer](https://x.com/AIRenamer/status/2063897776384352279) — 自建CursorMCP接图像API直接生成下载作品集资产。
-- 差评：[2446 · @JKarena7](https://x.com/JKarena7/status/2064406099084624073) — Composer多轮修好但改太多，人要求删95%改动。
-- 好评：[2450 · @RyanLoechner](https://x.com/RyanLoechner/status/2064901972457648450) — CursorFable单提示24分十关游戏自评好玩已部署。
-- 好评：[2476 · @itsjustmatrix](https://x.com/itsjustmatrix/status/2071238521797619911) — CursorComposer加他人组件重做网站。
-- 好评：[2485 · @alkadaemon](https://x.com/alkadaemon/status/2071634961644327206) — CursorComposerPaper三天站与RN应用，样式满意。
-- 好评：[2495 · @weswinder](https://x.com/weswinder/status/2072020387043360796) — CursorDebugComposer修Codex多轮未解，成本速度自述。
-- 好评：[2509 · @RealFrankyDog](https://x.com/RealFrankyDog/status/2074892414725079274) — Fable五次失败Cursor快修，优先用户计算推测无证。
-- 好评：[2511 · @NickADobos](https://x.com/NickADobos/status/2075026142952816963) — Composer修GPTFable失败两bug且更快自报。
-- 好评：[2512 · @S_Jay06](https://x.com/S_Jay06/status/2075333361024041138) — CursorGrok作品集速度与额度满意，继续更新。
-- 好评：[2513 · @MarioB0503](https://x.com/MarioB0503/status/2075457913020207303) — 回CursorGrok半小时找修十问题，对比Fable启动慢。
-- 好评：[2518 · @brooksy4503](https://x.com/brooksy4503/status/2076210947694440956) — 失败三次后CursorDebug修好。
-- 好评：[2530 · @llatserbuilds](https://x.com/llatserbuilds/status/2078135032733192498) — Fable耗时钱不解，转CursorGrokDebug五分修。
-- 差评：[2552 · @LLMpsycho](https://x.com/LLMpsycho/status/2082346378483634628) — Cursor修当前bug却重写三已暂存文件，成功有附带改动。
-- 好评：[2584 · @Warren42012](https://x.com/Warren42012/status/2083921264524001422) — AGY卡住CursorGrok委派Sonnet修，同提示不同组合。
-- 好评：[2597 · @chongdashu](https://x.com/chongdashu/status/2087105985324384562) — CursorGrokUnity循环改善画面，Imagine精灵Eleven音。
-- 好评：[2602 · @simontiu](https://x.com/simontiu/status/2088114011086987360) — Cursor活动一小时多人Bomberman个人站，征集偏差。
-- 好评：[2609 · @ojoanalogo](https://x.com/ojoanalogo/status/2088406060667191633) — CursorGrokComposer个人站内图库浏览器。
-- 好评：[2632 · @elayadesigns](https://x.com/elayadesigns/status/2092276621382488467) — KlingCursorComposer落地页自评像素级。
-- 好评：[2683 · @nandanpri](https://x.com/nandanpri/status/2097100811889250652) — Cursor指明行照抄未修，仅失败测试重新跑第二次解。
-- 差评：[2691 · @nandanpri](https://x.com/nandanpri/status/2098657186721206669) — Cursor改错文件后自记提示工具路径退出码检查PR。
-- 好评：[2695 · @elayadesigns](https://x.com/elayadesigns/status/2099418460342390834) — HiggsfieldCursor加自定义设计技能做落地页。
-- 好评：[2755 · @KeplerXG](https://x.com/KeplerXG/status/2105015536711090262) — Cursor个人站Namecheap托管。
-- 好评：[2790 · @altonpeques](https://x.com/altonpeques/status/2106916451965919567) — Muse浏览器测错调Cursor写PR，人审合并部署。
-- 好评：[2805 · @fidelisbuilds](https://x.com/fidelisbuilds/status/2108050352016605666) — 起飞前Bot团队派Cursor修bug落地已合并验证自报。
-- 差评：[2826 · @ZidaneZ08902030](https://x.com/ZidaneZ08902030/status/2108800784116715822) — Cursor认证中间件包装旧版却删旧版丢限流，测试失败。
-- 差评：[2864 · @AKirtesh](https://x.com/AKirtesh/status/2110577837103296853) — Cursor导航对齐仍错却重写认证context。
-- 好评：[2871 · @mohamedbakuly](https://x.com/mohamedbakuly/status/2110787710176682181) — Cursor品牌站强调设置重要但此帖未具体展开。
-- 好评：[2945 · @acavbeats](https://x.com/acavbeats/status/2112965279634661788) — CursorSSH换镜像补PHP重启worker修好。
-- 好评：[2961 · @shishucodes](https://x.com/shishucodes/status/2113213501904949455) — 旅行无电脑Bot派Cursor云修公司急bug。
+- Positive: [121 · @00Bohr](https://x.com/00Bohr/status/2060132261651996957)
+- Positive: [129 · @israelwegierski](https://x.com/israelwegierski/status/2060145857211646187)
+- Positive: [131 · @Khalidabd3laty](https://x.com/Khalidabd3laty/status/2060102344247775522)
+- Negative: [312 · @AnuranthAk](https://x.com/AnuranthAk/status/2071980013596119144)
+- Positive: [317 · @DaraMiaoX](https://x.com/DaraMiaoX/status/2069816572777038093)
+- Positive: [522 · @brooksy4503](https://x.com/brooksy4503/status/2082413863115571506)
+- Positive: [523 · @Covey_designs_](https://x.com/Covey_designs_/status/2081641286969254289)
+- Positive: [530 · @heydfung](https://x.com/heydfung/status/2081843379453751420)
+- Positive: [788 · @bryanbeomseokoh](https://x.com/bryanbeomseokoh/status/2092994256902512664)
+- Positive: [796 · @designbyandy](https://x.com/designbyandy/status/2092485194012086590)
+- Positive: [797 · @devpinkisingh](https://x.com/devpinkisingh/status/2090836584002461888)
+- Positive: [807 · @HollyT_13](https://x.com/HollyT_13/status/2093023235000455493)
+- Positive: [810 · @iamjeevanvj](https://x.com/iamjeevanvj/status/2094561111031070859)
+- Positive: [816 · @kellyhe4rd](https://x.com/kellyhe4rd/status/2093034648557203537)
+- Positive: [817 · @kentcdodds](https://x.com/kentcdodds/status/2092696544810344735)
+- Positive: [821 · @Mahad_Builds](https://x.com/Mahad_Builds/status/2092840568925864288)
+- Positive: [826 · @nikita150819](https://x.com/nikita150819/status/2093744865070993534)
+- Positive: [827 · @NotoriousLisp](https://x.com/NotoriousLisp/status/2094534650827874774)
+- Positive: [828 · @premiumtantan](https://x.com/premiumtantan/status/2092478604211110143)
+- Positive: [835 · @serraotweets](https://x.com/serraotweets/status/2093074770279428154)
+- Positive: [836 · @shivek](https://x.com/shivek/status/2094079507787653457)
+- Negative: [838 · @simply_niels](https://x.com/simply_niels/status/2094539535656919203)
+- Positive: [845 · @swunicorn](https://x.com/swunicorn/status/2092650238737891441)
+- Positive: [846 · @TheCyberverse](https://x.com/TheCyberverse/status/2093059035398381723)
+- Positive: [848 · @theshajha](https://x.com/theshajha/status/2090388980747669718)
+- Positive: [851 · @unclebigbay143](https://x.com/unclebigbay143/status/2092619468987830562)
+- Positive: [854 · @vitverb](https://x.com/vitverb/status/2090202422232678892)
+- Positive: [855 · @WalhimerArt](https://x.com/WalhimerArt/status/2092825592609591478)
+- Positive: [1110 · @aferrari](https://x.com/aferrari/status/2105070398815588784)
+- Positive: [1112 · @DesignByMoein](https://x.com/DesignByMoein/status/2103203695274135884)
+- Positive: [1113 · @DesignByMoein](https://x.com/DesignByMoein/status/2104294455268577409)
+- Positive: [1116 · @eelcodotdev](https://x.com/eelcodotdev/status/2102762774627492084)
+- Positive: [1119 · @hellonehha](https://x.com/hellonehha/status/2104639026170876097)
+- Positive: [1132 · @thezaidarif](https://x.com/thezaidarif/status/2103530159462838582)
+- Positive: [1457 · @steve_ike_](https://x.com/steve_ike_/status/2051082801940955304)
+- Positive: [1611 · @maybe_im_sam](https://x.com/maybe_im_sam/status/2058296229566844966)
+- Positive: [1613 · @king_marquant](https://x.com/king_marquant/status/2058268974341620055)
+- Positive: [2410 · @DaytonDoes](https://x.com/DaytonDoes/status/2054664626294698042)
+- Positive: [2418 · @jr_olweb](https://x.com/jr_olweb/status/2057536476691263504)
+- Positive: [2429 · @HuseynHajiyev3](https://x.com/HuseynHajiyev3/status/2059450109604295158)
+- Positive: [2445 · @AIRenamer](https://x.com/AIRenamer/status/2063897776384352279)
+- Negative: [2446 · @JKarena7](https://x.com/JKarena7/status/2064406099084624073)
+- Positive: [2450 · @RyanLoechner](https://x.com/RyanLoechner/status/2064901972457648450)
+- Positive: [2476 · @itsjustmatrix](https://x.com/itsjustmatrix/status/2071238521797619911)
+- Positive: [2485 · @alkadaemon](https://x.com/alkadaemon/status/2071634961644327206)
+- Positive: [2495 · @weswinder](https://x.com/weswinder/status/2072020387043360796)
+- Positive: [2509 · @RealFrankyDog](https://x.com/RealFrankyDog/status/2074892414725079274)
+- Positive: [2511 · @NickADobos](https://x.com/NickADobos/status/2075026142952816963)
+- Positive: [2512 · @S_Jay06](https://x.com/S_Jay06/status/2075333361024041138)
+- Positive: [2513 · @MarioB0503](https://x.com/MarioB0503/status/2075457913020207303)
+- Positive: [2518 · @brooksy4503](https://x.com/brooksy4503/status/2076210947694440956)
+- Positive: [2530 · @llatserbuilds](https://x.com/llatserbuilds/status/2078135032733192498)
+- Negative: [2552 · @LLMpsycho](https://x.com/LLMpsycho/status/2082346378483634628)
+- Positive: [2584 · @Warren42012](https://x.com/Warren42012/status/2083921264524001422)
+- Positive: [2597 · @chongdashu](https://x.com/chongdashu/status/2087105985324384562)
+- Positive: [2602 · @simontiu](https://x.com/simontiu/status/2088114011086987360)
+- Positive: [2609 · @ojoanalogo](https://x.com/ojoanalogo/status/2088406060667191633)
+- Positive: [2632 · @elayadesigns](https://x.com/elayadesigns/status/2092276621382488467)
+- Positive: [2683 · @nandanpri](https://x.com/nandanpri/status/2097100811889250652)
+- Negative: [2691 · @nandanpri](https://x.com/nandanpri/status/2098657186721206669)
+- Positive: [2695 · @elayadesigns](https://x.com/elayadesigns/status/2099418460342390834)
+- Positive: [2755 · @KeplerXG](https://x.com/KeplerXG/status/2105015536711090262)
+- Positive: [2790 · @altonpeques](https://x.com/altonpeques/status/2106916451965919567)
+- Positive: [2805 · @fidelisbuilds](https://x.com/fidelisbuilds/status/2108050352016605666)
+- Negative: [2826 · @ZidaneZ08902030](https://x.com/ZidaneZ08902030/status/2108800784116715822)
+- Negative: [2864 · @AKirtesh](https://x.com/AKirtesh/status/2110577837103296853)
+- Positive: [2871 · @mohamedbakuly](https://x.com/mohamedbakuly/status/2110787710176682181)
+- Positive: [2945 · @acavbeats](https://x.com/acavbeats/status/2112965279634661788)
+- Positive: [2961 · @shishucodes](https://x.com/shishucodes/status/2113213501904949455)
 
 ## Antigravity
 
-- 好评：[5 · @daviid_praise01](https://x.com/daviid_praise01/status/2060085648606781839) — 完成个人作品集站点；无具体痛点或过程
-- 好评：[24 · @probiex007](https://x.com/probiex007/status/2060447935633207800) — 参考文档从零建两个网站，回复说明工具；无比较结果
-- 好评：[202 · @amososaze](https://x.com/amososaze/status/2067746381649805329) — 分账app落地页初试满意
-- 好评：[205 · @AsterismVaibhav](https://x.com/AsterismVaibhav/status/2066266697401774090) — CLI一提示太阳系模拟，往Gemini塞Claude系统提示，自述非性能验证
-- 好评：[213 · @johannesasgeir](https://x.com/johannesasgeir/status/2071689276186861595) — Antigravity写代码Flow做动画，滚动昼夜场景
-- 好评：[227 · @RyanMillerTX](https://x.com/RyanMillerTX/status/2068469181453111570) — Python导入工具转Windows原生更快外观更好自述
-- 好评：[229 · @Singh_geetesh48](https://x.com/Singh_geetesh48/status/2071288919455563978) — 实习生AI建修NGO多页站演示
-- 差评：[234 · @whatIfAndMe](https://x.com/whatIfAndMe/status/2070408842190651641) — 仿leetcode平台代码提交一直修不好，核心功能未解决
-- 好评：[410 · @baldwinbuilds](https://x.com/baldwinbuilds/status/2082906169127915546) — 同作者会议成本每周邮件，测试排程自述已运行；与409同项目不同阶段注意聚簇
-- 差评：[413 · @editxshub](https://x.com/editxshub/status/2079943754828669169) — C++Gemini多轮失败Sonnet一次好，与X-TF0128疑复制簇待全库去重
-- 好评：[415 · @iml1s](https://x.com/iml1s/status/2082509503237632472) — RustGameBoy模拟器列实现与13ROM测试自述，非万能模拟器
-- 好评：[417 · @JoelOwolab9252](https://x.com/JoelOwolab9252/status/2081043383590531511) — FigmaMake到AG作品集v2上线，列效果非实测
-- 好评：[421 · @Marie_Haynes](https://x.com/Marie_Haynes/status/2082918190930145752) — OKF知识机器人部署少人测试，安全只是希望非验证
-- 差评：[424 · @meathill1](https://x.com/meathill1/status/2082799876212150273) — Gemini后台复刻Codex测16bug，补测试没覆盖一次修3；未完
-- 好评：[425 · @niainoz](https://x.com/niainoz/status/2082475776235221131) — 非技术者匿名建议站Firebase部署
-- 差评：[426 · @pdavisjones](https://x.com/pdavisjones/status/2079621547166245134) — teamwork删除在写代码并部署，权限细节未知
-- 好评：[428 · @PhilStewart](https://x.com/PhilStewart/status/2083322825402728828) — 和八岁儿童半小时数学游戏，孩子喜欢非学习效果证据
-- 差评：[439 · @VfxVenom](https://x.com/VfxVenom/status/2081613965323616304) — YOLO检测pipeline不核实就说修好，过度自信难引导
-- 好评：[621 · @arpitneewaliya](https://x.com/arpitneewaliya/status/2089039340597059956) — 专注app落地页作者回复明确AG，非功能成效
-- 差评：[624 · @avi_natani](https://x.com/avi_natani/status/2092869136393367779) — 说完成后台仍跑同脚本致构建错浪费10min，求实时状态强停
-- 好评：[646 · @latitude36ai](https://x.com/latitude36ai/status/2088978763296227537) — ThreeJS精灵平台游戏致敬线条，视频未读
-- 差评：[652 · @ming_asa7](https://x.com/ming_asa7/status/2093002033871876397) — Codex尽额详handoff交AG仍推错分支三次才绿，成功但成本高
-- 好评：[653 · @mobiledev_pro](https://x.com/mobiledev_pro/status/2089335693789069800) — 少现代web背景作品集快，缺admin；用户10年背景非零开发
-- 好评：[659 · @ozi_bekee](https://x.com/ozi_bekee/status/2092661837770731531) — Pinterest情绪板AGhero次日动画拖拽，Grok图片非Build，合一经历
-- 好评：[666 · @S__Sripathi](https://x.com/S__Sripathi/status/2090599775397646682) — 三提示定制日历视图原型Render部署
-- 好评：[667 · @Sanjayng125](https://x.com/Sanjayng125/status/2089273839033389255) — 首次AI网站给想法域名agent加功能，无逐项验收
-- 好评：[669 · @smithstephen](https://x.com/smithstephen/status/2089419612853264456) — 同一提示四模型不同harness百足游戏，AG/Opus好Kimi冻结Codex操作差，变量混合不能归单harness
-- 好评：[671 · @solsona](https://x.com/solsona/status/2089141482473070805) — 阅读观看捕获Anthology，架构浏览器测试CloudRun部署自述
-- 好评：[672 · @squwuash](https://x.com/squwuash/status/2091416960936693903) — 纪念兔子游戏有bug仍未婚妻喜欢，额度尽延期修；非满意等无bug
-- 好评：[673 · @sreenandhanpp](https://x.com/sreenandhanpp/status/2092918566693871656) — ChatGPTpromptAG前端费用UI，后端未做
-- 好评：[678 · @tyr0new](https://x.com/tyr0new/status/2093097654020686069) — AGOpus规划Gemini执行数据平台部署，认可速度少废话
-- 差评：[682 · @viro_waqas](https://x.com/viro_waqas/status/2089367970892116451) — 项目增大重复bug成本跨模型持续，尝试SpecsLoops大功能好但小UI修过重
-- 好评：[683 · @WichtelArt](https://x.com/WichtelArt/status/2090015336368124274) — 本地Flux图Gemini视频AG代码滚动粘土站
-- 好评：[684 · @Wizdroidd](https://x.com/Wizdroidd/status/2091815447230382184) — AG改善既有UI满意但手机文本不齐，2倍主观
-- 好评：[686 · @Zenitsu_T7](https://x.com/Zenitsu_T7/status/2091159525822988362) — AG19min习惯tracker，另端4h未成身份未知不能归OpenCode
-- 好评：[1030 · @chinmaybhattt](https://x.com/chinmaybhattt/status/2105334794691510528) — Antigravity Blender MCP技能一起做3D产品站，视频未核。
-- 好评：[1031 · @ckbrox13](https://x.com/ckbrox13/status/2104931630981001448) — 家庭日程邮件代理加TTS因五岁孩子不能读，SDK使用自述。
-- 好评：[1032 · @KingsEdeh20117](https://x.com/KingsEdeh20117/status/2104925064621871565) — ChatGPT与Antigravity做参考仪表盘再改手机布局。
-- 好评：[1034 · @Niratama](https://x.com/Niratama/status/2104993942194590171) — Gemini Antigravity网页地图工具，页面未核。
-- 好评：[1240 · @divitsood](https://x.com/divitsood/status/2107504803220017227) — Figma设计Antigravity记账App，咖啡录入8到4步自述。
-- 好评：[1241 · @enxgm](https://x.com/enxgm/status/2108281927790907530) — 为母校站点制作，无失败返工。
-- 好评：[1244 · @J5jayfive](https://x.com/J5jayfive/status/2108548670211670265) — 投资框架转首看板反复用改，验证数据公开版未来，不证投资效果。
-- 好评：[1256 · @yoshiyukinakai](https://x.com/yoshiyukinakai/status/2107138966730535066) — 人群模拟自己写堵塞Flash修加viewer仍多周额，切Opus为未来。
-- 差评：[1474 · @otownrose](https://x.com/otownrose/status/2052485950442508785) — 同服务器删其他应用数据库坏认证又空转耗尽自述。
-- 好评：[1496 · @hatty_hats](https://x.com/hatty_hats/status/2053572928747262262) — SpendWise已加账号跨地追账，Stripe未来。
-- 好评：[1578 · @kaziHasin12](https://x.com/kaziHasin12/status/2050641770195915015) — LovableUI LaravelAntigravity房地产平台，架构质量宣传未测。
-- 好评：[1901 · @ayodsgn](https://x.com/ayodsgn/status/2073539618654298249) — Figma设计AntigravityCodex开发作品集。
-- 好评：[1939 · @VedantWete07](https://x.com/VedantWete07/status/2076092688013861155) — ClaudeAntigravity客户滚动网站自述。
-- 好评：[1964 · @johannesasgeir](https://x.com/johannesasgeir/status/2078221114354909289) — Flow虚构网站视频转Antigravity代码布局好动画微交互须手调。
-- 好评：[2283 · @xuebinwei](https://x.com/xuebinwei/status/2106873784401875448) — 父子AGY改嵌入式游戏Codex审后合PR。
-- 差评：[2477 · @PerttiSoomann](https://x.com/PerttiSoomann/status/2071271733428887662) — AGY不懂竞态耗两模型周额，未报解决。
-- 好评：[2478 · @doPHPdev](https://x.com/doPHPdev/status/2071380616424333564) — AGY配PHP建宣传站上线，性能与生产就绪自称。
-- 好评：[2481 · @enya_orc](https://x.com/enya_orc/status/2071538542359281992) — AGY Unity游戏加冰冻技能，平衡以后。
-- 好评：[2483 · @MATKA_r](https://x.com/MATKA_r/status/2071604349017407687) — ClaudeAGYGLM游戏可驾驶但地图与功能仍补。
-- 好评：[2484 · @eslaveagency](https://x.com/eslaveagency/status/2071612737004753351) — AGY首个3D动画网站。
-- 好评：[2488 · @ruxaenexe](https://x.com/ruxaenexe/status/2071737547529867356) — ChatGPT计划AGYOpus实现作品集仍精修。
-- 好评：[2493 · @johannesasgeir](https://x.com/johannesasgeir/status/2071901636419633558) — AGYFlow按已存图片与明确鼠标效果提示做网页样稿。
-- 差评：[2503 · @steddipace](https://x.com/steddipace/status/2073256872275022043) — AGYClaude改测试迎合错误源代码隐瞒，文件注释仍制止无效。
-- 好评：[2505 · @SumitDixit00007](https://x.com/SumitDixit00007/status/2073398555214229866) — AGY作品集。
-- 好评：[2516 · @bgiriaicloud](https://x.com/bgiriaicloud/status/2075887310114337107) — AGY免费作品集。
-- 好评：[2521 · @johannesasgeir](https://x.com/johannesasgeir/status/2076363513803784208) — AGY多提示网页样稿1%额度，明确万元与单提示为玩笑。
-- 差评：[2523 · @subir](https://x.com/subir/status/2076744067644592534) — AGY未诊403500，ChatGPT一分钟修，自报。
-- 差评：[2536 · @realrealcat](https://x.com/realrealcat/status/2079805905898725769) — AGYFlash多轮C++bug转Sonnet一轮，与X08911近复制待去重。
-- 好评：[2537 · @Jamjeet876](https://x.com/Jamjeet876/status/2079957857043197965) — AGY广告站95%余功能因拖延未做，非工具终态失败。
-- 差评：[2538 · @AynesGuiher](https://x.com/AynesGuiher/status/2080329490559885574) — AGY修ComfyUI启动误清D盘自报严重事故。
-- 好评：[2540 · @adityawalks](https://x.com/adityawalks/status/2080598409719984191) — AGY作品集待上传视频。
-- 差评：[2541 · @_rationalist___](https://x.com/_rationalist___/status/2080624593585459617) — AGY三小时毁扩展代码，AmazonQ解决。
-- 好评：[2549 · @justabdulraouf](https://x.com/justabdulraouf/status/2082175968433619396) — 商科无代码AGY两小时通过GitCloudflare上线作品集。
-- 差评：[2550 · @jjalive924](https://x.com/jjalive924/status/2082219832817385545) — AGY反复错从未一轮修，不等最终任务全失败。
-- 好评：[2562 · @Dprajapati0205](https://x.com/Dprajapati0205/status/2082687906682970217) — StitchClaudeAGY等免费全栈作品集，SEO承诺未核。
-- 好评：[2585 · @ozi_bekee](https://x.com/ozi_bekee/status/2083983909553832095) — AGY做UX作品集并招客户，转化未证。
-- 好评：[2589 · @Marie_Haynes](https://x.com/Marie_Haynes/status/2084989157781258649) — 旧ChatGPT站AGY加功能，收入少，外链无新增。
-- 差评：[2591 · @thumay9700](https://x.com/thumay9700/status/2085485817670103302) — 工具doctor说健康仍坏，AGYKimi均未修，终态未解决。
-- 好评：[2605 · @JamesNumb3rs](https://x.com/JamesNumb3rs/status/2088292509113790624) — AGY新Flash修旧模型足球卡片多位置问题。
-- 好评：[2626 · @ButtholeGPT](https://x.com/ButtholeGPT/status/2091033038905839749) — AGY新Flash重写GodotUI，Claude耗额未成，改观自报。
-- 好评：[2630 · @davidraigozaj](https://x.com/davidraigozaj/status/2091907279918358944) — BlenderThreeJSAGY交互3D鞋概念站，非实鞋交付。
-- 好评：[2674 · @prnv_msra](https://x.com/prnv_msra/status/2095542195323642367) — AGY作品集人微调仍需学Git提交。
-- 好评：[2685 · @drashyakuruwa](https://x.com/drashyakuruwa/status/2097763844194173096) — AGYFlash虚构导演作品集展示。
-- 好评：[2689 · @Dimentorio](https://x.com/Dimentorio/status/2098372858581860834) — AGY参考图加外部生成资产，3D跟随需人工修，最终全站动画。
-- 好评：[2711 · @Rohit_115](https://x.com/Rohit_115/status/2101628312644997434) — AGYRemotion技能Nano图旅游订房动效站，未有实际预订。
-- 好评：[2739 · @c_nemri](https://x.com/c_nemri/status/2104472843815735362) — AGYBlenderThreeJS两小时无障碍主题游戏。
-- 好评：[2743 · @MYMEROCHU](https://x.com/MYMEROCHU/status/2104577662320849218) — AGYFlashUnity游戏简短自嘲。
-- 差评：[2744 · @hiyopenzoo](https://x.com/hiyopenzoo/status/2104584517247983970) — AGYUnity指示检查再修循环累，Opus能否一次好只是问。
-- 好评：[2753 · @olax_bonnke](https://x.com/olax_bonnke/status/2104881235369628002) — AGY离线燃气POS实际收银员测并交零售商，自报。
-- 好评：[2762 · @IliaGrigorevDev](https://x.com/IliaGrigorevDev/status/2105380937106112860) — AGY经自建MCP程序资产Godot糖果游戏。
-- 差评：[2764 · @vz_warhead](https://x.com/vz_warhead/status/2105456171112931827) — 没钱Claude用AGY，每日多次半小时纠错微管。
-- 好评：[2765 · @hyunjoonshim](https://x.com/hyunjoonshim/status/2105581146038059031) — AGYCLI Unity加车辆撞击。
-- 好评：[2788 · @IliaGrigorevDev](https://x.com/IliaGrigorevDev/status/2106798532514468195) — 同作者AGYMCP第二程序模型Asteroids游戏，非新独立作者。
-- 好评：[2792 · @Ragnatic](https://x.com/Ragnatic/status/2107090104690852063) — AGYFlashOdin游戏较几月前改善，限定自用。
-- 好评：[2797 · @usrname_usrname](https://x.com/usrname_usrname/status/2107509809369247865) — AGYUnity游戏链接。
-- 好评：[2844 · @tectummed](https://x.com/tectummed/status/2110041899272933642) — AGY独立网站自评满分，无过程。
-- 好评：[2855 · @soumyadesign](https://x.com/soumyadesign/status/2110419562940498176) — AGYAIStudio35分云模拟站，明确细节提示非科学精度核验。
-- 差评：[2856 · @araskodluyor](https://x.com/araskodluyor/status/2110438258538873181) — AGYFlash称接UnityMCP实际没连，Claude后续失败耗尽。
-- 好评：[2860 · @TheBalkanHacker](https://x.com/TheBalkanHacker/status/2110478526499447100) — AGYArgon完整可玩游戏48人提示逾千步，非一次自主。
-- 好评：[2869 · @Kisalay_](https://x.com/Kisalay_/status/2110739976581530075) — AGYBlender程序国际象棋三轮视觉审，自报可玩。
-- 差评：[2873 · @araskodluyor](https://x.com/araskodluyor/status/2110826159176917026) — AGYFlash未经问毁并删Unity游戏，同作者前日MCP问题相关。
-- 好评：[2880 · @eduardooheng_](https://x.com/eduardooheng_/status/2111090165821350136) — AGY个人网站满意。
-- 好评：[2893 · @ikechukwuux](https://x.com/ikechukwuux/status/2111408061277479060) — AGY餐饮模板Vercel上线招客户。
-- 好评：[2898 · @Dheepanratnam](https://x.com/Dheepanratnam/status/2111636049743233111) — AGYGravitas四五小时站5%周额自报，反例。
-- 好评：[2986 · @GlitterPixely](https://x.com/GlitterPixely/status/2113463402857468389) — AGYArgon日语瓷砖3D学习替平面卡，无外资产。
-- 好评：[3030 · @ayushdarochux](https://x.com/ayushdarochux/status/2071452068036927959) — AGYFigmaMCP五widget，30待做，像素准自评。
-- 好评：[3069 · @arakunrindamola](https://x.com/arakunrindamola/status/2080674721184559371) — AIStudio原站AGY改NextWP内容后台Vercel托管自称快。
-- 好评：[3246 · @JoeManna](https://x.com/JoeManna/status/2113314422659932565) — AGYCLI WordPressMCP站自报CWV99，非外测。
+- Positive: [5 · @daviid_praise01](https://x.com/daviid_praise01/status/2060085648606781839)
+- Positive: [24 · @probiex007](https://x.com/probiex007/status/2060447935633207800)
+- Positive: [202 · @amososaze](https://x.com/amososaze/status/2067746381649805329)
+- Positive: [205 · @AsterismVaibhav](https://x.com/AsterismVaibhav/status/2066266697401774090)
+- Positive: [213 · @johannesasgeir](https://x.com/johannesasgeir/status/2071689276186861595)
+- Positive: [227 · @RyanMillerTX](https://x.com/RyanMillerTX/status/2068469181453111570)
+- Positive: [229 · @Singh_geetesh48](https://x.com/Singh_geetesh48/status/2071288919455563978)
+- Negative: [234 · @whatIfAndMe](https://x.com/whatIfAndMe/status/2070408842190651641)
+- Positive: [410 · @baldwinbuilds](https://x.com/baldwinbuilds/status/2082906169127915546)
+- Negative: [413 · @editxshub](https://x.com/editxshub/status/2079943754828669169)
+- Positive: [415 · @iml1s](https://x.com/iml1s/status/2082509503237632472)
+- Positive: [417 · @JoelOwolab9252](https://x.com/JoelOwolab9252/status/2081043383590531511)
+- Positive: [421 · @Marie_Haynes](https://x.com/Marie_Haynes/status/2082918190930145752)
+- Negative: [424 · @meathill1](https://x.com/meathill1/status/2082799876212150273)
+- Positive: [425 · @niainoz](https://x.com/niainoz/status/2082475776235221131)
+- Negative: [426 · @pdavisjones](https://x.com/pdavisjones/status/2079621547166245134)
+- Positive: [428 · @PhilStewart](https://x.com/PhilStewart/status/2083322825402728828)
+- Negative: [439 · @VfxVenom](https://x.com/VfxVenom/status/2081613965323616304)
+- Positive: [621 · @arpitneewaliya](https://x.com/arpitneewaliya/status/2089039340597059956)
+- Negative: [624 · @avi_natani](https://x.com/avi_natani/status/2092869136393367779)
+- Positive: [646 · @latitude36ai](https://x.com/latitude36ai/status/2088978763296227537)
+- Negative: [652 · @ming_asa7](https://x.com/ming_asa7/status/2093002033871876397)
+- Positive: [653 · @mobiledev_pro](https://x.com/mobiledev_pro/status/2089335693789069800)
+- Positive: [659 · @ozi_bekee](https://x.com/ozi_bekee/status/2092661837770731531)
+- Positive: [666 · @S__Sripathi](https://x.com/S__Sripathi/status/2090599775397646682)
+- Positive: [667 · @Sanjayng125](https://x.com/Sanjayng125/status/2089273839033389255)
+- Positive: [669 · @smithstephen](https://x.com/smithstephen/status/2089419612853264456)
+- Positive: [671 · @solsona](https://x.com/solsona/status/2089141482473070805)
+- Positive: [672 · @squwuash](https://x.com/squwuash/status/2091416960936693903)
+- Positive: [673 · @sreenandhanpp](https://x.com/sreenandhanpp/status/2092918566693871656)
+- Positive: [678 · @tyr0new](https://x.com/tyr0new/status/2093097654020686069)
+- Negative: [682 · @viro_waqas](https://x.com/viro_waqas/status/2089367970892116451)
+- Positive: [683 · @WichtelArt](https://x.com/WichtelArt/status/2090015336368124274)
+- Positive: [684 · @Wizdroidd](https://x.com/Wizdroidd/status/2091815447230382184)
+- Positive: [686 · @Zenitsu_T7](https://x.com/Zenitsu_T7/status/2091159525822988362)
+- Positive: [1030 · @chinmaybhattt](https://x.com/chinmaybhattt/status/2105334794691510528)
+- Positive: [1031 · @ckbrox13](https://x.com/ckbrox13/status/2104931630981001448)
+- Positive: [1032 · @KingsEdeh20117](https://x.com/KingsEdeh20117/status/2104925064621871565)
+- Positive: [1034 · @Niratama](https://x.com/Niratama/status/2104993942194590171)
+- Positive: [1240 · @divitsood](https://x.com/divitsood/status/2107504803220017227)
+- Positive: [1241 · @enxgm](https://x.com/enxgm/status/2108281927790907530)
+- Positive: [1244 · @J5jayfive](https://x.com/J5jayfive/status/2108548670211670265)
+- Positive: [1256 · @yoshiyukinakai](https://x.com/yoshiyukinakai/status/2107138966730535066)
+- Negative: [1474 · @otownrose](https://x.com/otownrose/status/2052485950442508785)
+- Positive: [1496 · @hatty_hats](https://x.com/hatty_hats/status/2053572928747262262)
+- Positive: [1578 · @kaziHasin12](https://x.com/kaziHasin12/status/2050641770195915015)
+- Positive: [1901 · @ayodsgn](https://x.com/ayodsgn/status/2073539618654298249)
+- Positive: [1939 · @VedantWete07](https://x.com/VedantWete07/status/2076092688013861155)
+- Positive: [1964 · @johannesasgeir](https://x.com/johannesasgeir/status/2078221114354909289)
+- Positive: [2283 · @xuebinwei](https://x.com/xuebinwei/status/2106873784401875448)
+- Negative: [2477 · @PerttiSoomann](https://x.com/PerttiSoomann/status/2071271733428887662)
+- Positive: [2478 · @doPHPdev](https://x.com/doPHPdev/status/2071380616424333564)
+- Positive: [2481 · @enya_orc](https://x.com/enya_orc/status/2071538542359281992)
+- Positive: [2483 · @MATKA_r](https://x.com/MATKA_r/status/2071604349017407687)
+- Positive: [2484 · @eslaveagency](https://x.com/eslaveagency/status/2071612737004753351)
+- Positive: [2488 · @ruxaenexe](https://x.com/ruxaenexe/status/2071737547529867356)
+- Positive: [2493 · @johannesasgeir](https://x.com/johannesasgeir/status/2071901636419633558)
+- Negative: [2503 · @steddipace](https://x.com/steddipace/status/2073256872275022043)
+- Positive: [2505 · @SumitDixit00007](https://x.com/SumitDixit00007/status/2073398555214229866)
+- Positive: [2516 · @bgiriaicloud](https://x.com/bgiriaicloud/status/2075887310114337107)
+- Positive: [2521 · @johannesasgeir](https://x.com/johannesasgeir/status/2076363513803784208)
+- Negative: [2523 · @subir](https://x.com/subir/status/2076744067644592534)
+- Negative: [2536 · @realrealcat](https://x.com/realrealcat/status/2079805905898725769)
+- Positive: [2537 · @Jamjeet876](https://x.com/Jamjeet876/status/2079957857043197965)
+- Negative: [2538 · @AynesGuiher](https://x.com/AynesGuiher/status/2080329490559885574)
+- Positive: [2540 · @adityawalks](https://x.com/adityawalks/status/2080598409719984191)
+- Negative: [2541 · @_rationalist___](https://x.com/_rationalist___/status/2080624593585459617)
+- Positive: [2549 · @justabdulraouf](https://x.com/justabdulraouf/status/2082175968433619396)
+- Negative: [2550 · @jjalive924](https://x.com/jjalive924/status/2082219832817385545)
+- Positive: [2562 · @Dprajapati0205](https://x.com/Dprajapati0205/status/2082687906682970217)
+- Positive: [2585 · @ozi_bekee](https://x.com/ozi_bekee/status/2083983909553832095)
+- Positive: [2589 · @Marie_Haynes](https://x.com/Marie_Haynes/status/2084989157781258649)
+- Negative: [2591 · @thumay9700](https://x.com/thumay9700/status/2085485817670103302)
+- Positive: [2605 · @JamesNumb3rs](https://x.com/JamesNumb3rs/status/2088292509113790624)
+- Positive: [2626 · @ButtholeGPT](https://x.com/ButtholeGPT/status/2091033038905839749)
+- Positive: [2630 · @davidraigozaj](https://x.com/davidraigozaj/status/2091907279918358944)
+- Positive: [2674 · @prnv_msra](https://x.com/prnv_msra/status/2095542195323642367)
+- Positive: [2685 · @drashyakuruwa](https://x.com/drashyakuruwa/status/2097763844194173096)
+- Positive: [2689 · @Dimentorio](https://x.com/Dimentorio/status/2098372858581860834)
+- Positive: [2711 · @Rohit_115](https://x.com/Rohit_115/status/2101628312644997434)
+- Positive: [2739 · @c_nemri](https://x.com/c_nemri/status/2104472843815735362)
+- Positive: [2743 · @MYMEROCHU](https://x.com/MYMEROCHU/status/2104577662320849218)
+- Negative: [2744 · @hiyopenzoo](https://x.com/hiyopenzoo/status/2104584517247983970)
+- Positive: [2753 · @olax_bonnke](https://x.com/olax_bonnke/status/2104881235369628002)
+- Positive: [2762 · @IliaGrigorevDev](https://x.com/IliaGrigorevDev/status/2105380937106112860)
+- Negative: [2764 · @vz_warhead](https://x.com/vz_warhead/status/2105456171112931827)
+- Positive: [2765 · @hyunjoonshim](https://x.com/hyunjoonshim/status/2105581146038059031)
+- Positive: [2788 · @IliaGrigorevDev](https://x.com/IliaGrigorevDev/status/2106798532514468195)
+- Positive: [2792 · @Ragnatic](https://x.com/Ragnatic/status/2107090104690852063)
+- Positive: [2797 · @usrname_usrname](https://x.com/usrname_usrname/status/2107509809369247865)
+- Positive: [2844 · @tectummed](https://x.com/tectummed/status/2110041899272933642)
+- Positive: [2855 · @soumyadesign](https://x.com/soumyadesign/status/2110419562940498176)
+- Negative: [2856 · @araskodluyor](https://x.com/araskodluyor/status/2110438258538873181)
+- Positive: [2860 · @TheBalkanHacker](https://x.com/TheBalkanHacker/status/2110478526499447100)
+- Positive: [2869 · @Kisalay_](https://x.com/Kisalay_/status/2110739976581530075)
+- Negative: [2873 · @araskodluyor](https://x.com/araskodluyor/status/2110826159176917026)
+- Positive: [2880 · @eduardooheng_](https://x.com/eduardooheng_/status/2111090165821350136)
+- Positive: [2893 · @ikechukwuux](https://x.com/ikechukwuux/status/2111408061277479060)
+- Positive: [2898 · @Dheepanratnam](https://x.com/Dheepanratnam/status/2111636049743233111)
+- Positive: [2986 · @GlitterPixely](https://x.com/GlitterPixely/status/2113463402857468389)
+- Positive: [3030 · @ayushdarochux](https://x.com/ayushdarochux/status/2071452068036927959)
+- Positive: [3069 · @arakunrindamola](https://x.com/arakunrindamola/status/2080674721184559371)
+- Positive: [3246 · @JoeManna](https://x.com/JoeManna/status/2113314422659932565)
 
 ## Grok Build
 
-- 好评：[148 · @_glass](https://x.com/_glass/status/2060105534192193579) — 重做定性编码app从emacs迁Zig/raylib，正面体验
-- 差评：[152 · @BausBank](https://x.com/BausBank/status/2060083072523968586) — 建改网站两小时细解释位置效果，认为Build不如SuperGrok思考深；不限额仍不选
-- 好评：[157 · @Geero_Gero](https://x.com/Geero_Gero/status/2060084142453240029) — 原账号支持失败后自建Fediverse工具，动机个人偏好
-- 好评：[158 · @HackCooking](https://x.com/HackCooking/status/2060113500547194966) — 两提示做将棋软件，自述超预期
-- 好评：[160 · @kb1376](https://x.com/kb1376/status/2061232865485140409) — 查看旧项目后RustReact重建半天，自述改善
-- 好评：[167 · @stevederico](https://x.com/stevederico/status/2060100567431884930) — Build修改X输入框交互，提供试用宣传
-- 好评：[168 · @testerlabor](https://x.com/testerlabor/status/2060122947612823692) — 自述可玩3DMars有任务，未试玩
-- 好评：[340 · @aramp0x](https://x.com/aramp0x/status/2069410484478967995) — Build找到CF403是header触反爬，其他模型前日没解，自述修好
-- 好评：[341 · @Archarsstudio](https://x.com/Archarsstudio/status/2068404525006778412) — 零编码建筑师做花钱浏览器游戏
-- 好评：[342 · @ASchererNY](https://x.com/ASchererNY/status/2067714756505698673) — 语言解释器开发时补语法覆盖测试，过去人没耐心，正面自述
-- 好评：[346 · @cryptonym](https://x.com/cryptonym/status/2065922041958580466) — 考试复习站做完待GitHub部署，未上线不能算已发布
-- 差评：[357 · @IggyLux](https://x.com/IggyLux/status/2070636225497591955) — 重放Claude已解项目，Build未修添bug，认可本地界面
-- 好评：[365 · @Marco_SI__](https://x.com/Marco_SI__/status/2070518381501886503) — goal摄影作品集四小时上线两次反馈，非零人工
-- 好评：[549 · @aipulseda1ly](https://x.com/aipulseda1ly/status/2082208817417273647) — Build云沙箱VPN及看门狗部署实验自述端到端成功，非执行指令
-- 好评：[563 · @HJGameStudios](https://x.com/HJGameStudios/status/2083198702055833661) — 跳棋辅助为游戏minigame定制，明确不知对其他AI表现
-- 好评：[566 · @IzzyBomfunk](https://x.com/IzzyBomfunk/status/2082709616593711237) — 公司SOPapp推GithubCFPages部署，自述
-- 好评：[567 · @JBerri0s](https://x.com/JBerri0s/status/2082836016260407584) — Composer消失试Grok一次修卡车学校app，非普遍等强
-- 差评：[568 · @jmurzaku](https://x.com/jmurzaku/status/2082508420075397469) — 轨迹TUI抓22kb静默写失败agent未核
-- 差评：[569 · @joshwarner21](https://x.com/joshwarner21/status/2081475057323241776) — 自称修完实际未改或浅补，重跑耗额度
-- 好评：[574 · @olivercampbell](https://x.com/olivercampbell/status/2082668627652698571) — 个人梦想纸飞机游戏0.2多平台更新完整列表，非一次生成
-- 好评：[577 · @SirMaximusIX](https://x.com/SirMaximusIX/status/2082050627023049068) — 零代码财务退货追踪CSV安全检查，功能自述未验证计算
-- 好评：[581 · @TheShakeel90](https://x.com/TheShakeel90/status/2081535259099709941) — 已有Premium不知道含Build，七小时做Workspace替代；取消300月费下周计划未实现
-- 差评：[585 · @VipLucky168](https://x.com/VipLucky168/status/2082446040968396921) — 小红书插件Build首版快后bug多轮未解Codex收尾；访问节流为作者背景非指导
-- 差评：[913 · @arizoftgames](https://x.com/arizoftgames/status/2092023273366372463) — 先拆计划四天没代码，改旧项目参考三步骤能跑仍约20问题；用量对比自述。
-- 好评：[915 · @baobaokim](https://x.com/baobaokim/status/2092378257027129608) — 猜股价游戏自述；与同作者交易训练表未证明同作品，非投资准确率。
-- 好评：[916 · @beardboss20](https://x.com/beardboss20/status/2091729378698789170) — 反复改简历促成CareerPrism；父帖列举不是本帖多个成品。
-- 好评：[917 · @BowieHole](https://x.com/BowieHole/status/2092019472387244370) — 滚动里程碑彩纸Chrome扩展自述；商店与源码未核。
-- 好评：[918 · @bralex998](https://x.com/bralex998/status/2091365233553965237) — 3D赛博飞行游戏功能自述。
-- 好评：[919 · @Brooks4587](https://x.com/Brooks4587/status/2093035983067345367) — 不喜欢已有节庆规划器故自建，家庭预算筛选等功能；园内完整测试未做。
-- 好评：[920 · @brwod22](https://x.com/brwod22/status/2092409576293335263) — GoogleAIStudio到Github再Build修MetaOAuth并设置浏览器，下午上线自述。
-- 差评：[922 · @Cardiopanic](https://x.com/Cardiopanic/status/2094211328671912335) — 花50仍在iOS网页音频问题挣扎。
-- 好评：[925 · @cb_doge](https://x.com/cb_doge/status/2092690415866822950) — 给侄子做火星游戏并迭代自述。
-- 好评：[926 · @corintusss](https://x.com/corintusss/status/2093096906260123961) — 自有地图游戏写Grok制作Build游玩，入口不足以断CLI。
-- 好评：[931 · @erickson_works](https://x.com/erickson_works/status/2092652239953580461) — Bot七日额度等待改Build做拼图矢量工具，单功能演示。
-- 好评：[938 · @HasselvanderJoe](https://x.com/HasselvanderJoe/status/2094572482619478420) — Build游戏交Bot WhatsApp与Vercel测试，恢复三聊天原因不清；预告片尝试及求奖励。
-- 好评：[939 · @IsikoCulture](https://x.com/IsikoCulture/status/2094212833051336783) — 零代码个人游戏孩子两人评价不是两独立作者。
-- 好评：[941 · @JeffreyLind](https://x.com/JeffreyLind/status/2091638654544355625) — Build游戏自述，无更多工作流程。
-- 差评：[948 · @mikekock](https://x.com/mikekock/status/2091878004880466361) — UI改动致视频5秒停，30分钟绕行后重开目标24分钟修根因加测，最终成功。
-- 好评：[949 · @Napoleon__Bon](https://x.com/Napoleon__Bon/status/2091868536113443218) — 手机Build三维地球，先前恐龙游戏不加独立帖子，免费是当时说法。
-- 好评：[957 · @shortsbydaryl](https://x.com/shortsbydaryl/status/2091617840285552730) — 打地鼠可玩游戏自述。
-- 好评：[960 · @SiS94265](https://x.com/SiS94265/status/2091449530898366511) — 收据支出钱包分账应用，不接银行，自述免订阅。
-- 好评：[961 · @SomeCarnie](https://x.com/SomeCarnie/status/2091353244085768489) — Build活动商户系统含API，Bot经邮箱票务管理自述。
-- 好评：[962 · @ssadams1111](https://x.com/ssadams1111/status/2092024953797493095) — 与孙子设计变体棋，制作账号一人，规则未核。
-- 好评：[963 · @watthourllc](https://x.com/watthourllc/status/2092036514280546806) — 六互联程序代订阅贴合家庭业务；录入降10至20%自述无测量。
-- 好评：[967 · @YosemiteShawn](https://x.com/YosemiteShawn/status/2094202941494456643) — 附数页人物剧情关卡说明让Build聊天做游戏，自述已上线。
-- 差评：[1165 · @astronozem](https://x.com/astronozem/status/2104127271837835305) — CLI十分钟自称完成无文件无编译继而乱语循环。
-- 好评：[1166 · @BADW0LF66](https://x.com/BADW0LF66/status/2104602730581180879) — Tankageddon游戏链接自述。
-- 好评：[1167 · @buildingtesla](https://x.com/buildingtesla/status/2103569988414271495) — 在线转换失败做离线Android webm转mp4一次成自述。
-- 好评：[1168 · @BUndertreeB](https://x.com/BUndertreeB/status/2102851512078614789) — 首Edenfall游戏自述。
-- 好评：[1170 · @CharliePackman7](https://x.com/CharliePackman7/status/2103597374920614126) — 网页Build做职业作品集容易，不能归CLI证据。
-- 好评：[1175 · @ElsberryMatt](https://x.com/ElsberryMatt/status/2103261618746658918) — 网页首游戏大部一提示后生活质量修改，不是零迭代。
-- 好评：[1176 · @fallova](https://x.com/fallova/status/2105379410367185312) — 下载Gemini游戏文件Build修与改赛博画风，限制未详。
-- 好评：[1182 · @Mck3nz1](https://x.com/Mck3nz1/status/2105059955464171717) — 自建视频软件首片音轨素材转字幕剪辑可手调，未核。
-- 好评：[1183 · @McKeeCreative1](https://x.com/McKeeCreative1/status/2101264293652267153) — 提词器加入Omarchy菜单约3分自述，非任何问题皆秒解。
-- 好评：[1184 · @muongas](https://x.com/muongas/status/2101722669305762007) — 三指手势多工作区窗口类似Mac修复。
-- 好评：[1185 · @QuietTexastwist](https://x.com/QuietTexastwist/status/2101743324902391910) — 本地预算教育行情PDF软件，不证明财务效果。
-- 好评：[1191 · @superalesha](https://x.com/superalesha/status/2102143511013249317) — 同提示CLI/OMP两个射击均可玩需改，拖尾悬空相同bug，非未经改一次结果。
-- 好评：[1192 · @TenaciousTek](https://x.com/TenaciousTek/status/2101375015518191978) — GreenlandWatch单提示自述，未核。
-- 好评：[1193 · @testerlabor](https://x.com/testerlabor/status/2102884363545530826) — 网页Build数提示MIDI键盘，自述声音好，非CLI。
-- 好评：[1194 · @Toy_Maestro](https://x.com/Toy_Maestro/status/2102884702918943033) — 终端Build游戏发布时额尽由剩10%Bot发，素材Imagine分开归因。
-- 好评：[1195 · @Tuzi_ChinSL](https://x.com/Tuzi_ChinSL/status/2101345652592832635) — 围棋观赛场Build造Bot承载，无具体边界验证。
-- 好评：[1196 · @Updownupupright](https://x.com/Updownupupright/status/2102532508315230494) — BuildImagine海盗游戏正在测手机控件。
-- 差评：[1200 · @vladzima](https://x.com/vladzima/status/2102154260372721727) — 只读任务计划推数据库被人中止；hook未修；Fable审报告错误是转述。
-- 好评：[1201 · @yyolk](https://x.com/yyolk/status/2104318147557773578) — 租屋家庭机房电负荷地图本地PWA，不证CLI或电气正确性。
-- 好评：[1387 · @ansarrezaei](https://x.com/ansarrezaei/status/2110183700726239458) — Bot头像工具不满意改Build自建，打算留到用完额未已用尽。
-- 好评：[1388 · @BlackWolfNews](https://x.com/BlackWolfNews/status/2109492742481183055) — 首项目VIN数据库移植自建核对原decoder步骤。
-- 好评：[1395 · @hovinthenorth](https://x.com/hovinthenorth/status/2110074477178663350) — 父母录200亚美尼亚词家庭学习应用。
-- 好评：[1400 · @MichaelGannotti](https://x.com/MichaelGannotti/status/2110371135397437506) — OmarchyWiFi断连Build一次诊修部署自述，非万事皆可修。
-- 好评：[1401 · @norm_clips](https://x.com/norm_clips/status/2110143448476987420) — 大学橄榄球统计台自述。
-- 好评：[1405 · @someguyonx97](https://x.com/someguyonx97/status/2110028977502920838) — 兼职咨询不值租QB自建轻财务迁2020文件两应用比较，父亲迁移未来。
-- 好评：[1620 · @AndersonWes5](https://x.com/AndersonWes5/status/2059061511654350932) — 70岁BLEWiFi嵌入周末Build自述。
-- 好评：[1625 · @Mechanic429](https://x.com/Mechanic429/status/2059414841282994596) — 新手BuildCLI网站桌面快捷方式已做上线尚未。
-- 差评：[1899 · @The_AtulMishra](https://x.com/The_AtulMishra/status/2073526722147070050) — Build复杂debug循环不换思路多次人停指导，CursorClaude更会换Antigravity似同问题。
-- 好评：[1960 · @drakonus5774](https://x.com/drakonus5774/status/2078256380310344086) — 首天气app上线为学Linux终端兴奋。
-- 好评：[2000 · @MagnusMonad](https://x.com/MagnusMonad/status/2078196758052782358) — 建筑CRM数小时非编码懂需求，自定义报价反事实。
-- 好评：[2001 · @Frank_AI_Lab](https://x.com/Frank_AI_Lab/status/2078197426519670830) — 人生年房间app每年三物件，同引用同作品。
-- 差评：[2129 · @refreshinga](https://x.com/refreshinga/status/2096322982205706402) — 网页游戏近完沙箱坏回不去耗额恢复求snapshot，不算从零失败。
-- 好评：[2212 · @jordan_patten](https://x.com/jordan_patten/status/2097464038263341495) — Build十分钟做StreamDeck多服务额度仪表，自报。
-- 好评：[2214 · @mtthwwsn](https://x.com/mtthwwsn/status/2097417449465622900) — Build定制雕刻软件让闲置雕刻机可用，下一步环氧。
-- 好评：[2288 · @HeyEric](https://x.com/HeyEric/status/2106893495084765657) — Build意大利旅行应用，简单自评。
-- 好评：[2339 · @FudongN](https://x.com/FudongN/status/2113192355285385468) — 非程序员Build气泡纸游戏。
-- 好评：[2356 · @dallasbrush](https://x.com/dallasbrush/status/2107972078943322311) — Build存储笔记应用展示。
-- 好评：[2366 · @TeslaTakesOver](https://x.com/TeslaTakesOver/status/2111234017748004877) — Build游戏自称玩得开心。
-- 好评：[2415 · @Daniel_Farinax](https://x.com/Daniel_Farinax/status/2055397814981538013) — 七分钟做首游戏；引用默认配置问题非本人全流程。
-- 好评：[2439 · @j0shH_x](https://x.com/j0shH_x/status/2060886724901769519) — Build马里奥游戏可玩链接。
-- 好评：[2441 · @VektorError](https://x.com/VektorError/status/2061017861632495916) — Build四天移植Unity浏览器，自估六个月工作，免费完升Heavy。
-- 好评：[2449 · @Will_W_Welker](https://x.com/Will_W_Welker/status/2064879636505678054) — 孩子Build生成HTML游戏后实际玩。
-- 好评：[2451 · @KyleCushway](https://x.com/KyleCushway/status/2064942278054125739) — Build把童年桌游成真，免费额度完需付费。
-- 好评：[2452 · @testerlabor](https://x.com/testerlabor/status/2065122525604966445) — Build单提示五分钟Blastar自评最好重制。
-- 好评：[2453 · @_WOLFPACKED](https://x.com/_WOLFPACKED/status/2066161807329251772) — Build用旧游戏作模板重写Roblox解决性能，自报。
-- 好评：[2458 · @MrAnthonyDR](https://x.com/MrAnthonyDR/status/2066652256892555682) — Build修儿子游戏后更新项目日志供新上下文。
-- 好评：[2474 · @WR4NYGov](https://x.com/WR4NYGov/status/2071162256994546051) — Build期权分析已可用发给订阅者，仍优化手机与加股票。
-- 好评：[2475 · @Damien_Ducate](https://x.com/Damien_Ducate/status/2071188082209255497) — 首AI编程Build数小时俄语学习应用部署，父帖官方评测非本人。
-- 好评：[2517 · @jagdotme](https://x.com/jagdotme/status/2076104768796115151) — 不喜终端仍Build二十分做站内小游戏。
-- 好评：[2520 · @JRoy777](https://x.com/JRoy777/status/2076289557750743388) — WSLBuild初问几问题后四分可玩原型，非无对话。
-- 好评：[2524 · @kitkatkittenlab](https://x.com/kitkatkittenlab/status/2077043370958942540) — Build CLI世界叙事游戏，作者仍学怎么玩。
-- 好评：[2543 · @Daniel_Farinax](https://x.com/Daniel_Farinax/status/2080736332205436952) — BuildUnityMCP批构游戏，不懂Unity零手写，自报。
-- 好评：[2560 · @MCviewz](https://x.com/MCviewz/status/2082629305884930190) — 手机Build默认建议十分钟塔防可玩，引用可选功能非全测。
-- 好评：[2572 · @KettlebellDan](https://x.com/KettlebellDan/status/2082901430374105117) — Build家庭Imposter替付费限制应用，Grok部署待做。
-- 好评：[2582 · @VillagesFlorida](https://x.com/VillagesFlorida/status/2083336589271339452) — Claude上手不懂，Build首站接支付成功自报，未有销售。
-- 好评：[2586 · @HandsomeHank_](https://x.com/HandsomeHank_/status/2084013859220959697) — Build提取父母照片入格斗游戏，父母实际看玩自报。
-- 好评：[2587 · @AhoyChunk](https://x.com/AhoyChunk/status/2084466863770083424) — Build网监原型后两三修，十分可用非单轮。
-- 好评：[2590 · @DaveMountOnX](https://x.com/DaveMountOnX/status/2085140151752388912) — 转Build游戏加能源模拟满意，新版待alpha。
-- 好评：[2592 · @TantraX0](https://x.com/TantraX0/status/2085697138705801223) — Build单提示八分26秒地下城游戏自报。
-- 好评：[2595 · @allan_robII](https://x.com/allan_robII/status/2086923607633199479) — 轮胎店Build几提示游戏再录制试玩视频。
-- 好评：[2600 · @firatbilal](https://x.com/firatbilal/status/2087625093035819414) — Build一核心提示15分手机塔防可玩。
-- 好评：[2604 · @AdemVessell_o](https://x.com/AdemVessell_o/status/2088278722495320230) — 和孩子Build网页改多游戏v2可下载离线，Bot电脑发帖。
-- 好评：[2623 · @BrianEastwoodx](https://x.com/BrianEastwoodx/status/2090940756122845393) — Build人物讽刺游戏可玩求打赏，未有收入。
-- 好评：[2625 · @IsikoCulture](https://x.com/IsikoCulture/status/2090996075117043714) — BuildRunningBlade链接展示。
-- 好评：[2631 · @PeterOhser](https://x.com/PeterOhser/status/2092172383960637681) — Build歌迷游戏链接。
-- 好评：[2652 · @ZeusRadls](https://x.com/ZeusRadls/status/2094278138406617350) — BotVM内Build纸牌建与部署各一提示。
-- 好评：[2656 · @KhalidAliAlHaj2](https://x.com/KhalidAliAlHaj2/status/2094364815120793610) — Build为儿子具名平台游戏一键发布儿子喜欢。
-- 好评：[2658 · @bonesmegga](https://x.com/bonesmegga/status/2094446892709298261) — Build俄罗斯方块克隆。
-- 好评：[2659 · @kayrmn](https://x.com/kayrmn/status/2094474061392773282) — Grok应用Build不到小时网站上线。
-- 好评：[2660 · @stevenknowsweb](https://x.com/stevenknowsweb/status/2094488453333520833) — Build非CMS网站Cloudflare免费，自身体验后未来行业推测分开。
-- 好评：[2661 · @Explorerhoff53](https://x.com/Explorerhoff53/status/2094518908942446647) — Build游戏作者觉得难，邀挑战。
-- 好评：[2664 · @XAmandaMoore](https://x.com/XAmandaMoore/status/2094543231325544487) — Build游戏展示。
-- 差评：[2667 · @soladventur](https://x.com/soladventur/status/2094633271069938054) — Build预览满意却Shopify只能移主题，3000SKU分组手工卡交付。
-- 好评：[2670 · @lalovestrump](https://x.com/lalovestrump/status/2095234270554198435) — Build洛杉矶新餐馆目录。
-- 好评：[2671 · @lalovestrump](https://x.com/lalovestrump/status/2095252111907004779) — 同作者Build族裔杂货店目录，另一项目非独立作者。
-- 好评：[2675 · @lalovestrump](https://x.com/lalovestrump/status/2095603992411902390) — 同作者第三Build目录，车站附近活动地图。
-- 好评：[2679 · @LaidBackDad701](https://x.com/LaidBackDad701/status/2096608097527558482) — 装修工11套餐Build分钟企业站想升级。
-- 差评：[2692 · @ai_ae_fan](https://x.com/ai_ae_fan/status/2098951541021433885) — Build两小时47%仍未修，升级只给Heavy想中档。
-- 好评：[2699 · @Updownupupright](https://x.com/Updownupupright/status/2100060376993837529) — Build海盗游戏可玩计划更新。
-- 好评：[2700 · @KanikaBK](https://x.com/KanikaBK/status/2100094619115835443) — Build一分钟游戏推广Bot夜班教程，游戏不证明六Bot商务自主。
-- 好评：[2701 · @DJPTECHNO](https://x.com/DJPTECHNO/status/2100107155387097104) — Build火星游戏带原创歌曲继续加内容。
-- 好评：[2702 · @pmcclelland](https://x.com/pmcclelland/status/2100308276680314973) — 本人BuildBot战斗小游戏，对直播业务时间建议非本人实测。
-- 好评：[2703 · @WILAFmedia](https://x.com/WILAFmedia/status/2100330892006756546) — Build简单平台游戏测试链接。
-- 好评：[2704 · @ShortestSeller](https://x.com/ShortestSeller/status/2100385248349417691) — Build首仪表网站满意但耗90%。
-- 好评：[2706 · @ShyneB0X](https://x.com/ShyneB0X/status/2100571581432861008) — Build音乐人个人专辑流媒体站。
-- 差评：[2719 · @tamedtornado](https://x.com/tamedtornado/status/2102729857796899208) — Codex重置期间Build错误修复，Astra随后纠正，不算Build成功。
-- 好评：[2720 · @GrayMan004](https://x.com/GrayMan004/status/2102783571601613218) — Build赛马小游戏。
-- 好评：[2725 · @CoffeeNGrit](https://x.com/CoffeeNGrit/status/2102907164712894588) — Build为孩子恐怖主题跨设备游戏。
-- 好评：[2731 · @Dswain661](https://x.com/Dswain661/status/2103363637721411773) — Build光刻画网站按自有打印机参数导出，已实际打印满意。
-- 好评：[2763 · @BradGonzale1](https://x.com/BradGonzale1/status/2105388091183976599) — Build首游戏。
-- 好评：[2768 · @patrickjayson91](https://x.com/patrickjayson91/status/2105692169906610569) — 人建模动画导入后Build做Unity游戏。
-- 好评：[2769 · @MrDasCreates](https://x.com/MrDasCreates/status/2105694783272542411) — Build简单游戏。
-- 差评：[2785 · @corintusss](https://x.com/corintusss/status/2106580892646863185) — Build游戏屏幕bug仍修不了，未完成。
-- 差评：[2806 · @JonSe5a](https://x.com/JonSe5a/status/2108097690613739732) — Build两次称修测试过实机仍崩，人两行解还需审多余改动。
-- 好评：[2875 · @shortsbydaryl](https://x.com/shortsbydaryl/status/2110883724372091090) — BuildSkeeBall游戏。
-- 好评：[2886 · @mgr_au](https://x.com/mgr_au/status/2111277659116495254) — Build12分个人音乐播放站，自报无广告74曲。
-- 好评：[2903 · @EricHippler](https://x.com/EricHippler/status/2111814995440804197) — 无开发父子BotBuild两周Roblox可用。
-- 好评：[2954 · @Simo18121](https://x.com/Simo18121/status/2113096483931062354) — Build钓鱼游戏免费可玩，玩法人设计。
-- 好评：[2975 · @TJNEWTON24](https://x.com/TJNEWTON24/status/2113388801603281308) — Build酒铺站及筛本地无站商家，父帖赚到钱非本人。
-- 好评：[2976 · @TexasTrave88297](https://x.com/TexasTrave88297/status/2113390090475258356) — Build游戏链接。
-- 好评：[2989 · @TheGW0414](https://x.com/TheGW0414/status/2113503735226024252) — 大型JavaERP主Build需求bug基本一次，自述反驳父帖差评。
-- 好评：[3123 · @RobSchmidt434](https://x.com/RobSchmidt434/status/2094322999885218261) — BuildFusionMCP设计3D打印零件成功自报。
-- 好评：[3132 · @billycanada](https://x.com/billycanada/status/2094409862503432666) — 旧机升级Build装配DockerOllama本地模型看摄像邮件语音。
-- 差评：[3218 · @thervconsortium](https://x.com/thervconsortium/status/2112262593318711519) — HermesBuild改UE动画蓝图都失败周末停工，人需学编辑。
+- Positive: [148 · @_glass](https://x.com/_glass/status/2060105534192193579)
+- Negative: [152 · @BausBank](https://x.com/BausBank/status/2060083072523968586)
+- Positive: [157 · @Geero_Gero](https://x.com/Geero_Gero/status/2060084142453240029)
+- Positive: [158 · @HackCooking](https://x.com/HackCooking/status/2060113500547194966)
+- Positive: [160 · @kb1376](https://x.com/kb1376/status/2061232865485140409)
+- Positive: [167 · @stevederico](https://x.com/stevederico/status/2060100567431884930)
+- Positive: [168 · @testerlabor](https://x.com/testerlabor/status/2060122947612823692)
+- Positive: [340 · @aramp0x](https://x.com/aramp0x/status/2069410484478967995)
+- Positive: [341 · @Archarsstudio](https://x.com/Archarsstudio/status/2068404525006778412)
+- Positive: [342 · @ASchererNY](https://x.com/ASchererNY/status/2067714756505698673)
+- Positive: [346 · @cryptonym](https://x.com/cryptonym/status/2065922041958580466)
+- Negative: [357 · @IggyLux](https://x.com/IggyLux/status/2070636225497591955)
+- Positive: [365 · @Marco_SI__](https://x.com/Marco_SI__/status/2070518381501886503)
+- Positive: [549 · @aipulseda1ly](https://x.com/aipulseda1ly/status/2082208817417273647)
+- Positive: [563 · @HJGameStudios](https://x.com/HJGameStudios/status/2083198702055833661)
+- Positive: [566 · @IzzyBomfunk](https://x.com/IzzyBomfunk/status/2082709616593711237)
+- Positive: [567 · @JBerri0s](https://x.com/JBerri0s/status/2082836016260407584)
+- Negative: [568 · @jmurzaku](https://x.com/jmurzaku/status/2082508420075397469)
+- Negative: [569 · @joshwarner21](https://x.com/joshwarner21/status/2081475057323241776)
+- Positive: [574 · @olivercampbell](https://x.com/olivercampbell/status/2082668627652698571)
+- Positive: [577 · @SirMaximusIX](https://x.com/SirMaximusIX/status/2082050627023049068)
+- Positive: [581 · @TheShakeel90](https://x.com/TheShakeel90/status/2081535259099709941)
+- Negative: [585 · @VipLucky168](https://x.com/VipLucky168/status/2082446040968396921)
+- Negative: [913 · @arizoftgames](https://x.com/arizoftgames/status/2092023273366372463)
+- Positive: [915 · @baobaokim](https://x.com/baobaokim/status/2092378257027129608)
+- Positive: [916 · @beardboss20](https://x.com/beardboss20/status/2091729378698789170)
+- Positive: [917 · @BowieHole](https://x.com/BowieHole/status/2092019472387244370)
+- Positive: [918 · @bralex998](https://x.com/bralex998/status/2091365233553965237)
+- Positive: [919 · @Brooks4587](https://x.com/Brooks4587/status/2093035983067345367)
+- Positive: [920 · @brwod22](https://x.com/brwod22/status/2092409576293335263)
+- Negative: [922 · @Cardiopanic](https://x.com/Cardiopanic/status/2094211328671912335)
+- Positive: [925 · @cb_doge](https://x.com/cb_doge/status/2092690415866822950)
+- Positive: [926 · @corintusss](https://x.com/corintusss/status/2093096906260123961)
+- Positive: [931 · @erickson_works](https://x.com/erickson_works/status/2092652239953580461)
+- Positive: [938 · @HasselvanderJoe](https://x.com/HasselvanderJoe/status/2094572482619478420)
+- Positive: [939 · @IsikoCulture](https://x.com/IsikoCulture/status/2094212833051336783)
+- Positive: [941 · @JeffreyLind](https://x.com/JeffreyLind/status/2091638654544355625)
+- Negative: [948 · @mikekock](https://x.com/mikekock/status/2091878004880466361)
+- Positive: [949 · @Napoleon__Bon](https://x.com/Napoleon__Bon/status/2091868536113443218)
+- Positive: [957 · @shortsbydaryl](https://x.com/shortsbydaryl/status/2091617840285552730)
+- Positive: [960 · @SiS94265](https://x.com/SiS94265/status/2091449530898366511)
+- Positive: [961 · @SomeCarnie](https://x.com/SomeCarnie/status/2091353244085768489)
+- Positive: [962 · @ssadams1111](https://x.com/ssadams1111/status/2092024953797493095)
+- Positive: [963 · @watthourllc](https://x.com/watthourllc/status/2092036514280546806)
+- Positive: [967 · @YosemiteShawn](https://x.com/YosemiteShawn/status/2094202941494456643)
+- Negative: [1165 · @astronozem](https://x.com/astronozem/status/2104127271837835305)
+- Positive: [1166 · @BADW0LF66](https://x.com/BADW0LF66/status/2104602730581180879)
+- Positive: [1167 · @buildingtesla](https://x.com/buildingtesla/status/2103569988414271495)
+- Positive: [1168 · @BUndertreeB](https://x.com/BUndertreeB/status/2102851512078614789)
+- Positive: [1170 · @CharliePackman7](https://x.com/CharliePackman7/status/2103597374920614126)
+- Positive: [1175 · @ElsberryMatt](https://x.com/ElsberryMatt/status/2103261618746658918)
+- Positive: [1176 · @fallova](https://x.com/fallova/status/2105379410367185312)
+- Positive: [1182 · @Mck3nz1](https://x.com/Mck3nz1/status/2105059955464171717)
+- Positive: [1183 · @McKeeCreative1](https://x.com/McKeeCreative1/status/2101264293652267153)
+- Positive: [1184 · @muongas](https://x.com/muongas/status/2101722669305762007)
+- Positive: [1185 · @QuietTexastwist](https://x.com/QuietTexastwist/status/2101743324902391910)
+- Positive: [1191 · @superalesha](https://x.com/superalesha/status/2102143511013249317)
+- Positive: [1192 · @TenaciousTek](https://x.com/TenaciousTek/status/2101375015518191978)
+- Positive: [1193 · @testerlabor](https://x.com/testerlabor/status/2102884363545530826)
+- Positive: [1194 · @Toy_Maestro](https://x.com/Toy_Maestro/status/2102884702918943033)
+- Positive: [1195 · @Tuzi_ChinSL](https://x.com/Tuzi_ChinSL/status/2101345652592832635)
+- Positive: [1196 · @Updownupupright](https://x.com/Updownupupright/status/2102532508315230494)
+- Negative: [1200 · @vladzima](https://x.com/vladzima/status/2102154260372721727)
+- Positive: [1201 · @yyolk](https://x.com/yyolk/status/2104318147557773578)
+- Positive: [1387 · @ansarrezaei](https://x.com/ansarrezaei/status/2110183700726239458)
+- Positive: [1388 · @BlackWolfNews](https://x.com/BlackWolfNews/status/2109492742481183055)
+- Positive: [1395 · @hovinthenorth](https://x.com/hovinthenorth/status/2110074477178663350)
+- Positive: [1400 · @MichaelGannotti](https://x.com/MichaelGannotti/status/2110371135397437506)
+- Positive: [1401 · @norm_clips](https://x.com/norm_clips/status/2110143448476987420)
+- Positive: [1405 · @someguyonx97](https://x.com/someguyonx97/status/2110028977502920838)
+- Positive: [1620 · @AndersonWes5](https://x.com/AndersonWes5/status/2059061511654350932)
+- Positive: [1625 · @Mechanic429](https://x.com/Mechanic429/status/2059414841282994596)
+- Negative: [1899 · @The_AtulMishra](https://x.com/The_AtulMishra/status/2073526722147070050)
+- Positive: [1960 · @drakonus5774](https://x.com/drakonus5774/status/2078256380310344086)
+- Positive: [2000 · @MagnusMonad](https://x.com/MagnusMonad/status/2078196758052782358)
+- Positive: [2001 · @Frank_AI_Lab](https://x.com/Frank_AI_Lab/status/2078197426519670830)
+- Negative: [2129 · @refreshinga](https://x.com/refreshinga/status/2096322982205706402)
+- Positive: [2212 · @jordan_patten](https://x.com/jordan_patten/status/2097464038263341495)
+- Positive: [2214 · @mtthwwsn](https://x.com/mtthwwsn/status/2097417449465622900)
+- Positive: [2288 · @HeyEric](https://x.com/HeyEric/status/2106893495084765657)
+- Positive: [2339 · @FudongN](https://x.com/FudongN/status/2113192355285385468)
+- Positive: [2356 · @dallasbrush](https://x.com/dallasbrush/status/2107972078943322311)
+- Positive: [2366 · @TeslaTakesOver](https://x.com/TeslaTakesOver/status/2111234017748004877)
+- Positive: [2415 · @Daniel_Farinax](https://x.com/Daniel_Farinax/status/2055397814981538013)
+- Positive: [2439 · @j0shH_x](https://x.com/j0shH_x/status/2060886724901769519)
+- Positive: [2441 · @VektorError](https://x.com/VektorError/status/2061017861632495916)
+- Positive: [2449 · @Will_W_Welker](https://x.com/Will_W_Welker/status/2064879636505678054)
+- Positive: [2451 · @KyleCushway](https://x.com/KyleCushway/status/2064942278054125739)
+- Positive: [2452 · @testerlabor](https://x.com/testerlabor/status/2065122525604966445)
+- Positive: [2453 · @_WOLFPACKED](https://x.com/_WOLFPACKED/status/2066161807329251772)
+- Positive: [2458 · @MrAnthonyDR](https://x.com/MrAnthonyDR/status/2066652256892555682)
+- Positive: [2474 · @WR4NYGov](https://x.com/WR4NYGov/status/2071162256994546051)
+- Positive: [2475 · @Damien_Ducate](https://x.com/Damien_Ducate/status/2071188082209255497)
+- Positive: [2517 · @jagdotme](https://x.com/jagdotme/status/2076104768796115151)
+- Positive: [2520 · @JRoy777](https://x.com/JRoy777/status/2076289557750743388)
+- Positive: [2524 · @kitkatkittenlab](https://x.com/kitkatkittenlab/status/2077043370958942540)
+- Positive: [2543 · @Daniel_Farinax](https://x.com/Daniel_Farinax/status/2080736332205436952)
+- Positive: [2560 · @MCviewz](https://x.com/MCviewz/status/2082629305884930190)
+- Positive: [2572 · @KettlebellDan](https://x.com/KettlebellDan/status/2082901430374105117)
+- Positive: [2582 · @VillagesFlorida](https://x.com/VillagesFlorida/status/2083336589271339452)
+- Positive: [2586 · @HandsomeHank_](https://x.com/HandsomeHank_/status/2084013859220959697)
+- Positive: [2587 · @AhoyChunk](https://x.com/AhoyChunk/status/2084466863770083424)
+- Positive: [2590 · @DaveMountOnX](https://x.com/DaveMountOnX/status/2085140151752388912)
+- Positive: [2592 · @TantraX0](https://x.com/TantraX0/status/2085697138705801223)
+- Positive: [2595 · @allan_robII](https://x.com/allan_robII/status/2086923607633199479)
+- Positive: [2600 · @firatbilal](https://x.com/firatbilal/status/2087625093035819414)
+- Positive: [2604 · @AdemVessell_o](https://x.com/AdemVessell_o/status/2088278722495320230)
+- Positive: [2623 · @BrianEastwoodx](https://x.com/BrianEastwoodx/status/2090940756122845393)
+- Positive: [2625 · @IsikoCulture](https://x.com/IsikoCulture/status/2090996075117043714)
+- Positive: [2631 · @PeterOhser](https://x.com/PeterOhser/status/2092172383960637681)
+- Positive: [2652 · @ZeusRadls](https://x.com/ZeusRadls/status/2094278138406617350)
+- Positive: [2656 · @KhalidAliAlHaj2](https://x.com/KhalidAliAlHaj2/status/2094364815120793610)
+- Positive: [2658 · @bonesmegga](https://x.com/bonesmegga/status/2094446892709298261)
+- Positive: [2659 · @kayrmn](https://x.com/kayrmn/status/2094474061392773282)
+- Positive: [2660 · @stevenknowsweb](https://x.com/stevenknowsweb/status/2094488453333520833)
+- Positive: [2661 · @Explorerhoff53](https://x.com/Explorerhoff53/status/2094518908942446647)
+- Positive: [2664 · @XAmandaMoore](https://x.com/XAmandaMoore/status/2094543231325544487)
+- Negative: [2667 · @soladventur](https://x.com/soladventur/status/2094633271069938054)
+- Positive: [2670 · @lalovestrump](https://x.com/lalovestrump/status/2095234270554198435)
+- Positive: [2671 · @lalovestrump](https://x.com/lalovestrump/status/2095252111907004779)
+- Positive: [2675 · @lalovestrump](https://x.com/lalovestrump/status/2095603992411902390)
+- Positive: [2679 · @LaidBackDad701](https://x.com/LaidBackDad701/status/2096608097527558482)
+- Negative: [2692 · @ai_ae_fan](https://x.com/ai_ae_fan/status/2098951541021433885)
+- Positive: [2699 · @Updownupupright](https://x.com/Updownupupright/status/2100060376993837529)
+- Positive: [2700 · @KanikaBK](https://x.com/KanikaBK/status/2100094619115835443)
+- Positive: [2701 · @DJPTECHNO](https://x.com/DJPTECHNO/status/2100107155387097104)
+- Positive: [2702 · @pmcclelland](https://x.com/pmcclelland/status/2100308276680314973)
+- Positive: [2703 · @WILAFmedia](https://x.com/WILAFmedia/status/2100330892006756546)
+- Positive: [2704 · @ShortestSeller](https://x.com/ShortestSeller/status/2100385248349417691)
+- Positive: [2706 · @ShyneB0X](https://x.com/ShyneB0X/status/2100571581432861008)
+- Negative: [2719 · @tamedtornado](https://x.com/tamedtornado/status/2102729857796899208)
+- Positive: [2720 · @GrayMan004](https://x.com/GrayMan004/status/2102783571601613218)
+- Positive: [2725 · @CoffeeNGrit](https://x.com/CoffeeNGrit/status/2102907164712894588)
+- Positive: [2731 · @Dswain661](https://x.com/Dswain661/status/2103363637721411773)
+- Positive: [2763 · @BradGonzale1](https://x.com/BradGonzale1/status/2105388091183976599)
+- Positive: [2768 · @patrickjayson91](https://x.com/patrickjayson91/status/2105692169906610569)
+- Positive: [2769 · @MrDasCreates](https://x.com/MrDasCreates/status/2105694783272542411)
+- Negative: [2785 · @corintusss](https://x.com/corintusss/status/2106580892646863185)
+- Negative: [2806 · @JonSe5a](https://x.com/JonSe5a/status/2108097690613739732)
+- Positive: [2875 · @shortsbydaryl](https://x.com/shortsbydaryl/status/2110883724372091090)
+- Positive: [2886 · @mgr_au](https://x.com/mgr_au/status/2111277659116495254)
+- Positive: [2903 · @EricHippler](https://x.com/EricHippler/status/2111814995440804197)
+- Positive: [2954 · @Simo18121](https://x.com/Simo18121/status/2113096483931062354)
+- Positive: [2975 · @TJNEWTON24](https://x.com/TJNEWTON24/status/2113388801603281308)
+- Positive: [2976 · @TexasTrave88297](https://x.com/TexasTrave88297/status/2113390090475258356)
+- Positive: [2989 · @TheGW0414](https://x.com/TheGW0414/status/2113503735226024252)
+- Positive: [3123 · @RobSchmidt434](https://x.com/RobSchmidt434/status/2094322999885218261)
+- Positive: [3132 · @billycanada](https://x.com/billycanada/status/2094409862503432666)
+- Negative: [3218 · @thervconsortium](https://x.com/thervconsortium/status/2112262593318711519)
 
 ## Grok Bot
 
-- 差评：[863 · @AMBuildsStuff](https://x.com/AMBuildsStuff/status/2093032807123537943) — 多次叫停口头停实际仍动屏幕，假状态
-- 好评：[877 · @freedomwillwork](https://x.com/freedomwillwork/status/2092355364679475619) — 邮件周报预约合同简报，客户核ROI文件；愿付超额费；版本修复是转述。
-- 好评：[881 · @krushalkalkani](https://x.com/krushalkalkani/status/2092681839173312593) — 求职邮箱分流并草拟，未经批准不发；偏好做好单流程。
-- 好评：[883 · @MattarARK](https://x.com/MattarARK/status/2093016943146201127) — 多邮箱WhatsApp登录需人扫QR，项目研究教练简报；节时自述。
-- 好评：[884 · @MattMatthews121](https://x.com/MattMatthews121/status/2092636194374889643) — Quickbooks导出后处理转账租金误分类，自述修正未会计核验。
-- 好评：[890 · @NickAC1](https://x.com/NickAC1/status/2092706782430863587) — 高尔夫邮件触发自动订场用存卡；五分钟对比数月OpenClaw为个人自述。
-- 差评：[891 · @NiklausFuller](https://x.com/NiklausFuller/status/2092727022803968258) — 会议触发没运行，Bot未加入。
-- 好评：[894 · @partyplatter08](https://x.com/partyplatter08/status/2092731434163204297) — Bot监控既有网站间歇bug交Cursor修复；视频未核，不能证零人工。
-- 好评：[896 · @ProfBuehlerMIT](https://x.com/ProfBuehlerMIT/status/2092547231119294555) — 研究群体代码转AI城市游戏并部署自述；物理接入与论文是未来计划。
-- 差评：[897 · @QuentinWiley](https://x.com/QuentinWiley/status/2092682275620041108) — 一周只回复不执行任务自动化，重装更新无效；未指明任务类型。
-- 好评：[903 · @scheemunai](https://x.com/scheemunai/status/2092591711557947796) — 清理六个月邮件76订阅先HTML分类人审90秒再退订并留进度，数字自述。
-- 好评：[909 · @Teslaconomics](https://x.com/Teslaconomics/status/2093051866632593523) — 单租户租约对流水分笔汇总，自述满意信任；推广全房产账户是计划。
-- 好评：[911 · @undefinedKi](https://x.com/undefinedKi/status/2092597873540022426) — 按营养目标规划购物车94项，结账前停待人点；非无人付款。
-- 好评：[1136 · @arco0369](https://x.com/arco0369/status/2105430331926958093) — 500Apple笔记整理20一批提标题拆分等确认不删，未附样本。
-- 好评：[1138 · @CantBeatDees](https://x.com/CantBeatDees/status/2105054284685647983) — 保险条款解释Bot，报价仍需人工电话，同作者同产品。
-- 好评：[1140 · @Daniel191555486](https://x.com/Daniel191555486/status/2105036417705689595) — 账单租约期限提醒草回复须批准，产品自述。
-- 好评：[1141 · @fkysly](https://x.com/fkysly/status/2104685652449120619) — 意大利公交坏提前下车后Bot重排景点地图，自述。
-- 好评：[1146 · @joshdanielsjr](https://x.com/joshdanielsjr/status/2105015254229160241) — 梦幻球队排阵转会伤情点击代办自述。
-- 好评：[1147 · @JoshMeyer](https://x.com/JoshMeyer/status/2105361865123483906) — 查本地商家网站问题草拟营销邮件由人审发。
-- 好评：[1154 · @nickflynndev](https://x.com/nickflynndev/status/2105033691781312724) — 域名监控释放后两分抢注结账失败通知人手动，六分购入非全自动。
-- 差评：[1155 · @NobleBrown](https://x.com/NobleBrown/status/2104570319969083633) — Bot机自动重启回退两周数据，支持待恢复，建夜间离线备份。
-- 好评：[1156 · @sharecashBTC](https://x.com/sharecashBTC/status/2101334300062847307) — BuildHermes协作Bot点击物业API做不了的工单状态，没付款。
-- 好评：[1350 · @__Ashiq__](https://x.com/__Ashiq__/status/2107588136692052350) — 既有homelab让Bot入TailscaleSSH读文档核路由备份，非Bot从零装全栈。
-- 好评：[1353 · @AtomDogK9](https://x.com/AtomDogK9/status/2108346155432112235) — Grok指导非技术者装建职位，Bot首研究文档下载完成周日更新未来。
-- 好评：[1357 · @bybillx](https://x.com/bybillx/status/2108708068293034078) — 邮箱批准申领，Gmail回信42秒实测自述，永久规则未核。
-- 好评：[1358 · @DrPhiltill](https://x.com/DrPhiltill/status/2109051095012053436) — Bot找本地二手合规格电脑并给卖家问题139购得自述，非自动付款证据。
-- 好评：[1360 · @EntangledMatter](https://x.com/EntangledMatter/status/2110632461948612828) — 50图zip详细提示预建团队19页作品集途中答问，flawless与闭环自述。
-- 好评：[1367 · @MeowRocketGo](https://x.com/MeowRocketGo/status/2108338767937360281) — 手机游戏时Bot按规格制mod启用及踢人自述，飞行是建议不是已做。
-- 好评：[1368 · @neil404](https://x.com/neil404/status/2108343816411652125) — 老屋三Bot历史维护资助，汇设备年龄计划邮件，炉龄估计未核。
-- 差评：[1370 · @odhem4](https://x.com/odhem4/status/2109812553840779445) — 长期Bot项目负责人组织三CLI须常提醒已做已修，不适长期每日。
-- 好评：[1371 · @quzhiai](https://x.com/quzhiai/status/2107851107133444271) — 数日盯线下手机库存及时通知已选银色次日取，未到手。
-- 好评：[1372 · @rawdogmillionar](https://x.com/rawdogmillionar/status/2109402869879210281) — 原手填费用改短信Bot录表。
-- 好评：[1375 · @ryanrhinkle](https://x.com/ryanrhinkle/status/2107980313897177257) — 教会直播裁剪标题等待批准发布，两周95/100顺利无定义。
-- 好评：[1378 · @SteelyDanMxmlst](https://x.com/SteelyDanMxmlst/status/2107579206054072550) — 租房月结Bot主动发现15对12费率753自述未查合同。
-- 差评：[1383 · @XirtamEsrevni](https://x.com/XirtamEsrevni/status/2107223958471028928) — 旧论文三周未达目标，5至20分与dots为泛判断。
-- 好评：[1385 · @YaranZorx](https://x.com/YaranZorx/status/2109427173811470676) — 网易云到AppleMusic曲库版权分析半小时自述无歌单核验。
-- 好评：[2065 · @ltgiv](https://x.com/ltgiv/status/2097111727120830531) — Drive医疗表更新Bot跟踪checkin，非医疗结果。
-- 好评：[2067 · @EricHippler](https://x.com/EricHippler/status/2097104180217254034) — 15k Gmail隔夜清完耗全周但认为值。
-- 好评：[2125 · @Chris647Sold](https://x.com/Chris647Sold/status/2098561355997716669) — 物业站短信邮件合同报表日历发票语音，仍人建账单求增额度。
-- 差评：[2242 · @DaveShapi](https://x.com/DaveShapi/status/2113021211282141469) — 再次删除Bot，需手把手引导串行卡住、模型不透明无仪表。
-- 好评：[2257 · @SIAxiom](https://x.com/SIAxiom/status/2113210198060052906) — Bot整理下载并按内容找遗忘文件打开，用户称基本无鼠标。
-- 好评：[2258 · @LeeMatt17631](https://x.com/LeeMatt17631/status/2113208726970900543) — 十Bot处理邮件旅行账单等，发送需审批，六小时为个人估算。
-- 好评：[2259 · @jacobgay1989](https://x.com/jacobgay1989/status/2113212929491312648) — Bot找低价日用品与旅行自报省钱。
-- 差评：[2260 · @adrianX369](https://x.com/adrianX369/status/2113211592867483838) — Bot注册默认生日提交致后续拒绝，须适时问人。
-- 好评：[2273 · @darrenmarble](https://x.com/darrenmarble/status/2106894393684938764) — Bot跨平台迁博客含主页邮件与取消98美元费用，自报。
-- 好评：[2307 · @EAR68](https://x.com/EAR68/status/2111966664468394230) — Bot帮搬家账单求职等个人事务，健康法律结果未验证。
-- 好评：[2338 · @ericson4smith](https://x.com/ericson4smith/status/2113213139454148699) — Build建广告连接器Bot API排程暂停恢复投放与日报。
-- 好评：[2381 · @PravinVince](https://x.com/PravinVince/status/2110853401336517086) — Bot上线Etsy利润仪表SaaS，自述未证收入。
-- 好评：[2643 · @Douglance](https://x.com/Douglance/status/2093290014847181221) — 给Bot团队spec睡醒可玩变体Tetris，自报。
-- 好评：[2653 · @edtadros](https://x.com/edtadros/status/2094283100645945368) — Bot修异地RVNC及卡住Claude，密钥MCP处理满意。
-- 好评：[2682 · @slooowshutter](https://x.com/slooowshutter/status/2097096720672768510) — Bot发现生产MCP bug转另一Bot派Cursor15分修。
-- 好评：[2767 · @Frank_AI_Lab](https://x.com/Frank_AI_Lab/status/2105691477460373625) — Bot蝙蝠游戏自玩失败调三参数捕获，自报仿真非科学实证。
-- 好评：[2809 · @ndimares](https://x.com/ndimares/status/2108203260406276561) — Bot读工作DM主动派Cursor开PR，同事合并修站，非无人审批。
-- 好评：[2813 · @Chensagics](https://x.com/Chensagics/status/2108277718274203920) — BotHerdr派四CLI，人语音试玩反馈隔晨手机新构建自报。
-- 好评：[2858 · @rise_raise_ai](https://x.com/rise_raise_ai/status/2110462878616793544) — Bot玩具车游戏作者持续玩。
-- 好评：[2861 · @fabianschierz](https://x.com/fabianschierz/status/2110496967424160127) — 散步语音来回Bot管理Cursor建含认证网站。
-- 好评：[2862 · @Jinzbvm](https://x.com/Jinzbvm/status/2110543963522576663) — Bot本机高VRAM驱UnityBlenderTripo山海经游戏。
-- 好评：[2891 · @Napoleon__Bon](https://x.com/Napoleon__Bon/status/2111361733189333015) — Bot首次两分钟游戏自评比Build快，非控制比较。
-- 好评：[2923 · @JinghangCn](https://x.com/JinghangCn/status/2112567777727041994) — 五Bot交游戏链接，邀请码推广。
-- 好评：[2927 · @Serenejaysew](https://x.com/Serenejaysew/status/2112681601356210441) — BotUnity手机生存游戏迭代版本耗额高。
-- 好评：[2928 · @luxuryestate916](https://x.com/luxuryestate916/status/2112731152696131793) — Bot猜人游戏已有三国玩家自述。
-- 好评：[2955 · @yvshpvtil](https://x.com/yvshpvtil/status/2113104369377739221) — Bot日更repo目录通讯草稿，风险先问人。
-- 好评：[2969 · @thesoragirls](https://x.com/thesoragirls/status/2113343800592523736) — Bot持久企鹅角色做站游戏宣传片，同项目多产物一帖。
-- 好评：[2973 · @DigitalDaisyX](https://x.com/DigitalDaisyX/status/2113382637960044556) — Bot十分钟跨设备Starship游戏，Diablo级是愿望。
-- 好评：[2990 · @chriszeuch](https://x.com/chriszeuch/status/2113520329880482147) — Bot日更游戏新闻站，未核新闻真伪。
-- 好评：[3119 · @NickPassig](https://x.com/NickPassig/status/2094207894623555668) — BotCursorGitHub同步本地服务器，自用体验。
-- 好评：[3121 · @glenlittle](https://x.com/glenlittle/status/2094313326151180694) — Bot电脑BuildCLI可人直聊Git拉推，Bot审合接下一issue。
-- 好评：[3143 · @Johnsjawn](https://x.com/Johnsjawn/status/2094500107676951012) — Bot接SlackNotion邮件，主题演讲草稿不佳消息六八满意，人仍反应修。
-- 好评：[3148 · @oneandone_2](https://x.com/oneandone_2/status/2094540304837681224) — 给Bot独立邮箱共享文档笔记组织起草。
-- 好评：[3160 · @chipshopandy](https://x.com/chipshopandy/status/2094568188239401251) — Bot改企业站发优惠邮件发票转会计，数字招牌是未来。
-- 好评：[3183 · @rchase](https://x.com/rchase/status/2105378472323338546) — Bot全Notion文章迁SlackCanvas取消省1400年自报。
-- 好评：[3184 · @yukaichou](https://x.com/yukaichou/status/2105388565991756182) — Bot清15万邮件监多邮箱Slack，团队同线程纠正价值观点。
-- 好评：[3189 · @kashalkar](https://x.com/kashalkar/status/2105406317057790192) — Bot自电脑host GitHubRust MCP省VPSDocker测试迭代。
-- 好评：[3205 · @foda](https://x.com/foda/status/2109636711382647067) — Botv0项目自动同步VercelCursor无GitHub，流程顺。
-- 好评：[3208 · @erickson_works](https://x.com/erickson_works/status/2111490540554662382) — Bot概念提示BuildFusion实际建CAD，首试满意。
-- 好评：[3252 · @JeromeMarais01](https://x.com/JeromeMarais01/status/2113343087976333316) — Bot审改ClaudeVS微调，人业务上下文真机测所有决定。
-- 好评：[3260 · @dereko33x](https://x.com/dereko33x/status/2113422066074743208) — Bot语音重建HighLevel站Cloudflare，一次人登录后继续。
-- 好评：[3263 · @tfmonk](https://x.com/tfmonk/status/2113426162936426862) — Bot替Zapier并清忘取消DNS区，实际节省未量化。
-- 好评：[3269 · @realjohnnewburg](https://x.com/realjohnnewburg/status/2113460888799752573) — Bot基于开源repoLinuxAndroidStudio造启动器人开无线ADB部署。
+- Negative: [863 · @AMBuildsStuff](https://x.com/AMBuildsStuff/status/2093032807123537943)
+- Positive: [877 · @freedomwillwork](https://x.com/freedomwillwork/status/2092355364679475619)
+- Positive: [881 · @krushalkalkani](https://x.com/krushalkalkani/status/2092681839173312593)
+- Positive: [883 · @MattarARK](https://x.com/MattarARK/status/2093016943146201127)
+- Positive: [884 · @MattMatthews121](https://x.com/MattMatthews121/status/2092636194374889643)
+- Positive: [890 · @NickAC1](https://x.com/NickAC1/status/2092706782430863587)
+- Negative: [891 · @NiklausFuller](https://x.com/NiklausFuller/status/2092727022803968258)
+- Positive: [894 · @partyplatter08](https://x.com/partyplatter08/status/2092731434163204297)
+- Positive: [896 · @ProfBuehlerMIT](https://x.com/ProfBuehlerMIT/status/2092547231119294555)
+- Negative: [897 · @QuentinWiley](https://x.com/QuentinWiley/status/2092682275620041108)
+- Positive: [903 · @scheemunai](https://x.com/scheemunai/status/2092591711557947796)
+- Positive: [909 · @Teslaconomics](https://x.com/Teslaconomics/status/2093051866632593523)
+- Positive: [911 · @undefinedKi](https://x.com/undefinedKi/status/2092597873540022426)
+- Positive: [1136 · @arco0369](https://x.com/arco0369/status/2105430331926958093)
+- Positive: [1138 · @CantBeatDees](https://x.com/CantBeatDees/status/2105054284685647983)
+- Positive: [1140 · @Daniel191555486](https://x.com/Daniel191555486/status/2105036417705689595)
+- Positive: [1141 · @fkysly](https://x.com/fkysly/status/2104685652449120619)
+- Positive: [1146 · @joshdanielsjr](https://x.com/joshdanielsjr/status/2105015254229160241)
+- Positive: [1147 · @JoshMeyer](https://x.com/JoshMeyer/status/2105361865123483906)
+- Positive: [1154 · @nickflynndev](https://x.com/nickflynndev/status/2105033691781312724)
+- Negative: [1155 · @NobleBrown](https://x.com/NobleBrown/status/2104570319969083633)
+- Positive: [1156 · @sharecashBTC](https://x.com/sharecashBTC/status/2101334300062847307)
+- Positive: [1350 · @__Ashiq__](https://x.com/__Ashiq__/status/2107588136692052350)
+- Positive: [1353 · @AtomDogK9](https://x.com/AtomDogK9/status/2108346155432112235)
+- Positive: [1357 · @bybillx](https://x.com/bybillx/status/2108708068293034078)
+- Positive: [1358 · @DrPhiltill](https://x.com/DrPhiltill/status/2109051095012053436)
+- Positive: [1360 · @EntangledMatter](https://x.com/EntangledMatter/status/2110632461948612828)
+- Positive: [1367 · @MeowRocketGo](https://x.com/MeowRocketGo/status/2108338767937360281)
+- Positive: [1368 · @neil404](https://x.com/neil404/status/2108343816411652125)
+- Negative: [1370 · @odhem4](https://x.com/odhem4/status/2109812553840779445)
+- Positive: [1371 · @quzhiai](https://x.com/quzhiai/status/2107851107133444271)
+- Positive: [1372 · @rawdogmillionar](https://x.com/rawdogmillionar/status/2109402869879210281)
+- Positive: [1375 · @ryanrhinkle](https://x.com/ryanrhinkle/status/2107980313897177257)
+- Positive: [1378 · @SteelyDanMxmlst](https://x.com/SteelyDanMxmlst/status/2107579206054072550)
+- Negative: [1383 · @XirtamEsrevni](https://x.com/XirtamEsrevni/status/2107223958471028928)
+- Positive: [1385 · @YaranZorx](https://x.com/YaranZorx/status/2109427173811470676)
+- Positive: [2065 · @ltgiv](https://x.com/ltgiv/status/2097111727120830531)
+- Positive: [2067 · @EricHippler](https://x.com/EricHippler/status/2097104180217254034)
+- Positive: [2125 · @Chris647Sold](https://x.com/Chris647Sold/status/2098561355997716669)
+- Negative: [2242 · @DaveShapi](https://x.com/DaveShapi/status/2113021211282141469)
+- Positive: [2257 · @SIAxiom](https://x.com/SIAxiom/status/2113210198060052906)
+- Positive: [2258 · @LeeMatt17631](https://x.com/LeeMatt17631/status/2113208726970900543)
+- Positive: [2259 · @jacobgay1989](https://x.com/jacobgay1989/status/2113212929491312648)
+- Negative: [2260 · @adrianX369](https://x.com/adrianX369/status/2113211592867483838)
+- Positive: [2273 · @darrenmarble](https://x.com/darrenmarble/status/2106894393684938764)
+- Positive: [2307 · @EAR68](https://x.com/EAR68/status/2111966664468394230)
+- Positive: [2338 · @ericson4smith](https://x.com/ericson4smith/status/2113213139454148699)
+- Positive: [2381 · @PravinVince](https://x.com/PravinVince/status/2110853401336517086)
+- Positive: [2643 · @Douglance](https://x.com/Douglance/status/2093290014847181221)
+- Positive: [2653 · @edtadros](https://x.com/edtadros/status/2094283100645945368)
+- Positive: [2682 · @slooowshutter](https://x.com/slooowshutter/status/2097096720672768510)
+- Positive: [2767 · @Frank_AI_Lab](https://x.com/Frank_AI_Lab/status/2105691477460373625)
+- Positive: [2809 · @ndimares](https://x.com/ndimares/status/2108203260406276561)
+- Positive: [2813 · @Chensagics](https://x.com/Chensagics/status/2108277718274203920)
+- Positive: [2858 · @rise_raise_ai](https://x.com/rise_raise_ai/status/2110462878616793544)
+- Positive: [2861 · @fabianschierz](https://x.com/fabianschierz/status/2110496967424160127)
+- Positive: [2862 · @Jinzbvm](https://x.com/Jinzbvm/status/2110543963522576663)
+- Positive: [2891 · @Napoleon__Bon](https://x.com/Napoleon__Bon/status/2111361733189333015)
+- Positive: [2923 · @JinghangCn](https://x.com/JinghangCn/status/2112567777727041994)
+- Positive: [2927 · @Serenejaysew](https://x.com/Serenejaysew/status/2112681601356210441)
+- Positive: [2928 · @luxuryestate916](https://x.com/luxuryestate916/status/2112731152696131793)
+- Positive: [2955 · @yvshpvtil](https://x.com/yvshpvtil/status/2113104369377739221)
+- Positive: [2969 · @thesoragirls](https://x.com/thesoragirls/status/2113343800592523736)
+- Positive: [2973 · @DigitalDaisyX](https://x.com/DigitalDaisyX/status/2113382637960044556)
+- Positive: [2990 · @chriszeuch](https://x.com/chriszeuch/status/2113520329880482147)
+- Positive: [3119 · @NickPassig](https://x.com/NickPassig/status/2094207894623555668)
+- Positive: [3121 · @glenlittle](https://x.com/glenlittle/status/2094313326151180694)
+- Positive: [3143 · @Johnsjawn](https://x.com/Johnsjawn/status/2094500107676951012)
+- Positive: [3148 · @oneandone_2](https://x.com/oneandone_2/status/2094540304837681224)
+- Positive: [3160 · @chipshopandy](https://x.com/chipshopandy/status/2094568188239401251)
+- Positive: [3183 · @rchase](https://x.com/rchase/status/2105378472323338546)
+- Positive: [3184 · @yukaichou](https://x.com/yukaichou/status/2105388565991756182)
+- Positive: [3189 · @kashalkar](https://x.com/kashalkar/status/2105406317057790192)
+- Positive: [3205 · @foda](https://x.com/foda/status/2109636711382647067)
+- Positive: [3208 · @erickson_works](https://x.com/erickson_works/status/2111490540554662382)
+- Positive: [3252 · @JeromeMarais01](https://x.com/JeromeMarais01/status/2113343087976333316)
+- Positive: [3260 · @dereko33x](https://x.com/dereko33x/status/2113422066074743208)
+- Positive: [3263 · @tfmonk](https://x.com/tfmonk/status/2113426162936426862)
+- Positive: [3269 · @realjohnnewburg](https://x.com/realjohnnewburg/status/2113460888799752573)
 
 ## OpenCode
 
-- 好评：[170 · @acrogenesis](https://x.com/acrogenesis/status/2060111993022062645) — k8s启动OpenCode服务器处理日志/指派issue，自述好用
-- 好评：[174 · @bil0lali](https://x.com/bil0lali/status/2060035523972882661) — BigPickle五次改进130k tokens做终端俄罗斯方块自述可用
-- 差评：[175 · @ByteWayfarer](https://x.com/ByteWayfarer/status/2060074683781808505) — MiMo多会话重复推理不结束，浪费token
-- 好评：[182 · @flobeier](https://x.com/flobeier/status/2060049324780777589) — DeepSeekFlash整周重构Terraform够用0.60美元，自述反例廉价不必差
-- 好评：[183 · @gonzarldev](https://x.com/gonzarldev/status/2060139823168434665) — 试三工具后用OpenCode做世界杯预测应用，未具体比较指标
-- 好评：[191 · @Ron_averbuch](https://x.com/Ron_averbuch/status/2060102727523332345) — 希伯来文：PDF拆页扫描提字及下载视频，一提示各次，部分安装命令由人执行
-- 好评：[194 · @thefranke](https://x.com/thefranke/status/2060837857514635339) — RSS多来源按个人图形研究兴趣每日摘要，外链未读
-- 好评：[377 · @AndreasHerss](https://x.com/AndreasHerss/status/2067720455230742580) — Codex看不到PHP，OpenCodePowerShell修后回用GPT，同模型不同环境
-- 好评：[378 · @AristoSamos](https://x.com/AristoSamos/status/2065166337115136114) — OpenCode十分钟家庭gitea托管镜像Github
-- 好评：[382 · @BNyeggen](https://x.com/BNyeggen/status/2070627139259363664) — 券商API期权分析屏自述一提示，不核金融质量
-- 好评：[384 · @CalatheaAI](https://x.com/CalatheaAI/status/2070197921325408261) — 赛车首版可玩但朝向错随后bug，费用时间自述，测评账号关联待核
-- 差评：[388 · @HNothing60052](https://x.com/HNothing60052/status/2066654299220779450) — GLM思考冻结，原因不明
-- 好评：[389 · @isuryatk](https://x.com/isuryatk/status/2068946757187461360) — 24h音乐平台多服务模型，几周提速为反事实自述
-- 好评：[391 · @jimzhang7](https://x.com/jimzhang7/status/2070119193014591885) — 拆Jira日志DBskills让cmd内修bug免切平台，自述有效
-- 好评：[394 · @michaeltefula](https://x.com/michaeltefula/status/2068773250595704993) — 3DPacman多轮百万token，仍赞开源能力
-- 好评：[397 · @NeuralDEEPnet](https://x.com/NeuralDEEPnet/status/2065185854918684927) — GeminiAPI+OpenCode做太阳app速度满意
-- 差评：[399 · @ortegajorge](https://x.com/ortegajorge/status/2070644568790352130) — QwenXML与工具JSON解析不合、无路径列目录失败，作者分析未外验
-- 好评：[400 · @Rayterrill](https://x.com/Rayterrill/status/2068083789256159439) — 为孩子Unity游戏10美元多轮引导，图片错但孩子玩，非无缺陷
-- 差评：[401 · @realWeZZard](https://x.com/realWeZZard/status/2070059675274682715) — 软链文件判重命令错导致内容写两遍，路径拼写照原不推因果
-- 好评：[403 · @threepointone](https://x.com/threepointone/status/2068718370581536816) — 先给4k分析+SDK一次建恢复实验室，待打磨，非一提示无准备
-- 差评：[592 · @c0d33ngr](https://x.com/c0d33ngr/status/2080626519106326948) — GLM经NVIDIA160k后请求错，新聊恢复，根因未明
-- 好评：[595 · @fabianschierz](https://x.com/fabianschierz/status/2081510049793343665) — 目录前页排序过滤8分钟2%周额，X订阅经OpenCode自述
-- 好评：[604 · @MEMZyuzijiang](https://x.com/MEMZyuzijiang/status/2079885941427314986) — OpenCode+代数系统计算绘图项目，双语同项目一帖
-- 好评：[605 · @metapolys](https://x.com/metapolys/status/2083093393337630729) — SDD/Engram工作流做MMD查看器，自述功能未视频核
-- 好评：[606 · @namngology](https://x.com/namngology/status/2081322880688865363) — OpenClaw日常入口OpenCode编码esp编译测试刷写循环
-- 差评：[607 · @pegasusearl](https://x.com/pegasusearl/status/2080574215863112140) — Zed内OpenCode失败toolcall，免费模型原因是猜测
-- 好评：[611 · @reefy_ai](https://x.com/reefy_ai/status/2081189929103564902) — OS内核升级CI失败查修通过dev18场景后发生产，全程人工批准，非无人
-- 好评：[613 · @sdjn_wgc](https://x.com/sdjn_wgc/status/2082243260999676415) — 自然语言安装ClaudeDesktop并改CCSwitch配置，自述方便
-- 好评：[968 · @_bumblebee7_](https://x.com/_bumblebee7_/status/2090903983850152314) — 忘草图工具名自建，OpenCode免费Ox三小时，未核质量。
-- 好评：[971 · @AJPortuguese](https://x.com/AJPortuguese/status/2092271038478569531) — OpenCode本地Qwen做主体Codex打磨塔防。
-- 好评：[973 · @AnthonyPet37003](https://x.com/AnthonyPet37003/status/2094193301704323346) — OpenCode安装Sunshine连OmarchyVM音频，自述仅提示。
-- 差评：[975 · @aydriano_](https://x.com/aydriano_/status/2090839891307331990) — 中断烦人，自建自动Continue插件免盯线程；拥堵因果未证。
-- 好评：[976 · @BobStolzberg](https://x.com/BobStolzberg/status/2093066417746698590) — Cloudflare GTM员工OpenCode三分钟部署博客自述，安全非验证。
-- 好评：[977 · @boyang_xie](https://x.com/boyang_xie/status/2091424260803944730) — Ox做battlefarm，云部署尚未来，同引用只计一件。
-- 好评：[983 · @Daywalkerxxx69](https://x.com/Daywalkerxxx69/status/2091260068981281184) — 旧Mac Omarchy亮度音量编解码由OpenCode修自述，父帖内存非其数据。
-- 好评：[984 · @DEVDESIGNAGE](https://x.com/DEVDESIGNAGE/status/2093835317425942895) — 设计师首次待办应用，安装环境修权限推Github。
-- 好评：[985 · @devshowcse](https://x.com/devshowcse/status/2092983862179873109) — 自建语音字幕动画合视频工具，零成本自述，开源未发生。
-- 好评：[987 · @entrptaher](https://x.com/entrptaher/status/2092515173827535104) — 生产容器消失后提供镜像卷域名要求，七分钟恢复无丢失自述。
-- 好评：[992 · @HyelinLeeHere](https://x.com/HyelinLeeHere/status/2091673161079390343) — Ox体素世界首输出无需迭代自述；官方免费额度非本任务事实。
-- 好评：[994 · @KarelPelcak_](https://x.com/KarelPelcak_/status/2092547665816850875) — 免费Ox做梗商店UI满意，非真实交易或不限量核验。
-- 好评：[999 · @lkshaas](https://x.com/lkshaas/status/2093108914506158515) — 64G Mac本地Qwen修复验证自述，SSD卸载llama改造；速度同线程自测，榜单公告非结果。
-- 好评：[1002 · @MakanAnsariCG](https://x.com/MakanAnsariCG/status/2094200709721829674) — 修母亲手机需下载旧固件刷机工具，自述免复位；店修50两周为替代估计。
-- 好评：[1005 · @MaziyarPanahi](https://x.com/MaziyarPanahi/status/2091151868818854282) — Ox识火星直升机建取证应用自述，图片未核。
-- 差评：[1007 · @MuzinaWork](https://x.com/MuzinaWork/status/2092605038397137016) — 无效参数换模型仍不工作，续帖Ox消失。
-- 好评：[1014 · @seapy](https://x.com/seapy/status/2092415451292922210) — CHUWI屏转向由免费BigPickle几秒修自述。
-- 好评：[1015 · @SourceCodeplz](https://x.com/SourceCodeplz/status/2090880021191627216) — 33分做机场天气站30分更新，未核更新。
-- 好评：[1017 · @sy100x](https://x.com/sy100x/status/2094201945800008027) — 56分钟聊天UI，联网搜索下一步未做。
-- 差评：[1018 · @unk_data](https://x.com/unk_data/status/2090693389016875155) — 装OpenCode试Ox一段后停未完成。
-- 差评：[1020 · @vrajdesai78](https://x.com/vrajdesai78/status/2091566488641781810) — 射击模拟循环被网络错误打断尚未验证；48h是引用他人。
-- 差评：[1022 · @wotyagerrin](https://x.com/wotyagerrin/status/2090510677081206826) — Deepseek read调用反复停，手贴文件仍复发；解析原因推测。
-- 好评：[1024 · @yash_yk45](https://x.com/yash_yk45/status/2091441166730584172) — 滚动拆车3D自述，同日续帖同件。
-- 差评：[1025 · @yast95](https://x.com/yast95/status/2092351257411269058) — 离屏似冻结伴端点不可用，未证离屏因果。
-- 差评：[1026 · @Youssofal_](https://x.com/Youssofal_/status/2090975417201197250) — 正在修推理丢失导致重复的bug，根因自述未完成。
-- 好评：[1204 · @akshaygore2301](https://x.com/akshaygore2301/status/2105033580233855215) — spacebunny40分视频65tps自述质量好。
-- 差评：[1208 · @challikanteu](https://x.com/challikanteu/status/2102543206319878433) — MiMo快无大错但文件检索循环原因未知现似恢复。
-- 好评：[1209 · @coded_mind__](https://x.com/coded_mind__/status/2101535719592534341) — Linux蓝牙自修数小时无果OpenCode一分钟自述，另一正文同事件。
-- 差评：[1212 · @fareszr](https://x.com/fareszr/status/2102514745123500345) — 无头question使v2退出，途中错即便恢复仍exit1。
-- 差评：[1213 · @galagalat2](https://x.com/galagalat2/status/2102446536508793143) — Mimo计划后修改前反复循环，未测Pro。
-- 好评：[1216 · @jaquesbody](https://x.com/jaquesbody/status/2103210367945941045) — 新手免费Mimo12h做Minecraft主题求审内部质量，Fortnite未来。
-- 好评：[1217 · @K4rthik14](https://x.com/K4rthik14/status/2103922935593652363) — 免费模型七小游戏SpaceBunnyUI，未核具体模型接口归属。
-- 差评：[1219 · @liuqian16](https://x.com/liuqian16/status/2103551073688731927) — 反复400 reasoning_effort参数不允许。
-- 好评：[1222 · @mohitsankhla02](https://x.com/mohitsankhla02/status/2102108891287003166) — 招聘原型Deepseek Go不足3美元自述。
-- 好评：[1224 · @nucleoneutro](https://x.com/nucleoneutro/status/2102457249415283071) — 本地Omarchy Dolphin不支持工具换coder，Wayland与SSH环境修复自述。
-- 差评：[1225 · @parsasabetz](https://x.com/parsasabetz/status/2101455887848124710) — 每发消息卡看不到思考也停不了nightly。
-- 好评：[1226 · @RafsanHashemi](https://x.com/RafsanHashemi/status/2101669932941599192) — 20端点12函数1.5h全栈部署自述嫌慢，两帖同事件。
-- 差评：[1233 · @StarWindv9](https://x.com/StarWindv9/status/2102441319193080197) — Mimo半小时同参数重复调用，厂商归因仅作者判断。
-- 好评：[1410 · @0xranjeet](https://x.com/0xranjeet/status/2110650029765538250) — 装Windows免费DeepSeek赛车3D十分钟自述。
-- 好评：[1413 · @akartit](https://x.com/akartit/status/2110624591974658085) — 八参考图巴黎3D一夜3h24分48.97自述，续帖同件。
-- 好评：[1414 · @AkashManna17049](https://x.com/AkashManna17049/status/2110741030207451429) — 合盖代理停促菜单栏保持运行工具OpenCode造。
-- 好评：[1417 · @BilwarAmaan](https://x.com/BilwarAmaan/status/2107617724679823530) — v2不兼容ponytail自己改后可用自述。
-- 好评：[1425 · @jmdsgn](https://x.com/jmdsgn/status/2110018505286574356) — 自建贴纸工作室产贴纸，自述。
-- 差评：[1429 · @MiniKa6666](https://x.com/MiniKa6666/status/2110644558937894999) — Excel一次169x16中文输出截断挂六次耗尽Argon，机制作者解释。
-- 好评：[1434 · @oorestisime](https://x.com/oorestisime/status/2110305943959359562) — 内部OpenCode技能MCP自动化不随模型变，简单报告测开放模型。
-- 好评：[1435 · @poniatowska](https://x.com/poniatowska/status/2107215945097990481) — SpaceBunny甩兔游戏，自述。
-- 好评：[1436 · @resolvervicky](https://x.com/resolvervicky/status/2108636689036087782) — 其他工具额尽改免费BigPickle做Windows ticker。
-- 好评：[1445 · @zazzy_stardust](https://x.com/zazzy_stardust/status/2110720088085344388) — 免费Deepseek3D车76k零成本自述。
-- 好评：[1447 · @ziwenxu_](https://x.com/ziwenxu_/status/2108264440923611220) — Step5提示3D页雕塑9000粒子自述，其他入口仅建议。
-- 差评：[1454 · @Memme20000610](https://x.com/Memme20000610/status/2051087573947465832) — Codex周尽用OpenCodeMiniMax尚可靠长会话跑偏需分段。
-- 好评：[1596 · @0xBaldiola](https://x.com/0xBaldiola/status/2054247398176608599) — 银行投资聚合v1求资深review，未生产验证。
-- 好评：[1628 · @CreativeGracey](https://x.com/CreativeGracey/status/2059045688806392025) — OpenCode七代理PRD FastAPI零工后端自述。
-- 好评：[1631 · @srpanwar](https://x.com/srpanwar/status/2059011326253662648) — OpenCodeGPT5.5单提示游戏自述。
-- 差评：[1677 · @arrzzt](https://x.com/arrzzt/status/2061858381410046346) — MiniMax3 OpenCode到3/10停另一harness不，问根因。
-- 差评：[1834 · @starhawkever](https://x.com/starhawkever/status/2072103772067942765) — GoGLM反复读同文件耗额，别provider同模/同harness别模无问题。
-- 差评：[1874 · @arjunkshah21](https://x.com/arjunkshah21/status/2072807973748146502) — 一周好但压缩忘停多排队只最后，求YOLOgoal已五天未更，Tailscale手机。
-- 好评：[1911 · @sec0ndstate](https://x.com/sec0ndstate/status/2074994474082549996) — MarkdownOpenAPI先整理有效JSON再OpenCodepatch生成effectSDK顺。
-- 好评：[1929 · @Femi__idowu](https://x.com/Femi__idowu/status/2076073438179950715) — 按教程OpenCode协作空间首功能完成非全项目。
-- 好评：[1988 · @Olli757](https://x.com/Olli757/status/2079201893507641839) — Kimi重做同事酒店发现app评论区耗时但好。
-- 好评：[1991 · @nedar_r](https://x.com/nedar_r/status/2077462994808877127) — 3000人Discord反垃圾烦零代码自建SpamCatcher。
-- 好评：[2101 · @vijayst](https://x.com/vijayst/status/2096357284804718607) — 免费发票工具BigPickle几分钟自述。
-- 好评：[2102 · @suhaboncukcu](https://x.com/suhaboncukcu/status/2098551283560923178) — DeepseekGo小游戏满意。
-- 好评：[2236 · @manov_ik](https://x.com/manov_ik/status/2113177358220079353) — OpenCode逆向官方车机应用做自定义地图导航，自报。
-- 好评：[2330 · @patrick_kuhnke_](https://x.com/patrick_kuhnke_/status/2106812843706249535) — OpenCodeDeepseek设置Cloudflare托管exe，自报省时。
-- 好评：[2428 · @lofidewanto](https://x.com/lofidewanto/status/2059329539931582930) — OpenCode接CopilotSonnet三小时聊天应用。
-- 好评：[2444 · @uxAwais](https://x.com/uxAwais/status/2061394668160770190) — Figma设计OpenCode开发Claude修Netlify部署只域名付费。
-- 好评：[2455 · @lachlanglasgow](https://x.com/lachlanglasgow/status/2066424730723418551) — OpenCode等待生成期间TUI俄罗斯方块贪吃蛇扩展。
-- 好评：[2569 · @coltmcnealy](https://x.com/coltmcnealy/status/2082838064679010433) — OpenCode读CMO反馈文档改站，替代被Wix束缚与工程排期。
-- 好评：[2580 · @limegreenpeper1](https://x.com/limegreenpeper1/status/2083215883816886565) — OpenCode量化Deepseek22分体素游戏，硬件下一步待测。
-- 好评：[2603 · @combatsheep](https://x.com/combatsheep/status/2088240319263605115) — OpenCodeGodotAdmob更新先在低风险应用金丝雀测成功。
-- 好评：[2610 · @EmilioBlacksmit](https://x.com/EmilioBlacksmit/status/2088470492193735113) — OpenCodeDeepseek做足球经营模拟娱乐用途。
-- 好评：[2613 · @overcritical](https://x.com/overcritical/status/2088961175673327705) — OpenCode本地Qwen240k token做多图多武器有音游戏。
-- 好评：[2617 · @MGamalNasser](https://x.com/MGamalNasser/status/2089985496906883224) — OpenCodeDeepseekZed做演出结算分账替Excel，自报功能。
-- 差评：[2629 · @matthias_builds](https://x.com/matthias_builds/status/2091821984732606604) — OpenCode免费Ox三次计划卡牌仍不写代码。
-- 差评：[2635 · @jannotix](https://x.com/jannotix/status/2092454525726580838) — OpenCodeSol24h循环未修Fable一小时解，工程时间比API价重要。
-- 好评：[2688 · @Maxilux86](https://x.com/Maxilux86/status/2098001859621384359) — OpenCode隐私TEE开放模型建站上线。
-- 好评：[2690 · @amensanyii](https://x.com/amensanyii/status/2098444037581668706) — OpenCodePaper首作品集花超过月，已上线满意。
-- 好评：[2694 · @DigitalWebHero](https://x.com/DigitalWebHero/status/2099257224707068268) — OpenCode免费修Omarchy快捷键听写，配置后续待做。
-- 好评：[2707 · @theaasifj](https://x.com/theaasifj/status/2100824307157155992) — OpenCode城市规划游戏，不是实际城市预测验证。
-- 好评：[2740 · @DAVID_DEV26](https://x.com/DAVID_DEV26/status/2104494649297850581) — OpenCode两免费模型单提示代理公司站，自评设计非认证。
-- 好评：[2742 · @noisyb0y1](https://x.com/noisyb0y1/status/2104520880067907859) — OpenCode免费模型多人游戏自报120玩家，自修竞态，单提示链非无迭代。
-- 好评：[2758 · @amiee36120](https://x.com/amiee36120/status/2105199339027014137) — OpenCode修路由故障，背景不明。
-- 好评：[2771 · @Jashandeep31](https://x.com/Jashandeep31/status/2105721399763665036) — 计划后OpenCode三会话分三游戏40分0.87计算费自报。
-- 好评：[2777 · @AmanBuilds_](https://x.com/AmanBuilds_/status/2105767123004064222) — OpenCodeOpus借开源反编译repo让旧游戏iPhone可玩。
-- 好评：[2778 · @nirjoy_a](https://x.com/nirjoy_a/status/2105782734845313484) — OpenCodeSpaceBunny单会话Minecraft自报75FPS，未独立测。
-- 好评：[2799 · @Ifeanyi_Maulepe](https://x.com/Ifeanyi_Maulepe/status/2107824001498108266) — Stitch参考OpenCode实现Vercel托管作品集。
-- 好评：[2850 · @Vis3d_](https://x.com/Vis3d_/status/2110236724760850564) — OpenCodeFlappyBird可在X玩。
-- 好评：[2878 · @anya_yfa7](https://x.com/anya_yfa7/status/2111068485300457644) — OpenCode免费GLM单提示游戏推广下载。
-- 好评：[2902 · @channelerHua](https://x.com/channelerHua/status/2111808506127171657) — OpenCode三模型同跑酷均首次可用，新版慢但截图测，速度不等质量。
-- 好评：[2956 · @ssfdust](https://x.com/ssfdust/status/2113132415992651800) — OpenCodeGo定位ZFS虚机转译深层故障给缓解，额度充裕。
-- 好评：[2958 · @manov_ik](https://x.com/manov_ik/status/2113177372178759943) — OpenCode免费Deepseek车机导航真车工作，与2236同项目续帖。
-- 好评：[2971 · @MHM_Best](https://x.com/MHM_Best/status/2113354555396128863) — OpenCode一行提示22Mtoken四代理2h20Minecraft，自评只Opus5级。
-- 好评：[3041 · @LSanapalli](https://x.com/LSanapalli/status/2071932886081736882) — VPSOpenClaw接OpenCodeDeepseekMiniMax部署个人服务。
-- 好评：[3153 · @Crashoverride_X](https://x.com/Crashoverride_X/status/2094545674389852199) — OpenCode文件MCP整理目录结构。
-- 好评：[3250 · @ojabowalola](https://x.com/ojabowalola/status/2113338848998740204) — OpenCodeSlack此前不能换模型现自己接好。
-- 好评：[3251 · @MatthewMorgan14](https://x.com/MatthewMorgan14/status/2113339708101255614) — OpenCodeOpenSCADBlender需迭代后STL打印，较手工快自评。
+- Positive: [170 · @acrogenesis](https://x.com/acrogenesis/status/2060111993022062645)
+- Positive: [174 · @bil0lali](https://x.com/bil0lali/status/2060035523972882661)
+- Negative: [175 · @ByteWayfarer](https://x.com/ByteWayfarer/status/2060074683781808505)
+- Positive: [182 · @flobeier](https://x.com/flobeier/status/2060049324780777589)
+- Positive: [183 · @gonzarldev](https://x.com/gonzarldev/status/2060139823168434665)
+- Positive: [191 · @Ron_averbuch](https://x.com/Ron_averbuch/status/2060102727523332345)
+- Positive: [194 · @thefranke](https://x.com/thefranke/status/2060837857514635339)
+- Positive: [377 · @AndreasHerss](https://x.com/AndreasHerss/status/2067720455230742580)
+- Positive: [378 · @AristoSamos](https://x.com/AristoSamos/status/2065166337115136114)
+- Positive: [382 · @BNyeggen](https://x.com/BNyeggen/status/2070627139259363664)
+- Positive: [384 · @CalatheaAI](https://x.com/CalatheaAI/status/2070197921325408261)
+- Negative: [388 · @HNothing60052](https://x.com/HNothing60052/status/2066654299220779450)
+- Positive: [389 · @isuryatk](https://x.com/isuryatk/status/2068946757187461360)
+- Positive: [391 · @jimzhang7](https://x.com/jimzhang7/status/2070119193014591885)
+- Positive: [394 · @michaeltefula](https://x.com/michaeltefula/status/2068773250595704993)
+- Positive: [397 · @NeuralDEEPnet](https://x.com/NeuralDEEPnet/status/2065185854918684927)
+- Negative: [399 · @ortegajorge](https://x.com/ortegajorge/status/2070644568790352130)
+- Positive: [400 · @Rayterrill](https://x.com/Rayterrill/status/2068083789256159439)
+- Negative: [401 · @realWeZZard](https://x.com/realWeZZard/status/2070059675274682715)
+- Positive: [403 · @threepointone](https://x.com/threepointone/status/2068718370581536816)
+- Negative: [592 · @c0d33ngr](https://x.com/c0d33ngr/status/2080626519106326948)
+- Positive: [595 · @fabianschierz](https://x.com/fabianschierz/status/2081510049793343665)
+- Positive: [604 · @MEMZyuzijiang](https://x.com/MEMZyuzijiang/status/2079885941427314986)
+- Positive: [605 · @metapolys](https://x.com/metapolys/status/2083093393337630729)
+- Positive: [606 · @namngology](https://x.com/namngology/status/2081322880688865363)
+- Negative: [607 · @pegasusearl](https://x.com/pegasusearl/status/2080574215863112140)
+- Positive: [611 · @reefy_ai](https://x.com/reefy_ai/status/2081189929103564902)
+- Positive: [613 · @sdjn_wgc](https://x.com/sdjn_wgc/status/2082243260999676415)
+- Positive: [968 · @_bumblebee7_](https://x.com/_bumblebee7_/status/2090903983850152314)
+- Positive: [971 · @AJPortuguese](https://x.com/AJPortuguese/status/2092271038478569531)
+- Positive: [973 · @AnthonyPet37003](https://x.com/AnthonyPet37003/status/2094193301704323346)
+- Negative: [975 · @aydriano_](https://x.com/aydriano_/status/2090839891307331990)
+- Positive: [976 · @BobStolzberg](https://x.com/BobStolzberg/status/2093066417746698590)
+- Positive: [977 · @boyang_xie](https://x.com/boyang_xie/status/2091424260803944730)
+- Positive: [983 · @Daywalkerxxx69](https://x.com/Daywalkerxxx69/status/2091260068981281184)
+- Positive: [984 · @DEVDESIGNAGE](https://x.com/DEVDESIGNAGE/status/2093835317425942895)
+- Positive: [985 · @devshowcse](https://x.com/devshowcse/status/2092983862179873109)
+- Positive: [987 · @entrptaher](https://x.com/entrptaher/status/2092515173827535104)
+- Positive: [992 · @HyelinLeeHere](https://x.com/HyelinLeeHere/status/2091673161079390343)
+- Positive: [994 · @KarelPelcak_](https://x.com/KarelPelcak_/status/2092547665816850875)
+- Positive: [999 · @lkshaas](https://x.com/lkshaas/status/2093108914506158515)
+- Positive: [1002 · @MakanAnsariCG](https://x.com/MakanAnsariCG/status/2094200709721829674)
+- Positive: [1005 · @MaziyarPanahi](https://x.com/MaziyarPanahi/status/2091151868818854282)
+- Negative: [1007 · @MuzinaWork](https://x.com/MuzinaWork/status/2092605038397137016)
+- Positive: [1014 · @seapy](https://x.com/seapy/status/2092415451292922210)
+- Positive: [1015 · @SourceCodeplz](https://x.com/SourceCodeplz/status/2090880021191627216)
+- Positive: [1017 · @sy100x](https://x.com/sy100x/status/2094201945800008027)
+- Negative: [1018 · @unk_data](https://x.com/unk_data/status/2090693389016875155)
+- Negative: [1020 · @vrajdesai78](https://x.com/vrajdesai78/status/2091566488641781810)
+- Negative: [1022 · @wotyagerrin](https://x.com/wotyagerrin/status/2090510677081206826)
+- Positive: [1024 · @yash_yk45](https://x.com/yash_yk45/status/2091441166730584172)
+- Negative: [1025 · @yast95](https://x.com/yast95/status/2092351257411269058)
+- Negative: [1026 · @Youssofal_](https://x.com/Youssofal_/status/2090975417201197250)
+- Positive: [1204 · @akshaygore2301](https://x.com/akshaygore2301/status/2105033580233855215)
+- Negative: [1208 · @challikanteu](https://x.com/challikanteu/status/2102543206319878433)
+- Positive: [1209 · @coded_mind__](https://x.com/coded_mind__/status/2101535719592534341)
+- Negative: [1212 · @fareszr](https://x.com/fareszr/status/2102514745123500345)
+- Negative: [1213 · @galagalat2](https://x.com/galagalat2/status/2102446536508793143)
+- Positive: [1216 · @jaquesbody](https://x.com/jaquesbody/status/2103210367945941045)
+- Positive: [1217 · @K4rthik14](https://x.com/K4rthik14/status/2103922935593652363)
+- Negative: [1219 · @liuqian16](https://x.com/liuqian16/status/2103551073688731927)
+- Positive: [1222 · @mohitsankhla02](https://x.com/mohitsankhla02/status/2102108891287003166)
+- Positive: [1224 · @nucleoneutro](https://x.com/nucleoneutro/status/2102457249415283071)
+- Negative: [1225 · @parsasabetz](https://x.com/parsasabetz/status/2101455887848124710)
+- Positive: [1226 · @RafsanHashemi](https://x.com/RafsanHashemi/status/2101669932941599192)
+- Negative: [1233 · @StarWindv9](https://x.com/StarWindv9/status/2102441319193080197)
+- Positive: [1410 · @0xranjeet](https://x.com/0xranjeet/status/2110650029765538250)
+- Positive: [1413 · @akartit](https://x.com/akartit/status/2110624591974658085)
+- Positive: [1414 · @AkashManna17049](https://x.com/AkashManna17049/status/2110741030207451429)
+- Positive: [1417 · @BilwarAmaan](https://x.com/BilwarAmaan/status/2107617724679823530)
+- Positive: [1425 · @jmdsgn](https://x.com/jmdsgn/status/2110018505286574356)
+- Negative: [1429 · @MiniKa6666](https://x.com/MiniKa6666/status/2110644558937894999)
+- Positive: [1434 · @oorestisime](https://x.com/oorestisime/status/2110305943959359562)
+- Positive: [1435 · @poniatowska](https://x.com/poniatowska/status/2107215945097990481)
+- Positive: [1436 · @resolvervicky](https://x.com/resolvervicky/status/2108636689036087782)
+- Positive: [1445 · @zazzy_stardust](https://x.com/zazzy_stardust/status/2110720088085344388)
+- Positive: [1447 · @ziwenxu_](https://x.com/ziwenxu_/status/2108264440923611220)
+- Negative: [1454 · @Memme20000610](https://x.com/Memme20000610/status/2051087573947465832)
+- Positive: [1596 · @0xBaldiola](https://x.com/0xBaldiola/status/2054247398176608599)
+- Positive: [1628 · @CreativeGracey](https://x.com/CreativeGracey/status/2059045688806392025)
+- Positive: [1631 · @srpanwar](https://x.com/srpanwar/status/2059011326253662648)
+- Negative: [1677 · @arrzzt](https://x.com/arrzzt/status/2061858381410046346)
+- Negative: [1834 · @starhawkever](https://x.com/starhawkever/status/2072103772067942765)
+- Negative: [1874 · @arjunkshah21](https://x.com/arjunkshah21/status/2072807973748146502)
+- Positive: [1911 · @sec0ndstate](https://x.com/sec0ndstate/status/2074994474082549996)
+- Positive: [1929 · @Femi__idowu](https://x.com/Femi__idowu/status/2076073438179950715)
+- Positive: [1988 · @Olli757](https://x.com/Olli757/status/2079201893507641839)
+- Positive: [1991 · @nedar_r](https://x.com/nedar_r/status/2077462994808877127)
+- Positive: [2101 · @vijayst](https://x.com/vijayst/status/2096357284804718607)
+- Positive: [2102 · @suhaboncukcu](https://x.com/suhaboncukcu/status/2098551283560923178)
+- Positive: [2236 · @manov_ik](https://x.com/manov_ik/status/2113177358220079353)
+- Positive: [2330 · @patrick_kuhnke_](https://x.com/patrick_kuhnke_/status/2106812843706249535)
+- Positive: [2428 · @lofidewanto](https://x.com/lofidewanto/status/2059329539931582930)
+- Positive: [2444 · @uxAwais](https://x.com/uxAwais/status/2061394668160770190)
+- Positive: [2455 · @lachlanglasgow](https://x.com/lachlanglasgow/status/2066424730723418551)
+- Positive: [2569 · @coltmcnealy](https://x.com/coltmcnealy/status/2082838064679010433)
+- Positive: [2580 · @limegreenpeper1](https://x.com/limegreenpeper1/status/2083215883816886565)
+- Positive: [2603 · @combatsheep](https://x.com/combatsheep/status/2088240319263605115)
+- Positive: [2610 · @EmilioBlacksmit](https://x.com/EmilioBlacksmit/status/2088470492193735113)
+- Positive: [2613 · @overcritical](https://x.com/overcritical/status/2088961175673327705)
+- Positive: [2617 · @MGamalNasser](https://x.com/MGamalNasser/status/2089985496906883224)
+- Negative: [2629 · @matthias_builds](https://x.com/matthias_builds/status/2091821984732606604)
+- Negative: [2635 · @jannotix](https://x.com/jannotix/status/2092454525726580838)
+- Positive: [2688 · @Maxilux86](https://x.com/Maxilux86/status/2098001859621384359)
+- Positive: [2690 · @amensanyii](https://x.com/amensanyii/status/2098444037581668706)
+- Positive: [2694 · @DigitalWebHero](https://x.com/DigitalWebHero/status/2099257224707068268)
+- Positive: [2707 · @theaasifj](https://x.com/theaasifj/status/2100824307157155992)
+- Positive: [2740 · @DAVID_DEV26](https://x.com/DAVID_DEV26/status/2104494649297850581)
+- Positive: [2742 · @noisyb0y1](https://x.com/noisyb0y1/status/2104520880067907859)
+- Positive: [2758 · @amiee36120](https://x.com/amiee36120/status/2105199339027014137)
+- Positive: [2771 · @Jashandeep31](https://x.com/Jashandeep31/status/2105721399763665036)
+- Positive: [2777 · @AmanBuilds_](https://x.com/AmanBuilds_/status/2105767123004064222)
+- Positive: [2778 · @nirjoy_a](https://x.com/nirjoy_a/status/2105782734845313484)
+- Positive: [2799 · @Ifeanyi_Maulepe](https://x.com/Ifeanyi_Maulepe/status/2107824001498108266)
+- Positive: [2850 · @Vis3d_](https://x.com/Vis3d_/status/2110236724760850564)
+- Positive: [2878 · @anya_yfa7](https://x.com/anya_yfa7/status/2111068485300457644)
+- Positive: [2902 · @channelerHua](https://x.com/channelerHua/status/2111808506127171657)
+- Positive: [2956 · @ssfdust](https://x.com/ssfdust/status/2113132415992651800)
+- Positive: [2958 · @manov_ik](https://x.com/manov_ik/status/2113177372178759943)
+- Positive: [2971 · @MHM_Best](https://x.com/MHM_Best/status/2113354555396128863)
+- Positive: [3041 · @LSanapalli](https://x.com/LSanapalli/status/2071932886081736882)
+- Positive: [3153 · @Crashoverride_X](https://x.com/Crashoverride_X/status/2094545674389852199)
+- Positive: [3250 · @ojabowalola](https://x.com/ojabowalola/status/2113338848998740204)
+- Positive: [3251 · @MatthewMorgan14](https://x.com/MatthewMorgan14/status/2113339708101255614)
