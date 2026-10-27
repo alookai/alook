@@ -50,6 +50,8 @@ describe("rendered article contract", () => {
   });
 });
 
+vi.mock("../../src/lib/step-guides", () => ({ stepGuides: [] }));
+
 vi.mock("../src/lib/blog/topics", () => ({ blogTopics: [{ entries: [{ slug: "example" }] }] }));
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";

@@ -13,6 +13,7 @@ const blogRoutes = {
 }
 const blogAppPaths = {
   "/guides/page": "guides.js",
+  "/guides/[slug]/page": "step-guide.js",
   "/_not-found/page": "not-found.js",
   "/blog/(index)/page": "index.js",
   "/blog/[slug]/page": "post.js",

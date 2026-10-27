@@ -2,6 +2,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { basename, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { stepGuides } from "../src/lib/step-guides";
+
 type AppPathsManifest = Record<string, string>
 type RoutesManifest = {
   redirects: Array<{ source: string; destination: string }>
@@ -24,6 +26,7 @@ export function verifyZoneManifests(args: {
   blogRoutes: RoutesManifest
   blogPrerender: PrerenderManifest
   postSlugs: string[]
+  guideSlugs?: string[]
 }): void {
   const mainRoutes = Object.keys(args.mainAppPaths)
   assert(
@@ -41,6 +44,7 @@ export function verifyZoneManifests(args: {
   for (const required of [
     "/blog/(index)/page",
     "/guides/page",
+    "/guides/[slug]/page",
     "/blog/[slug]/page",
     "/blog/feed.xml/route",
     "/og/blog/[slug]/route",
@@ -50,7 +54,7 @@ export function verifyZoneManifests(args: {
   }
   assert(
     blogRoutes.every((route) => (
-      route === "/guides/page" ||
+      route === "/guides/page" || route === "/guides/[slug]/page" ||
       route.startsWith("/blog") ||
       route.startsWith("/og/blog") ||
       route.startsWith("/internal/blog-discovery") ||
@@ -66,6 +70,9 @@ export function verifyZoneManifests(args: {
   )
 
   const prerendered = new Set(Object.keys(args.blogPrerender.routes))
+  for (const slug of args.guideSlugs ?? []) {
+    assert(prerendered.has(`/guides/${slug}`), `Blog output is missing step guide ${slug}`)
+  }
   for (const slug of args.postSlugs) {
     assert(prerendered.has(`/blog/${slug}`), `Blog output is missing published post ${slug}`)
   }
@@ -98,6 +105,7 @@ export function verifyZoneOutput(webRoot: string): void {
     blogRoutes: readJson(join(blogNext, "routes-manifest.json")),
     blogPrerender: readJson(join(blogNext, "prerender-manifest.json")),
     postSlugs,
+    guideSlugs: stepGuides.map((guide) => guide.slug),
   })
 
   assert(!existsSync(join(webRoot, "public/blog")), "Main public tree still contains Blog assets")
