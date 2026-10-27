@@ -1,12 +1,8 @@
 "use client"
 
-import { useObservedRegion } from "@/lib/observability/regions"
-import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { memo, useCallback, useLayoutEffect, useMemo, useRef } from "react"
-import { defaultRangeExtractor, measureElement, useVirtualizer, type Range } from "@tanstack/react-virtual"
-import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
-import { Archive, ArchiveRestore, MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
+import { memo, useRef } from "react"
+import { Archive, ArchiveRestore, MessagesSquare, Plus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { LineClamp } from "@/components/ui/line-clamp"
 import { formatRelativeTime } from "@/lib/community/format-time"
@@ -14,7 +10,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { EmptyState } from "../empty-state"
 import { CreateForumThread, type NewForumThread } from "../messages/create-forum-thread"
 import type { ComposerProps } from "../messages/composer"
 import { PostTagDialog } from "./post-tag-dialog"
@@ -22,11 +17,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
-import { VirtualRows } from "../messages/virtual-cursor-list"
-import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
+import { ForumPostList } from "./forum-post-list"
+import type { VirtualListPositionScope } from "@/lib/community/virtual-list-position"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
@@ -37,13 +32,7 @@ import {
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
-const FORUM_VIRTUALIZER_DOM_MODE = "position"
-const FORUM_VIRTUALIZER_OVERSCAN = 5
 const POST_ACTION_CLASS = "grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 sm:opacity-0 sm:group-focus-within/card:opacity-100 sm:group-hover/card:opacity-100 sm:data-popup-open:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
-const forumRangeExtractor = (range: Range) => defaultRangeExtractor({
-  ...range,
-  overscan: range.overscan + range.endIndex - range.startIndex + 1,
-})
 
 export function shouldActivateForumRow(event: {
   key: string
@@ -138,9 +127,10 @@ export function ForumView({
   tagsKnown = true, tagsError = false, onRetryTags,
   hasMore, loadingMore, isFetching, isError, onLoadMore,
   onDeletePost, canDeletePost, deletingPost,
-  onScrollRoot,
+  onScrollRoot, positionScope,
 }: {
   forumChannelId: string
+  positionScope?: VirtualListPositionScope
   members: Member[]
   mentionCandidates?: ComposerProps["mentionCandidates"]
   observation?: import("@/lib/observability/regions").ResourceObservation
@@ -182,46 +172,6 @@ export function ForumView({
   const deletingFor = posts.find((post) => post.id === deletingForId) ?? null
   const setDeletingFor = (post: ForumThread | null) => setDeletingForId(post?.id ?? null)
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const bindScrollRoot = useCallback((node: HTMLDivElement | null) => {
-    scrollRef.current = node
-    onScrollRoot?.(node)
-  }, [onScrollRoot])
-  const alignedTagRef = useRef<string | null>(null)
-  const getItemKey = useCallback((index: number) => posts[index]?.id ?? index, [posts])
-  const estimateSize = useCallback(() => 128, [])
-  // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
-  const virtualizer = useVirtualizer({
-    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
-    directDomUpdatesMode: FORUM_VIRTUALIZER_DOM_MODE,
-    count: posts.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize,
-    measureElement: (element, entry, instance) => {
-      const size = measureElement(element, entry, instance)
-      if (size > 0) return size
-      const index = instance.indexFromElement(element)
-      const cached = instance.itemSizeCache.get(instance.options.getItemKey(index))
-      return cached && cached > 0 ? cached : instance.options.estimateSize(index)
-    },
-    getItemKey,
-    overscan: FORUM_VIRTUALIZER_OVERSCAN,
-    rangeExtractor: forumRangeExtractor,
-    initialRect: { width: 0, height: 800 },
-  })
-  const virtualItems = virtualizer.getVirtualItems()
-  const paginationRange = virtualizer.range
-  const paginationItems = useMemo(() => {
-    if (!paginationRange) return []
-    const indexes = new Set(defaultRangeExtractor({
-      ...paginationRange,
-      count: posts.length,
-      overscan: FORUM_VIRTUALIZER_OVERSCAN,
-    }))
-    return virtualItems.filter(item => indexes.has(item.index))
-  }, [paginationRange, posts.length, virtualItems])
-  const observedPosts = visibleVirtualItems(virtualizer).flatMap(item => posts[item.index] ? [posts[item.index]] : [])
-  useObservedRegion("forum", (!loading || posts.length > 0) && (!posts.length || observedPosts.length > 0), observedPosts.length, observation)
   const filterTags = [...new Set(availableTags)]
   const hasArchivedPosts = filterTags.includes(FORUM_ARCHIVE_TAG)
   const displayFilterTags = [
@@ -238,21 +188,6 @@ export function ForumView({
   } = useHorizontalOverflowRail<HTMLDivElement, HTMLButtonElement>({
     contentKey: filterTagKey,
     selectedKey: tag,
-  })
-  useLayoutEffect(() => {
-    if (posts.length === 0 || alignedTagRef.current === tag) return
-    alignedTagRef.current = tag
-    virtualizer.scrollToIndex(0, { align: "start" })
-  }, [posts.length, tag, virtualizer])
-  useVirtualCursorPagination({
-    virtualizer: { getVirtualItems: () => paginationItems },
-    count: posts.length,
-    enabled: !loading,
-    hasMore,
-    isFetching: isFetching || loadingMore,
-    isError,
-    onLoad: onLoadMore,
-    edge: "end",
   })
 
   const closeCompose = () => {
@@ -348,23 +283,12 @@ export function ForumView({
         </div>
       )}
 
-      <div
-        ref={bindScrollRoot}
-        role="main"
-        data-testid={tid.forumPostList}
-        className="flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] px-0 py-2 sm:px-4"
-      >
-        {loading && posts.length === 0 ? (
-          <ForumListSkeleton />
-        ) : posts.length === 0 ? (
-          <EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." />
-        ) : (
-          <>
-            <VirtualRows
-              directDomUpdatesMode={FORUM_VIRTUALIZER_DOM_MODE}
-              items={posts}
-              virtualizer={virtualizer}
-              renderItem={(p, index) => {
+      <ForumPostList
+        key={JSON.stringify([forumChannelId, tag])}
+        posts={posts} loading={loading} observation={observation} positionScope={positionScope}
+        hasMore={hasMore} loadingMore={loadingMore} isFetching={isFetching} isError={isError}
+        onLoadMore={onLoadMore} onScrollRoot={onScrollRoot} loadingContent={<ForumListSkeleton />}
+        renderPost={(p, index) => {
               const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
               const canDelete = !!onDeletePost && (canDeletePost?.(p) ?? false)
               const archived = p.tags.includes(FORUM_ARCHIVE_TAG)
@@ -496,11 +420,8 @@ export function ForumView({
                   </div>
                 </div>
               )
-              }}
-            />
-          </>
-        )}
-      </div>
+        }}
+      />
 
       {deletingFor && (
         <ConfirmDialog

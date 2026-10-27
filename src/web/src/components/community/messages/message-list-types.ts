@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { MessagePositionState, MessageRequest } from "@/lib/community/message-position"
+import type { VirtualListPositionScope } from "@/lib/community/virtual-list-position"
 
 export type MessageListProps = {
   observation?: import("@/lib/observability/regions").ResourceObservation
@@ -34,6 +35,7 @@ export type MessageListProps = {
   scrollToMessageId?: string | null
   initialPositionMessageId?: string | null
   positionEntry?: object | null
+  positionScope?: VirtualListPositionScope
   positionDataState?: MessagePositionState
   messageWindow?: object
   active?: boolean

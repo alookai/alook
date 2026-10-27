@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { createServer, Server } from "node:http"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import sharp from "sharp"
 import { describe, expect, it, vi } from "vitest"
-import { creativeCaptures, selectCreatives, creativeInputHashes, startCreativeServer, captureCreatives, main } from "../../src/web/app-store-capture/creative/capture.mjs"
+import { creativeCaptures, selectCreatives, startCreativeServer, captureCreatives, main } from "../../src/web/app-store-capture/creative/capture.mjs"
+import { assertArtworkHash, assertArtworkProvenance } from "./artwork-manifest"
 
 const root = resolve(import.meta.dirname, "../..")
 const { chromium } = createRequire(resolve(root, "src/web/package.json"))("@playwright/test")
@@ -90,13 +90,15 @@ describe("App Store creative PNG capture", () => {
     const source = JSON.parse(await readFile(resolve(root, "src/web/app-store-capture/creative/source.json"), "utf8"))
     expect(manifest.approvedPrototypeSha256).toBe(source.approvedPrototypeSha256)
     expect(manifest.encoding).toBe("RGB PNG")
+    expect(manifest.renderer).toMatch(/^\d+\./)
+    expect(manifest.repositoryHead).toMatch(/^[a-f0-9]{40}$/)
     expect(manifest.outputs.map(output => output.path)).toEqual(creativeCaptures.map(capture => capture.filename))
-    expect(manifest.inputs).toEqual(await creativeInputHashes())
+    assertArtworkProvenance(manifest, creativeCaptures.map(capture => capture.filename))
     for (const capture of creativeCaptures) {
       const bytes = await readFile(resolve(directory, capture.filename))
       expect(await sharp(bytes).metadata()).toMatchObject({ format: "png", width: capture.width, height: capture.height, channels: 3, hasAlpha: false, space: "srgb" })
       const output = manifest.outputs.find(output => output.asset === capture.asset)
-      expect(output.sha256).toBe(createHash("sha256").update(bytes).digest("hex"))
+      assertArtworkHash(bytes, output.sha256)
       expect(output.fontsLoaded).toBe(true)
       expect(output.images).toHaveLength(5)
       expect(output.criticalBounds).toHaveLength(8)

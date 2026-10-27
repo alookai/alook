@@ -1,11 +1,120 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
-import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, message, mount, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import type { MessageRequestResult } from "@/lib/community/message-position"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("native pagination and original semantic epoch", () => {
+  it.each(["viewport", "body"] as const)("waits for a real %s geometry event after an accepted page without a frame chain", async box => {
+    const h = mount({ messageWindow: {} })
+    h.move(0)
+    const top = bodyTop(h.root, "m0")
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    act(() => scrollFixture.latest.captureOlderPageAnchor()({ accepted: true, completed }))
+    if (box === "viewport") scrollFixture.height = 0
+    else scrollFixture.bodyHeights.set("m0", 0)
+    const received = {}
+    await act(async () => { complete({ status: "success", window: received }) })
+    h.update({ items: [...Array.from({ length: 50 }, (_, i) => message(`older${i}`)), ...h.input.items], messageWindow: received })
+    expect(scrollFixture.latest.paginationRequestPending).toBe(true)
+    expect(scrollFixture.frames.size).toBe(0)
+    act(() => vi.advanceTimersByTime(20000))
+    expect(scrollFixture.latest.paginationRequestPending).toBe(true)
+    expect(scrollFixture.frames.size).toBe(0)
+    if (box === "viewport") scrollFixture.height = 500
+    else scrollFixture.bodyHeights.set("m0", 100)
+    resize()
+    expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+    expect(scrollFixture.frames.size).toBe(0)
+  })
+  it.each(["empty", "error"] as const)("retires a pending receipt when the current view becomes %s", state => {
+    const h = mount({ messageWindow: {} })
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor()({ accepted: true, completed: new Promise<MessageRequestResult>(() => {}) }))
+    h.update({ positionDataState: state, ...(state === "empty" ? { items: [] } : {}) })
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+    runFrames()
+    expect(scrollFixture.frames.size).toBe(0)
+  })
+  it.each(["error", "retired", "unchanged", "superseded"] as const)("releases a %s receipt without inventing a body position", async outcome => {
+    const before = {}, received = {}
+    const h = mount({ messageWindow: before })
+    h.move(0)
+    const top = bodyTop(h.root, "m0")
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    act(() => scrollFixture.latest.captureOlderPageAnchor()({ accepted: true, completed }))
+    await act(async () => {
+      complete(outcome === "error" || outcome === "retired" ? { status: outcome }
+        : { status: "success", window: outcome === "unchanged" ? before : received })
+    })
+    h.update({ messageWindow: outcome === "superseded" ? {} : before })
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+    expect(bodyTop(h.root, "m0")).toBe(top)
+  })
+  it("does not restore an accepted page after the user takes a new reading position", async () => {
+    const h = mount({ messageWindow: {} })
+    h.move(0)
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    act(() => scrollFixture.latest.captureOlderPageAnchor()({ accepted: true, completed }))
+    h.move(300)
+    const top = bodyTop(h.root, "m3")
+    const received = {}
+    await act(async () => { complete({ status: "success", window: received }) })
+    h.update({ messageWindow: received, items: [message("older"), ...h.input.items] })
+    expect(bodyTop(h.root, "m3")).toBeCloseTo(top, 0)
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+    const settled = h.root.scrollTop
+    runFrames()
+    expect(h.root.scrollTop).toBe(settled)
+  })
+  it("keeps an accepted page pending until its new rows and body position commit", async () => {
+    const before = {}, received = {}
+    const h = mount({ messageWindow: before })
+    h.move(0)
+    const top = bodyTop(h.root, "m0")
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    act(() => scrollFixture.latest.captureOlderPageAnchor()({ accepted: true, completed }))
+    h.update({ isFetchingOlder: true })
+    await act(async () => { complete({ status: "success", window: received }) })
+    h.update({ messageWindow: received, isFetchingOlder: false, positionDataState: "pending" })
+    expect(scrollFixture.latest.paginationRequestPending).toBe(true)
+    expect(bodyTop(h.root, "m0")).toBe(top)
+    h.update({ positionDataState: "ready" })
+    expect(scrollFixture.latest.paginationRequestPending).toBe(true)
+    h.stage({ items: [...Array.from({ length: 50 }, (_, i) => message(`older${i}`)), ...h.input.items] })
+    expect(scrollFixture.latest.paginationRequestPending).toBe(true)
+    runFrames()
+    expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+  })
+  it("preserves the same body through a second prepend before the first command retires", async () => {
+    const h = mount({ messageWindow: {} })
+    h.move(0)
+    const top = bodyTop(h.root, "m0")
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    act(() => scrollFixture.latest.captureOlderPageAnchor()({ accepted: true, completed }))
+    const received = {}
+    await act(async () => { complete({ status: "success", window: received }) })
+    h.stage({ items: [...Array.from({ length: 50 }, (_, i) => message(`older${i}`)), ...h.input.items], messageWindow: received })
+    runFrames(1)
+    expect(scrollFixture.latest.paginationRequestPending).toBe(true)
+    h.stage({ items: [...Array.from({ length: 27 }, (_, i) => message(`oldest${i}`)), ...h.input.items] })
+    scrollFixture.bodyHeights.set("older49", 144)
+    h.update({ items: [...h.input.items] })
+    expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
+    expect(scrollFixture.latest.paginationRequestPending).toBe(false)
+    const settled = h.root.scrollTop
+    runFrames()
+    expect(h.root.scrollTop).toBe(settled)
+  })
   it("restores initial New intent and bounded settling after StrictMode effect replay", () => {
     const shown = vi.fn()
     const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 4 }))
@@ -84,12 +193,12 @@ describe("native pagination and original semantic epoch", () => {
     const stale = [...scrollFixture.frames.values()]
     const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
     const cancel = vi.spyOn(scrollFixture.latest.virtualizer, "cancelScroll")
-    h.stage({ scrollToMessageId: "unloaded" })
+    h.stage({ scrollToMessageId: "unloaded", positionDataState: "pending" })
     expect(cancel).toHaveBeenCalledTimes(1)
     expect(offset).not.toHaveBeenCalled()
     act(() => stale.forEach(callback => callback(performance.now())))
     expect(consumed).not.toHaveBeenCalled()
-    h.update({ items: [...h.input.items, message("unloaded")] })
+    h.update({ items: [...h.input.items, message("unloaded")], positionDataState: "ready" })
     expect(consumed).toHaveBeenCalledExactlyOnceWith("unloaded")
   })
   it("cancels an owned native index on user takeover without canceling ordinary native compensation", () => {
@@ -183,7 +292,7 @@ describe("native pagination and original semantic epoch", () => {
     const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
     act(() => scrollFixture.latest.scrollToBottom())
     const cancel = vi.spyOn(scrollFixture.latest.virtualizer, "cancelScroll")
-    h.stage({ scrollToMessageId: "unloaded" })
+    h.stage({ scrollToMessageId: "unloaded", positionDataState: "pending" })
     const before = h.root.scrollTop
     expect(cancel).toHaveBeenCalledOnce()
     expect(offset).not.toHaveBeenCalled()
@@ -194,16 +303,18 @@ describe("native pagination and original semantic epoch", () => {
     expect(offset).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
   })
-  it("waits for an absent explicit target, closes read, and finishes through its finite deadline", () => {
+  it("waits for an absent explicit target without polling past five seconds and finishes through its data event", () => {
     const consumed = vi.fn()
     const h = mount({ onScrollTargetPositioned: consumed })
-    h.update({ scrollToMessageId: "not-loaded" })
+    h.update({ scrollToMessageId: "not-loaded", positionDataState: "pending" })
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(consumed).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(5000))
+    act(() => vi.advanceTimersByTime(20000))
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    h.update({ items: [...h.input.items, message("not-loaded")] })
-    expect(consumed).not.toHaveBeenCalled()
+    expect(scrollFixture.frames.size).toBe(0)
+    h.update({ items: [...h.input.items, message("not-loaded")], positionDataState: "ready" })
+    expect(consumed).toHaveBeenCalledExactlyOnceWith("not-loaded")
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
   it("opens an explicit target only after its actual body geometry and ignores target data arriving after user takeover", () => {
     const consumed = vi.fn()
@@ -211,10 +322,10 @@ describe("native pagination and original semantic epoch", () => {
     h.update({ scrollToMessageId: "m4" })
     expect(consumed).toHaveBeenCalledWith("m4")
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    h.update({ scrollToMessageId: "unloaded" })
+    h.update({ scrollToMessageId: "unloaded", positionDataState: "pending" })
     fireEvent.wheel(h.root, { deltaY: -20 })
     runFrames()
-    h.update({ items: [...h.input.items, message("unloaded")] })
+    h.update({ items: [...h.input.items, message("unloaded")], positionDataState: "ready" })
     expect(consumed).toHaveBeenCalledTimes(1)
   })
 })

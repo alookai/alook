@@ -1,5 +1,9 @@
 # Artwork sources
 
+## Manual generation and recorded provenance
+
+`pnpm app-store:capture` and `pnpm app-store:creative` explicitly regenerate selected artwork. Committed images remain bound to their recorded render inputs when application source changes. CI verifies stored artifacts and provenance integrity, without requiring those historical inputs to match current source. A later manual render records the actual new input closure; retained batches can have different source-key sets. Old hashes and image bytes are preserved until that artwork is deliberately updated.
+
 ## Current component rendering
 
 `app/` is a local Next application outside the production router. `captures/poster.tsx` and `poster.css` retain the selected warm-orange composition, copy and illustrated hardware. Screen content comes from imported Web components, with the same data objects used by the public [Alook homepage](https://alook.ai/):

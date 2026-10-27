@@ -1,6 +1,6 @@
 "use client"
 
-import { createAtom, useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
@@ -17,6 +17,7 @@ export function useMessageListController({
   scrollToMessageId,
   initialPositionMessageId,
   positionEntry,
+  positionScope,
   positionDataState,
   messageWindow,
   active,
@@ -39,8 +40,6 @@ export function useMessageListController({
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
-  const settledEntry = useMemo(() => ({ entry: positionEntry, atom: createAtom(false) }), [positionEntry])
-  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(settledEntry.atom)
 
   const items = useMemo(
     () => flattenMessageItems(messages, newDividerBefore, !!hasMore, !!hasMoreNewer),
@@ -90,7 +89,6 @@ export function useMessageListController({
 
   const isLoading = (!!loading || !!initialLoadError) && messages.length === 0
   const authoritativeEmpty = !loading && !initialLoadError && messages.length === 0
-  const settleAnchorPosition = useCallback(() => setAnchorPositionSettled(true), [setAnchorPositionSettled])
   const {
     scrollRef,
     virtualizer,
@@ -104,6 +102,7 @@ export function useMessageListController({
     paginationRequestPending,
     captureOlderPageAnchor,
     captureNewerPageAnchor,
+    positionOutcome,
   } = useScrollAnchor({
     items,
     newDividerBefore,
@@ -111,6 +110,7 @@ export function useMessageListController({
     scrollToMessageId,
     initialPositionMessageId,
     positionEntry,
+    positionScope,
     positionDataState: positionDataState ?? (initialLoadError ? "error" : loading ? "pending" : undefined),
     messageWindow,
     active,
@@ -124,12 +124,11 @@ export function useMessageListController({
     presentRequest,
     localSubmitVersion,
     hasMoreOlder: hasMore,
-    onInitialPositionSettled: settleAnchorPosition,
   })
   const initialPosition = useInitialPositionTransition({
     firstWindowReady: !isLoading && (messages.length > 0 || !initialLoadError),
     authoritativeEmpty,
-    positionSettled: anchorPositionSettled,
+    positionSettled: positionOutcome !== "pending",
   })
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
-import type { Locator, Page, Request, Route } from "@playwright/test"
+import type { ElementHandle, Locator, Page, Request, Route } from "@playwright/test"
 import type { TiptapEditorHTMLElement } from "@tiptap/react"
 import { test, expect } from "./_fixtures/case-fixture"
 import {
@@ -92,6 +92,125 @@ function expectStableScroller(before: ScrollerGeometry, after: ScrollerGeometry)
     expect(Math.abs(after.firstVisibleOffset - before.firstVisibleOffset))
       .toBeLessThanOrEqual(1)
   }
+}
+
+async function sampleReadingPosition(scroller: Locator) {
+  return scroller.evaluate((element) => {
+    const viewport = element.getBoundingClientRect()
+    const content = element.querySelector<HTMLElement>("[data-message-list-content]")
+    const message = Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find(row => {
+        const rect = row.getBoundingClientRect()
+        return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom
+      })
+    return {
+      ready: content?.dataset.readPositionReady === "true"
+        && content.dataset.initialPositionPhase === "revealed" && content.getAttribute("aria-hidden") === "false",
+      mediaReady: document.fonts.status === "loaded"
+        && Array.from(element.querySelectorAll("img")).every(image => image.complete),
+      clientWidth: element.clientWidth,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+      anchor: message ? {
+        id: message.dataset.msgId!,
+        key: message.closest<HTMLElement>("[data-message-row-key]")!.dataset.messageRowKey!,
+        offset: message.getBoundingClientRect().top - viewport.top,
+      } : null,
+      rows: Array.from(element.querySelectorAll<HTMLElement>("[data-message-row-key]"))
+        .filter(row => {
+          const rect = row.getBoundingClientRect()
+          return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom
+        }).map(row => {
+          const message = row.querySelector<HTMLElement>("[data-msg-id]")
+          const body = message?.querySelector<HTMLElement>("[data-community-message-body]")
+          if (message && !body) throw new Error(`Missing fixture message body: ${message.dataset.msgId}`)
+          return {
+            key: row.dataset.messageRowKey!, height: row.getBoundingClientRect().height,
+            id: message?.dataset.msgId ?? null,
+            text: body ? body.textContent : row.textContent,
+            paragraphs: body ? Array.from(body.querySelectorAll("p"), paragraph => paragraph.textContent) : null,
+          }
+        }),
+    }
+  })
+}
+
+type ReadingPosition = Awaited<ReturnType<typeof sampleReadingPosition>>
+type ReadingRoot = ElementHandle<HTMLElement | SVGElement>
+
+async function settledReadingPosition(scroller: Locator): Promise<ReadingPosition> {
+  let previous = "", stableSince = 0
+  let settled: ReadingPosition | null = null
+  await expect.poll(async () => {
+    const current = await sampleReadingPosition(scroller)
+    const signature = JSON.stringify(current)
+    if (signature !== previous) {
+      previous = signature
+      stableSince = Date.now()
+    }
+    if (!current.ready || !current.mediaReady || !current.anchor || Date.now() - stableSince < 400) return false
+    settled = current
+    return true
+  }, { timeout: 10_000, intervals: [100] }).toBe(true)
+  return settled!
+}
+
+async function readingRoot(scroller: Locator): Promise<ReadingRoot> {
+  const root = await scroller.elementHandle()
+  expect(root).not.toBeNull()
+  return root!
+}
+
+async function expectReadingRootDetached(root: ReadingRoot): Promise<void> {
+  await expect.poll(() => root.evaluate(element => element.isConnected)).toBe(false)
+}
+
+async function expectReadingRootRecreated(previous: ReadingRoot, scroller: Locator): Promise<void> {
+  const current = await readingRoot(scroller)
+  expect(await current.evaluate((element, old) => element.isConnected && element !== old, previous)).toBe(true)
+  await current.dispose()
+  await previous.dispose()
+}
+
+async function expectReadingRootRetained(previous: ReadingRoot, scroller: Locator): Promise<void> {
+  const current = await readingRoot(scroller)
+  expect(await current.evaluate((element, old) => element.isConnected && element === old, previous)).toBe(true)
+  await current.dispose()
+  await previous.dispose()
+}
+
+async function expectReadingPositionRestored(scroller: Locator, before: ReadingPosition, fixture: { id: string; paragraphs: readonly string[] }): Promise<void> {
+  const after = await settledReadingPosition(scroller)
+  expect(after.anchor?.id).toBe(before.anchor?.id)
+  expect(after.anchor?.key).toBe(before.anchor?.key)
+  expect(Math.abs(after.anchor!.offset - before.anchor!.offset), "restored message offset within its viewport").toBeLessThanOrEqual(1)
+  for (const key of ["clientWidth", "clientHeight", "scrollHeight", "scrollTop"] as const) {
+    expect(Math.abs(after[key] - before[key]), `qualified snapshot ${key}`).toBeLessThanOrEqual(1)
+  }
+  expect(after.rows.map(({ key, id, text }) => ({ key, id, text }))).toEqual(before.rows.map(({ key, id, text }) => ({ key, id, text })))
+  for (const position of [before, after]) {
+    const body = position.rows.find(row => row.id === fixture.id)
+    expect(body, `visible fixture message ${fixture.id}`).toBeDefined()
+    expect(body?.paragraphs).toEqual(fixture.paragraphs)
+  }
+  for (let index = 0; index < before.rows.length; index += 1) {
+    expect(Math.abs(after.rows[index].height - before.rows[index].height), `restored row ${before.rows[index].key}`).toBeLessThanOrEqual(1)
+  }
+}
+
+async function expectCanonicalTail(scroller: Locator, messageId: string): Promise<void> {
+  await expect.poll(() => scroller.evaluate((element, messageId) => {
+    const content = element.querySelector<HTMLElement>("[data-message-list-content]")
+    const body = Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find(row => row.dataset.msgId === messageId)
+    const rect = body?.getBoundingClientRect(), viewport = element.getBoundingClientRect()
+    return {
+      ready: content?.dataset.readPositionReady === "true" && content.dataset.initialPositionPhase === "revealed",
+      visible: !!rect && rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom,
+      atEnd: Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop) <= 1,
+    }
+  }, messageId)).toEqual({ ready: true, visible: true, atEnd: true })
 }
 
 async function clickAuthoritativeOwnerChannelRow(page: Page, channelId: string): Promise<void> {
@@ -357,7 +476,7 @@ function trackSurfaceGets(page: Page, channelId: string): SurfaceGetTracker {
   return tracker
 }
 
-async function expectRetainedMountGets(
+async function expectReturnReadsAndGets(
   page: Page,
   channelId: string,
   departureReadState: ReadState,
@@ -435,10 +554,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await seedJoinServer("alice", "bob", serverId)
   const channelBobMessageId = await seedMessage("bob", channelId, `channel **target** ${stamp}`)
   const channelBobSecondMessageId = await seedMessage("bob", channelId, `channel _alternate_ ${stamp}`)
-  await seedMessage("alice", channelId, Array.from(
-    { length: 80 },
-    (_, index) => `scroll restoration line ${index} ${stamp}`,
-  ).join("\n\n"))
+  const channelScrollLines = Array.from({ length: 80 }, (_, index) => `scroll restoration line ${index} ${stamp}`)
+  const channelScrollMessageId = await seedMessage("alice", channelId, channelScrollLines.join("\n\n"))
   const openerId = await seedMessage("alice", channelId, `thread opener ${stamp}`)
   const threadId = await seedThread("alice", openerId, `mobile-thread-${stamp}`)
   const threadBobMessageId = await seedMessage("bob", threadId, `thread **target** ${stamp}`)
@@ -446,10 +563,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   for (let index = 0; index < 24; index += 1) {
     await seedMessage(index % 2 === 0 ? "alice" : "bob", dmId, `dm scroll row ${index} ${stamp}`)
   }
-  await seedMessage("bob", dmId, Array.from(
-    { length: 70 },
-    (_, index) => `dm scroll line ${index} ${stamp}`,
-  ).join("\n\n"))
+  const dmScrollLines = Array.from({ length: 70 }, (_, index) => `dm scroll line ${index} ${stamp}`)
+  const dmScrollMessageId = await seedMessage("bob", dmId, dmScrollLines.join("\n\n"))
   const bobInfo = await memberInfo("alice", serverId, userId("bob"))
   const aliceInfo = await memberInfo("alice", serverId, userId("alice"))
   const replyAuthorMention = `@${bobInfo.name}#${bobInfo.discriminator}`
@@ -969,6 +1084,20 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   expect(await latestSeq(alice.page, dmId)).toBe(beforeDmTypingSeq)
 
   const dmScroller = alice.page.getByTestId(tid.messageScroller)
+  await test.step("qualify a fresh DM entry after the sender-confirmed read projection", async () => {
+    const confirmed = await settledReadState(alice.page, dmId)
+    expect(confirmed.lastReadMessageId).toBe(dmReplyPayload.message.id)
+    expect(confirmed.lastReadSeq).toBe(beforeDmTypingSeq)
+    const gets = trackSurfaceGets(alice.page, dmId)
+    await alice.page.getByRole("button", { name: "Back" }).click()
+    await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me")
+    await alice.page.getByTestId(tid.dmRow(dmId)).click()
+    await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
+    await expectCanonicalTail(dmScroller, dmReplyPayload.message.id)
+    await expect(dmScroller.locator("[data-new-divider]")).toHaveCount(0)
+    await expectReturnReadsAndGets(alice.page, dmId, confirmed, gets)
+    gets.stop()
+  })
   await expect.poll(() => dmScroller.evaluate((element) => (
     element.scrollHeight - element.clientHeight
   ))).toBeGreaterThan(1600)
@@ -979,38 +1108,43 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   })
   expect(departedDmScrollTop).toBe(900)
   const dmReadState = await settledReadState(alice.page, dmId)
+  const dmReadingPosition = await settledReadingPosition(dmScroller)
+  expect(Math.abs(dmReadingPosition.scrollTop - departedDmScrollTop)).toBeLessThanOrEqual(1)
+  expect(dmReadingPosition.scrollHeight - dmReadingPosition.clientHeight - dmReadingPosition.scrollTop).toBeGreaterThan(1)
+  const departedDmRoot = await readingRoot(dmScroller)
   const dmReturnGets = trackSurfaceGets(alice.page, dmId)
   await alice.page.getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me")
+  await expectReadingRootDetached(departedDmRoot)
   await alice.page.getByTestId(tid.dmRow(dmId)).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
-  await expect(alice.page.getByTestId(tid.message(dmReadState.lastReadMessageId!))).toBeVisible()
-  await expectRetainedMountGets(alice.page, dmId, dmReadState, dmReturnGets)
-  expect(Math.abs(await dmScroller.evaluate((element) => element.scrollTop) - departedDmScrollTop))
-    .toBeGreaterThan(50)
+  await expectReadingPositionRestored(dmScroller, dmReadingPosition, { id: dmScrollMessageId, paragraphs: dmScrollLines })
+  await expectReadingRootRecreated(departedDmRoot, dmScroller)
+  await expectReturnReadsAndGets(alice.page, dmId, dmReadState, dmReturnGets)
   dmReturnGets.stop()
 
-  const departedDmReloadScrollTop = await dmScroller.evaluate((element) => {
-    element.scrollTop = 700
-    element.dispatchEvent(new Event("scroll"))
-    return element.scrollTop
+  await test.step("DM reload creates a new document and lands at its confirmed canonical tail", async () => {
+    const departedDmReloadScrollTop = await dmScroller.evaluate((element) => {
+      element.scrollTop = 700
+      element.dispatchEvent(new Event("scroll"))
+      return element.scrollTop
+    })
+    expect(departedDmReloadScrollTop).toBe(700)
+    const beforeReload = await settledReadingPosition(dmScroller)
+    expect(beforeReload.scrollHeight - beforeReload.clientHeight - beforeReload.scrollTop).toBeGreaterThan(1)
+    const dmReloadReadState = await settledReadState(alice.page, dmId)
+    expect(dmReloadReadState.lastReadMessageId).toBe(dmReplyPayload.message.id)
+    expect(dmReloadReadState.lastReadSeq).toBe(beforeDmTypingSeq)
+    const documentTimeOrigin = await alice.page.evaluate(() => performance.timeOrigin)
+    const dmReloadGets = trackSurfaceGets(alice.page, dmId)
+    await alice.page.reload({ waitUntil: "commit" })
+    await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
+    expect(await alice.page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(documentTimeOrigin)
+    await expectCanonicalTail(dmScroller, dmReplyPayload.message.id)
+    await expectReturnReadsAndGets(alice.page, dmId, dmReloadReadState, dmReloadGets)
+    dmReloadGets.stop()
+    expect(await latestSeq(alice.page, dmId)).toBe(beforeDmTypingSeq)
   })
-  expect(departedDmReloadScrollTop).toBe(700)
-  const dmReloadReadState = await settledReadState(alice.page, dmId)
-  const dmReloadGets = trackSurfaceGets(alice.page, dmId)
-  await alice.page.reload({ waitUntil: "commit" })
-  await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
-  const reloadedDmReadMessage = alice.page.getByTestId(tid.message(dmReloadReadState.lastReadMessageId!))
-  await expect(async () => {
-    expect(await reloadedDmReadMessage.count()).toBe(1)
-    expect(await reloadedDmReadMessage.isVisible()).toBe(true)
-  }).toPass({ timeout: 10_000 })
-  await expectRetainedMountGets(alice.page, dmId, dmReloadReadState, dmReloadGets)
-  expect(Math.abs(
-    await dmScroller.evaluate((element) => element.scrollTop) - departedDmReloadScrollTop,
-  )).toBeGreaterThan(50)
-  expect(await latestSeq(alice.page, dmId)).toBe(beforeDmTypingSeq)
-  dmReloadGets.stop()
 
   await alice.page.emulateMedia({ reducedMotion: "reduce" })
   await alice.page.evaluate(() => {
@@ -1057,20 +1191,27 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   })
   expect(readingPosition).toBe(2200)
   const channelReadState = await settledReadState(alice.page, channelId)
+  const channelSequence = await latestSeq(alice.page, channelId)
+  expect(channelReadState.lastReadSeq).toBe(channelSequence)
+  const channelReadingPosition = await settledReadingPosition(scroller)
+  expect(Math.abs(channelReadingPosition.scrollTop - readingPosition)).toBeLessThanOrEqual(1)
+  expect(channelReadingPosition.scrollHeight - channelReadingPosition.clientHeight - channelReadingPosition.scrollTop).toBeGreaterThan(1)
+  const departedChannelRoot = await readingRoot(scroller)
   const channelReturnGets = trackSurfaceGets(alice.page, channelId)
   await alice.page.getByRole("banner").getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
+  await expectReadingRootDetached(departedChannelRoot)
   await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(navigationDraft)
-  await expect(alice.page.getByTestId(tid.message(channelReadState.lastReadMessageId!))).toBeVisible()
-  expect(Math.abs(await scroller.evaluate((element) => element.scrollTop) - readingPosition))
-    .toBeGreaterThan(50)
-  await expectRetainedMountGets(alice.page, channelId, channelReadState, channelReturnGets)
+  await expectReadingPositionRestored(scroller, channelReadingPosition, { id: channelScrollMessageId, paragraphs: channelScrollLines })
+  await expectReadingRootRecreated(departedChannelRoot, scroller)
+  await expectReturnReadsAndGets(alice.page, channelId, channelReadState, channelReturnGets)
   channelReturnGets.stop()
+  expect(await latestSeq(alice.page, channelId)).toBe(channelSequence)
 })
 
-test("mobile thread return uses server read state instead of tab-local pixel memory", async ({ caseActors }) => {
+test("mobile thread return recreates its list and restores the qualified reading anchor", async ({ caseActors }) => {
   const actors = await caseActors(["alice"])
   const { asUser } = actors
   const { seedChannel, seedMessage, seedServer, seedThread } = actors.seed
@@ -1091,10 +1232,8 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   for (let index = 0; index < 24; index += 1) {
     await seedMessage("alice", threadId, `thread scroll row ${index} ${stamp}`)
   }
-  await seedMessage("alice", threadId, Array.from(
-    { length: 70 },
-    (_, index) => `thread scroll line ${index} ${stamp}`,
-  ).join("\n\n"))
+  const threadScrollLines = Array.from({ length: 70 }, (_, index) => `thread scroll line ${index} ${stamp}`)
+  const threadScrollMessageId = await seedMessage("alice", threadId, threadScrollLines.join("\n\n"))
   const threadReplyId = await seedMessage("alice", threadId, `scroll thread reply ${stamp}`)
 
   const alice = await asUser("alice")
@@ -1125,9 +1264,11 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   if (await scrollToPresent.isVisible()) await scrollToPresent.click()
   const threadIndicator = alice.page.getByTestId(tid.threadIndicator(openerId))
   await expect(threadIndicator).toBeVisible()
+  const parentRoot = await readingRoot(scroller)
   await threadIndicator.click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
   await expect(alice.page.getByTestId(tid.message(threadReplyId))).toBeVisible()
+  expect(await parentRoot.evaluate(element => element.isConnected)).toBe(true)
   const threadScroller = alice.page.getByTestId(tid.threadSplitPanel).getByTestId(tid.messageScroller)
   await expect.poll(() => threadScroller.evaluate((element) => (
     element.scrollHeight - element.clientHeight
@@ -1139,15 +1280,89 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   })
   expect(departedThreadScrollTop).toBe(900)
   const threadReadState = await settledReadState(alice.page, threadId)
+  expect(threadReadState.lastReadMessageId).toBe(threadReplyId)
+  const threadReadingPosition = await settledReadingPosition(threadScroller)
+  expect(Math.abs(threadReadingPosition.scrollTop - departedThreadScrollTop)).toBeLessThanOrEqual(1)
+  expect(threadReadingPosition.scrollHeight - threadReadingPosition.clientHeight - threadReadingPosition.scrollTop).toBeGreaterThan(1)
+  const departedThreadRoot = await readingRoot(threadScroller)
   const threadReturnGets = trackSurfaceGets(alice.page, threadId)
   await alice.page.goBack({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(draft)
+  await expectReadingRootDetached(departedThreadRoot)
+  await expectReadingRootRetained(parentRoot, scroller)
   await alice.page.goForward({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
-  await expect(alice.page.getByTestId(tid.message(threadReadState.lastReadMessageId!))).toBeVisible()
-  await expectRetainedMountGets(alice.page, threadId, threadReadState, threadReturnGets)
-  expect(Math.abs(await threadScroller.evaluate((element) => element.scrollTop) - departedThreadScrollTop))
-    .toBeGreaterThan(50)
+  await expectReadingPositionRestored(threadScroller, threadReadingPosition, { id: threadScrollMessageId, paragraphs: threadScrollLines })
+  await expectReadingRootRecreated(departedThreadRoot, threadScroller)
+  await expectReturnReadsAndGets(alice.page, threadId, threadReadState, threadReturnGets)
   threadReturnGets.stop()
+})
+
+test("mobile width change invalidates a previously qualified snapshot and falls back to its canonical tail", async ({ caseActors }) => {
+  test.setTimeout(120_000)
+  const actors = await caseActors(["alice"])
+  const { seedChannel, seedMessage, seedServer } = actors.seed
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `Mobile-width-${stamp}`)
+  const channelId = await seedChannel("alice", serverId, "width-fallback")
+  for (let index = 0; index < 24; index += 1) {
+    await seedMessage("alice", channelId, `width row ${index} ${stamp}`)
+  }
+  const widthScrollLines = Array.from({ length: 80 }, (_, index) => `width layout line ${index} ${stamp}`)
+  const widthScrollMessageId = await seedMessage("alice", channelId, widthScrollLines.join("\n\n"))
+  const tailId = await seedMessage("alice", channelId, `width canonical tail ${stamp}`)
+  const alice = await actors.asUser("alice")
+  await alice.page.setViewportSize({ width: 390, height: 844 })
+  const href = `/c/channels/${serverId}/${channelId}`
+  await gotoAfterUserWsAuth(alice.page, href)
+  await ignoreNextDevToolsPointerCapture(alice.page)
+  const scroller = alice.page.getByTestId(tid.messageScroller)
+  await expectCanonicalTail(scroller, tailId)
+  const sequence = await latestSeq(alice.page, channelId)
+  const read = await settledReadState(alice.page, channelId)
+  expect(read.lastReadMessageId).toBe(tailId)
+  expect(read.lastReadSeq).toBe(sequence)
+  await expect.poll(() => scroller.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(2200)
+  await scroller.evaluate(element => {
+    element.scrollTop = 1200
+    element.dispatchEvent(new Event("scroll"))
+  })
+  const departure = await settledReadingPosition(scroller)
+  expect(departure.scrollTop).toBe(1200)
+  expect(departure.scrollHeight - departure.clientHeight - departure.scrollTop).toBeGreaterThan(1)
+
+  await test.step("the unchanged viewport recreates the node and restores its qualified anchor", async () => {
+    const original = await readingRoot(scroller)
+    const gets = trackSurfaceGets(alice.page, channelId)
+    await alice.page.getByRole("banner").getByRole("button", { name: "Back" }).click()
+    await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
+    await expectReadingRootDetached(original)
+    await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
+    await expect.poll(() => new URL(alice.page.url()).pathname).toBe(href)
+    await expectReadingPositionRestored(scroller, departure, { id: widthScrollMessageId, paragraphs: widthScrollLines })
+    await expectReadingRootRecreated(original, scroller)
+    await expectReturnReadsAndGets(alice.page, channelId, read, gets)
+    gets.stop()
+  })
+
+  await test.step("a changed viewport rejects that snapshot and lands on the confirmed read tail", async () => {
+    const qualified = await settledReadingPosition(scroller)
+    expect(qualified.clientWidth).toBe(departure.clientWidth)
+    const original = await readingRoot(scroller)
+    const gets = trackSurfaceGets(alice.page, channelId)
+    await alice.page.getByRole("banner").getByRole("button", { name: "Back" }).click()
+    await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
+    await expectReadingRootDetached(original)
+    await alice.page.setViewportSize({ width: 430, height: 844 })
+    await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
+    await expect.poll(() => new URL(alice.page.url()).pathname).toBe(href)
+    await expectCanonicalTail(scroller, tailId)
+    expect(await scroller.evaluate(element => element.clientWidth)).not.toBe(qualified.clientWidth)
+    await expectReadingRootRecreated(original, scroller)
+    await expectReturnReadsAndGets(alice.page, channelId, read, gets)
+    gets.stop()
+  })
+  expect(await settledReadState(alice.page, channelId)).toEqual(read)
+  expect(await latestSeq(alice.page, channelId)).toBe(sequence)
 })
