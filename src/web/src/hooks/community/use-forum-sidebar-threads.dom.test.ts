@@ -838,7 +838,7 @@ describe("forum sidebar canonical projection", () => {
     await invalidateForumSidebarBaseExact(queryClient, "server-1")
   })
 
-  it("publishes an HTTP response once and renders later WS edits from the same rows", async () => {
+  it("publishes the HTTP opener title from canonical rows", async () => {
     const { queryClient, wrapper } = await setup()
     apiFetchMock.mockResolvedValue(envelope())
     const rendered = renderHook(
@@ -848,13 +848,7 @@ describe("forum sidebar canonical projection", () => {
 
     await waitFor(() => expect(rendered.result.current.threads[0]?.title)
       .toBe("Canonical title"))
-    act(() => projectCommunityWsEventToDb(queryClient, {
-      type: "community:message.edited",
-      channelId: "forum-1",
-      messageId: "opener-1",
-      content: "WS title",
-    }))
-    await waitFor(() => expect(rendered.result.current.threads[0]?.title).toBe("WS title"))
+
   })
 
   it("normalizes a persisted default opener before one successful canonical publish", async () => {

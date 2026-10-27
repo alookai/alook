@@ -322,7 +322,6 @@ vi.mock("@/hooks/community/mutations", () => ({
   usePinMessage: () => ({ mutate: vi.fn() }),
   useUnpinMessage: () => ({ mutate: vi.fn() }),
   useToggleMark: () => vi.fn(),
-  useEditMessage: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
   useCreateThread: () => ({ mutateAsync: vi.fn() }),
   useCreateForumThread: () => ({ mutateAsync: vi.fn() }),
   useUpdatePostTags: () => ({ mutate: vi.fn(), isPending: false }),

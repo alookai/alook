@@ -7,7 +7,7 @@ import { useCommunityRouter } from "@/contexts/community/module-route"
 import { toastApiError, apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
-import { useEditMessage, useToggleReactionApi } from "@/hooks/community/mutations"
+import { useToggleReactionApi } from "@/hooks/community/mutations"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
@@ -47,7 +47,6 @@ export function ThreadChannelSurface({
   parentMessageId,
   parentIsForum,
   threadOpenerHandoff,
-  childCreatorId,
   canRenameThread,
   onNavigateParent,
   notificationLevel,
@@ -76,7 +75,6 @@ export function ThreadChannelSurface({
   parentMessageId: string | null
   parentIsForum: boolean
   threadOpenerHandoff?: ThreadOpenerReadHandoff | null
-  childCreatorId?: string | null
   canRenameThread: boolean
   onNavigateParent: () => void
   notificationLevel: ChannelNotifLevel
@@ -109,7 +107,6 @@ export function ThreadChannelSurface({
     viewerName: viewer.name,
     viewerDiscriminator: viewer.discriminator,
   })
-  const { mutateAsync: editMessageAsync } = useEditMessage()
   const toggleReactionApi = useToggleReactionApi()
   const toggleOpenerReaction = useCallback((emoji: string) => {
     if (!parentChannelId || !parentMessageId) return
@@ -142,23 +139,7 @@ export function ThreadChannelSurface({
     setRightPanel((current) => current === panel ? null : panel)
   }, [setRightPanel])
   const openPinned = useCallback(() => setRightPanel("pinned"), [setRightPanel])
-  const rename = parentIsForum && parentChannelId && parentMessageId && childCreatorId === viewer.id
-    ? async (name: string) => {
-        try {
-          await editMessageAsync({
-            serverId,
-            channelId: parentChannelId,
-            messageId: parentMessageId,
-            content: name,
-            forumChannelId: parentChannelId,
-            forumThreadId: channelId,
-          })
-        } catch (error) {
-          toastApiError(error, "Failed to edit post")
-          throw error
-        }
-      }
-    : !parentIsForum && canRenameThread
+  const rename = !parentIsForum && canRenameThread
       ? async (name: string) => {
           try {
             await apiFetch(`/api/community/channels/${channelId}`, {
@@ -228,7 +209,6 @@ export function ThreadChannelSurface({
               mobileBack={compactActions ? undefined : onNavigateParent}
               mobileBackDisplay="always"
               tools={{ threads: false }}
-              titleRename={parentIsForum}
               onRename={parentChannelId && !compactActions ? rename : undefined}
               compactActions={compactActions}
               endActions={splitActions ? (

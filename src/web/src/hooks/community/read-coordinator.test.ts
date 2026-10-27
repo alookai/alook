@@ -438,15 +438,15 @@ describe("read coordinator", () => {
       await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
       ingestMessages(registry, "other", [{ id: "event", type: "chat", content: "old" }])
       projectCommunityWsEventToDb(queryClient, {
-        type: "community:message.edited",
+        type: "community:reaction.add",
         channelId: "other",
         messageId: "event",
-        content: "new",
+        emoji: "👍", userId: "peer",
       })
 
       rejectPut(new ApiError("forbidden", 403))
       await vi.waitFor(() => expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4))
-      expect(registry.collections.messages.get("event")?.content).toBe("new")
+      expect(registry.collections.messages.get("event")?.reactions).toMatchObject([{ emoji: "👍", userIds: ["peer"] }])
       expect(reconcileAccountAttention).not.toHaveBeenCalled()
     } finally {
       disposeReadCoordinator(queryClient)
@@ -646,10 +646,10 @@ describe("read coordinator", () => {
       if (conflict) {
         ingestMessages(registry, "other", [{ id: "event", type: "chat", content: "old" }])
         projectCommunityWsEventToDb(queryClient, {
-          type: "community:message.edited",
+          type: "community:reaction.add",
           channelId: "other",
           messageId: "event",
-          content: "new",
+          emoji: "👍", userId: "peer",
         })
       }
 
@@ -657,7 +657,7 @@ describe("read coordinator", () => {
         expect(cancelInboxProjectionTicket(ticket)).toBe(true)
         expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)
         expect(reconcileAccountAttention).not.toHaveBeenCalled()
-        if (conflict) expect(registry.collections.messages.get("event")?.content).toBe("new")
+        if (conflict) expect(registry.collections.messages.get("event")?.reactions).toMatchObject([{ emoji: "👍", userIds: ["peer"] }])
       } finally {
         disposeInboxReadReservation(queryClient)
         unregister()

@@ -581,7 +581,7 @@ describe("community DB sync", () => {
     expect(db.collections.profiles.get("peer")).toMatchObject({ name: "Peer" })
   })
 
-  it("preserves a same-entity WS message edit over an older HTTP response", async () => {
+  it("preserves a same-entity WS message reaction over an older HTTP response", async () => {
     const db = await registry()
     const staleMessage = {
       id: "m1",
@@ -594,10 +594,10 @@ describe("community DB sync", () => {
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
     projectCommunityWsEventToDb(db.queryClient, {
-      type: "community:message.edited",
+      type: "community:reaction.add",
       channelId: "c1",
       messageId: "m1",
-      content: "new WS value",
+      emoji: "👍", userId: "viewer",
     } as CommunityWsEvent)
     publishCommunityMessages(db.queryClient, {
       channelId: "c1",
@@ -605,7 +605,7 @@ describe("community DB sync", () => {
       proof: { token, signal: undefined },
     })
 
-    expect(db.collections.messages.get("m1")?.content).toBe("new WS value")
+    expect(db.collections.messages.get("m1")?.reactions).toMatchObject([{ emoji: "👍", userIds: ["viewer"] }])
   })
 
   it("preserves a local canonical message patch over an older HTTP response", async () => {
@@ -636,15 +636,15 @@ describe("community DB sync", () => {
     ])
   })
 
-  it("merges a WS message edit for an absent row into an older HTTP response", async () => {
+  it("merges a WS message reaction for an absent row into an older HTTP response", async () => {
     const db = await registry()
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
     projectCommunityWsEventToDb(db.queryClient, {
-      type: "community:message.edited",
+      type: "community:reaction.add",
       channelId: "c1",
       messageId: "m1",
-      content: "new WS value",
+      emoji: "👍", userId: "viewer",
     } as CommunityWsEvent)
     publishCommunityMessages(db.queryClient, {
       channelId: "c1",
@@ -658,7 +658,7 @@ describe("community DB sync", () => {
       proof: { token, signal: undefined },
     })
 
-    expect(db.collections.messages.get("m1")?.content).toBe("new WS value")
+    expect(db.collections.messages.get("m1")?.reactions).toMatchObject([{ emoji: "👍", userIds: ["viewer"] }])
 
     db.collections.messages.utils.writeDelete("m1")
     db.queryClient.setQueryData(
@@ -691,10 +691,10 @@ describe("community DB sync", () => {
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
     for (let index = 0; index < 100; index += 1) {
       projectCommunityWsEventToDb(db.queryClient, {
-        type: "community:message.edited",
+        type: "community:reaction.add",
         channelId: "c1",
         messageId: "m1",
-        content: `edit ${index}`,
+        emoji: "👍", userId: "viewer",
       } as CommunityWsEvent)
     }
 
@@ -2732,7 +2732,7 @@ describe("community DB sync", () => {
     await anonymous["cleanup"]()
 
     projectCommunityWsEventToDb(new QueryClient(), {
-      type: "community:message.edited", channelId: "missing", messageId: "missing", content: "noop",
+      type: "community:reaction.add", channelId: "missing", messageId: "missing", emoji: "👍", userId: "viewer",
     } as CommunityWsEvent)
   })
 
@@ -3060,10 +3060,10 @@ describe("community DB sync", () => {
     expect([...db.collections.messages.keys()]).toEqual([])
     ingestMessages(db, "c1", [message("pin", "pin")])
     projectCommunityWsEventToDb(db.queryClient, {
-      type: "community:message.edited",
+      type: "community:reaction.add",
       channelId: "c1",
       messageId: "pin",
-      content: "edited",
+      emoji: "👍", userId: "viewer",
     } as CommunityWsEvent)
     projectCommunityWsEventToDb(db.queryClient, {
       type: "community:reaction.add",
@@ -3073,7 +3073,7 @@ describe("community DB sync", () => {
       emoji: "👍",
     } as CommunityWsEvent)
     expect(db.collections.messages.get("pin")).toMatchObject({
-      content: "edited",
+      content: "pin",
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["viewer"] }],
     })
     db.queryClient.setQueryData(communityKeys.message("pin"), message("pin", "stale"))
@@ -3144,10 +3144,10 @@ describe("community DB sync", () => {
       content: "cold opener",
     })
     projectCommunityWsEventToDb(db.queryClient, {
-      type: "community:message.edited",
+      type: "community:reaction.add",
       channelId: "forum1",
       messageId: "opener",
-      content: "edited opener",
+      emoji: "👍", userId: "viewer",
     } as CommunityWsEvent)
     projectCommunityWsEventToDb(db.queryClient, {
       type: "community:reaction.add",
@@ -3157,7 +3157,7 @@ describe("community DB sync", () => {
       emoji: "👍",
     } as CommunityWsEvent)
     expect(db.collections.messages.get("opener")).toMatchObject({
-      content: "edited opener",
+      content: "cold opener",
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["viewer"] }],
     })
     uninstall()

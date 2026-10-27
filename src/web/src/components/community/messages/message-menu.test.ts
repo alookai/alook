@@ -22,20 +22,12 @@ describe("messageMenuItems", () => {
     expect(onShare).toHaveBeenCalledOnce()
   })
 
-  it("keeps Edit Message hidden even when the author-scoped handler is provided", () => {
-    expect(messageMenuItems({}).some((it) => it.label === "Edit Message")).toBe(false)
-    const onEdit = vi.fn()
-    expect(messageMenuItems({ onEdit })).toEqual([])
-    expect(hasMessageMenu({ onEdit })).toBe(false)
-    expect(onEdit).not.toHaveBeenCalled()
-  })
-
   it("gives only the high-frequency actions (Reply, Share) an icon; the rest text-only", () => {
     // Locked spec (uiux #14): single list; icons only on Reply + Share as
     // navigation anchors; low-freq actions are text (icon slot → placeholder).
     const items = messageMenuItems({
       onReply: () => {}, onShare: () => {}, onAddReaction: () => {},
-      onCreateThread: () => {}, onPin: () => {}, onCopy: () => {}, onEdit: () => {},
+      onCreateThread: () => {}, onPin: () => {}, onCopy: () => {},
     })
     const iconLabels = items.filter((it) => it.icon).map((it) => it.label)
     expect(iconLabels).toEqual(["Reply", "Share as Image"])
@@ -48,7 +40,7 @@ describe("messageMenuItems", () => {
   it("keeps the original row order — icons don't reorder the list (uiux #19)", () => {
     const labels = messageMenuItems({
       onReply: () => {}, onShare: () => {}, onAddReaction: () => {},
-      onCreateThread: () => {}, onPin: () => {}, onCopy: () => {}, onEdit: () => {},
+      onCreateThread: () => {}, onPin: () => {}, onCopy: () => {},
     }).map((it) => it.label)
     expect(labels).toEqual(["Add Reaction", "Reply", "Create Thread", "Pin Message", "Copy Text", "Share as Image"])
     expect(labels).not.toContain("sep")

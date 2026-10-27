@@ -104,7 +104,7 @@ it("keeps post-ready commands and their requests on the visited page, captures o
   finishAction(pageA, "success", { phase: "primary", region: "bots" })
   const loadEnd = exporter.getFinishedSpans().find(s => s.name === "navigation")!.endTime
   expect(currentPageObservation()).toBe(pageA)
-  const command = startAction("message.edit")!
+  const command = startAction("message.mark")!
   const pending = startRequest("/api/community/bots", { observation: { action: command, reason: "command" } })!
   const pageB = beginNavigation(b)!
   expect(currentPageObservation()).toBe(pageA)

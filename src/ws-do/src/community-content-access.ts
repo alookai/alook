@@ -5,7 +5,6 @@ type AccessKind = "channel" | "child-create" | "child-update" | "channel-create"
 export const communityContentAccessKinds = {
   "community:message.create": "channel",
   "community:message.updated": "channel",
-  "community:message.edited": "channel",
   "community:reaction.add": "channel",
   "community:reaction.remove": "channel",
   "community:pin.add": "channel",
@@ -93,7 +92,6 @@ export async function canDeliverCommunityContent(
         scopes.push({ id: event.channel.id, serverId: event.serverId })
         break
       case "community:message.create":
-      case "community:message.edited":
         scopes.push({ id: event.channelId, serverId: event.serverId,
           parentChannelId: event.parentChannelId })
         break

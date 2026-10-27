@@ -38,7 +38,7 @@ vi.mock("@/hooks/community/mutations", () => ({
   useSendMessage: () => ({mutateAsync: vi.fn()}), useSetChannelNotif: () => ({mutate: vi.fn()}),
   useToggleReactionApi: () => vi.fn(), useAddReactionApi: () => vi.fn(),
   usePinMessage: () => ({mutate: vi.fn()}), useUnpinMessage: () => ({mutate: vi.fn()}),
-  useToggleMark: () => vi.fn(), useEditMessage: () => ({mutate: vi.fn()}),
+  useToggleMark: () => vi.fn(),
   useCreateThread: () => ({mutateAsync: vi.fn()}), useUploadFile: () => ({mutateAsync: vi.fn()}),
 }))
 vi.mock("@/components/community/messages/composer", () => ({ Composer: () => <div data-testid="qualified-composer" />, ComposerSkeleton: () => null }))

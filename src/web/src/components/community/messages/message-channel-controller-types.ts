@@ -32,7 +32,6 @@ export type MessageActions = {
   onMark: (id: string) => void
   onCreateThread: (id: string) => Promise<void>
   onCopy: (id: string) => void
-  onEdit: (id: string) => void
   onRetry: (id: string) => void
   onDismiss: (id: string) => void
   onPreviewImage: (image: ImagePreview) => void
