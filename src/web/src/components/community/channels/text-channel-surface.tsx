@@ -162,6 +162,7 @@ export function TextChannelSurface({
                   historyStartKnown={feed.historyStartKnown}
                   initialPositionMessageId={feed.initialPositionMessageId}
                   positionEntry={feed.positionEntry}
+                  positionScope={feed.positionScope}
                   positionDataState={feed.positionDataState}
                   messageWindow={feed.messageWindow}
                   isFetching={feed.isFetching}

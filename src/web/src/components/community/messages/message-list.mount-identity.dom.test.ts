@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 import React from "react"
 import { MessageList } from "./message-list"
 import { ConversationFooterShell, ConversationFooterSlotProvider } from "./conversation-footer-shell"
-import { render } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, resize, scrollFixture } from "@/test/message-scroll-fixture"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
+import { virtualListPositionKey, type VirtualListPositionScope, type VirtualListPositionSnapshot } from "@/lib/community/virtual-list-position"
 import { tid } from "@/lib/community/testids"
 
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
@@ -57,5 +60,34 @@ describe("MessageList loading-to-loaded mount identity", () => {
     expect(renderer.container.querySelectorAll('[data-msg-id]')).toHaveLength(1)
     expect(root.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height).toBe("500px")
     expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+  })
+
+  it("initializes from the qualified snapshot after loading and then retains the mounted list", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
+    const messages = Array.from({ length: 40 }, (_, index) => ({ id: `m${index}`, type: "chat" as const,
+      authorId: "peer", authorName: "Alice", content: "Message", createdAt: new Date(index * 1000).toISOString() }))
+    const props = { channel: "A", onOpenThread: () => {}, positionScope }
+    const first = render(React.createElement(MessageList, { ...props, messages }))
+    resize()
+    const root = first.getByTestId(tid.messageScroller)
+    fireEvent.wheel(root, { deltaY: -30 })
+    act(() => root.scrollTo({ top: 800 }))
+    runFrames()
+    resize()
+    const before = root.scrollTop
+    expect(client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))?.offset).toBe(before)
+    first.unmount()
+    const second = render(React.createElement(MessageList, { ...props, messages: [], loading: true, initialScrollReady: false }))
+    resize()
+    second.rerender(React.createElement(MessageList, { ...props, messages, initialScrollReady: true }))
+    resize()
+    const restored = second.getByTestId(tid.messageScroller)
+    expect(restored.scrollTop).toBeCloseTo(before, 0)
+    expect(restored.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    second.rerender(React.createElement(MessageList, { ...props, messages, initialScrollReady: true, isFetching: true }))
+    resize()
+    expect(second.getByTestId(tid.messageScroller)).toBe(restored)
+    expect(restored.scrollTop).toBeCloseTo(before, 0)
   })
 })

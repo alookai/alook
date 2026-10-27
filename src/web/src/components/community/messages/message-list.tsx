@@ -3,21 +3,39 @@
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useObservedRegion } from "@/lib/observability/regions"
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
-import { useContext, useLayoutEffect } from "react"
+import { useContext, useLayoutEffect, useState } from "react"
+import { hashKey } from "@tanstack/react-query"
+import { virtualListPositionKey } from "@/lib/community/virtual-list-position"
 import { useMessageListController } from "./message-list-controller"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
 import type { MessageListProps, ResolvedMessageListProps } from "./message-list-types"
 import { renderMessageListRow } from "./message-list-row"
-import { renderMessageListView } from "./message-list-view"
+import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
 import { VirtualRows } from "./virtual-cursor-list"
 import { ConversationPresentationContext, useConversationActivity } from "@/contexts/community/conversation-activity"
 
-export function MessageList({
+export function MessageList(props: MessageListProps) {
+  return <MessageListEntry key={props.positionScope ? hashKey(virtualListPositionKey(props.positionScope)) : undefined} {...props} />
+}
+
+function MessageListEntry({
   variant = "channel",
   initialScrollReady = true,
   ...props
 }: MessageListProps) {
+  const [admitted, setAdmitted] = useState(false)
+  const ready = initialScrollReady && (props.messages.length > 0 || !props.loading && !props.initialLoadError)
+    || !!props.scrollToMessageId && props.positionDataState === "ready" && props.messages.length > 0
+  if (ready && !admitted) setAdmitted(true)
+  if (props.positionScope && !admitted && !ready && !props.initialLoadError) return <MessageListSkeleton variant={variant} />
+  return <MessageListOwner {...props} variant={variant} initialScrollReady={initialScrollReady} />
+}
+
+function MessageListOwner({ variant, initialScrollReady, ...props }: MessageListProps & {
+  variant: "channel" | "dm"
+  initialScrollReady: boolean
+}) {
   const hoverCapable = useHoverCapable()
   const conversationActive = useConversationActivity()
   const conversationPresented = useContext(ConversationPresentationContext) ?? conversationActive

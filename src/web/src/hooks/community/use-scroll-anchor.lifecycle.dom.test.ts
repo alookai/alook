@@ -112,7 +112,7 @@ describe("qualified positioning lifecycle", () => {
   })
 
   it.each((["local", "unread", "tail"] as const).flatMap(target => [false, true].flatMap(strict =>
-    [320, 1280].map(width => [target, strict, width] as const))))("finishes cached %s positioning with StrictMode=%s at %spx while reads remain pending and retains it through late NEW", (target, strict, width) => {
+    [320, 1280].map(width => [target, strict, width] as const))))("finishes cached %s positioning with StrictMode=%s at %spx while reads remain pending and consumes late NEW at most once", (target, strict, width) => {
     scrollFixture.width = width
     const settled = vi.fn()
     const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 5 }))
@@ -134,30 +134,40 @@ describe("qualified positioning lifecycle", () => {
     act(() => vi.advanceTimersByTime(6500))
     h.update({ items: [...items.map(item => ({ ...item, newDivider: false })),
       { ...message("m14"), newDivider: true }, message("m15")], newDividerBefore: "m14" })
-    expect(bodyTop(h.root, anchor)).toBeCloseTo(before, 0)
+    if (target === "unread") {
+      expect(bodyTop(h.root, anchor)).toBeCloseTo(before, 0)
+      expect(index).not.toHaveBeenCalled()
+    } else {
+      const targetIndex = native.getVirtualItems().find(row => row.key === "divider:msg:m14")!.index
+      expect(h.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(targetIndex, "center")![0], 0)
+      expect(index).toHaveBeenCalledOnce()
+    }
     expect(scrollFixture.latest.readPositionReady).toBe(false)
+    const landed = h.root.scrollTop
+    const commands = index.mock.calls.length
     h.update({ positionDataState: "ready" })
-    expect(bodyTop(h.root, anchor)).toBeCloseTo(before, 0)
+    expect(h.root.scrollTop).toBeCloseTo(landed, 0)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
     expect(end).not.toHaveBeenCalled()
-    expect(index).not.toHaveBeenCalled()
+    expect(index).toHaveBeenCalledTimes(commands)
     expect(settled).toHaveBeenCalledOnce()
   })
 
-  it("withdraws reading during a new data wait without restarting settled cached positioning", () => {
+  it("withdraws reading during a data wait and admits its first late NEW without repeating initial reveal", () => {
     const settled = vi.fn()
     const h = mount({ initialPositionMessageId: "m5", onInitialPositionSettled: settled })
-    const before = bodyTop(h.root, "m5")
-    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    const native = scrollFixture.latest.virtualizer
+    const index = vi.spyOn(native, "scrollToIndex")
     h.update({ positionDataState: "pending" })
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(scrollFixture.latest.paginationEnabled).toBe(false)
     act(() => vi.advanceTimersByTime(6500))
     h.update({ positionDataState: "ready", newDividerBefore: "m10" })
-    expect(bodyTop(h.root, "m5")).toBeCloseTo(before, 0)
+    const targetIndex = native.getVirtualItems().find(row => row.key === "msg:m10")!.index
+    expect(h.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(targetIndex, "center")![0], 0)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    expect(index).not.toHaveBeenCalled()
+    expect(index).toHaveBeenCalledOnce()
     expect(settled).toHaveBeenCalledOnce()
   })
 
@@ -179,50 +189,65 @@ describe("qualified positioning lifecycle", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("degrades a cached zero-size layout on the geometry deadline without claiming success or reviving", () => {
+  it("waits without application frames for a cached zero-size layout and positions after a late viewport event", () => {
     scrollFixture.height = 0
     const settled = vi.fn()
     const h = mount({ initialScrollReady: true, positionDataState: "pending", onInitialPositionSettled: settled }, false, undefined, undefined, 0)
-    runFrames(320)
-    expect(settled).toHaveBeenCalledOnce()
+    runFrames(2)
+    expect(scrollFixture.frames.size).toBe(0)
+    act(() => vi.advanceTimersByTime(20000))
+    expect(settled).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.paginationEnabled).toBe(false)
     const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
     scrollFixture.height = 500
-    h.update({ positionDataState: "ready" })
-    expect(end).not.toHaveBeenCalled()
+    resize()
+    expect(end).toHaveBeenCalledOnce()
+    expect(settled).toHaveBeenCalledOnce()
+    expect(scrollFixture.latest.positionOutcome).toBe("success")
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    expect(h.root.scrollTop).toBe(0)
+    const offset = h.root.scrollTop
+    h.update({ positionDataState: "ready" })
+    expect(h.root.scrollTop).toBe(offset)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("keeps only the original remaining layout budget when read state becomes pending", () => {
+  it("retains an unsettled command across a data wait and resumes from an actual viewport change", () => {
     scrollFixture.height = 0
     const settled = vi.fn()
     const h = mount({ onInitialPositionSettled: settled }, false, undefined, undefined, 0)
     act(() => vi.advanceTimersByTime(4800))
     h.stage({ positionDataState: "pending" })
     scrollFixture.height = 500
-    resize(0)
-    vi.spyOn(h.root, "scrollTo").mockImplementation(() => {})
-    runFrames(1)
-    act(() => vi.advanceTimersByTime(184))
+    const scroll = vi.spyOn(h.root, "scrollTo").mockImplementation(() => {})
+    resize(400)
+    act(() => vi.advanceTimersByTime(10000))
+    expect(settled).not.toHaveBeenCalled()
+    expect(scrollFixture.frames.size).toBe(0)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    scroll.mockRestore()
+    scrollFixture.width = 390
+    resize()
     expect(settled).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     h.update({ positionDataState: "ready" })
-    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("leaves the visible cached fallback when its initial local target is absent and the budget expires", () => {
+  it("waits for an absent local target without polling and finishes through its current data event", () => {
     const settled = vi.fn()
     const h = mount({ initialPositionMessageId: "missing", positionDataState: "pending", onInitialPositionSettled: settled })
-    const before = bodyTop(h.root, "m0")
-    act(() => vi.advanceTimersByTime(5000))
-    expect(settled).toHaveBeenCalledOnce()
+    act(() => vi.advanceTimersByTime(10000))
+    expect(settled).not.toHaveBeenCalled()
+    expect(scrollFixture.frames.size).toBe(0)
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
     h.update({ positionDataState: "ready", items: [...h.input.items, message("missing")] })
-    expect(index).not.toHaveBeenCalled()
-    expect(bodyTop(h.root, "m0")).toBe(before)
-    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(index).toHaveBeenCalledOnce()
+    expect(bodyTop(h.root, "missing")).toBeGreaterThan(0)
+    expect(bodyTop(h.root, "missing")).toBeLessThan(h.root.clientHeight)
+    expect(settled).toHaveBeenCalledOnce()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
   it("keeps precommit user takeover after data and route commit arrive", () => {
@@ -311,47 +336,53 @@ describe("qualified positioning lifecycle", () => {
     expect(end).not.toHaveBeenCalled()
   })
 
-  it.each([false, true])("bounds a qualified zero viewport once, including StrictMode=%s", strict => {
+  it.each([false, true])("resumes a late positive viewport without a positioning deadline, StrictMode=%s", strict => {
     scrollFixture.height = 0
     const h = mount({}, strict, undefined, undefined, 0)
     const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
-    act(() => vi.advanceTimersByTime(4999))
+    runFrames(2)
+    act(() => vi.advanceTimersByTime(20000))
+    expect(scrollFixture.frames.size).toBe(0)
     expect(scrollFixture.latest.paginationEnabled).toBe(false)
-    act(() => vi.advanceTimersByTime(1))
-    expect(scrollFixture.latest.paginationEnabled).toBe(true)
+    expect(scrollFixture.latest.positionOutcome).toBe("pending")
     scrollFixture.height = 500
     resize()
-    expect(end).not.toHaveBeenCalled()
-    expect(h.root.scrollTop).toBe(0)
-    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(end).toHaveBeenCalledOnce()
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("bounds a qualified zero-width viewport without accepting a vertical-only landing", () => {
+  it("waits for a positive width without accepting vertical-only geometry or polling", () => {
     scrollFixture.width = 0
     const h = mount({}, false, undefined, undefined, 0)
     const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
-    runFrames(320)
+    runFrames(2)
+    act(() => vi.advanceTimersByTime(10000))
+    expect(scrollFixture.frames.size).toBe(0)
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    expect(scrollFixture.latest.paginationEnabled).toBe(true)
+    expect(scrollFixture.latest.paginationEnabled).toBe(false)
     scrollFixture.width = 320
     resize()
-    expect(end).not.toHaveBeenCalled()
-    expect(h.root.scrollTop).toBe(0)
+    expect(end).toHaveBeenCalledOnce()
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("gives a late native command only the remaining qualified budget", () => {
+  it("keeps a blocked command current past five seconds and retires it on explicit failure", () => {
     scrollFixture.height = 0
     const h = mount({}, false, undefined, undefined, 0)
-    act(() => vi.advanceTimersByTime(4800))
     scrollFixture.height = 500
-    resize(0)
     vi.spyOn(h.root, "scrollTo").mockImplementation(() => {})
     const cancel = vi.spyOn(scrollFixture.latest.virtualizer, "cancelScroll")
-    runFrames(1)
-    act(() => vi.advanceTimersByTime(184))
-    expect(cancel).toHaveBeenCalledOnce()
+    resize(400)
+    act(() => vi.advanceTimersByTime(10000))
+    expect(scrollFixture.frames.size).toBe(0)
+    expect(cancel).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    expect(scrollFixture.latest.paginationEnabled).toBe(true)
+    expect(scrollFixture.latest.paginationEnabled).toBe(false)
+    h.update({ positionDataState: "error" })
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(scrollFixture.latest.positionOutcome).toBe("error")
   })
 
   it("retires hidden unfinished work and ignores all of its old frames on resume", () => {

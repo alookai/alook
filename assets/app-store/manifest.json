@@ -4,7 +4,7 @@
   "clock": "2026-10-25T00:00:00Z",
   "locale": "en-US",
   "timezone": "UTC",
-  "repositoryHead": "1f714fde7eb9323fafca2d3d57e118148c1079d4",
+  "repositoryHead": "9e3a42706f6bbbca6877eafb0f3138e3c7e03eae",
   "inputs": {
     "scripts/ci/pnpm-lock.mjs": "c6ad91cbd38cc08234e2da4122079d76bfef5eb61560862018cbab9d3e29f4cc",
     "src/shared/src/billing.ts": "53d36e6bbab90d72ae86b9748d97bef4116a7f567d8587067f469d294c562b4a",
@@ -18,7 +18,7 @@
     "src/shared/src/community-resources.ts": "c170f755781cd3b8b5a86e15dc38ff0307cf637b6916732cacea87bb8fff71fc",
     "src/shared/src/community-server-rail.ts": "4329a4f594aef47c937e39fcb42d597a9805d246d1151ad2684343100a5d5ef5",
     "src/shared/src/community-ws-bundle.ts": "6b0de4a8e3ff35d3b96c7c3ecc1499f8f2ccb837b18d47130a831b9b89f1b607",
-    "src/shared/src/community-ws-events.ts": "cf520a3154d8163e969d1f8f2bcfb246b3a63cb2d381eeddfece4bf37d0b888b",
+    "src/shared/src/community-ws-events.ts": "22498a1a768ecfdc0a7daf1b17acfff647462e64fc33e69e810a02452255b26e",
     "src/shared/src/community/bot-activity-presets.ts": "d2ea578c2852a2b0fe67cfb2bd57c6b69c6edeecbac7e9f5b83a24d002363ef4",
     "src/shared/src/community/bot-model.ts": "759e91391a3c3008784dc6f6ee524ed6ed12c3f2d22f79a48699564dcc3d7cb3",
     "src/shared/src/community/bot-reasoning-effort.ts": "1c470349ab5c6ec9f111b1dfb5319e624df6c347c7c9b682917010ee69aea9c2",
@@ -63,7 +63,7 @@
     "src/shared/src/db/queries/community/members-resolver.ts": "c6201106dc38f7683f4e28ac824d866e6a780a5b4949d1addf71f60f6e61f3d7",
     "src/shared/src/db/queries/community/mention.ts": "914aeb87a1bbfcbf3a201f6102e7264ad84d92a656ab2c8065cd76c8260f17ab",
     "src/shared/src/db/queries/community/message-tag.ts": "0b80f548a96bf50e3cdeb7b40aa8003cbcff1f5a69cd64e8fb42c1de15790bc7",
-    "src/shared/src/db/queries/community/message.ts": "80edf01b02ad4805b7e7af15eb14f986131b4a86dbf27058c07706104d463f75",
+    "src/shared/src/db/queries/community/message.ts": "bb5d9ffe002991b25f6e14231577e4a7e7c926a8d2c69079ef51c748ea8072ce",
     "src/shared/src/db/queries/community/notification-eligibility.ts": "824703a444208eae773a103e18e3219bdf9405a2119244b05a07a4b43e494c98",
     "src/shared/src/db/queries/community/notification-setting.ts": "a4e8bca34b98ca68274ccf0665987fb6266cf8d69412a39e978f4c597c27d9a0",
     "src/shared/src/db/queries/community/notification-target.ts": "f15af89c55098c8bf8935a3fe076159b1f47a504be900e4f5b30a546639a119d",
@@ -98,7 +98,7 @@
     "src/shared/src/db/schema.ts": "5ea32d89f510f65ad68e8624aba126dedb7933dd6c0b9007af36b035d7ae1326",
     "src/shared/src/diagnostics-contract.ts": "993e65bf8398f3cbd1aff7604652c033f9d410e4d65263a1880b94c8ae40c37c",
     "src/shared/src/http-json.ts": "60624ae70c109ab2e6d20e805acee5dd57fd13471e44a8d7444c774f6f4fd8fd",
-    "src/shared/src/index.ts": "c80a4cda28d6c8ca41afaa7267c3c61476af352ba947cb5d90d4f15a6f047567",
+    "src/shared/src/index.ts": "cedd56d99554bfa7027a68bdd4681d9b9d3dba6f153d03632c3539de42d9d6bf",
     "src/shared/src/lib/community-name.ts": "eb0384f04fe7b746c566a090ce0072f17ef4d2b915941df6720eb2d1dd9a48a0",
     "src/shared/src/lib/context-key.ts": "e606b9c5564247a7bab957ec610d24fa323145d92d30db023705e63bae3f89ba",
     "src/shared/src/lib/discriminator.ts": "d378fb77ab23fd7a15f2b8805c70a3946f374925717092b893364d2971a54a99",
@@ -203,7 +203,7 @@
     "src/web/src/components/community/bots/reasoning-effort-field.tsx": "79460646ca9dceac603f974304b7a885a37b711e541e7f737d643e167681e1d7",
     "src/web/src/components/community/channels/channel-dnd.tsx": "5b94b98ced259910e7903110a9a9398b6f8352e2436c2f099a5e9bb85a2cb843",
     "src/web/src/components/community/channels/channel-drag-preview.tsx": "896db607b9fd6abe48854c4a5e98828babbb826c90ed8f8e277188909ec2d90e",
-    "src/web/src/components/community/channels/channel-header.tsx": "bcdc63268784003611f9d39bcf5b4dfb0169caa3433e08fd5487d90786881de6",
+    "src/web/src/components/community/channels/channel-header.tsx": "5e1944fba42fffe0381a4a0fe13061b0a045bc35f46c488bd411a56e29022fb9",
     "src/web/src/components/community/channels/channel-icon.tsx": "f56ce06d8a5423237c620522d28457be558114279bd1760ba4cf28401736a420",
     "src/web/src/components/community/channels/channel-sidebar-tree-owner.tsx": "fe5f929a39bf95f71389c6e042386f70fde32eae8cdf5c247e9749fb9271a3f7",
     "src/web/src/components/community/channels/channel-sidebar.tsx": "8694afe2b8a8df0f4de4650b140be977d059af592beb6f7e0facb1f43058e6a8",
@@ -257,21 +257,22 @@
     "src/web/src/components/community/messages/message-body.tsx": "0f43cb0c2c8eb3b507efc1f93e926d0cc9226f25173cc9e2fa8f2d8815c46ffd",
     "src/web/src/components/community/messages/message-external-link.tsx": "ba22b8bfd1210f9645aa10c46a95c3d409cf87e68e0585709007f9bba1ad9d82",
     "src/web/src/components/community/messages/message-list-controller.ts": "2f6d71a0905578f69fd0bf9c00227869d2c0a7007cafee36503abd93078f2070",
-    "src/web/src/components/community/messages/message-list-row.tsx": "c6bdab7be798a89d6629485017ad96efdfa4f68e5b695e0a9dc8146322e70327",
+    "src/web/src/components/community/messages/message-list-row.tsx": "e9b1e1d66b176821d96aca65e9a277aafdc96012f984a7758bff844a4b395a41",
     "src/web/src/components/community/messages/message-list-view.tsx": "3fd669f94dd5cb655b91b103264d85de119589950c36c49454926421a078291e",
     "src/web/src/components/community/messages/message-list.tsx": "6f4ddce666fc31c4e755e1f7608ebc433c4b1bde5a0177ed2d61759140ba0dd8",
     "src/web/src/components/community/messages/message-markdown.tsx": "b47f232497cd5ac2f4e8335f2b5d053c4935e474c20f673eca1dda7874507d8e",
-    "src/web/src/components/community/messages/message-menu.tsx": "a4aeb632ea2456c5bc9f68a913d51ae8d1b82e7e5fbae2e543dede26664861c3",
+    "src/web/src/components/community/messages/message-menu.tsx": "a5f33f187fc4dcf7acc253dd5406a89e5825a579e6950a3d11017249d816448b",
     "src/web/src/components/community/messages/message-pane-navigation.tsx": "8595d9b54fd377fa02e9e7b19b81076e76d012f0b8056279b1d7d52e5f2ae5fe",
     "src/web/src/components/community/messages/message-reactions.tsx": "80c6f8ba5c20071a94c24545f32bf75d3d73d334de7862f940c81b456b4c5a62",
-    "src/web/src/components/community/messages/message-row.tsx": "ae8934727b74e46d9814ba13c9dbde9fcde3201234bda5da5adcd58618533fba",
+    "src/web/src/components/community/messages/message-row.tsx": "def4f76fa170149fc29fb4d8ad52fc9a4fcd359a6ec83025159a22965f17f655",
     "src/web/src/components/community/messages/message-share-dialog.tsx": "8cad9cd3aea7688d8333a2f86b18f4cd0d8d617f1a5be285e17f7ea7f8c5b73e",
-    "src/web/src/components/community/messages/message.tsx": "db522264d6745766676531c3bffce8e4d9403aba2b8397a79674bccebebbfb27",
+    "src/web/src/components/community/messages/message.tsx": "b9ac42832a8180a2756e96b360eafaeb4c3f02abbb3f931a025f8a7a19a8dd55",
     "src/web/src/components/community/messages/mobile-message-gesture.ts": "06a126402badab097f6dbe187ffa2de0539feea83cad5005c36ffb0fb862b86a",
     "src/web/src/components/community/messages/platform-link-badge.tsx": "ee4d04fb804e7a6691810325da5fdfde54f2f94117f1b66d3520deebffbf0fe2",
     "src/web/src/components/community/messages/prepend-reply-mention.ts": "d501f71d03eb93b60bd141fa48516f5ee1496b7af470a0fc74a8a8012aa01c29",
-    "src/web/src/components/community/messages/redacted-content.tsx": "b6fb7da1c73c21f6487ba7c949c5f2ccda5408910faea65fd6446e35c2b47682",
+    "src/web/src/components/community/messages/redacted-content.tsx": "57c248bb99b63acf29c9143ae82102d899e64c04821da120ba03e09606247bc0",
     "src/web/src/components/community/messages/redacted-diagram.ts": "82572c7c83a35426d4164d07685eeaa086fed654f438d70f6fe1a7977f4d978c",
+    "src/web/src/components/community/messages/redacted-text.tsx": "1c89892d8a74c76e7d549885eb9ff988e82493f32b2436d715998412d6e1fbf5",
     "src/web/src/components/community/messages/send-stroke-rounded-icon.tsx": "f6348d4d0d9daf123ee5dc09c54614e17ce63eacaeaa7a2c671a2ddb3d60bb9b",
     "src/web/src/components/community/messages/server-ref-pill.tsx": "14ddcec25bd84f816c0d7856c8e3c9d58b12c470b263872d1febbe4aef79dc1d",
     "src/web/src/components/community/messages/typing-indicator.tsx": "b66b692b1f14ce7d589c189b551f2775e37e1bfcca4f6ac3c91183f1e94fab71",
@@ -402,7 +403,7 @@
     "src/web/src/hooks/community/community-ws/identity-events.ts": "7c01589fe61b138bbe7081a8aa0993ce99e4a23539143002c6d3613d1b3fe480",
     "src/web/src/hooks/community/community-ws/invalidation-projections.ts": "b088cd2c03ffd88e1e236f8aacd22ac8530800ecd6a455ce2156cfadc8d7e7fb",
     "src/web/src/hooks/community/community-ws/membership-events.ts": "3a1e3a7ec42e7802c4736685e8f65981d13748605b61087d30fcc79572921345",
-    "src/web/src/hooks/community/community-ws/message-events.ts": "59af75895c24e8238108a4f766cb139cc3b5dad4555b8db29674f94af5c409f8",
+    "src/web/src/hooks/community/community-ws/message-events.ts": "780ce7915c80bd678f90e2659e003c5d4fcece85fb7bd9df6bd3e4a9c46fd790",
     "src/web/src/hooks/community/community-ws/pii-events.ts": "ea7a0f73facfa489c4910646c2fd3cc7e60fc36e9e98daebda4786792c6d6ae6",
     "src/web/src/hooks/community/community-ws/presence-machine-events.ts": "d4b9c5cf790aec8677a6ae7e71386d695dc83aee4da623658f797404ed5b7426",
     "src/web/src/hooks/community/community-ws/projection-transaction.ts": "5f4b848c4d039fc845b34ea19ae54db73486f0a84e9181ebecb95a57b4a3275e",
@@ -410,7 +411,7 @@
     "src/web/src/hooks/community/community-ws/read-state-reconciliation.ts": "da3e7b7cde19dbdc845b5a207de2c3a01bd055a30d12c7c10877e40f17fc73ef",
     "src/web/src/hooks/community/community-ws/reconnect-messages.ts": "c2bba29c116268bf043a0c9b01582504f6aadea9f29a1c688c9ab4e64fd51135",
     "src/web/src/hooks/community/community-ws/reconnect.ts": "990f4d323bf519e605293715866a122975dd83e45de86eca9be17eaa1aecbafa",
-    "src/web/src/hooks/community/community-ws/registry.ts": "402e3a47f82066b02c9011c593daa6bbc7e4130f9583eb38753ced5a614e61be",
+    "src/web/src/hooks/community/community-ws/registry.ts": "68020314e8efa987c4885070d80a567ae33f4683db11ae8d0752b860e47a6ed1",
     "src/web/src/hooks/community/community-ws/scope-eviction.ts": "fc96e1b312860f2e8025c6476a0cc9eecc0c52147897908e406642fde9ab3d4c",
     "src/web/src/hooks/community/community-ws/server-rail-reconciliation.ts": "0d8e3fff2b64bb4af50b9781a4d47d85f8b74e1c31dbe41a8c8f20c37dcbabf1",
     "src/web/src/hooks/community/community-ws/social-events.ts": "4d1802b9857a15734091ae271002d1cd90694925574ecd7ccdf9084e33c41db4",
@@ -419,6 +420,7 @@
     "src/web/src/hooks/community/community-ws/typing.ts": "1a353079e44e137eaef58f54223d40c1e07b4730c5a523048b923fed3ee0f888",
     "src/web/src/hooks/community/fetch-all-server-members.ts": "6dcc38800c59590e09cde5bce56852bebfa98f1ba20fef23e16946f4e007a08e",
     "src/web/src/hooks/community/forum-feed-window.ts": "db7d446eab6f39fd508a1b0a9827affc1611bc5a9448bfabcc2944690b28187c",
+    "src/web/src/hooks/community/forum-opener-title-reconciliation.ts": "94882e7861f95e7fa3ab7531795e773b0136a7140c6d93b4edeb9e836c491a27",
     "src/web/src/hooks/community/inbox-read-reservation.ts": "59a5ba15d907884db551ed225233d6cdd159f77606165a106d1e5f190d33a7d0",
     "src/web/src/hooks/community/mutations/bot-creation.ts": "1cd74b5b86dabe76fccebfaf1532557933c076f5459545e71f0118ad02121a11",
     "src/web/src/hooks/community/mutations/channels.ts": "e36c6b7917284841dd8c746381b20d4eb0d5c3a43bc11d5573c586e64fe5bfc5",
@@ -430,7 +432,7 @@
     "src/web/src/hooks/community/mutations/members.ts": "e36736a85e706b4c37286d9f45f34f6641f7ee3e997171f2eff2e274379c6cbe",
     "src/web/src/hooks/community/mutations/message-memberships.ts": "3a77e3b7b5323f5457a1f7fe7ca1fce5f5bbab513318476b1ff6fb7474138b6e",
     "src/web/src/hooks/community/mutations/message-reactions.ts": "1f2a32eaf8853a4f4bbb9c7b1c845f4d416de5a8617cd866790aa70a3088dba4",
-    "src/web/src/hooks/community/mutations/messages.ts": "007c4c78abacd4fb31d226f5dd90fba3ced519a79b5616bb5cae50039d135053",
+    "src/web/src/hooks/community/mutations/messages.ts": "3cf045a1a918263c550ed5bab16dfcd5bd638d77ffd04214eec617801c2fc1f5",
     "src/web/src/hooks/community/mutations/notifications.ts": "8795f50ac099568b1017652c11c78e8c66288cbfd66caeb1b24a411ac77cff69",
     "src/web/src/hooks/community/mutations/profile.ts": "8f6a04c35ccfe7b9277be15892d44afd89220e1b3c06cebbc8291a7ca1654a26",
     "src/web/src/hooks/community/mutations/server-rail.ts": "df160394f6077f51f226d0de934b373fadb349f5ec4e0affb376a3a95c20c06e",
@@ -497,7 +499,7 @@
     "src/web/src/lib/community-db/queries.ts": "2c33d376ee69510d2367a832f1887da00ede94e2a424bc4ee2c478809dccd16a",
     "src/web/src/lib/community-db/schema.ts": "b705e6de4f1707737d406b33c63396fd10447ae98da9fb28069c40c71a8151f4",
     "src/web/src/lib/community-db/server-rail.ts": "fee03f44f6aa6fbc1a801a5f2ac143dec2c1c6a7bec2aac3f03e7fe3760c1855",
-    "src/web/src/lib/community-db/sync.ts": "161809b86f8ffbdbda30c8f1b627834d75f21c1c2cb6ab6c9a1053707205e35d",
+    "src/web/src/lib/community-db/sync.ts": "5e27b37bf910773ee4c56274a9d128a2660326f1bb12a414f47695ebc309ea46",
     "src/web/src/lib/community-db/write.ts": "d2741760ebe6b5cbe5d2e730cfc85172f21400b51b466a2f560dec18ffdccf3b",
     "src/web/src/lib/community-onboarding.ts": "235c16a80688f783e2785fe5538b954fc30607f87b51c17bb73a06a80c87c04f",
     "src/web/src/lib/community/account-cache-lifecycle.ts": "03ff89ee6dbe39c8f0766e91a9df9ef54967923fabe06bf7a339b59818f537e0",
@@ -583,7 +585,7 @@
     "src/web/src/lib/observability/clock-tracing.ts": "d35d78c2e2b4ff621e43e3c9bd3fc00e0c7c57d38d6217faf3fa50c2f957c819",
     "src/web/src/lib/observability/clock.ts": "46ea2a702a56dc05ccd7a73e61b29fd638c78371fa96387b99e8e202276773a7",
     "src/web/src/lib/observability/context.ts": "f1a58fd85dda2ace9a4ab6d0e20f9b25ec692fa30aaaee11058fc58ea447da9a",
-    "src/web/src/lib/observability/coverage.ts": "65691808b89bc6d67dd737459c8f223833f35fb0aeaed6618d44e59cb28c7d52",
+    "src/web/src/lib/observability/coverage.ts": "0fea74dad5db5476d494e839906c97da6b236584f2fc2ee35a48201370fcb652",
     "src/web/src/lib/observability/document-timing.ts": "36010d41686a732ea04269fa25e937d76a3fdf9d590c826ed4c12bafd4331a2b",
     "src/web/src/lib/observability/messages.ts": "c7e81e37e33f19eaa42175bc4859eb1807cc454884e95320bb36b05e5a0e9a09",
     "src/web/src/lib/observability/query-observer.ts": "a63d2721c9074c12d051e4af3473886c626d90fac5124ad93378faf3ac7908d4",
@@ -653,7 +655,7 @@
       "path": "phone-1206x2622/02-teamwork.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "449e517899bf6dca21feb6ba9bb4e396fe2dad45309af91a76dc3daf5288dcb3",
+      "sha256": "3cf55e83eb8ca46115a7b8b545e1a399b7c8c5f91c6f6265af5b97885c9667b4",
       "surfaces": [
         {
           "scene": "workspace",
@@ -679,7 +681,7 @@
       "path": "phone-1206x2622/03-companion.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "41992422965debf02f29d3ef5b6f3bb9c1e6a06edb93e2f0ca3872c1ef4cead7",
+      "sha256": "dd5206478a5620df697896676647a2e850aad6d5e646559876c1f4ba3acd6857",
       "surfaces": [
         {
           "scene": "identity",
@@ -766,7 +768,7 @@
       "path": "phone-1206x2622/06-existing-setup.jpg",
       "width": 1206,
       "height": 2622,
-      "sha256": "e25547d050cf0d79d0a0da9071fe4593daf86f5c9db427798b23d0f2e77c13f4",
+      "sha256": "d0793f9946a4fad64cf295f3667a6ff087662a6e2794fa31d1c4ce6d50a40445",
       "surfaces": [
         {
           "scene": "workspace",
@@ -792,7 +794,7 @@
       "path": "phone-1320x2868/01-share-agents.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "261ba7f6995c49fea0610570ccfd7e1ebe440f8bf709480ab9a29860464e34e7",
+      "sha256": "310b2e3df2ace678b5649543c301add45555f5057bcd9364c823c87c8ac1b6ba",
       "surfaces": [
         {
           "scene": "workspace",
@@ -818,7 +820,7 @@
       "path": "phone-1320x2868/02-teamwork.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "c1effc46c7587c1dcee4007d4da6828a1a35ae53ca6b9450d4dfe2c06c17e6f3",
+      "sha256": "8e3dd3072d5b7828723b47b002c62bdf8fbf7c4e809e0197774e0adfd1750ec5",
       "surfaces": [
         {
           "scene": "workspace",
@@ -870,7 +872,7 @@
       "path": "phone-1320x2868/04-context.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "b9d407cdecd7981853b54df132af13e46c5a5d6e7a8da9102aef59663752d3db",
+      "sha256": "b2abdf24af198b45868593773251e31a8883b41e3b476507006ccd2ae55f39db",
       "surfaces": [
         {
           "scene": "continuity",
@@ -905,7 +907,7 @@
       "path": "phone-1320x2868/05-phone.jpg",
       "width": 1320,
       "height": 2868,
-      "sha256": "48c0436b8a9eb3ba5ba7799183866c698b3e7a87aac8dfaecd280360031465d8",
+      "sha256": "e865bb1bb1fa5a3586c9612eec4186c6b2f81bb64c82bf08a7ac35074d0d4097",
       "surfaces": [
         {
           "scene": "workspace",
@@ -957,7 +959,7 @@
       "path": "tablet-2752x2064/01-share-agents.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "b81b8d49d1f30260120c89fc21ec42e6846e8268cbc94022d3c4b9544e2bcf9d",
+      "sha256": "90579226e073bf7dda3f07671d4c032a215c222de7acb2af4e90cfd6dc211e97",
       "surfaces": [
         {
           "scene": "workspace",
@@ -983,7 +985,7 @@
       "path": "tablet-2752x2064/02-teamwork.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "b103d966cff5c5595b5cea5f777196e280479b42725b5e9bc7e68fd3378cd88c",
+      "sha256": "83b272beebc3cf7e43bfa103c98c7935bdadea2bff735c76c03c147adcb49883",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1070,7 +1072,7 @@
       "path": "tablet-2752x2064/05-phone.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "783f6595c9a0d8395d079347a07340cd87922b106a69cd9b384a5a55f3d3e068",
+      "sha256": "4301c404ae301430574c8c5db8011c3180acbeff5ae8d9c2bebb2d6e9a0d2574",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1096,7 +1098,7 @@
       "path": "tablet-2752x2064/06-existing-setup.jpg",
       "width": 2752,
       "height": 2064,
-      "sha256": "71edd998847b991c77a7568183937f44cc4c1ce524dfd66c98d7684e0f5214d9",
+      "sha256": "852dcc191ea4bc999e940e0204609207a116e636b0390b9f24e78f2e1516aef1",
       "surfaces": [
         {
           "scene": "workspace",
@@ -1261,7 +1263,7 @@
       "path": "duo-2007x2853/06-existing-setup.jpg",
       "width": 2007,
       "height": 2853,
-      "sha256": "610f42c74b1cfcbdaa8a11f011c84ffdccbbb03166c4e39ff758529a98769f49",
+      "sha256": "8d9e9c7b308c949582ab99b32de5e82e020e92970609677c5bb57f10c048ca3b",
       "surfaces": [
         {
           "scene": "workspace",
