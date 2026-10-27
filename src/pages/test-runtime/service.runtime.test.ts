@@ -1,7 +1,7 @@
 import { env, exports } from "cloudflare:workers"
 import { drizzle } from "drizzle-orm/d1"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { ownership, ProviderError, type NativeScript, type Provider } from "../src/cloudflare"
+import { CloudflareProvider, ownership, ProviderError, type NativeScript, type Provider } from "../src/cloudflare"
 import type { Artifact, Release } from "../src/contracts"
 import { Registry } from "../src/registry"
 import { pages } from "../src/schema"
@@ -138,6 +138,31 @@ describe("native D1 authority and lifecycle", () => {
     expect(await service.recover(created.id)).toMatchObject({ operation: { pending: true, stage: "uncertain" } })
     expect(await service.recover(created.id)).toMatchObject({ state: "ready", operation: { pending: false } })
     expect(provider.publish).toHaveBeenCalledTimes(1)
+  })
+  it("keeps an unknown PUT pending after native200-null across service restarts without replay", async () => {
+    const { service, provider } = setup()
+    const request = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ success: true, result: { dispatch_namespace: config.namespace, script: null } }))
+    const native = new CloudflareProvider(config, "test-token", request)
+    provider.inspect.mockImplementation(target => native.inspect(target))
+    provider.publish.mockRejectedValueOnce(new ProviderError("provider_transport_error", true))
+    const created = await service.create(await artifact("unknown-null"))
+    expect(created).toMatchObject({ state: "publishing", url: null, operation: { pending: true, stage: "uncertain", putAcknowledged: false } })
+    const initial = await registry().get(created.id)
+    for (let restart = 0; restart < 2; restart++) {
+      const restarted = new PageService(registry(), provider, config, async () => {})
+      expect(await restarted.recover(created.id)).toMatchObject({ operation: { pending: true, stage: "uncertain", error: "publication_unconfirmed" } })
+      await expect(restarted.create(await artifact("UNKNOWN-NULL"))).rejects.toMatchObject({ code: "prefix_occupied" })
+      await expect(restarted.update(created.id, await artifact())).rejects.toMatchObject({ code: "operation_in_progress" })
+      await expect(restarted.destroy(created.id)).rejects.toMatchObject({ code: "operation_in_progress" })
+      await expect(restarted.configure(created.id, { cpuMs: 10, subRequests: 1 })).rejects.toMatchObject({ code: "operation_in_progress" })
+      expect(await registry().get(created.id)).toMatchObject({ currentOp: initial.currentOp, releases: initial.releases, operation: { target: initial.operation.target } })
+    }
+    expect(request).toHaveBeenCalledTimes(3)
+    expect(request.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true)
+    request.mockImplementation(async () => Response.json({ success: true, result: { script: { tags: ownership(initial.id, initial.operation) } } }))
+    expect(await new PageService(registry(), provider, config, async () => {}).recover(created.id)).toMatchObject({ state: "ready", operation: { pending: false } })
+    expect(provider.publish).toHaveBeenCalledTimes(1)
+    expect(provider.destroy).not.toHaveBeenCalled()
   })
   it("allows repair after an acknowledged publication's application probe throws", async () => {
     const { service, provider, probe } = setup()

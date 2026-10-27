@@ -7,19 +7,21 @@ const ok = (result: unknown, status = 200) => Response.json({ success: true, res
 const release = { target: "p-owned-1", operationId: "op", digest: "d".repeat(64) }
 
 describe("native platform adapter", () => {
-  it("reads the native nested script metadata and treats only404 as absent", async () => {
+  it("reads native nested metadata and recognizes404 or explicit script:null as absent", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(ok({ script: { tags: ownership("page", release) } }))
       .mockResolvedValueOnce(ok({ script: {} })).mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(ok({ dispatch_namespace: config.namespace, created_on: "2026-10-27T21:48:22.430546Z", modified_on: "2026-10-27T21:48:22.430546Z", script: null }))
     const provider = new CloudflareProvider(config, "account-secret", request)
     expect(owns((await provider.inspect(release.target))!, "page", release)).toBe(true)
     expect(owns({ tags: ["other"] }, "page", release)).toBe(false)
     expect(await provider.inspect(release.target)).toEqual({ tags: [] })
     expect(await provider.inspect(release.target)).toBeNull()
+    expect(await provider.inspect(release.target)).toBeNull()
     expect(request.mock.calls[0][0]).toBe(`https://api.cloudflare.com/client/v4/accounts/${config.account}/workers/dispatch/namespaces/test/scripts/p-owned-1`)
     expect(new Headers(request.mock.calls[0][1]?.headers).get("authorization")).toBe("Bearer account-secret")
   })
   it("rejects malformed and oversized native metadata without exposing the body", async () => {
-    for (const response of [ok({ tags: [] }), ok(null), Response.json({ success: false, errors: [{ secret: "do-not-copy" }] }), new Response("bad"), new Response(null), new Response("s".repeat(65537))]) {
+    for (const response of [ok({}), ok({ tags: [] }), ok(null), ...[false, "", 0, [], { tags: null }, { tags: [42] }].map(script => ok({ script })), Response.json({ success: false, result: { script: null }, errors: [{ secret: "do-not-copy" }] }), new Response("bad"), new Response(null), new Response("s".repeat(65537))]) {
       const provider = new CloudflareProvider(config, "token", vi.fn<typeof fetch>().mockResolvedValue(response))
       await expect(provider.inspect("x")).rejects.toBeInstanceOf(ProviderError)
     }

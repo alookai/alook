@@ -17,7 +17,7 @@ export class ProviderError extends PageError {
 }
 
 const envelope = z.object({ success: z.literal(true), result: z.unknown() })
-const scriptResult = z.object({ script: z.object({ tags: z.array(z.string()).default([]) }) })
+const scriptResult = z.object({ script: z.object({ tags: z.array(z.string()).default([]) }).nullable() })
 const assetSession = z.object({ jwt: z.string().min(1).max(16_384), buckets: z.array(z.array(z.string().regex(/^[a-f0-9]{32}$/)).min(1).max(128)).max(128) })
 const uploadResult = z.object({ jwt: z.string().min(1).max(16_384).optional() })
 const publishResult = z.object({ id: z.string().optional(), etag: z.string().optional() })
