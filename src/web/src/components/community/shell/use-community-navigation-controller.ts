@@ -77,16 +77,26 @@ export function useCommunityNavigationController(
   }, [])
   const pendingBaselineRevisionRef = useRef(committedFrame.revision)
   const pendingBaselineLeafRef = useRef(committedFrame.leafKey)
-  const [navigationPending, setNavigationPending] = useAtom(useCreateAtom(false))
+  const pendingState = useCreateAtom(false)
+  const [navigationPending, setNavigationPending] = useAtom(pendingState)
   const [pendingHref, setPendingHref] = useAtom(useCreateAtom<string | null>(null))
   const [entryIntent, setEntryIntent] = useAtom(useCreateAtom<{ href: string; resume?: boolean } | null>(null))
 
   const cancelPendingNavigation = useCallback(() => {
     supersedeNavigationIntent(gateRef.current)
-    setEntryIntent(null)
+    if (pendingState.get()) setEntryIntent(null)
     setNavigationPending(false)
     setPendingHref(null)
-  }, [setEntryIntent, setNavigationPending, setPendingHref])
+  }, [pendingState, setEntryIntent, setNavigationPending, setPendingHref])
+
+  const captureEntryIntent = useCallback((href: string, resume = false) => {
+    const noop = href === publishedHref && !navigationPending
+    const search = new URLSearchParams(normalizeCommunityHref(href).search)
+    if (!noop || resume || search.has("msg") || search.has("seq")) {
+      setEntryIntent({ href, ...(resume ? { resume: true } : {}) })
+    }
+    return noop
+  }, [navigationPending, publishedHref, setEntryIntent])
 
   useEffect(() => {
     if (pendingHref === null) return
@@ -111,12 +121,12 @@ export function useCommunityNavigationController(
 
   useEffect(() => {
     if (typeof window === "undefined") return
-    const onPopState = () => cancelPendingNavigation()
+    const onPopState = () => { setEntryIntent(null); cancelPendingNavigation() }
     window.addEventListener("popstate", onPopState)
     return () => {
       window.removeEventListener("popstate", onPopState)
     }
-  }, [cancelPendingNavigation])
+  }, [cancelPendingNavigation, setEntryIntent])
 
   const submitNavigation = useCallback((submit: () => void, isCurrent?: () => boolean) => {
     if (isCurrent && !isCurrent()) return
@@ -131,8 +141,7 @@ export function useCommunityNavigationController(
 
   const push = useCallback((...args: Parameters<typeof router.push>) => {
     const [href] = args
-    setEntryIntent({ href })
-    if (href === publishedHref && !navigationPending) { settledIntentRef.current = null; navigationNoop(href); return }
+    if (captureEntryIntent(href)) { settledIntentRef.current = null; navigationNoop(href); return }
     beginNavigation(href)
     void prepareNavigationMetadata(queryClient, href, "foreground")
     supersedeNavigationIntent(gateRef.current)
@@ -147,11 +156,10 @@ export function useCommunityNavigationController(
       setPendingHref(href)
     })
     submitNavigation(() => router.push(...args), isCurrent)
-  }, [captureIntent, committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref, submitNavigation])
+  }, [captureEntryIntent, captureIntent, committedFrame.leafKey, committedFrame.revision, queryClient, router, setNavigationPending, setPendingHref, submitNavigation])
 
   const pushImmediate = useCallback((href: string, prepare?: (action?: Action) => void) => {
-    setEntryIntent({ href })
-    if (href === publishedHref && !navigationPending) { settledIntentRef.current = null; navigationNoop(href); prepare?.(); return }
+    if (captureEntryIntent(href)) { settledIntentRef.current = null; navigationNoop(href); prepare?.(); return }
     const action = beginNavigation(href)
     prepare?.(action)
     void prepareNavigationMetadata(queryClient, href, "foreground")
@@ -166,11 +174,10 @@ export function useCommunityNavigationController(
       setPendingHref(href)
     })
     submitNavigation(() => router.push(href), isCurrent)
-  }, [captureIntent, committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref, submitNavigation])
+  }, [captureEntryIntent, captureIntent, committedFrame.leafKey, committedFrame.revision, queryClient, router, setNavigationPending, setPendingHref, submitNavigation])
 
   const replace = useCallback((href: string, options?: { resume?: boolean }) => {
-    setEntryIntent({ href, ...(options?.resume ? { resume: true } : {}) })
-    if (href === publishedHref && !navigationPending) { settledIntentRef.current = null; navigationNoop(href); return }
+    if (captureEntryIntent(href, options?.resume)) { settledIntentRef.current = null; navigationNoop(href); return }
     beginNavigation(href)
     void prepareNavigationMetadata(queryClient, href, "foreground")
     supersedeNavigationIntent(gateRef.current)
@@ -179,7 +186,7 @@ export function useCommunityNavigationController(
     setNavigationPending(true)
     setPendingHref(href)
     submitNavigation(() => router.replace(href))
-  }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref, submitNavigation])
+  }, [captureEntryIntent, committedFrame.leafKey, committedFrame.revision, queryClient, router, setNavigationPending, setPendingHref, submitNavigation])
 
   const resolveAndPush = useCallback(async (resolve: () => Promise<string>) => {
     pendingBaselineRevisionRef.current = committedFrame.revision

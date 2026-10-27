@@ -53,6 +53,8 @@ const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Objec
   window_mode: ["newest", "anchor", "since", "older", "newer"],
   position_owner: ["idle", "initial", "target", "late-new", "present", "pagination", "restore"],
   position_reason: ["settled", "empty", "target_missing", "manual_takeover", "hidden", "entry_changed", "retired", "data_error", "cancelled", "superseded", "origin_changed"],
+  position_source: ["snapshot", "read_anchor", "explicit_target", "new_divider", "tail", "unknown"],
+  position_snapshot: ["no_scope", "invalid_scope", "missing", "invalid_version", "fingerprint_mismatch", "expired", "available", "not_requested", "entry_changed", "viewport_mismatch", "padding_mismatch", "anchor_missing", "accepted"],
   initial_wait_reason: ["none", "entry", "window", "projection", "identity", "restore", "position", "unknown"],
   last_wait_reason: ["none", "entry", "window", "projection", "identity", "restore", "position", "unknown"],
   wait_reason: ["none", "entry", "window", "projection", "identity", "restore", "position", "unknown"],

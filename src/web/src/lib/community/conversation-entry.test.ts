@@ -190,6 +190,33 @@ describe("conversation entry canonical publication", () => {
     await client.query({ ...conversationEntryOptions(client, target), select: undefined })
     expect(load).toHaveBeenCalledOnce()
   })
+
+  it.each(["child-missing", "child-incomplete", "child-type", "child-server", "child-parent", "opener-missing", "opener-incomplete", "opener-channel"] as const)("rejects a cached Forum display window with %s without refreshing its qualification", async invalid => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = forumConversationEntryFixture()
+    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const scope = getQualifiedConversationScope(client, target)!
+    expect(findConversationDisplayWindow(client, target, scope)?.key).toEqual(resource.windowKey)
+    if (invalid === "child-missing") await registry.collections.channels.utils.writeDelete("t1")
+    else if (invalid.startsWith("child-")) {
+      const child = registry.collections.channels.get("t1")!
+      await registry.collections.channels.utils.writeUpsert({ ...child,
+        ...(invalid === "child-incomplete" ? { resourceComplete: false } : {}),
+        ...(invalid === "child-type" ? { type: "text" as const } : {}),
+        ...(invalid === "child-server" ? { serverId: "other" } : {}),
+        ...(invalid === "child-parent" ? { parentChannelId: "other" } : {}),
+      })
+    } else if (invalid === "opener-missing") await registry.collections.messages.utils.writeDelete("m1")
+    else {
+      const opener = registry.collections.messages.get("m1")!
+      await registry.collections.messages.utils.writeUpsert({ ...opener,
+        ...(invalid === "opener-incomplete" ? { resourceComplete: false } : { channelId: "other" }),
+      })
+    }
+    expect(getQualifiedConversationScope(client, target)).toBeDefined()
+    expect(findConversationDisplayWindow(client, target, scope)).toBeUndefined()
+    expect(load).not.toHaveBeenCalled()
+  })
   it.each(["empty-query", "failed-query", "empty-pages", "mismatched-params"] as const)("installs the real first window over %s for text and forum", async state => {
     for (const forum of [false, true]) {
       const { client } = await createCommunityQueryOwner()
