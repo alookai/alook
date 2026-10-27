@@ -1,0 +1,88 @@
+export const metadata = {
+  slug: "claude-code-codex-cursor-grok-which-to-choose",
+  title: "Claude Code, Codex, Cursor, or Grok: which should I choose?",
+  date: "2026-10-27",
+  author: "Alook Team",
+  excerpt: "We analyzed 3,283 X posts to compare Claude Code, Codex, Cursor, Grok Bot, Grok Build, Antigravity and OpenCode. Here is which harness to try for your next task.",
+  readingTime: "5 min read",
+  image: "/blog/claude-code-codex-cursor-grok-which-to-choose/agent-feedback.png",
+};
+
+I analyzed 3,283 X posts on Claude Code, Codex, Cursor, Grok Bot, Grok Build, Antigravity, and OpenCode. 757 of them were about a real job. Here is who to try first.
+
+![Post counts and positive versus negative feedback for seven agents, ordered by increasing negative share](/blog/claude-code-codex-cursor-grok-which-to-choose/agent-feedback.png)
+
+[Open full-size chart](/blog/claude-code-codex-cursor-grok-which-to-choose/agent-feedback.png).[^feedback]
+
+- Already have a repo: Claude Code or Cursor.
+- The machine or old software is broken: Codex.
+- A small game or personal tool this week: Grok Build.
+- Mail, files, reminders: Grok Bot.
+- A page that has to look like the mock: Antigravity.
+- You pick the model yourself: OpenCode.
+
+Skip Codex for visual design. Skip Antigravity for maintaining an existing app. Do not leave Grok Bot in charge of a long project. Do not treat a Grok Build first version as finished.
+
+The rest of this piece is the catch for each harness.[^method]
+
+## Grok Bot: give it the inbox, not the project
+
+The jobs that work have a done state you can see. Clearing email and unsubscribing. Moving Notion pages. Delegating a site fix to Cursor and asking whether the PR landed.[^bot]
+
+A paper still fell short after three weeks. Across sessions it forgets what it already did, waits to be poked, and misses a long brief. Use it as a clerk. Do not leave it as the owner of a project.
+
+## Cursor: the bug in this repo, not the rest of the tree
+
+Point it at a recording of a broken UI, or turn on Debug mode, and stay inside a project that already exists. That is the useful shape: a specific fault, code in front of you, another pass if the first patch is wrong.[^cursor]
+
+A navigation fix rewrote authentication. Another patch overwrote files already staged for commit. The bug can look fixed while the rest of the tree moved. Read the diff even when the change looks small.
+
+## Claude Code: it will take the whole job, including extra files
+
+This is the one people hand a real implementation. An old PHP blog. Twenty sites to migrate. A design that has to become a site. It keeps going on work that already has requirements and a repo.[^claude]
+
+It also keeps going past the request. A small fix becomes a rewrite across files. Tests go green and registration still errors. Treat "done" as a claim. Click the signup flow yourself.
+
+## Grok Build: ship the first playable version
+
+The posts that like it are about things already in use: a tower-defense game on a phone, a lithophane cut for a specific printer, tools a family is already opening. Speed to a version you can try is the point.[^build]
+
+Then the second week. A plugin that appeared in one pass, then never got its bugs fixed. A store preview that looks finished while product data is still stuck. A first version is not a finish. There are large-project wins in this sample; they do not cancel the stall after v1.
+
+## Antigravity: make the thing you can show
+
+A 3D shoe site. Scroll animations from reference stills. If the job is "can I see this idea," start here.[^antigravity]
+
+If the job is "this existing app is broken," start somewhere else. Failed repairs. Tests rewritten to match the bug. "Complete" without looking. A pretty page is not evidence it can keep a codebase alive.
+
+## OpenCode: you own the stack, so you own the stall
+
+People pick it to combine their own models, interfaces, and local setup. Recovering a lost production container is the kind of win that shows up. Scripts and environment repairs show up too.[^opencode]
+
+The cost is operational. Failed tool calls. Reading the same file on a loop. A session that finishes the plan and then spins. When it sticks, you are debugging the model and the glue, not only the app. Switch models, fix the connection, or cut the task up.
+
+## Codex: repair what used to run
+
+Audio buffers. Device wiring. Thirty-year-old assembly. Old games that should boot again. Concrete breakage in an environment you already have, or a repetitive job you want scripted.[^codex]
+
+Do not start here for how it looks. Website taste, Blender characters, PowerPoint and PDF layout all get negative notes. One successful old-program repair also does not mean the next port will finish. A Roblox migration sat in fixes for a week.
+
+## Notes
+
+[^feedback]: The chart uses the 757 task-feedback records selected for this article, ordered from lowest to highest negative share. A post with negative feedback counts as negative; all others count as positive. Mixed feedback counts as negative. Each post counts once per agent. See the [counts and post-level labels](/blog/claude-code-codex-cursor-grok-which-to-choose/agent-feedback-evidence.md) (Chinese).
+
+[^method]: The source collection contains 3,283 post records. The task findings for these seven agents draw on 757 records; a post can discuss more than one task. Counts describe this sample, not success rates or an overall ranking. The recommendations are our interpretation of these reports, not the results of a controlled comparison. See the [task classifications, counts and source index](/blog/claude-code-codex-cursor-grok-which-to-choose/evidence.md) (Chinese).
+
+[^bot]: Grok Bot: 41 posts on everyday admin; 18 on remote operation and delegation; 8 on problems with long tasks, memory or execution. [Inbox cleanup and unsubscribing](https://x.com/scheemunai/status/2092591711557947796); [Moving Notion content](https://x.com/rchase/status/2105378472323338546); [Delegating a site fix and PR to Cursor](https://x.com/ndimares/status/2108203260406276561); [Repeatedly losing track of project progress](https://x.com/odhem4/status/2109812553840779445); [A paper still falling short after three weeks](https://x.com/XirtamEsrevni/status/2107223958471028928).
+
+[^cursor]: Cursor: 23 posts on project debugging and feature additions; 35 on websites and interactive components; 7 on fixes changing unrelated code. [Using a recording to locate a UI problem](https://x.com/vitverb/status/2090202422232678892); [Debug mode resolving a problem](https://x.com/llatserbuilds/status/2078135032733192498); [Fixing a bug but changing staged files](https://x.com/LLMpsycho/status/2082346378483634628); [Changing authentication code during a failed navigation fix](https://x.com/AKirtesh/status/2110577837103296853).
+
+[^claude]: Claude Code: 66 posts on websites and frontends; 43 on engineering repairs, migrations and integrations; 8 on scope problems; 10 on missed defects during verification. [Upgrading an old PHP blog](https://x.com/aosya/status/2113249020143665661); [Migrating twenty old sites](https://x.com/alanefuller/status/2105327060281344446); [Tests pass, but registration still returns an error](https://x.com/oldeucryptoboi/status/2055276708236812353).
+
+[^build]: Grok Build: 68 posts on games and game features; 53 on personal tools, business apps and websites; 18 on difficult debugging, revisions or delivery problems. [Building a playable tower-defense game on a phone](https://x.com/MCviewz/status/2082629305884930190); [Generating a lithophane for specific printer settings](https://x.com/Dswain661/status/2103363637721411773); [A fast first plugin version, followed by unresolved bugs](https://x.com/VipLucky168/status/2082446040968396921); [A good preview, but a stalled product migration](https://x.com/soladventur/status/2094633271069938054); [Positive feedback on a large ERP project](https://x.com/TheGW0414/status/2113503735226024252).
+
+[^antigravity]: Antigravity: 45 posts on showcase sites and visual interactions; 22 on game prototypes; 15 on small apps; 21 on problems with engineering changes or debugging. [An interactive 3D shoe site](https://x.com/davidraigozaj/status/2091907279918358944); [Turning reference images into site animations](https://x.com/Dimentorio/status/2098372858581860834); [Delivering an offline point-of-sale system](https://x.com/olax_bonnke/status/2104881235369628002); [Changing tests to accommodate incorrect code](https://x.com/steddipace/status/2073256872275022043).
+
+[^opencode]: OpenCode: 65 posts on app prototypes; 33 on system configuration, scripts and local development; 26 on failed calls, stalls or loops. [A tool for splitting performance revenue](https://x.com/MGamalNasser/status/2089985496906883224); [Recovering a lost production container](https://x.com/entrptaher/status/2092515173827535104); [Reading the same file repeatedly](https://x.com/starhawkever/status/2072103772067942765); [Looping after completing a plan](https://x.com/galagalat2/status/2102446536508793143).
+
+[^codex]: Codex: 38 posts on environment, device and legacy software repairs; 13 with negative feedback on visual output; 5 on stalled game migrations or debugging. [Fixing audio sampling and buffering](https://x.com/aguerrieri/status/2110120952776511860); [Repairing thirty-year-old assembly code](https://x.com/magnus_ahlden/status/2110335751175213259); [Poor Blender character modeling](https://x.com/xsx10987/status/2082992805379797428); [An unfinished Roblox port after a week of fixes](https://x.com/Martin5555/status/2092329332978970626).

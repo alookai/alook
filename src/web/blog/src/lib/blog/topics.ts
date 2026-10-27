@@ -41,6 +41,7 @@ export const blogTopics = [
       "Coordinate coding agents across tools and repositories without duplicated work, lost decisions, or merge conflicts.",
     pillarSlug: "claude-code-and-codex-same-team",
     entries: [
+      { slug: "claude-code-codex-cursor-grok-which-to-choose", userJob: "Choose a coding or personal-agent harness for a concrete task using reported strengths and weaknesses" },
       { slug: "ai-team-vs-ai-tools", userJob: "Stop being the copy-paste layer between coding agents" },
       {
         slug: "claude-code-subagents-vs-independent-agents",

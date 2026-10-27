@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 35 published slugs exactly once", () => {
+  it("covers all 36 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(35);
-    expect(new Set(slugs).size).toBe(35);
+    expect(slugs).toHaveLength(36);
+    expect(new Set(slugs).size).toBe(36);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -69,6 +69,7 @@ describe("blogTopics", () => {
         "run-ai-agent-team-that-stays-on-track",
       ],
       [
+        "claude-code-codex-cursor-grok-which-to-choose",
         "ai-team-vs-ai-tools",
         "claude-code-subagents-vs-independent-agents",
         "claude-code-and-codex-same-team",
@@ -118,6 +119,7 @@ describe("blogTopics", () => {
         )
       )
     ).toEqual({
+      "claude-code-codex-cursor-grok-which-to-choose": "Choose a coding or personal-agent harness for a concrete task using reported strengths and weaknesses",
       "ask-coworker-codex-claude-code": "Let coworkers talk to the coding agents that did the work",
       "prevent-claude-code-codex-duplicating-work": "Prevent Claude Code and Codex from duplicating work",
       "prevent-codex-opencode-duplicating-work": "Prevent Codex and OpenCode from duplicating work",
