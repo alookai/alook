@@ -11,6 +11,7 @@ import {
   MD_LITERAL_TAGS,
   buildMdComponents,
 } from "./message-markdown"
+import { redactedContentPlugin } from "./redacted-content"
 import { CommunityInviteCard } from "../social/community-invite-card"
 import type { MessagePerspective } from "@/components/community/messages/message-presentation-types"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -67,6 +68,7 @@ const HARDEN_CONFIG = {
 // — i.e. raw HTML the user typed, like `<b>bold</b>` — becomes a plain-text
 // node) makes user-typed HTML render as literal text automatically.
 const REHYPE_PLUGINS: PluggableList = [
+  redactedContentPlugin,
   [rehypeSanitize, SANITIZE_SCHEMA],
   [harden, HARDEN_CONFIG],
 ]

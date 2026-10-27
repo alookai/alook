@@ -4,6 +4,7 @@ import { tid } from "@/lib/community/testids"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { MessageList } from "./message-list"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames } from "@/test/message-scroll-fixture"
+import type { MessageRequestResult } from "@/lib/community/message-position"
 
 const breakpoint = vi.hoisted(() => ({ value: "desktop" as "desktop" | "mobile" }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => breakpoint.value }))
@@ -11,6 +12,41 @@ vi.mock("./message-row", () => ({ MessageRow: () => React.createElement("div") }
 vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value) }))
 
 describe("MessageList native range pagination", () => {
+  it.each(["response-first", "rows-first"] as const)("serializes accepted older requests through body settlement (%s)", async order => {
+    const message = (i: number) => ({ id: `m${i}`, type: "chat" as const, authorId: "alice", authorName: "Alice", content: "hi", createdAt: new Date(i * 1000).toISOString() })
+    let messages = Array.from({ length: 50 }, (_, i) => message(i + 40))
+    const before = {}, received = {}
+    let complete!: (result: MessageRequestResult) => void
+    const completed = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+    const onLoadOlder = vi.fn(() => ({ accepted: true as const, completed }))
+    const view = (messageWindow = before, isFetchingOlder = false, positionDataState: "ready" | "pending" = "ready") => React.createElement(MessageList, {
+      channel: "general", messages, messageWindow, initialScrollReady: true, positionDataState,
+      hasMore: true, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn(),
+    })
+    const renderer = render(view())
+    resize()
+    const root = renderer.getByTestId(tid.messageScroller)
+    fireEvent.wheel(root, { deltaY: -30000 })
+    act(() => root.scrollTo({ top: 0 }))
+    resize()
+    expect(onLoadOlder).toHaveBeenCalledOnce()
+    const top = renderer.getByTestId(tid.message("m40")).getBoundingClientRect().top
+    renderer.rerender(view(before, true))
+    if (order === "rows-first") {
+      messages = [...Array.from({ length: 39 }, (_, i) => message(i + 1)), ...messages]
+      renderer.rerender(view(before, true))
+      resize()
+    }
+    await act(async () => { complete({ status: "success", window: received }) })
+    renderer.rerender(view(received, false, "pending"))
+    resize()
+    expect(onLoadOlder).toHaveBeenCalledOnce()
+    if (order === "response-first") messages = [...Array.from({ length: 39 }, (_, i) => message(i + 1)), ...messages]
+    renderer.rerender(view(received))
+    resize()
+    expect(renderer.getByTestId(tid.message("m40")).getBoundingClientRect().top).toBeCloseTo(top, 0)
+    expect(onLoadOlder).toHaveBeenCalledOnce()
+  })
   it("loads and settles ordinary older pages after explicit positioning failure while read remains closed", () => {
     const messages = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, authorId: "alice", authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
     const onLoadOlder = vi.fn()

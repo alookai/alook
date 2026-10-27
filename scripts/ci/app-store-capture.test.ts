@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process"
-import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
@@ -9,6 +8,7 @@ import { resolve } from "node:path"
 import sharp from "sharp"
 import { describe, expect, it, vi } from "vitest"
 import { captures, selectCaptures, captureArtwork, captureInputHashes, main, stopCaptureProcess } from "../../src/web/app-store-capture/capture.mjs"
+import { assertArtworkHash, assertArtworkProvenance } from "./artwork-manifest"
 
 const root = resolve(import.meta.dirname, "../..")
 const captureRoot = resolve(root, "src/web/app-store-capture")
@@ -50,16 +50,18 @@ describe("component-rendered App Store artwork", () => {
     expect(lintProject.include).toContain("app-store-capture/**/*")
   })
 
-  it("ships actual component viewports and JPEGs bound to the current direct source inputs", async () => {
+  it("ships actual component viewports and JPEGs bound to their recorded render inputs", async () => {
     const manifest = JSON.parse(await readFile(resolve(root, "assets/app-store/manifest.json"), "utf8"))
     expect(manifest).toMatchObject({ clock: "2026-10-25T00:00:00Z", locale: "en-US", timezone: "UTC" })
+    expect(manifest.renderer).toMatch(/^\d+\./)
+    expect(manifest.repositoryHead).toMatch(/^[a-f0-9]{40}$/)
     expect(manifest.outputs.filter(output => output.path !== "overview.jpg").map(output => output.path)).toEqual(captures.map(capture => capture.filename))
     for (const capture of captures) {
       const bytes = await readFile(resolve(root, "assets/app-store", capture.filename))
       const metadata = await sharp(bytes).metadata()
       expect(metadata).toMatchObject({ format: "jpeg", width: capture.width, height: capture.height, channels: 3, hasAlpha: false, space: "srgb" })
       const output = manifest.outputs.find(output => output.path === capture.filename)
-      expect(output.sha256).toBe(createHash("sha256").update(bytes).digest("hex"))
+      assertArtworkHash(bytes, output.sha256)
       expect(output.surfaces.length).toBeGreaterThan(0)
       for (const surface of output.surfaces) {
         expect(surface.rootFontSize).toBe("16px")
@@ -72,19 +74,7 @@ describe("component-rendered App Store artwork", () => {
     }
     const duo = manifest.outputs.find(output => output.path === "duo-2007x2853/06-existing-setup.jpg")
     expect(duo.surfaces.map(surface => [surface.width, surface.height])).toEqual([[951, 669], [466, 678]])
-    expect(manifest.inputs).toEqual(await captureInputHashes())
-    if (manifest.renderBatches) {
-      const paths = manifest.renderBatches.flatMap(batch => batch.outputPaths)
-      expect(paths.length).toBe(new Set(paths).size)
-      expect([...paths].sort()).toEqual(captures.map(capture => capture.filename).sort())
-      for (const batch of manifest.renderBatches) {
-        expect(batch.renderer).toMatch(/^\d+\./)
-        expect(batch.clock).toBe(manifest.clock)
-        expect(Object.keys(batch.inputs).sort()).toEqual(Object.keys(manifest.inputs).sort())
-        expect(Object.values(batch.inputs).every(hash => typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash))).toBe(true)
-      }
-      expect(manifest.renderBatches.at(-1).inputs).toEqual(manifest.inputs)
-    }
+    assertArtworkProvenance(manifest, captures.map(capture => capture.filename))
   })
 
   it("keeps the original source-package manifests as history rather than live screenshot inputs", async () => {

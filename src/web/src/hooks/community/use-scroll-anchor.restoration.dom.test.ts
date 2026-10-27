@@ -3,12 +3,37 @@ import { act, fireEvent } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
 import { virtualListPositionKey, type VirtualListPositionScope, type VirtualListPositionSnapshot } from "@/lib/community/virtual-list-position"
-import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("native snapshot restoration and one-shot late unread ownership", () => {
+  it.each([false, true])("keeps the saved body offset when prepend changes an unsettled restore index (StrictMode=%s)", async strict => {
+    const { client } = await createCommunityQueryOwner()
+    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
+    const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
+    const original = mount({ positionScope, items }, strict)
+    original.move(800)
+    const snapshot = client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))!
+    const anchorId = String(snapshot.anchorKey).slice(4)
+    const top = bodyTop(original.root, anchorId)
+    original.view.unmount()
+    const restored = mount({ positionScope, items }, strict, undefined, undefined, 0)
+    scrollFixture.bodyHeights.set(anchorId, 0)
+    resize(1)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.positionOutcome).toBe("pending")
+    restored.stage({ items: [message("prepended"), ...items] })
+    runFrames(1)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    scrollFixture.bodyHeights.set(anchorId, 100)
+    resize()
+    expect(bodyTop(restored.root, anchorId)).toBeCloseTo(top, 0)
+    expect(restored.root.querySelector(`[data-msg-id="${anchorId}"]`)!.closest<HTMLElement>("[data-message-row-key]")!.dataset.messageRowKey).toBe(snapshot.anchorKey)
+    expect(scrollFixture.latest.positionOutcome).toBe("success")
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
   it.each([false, true])("restores a destroyed instance from its own measured snapshot (StrictMode=%s)", async strict => {
     const { client } = await createCommunityQueryOwner()
     const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }

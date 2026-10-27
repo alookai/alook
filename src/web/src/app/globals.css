@@ -2407,7 +2407,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 
 [data-streamdown="code-block-body"] pre,
 [data-streamdown="code-block-body"] pre code,
-[data-streamdown="code-block-body"] pre code span {
+[data-streamdown="code-block-body"] pre code span:not([data-redacted]) {
   background-color: #24292e !important;
   color: #e1e4e8 !important;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;

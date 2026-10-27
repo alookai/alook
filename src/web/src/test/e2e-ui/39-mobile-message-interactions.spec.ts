@@ -121,7 +121,17 @@ async function sampleReadingPosition(scroller: Locator) {
         .filter(row => {
           const rect = row.getBoundingClientRect()
           return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom
-        }).map(row => ({ key: row.dataset.messageRowKey!, height: row.getBoundingClientRect().height, text: row.textContent })),
+        }).map(row => {
+          const message = row.querySelector<HTMLElement>("[data-msg-id]")
+          const body = message?.querySelector<HTMLElement>("[data-community-message-body]")
+          if (message && !body) throw new Error(`Missing fixture message body: ${message.dataset.msgId}`)
+          return {
+            key: row.dataset.messageRowKey!, height: row.getBoundingClientRect().height,
+            id: message?.dataset.msgId ?? null,
+            text: body ? body.textContent : row.textContent,
+            paragraphs: body ? Array.from(body.querySelectorAll("p"), paragraph => paragraph.textContent) : null,
+          }
+        }),
     }
   })
 }
@@ -170,7 +180,7 @@ async function expectReadingRootRetained(previous: ReadingRoot, scroller: Locato
   await previous.dispose()
 }
 
-async function expectReadingPositionRestored(scroller: Locator, before: ReadingPosition): Promise<void> {
+async function expectReadingPositionRestored(scroller: Locator, before: ReadingPosition, fixture: { id: string; paragraphs: readonly string[] }): Promise<void> {
   const after = await settledReadingPosition(scroller)
   expect(after.anchor?.id).toBe(before.anchor?.id)
   expect(after.anchor?.key).toBe(before.anchor?.key)
@@ -178,7 +188,12 @@ async function expectReadingPositionRestored(scroller: Locator, before: ReadingP
   for (const key of ["clientWidth", "clientHeight", "scrollHeight", "scrollTop"] as const) {
     expect(Math.abs(after[key] - before[key]), `qualified snapshot ${key}`).toBeLessThanOrEqual(1)
   }
-  expect(after.rows.map(({ key, text }) => ({ key, text }))).toEqual(before.rows.map(({ key, text }) => ({ key, text })))
+  expect(after.rows.map(({ key, id, text }) => ({ key, id, text }))).toEqual(before.rows.map(({ key, id, text }) => ({ key, id, text })))
+  for (const position of [before, after]) {
+    const body = position.rows.find(row => row.id === fixture.id)
+    expect(body, `visible fixture message ${fixture.id}`).toBeDefined()
+    expect(body?.paragraphs).toEqual(fixture.paragraphs)
+  }
   for (let index = 0; index < before.rows.length; index += 1) {
     expect(Math.abs(after.rows[index].height - before.rows[index].height), `restored row ${before.rows[index].key}`).toBeLessThanOrEqual(1)
   }
@@ -539,10 +554,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await seedJoinServer("alice", "bob", serverId)
   const channelBobMessageId = await seedMessage("bob", channelId, `channel **target** ${stamp}`)
   const channelBobSecondMessageId = await seedMessage("bob", channelId, `channel _alternate_ ${stamp}`)
-  await seedMessage("alice", channelId, Array.from(
-    { length: 80 },
-    (_, index) => `scroll restoration line ${index} ${stamp}`,
-  ).join("\n\n"))
+  const channelScrollLines = Array.from({ length: 80 }, (_, index) => `scroll restoration line ${index} ${stamp}`)
+  const channelScrollMessageId = await seedMessage("alice", channelId, channelScrollLines.join("\n\n"))
   const openerId = await seedMessage("alice", channelId, `thread opener ${stamp}`)
   const threadId = await seedThread("alice", openerId, `mobile-thread-${stamp}`)
   const threadBobMessageId = await seedMessage("bob", threadId, `thread **target** ${stamp}`)
@@ -550,10 +563,8 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   for (let index = 0; index < 24; index += 1) {
     await seedMessage(index % 2 === 0 ? "alice" : "bob", dmId, `dm scroll row ${index} ${stamp}`)
   }
-  await seedMessage("bob", dmId, Array.from(
-    { length: 70 },
-    (_, index) => `dm scroll line ${index} ${stamp}`,
-  ).join("\n\n"))
+  const dmScrollLines = Array.from({ length: 70 }, (_, index) => `dm scroll line ${index} ${stamp}`)
+  const dmScrollMessageId = await seedMessage("bob", dmId, dmScrollLines.join("\n\n"))
   const bobInfo = await memberInfo("alice", serverId, userId("bob"))
   const aliceInfo = await memberInfo("alice", serverId, userId("alice"))
   const replyAuthorMention = `@${bobInfo.name}#${bobInfo.discriminator}`
@@ -1107,7 +1118,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expectReadingRootDetached(departedDmRoot)
   await alice.page.getByTestId(tid.dmRow(dmId)).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
-  await expectReadingPositionRestored(dmScroller, dmReadingPosition)
+  await expectReadingPositionRestored(dmScroller, dmReadingPosition, { id: dmScrollMessageId, paragraphs: dmScrollLines })
   await expectReadingRootRecreated(departedDmRoot, dmScroller)
   await expectReturnReadsAndGets(alice.page, dmId, dmReadState, dmReturnGets)
   dmReturnGets.stop()
@@ -1193,7 +1204,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(navigationDraft)
-  await expectReadingPositionRestored(scroller, channelReadingPosition)
+  await expectReadingPositionRestored(scroller, channelReadingPosition, { id: channelScrollMessageId, paragraphs: channelScrollLines })
   await expectReadingRootRecreated(departedChannelRoot, scroller)
   await expectReturnReadsAndGets(alice.page, channelId, channelReadState, channelReturnGets)
   channelReturnGets.stop()
@@ -1221,10 +1232,8 @@ test("mobile thread return recreates its list and restores the qualified reading
   for (let index = 0; index < 24; index += 1) {
     await seedMessage("alice", threadId, `thread scroll row ${index} ${stamp}`)
   }
-  await seedMessage("alice", threadId, Array.from(
-    { length: 70 },
-    (_, index) => `thread scroll line ${index} ${stamp}`,
-  ).join("\n\n"))
+  const threadScrollLines = Array.from({ length: 70 }, (_, index) => `thread scroll line ${index} ${stamp}`)
+  const threadScrollMessageId = await seedMessage("alice", threadId, threadScrollLines.join("\n\n"))
   const threadReplyId = await seedMessage("alice", threadId, `scroll thread reply ${stamp}`)
 
   const alice = await asUser("alice")
@@ -1284,7 +1293,7 @@ test("mobile thread return recreates its list and restores the qualified reading
   await expectReadingRootRetained(parentRoot, scroller)
   await alice.page.goForward({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
-  await expectReadingPositionRestored(threadScroller, threadReadingPosition)
+  await expectReadingPositionRestored(threadScroller, threadReadingPosition, { id: threadScrollMessageId, paragraphs: threadScrollLines })
   await expectReadingRootRecreated(departedThreadRoot, threadScroller)
   await expectReturnReadsAndGets(alice.page, threadId, threadReadState, threadReturnGets)
   threadReturnGets.stop()
@@ -1300,7 +1309,8 @@ test("mobile width change invalidates a previously qualified snapshot and falls 
   for (let index = 0; index < 24; index += 1) {
     await seedMessage("alice", channelId, `width row ${index} ${stamp}`)
   }
-  await seedMessage("alice", channelId, Array.from({ length: 80 }, (_, index) => `width layout line ${index} ${stamp}`).join("\n\n"))
+  const widthScrollLines = Array.from({ length: 80 }, (_, index) => `width layout line ${index} ${stamp}`)
+  const widthScrollMessageId = await seedMessage("alice", channelId, widthScrollLines.join("\n\n"))
   const tailId = await seedMessage("alice", channelId, `width canonical tail ${stamp}`)
   const alice = await actors.asUser("alice")
   await alice.page.setViewportSize({ width: 390, height: 844 })
@@ -1330,7 +1340,7 @@ test("mobile width change invalidates a previously qualified snapshot and falls 
     await expectReadingRootDetached(original)
     await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
     await expect.poll(() => new URL(alice.page.url()).pathname).toBe(href)
-    await expectReadingPositionRestored(scroller, departure)
+    await expectReadingPositionRestored(scroller, departure, { id: widthScrollMessageId, paragraphs: widthScrollLines })
     await expectReadingRootRecreated(original, scroller)
     await expectReturnReadsAndGets(alice.page, channelId, read, gets)
     gets.stop()

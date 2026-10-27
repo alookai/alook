@@ -15,7 +15,7 @@ export function Spoiler({ children }: { children?: React.ReactNode }) {
       onClick={() => setShown(true)}
       className={[
         "rounded-[4px] px-1 transition-colors",
-        shown ? "bg-muted text-foreground" : "bg-foreground/80 text-transparent select-none",
+        shown ? "bg-muted text-foreground" : "bg-foreground/80 text-transparent select-none [&_[data-redacted]]:invisible",
       ].join(" ")}
     >
       {children}
