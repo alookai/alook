@@ -71,7 +71,7 @@ describe("Community browser event runtime contract", () => {
     expect(Object.keys(requiredFixturePaths).sort()).toEqual(names)
   })
 
-  it("decodes and canonically encodes all 49 current event fixtures", () => {
+  it("decodes and canonically encodes all 48 current event fixtures", () => {
     for (const fixture of fixtures) {
       expect(decodeCommunityBrowserEvent(fixture)).toEqual({ ok: true, event: fixture })
       const encoded = encodeCommunityBrowserEvent(fixture)
