@@ -219,6 +219,7 @@ describe("daemon lifecycle real processes", () => {
     const baseDir = makeBaseDir();
     const envProbe = path.join(baseDir, "runner-env.cjs");
     const envResult = path.join(baseDir, "runner-env.json");
+    const registryKey = Object.keys(process.env).find((key) => key.toLowerCase() === "npm_config_registry") ?? "npm_config_registry";
     fs.writeFileSync(envProbe, [
       'if (process.argv.slice(2).join(" ") === "daemon run") {',
       `require("node:fs").writeFileSync(${JSON.stringify(envResult)}, JSON.stringify({`,
@@ -231,7 +232,7 @@ describe("daemon lifecycle real processes", () => {
       NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${JSON.stringify(envProbe)}`].filter(Boolean).join(" "),
       npm_config_package: "@alook/daemon@latest",
       NPM_CONFIG_PACKAGE: "@alook/daemon@latest",
-      npm_config_registry: "https://registry.example.test",
+      [registryKey]: "https://registry.example.test",
     });
     expect(started.code).toBe(0);
     expect(started.output).toContain("started in background");
