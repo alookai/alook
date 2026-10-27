@@ -36,7 +36,7 @@ vi.mock("./mutations", () => ({
   useSendMessage: () => ({ mutateAsync: vi.fn() }),
   useToggleReactionApi: () => vi.fn(), useAddReactionApi: () => vi.fn(),
   usePinMessage: () => ({ mutate: vi.fn() }), useUnpinMessage: () => ({ mutate: vi.fn() }),
-  useToggleMark: () => vi.fn(), useEditMessage: () => ({ mutate: vi.fn() }),
+  useToggleMark: () => vi.fn(),
   useCreateThread: () => ({ mutateAsync: vi.fn() }), useUploadFile: () => ({ mutateAsync: vi.fn() }),
 }))
 

@@ -152,89 +152,6 @@ async function canonicalSidebar() {
   return getForumSidebarBase(capturedQc, "s1")
 }
 
-describe("useEditMessage", () => {
-  it("optimistically patches content and rolls back when PATCH fails", async () => {
-    const key = communityKeys.channelMessages("ch_1")
-    const messageKey = communityKeys.message("m1")
-    capturedQc.setQueryData(key, makeCache([{ id: "m1", content: "old" }]))
-    capturedQc.setQueryData(messageKey, "m1")
-    ingestMessages(canonicalRegistry, "ch_1", [{ id: "m1", type: "chat", content: "old" }])
-    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
-    const mod = await loadMod()
-    mountHook(() => mod.useEditMessage())
-
-    await runMutation({ serverId: "s1", channelId: "ch_1", messageId: "m1", content: "new" }).catch(() => {})
-
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m1", expect.objectContaining({
-      method: "PATCH",
-      body: JSON.stringify({ content: "new" }),
-      assertActive: expect.any(Function), authenticationAccount: "u_me",
-    }))
-    expect(canonicalRegistry.collections.messages.get("m1")?.content).toBe("old")
-    expect(capturedQc.getQueryData(messageKey)).toBe("m1")
-    expect(capturedQc.getQueryData(key)).toEqual(makeCache([{ id: "m1" }]))
-  }, 60_000)
-
-  it("optimistically patches the single-message cache used by a post header", async () => {
-    const messageKey = communityKeys.message("opener_1")
-    capturedQc.setQueryData(messageKey, "opener_1")
-    ingestMessages(canonicalRegistry, "forum_1", [{ id: "opener_1", type: "chat", content: "Old title" }])
-    apiFetchMock.mockResolvedValueOnce(undefined)
-    const mod = await loadMod()
-    mountHook(() => mod.useEditMessage())
-
-    await runMutation({
-      serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "New title", forumChannelId: "forum_1",
-    })
-
-    expect(canonicalRegistry.collections.messages.get("opener_1")?.content).toBe("New title")
-    expect(capturedQc.getQueryData(messageKey)).toBe("opener_1")
-  })
-
-  it("updates the canonical opener without invalidating unrelated feed transports", async () => {
-    const threads = communityKeys.threads("forum_1")
-    const feed = communityKeys.forumFeed("forum_1", "bug")
-    const inbox = communityKeys.inboxUnreads()
-    capturedQc.setQueryData(threads, { serverId: "s1", parentType: "forum", parentChannelId: "forum_1", threads: [] })
-    capturedQc.setQueryData(feed, { pages: [], pageParams: [] })
-    capturedQc.setQueryData(inbox, { servers: [], dms: [] })
-    await seedCanonicalSidebar()
-    apiFetchMock.mockResolvedValueOnce(undefined)
-    const mod = await loadMod()
-    mountHook(() => mod.useEditMessage())
-
-    await runMutation({
-      serverId: "s1", channelId: "forum_1", messageId: "opener_1", content: "new",
-      forumChannelId: "forum_1", forumThreadId: "post_1",
-    })
-
-    expect(canonicalRegistry.collections.messages.get("opener_1")?.content).toBe("new")
-    expect((await canonicalSidebar()).threads[0]?.title).toBe("new")
-    expect(capturedQc.getQueryState(threads)?.isInvalidated).toBe(false)
-    expect(capturedQc.getQueryState(inbox)?.isInvalidated).toBe(false)
-    expect(capturedQc.getQueryState(feed)?.isInvalidated).toBe(false)
-  })
-
-  it("patches a loaded forum-sidebar title after the opener edit succeeds", async () => {
-    apiFetchMock.mockResolvedValueOnce(undefined)
-    const mod = await loadMod()
-    await installCanonicalRegistry()
-    await seedCanonicalSidebar()
-    mountHook(() => mod.useEditMessage())
-
-    await runMutation({
-      serverId: "s1",
-      channelId: "forum_1",
-      messageId: "opener_1",
-      content: "New title",
-      forumChannelId: "forum_1",
-      forumThreadId: "post_1",
-    })
-
-    expect((await canonicalSidebar()).threads[0]?.title).toBe("New title")
-  })
-})
-
 // ── useSendMessage ────────────────────────────────────────────────────────
 
 describe("useSendMessage — happy path", () => {
@@ -1006,10 +923,10 @@ describe("useMarkAllInboxRead", () => {
     await waitFor(() => expect(canonicalRegistry.collections.attentionScopes.get("channel")).toBeUndefined())
     ingestMessages(canonicalRegistry!, "other", [{ id: "event", type: "chat", content: "old" }])
     projectCommunityWsEventToDb(capturedQc, {
-      type: "community:message.edited",
+      type: "community:reaction.add",
       channelId: "other",
       messageId: "event",
-      content: "new",
+      emoji: "👍", userId: "peer",
     } as never)
 
     await act(async () => { fail(new Error("account read-all failed")); await pending })
@@ -1145,10 +1062,10 @@ describe("useDeleteMention — rollback", () => {
     await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("mention:men_1")).toBeUndefined())
     ingestMessages(canonicalRegistry!, "other", [{ id: "event", type: "chat", content: "old" }])
     projectCommunityWsEventToDb(capturedQc, {
-      type: "community:message.edited",
+      type: "community:reaction.add",
       channelId: "other",
       messageId: "event",
-      content: "new",
+      emoji: "👍", userId: "peer",
     } as never)
 
     await act(async () => { fail(new Error("dismiss failed")); await pending })

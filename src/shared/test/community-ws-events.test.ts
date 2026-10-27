@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { CommunityWsEventSchema, isCommunityEvent, WS_EVENTS } from "../src/community-ws-events";
 import type {
   CommunityChannelDelete,
-  CommunityMessageEdited,
   CommunityMachineCreated,
   CommunityMachineUpdated,
 } from "../src/community-ws-events";
@@ -51,20 +50,9 @@ describe("CommunityChannelDelete post-unit address contract", () => {
   });
 });
 
-describe("CommunityMessageEdited address contract", () => {
-  it("supports forum opener, ordinary server, and DM edits", () => {
-    const events: CommunityMessageEdited[] = [
-      { type: "community:message.edited", channelId: "post", parentChannelId: "forum", serverId: "server", messageId: "opener", content: "new" },
-      { type: "community:message.edited", channelId: "text", serverId: "server", messageId: "message", content: "new" },
-      { type: "community:message.edited", channelId: "dm", messageId: "message", content: "new" },
-    ];
-    expect(events).toHaveLength(3);
-  });
-});
-
 describe("isCommunityEvent", () => {
   it("accepts every exact event declared by WS_EVENTS", () => {
-    expect(Object.values(WS_EVENTS)).toHaveLength(49);
+    expect(Object.values(WS_EVENTS)).toHaveLength(48);
     for (const type of Object.values(WS_EVENTS)) {
       expect(isCommunityEvent({ type })).toBe(true);
     }
@@ -72,6 +60,7 @@ describe("isCommunityEvent", () => {
 
   it("rejects unknown, approximate, and non-community event names", () => {
     expect(isCommunityEvent({ type: "community:unknown" })).toBe(false);
+    expect(isCommunityEvent({ type: "community:message.edited" })).toBe(false);
     expect(isCommunityEvent({ type: "community:message.create.extra" })).toBe(false);
     expect(isCommunityEvent({ type: "foo:bar" })).toBe(false);
     expect(isCommunityEvent({ type: "runtime.status" })).toBe(false);

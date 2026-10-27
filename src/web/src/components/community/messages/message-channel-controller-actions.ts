@@ -46,7 +46,6 @@ export function createMessageActions({
   pinMessageMutate,
   toggleMark,
   createThreadAsync,
-  editMessage,
   messageScope,
   runAcceptedIntent,
 }: {
@@ -90,10 +89,6 @@ export function createMessageActions({
     name: string
     assertActive?: (() => void) & { signal: AbortSignal }
   }) => Promise<{ id: string }>
-  editMessage: (
-    input: { serverId: string; channelId: string; messageId: string; content: string; assertActive?: (() => void) & { signal: AbortSignal } },
-    options?: MutationOptions,
-  ) => void
   messageScope: ChannelMessageScope
   runAcceptedIntent: (nonce: string) => Promise<void>
 }): MessageActions {
@@ -160,21 +155,6 @@ export function createMessageActions({
       if (!navigator.clipboard) return
       try { await navigator.clipboard.writeText(content); original(); toast("Copied to clipboard") }
       catch (error) { if (!isAbortError(error)) toastApiError(error, "Failed to copy message", original) }
-    },
-    onEdit: (id) => {
-      const original = captureView()
-      original()
-      const message = getMessage(id)
-      if (!message || message.authorId !== viewerUserId || message.seq === undefined) return
-      const visibleContent = message.content ?? ""
-      if (!visibleContent) return
-      const editedContent = window.prompt("Edit message", visibleContent)
-      if (!editedContent || editedContent === visibleContent) return
-      const content = editedContent
-      original()
-      editMessage({ serverId, channelId, messageId: id, content, assertActive: original }, {
-        onError: (error) => toastApiError(error, "Failed to edit message", original),
-      })
     },
     onRetry: (id) => {
       captureView()()

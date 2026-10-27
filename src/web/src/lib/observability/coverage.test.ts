@@ -176,11 +176,6 @@ const mutationCoverage = [
   },
   {
     "file": "src/web/src/hooks/community/mutations/messages.ts",
-    "owner": "useEditMessage",
-    "action": "message.edit"
-  },
-  {
-    "file": "src/web/src/hooks/community/mutations/messages.ts",
     "owner": "useSendMessage",
     "action": "channel.message.send"
   },

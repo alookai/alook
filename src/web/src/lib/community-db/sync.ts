@@ -2142,16 +2142,6 @@ function patchMessageFirstPreview(registry: CommunityDbRegistry, channelId: stri
     [channelId], ["preview"])
 }
 
-export function updateCommunityMessageContentOptimistically(registry: CommunityDbRegistry, messageId: string, content: string) {
-  const message = registry.collections.messages.get(messageId)
-  if (!message) return
-  registry.collections.messages.update(messageId, (row) => { row.content = content })
-  const channel = firstMessageChannel(registry, message.channelId, messageId)
-  if (channel && registry.collections.channels.has(channel.id)) {
-    registry.collections.channels.update(channel.id, (row) => { row.preview = content })
-  }
-}
-
 export function publishCommunityServerFields(
   queryClient: QueryClient,
   serverId: string,
@@ -2648,18 +2638,6 @@ export function projectCommunityWsEventToDb(
         )
       }
       return projected
-    }
-    case "community:message.edited": {
-      patchRows(
-        registry,
-        "messages",
-        (row) => ({ ...row, content: event.content }),
-        (row) => row.id === event.messageId,
-        [event.messageId],
-        ["content"],
-      )
-      patchMessageFirstPreview(registry, event.channelId, event.messageId, event.content)
-      return
     }
     case "community:message.updated": {
       const changes = {

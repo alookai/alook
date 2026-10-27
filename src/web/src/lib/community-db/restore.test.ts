@@ -69,10 +69,11 @@ describe("canonical disk input precedence", () => {
   it("preserves a WS patch that arrived before its disk row and a current message over old disk", async () => {
     const { client, registry } = owner()
     publishCommunityMessages(client, { channelId: "c1", messages: [message("current", "c1", "RSC")], proof: { token: captureCommunityLiveSnapshotToken(client) } })
-    projectCommunityWsEventToDb(client, { type: "community:message.edited", serverId: "s1", channelId: "c1", messageId: "pending", content: "WS" })
+    projectCommunityWsEventToDb(client, { type: "community:reaction.add", serverId: "s1", channelId: "c1", messageId: "pending", emoji: "👍", userId: "peer" })
     await restoreCommunityCollections(registry, input({ messages: [message("current"), message("pending"), message("uncovered", "other")] }))
     const rows = client.getQueryData<Array<ReturnType<typeof message>>>(communityKeys.communityDbCollection("viewer", "messages"))!
-    expect(rows.map((row) => [row.id, row.content])).toEqual([["current", "RSC"], ["pending", "WS"], ["uncovered", "Disk"]])
+    expect(rows.map((row) => [row.id, row.content])).toEqual([["current", "RSC"], ["pending", "Disk"], ["uncovered", "Disk"]])
+    expect(registry.queryClient.getQueryData<Array<{ reactions?: unknown }>>(communityKeys.communityDbCollection("viewer", "messages"))?.[1].reactions).toMatchObject([{ emoji: "👍", userIds: ["peer"] }])
     expect(rows[1].createdAt).toBe(message("pending").createdAt)
   })
 

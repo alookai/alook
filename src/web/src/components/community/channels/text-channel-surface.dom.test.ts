@@ -19,7 +19,6 @@ const mutationMocks = vi.hoisted(() => ({
   pinMessage: vi.fn(),
   unpinMessage: vi.fn(),
   toggleMark: vi.fn(),
-  editMessage: vi.fn(),
   createThread: vi.fn(async () => ({ id: "thread_1" })),
   uploadFile: vi.fn(),
 }))
@@ -92,7 +91,6 @@ vi.mock("@/hooks/community/mutations", () => ({
   usePinMessage: () => ({ mutate: mutationMocks.pinMessage }),
   useUnpinMessage: () => ({ mutate: mutationMocks.unpinMessage }),
   useToggleMark: () => mutationMocks.toggleMark,
-  useEditMessage: () => ({ mutate: mutationMocks.editMessage }),
   useCreateThread: () => ({ mutateAsync: mutationMocks.createThread }),
   useUploadFile: () => ({ mutateAsync: mutationMocks.uploadFile }),
 }))

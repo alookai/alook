@@ -13,11 +13,10 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { apiFetch, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { captureCommunityLiveSnapshotToken, publishCommunityMessageFields, publishCommunityMessages, publishCommunityCreatedChannel, updateCommunityMessageContentOptimistically } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 import {
@@ -57,55 +56,6 @@ import {
 
 
 type OriginalView = (() => void) & { signal: AbortSignal }
-
-type EditMessageArgs = {
-  assertActive?: OriginalView
-  serverId: string
-  channelId: string
-  messageId: string
-  content: string
-  forumChannelId?: string
-  forumThreadId?: string
-}
-
-export function useEditMessage() {
-  const origin = useCommunityMutationOrigin()
-  const queryClient = useQueryClient()
-  type Intent = EditMessageArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<void, Error, Intent>({ meta: { observabilityAction: "message.edit" },
-    scope: { id: "community-message-field-commands" },
-    mutationFn: async ({ channelId, messageId, content, original: token, assertActive }) => {
-      origin.assert(token); assertActive?.()
-      const registry = origin.registry
-      await registry?.ready
-      origin.assert(token); assertActive?.()
-      await Promise.all([registry!.collections.messages.preload(), registry!.collections.channels.preload()])
-      origin.assert(token); assertActive?.()
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: communityKeys.channelMessages(channelId) }),
-        queryClient.cancelQueries({ queryKey: communityKeys.message(messageId), exact: true }),
-      ])
-      origin.assert(token); assertActive?.()
-      const persist = async () => {
-        try {
-          await apiFetch(`/api/community/messages/${messageId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ content }),
-            ...communityRequestOptions(queryClient, token, assertActive?.signal, () => { origin.assert(token); assertActive?.() }),
-          })
-          origin.assert(token); assertActive?.()
-          publishCommunityMessageFields(queryClient, messageId, { content }, { token, signal: assertActive?.signal })
-        } catch (error) { origin.assert(token); throw error }
-      }
-      const transaction = registry!.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
-      transaction.mutate(() => updateCommunityMessageContentOptimistically(registry!, messageId, content))
-      try { if (transaction.mutations.length) await transaction.commit(); else await persist() } catch (error) { origin.assert(token); throw error }
-    },
-  })
-  const capture = useCallback((input: EditMessageArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
-  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
-  return useNativeMutationFacade(native, capture, assertCurrent)
-}
 
 /**
  * Materialize the attachment view-model from the API attachment shape.

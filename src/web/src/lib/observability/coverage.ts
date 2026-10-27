@@ -235,7 +235,6 @@ export const actionNames = [
   "machine.update",
   "mention.dismiss",
   "message.compose.send",
-  "message.edit",
   "message.export",
   "message.mark",
   "message.mark.command",

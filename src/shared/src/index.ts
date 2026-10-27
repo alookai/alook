@@ -594,7 +594,6 @@ export type {
 export type {
   CommunityMessageCreate,
   CommunityMessageUpdated,
-  CommunityMessageEdited,
   CommunityReactionAdd,
   CommunityReactionRemove,
   CommunityPinAdd,

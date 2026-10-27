@@ -85,7 +85,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(JSON.stringify(sent.slice(beforeRecovery))).not.toContain("delivery_failure_count")
   controls.remove()
   const generation = telemetryGeneration()
-  emitTelemetry("business.result", { action_name: "message.edit", outcome: "success" })
+  emitTelemetry("business.result", { action_name: "message.mark", outcome: "success" })
   const beforeAccount = sent.length
   setTelemetryUser("account-c")
   await vi.waitFor(() => {
@@ -97,7 +97,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(telemetryGeneration()).toBeGreaterThan(generation)
   emitTelemetry("business.result", { action_name: "message.pin", outcome: "success" })
   await vi.advanceTimersByTimeAsync(1500)
-  expect(JSON.stringify(sent.slice(beforeAccount))).not.toContain("message.edit")
+  expect(JSON.stringify(sent.slice(beforeAccount))).not.toContain("message.mark")
   expect(JSON.stringify(sent.slice(beforeAccount))).toContain("message.pin")
   expect((native.vitals as { initialize: unknown }).initialize).toBe(native.initialize)
   expect(native.faro!.instrumentations.instrumentations.filter(item => item.name.endsWith("instrumentation-web-vitals"))).toHaveLength(1)
@@ -133,7 +133,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(spans.some(span => span.name === "navigation" && JSON.stringify(span).includes(first.id) && JSON.stringify(span).includes(extended))).toBe(true)
   const { apiFetchResponse } = await import("@/lib/api/client")
   const beforeRequests = sent.length
-  const one = startAction("message.edit")!, two = startAction("message.pin")!
+  const one = startAction("message.mark")!, two = startAction("message.pin")!
   const firstContext = one.span!.spanContext(), secondContext = two.span!.spanContext()
   await Promise.all([
     apiFetchResponse("/api/community/bots", { observation: { action: one, reason: "command" } }),

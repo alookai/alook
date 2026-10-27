@@ -373,7 +373,6 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
               parentMessageId={currentChannelMeta?.parentMessageId ?? null}
               parentIsForum={isForumPostChild}
               routeLifecycle={routeCommitted ? routeModel.routeLifecycle : "pending"}
-              childCreatorId={currentChannelMeta?.creatorId}
               canRenameThread={canManageServer(myRole)}
               onNavigateParent={navigateParent}
               notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}

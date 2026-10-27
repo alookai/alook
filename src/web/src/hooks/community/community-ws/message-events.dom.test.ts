@@ -6,7 +6,6 @@ import { getCapturedRuntime, seedCanonicalStream, seedCanonicalMessages, canonic
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
   CommunityMessageCreate,
-  CommunityMessageEdited,
   CommunityPinAdd,
   CommunityReactionAdd,
 } from "@alook/shared"
@@ -240,7 +239,7 @@ describe("useCommunityWs — message.create", () => {
     },
   )
 
-  it("does not touch forum resources for ordinary text-thread create or opener edit", async () => {
+  it("does not touch forum resources for ordinary text-thread creation", async () => {
     await mountHook()
     seedParent("s1", "text_parent", "text")
     const baseKey = communityKeys.forumSidebarThreads("s1")
@@ -266,13 +265,7 @@ describe("useCommunityWs — message.create", () => {
       serverId: "s1",
       parentChannelId: "text_parent",
     } satisfies CommunityMessageCreate)
-    capturedOnMessage!({
-      type: "community:message.edited",
-      channelId: "text_thread",
-      messageId: "text_opener",
-      content: "Text title",
-      parentChannelId: "text_parent",
-    } satisfies CommunityMessageEdited)
+
 
     expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
     expect([
@@ -1221,101 +1214,7 @@ describe("useCommunityWs — DM message.create", () => {
   })
 })
 
-describe("useCommunityWs — message edit refreshes forum opener summary", () => {
-  it("invalidates the parent thread list for an opener edit, but not for an ordinary reply", async () => {
-    await mountHook()
-    seedParent("s1", "forum_1", "forum")
-    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    const opener: CommunityMessageEdited = {
-      type: "community:message.edited",
-      channelId: "post_1",
-      messageId: "opener-post_1",
-      content: "new title",
-      parentChannelId: "forum_1",
-      serverId: "s1",
-    }
-    capturedQueryClient.setQueryData(communityKeys.message("opener-post_1"), {
-      id: "opener-post_1",
-      content: "old title",
-    })
-    const allKey = communityKeys.channelMessages("forum_1")
-    const bugKey = [...allKey, "tag", "bug"] as const
-    const forumPage = { pages: [{ messages: [{ id: "opener-post_1", content: "old title" }] }], pageParams: [null] }
-    capturedQueryClient.setQueryData(allKey, forumPage)
-    capturedQueryClient.setQueryData(bugKey, forumPage)
-    const sidebarKey = communityKeys.forumSidebarThreads("s1")
-    seedCanonicalForumSidebar("s1")
-    capturedQueryClient.setQueryData(communityKeys.threads("forum_1"), {
-      parentType: "forum",
-      serverId: "s1",
-      parentChannelId: "forum_1",
-      threads: [{ id: "post_1", name: "old title", openerMessageId: "opener-post_1" }],
-    })
-    capturedOnMessage!(opener)
-    expect(capturedQueryClient.getQueryData<{ content: string }>(
-      communityKeys.message("opener-post_1"),
-    )?.content).toBe("old title")
-    await vi.waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: communityKeys.threads("forum_1"), exact: true,
-    }))
-    expect(capturedQueryClient.getQueryState(allKey)?.isInvalidated).toBe(false)
-    expect(capturedQueryClient.getQueryState(bugKey)?.isInvalidated).toBe(false)
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(allKey)?.pages[0].messages[0].content).toBe("old title")
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: { content: string }[] }[] }>(bugKey)?.pages[0].messages[0].content).toBe("old title")
-    expect(canonicalMessage("opener-post_1")?.content).toBe("new title")
-    expect(canonicalForumSidebar("s1").threads[0]?.title).toBe("new title")
-
-    invalidateSpy.mockClear()
-    capturedOnMessage!({
-      type: "community:message.edited",
-      channelId: "post_1",
-      messageId: "reply_1",
-      content: "edited reply",
-    } satisfies CommunityMessageEdited)
-    expect(invalidateSpy).not.toHaveBeenCalled()
-  })
-
-  it("patches loaded ordinary channel copies and only the matching stream scope", async () => {
-    await mountHook()
-    const matchingScope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
-    const otherScope = { kind: "channel" as const, id: "ch_2", serverId: "s1" }
-    const message = {
-      id: "m_1",
-      seq: 4,
-      type: "chat" as const,
-      content: "old",
-    }
-    await act(async () => { capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
-      pages: [{ messages: [message], hasMore: false }],
-      pageParams: [null],
-    }) })
-    await act(async () => { seedCanonicalStream(matchingScope, {
-      type: "wsMessage",
-      message,
-    }) })
-    await act(async () => { seedCanonicalStream(otherScope, {
-      type: "wsMessage",
-      message: { ...message, id: "m_2" },
-    }) })
-
-    await act(async () => { capturedOnMessage!({
-      type: "community:message.edited",
-      channelId: "ch_1",
-      messageId: "m_1",
-      content: "new",
-    } satisfies CommunityMessageEdited) })
-
-    expect(capturedQueryClient.getQueryData<{
-      pages: { messages: { content: string }[] }[]
-    }>(communityKeys.channelMessages("ch_1"))?.pages[0].messages[0].content).toBe("old")
-    expect(getMessageStreamState(capturedQueryClient, matchingScope).liveIds).toContain("m_1")
-    expect(canonicalMessage("m_1")?.content).toBe("new")
-    expect(getMessageStreamState(capturedQueryClient, otherScope).liveIds).toContain("m_2")
-    expect(canonicalMessage("m_2")?.content).toBe("old")
-  })
-})
-
-describe("canonical message refresh and edit ownership", () => {
+describe("canonical message refresh ownership", () => {
   it("keeps the newest 500 live rows when dispatch precedes canonical publication", async () => {
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
     getCapturedRuntime().ui.actions.setCurrentServerId(scope.serverId)
@@ -1361,57 +1260,6 @@ describe("canonical message refresh and edit ownership", () => {
     expect(getCommunityDbRegistry(capturedQueryClient)!.collections.messages.get(event.message.id)?.attachments).toEqual(attachments)
     expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain(event.message.id)
     expect(canonicalMessage(event.message.id)?.attachments).toEqual([{ ...attachments[0], kind: "file", size: "1.0 KB" }])
-  })
-
-  it("refreshes only an existing live fallback and never absorbs outbox", async () => {
-    await mountHook()
-    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
-    seedCanonicalMessages(scope.id, [{ id: "m1", content: "ignored" }])
-    expect(getMessageStreamState(capturedQueryClient, scope).liveIds.length).toBe(0)
-    await act(async () => {
-      seedCanonicalStream(scope, { type: "wsMessage", message: { id: "m1", seq: 11, type: "chat", content: "original", authorId: "u1", clientNonce: "n1" } })
-      getCapturedRuntime().messageStream.actions.accept(scope, { nonce: "n2", tempId: "temp_n2", message: { type: "chat", content: "pending", authorId: "u1" }, localUploads: [] })
-      capturedOnMessage!({ type: "community:message.edited", channelId: scope.id, messageId: "m1", content: "refreshed" } satisfies CommunityMessageEdited)
-    })
-    const overlay = getMessageStreamState(capturedQueryClient, scope)
-    expect(overlay.liveIds).toContain("m1")
-    expect(canonicalMessage("m1")?.content).toBe("refreshed")
-    expect(overlay.outboxByNonce.get("n2")?.message.content).toBe("pending")
-  })
-
-  it("does not refresh a live row from a peer row with the same nonce", async () => {
-    await mountHook()
-    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
-    await act(async () => {
-      seedCanonicalStream(scope, { type: "wsMessage", message: { id: "m1", seq: 11, type: "chat", content: "original", authorId: "u1", clientNonce: "same" } })
-      seedCanonicalMessages(scope.id, [{ id: "m2", seq: 12, content: "peer", authorId: "u2", clientNonce: "same" }])
-      capturedOnMessage!({ type: "community:message.edited", channelId: scope.id, messageId: "m2", content: "edited peer" } satisfies CommunityMessageEdited)
-    })
-    const overlay = getMessageStreamState(capturedQueryClient, scope)
-    expect(overlay.liveIds).toContain("m1")
-    expect(canonicalMessage("m1")?.content).toBe("original")
-    expect(overlay.liveIds.includes("m2")).toBe(false)
-    expect(canonicalMessage("m2")?.content).toBe("edited peer")
-  })
-
-  it("patches edited content across live and acknowledged sends in their canonical owner", async () => {
-    await mountHook()
-    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
-    await act(async () => {
-      getCapturedRuntime().messageStream.actions.accept(scope, { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "pending", authorId: "u1" }, localUploads: [] })
-      const sent = { id: "m1", seq: 11, type: "chat" as const, content: "sent", authorId: "u1", clientNonce: "n1" }
-      seedCanonicalMessages(scope.id, [sent])
-      seedCanonicalStream(scope, { type: "postAck", nonce: "n1", message: sent })
-      seedCanonicalStream(scope, { type: "wsMessage", message: { id: "m2", seq: 12, type: "chat", content: "before", authorId: "u1", clientNonce: "n2" } })
-      capturedOnMessage!({ type: "community:message.edited", channelId: scope.id, messageId: "m1", content: "outbox edit" } satisfies CommunityMessageEdited)
-      capturedOnMessage!({ type: "community:message.edited", channelId: scope.id, messageId: "m2", content: "live edit" } satisfies CommunityMessageEdited)
-    })
-    const overlay = getMessageStreamState(capturedQueryClient, scope)
-    expect(overlay.outboxByNonce.size).toBe(0)
-    expect(overlay.liveIds).toContain("m1")
-    expect(canonicalMessage("m1")?.content).toBe("outbox edit")
-    expect(overlay.liveIds).toContain("m2")
-    expect(canonicalMessage("m2")?.content).toBe("live edit")
   })
 })
 

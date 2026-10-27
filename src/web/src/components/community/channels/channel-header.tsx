@@ -18,7 +18,6 @@ import { previewSlug } from "@/lib/community/slug-preview"
 import { ServerIcon } from "@/components/community/server-icon"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { EntityKind } from "@/lib/community/models/navigation"
-import { CreateDialogShell } from "../settings/create-dialog-shell"
 import { tid } from "@/lib/community/testids"
 import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
 import { ThreadPanelActionsFrame } from "./thread-panel-actions"
@@ -89,7 +88,7 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
   kind = "text", server, mobileBack, mobileBackDisplay = "viewport", onBack, tools,
-  onRename, titleRename, endActions, compactActions,
+  onRename, endActions, compactActions,
 }: {
   channel: string
   kind?: EntityKind
@@ -98,7 +97,6 @@ export function ChannelHeader({
   notifLevel?: ChannelNotifLevel
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
   onRename?: (name: string) => void | Promise<void>
-  titleRename?: boolean
   server?: { id: string; name: string; icon: string | null }
   mobileBack?: () => void
   mobileBackDisplay?: "viewport" | "always"
@@ -139,7 +137,6 @@ export function ChannelHeader({
           <HeaderRename
             label={channel}
             onRename={onRename}
-            titleMode={titleRename}
             className={mobileBack ? "hidden sm:inline-flex" : undefined}
           />
         </span>
@@ -279,10 +276,9 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
   )
 }
 
-function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
+function HeaderRename({ label, onRename, className = "" }: {
   label: string
   onRename: (name: string) => void | Promise<void>
-  titleMode?: boolean
   className?: string
 }) {
   const [open, setOpen] = useAtom(useCreateAtom(false))
@@ -296,7 +292,7 @@ function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
     if (!open) setDraft(label)
   }, [label, open, setDraft])
   const draftPreview = previewSlug(draft)
-  const validDraft = titleMode ? Boolean(draft.trim()) : Boolean(draftPreview.slug)
+  const validDraft = Boolean(draftPreview.slug)
   const save = async () => {
     if (savingRef.current) return
     const trimmed = draft.trim()
@@ -319,35 +315,10 @@ function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
   }
   return (
     <>
-      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className={`text-muted-foreground hover:text-foreground ${className}`} aria-label={titleMode ? "Edit post title" : "Rename"}>
+      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className={`text-muted-foreground hover:text-foreground ${className}`} aria-label="Rename">
         <Pencil className="size-3.5" />
       </Button>
       {open && (
-        titleMode ? (
-          <CreateDialogShell
-            onClose={() => setOpen(false)}
-            title="Edit post title"
-            footer={(
-              <>
-                <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
-                <Button size="sm" onClick={() => void save()} disabled={!validDraft || saving}>Save</Button>
-              </>
-            )}
-          >
-            <div className="px-5 pb-5 pt-2">
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(event) => onEnterSubmit(save)(event)}
-                placeholder="Post title"
-                aria-label="Post title"
-                disabled={saving}
-                className="w-full border-0 bg-transparent p-0 text-[30px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/40 focus-visible:ring-0"
-                autoFocus
-              />
-            </div>
-          </CreateDialogShell>
-        ) : (
         <Dialog open onOpenChange={(o) => { if (!o) setOpen(false) }}>
           <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
             <DialogHeader className="border-b border-border px-4 py-4">
@@ -374,7 +345,6 @@ function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        )
       )}
     </>
   )
