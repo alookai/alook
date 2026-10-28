@@ -4,6 +4,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { AUTOMATION_READ_PERMISSIONS, AutomationAccessCodeCreateSchema, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeCreateResponse, type AutomationExpiry, type AutomationPermissionPolicy } from "@alook/shared"
 import { ChevronDown, Copy, Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -178,7 +179,7 @@ export function AutomationSettings({ userId }: { userId: string }) {
             <Button variant="ghost" size="icon" className="size-11 shrink-0 sm:size-8" aria-label={`Delete ${code.name}`} onClick={() => { setError(null); setDeleting(code) }}><Trash2 className="size-4" /></Button>
           </div>
           <p className="text-xs leading-5 text-muted-foreground">{expiryLabel(code)}</p>
-          <p className="text-sm leading-6 text-muted-foreground">{code.permissions.map((policy) => permissionOptions.find((option) => option.permission === policy.permission)?.label).join(" · ")}</p>
+          <div className="flex flex-wrap gap-2">{(["Read", "Write"] as const).flatMap((group) => permissionOptions.filter((option) => option.group === group && code.permissions.some((policy) => policy.permission === option.permission)).map(({ permission, label }) => <Badge key={permission} variant={group === "Read" ? "secondary" : "default"} aria-label={`${group}: ${label}`} title={group}>{label}</Badge>))}</div>
         </li>)}</ul>}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </>}
