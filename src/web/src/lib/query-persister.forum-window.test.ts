@@ -35,6 +35,13 @@ function setup(empty = false) {
 }
 
 describe("scoped forum window persistence", () => {
+  it("refreshes a restored forum-only window when visible text parents are missing", () => {
+    const owner = setup()
+    const rows = { ...owner.rows, channels: [...owner.rows.channels, canonicalChannelRow({ id: "text", serverId, type: "text" })] }
+    expect(forumSidebarWindowComplete(owner.result.window, rows, accountId, serverId)).toBe(false)
+    expect(forumSidebarWindowComplete({ ...owner.result.window, parents: ["forum", "text"] }, rows, accountId, serverId)).toBe(true)
+  })
+
   it.each([false, true])("restores only a complete minimal %s window without entity copies or access proof", async empty => {
     const owner = setup(empty)
     const persister = createIdbPersister(accountId)

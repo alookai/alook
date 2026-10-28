@@ -88,6 +88,7 @@ export const SPEC_SECONDS = {
   "65-analytics-document-boundary.spec.ts": DEFAULT_SPEC_SECONDS,
   "66-grouped-message-toolbar.spec.ts": DEFAULT_SPEC_SECONDS,
   "66-public-static-resource-cache.spec.ts": DEFAULT_SPEC_SECONDS,
+  "67-text-sidebar-threads.spec.ts": DEFAULT_SPEC_SECONDS,
 }
 
 function walk(directory) {

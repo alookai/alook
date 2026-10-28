@@ -62,6 +62,21 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
     expect(mockListServerChannelsForViewer).toHaveBeenCalledWith(expect.anything(), "server_1", "user_1")
   })
 
+  it("reuses the scoped participant query for visible text and forum parents", async () => {
+    mockGetMember.mockResolvedValue({ id: "member_1", role: "member" })
+    mockListServerChannelsForViewer.mockResolvedValue([
+      { id: "forum_visible", type: "forum" }, { id: "text_visible", type: "text" }, { id: "child", type: "thread" },
+    ])
+    const thread = { id: "text_child", parentChannelId: "text_visible", parentMessageId: "opener", type: "thread", activityAt: "2026-08-08T11:00:00.000Z" }
+    mockListParticipatingForumThreads.mockResolvedValue({ canonical: [thread], retained: null, retainedDisposition: null })
+    mockGetMessagesByIds.mockResolvedValue([{ id: "opener", channelId: "text_visible", content: "Text opener" }])
+    const response = await GET(new NextRequest("http://localhost/api/community/servers/server_1/channels?type=thread&parentType=forum,text&participating=true&activeWithin=72h&limitPerParent=5&include=parentMessage"), { params: { id: "server_1" } } as never)
+    expect(response.status).toBe(200)
+    expect(mockListParticipatingForumThreads).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ parentChannelIds: ["forum_visible", "text_visible"], userId: "user_1", limitPerParent: 5 }))
+    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["opener"], ["forum_visible", "text_visible"])
+    expect(await response.json()).toMatchObject({ channels: [expect.objectContaining({ id: "text_child" })], included: { parentMessages: [{ id: "opener", channelId: "text_visible", content: "Text opener" }] } })
+  })
+
   it("returns recent participating forum threads with opener messages and server-relative expiry", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-08-08T12:00:00.000Z"))

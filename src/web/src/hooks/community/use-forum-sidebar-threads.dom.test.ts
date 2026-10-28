@@ -13,6 +13,7 @@ import { CommunityDbProvider, useForumSidebarProjection, useServerTreeProjection
 import { ChannelSidebarRevealBoundary } from "@/components/community/channels/channel-sidebar-tree-owner"
 import { tid } from "@/lib/community/testids"
 import {
+  patchCanonicalCommunityChannel,
   captureCommunityLiveSnapshotToken,
   ingestAttentionSnapshot,
   ingestMessages,
@@ -415,7 +416,7 @@ describe("forum sidebar canonical projection", () => {
     rendered.unmount()
   })
 
-  it("keeps a notified text reply outside the forum sidebar after its message read", async () => {
+  it("includes a notified text reply in the shared sidebar after its message read", async () => {
     const { queryClient, registry, wrapper } = await setup()
     act(() => ingestServerDetail(registry, {
       id: "server-1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer",
@@ -434,8 +435,8 @@ describe("forum sidebar canonical projection", () => {
     })
     await waitFor(() => expect(getCanonicalCommunityChannels(queryClient).some((row) => row.id === "text-child")).toBe(true))
     expect(getCanonicalCommunityMessages(queryClient).find((row) => row.id === "text-opener")?.content).toBe("Text reply opener")
-    expect(rendered.result.current.threads.map((row) => row.id)).toEqual(["post-1"])
-    expect(getForumSidebarBase(queryClient, "server-1").threads.map((row) => row.id)).toEqual(["post-1"])
+    expect(rendered.result.current.threads.map((row) => row.id)).toEqual(["post-1", "text-child"])
+    expect(getForumSidebarBase(queryClient, "server-1").threads.map((row) => row.id)).toEqual(["post-1", "text-child"])
     expect(registry.collections.channelMemberships.get("text-child:viewer:notify")).toBeDefined()
     rendered.unmount()
   })
@@ -536,8 +537,9 @@ describe("forum sidebar canonical projection", () => {
     rendered.unmount()
   })
 
-  it.each([null, "0", "expired"] as const)("shares ASCII candidates and one expiry/top-five/retain=$0 view selector", async (retainId) => {
+  it.each((["forum", "text"] as const).flatMap(parentType => [null, "0", "expired"].map(retainId => ({ parentType, retainId }))))("shares $parentType candidates and expiry/top-five/retain=$retainId selector", async ({ parentType, retainId }) => {
     const { queryClient, registry, wrapper } = await setup()
+    patchCanonicalCommunityChannel(queryClient, "forum-1", row => ({ ...row, type: parentType }))
     const data = envelopeFor(["0", "9", "A", "Z", "a", "z", "expired"])
     const expired = data.channels.find((row) => row.id === "expired")!
     expired.lastMessageAt = expired.activityAt = new Date(Date.now() - 73 * 60 * 60 * 1000).toISOString()

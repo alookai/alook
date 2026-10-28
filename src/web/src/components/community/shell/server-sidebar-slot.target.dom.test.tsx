@@ -91,7 +91,7 @@ it.each(["primary", "forum"])("ends a failed cold %s read with retry", async kin
       </CommunityRouteContext>
     </CurrentUserProvider>
   </CommunityTestProvider>)
-  expect(await view.findByRole("alert")).toHaveTextContent(kind === "primary" ? "Couldn't load server channels." : "Couldn't load forum posts.")
+  expect(await view.findByRole("alert")).toHaveTextContent(kind === "primary" ? "Couldn't load server channels." : "Couldn't load threads.")
   expect(view.queryByText("Target server")).toBeNull()
   expect(view.getByRole("button", { name: "Retry" })).toBeEnabled()
   fail = false
