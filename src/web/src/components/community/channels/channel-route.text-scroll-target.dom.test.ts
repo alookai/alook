@@ -102,6 +102,7 @@ const {
     retryingMetadata: false,
     retryMetadata: vi.fn(),
     routeHydrated: true,
+    windowReady: true,
     routeLifecycle: "ready" as "pending" | "ready" | "terminal-error",
     skeletonSubtype: "unknown" as "unknown" | "text" | "forum" | "thread",
     layoutHint: {
@@ -472,6 +473,7 @@ describe("ChannelRoute message surface ownership", () => {
       metadataError: false,
       retryingMetadata: false,
       routeHydrated: true,
+      windowReady: true,
       routeLifecycle: "ready",
       skeletonSubtype: "unknown",
       layoutHint: { subtype: "unknown", parentChannelId: null, parentSubtype: "unknown" },
@@ -1443,6 +1445,17 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockRouter.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
     expect(mockClearLastChannel).toHaveBeenCalledExactlyOnceWith("server_1")
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+  })
+
+  it("mounts a qualified child composer while window-dependent read actions remain pending", () => {
+    configureThreadRoute()
+    mockRouteModel.windowReady = false
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true, navigationBlocked: true, messages: [] }))
+    const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    expect(view.container.querySelector('textarea[data-draft-key="server_1/channel_1"]')).not.toBeNull()
+    expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith("viewer_1", { kind: "server", serverId: "server_1", channelId: "channel_1" }, false)
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+    expect(mockOpenerGate).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: "pending" }))
   })
 
   it("commits and dismisses only a ready top-level channel for the active account", async () => {

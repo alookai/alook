@@ -1,3 +1,4 @@
+import type { MachineObservations, MachineSummary, MachineBackendQuota } from "@/lib/community/machines"
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch } from "./_fixtures/business-contract"
 import { randomUUID } from "node:crypto"
 import { spawnSync } from "node:child_process"
@@ -186,7 +187,9 @@ const machine = {
       },
     },
   ],
-}
+} satisfies MachineSummary & { quota: MachineBackendQuota[] }
+
+const machineObservations = { quotas: [{ machineId: machine.id, quota: machine.quota }] } satisfies MachineObservations
 
 const bots = [
   {
@@ -302,7 +305,7 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   })
   await page.route(url => url.pathname === "/api/community/machines", async (route) => {
     const optional = new URL(route.request().url()).searchParams.get("view") === "observations"
-    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, contentType: "application/json", body: JSON.stringify(optional ? { quotas: [] } : { machines: [(({ quota: _quota, ...identity }) => identity)(machine)], complete: true }) })
+    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, contentType: "application/json", body: JSON.stringify(optional ? machineObservations : { machines: [(({ quota: _quota, ...identity }) => identity)(machine)], complete: true }) })
   })
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" })
   await page.setViewportSize({ width: 1280, height: 900 })

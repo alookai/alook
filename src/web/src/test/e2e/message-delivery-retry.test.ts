@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { messageResourceFixture } from "../community-resource-fixtures"
+import { messageResourceFixture, profileResourceFixture } from "../community-resource-fixtures"
 import { BUSINESS_SCHEMA_VERSION, type MessageDeliveryBatch } from "@alook/shared"
 
 const fake = vi.hoisted(() => ({ url: "" }))
@@ -25,6 +25,7 @@ function batch(): MessageDeliveryBatch {
       type: "community:message.create",
       channelId: "channel-qa-1",
       serverId: "server-qa-1",
+      profiles: [profileResourceFixture({ id: "author", name: "Author", avatarVersion: 0 })],
       message: messageResourceFixture({
         channelId: "channel-qa-1",
         id: "message-qa-1",

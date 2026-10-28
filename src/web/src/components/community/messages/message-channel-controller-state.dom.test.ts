@@ -116,6 +116,7 @@ const feed = {
   messages: [{ id: "m1", seq: 1, type: "chat", authorName: "Alice", content: "hi" }],
   pinned: [],
   isError: false,
+  navigationBlocked: false,
 } as MessageChannelControllerProps["feed"]
 
 function props(overrides: Partial<MessageChannelControllerProps> = {}): Omit<MessageChannelControllerProps, "children"> {
@@ -230,6 +231,45 @@ describe("useMessageChannelController", () => {
     expect(latest.contextTarget).toBeNull()
     expect(latest.scrollTargetId).toBe("m1")
     expect(mocks.apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("rejects new send admission while the current feed window is blocked without consuming reply or uploads", () => {
+    const reply = { id: "reply", authorName: "Alice", text: "keep reply" }
+    rtlRender(React.createElement(Probe, { value: props({ feed: { ...feed, navigationBlocked: true } }) }))
+    act(() => latest.setReplyTo(reply))
+    let accepted = true
+    act(() => { accepted = latest.acceptMessage("keep draft", [{ file: {} as File }]) })
+    expect(accepted).toBe(false)
+    expect(mocks.accept).not.toHaveBeenCalled()
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(mocks.uploadMutation).not.toHaveBeenCalled()
+    expect(mocks.sendMutation).not.toHaveBeenCalled()
+    expect(latest.replyTo).toEqual(reply)
+    expect(latest.localSubmitVersion).toBe(0)
+  })
+
+  it("rejects a retained earlier send callback after its current committed feed loses readiness", () => {
+    const value = props()
+    const view = rtlRender(React.createElement(Probe, { value }))
+    const earlier = latest.acceptMessage
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...feed, navigationBlocked: true } } }))
+    let accepted = true
+    act(() => { accepted = earlier("keep draft") })
+    expect(accepted).toBe(false)
+    expect(mocks.accept).not.toHaveBeenCalled()
+    expect(mocks.run).not.toHaveBeenCalled()
+  })
+
+  it("keeps an already accepted command under its original guards when the feed later blocks new sends", async () => {
+    const value = props()
+    const view = rtlRender(React.createElement(Probe, { value }))
+    act(() => { expect(latest.acceptMessage("accepted draft")).toBe(true) })
+    const accepted = mocks.accept.mock.calls.at(-1)?.[0] as { runAcceptedIntent: (nonce: string) => Promise<void> }
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...feed, navigationBlocked: true } } }))
+    await act(async () => { await accepted.runAcceptedIntent("accepted-nonce") })
+    expect(mocks.run).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ nonce: "accepted-nonce", assertCommand: expect.any(Function) }))
+    const command = mocks.run.mock.calls[0]?.[0] as { assertCommand: () => void }
+    expect(() => command.assertCommand()).not.toThrow()
   })
 
   it("forwards complete accept input, run-helper wiring, and helper-owned reply clearing", async () => {

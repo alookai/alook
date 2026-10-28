@@ -72,6 +72,7 @@ function Harness({ channelId = "post-1" }: { channelId?: string }) {
   const result = useChannelRouteModel("server-1", "server-1", channelId, "viewer")
   return React.createElement("span", {
     "data-lifecycle": result.routeLifecycle,
+    "data-window-ready": String(result.windowReady),
     "data-skeleton-subtype": result.skeletonSubtype,
     "data-layout-hint": JSON.stringify(result.layoutHint),
     "data-parent-channel": result.currentChannelMeta?.parentChannelId ?? "",
@@ -113,15 +114,17 @@ beforeEach(async () => {
 
 
 describe("useChannelRouteModel subscription ownership", () => {
-  it("keeps a permitted target pending without its owned window and exposes window errors", () => {
+  it("mounts a permitted metadata surface while its window is pending and preserves window error exits", () => {
     mocks.dbChannel = { id: "post-1", serverId: "server-1", type: "text", name: "Target", archived: false }
     mocks.metaQuery = { data: mocks.dbChannel, error: null, canRead: true, windowReady: false, isArchived: false, isError: false }
     const renderer = render(React.createElement(Harness))
-    expect(lifecycle(renderer)).toBe("pending")
+    expect(lifecycle(renderer)).toBe("ready")
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-window-ready", "false")
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-skeleton-subtype", "text")
     mocks.metaQuery.windowReady = true
     renderer.rerender(React.createElement(Harness))
     expect(lifecycle(renderer)).toBe("ready")
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-window-ready", "true")
     mocks.metaQuery.windowReady = false
     mocks.metaQuery.error = new Error("entry window unavailable")
     mocks.metaQuery.isError = true
@@ -528,4 +531,161 @@ it("retains the actual message deadline exit after a qualified route loses its n
     expect(view.queryByTestId("owned-body")).toBeNull()
     expect(releases).toBe(1)
   } finally { view.unmount(); vi.useRealTimers() }
+})
+
+
+it("mounts the qualified native child surface while its entry window is held and keeps actions pending", async () => {
+  const { conversationEntryFixture } = await import("@/test/conversation-entry-fixtures")
+  const { channelResourceFixture, fullResourceBundleFixture, serverResourceFixture } = await import("@/test/community-resource-fixtures")
+  const { publishCommunityResourceBundle, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
+  const { useMessages } = await import("./use-messages")
+  const parent = channelResourceFixture({ id: "forum-1", serverId: "server-1", type: "forum" })
+  const child = channelResourceFixture({ id: "post-1", serverId: "server-1", type: "thread", parentChannelId: parent.id, parentMessageId: "opener-1" })
+  const value = conversationEntryFixture()
+  value.channelId = child.id
+  value.channel = child
+  value.messages = value.messages.map(message => ({ ...message, channelId: child.id }))
+  value.access.channelId = value.readState.channelId = value.surfaceReceipt.channelId = child.id
+  value.surfaceReceipt.surfaceKind = "thread"
+  value.parent = parent
+  publishCommunityResourceBundle(queryClient, fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server-1", ownerId: "viewer" })], [parent, child]), { token: captureCommunityLiveSnapshotToken(queryClient) })
+  mocks.dbParent = parent
+  mocks.useRealMetadata = true
+  let release!: (entry: typeof value) => void
+  mocks.load.mockReturnValue(new Promise(resolve => { release = resolve }))
+  let feed!: ReturnType<typeof useMessages>, ready: boolean | undefined, mounts = 0
+  function Surface() {
+    const current = useMessages(child.id, { serverId: "server-1" })
+    React.useLayoutEffect(() => { feed = current }, [current])
+    React.useEffect(() => { mounts++ }, [])
+    return React.createElement("span", { "data-testid": "native-child-surface" }, current.positionDataState)
+  }
+  function Route() {
+    const model = useChannelRouteModel("server-1", "server-1", child.id, "viewer")
+    React.useLayoutEffect(() => { ready = model.windowReady }, [model])
+    return model.routeHydrated && model.routeLifecycle === "ready" ? React.createElement(Surface) : React.createElement("span", null, model.routeLifecycle)
+  }
+  const view = render(React.createElement(Route))
+  try {
+    await waitFor(() => expect(view.getByTestId("native-child-surface").textContent).toBe("pending"))
+    expect(ready).toBe(false)
+    expect(feed.navigationBlocked).toBe(true)
+    expect(feed.messages).toEqual([])
+    expect(feed.fetchOlder()).toEqual({ accepted: false })
+    expect(feed.fetchNewer()).toEqual({ accepted: false })
+    expect(feed.jumpToPresent()).toEqual({ accepted: false })
+    expect(mocks.load).toHaveBeenCalledOnce()
+    await act(async () => { release(value) })
+    await waitFor(() => expect(view.getByTestId("native-child-surface").textContent).toBe("ready"))
+    expect(ready).toBe(true)
+    expect(feed.navigationBlocked).toBe(false)
+    expect(mounts).toBe(1)
+    expect(mocks.load).toHaveBeenCalledOnce()
+  } finally { view.unmount() }
+})
+
+
+it.each(["older", "newer", "jump"] as const)("rejects %s admission from a retained window after its native message readiness is lost", async action => {
+  const { conversationEntryFixture, seedConversationEntry } = await import("@/test/conversation-entry-fixtures")
+  const { getCommunityDbRegistry } = await import("@/lib/community-db/collections")
+  const { useMessages } = await import("./use-messages")
+  const value = conversationEntryFixture()
+  value.channelId = "post-1"
+  value.channel = { ...value.channel, id: "post-1", serverId: "server-1" }
+  value.messages = value.messages.map(message => ({ ...message, channelId: "post-1" }))
+  value.access.channelId = value.readState.channelId = value.surfaceReceipt.channelId = "post-1"
+  value.page.newerCursor = "newer"
+  value.page.hasMoreNewer = true
+  await seedConversationEntry(queryClient, value)
+  mocks.useRealMetadata = true
+  mocks.load.mockResolvedValue({ messages: value.messages, profiles: value.profiles, ...value.page })
+  const registry = getCommunityDbRegistry(queryClient)!
+  let feed!: ReturnType<typeof useMessages>
+  function Surface() {
+    const current = useMessages("post-1", { serverId: "server-1" })
+    React.useLayoutEffect(() => { feed = current }, [current])
+    return React.createElement("span", { "data-testid": "retained-action-window" }, current.positionDataState)
+  }
+  function Route() {
+    const model = useChannelRouteModel("server-1", "server-1", "post-1", "viewer")
+    return model.routeLifecycle === "ready" ? React.createElement(Surface) : null
+  }
+  const view = render(React.createElement(Route))
+  try {
+    await waitFor(() => expect(view.getByTestId("retained-action-window").textContent).toBe("ready"))
+    expect(feed.hasMoreOlder).toBe(true)
+    expect(feed.hasMoreNewer).toBe(true)
+    const earlier = action === "older" ? feed.fetchOlder : action === "newer" ? feed.fetchNewer : feed.jumpToPresent
+    const snapshot = feed.readSnapshot
+    await act(async () => { await registry.collections.messages.utils.writeDelete("m1") })
+    expect(feed.navigationBlocked).toBe(true)
+    expect(view.getByTestId("retained-action-window").textContent).toBe("pending")
+    let admitted!: ReturnType<typeof earlier>
+    act(() => { admitted = earlier() })
+    expect(admitted).toEqual({ accepted: false })
+    expect(mocks.load).not.toHaveBeenCalled()
+    expect(feed.readSnapshot).toEqual(snapshot)
+    const { publishCommunityMessages, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
+    await act(async () => { publishCommunityMessages(queryClient, { channelId: "post-1", messages: value.messages, profiles: value.profiles, proof: { token: captureCommunityLiveSnapshotToken(queryClient, "post-1") } }) })
+    await waitFor(() => expect(feed.navigationBlocked).toBe(false))
+    act(() => { admitted = earlier() })
+    expect(admitted.accepted).toBe(true)
+    if (admitted.accepted) {
+      const pending = admitted.completed
+      let completed!: Awaited<typeof pending>
+      await act(async () => { completed = await pending })
+      expect(completed.status).toBe("success")
+    }
+    expect(feed.readSnapshot).toEqual(snapshot)
+    expect(mocks.load).toHaveBeenCalledOnce()
+  } finally { view.unmount(); await queryClient.cancelQueries() }
+})
+
+
+it("keeps already accepted paging under its original owner when native readiness is lost in flight", async () => {
+  const { conversationEntryFixture, seedConversationEntry } = await import("@/test/conversation-entry-fixtures")
+  const { getCommunityDbRegistry } = await import("@/lib/community-db/collections")
+  const { useMessages } = await import("./use-messages")
+  const value = conversationEntryFixture()
+  value.channelId = "post-1"
+  value.channel = { ...value.channel, id: "post-1", serverId: "server-1" }
+  value.messages = value.messages.map(message => ({ ...message, channelId: "post-1" }))
+  value.access.channelId = value.readState.channelId = value.surfaceReceipt.channelId = "post-1"
+  await seedConversationEntry(queryClient, value)
+  mocks.useRealMetadata = true
+  const page = { messages: value.messages, profiles: value.profiles, ...value.page, hasMoreOlder: false, olderCursor: null }
+  let release!: (result: typeof page) => void
+  mocks.load.mockReturnValue(new Promise(resolve => { release = resolve }))
+  const registry = getCommunityDbRegistry(queryClient)!
+  let feed!: ReturnType<typeof useMessages>
+  function Surface() {
+    const current = useMessages("post-1", { serverId: "server-1" })
+    React.useLayoutEffect(() => { feed = current }, [current])
+    return React.createElement("span", { "data-testid": "accepted-page-window" }, current.positionDataState)
+  }
+  function Route() {
+    const model = useChannelRouteModel("server-1", "server-1", "post-1", "viewer")
+    return model.routeLifecycle === "ready" ? React.createElement(Surface) : null
+  }
+  const view = render(React.createElement(Route))
+  try {
+    await waitFor(() => expect(view.getByTestId("accepted-page-window").textContent).toBe("ready"))
+    const snapshot = feed.readSnapshot
+    let accepted!: ReturnType<typeof feed.fetchOlder>
+    act(() => { accepted = feed.fetchOlder() })
+    expect(accepted.accepted).toBe(true)
+    if (!accepted.accepted) throw new Error("Complete window did not accept paging")
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce())
+    await act(async () => { await registry.collections.messages.utils.writeDelete("m1") })
+    expect(feed.navigationBlocked).toBe(true)
+    expect(feed.jumpToPresent()).toEqual({ accepted: false })
+    const pending = accepted.completed
+    let completion!: Awaited<typeof pending>
+    await act(async () => { release(page); completion = await pending })
+    expect(completion.status).toBe("success")
+    await waitFor(() => expect(view.getByTestId("accepted-page-window").textContent).toBe("ready"))
+    expect(feed.navigationBlocked).toBe(false)
+    expect(feed.readSnapshot).toEqual(snapshot)
+    expect(mocks.load).toHaveBeenCalledOnce()
+  } finally { view.unmount(); await queryClient.cancelQueries() }
 })

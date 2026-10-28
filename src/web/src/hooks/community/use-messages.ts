@@ -127,6 +127,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const originalQuery = client.getQueryCache().find({ queryKey, exact: true })
   const owner = useMemo(() => ({ present, retries, query: originalQuery, enabled: enabled && presented }), [present, retries, originalQuery, enabled, presented])
   const committed = useRef<typeof owner | null>(null)
+  const committedWindowReady = useRef(entry.windowReady)
+  useLayoutEffect(() => { committedWindowReady.current = entry.windowReady }, [entry.windowReady])
   useLayoutEffect(() => {
     committed.current = owner
     return () => { if (committed.current === owner) committed.current = null }
@@ -177,7 +179,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const hasMoreNewer = newest?.hasMoreNewer ?? false
   const fetchPage = useCallback((direction: "older" | "newer"): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || !original.query || original !== owner) return { accepted: false }
+    if (!channelId || !original?.enabled || !original.query || original !== owner || !committedWindowReady.current) return { accepted: false }
     if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) return { accepted: false }
     const token = captureChannelMetadataToken(client, channelId)
     const isCurrent = () => committed.current === original && isChannelMetadataTokenCurrent(token)
@@ -196,7 +198,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const fetchNewer = useCallback(() => fetchPage("newer"), [fetchPage])
   const jumpToPresent = useCallback((): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || original !== owner || present.get().pending) return { accepted: false }
+    if (!channelId || !original?.enabled || original !== owner || !committedWindowReady.current || present.get().pending) return { accepted: false }
     const token = captureChannelMetadataToken(client, channelId)
     const tail = messageWindowOptions(client, channelId, { mode: "newest" }, tag, { observation })
     const captured = client.getQueryCache().build<unknown, Error, unknown>(client, { queryKey: tail.queryKey })

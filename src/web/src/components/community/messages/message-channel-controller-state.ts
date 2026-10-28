@@ -8,7 +8,7 @@ import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotTo
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useEffect, useLayoutEffect, useMemo } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { materializeIntent } from "@/lib/community/message-stream"
 import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
@@ -67,6 +67,8 @@ export function useMessageChannelController({
   resolveUserName,
 }: Omit<MessageChannelControllerProps, "children">): MessageChannelControllerValue {
   const active = useConversationActivity()
+  const committedFeed = useRef(feed)
+  useLayoutEffect(() => { committedFeed.current = feed }, [feed])
   const profileQueryClient = useQueryClient()
   const communityRuntime = useCommunityRuntime()
   const source = useCommunityViewSource(`message-actions:${serverId}:${channelId}`)
@@ -240,6 +242,7 @@ export function useMessageChannelController({
     attachments?: SendAttachment[],
     mentionType?: MentionType,
   ): boolean => {
+    if (committedFeed.current.navigationBlocked) return false
     const command = captureSendCommand()
     const accepted = acceptChannelMessage({
       runtime: communityRuntime,
