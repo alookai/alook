@@ -1,6 +1,7 @@
 export type PlatformLinkKind =
   | "alook"
   | "local"
+  | "email"
   | "github"
   | "gitlab"
   | "x"
@@ -95,6 +96,8 @@ export function matchPlatformLink(href: string | undefined): PlatformLinkMatch |
   } catch {
     return null
   }
+
+  if (url.protocol === "mailto:") return { kind: "email", label: "Email" }
 
   if (url.protocol !== "http:" && url.protocol !== "https:") return null
 
