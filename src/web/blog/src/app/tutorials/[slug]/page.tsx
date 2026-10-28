@@ -3,7 +3,6 @@ import { ArrowRight, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { ZoneLink } from "@/components/public-layout";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { getStepGuide, stepGuides } from "@/lib/step-guides";
-import { SignInPreview } from "@blog/components/guides/sign-in-preview";
 import { ServerDemo } from "@blog/components/guides/server-demo";
 import { ConnectDemo, BotsDemo } from "@blog/components/guides/mock-scenes";
 import { Prerequisites } from "@blog/components/guides/prerequisites";
@@ -59,8 +58,7 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
         <details className={styles.mobileContents}><summary>On this page<ChevronDown size={14} /></summary><Contents /></details>
         <section id="sign-in" className={styles.step}>
           <Heading index={0} />
-          <p>Open <ZoneLink href="/sign-in" zone="blog">Alook</ZoneLink> and sign in. If you are new, use the same screen to create your account.</p>
-          <SignInPreview />
+          <p>Open <ZoneLink href="/sign-in" zone="blog">Alook</ZoneLink> and sign in. If you are new, use the same screen to create your account. <strong>Creating your Alook account is completely free.</strong></p>
           <Outcome>You are signed in to your own Alook account.</Outcome>
         </section>
         <section id="connect" className={styles.step}>

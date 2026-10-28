@@ -8,10 +8,16 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef } from "react"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { isTauri, type NativeOauthProvider } from "@alook/shared"
+import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
+import { Field } from "@/components/ui/field"
 import { signIn } from "@/lib/auth-client"
 import { createNativeOauthController, nativeOauthBrowserDeps, type NativeOauthView } from "@/lib/native-oauth-client"
-import { SocialSignInButtons } from "./social-sign-in-buttons"
+import {
+  APPLE_LEFT_ALIGNED_LOGO_BLACK,
+  APPLE_LEFT_ALIGNED_LOGO_WHITE,
+} from "./apple-sign-in-artwork"
 
 const messages = {
   start_failed: "Couldn't open sign-in. Try again.",
@@ -73,7 +79,68 @@ export function SocialSignIn({
     : undefined
   return (
     <>
-      <SocialSignInButtons appleEnabled={appleEnabled} disabled={busy || unsupported} appleDisabled={appleUpdateRequired} onProvider={begin} />
+      <Field className="grid grid-cols-2 gap-4">
+        <Button
+          size="lg"
+          type="button"
+          disabled={busy || unsupported}
+          className="border-0 bg-apple-signin text-base text-apple-signin-foreground hover:bg-apple-signin"
+          data-testid="native-oauth-github"
+          onClick={() => begin("github")}
+        >
+          <span className="inline-flex items-center gap-2" data-testid="native-oauth-github-content">
+            <SiGithub className="size-4" aria-hidden />
+            <span>GitHub</span>
+          </span>
+        </Button>
+        <Button
+          size="lg"
+          type="button"
+          disabled={busy || unsupported}
+          className="border-0 bg-apple-signin text-base text-apple-signin-foreground hover:bg-apple-signin"
+          data-testid="native-oauth-google"
+          onClick={() => begin("google")}
+        >
+          <span className="inline-flex items-center gap-2" data-testid="native-oauth-google-content">
+            <SiGoogle className="size-4" aria-hidden />
+            <span>Google</span>
+          </span>
+        </Button>
+        {appleEnabled ? (
+          <Button
+            type="button"
+            size="lg"
+            disabled={busy || unsupported || appleUpdateRequired}
+            className="col-span-2 min-w-35 border-0 bg-apple-signin text-base text-apple-signin-foreground hover:bg-apple-signin"
+            data-testid="native-oauth-apple"
+            onClick={() => begin("apple")}
+          >
+            <span className="inline-flex items-center gap-2" data-testid="native-oauth-apple-content">
+              <span className="grid h-9 place-items-center" aria-hidden>
+                <Image
+                  src={APPLE_LEFT_ALIGNED_LOGO_WHITE}
+                  alt=""
+                  width={31}
+                  height={44}
+                  unoptimized
+                  className="col-start-1 row-start-1 h-9 w-auto dark:hidden"
+                  data-testid="apple-official-left-aligned-logo-white"
+                />
+                <Image
+                  src={APPLE_LEFT_ALIGNED_LOGO_BLACK}
+                  alt=""
+                  width={31}
+                  height={44}
+                  unoptimized
+                  className="col-start-1 row-start-1 hidden h-9 w-auto dark:block"
+                  data-testid="apple-official-left-aligned-logo-black"
+                />
+              </span>
+              <span>Continue with Apple</span>
+            </span>
+          </Button>
+        ) : null}
+      </Field>
       {text && <p role={native?.phase === "error" || unsupported ? "alert" : "status"} className="text-center text-sm text-muted-foreground" data-testid="native-oauth-status">{text}</p>}
       {!unsupported && !appleUpdateRequired && native && (native.attempt || native.phase === "error" || native.phase === "preparing") && (
         <div className="flex justify-center gap-2">
