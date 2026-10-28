@@ -75,9 +75,11 @@ vi.mock("@/components/ui/tooltip", async () => {
   }
 })
 
-vi.mock("@/components/ui/context-menu", async () => {
+vi.mock("@/components/ui/context-menu", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/ui/context-menu")>()
   const ReactModule = await import("react")
   return {
+    isSecondaryContextPointer: actual.isSecondaryContextPointer,
     ContextMenu: ({ children, ...props }: { children: React.ReactNode }) =>
       ReactModule.createElement("mock-context-menu", props, children),
     ContextMenuTrigger: ({
@@ -1697,6 +1699,71 @@ describe("Message desktop text selection", () => {
       focusNode: outside,
     }, rowElement)).toBe(false)
     expect(selectionBelongsToRow(null, rowElement)).toBe(false)
+  })
+
+  it("recognizes a fully covered middle row in a cross-message selection", () => {
+    const row = document.createElement("div")
+    const before = document.createTextNode("first")
+    const after = document.createTextNode("last")
+    const container = document.createElement("div")
+    container.append(before, row, after)
+    row.textContent = "middle"
+    const range = document.createRange()
+    range.setStart(before, 1)
+    range.setEnd(after, 2)
+    expect(selectionBelongsToRow({
+      isCollapsed: false, anchorNode: before, focusNode: after,
+      rangeCount: 1, getRangeAt: () => range,
+    }, row)).toBe(true)
+    range.setEnd(before, 3)
+    expect(selectionBelongsToRow({
+      isCollapsed: false, anchorNode: before, focusNode: before,
+      rangeCount: 1, getRangeAt: () => range,
+    }, row)).toBe(false)
+  })
+
+  it("preserves secondary-click selection and copies its snapshot without reusing it on another open", async () => {
+    const onCopy = vi.fn()
+    const selectedNode = {} as Node
+    const target = { closest: () => null }
+    const owner = { contains: (node: unknown) => node === selectedNode || node === target }
+    let selection: { isCollapsed: boolean; anchorNode: Node; focusNode: Node; toString: () => string } | null = {
+      isCollapsed: false, anchorNode: selectedNode, focusNode: selectedNode, toString: () => " chosen text ",
+    }
+    vi.stubGlobal("window", { getSelection: () => selection })
+    let renderer: DomRenderer
+    await act(async () => {
+      renderer = render(makeTree({ m: baseMsg(), onOpenThread: vi.fn(), onCopy }), { createNodeMock: () => genericMock })
+    })
+    const row = () => renderer!.root.find((node) => typeof node.props.className === "string"
+      && node.props.className.includes("group relative -mx-2"))
+    act(() => row().props.onPointerEnter({ target, currentTarget: owner, nativeEvent: { type: "pointerenter", pointerType: "mouse" } }))
+    const preventDefault = vi.fn()
+    act(() => row().props.onPointerDownCapture({
+      target, currentTarget: owner, button: 2, preventDefault,
+      nativeEvent: { type: "pointerdown", pointerType: "mouse", button: 2, ctrlKey: false },
+    }))
+    expect(preventDefault).toHaveBeenCalledOnce()
+    act(() => row().props.onContextMenuCapture({ target, currentTarget: owner }))
+    selection = null
+    const copy = () => renderer!.root.findAllByProps({ "data-slot": "context-menu-item" })
+      .find((item) => textContent(item).trim() === "Copy Text")!
+    act(() => copy().props.onClick())
+    expect(onCopy).toHaveBeenLastCalledWith(" chosen text ")
+    act(() => renderer!.root.findByType("mock-context-menu").props.onOpenChange(false))
+    act(() => row().props.onContextMenuCapture({ target, currentTarget: owner }))
+    act(() => copy().props.onClick())
+    expect(onCopy).toHaveBeenLastCalledWith(undefined)
+    selection = { isCollapsed: false, anchorNode: {} as Node, focusNode: {} as Node, toString: () => "other row" }
+    preventDefault.mockClear()
+    act(() => row().props.onPointerDownCapture({
+      target, currentTarget: owner, button: 2, preventDefault,
+      nativeEvent: { type: "pointerdown", pointerType: "mouse", button: 2, ctrlKey: false },
+    }))
+    expect(preventDefault).not.toHaveBeenCalled()
+    act(() => row().props.onContextMenuCapture({ target, currentTarget: owner }))
+    act(() => copy().props.onClick())
+    expect(onCopy).toHaveBeenLastCalledWith(undefined)
   })
 
   it("observes the desktop context target without taking over authenticated contextmenu policy", () => {
