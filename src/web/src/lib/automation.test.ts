@@ -80,3 +80,11 @@ describe("automation authorization boundary", () => {
     expect(await hashAutomationSecret(one)).not.toBe(await hashAutomationSecret(two))
   })
 })
+
+it("refuses absent credentials and an HTTP failure from the rate limiter", async () => {
+  const missing = new NextRequest("http://localhost/api/community/bots", { method: "POST" })
+  expect((await withAutomation("bot.create", create)(missing)).status).toBe(401)
+  expect(authenticate).not.toHaveBeenCalled()
+  transport.mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+  expect((await withAutomation("bot.create", create)(request())).status).toBe(503)
+})

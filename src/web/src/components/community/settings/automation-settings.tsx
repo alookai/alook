@@ -26,6 +26,7 @@ const permissionOptions = [
   { permission: "server.read", label: "List servers", group: "Read" },
 ] as const
 const control = "h-11 sm:h-8"
+const selectControl = "data-[size=default]:h-11 sm:data-[size=default]:h-8"
 
 function expiryLabel(code: AutomationAccessCode) {
   if (!code.expiresAt) return "Never expires"
@@ -72,7 +73,7 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
       <div className="space-y-2">
         <label id="automation-expiry-label" className="text-sm font-medium">{code ? "Expiration" : "Expires in"}</label>
         <Select value={expiry} onValueChange={(value) => { if (value) setExpiry(value) }} disabled={pending}>
-          <SelectTrigger aria-labelledby="automation-expiry-label" data-testid={tid.automationExpiry} className={`${control} w-full`}><SelectValue>{expiry === "keep" ? "Keep current expiration" : expiryOptions.find(([value]) => value === expiry)?.[1]}</SelectValue></SelectTrigger>
+          <SelectTrigger aria-labelledby="automation-expiry-label" data-testid={tid.automationExpiry} className={`${selectControl} w-full`}><SelectValue>{expiry === "keep" ? "Keep current expiration" : expiryOptions.find(([value]) => value === expiry)?.[1]}</SelectValue></SelectTrigger>
           <SelectContent>{code ? <SelectItem value="keep" className="min-h-11 sm:min-h-8">Keep current expiration</SelectItem> : null}{expiryOptions.map(([value, label]) => <SelectItem key={value} value={value} className="min-h-11 sm:min-h-8">{label}</SelectItem>)}</SelectContent>
         </Select>
         {code ? <p className="text-xs leading-5 text-muted-foreground">{expiry === "keep" ? expiryLabel(code) : "The new expiration starts when you save."}</p> : null}
@@ -109,7 +110,7 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
               <div className="flex items-center gap-2">
                 <Input type="number" aria-label={`${label} request limit`} className={`${control} w-24 font-mono tabular-nums`} min={1} max={policy.period === "hour" ? 64 : 1536} step={1} required value={policy.limit} onChange={(event) => updatePolicy(index, { limit: event.target.value })} />
                 <Select value={policy.period} onValueChange={(value) => { if (value) updatePolicy(index, { period: value }) }} disabled={pending}>
-                  <SelectTrigger className={control} aria-label={`${label} limit period`}><SelectValue>{policy.period === "hour" ? "per hour" : "per day"}</SelectValue></SelectTrigger>
+                  <SelectTrigger className={selectControl} aria-label={`${label} limit period`}><SelectValue>{policy.period === "hour" ? "per hour" : "per day"}</SelectValue></SelectTrigger>
                   <SelectContent><SelectItem value="hour" className="min-h-11 sm:min-h-8">per hour</SelectItem><SelectItem value="day" className="min-h-11 sm:min-h-8">per day</SelectItem></SelectContent>
                 </Select>
               </div>

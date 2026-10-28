@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
+import { getTableName } from "drizzle-orm"
+import { getTableConfig } from "drizzle-orm/sqlite-core"
 import { communityWriteDb } from "./helpers/community-write-db"
 import * as queries from "../src/db/queries/automation"
+import { automationAccessCode, automationAccessPermission } from "../src/db/automation-schema"
 import { AutomationAccessCodeCreateSchema, AutomationAccessCodeUpdateSchema, automationExpiresAt } from "../src/automation"
 
 const databases: ReturnType<typeof communityWriteDb>[] = []
@@ -54,6 +57,73 @@ describe("Automation access codes", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM automation_access_permission").get()).toEqual({ count: 0 })
   })
 
+  it.each([false, true])("renames an owned code while replacing policies: %s", async (replacePolicies) => {
+    const { db, sqlite } = fixture()
+    const code = await queries.createAccessCode(db, "author", input(), "digest", "prefix")
+    const peerCode = await queries.createAccessCode(db, "peer", input(), "peer-digest", "peer-prefix")
+    const permissions = replacePolicies ? [{ permission: "server.invite" as const, limit: 2, period: "day" as const }] : code.permissions
+    const edited = await queries.updateAccessCode(db, "author", code.id, {
+      name: "Renamed",
+      ...(replacePolicies ? { permissions } : {}),
+    })
+
+    expect(edited).toEqual({ ...code, name: "Renamed", permissions })
+    expect(await queries.getAccessCode(db, "peer", peerCode.id)).toEqual(peerCode)
+    expect(sqlite.prepare("SELECT owner_id, secret_hash FROM automation_access_code WHERE id = ?").get(code.id))
+      .toEqual({ owner_id: "author", secret_hash: "digest" })
+    expect(await queries.authenticateAccessCode(db, "digest", "bot.create"))
+      .toEqual(replacePolicies ? null : expect.objectContaining({ ownerId: "author", limit: 64 }))
+    if (replacePolicies) {
+      expect(await queries.authenticateAccessCode(db, "digest", "server.invite"))
+        .toMatchObject({ ownerId: "author", limit: 2, period: "day" })
+    }
+  })
+
+  it("lists a code with missing policies without granting access, and leaves an empty query update unchanged", async () => {
+    const { db, sqlite, batchSizes } = fixture()
+    const code = await queries.createAccessCode(db, "author", input(), "digest", "prefix")
+    sqlite.prepare("DELETE FROM automation_access_permission WHERE code_id = ?").run(code.id)
+    const withoutPolicies = { ...code, permissions: [] }
+
+    expect(await queries.listAccessCodes(db, "author")).toEqual([withoutPolicies])
+    expect(await queries.authenticateAccessCode(db, "digest", "bot.create")).toBeNull()
+    expect(await queries.updateAccessCode(db, "author", code.id, {})).toEqual(withoutPolicies)
+    expect(await queries.listAccessCodes(db, "author")).toEqual([withoutPolicies])
+    expect(batchSizes).toHaveLength(1)
+  })
+
+  it("keeps declared owner and policy keys aligned with the migration and cascades only the deleted owner's codes", async () => {
+    const { db, sqlite } = fixture()
+    const codeConfig = getTableConfig(automationAccessCode)
+    const policyConfig = getTableConfig(automationAccessPermission)
+    for (const config of [codeConfig, policyConfig]) {
+      const declared = config.foreignKeys.map((key) => {
+        const reference = key.reference()
+        return { from: reference.columns[0].name, table: getTableName(reference.foreignTable),
+          to: reference.foreignColumns[0].name, on_delete: key.onDelete?.toUpperCase() }
+      })
+      const migrated = (sqlite.pragma(`foreign_key_list(${config.name})`) as Array<{
+        from: string; table: string; to: string; on_delete: string;
+      }>).map(({ from, table, to, on_delete }) => ({ from, table, to, on_delete }))
+      expect(migrated).toEqual(declared)
+    }
+    expect(codeConfig.indexes.map(({ config }) => ({ name: config.name, columns: config.columns })))
+      .toEqual([{ name: "idx_automation_code_owner", columns: [automationAccessCode.ownerId] }])
+    expect(sqlite.pragma("index_info(idx_automation_code_owner)"))
+      .toEqual([expect.objectContaining({ name: "owner_id" })])
+    expect(policyConfig.primaryKeys[0].columns.map((column) => column.name)).toEqual(["code_id", "permission"])
+    expect((sqlite.pragma("table_info(automation_access_permission)") as Array<{ name: string; pk: number }>)
+      .filter(({ pk }) => pk > 0).map(({ name }) => name)).toEqual(["code_id", "permission"])
+
+    const authorCode = await queries.createAccessCode(db, "author", input(), "author-digest", "author-prefix")
+    const peerCode = await queries.createAccessCode(db, "peer", input(), "peer-digest", "peer-prefix")
+    sqlite.prepare("DELETE FROM user WHERE id = ?").run("author")
+    expect(await queries.getAccessCode(db, "author", authorCode.id)).toBeNull()
+    expect(sqlite.prepare("SELECT code_id FROM automation_access_permission WHERE code_id = ?").all(authorCode.id)).toEqual([])
+    expect(await queries.getAccessCode(db, "peer", peerCode.id)).toEqual(peerCode)
+    expect(sqlite.pragma("foreign_key_check")).toEqual([])
+  })
+
   it("rejects expiry at the exact boundary, soft-deleted owners and bot owners", async () => {
     const { db, sqlite } = fixture()
     const code = await queries.createAccessCode(db, "author", input(), "digest", "prefix")
@@ -84,6 +154,9 @@ describe("Automation access codes", () => {
     expect(await queries.listMachines(db, "author")).toEqual([{ id: "mac1", name: "My Mac" }])
     expect(await queries.listFriends(db, "author")).toEqual([{ name: "Helper", discriminator: "0001" }, { name: "peer", discriminator: "0001" }])
     expect(await queries.getFriendByHandle(db, "author", "outside#0001")).toBeNull()
+    for (const handle of ["", "peer", "peer#123", "peer#abcd", " #0001"]) {
+      expect(await queries.getFriendByHandle(db, "author", handle)).toBeNull()
+    }
     expect(await queries.getFriendByHandle(db, "author", "peer#0001")).toMatchObject({ id: "peer" })
     expect(await queries.getFriendByHandle(db, "author", "Helper#0001")).toMatchObject({ id: "ownbot" })
     expect(await queries.listServers(db, "author")).toEqual([{ name: "demo", discriminator: "0001" }])

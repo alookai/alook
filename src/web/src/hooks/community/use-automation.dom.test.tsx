@@ -28,6 +28,33 @@ describe("Automation request ownership", () => {
     expect(view.client.getMutationCache().getAll().every((mutation) => mutation.state.data === undefined)).toBe(true)
     view.unmount()
   })
+  it("updates an encoded code path and refreshes its metadata", async () => {
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    const data = { name: "Renamed", permissions: create.data.permissions }
+    const updated = { ...response.accessCode, name: data.name }
+    const created = vi.fn()
+    mocks.api.mockResolvedValueOnce({ accessCode: updated }).mockResolvedValue({ accessCodes: [updated] })
+    await act(async () => { await view.result.current.execute({ kind: "update", id: "code/with space", data }, created) })
+    expect(mocks.api).toHaveBeenCalledWith("/api/community/automation/access-codes/code%2Fwith%20space", expect.objectContaining({ method: "PATCH", body: JSON.stringify(data) }))
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toEqual([updated]))
+    expect(created).not.toHaveBeenCalled()
+    view.unmount()
+  })
+  it("deletes an encoded code path without a body and refreshes the list", async () => {
+    mocks.api.mockResolvedValue({ accessCodes: [response.accessCode] })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toHaveLength(1))
+    const created = vi.fn()
+    mocks.api.mockResolvedValueOnce({ deleted: true }).mockResolvedValue({ accessCodes: [] })
+    await act(async () => { await view.result.current.execute({ kind: "delete", id: "code/with space" }, created) })
+    const deletion = mocks.api.mock.calls.find(([, options]) => options?.method === "DELETE")
+    expect(deletion?.[0]).toBe("/api/community/automation/access-codes/code%2Fwith%20space")
+    expect(deletion?.[1]).not.toHaveProperty("body")
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toEqual([]))
+    expect(created).not.toHaveBeenCalled()
+    view.unmount()
+  })
   it("rejects a delayed creation response after leaving the panel", async () => {
     const view = setup()
     await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))

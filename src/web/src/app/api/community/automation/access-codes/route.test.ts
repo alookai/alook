@@ -45,3 +45,14 @@ describe("Automation access-code management routes", () => {
     expect((await DELETE(request("DELETE"), params)).status).toBe(404)
   })
 })
+
+it("rejects invalid edits and keeps missing route IDs within the signed-in owner scope", async () => {
+  expect((await PATCH(request("PATCH", {}), { params: Promise.resolve({ codeId: "code" }) })).status).toBe(400)
+  expect(mocks.update).not.toHaveBeenCalled()
+  mocks.update.mockResolvedValueOnce(null)
+  expect((await PATCH(request("PATCH", { name: "Missing ID" }))).status).toBe(404)
+  expect(mocks.update).toHaveBeenCalledExactlyOnceWith({ primary: true }, "owner", "", { name: "Missing ID" })
+  mocks.remove.mockResolvedValueOnce(false)
+  expect((await DELETE(request("DELETE"))).status).toBe(404)
+  expect(mocks.remove).toHaveBeenCalledExactlyOnceWith({ primary: true }, "owner", "")
+})

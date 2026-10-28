@@ -96,3 +96,25 @@ describe("Automation Read and invitation boundaries", () => {
     expect((await inviteAutomationFriend(request(), context())).status).toBe(409)
   })
 })
+
+it("rejects missing or malformed server handles before admission", async () => {
+  const ctx = context()
+  for (const params of [undefined, {}, { id: "not-a-handle" }]) {
+    expect((await inviteAutomationFriend(request(), { ...ctx, params })).status).toBe(400)
+  }
+  expect(ctx.beforeCreate).not.toHaveBeenCalled()
+  expect(mocks.server).not.toHaveBeenCalled()
+  expect(mocks.message).not.toHaveBeenCalled()
+})
+
+it("skips another author's, expired and exhausted invitations before reusing a valid one", async () => {
+  mocks.listInvites.mockResolvedValueOnce([
+    { creatorId: "other", token: "other", maxUses: null, uses: 0, expiresAt: null },
+    { creatorId: "owner", token: "expired", maxUses: null, uses: 0, expiresAt: "2000-01-01T00:00:00Z" },
+    { creatorId: "owner", token: "exhausted", maxUses: 1, uses: 1, expiresAt: null },
+    { creatorId: "owner", token: "valid", maxUses: 2, expiresAt: "2999-01-01T00:00:00Z" },
+  ])
+  expect((await inviteAutomationFriend(request(), context())).status).toBe(201)
+  expect(mocks.createInvite).not.toHaveBeenCalled()
+  expect(mocks.message.mock.lastCall?.[0].body).toEqual({ content: "http://localhost/c/invite/valid" })
+})
