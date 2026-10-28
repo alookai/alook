@@ -2,6 +2,7 @@ import type {
   ChangeEventHandler,
   DragEventHandler,
   RefObject,
+  ReactNode,
 } from "react"
 import { EditorContent, type Editor } from "@tiptap/react"
 import {
@@ -53,6 +54,7 @@ export type ComposerViewProps = {
   removePendingFile: (index: number) => void
   fileInputRef: RefObject<HTMLInputElement | null>
   onFileSelect: ChangeEventHandler<HTMLInputElement>
+  editorContent?: ReactNode
   editor: Editor | null
   hideAttach: boolean
   hideEmoji: boolean
@@ -82,6 +84,7 @@ export function ComposerView({
   fileInputRef,
   onFileSelect,
   editor,
+  editorContent,
   hideAttach,
   hideEmoji,
   showSend,
@@ -210,10 +213,10 @@ export function ComposerView({
           }`}
           data-testid={tid.composerInput}
         >
-          <EditorContent
+          {editorContent ?? <EditorContent
             editor={editor}
             className={`${isForumThreadBody ? "max-h-60" : "max-h-48"} min-h-6 overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none`}
-          />
+          />}
         </div>
         {!hideAttach && (
           <button

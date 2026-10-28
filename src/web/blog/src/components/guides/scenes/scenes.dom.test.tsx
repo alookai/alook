@@ -78,3 +78,36 @@ describe("server invitation walkthrough", () => {
     } finally { timeline.kill(); }
   });
 });
+
+describe("server message walkthrough", () => {
+  it("selects both native mentions, types, sends and resets the draft on Replay", async () => {
+    const { MessageDemo, tutorialTask } = await import("../message-demo");
+    const { createScene } = await import("./message");
+    render(<MessageDemo />);
+    const root = screen.getByTestId("scene");
+    const timeline = createScene(root, vi.fn());
+    const draft = root.querySelector('[data-message-channel]')!;
+    try {
+      act(() => { timeline.time(4.6, false); });
+      expect(draft.querySelector('[data-draft-text]')).toHaveTextContent("@Mi");
+      expect(draft.querySelector<HTMLElement>('[data-mention-choice="0"]')!.style.visibility).toBe("visible");
+      act(() => { timeline.time(7, false); });
+      expect(draft.querySelector('[data-tutorial-editor]')).toHaveTextContent("@Milo");
+      act(() => { timeline.time(8.8, false); });
+      expect(draft.querySelector<HTMLElement>('[data-mention-choice="1"]')!.style.visibility).toBe("visible");
+      act(() => { timeline.time(11.2, false); });
+      expect(draft.querySelectorAll('.mention-highlight')).toHaveLength(2);
+      act(() => { timeline.time(15.2, false); });
+      expect(draft.querySelector('[data-draft-text]')).toHaveTextContent(tutorialTask);
+      expect(draft.querySelector('[aria-label="Send message"]')).toBeEnabled();
+      act(() => { timeline.time(18, false); });
+      expect(root.dataset.demoAction).toBe("message-posted");
+      expect(root.querySelector('[data-message-result]')).toHaveTextContent(tutorialTask);
+      expect(root.querySelector('[data-message-result]')).toHaveTextContent("Gus");
+      act(() => { timeline.restart().pause().time(0.1, false); });
+      expect(draft.querySelectorAll('.mention-highlight')).toHaveLength(0);
+      expect(draft.querySelector('[data-draft-text]')).toHaveTextContent("");
+      expect(root.dataset.demoAction).toBe("open-channel");
+    } finally { timeline.kill(); }
+  });
+});

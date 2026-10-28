@@ -49,8 +49,8 @@
 .botIcon { height: 32px; width: 32px; border-radius: var(--radius-md); background: var(--muted); display: grid; place-items: center; flex: 0 0 auto; }
 .botRow small { display: block; color: var(--muted-foreground); font-size: 12px; }
 .demoCaption { position: absolute; top: -48px; right: 12px; z-index: 1; }
-.controls { display: flex; flex-shrink: 0; gap: 8px; }
-.controls button { display: inline-flex; gap: 6px; align-items: center; min-height: 44px; padding: 0 8px; border-radius: var(--radius-sm); color: var(--foreground); cursor: pointer; }
+.controls { display: flex; flex-shrink: 0; gap: 4px; }
+.controls button { display: inline-flex; gap: 6px; align-items: center; min-height: 32px; padding: 0 6px; font-size: 12px; font-weight: 400; border-radius: var(--radius-sm); color: var(--muted-foreground); cursor: pointer; }
 .controls button:hover:not(:disabled) { background: var(--muted); }
 .controls button:disabled { color: var(--muted-foreground); cursor: default; opacity: 0.55; }
 .staticDemo { margin-top: 24px; padding: 32px; background: var(--muted); border-radius: var(--radius-lg); }
@@ -108,3 +108,7 @@
 .completionCriteria p { margin: 0; }
 
 .completionCriteria a { text-decoration: underline; text-underline-offset: 3px; }
+
+.messageComposer { position: relative; width: var(--motion-sheet-width, 640px); max-width: 100%; }
+.mentionMenu { position: absolute; z-index: 5; bottom: 100%; left: 48px; width: 256px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--popover); color: var(--popover-foreground); box-shadow: var(--e2); }
+.messageResult { width: var(--motion-sheet-width, 640px); max-width: 100%; margin-bottom: 16px; }

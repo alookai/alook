@@ -20,7 +20,7 @@ const inviteLink = "https://alook.ai/c/invite/EXAMPLE";
 const dms: DM[] = ["Milo", "Nova"].map((name, index) => ({ id: `tutorial-dm-${name.toLowerCase()}`, userId: `tutorial-${name.toLowerCase()}`, name, discriminator: `100${index + 1}`, avatar: `avatar:beam:${name.toLowerCase()}`, avatarVersion: 0, status: "online", preview: "Available" }));
 const createdServers: Server[] = [{ id: "gus", name: "Gus", initial: "G", active: false, unread: false, mentions: 0, isOwner: true, icon: null }, { id: "work", name: "Studio", initial: "S", active: true, unread: false, mentions: 0, isOwner: true, icon: null }];
 const base = sceneSnapshot("provider", 0);
-function Shell({ server = false, activeDm, children }: { server?: boolean; activeDm?: string; children?: ReactNode }) {
+export function TutorialServerShell({ server = false, activeDm, children }: { server?: boolean; activeDm?: string; children?: ReactNode }) {
   return <CommunityPreviewNavigation value={true}><LandingShellMotion userAvatar="avatar:beam:tutorial-gus" scene={server ? "server" : "provider"} beat={0} previewServers={server || activeDm ? createdServers : undefined} dms={dms} activeDm={activeDm}>{children}</LandingShellMotion></CommunityPreviewNavigation>;
 }
 function useSceneState<T extends object>(initial: T) {
@@ -36,7 +36,7 @@ function useSceneState<T extends object>(initial: T) {
 }
 function CreateServer() {
   const { ref, state } = useSceneState({ name: "" });
-  return <Shell><BotListContent count={2} /><div ref={ref} data-server-form><CreateServerDialog onClose={ignore} previewName={state.name} /></div></Shell>;
+  return <TutorialServerShell><BotListContent count={2} /><div ref={ref} data-server-form><CreateServerDialog onClose={ignore} previewName={state.name} /></div></TutorialServerShell>;
 }
 function ServerContent({ joined = false }: { joined?: boolean }) {
   return <><ChannelHeader channel="general" kind="text" rightPanel={joined ? "members" : null} onToggle={ignore} />
@@ -47,16 +47,16 @@ function ServerContent({ joined = false }: { joined?: boolean }) {
 }
 function Invite() {
   const { ref, state } = useSceneState({ milo: false, nova: false });
-  return <Shell server><ServerContent /><div ref={ref} data-invite-form><PrototypeInviteSurface snapshot={{ ...base, inviteOpen: true }} serverName="Studio" inviteLink={inviteLink}>{dms.map((dm, index) => <div key={dm.id} data-invite-recipient={index === 0 ? "milo" : "nova"}><InviteFriendRow friend={{ ...dm, sub: "Your bot" }} tokenReady inviting={false} invited={index === 0 ? state.milo : state.nova} onInvite={ignore} /></div>)}</PrototypeInviteSurface></div></Shell>;
+  return <TutorialServerShell server><ServerContent /><div ref={ref} data-invite-form><PrototypeInviteSurface snapshot={{ ...base, inviteOpen: true }} serverName="Studio" inviteLink={inviteLink}>{dms.map((dm, index) => <div key={dm.id} data-invite-recipient={index === 0 ? "milo" : "nova"}><InviteFriendRow friend={{ ...dm, sub: "Your bot" }} tokenReady inviting={false} invited={index === 0 ? state.milo : state.nova} onInvite={ignore} /></div>)}</PrototypeInviteSurface></div></TutorialServerShell>;
 }
 export function ServerDemo() {
   return <DeferredDemo scene="server" label="Bring them into a server">
-    <div data-demo-frame><Shell><BotListContent count={2} /></Shell></div>
+    <div data-demo-frame><TutorialServerShell><BotListContent count={2} /></TutorialServerShell></div>
     <div data-demo-frame><CreateServer /></div>
-    <div data-demo-frame><Shell server><ServerContent /></Shell></div>
+    <div data-demo-frame><TutorialServerShell server><ServerContent /></TutorialServerShell></div>
     <div data-demo-frame><Invite /></div>
-    <div data-demo-frame><Shell server><ServerContent /></Shell></div>
-    <div data-demo-frame><Shell server><ServerContent joined /></Shell></div>
+    <div data-demo-frame><TutorialServerShell server><ServerContent /></TutorialServerShell></div>
+    <div data-demo-frame><TutorialServerShell server><ServerContent joined /></TutorialServerShell></div>
     <MousePointer2 className={styles.pointer} data-demo-pointer size={30} fill="var(--background)" />
   </DeferredDemo>;
 }

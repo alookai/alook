@@ -7,10 +7,11 @@ import styles from "./guide.module.css";
 
 type Timeline = { play: () => unknown; pause: () => unknown; restart: () => unknown; kill: () => unknown; progress: (value: number) => unknown };
 type SceneModule = { createScene: (root: HTMLElement, complete: () => void) => Timeline };
-const loaders: Record<"connect" | "bots" | "server", () => Promise<SceneModule>> = {
+const loaders: Record<"connect" | "bots" | "server" | "message", () => Promise<SceneModule>> = {
   connect: () => import("./scenes/connect"),
   bots: () => import("./scenes/bots"),
   server: () => import("./scenes/server"),
+  message: () => import("./scenes/message"),
 };
 
 export function DeferredDemo({ scene, label, children }: { scene: keyof typeof loaders; label: string; children: ReactNode }) {

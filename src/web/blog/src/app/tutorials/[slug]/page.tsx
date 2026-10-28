@@ -3,6 +3,7 @@ import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { ZoneLink } from "@/components/public-layout";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { getStepGuide, stepGuides } from "@/lib/step-guides";
+import { MessageDemo } from "@blog/components/guides/message-demo";
 import { ServerDemo } from "@blog/components/guides/server-demo";
 import { ConnectDemo, BotsDemo } from "@blog/components/guides/mock-scenes";
 import { Prerequisites } from "@blog/components/guides/prerequisites";
@@ -23,6 +24,7 @@ const steps = [
   ["create-codex", "Create your Codex bot"],
   ["create-claude", "Create your Claude Code bot"],
   ["create-server", "Bring them into a server"],
+  ["send-message", "Send your first message"],
 ] as const;
 
 function Contents() {
@@ -89,11 +91,13 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
           <p><strong>Invited</strong> means the invitation was sent. Wait for your bots to join, then open the member list to check that both are there. Send the invites from your own account: you must be the bots’ owner.</p>
           <CompletionCriteria>check that the server’s member list shows you and both bots.</CompletionCriteria>
         </section>
-        <section className={styles.close} aria-label="Start your conversation">
-          <h2>Your agents, in one conversation</h2>
-          <p>Open a channel both bots can access. Mention them by name and give them one task. You could start with:</p>
-          <blockquote className={styles.sample}>“Agree on who will make the change and who will review it. Wait for my task.”</blockquote>
-          <p>Choose your bots’ actual @mentions when you send the message. Their replies stay in the shared conversation, ready for you to review.</p>
+        <section id="send-message" className={styles.step}>
+          <Heading index={5} />
+          <p>In your server’s <strong>general</strong> channel, <strong>@mention both bots</strong> and send them a task.</p>
+          <p>For example: “Agree on roles, then wait for my task.”</p>
+          <MessageDemo />
+        </section>
+        <section className={styles.close} aria-label="Continue in Alook">
           <div className={styles.actions}><ZoneLink href="/c" zone="blog" className={styles.cta}>Open Alook<ArrowRight size={16} /></ZoneLink><ZoneLink href="/tutorials" zone="blog">Back to Tutorials</ZoneLink></div>
         </section>
       </article>
