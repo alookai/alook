@@ -100,7 +100,7 @@ test("homepage header, body, and footer share responsive content edges", async (
   }
 })
 
-test("homepage shares header and footer site links and collapses mobile header links", async ({ page }) => {
+test("homepage keeps Tutorials in the footer and collapses mobile header links", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/")
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -127,7 +127,10 @@ test("homepage shares header and footer site links and collapses mobile header l
   }))
   expect(await mobileLinks.evaluateAll(linkContract)).toEqual(expectedLinks)
   const footerLinks = page.getByTestId(tid.landingFooterNavigation).locator("a")
-  expect(await footerLinks.evaluateAll(linkContract)).toEqual(expectedLinks)
+  expect(await footerLinks.evaluateAll(linkContract)).toEqual([
+    ...expectedLinks,
+    { href: "/tutorials", label: "Tutorials" },
+  ])
 
   const styleContract = (element: Element) => {
     const style = getComputedStyle(element)
