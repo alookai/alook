@@ -60,6 +60,10 @@ export const blogTopics = [
         userJob: "Carry decisions across coding agent sessions",
       },
       {
+        slug: "codex-memory",
+        userJob: "Recover a Codex task after compaction and distinguish task context, project rules and local Memories",
+      },
+      {
         slug: "claude-code-memory",
         userJob: "Verify Claude Code memory across fresh sessions and fix stale notes",
       },
