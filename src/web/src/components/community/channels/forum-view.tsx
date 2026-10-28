@@ -21,7 +21,7 @@ import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { ForumPostList } from "./forum-post-list"
-import type { VirtualListPositionScope } from "@/lib/community/virtual-list-position"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
@@ -130,7 +130,7 @@ export function ForumView({
   onScrollRoot, positionScope,
 }: {
   forumChannelId: string
-  positionScope?: VirtualListPositionScope
+  positionScope?: ConversationListScope
   members: Member[]
   mentionCandidates?: ComposerProps["mentionCandidates"]
   observation?: import("@/lib/observability/regions").ResourceObservation

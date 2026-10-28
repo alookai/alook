@@ -14,7 +14,6 @@ import { traceResponse } from "./trace-response"
 import { useObservedRegion } from "./regions"
 import { installMessageScrollFixture, restoreMessageScrollFixture, mount } from "@/test/message-scroll-fixture"
 import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
-import { virtualListPositionKey, type VirtualListPositionSnapshot } from "@/lib/community/virtual-list-position"
 
 const native = vi.hoisted(() => {
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
@@ -120,18 +119,15 @@ it("exports real cache, entry, repair and request roles through installed Faro a
     native.faro!.api.pushEvent("conversation.cache", { cache_reason: "PRIVATE257-invalid", content: "PRIVATE257-content", cache_window: "ready" })
     const position = mount({ scrollToMessageId: "m4", positionDataState: "ready" })
     position.view.unmount()
-    const positionScope = { proof: captureChannelMetadataToken(owner.client, "c1"), kind: "messages" as const, tag: null }
+    const positionScope = { proof: captureChannelMetadataToken(owner.client, "c1"), tag: null }
     const saved = mount({ positionScope })
     saved.move(600)
     saved.view.unmount()
-    const restored = mount({ positionScope })
-    expect(restored.root.scrollTop).toBeCloseTo(600, 0)
-    restored.view.unmount()
-    owner.client.setQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope), previous => ({
-      ...previous!, fingerprint: "PRIVATE257-position-fingerprint", anchorKey: "PRIVATE257-position-anchor",
-    }))
-    const rejected = mount({ positionScope })
-    rejected.view.unmount()
+    const entered = mount({ positionScope })
+    expect(entered.root.scrollTop).not.toBe(600)
+    entered.view.unmount()
+    const readTarget = mount({ positionScope, initialPositionMessageId: "m4" })
+    readTarget.view.unmount()
     native.faro!.api.pushEvent("position.finish", { position_source: "PRIVATE257-invalid", position_snapshot: "PRIVATE257-invalid", snapshot: "PRIVATE257-body" })
     await act(async () => owner.registry.collections.channelMemberships.utils.writeDelete("c1:viewer:access"))
     await vi.advanceTimersByTimeAsync(5000)
@@ -152,9 +148,10 @@ it("exports real cache, entry, repair and request roles through installed Faro a
     const roles = new Set(events.filter(event => event.name === "request.start").map(event => event.attributes.request_role))
     expect(roles).toEqual(new Set(["entry", "reconcile", "window", "pagination"]))
     expect(events).toContainEqual(expect.objectContaining({ name: "region.wait_change", attributes: expect.objectContaining({ wait_reason: "position", last_wait_reason: "entry" }) }))
-    expect(events).toContainEqual(expect.objectContaining({ name: "position.finish", attributes: expect.objectContaining({ position_owner: "target", position_reason: "settled", position_source: "explicit_target", position_snapshot: "not_requested" }) }))
-    expect(events).toContainEqual(expect.objectContaining({ name: "position.finish", attributes: expect.objectContaining({ position_source: "snapshot", position_snapshot: "accepted" }) }))
-    expect(events).toContainEqual(expect.objectContaining({ name: "position.finish", attributes: expect.objectContaining({ position_source: "tail", position_snapshot: "fingerprint_mismatch" }) }))
+    expect(events).toContainEqual(expect.objectContaining({ name: "position.finish", attributes: expect.objectContaining({ position_owner: "target", position_reason: "settled", position_source: "explicit_target" }) }))
+    expect(events).toContainEqual(expect.objectContaining({ name: "position.finish", attributes: expect.objectContaining({ position_source: "read_anchor" }) }))
+    expect(events).toContainEqual(expect.objectContaining({ name: "position.finish", attributes: expect.objectContaining({ position_source: "tail" }) }))
+    for (const event of events) expect(event.attributes).not.toHaveProperty("position_snapshot")
     const wait = spans.find(span => span.name === "region.wait")!
     expect(wait.parentSpanId).toBe(navigation.span!.spanContext().spanId)
     expect(Object.fromEntries(wait.attributes.map(attribute => [attribute.key, attribute.value.stringValue]))).toMatchObject({ initial_wait_reason: "entry", last_wait_reason: "position", wait_reason: "none", outcome: "success" })

@@ -2,121 +2,154 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
-import { virtualListPositionKey, type VirtualListPositionScope, type VirtualListPositionSnapshot } from "@/lib/community/virtual-list-position"
-import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
+import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
-describe("native snapshot restoration and one-shot late unread ownership", () => {
-  it.each([false, true])("keeps the saved body offset when prepend changes an unsettled restore index (StrictMode=%s)", async strict => {
+describe("ordinary reconstruction and one-shot late unread ownership", () => {
+  it.each([false, true])("uses normal entry rules after deep browsing (StrictMode=%s)", async strict => {
     const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
-    const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
-    const original = mount({ positionScope, items }, strict)
-    original.move(800)
-    const snapshot = client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))!
-    const anchorId = String(snapshot.anchorKey).slice(4)
-    const top = bodyTop(original.root, anchorId)
-    original.view.unmount()
-    const restored = mount({ positionScope, items }, strict, undefined, undefined, 0)
-    scrollFixture.bodyHeights.set(anchorId, 0)
-    resize(1)
-    expect(scrollFixture.latest.readPositionReady).toBe(false)
-    expect(scrollFixture.latest.positionOutcome).toBe("pending")
-    restored.stage({ items: [message("prepended"), ...items] })
-    runFrames(1)
-    expect(scrollFixture.latest.readPositionReady).toBe(false)
-    scrollFixture.bodyHeights.set(anchorId, 100)
-    resize()
-    expect(bodyTop(restored.root, anchorId)).toBeCloseTo(top, 0)
-    expect(restored.root.querySelector(`[data-msg-id="${anchorId}"]`)!.closest<HTMLElement>("[data-message-row-key]")!.dataset.messageRowKey).toBe(snapshot.anchorKey)
-    expect(scrollFixture.latest.positionOutcome).toBe("success")
-    expect(scrollFixture.latest.readPositionReady).toBe(true)
-  })
-  it.each([false, true])("restores a destroyed instance from its own measured snapshot (StrictMode=%s)", async strict => {
-    const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
-    const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
-    const h = mount({ positionScope, items }, strict)
-    h.move(800)
-    resize()
-    const before = h.root.scrollTop
-    const snapshot = client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))
-    expect(snapshot?.offset).toBe(before)
-    expect(snapshot!.measurements.length).toBeGreaterThan(0)
-    h.view.unmount()
-    const restored = mount({ positionScope, items }, strict)
-    expect(scrollFixture.latest.virtualizer.options.initialMeasurementsCache.length).toBeGreaterThan(0)
-    expect(scrollFixture.latest.virtualizer.options.initialOffset).toBe(before)
-    expect(restored.root.scrollTop).toBeCloseTo(before, 0)
-    expect(scrollFixture.latest.positionOutcome).toBe("success")
-    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    const positionScope: ConversationListScope = { proof: captureChannelMetadataToken(client, "A"), tag: null }
+    const items = Array.from({ length: 180 }, (_, index) => message(`m${index}`))
+    for (const source of ["tail", "read", "new", "explicit"] as const) {
+      const original = mount({ positionScope, items }, strict)
+      original.move(1800)
+      const offset = original.root.scrollTop
+      expect(offset).toBe(1800)
+      original.view.unmount()
+      const returned = mount({ positionScope, items,
+        ...(source === "read" || source === "explicit" ? { initialPositionMessageId: "m120" } : {}),
+        ...(source === "new" || source === "explicit" ? { newDividerBefore: "m100" } : {}),
+        ...(source === "explicit" ? { scrollToMessageId: "m80" } : {}),
+      }, strict)
+      const native = scrollFixture.latest.virtualizer
+      expect(returned.root.scrollTop).not.toBe(offset)
+      if (source === "tail") expect(returned.root.scrollHeight - returned.root.clientHeight - returned.root.scrollTop).toBeLessThanOrEqual(1)
+      else {
+        const id = source === "read" ? "m120" : source === "new" ? "m100" : "m80"
+        const index = native.getVirtualItems().find(row => row.key === `msg:${id}`)!.index
+        expect(returned.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(index, "center")![0], 0)
+      }
+      expect(scrollFixture.latest.positionOutcome).toBe("success")
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      returned.view.unmount()
+    }
   })
 
-  it.each([false, true])("restores 600px from tail when cached rows arrive after the initial mount (StrictMode=%s)", async strict => {
+  it.each([false, true])("waits for cached rows and uses the qualified read target on reconstruction (StrictMode=%s)", async strict => {
     const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
-    const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
+    const positionScope: ConversationListScope = { proof: captureChannelMetadataToken(client, "A"), tag: null }
+    const items = Array.from({ length: 180 }, (_, index) => message(`m${index}`))
     const first = mount({ positionScope, items }, strict)
-    first.move(first.root.scrollHeight - first.root.clientHeight - 600)
-    resize()
-    const snapshot = client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))!
-    const id = String(snapshot.anchorKey).slice(4)
-    const before = bodyTop(first.root, id)
-    const offset = first.root.scrollTop
-    expect(first.root.scrollHeight - first.root.clientHeight - offset).toBe(600)
+    first.move(1800)
     first.view.unmount()
     const returned = mount({ positionScope, items: [], initialScrollReady: false, positionDataState: "pending" }, strict)
+    expect(scrollFixture.latest.positionOutcome).toBe("pending")
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    expect(client.getQueryData(virtualListPositionKey(positionScope))).toBe(snapshot)
-    returned.update({ items, initialScrollReady: true, positionDataState: "ready" })
-    expect(returned.root.scrollTop).toBeCloseTo(offset, 0)
-    expect(bodyTop(returned.root, id)).toBeCloseTo(before, 0)
+    returned.update({ items, initialPositionMessageId: "m120", initialScrollReady: true, positionDataState: "ready" })
+    const native = scrollFixture.latest.virtualizer
+    const index = native.getVirtualItems().find(row => row.key === "msg:m120")!.index
+    expect(returned.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(index, "center")![0], 0)
+    expect(scrollFixture.latest.positionOutcome).toBe("success")
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("does not restore a late snapshot after real manual takeover", async () => {
+  it("does not mount the whole cached history in the first committed viewport", () => {
+    let firstCount: number | undefined
+    const h = mount({ items: Array.from({ length: 180 }, (_, index) => message(`m${index}`)) }, false,
+      () => { firstCount ??= document.querySelectorAll('[data-testid="scroll"] [data-index]').length }, undefined, 0)
+    expect(firstCount).toBeGreaterThan(0)
+    expect(firstCount).toBeLessThan(60)
+    resize()
+    expect(h.root.querySelectorAll('[data-index]').length).toBeLessThan(60)
+    expect(scrollFixture.latest.positionOutcome).toBe("success")
+  })
+
+  it("settles an ordinary read target whose row has overflowing content", () => {
+    scrollFixture.bodyHeights.set("m120", 400)
+    scrollFixture.overflowHeights.set("m120", 967)
+    const h = mount({ items: Array.from({ length: 180 }, (_, index) => message(`m${index}`)), initialPositionMessageId: "m120" })
+    const row = h.root.querySelector<HTMLElement>('[data-msg-id="m120"]')!.closest<HTMLElement>('[data-index]')!
+    expect(row.getBoundingClientRect().height).toBe(400)
+    expect(row.scrollHeight).toBe(967)
+    expect(scrollFixture.latest.positionOutcome).toBe("success")
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+
+  it.each([
+    { source: "tail", overflow: 967 },
+    { source: "read", overflow: 2000 },
+    { source: "target", overflow: 2000 },
+    { source: "new", overflow: 2000 },
+    { source: "new-fallback", overflow: 2000 },
+  ] as const)("settles $source using actual overflowing content within its native landing", ({ source, overflow }) => {
+    const id = source === "tail" ? "m179" : "m120"
+    scrollFixture.bodyHeights.set(id, 400)
+    scrollFixture.overflowHeights.set(id, overflow)
+    const items = Array.from({ length: 180 }, (_, index) => ({ ...message(`m${index}`),
+      ...(source === "new" && index === 120 ? { newDivider: true } : {}),
+    }))
+    const h = mount({ items,
+      ...(source === "read" ? { initialPositionMessageId: id } : {}),
+      ...(source === "target" ? { scrollToMessageId: id } : {}),
+      ...(source === "new" || source === "new-fallback" ? { newDividerBefore: id } : {}),
+    })
+    const body = h.root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!
+    const rect = body.getBoundingClientRect()
+    expect(h.root.clientHeight).toBe(500)
+    expect(rect.height).toBe(400)
+    expect(body.scrollHeight).toBe(overflow)
+    expect(scrollFixture.latest.positionOutcome).toBe("success")
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    const native = scrollFixture.latest.virtualizer
+    if (source === "tail") expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    else {
+      const key = source === "new" ? "divider:msg:m120" : `msg:${id}`
+      const index = native.getVirtualItems().find(item => item.key === key)!.index
+      expect(h.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(index, "center")![0], 0)
+    }
+    expect(rect.top).toBeLessThan(500)
+    expect(rect.top + body.scrollHeight).toBeGreaterThan(0)
+    if (source === "new") {
+      const marker = h.root.querySelector<HTMLElement>('[data-new-divider]')!.getBoundingClientRect()
+      expect(marker.top).toBeGreaterThanOrEqual(0)
+      expect(marker.bottom).toBeLessThanOrEqual(500)
+    }
+  })
+
+  it("does not accept clipped offscreen content as a visible target", () => {
+    scrollFixture.bodyHeights.set("m120", 400)
+    scrollFixture.overflowHeights.set("m120", 2000)
+    scrollFixture.overflowModes.set("m120", "hidden")
+    const h = mount({ items: Array.from({ length: 180 }, (_, index) => message(`m${index}`)), initialPositionMessageId: "m120" })
+    const body = h.root.querySelector<HTMLElement>('[data-msg-id="m120"]')!
+    expect(body.getBoundingClientRect().bottom).toBeLessThan(0)
+    expect(scrollFixture.latest.positionOutcome).toBe("pending")
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    scrollFixture.overflowModes.set("m120", "visible")
+    h.update({ items: [...h.input.items] })
+    expect(scrollFixture.latest.positionOutcome).toBe("success")
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+
+  it("keeps manual takeover when delayed cached data becomes ready", async () => {
     const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
-    const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
+    const positionScope: ConversationListScope = { proof: captureChannelMetadataToken(client, "A"), tag: null }
+    const items = Array.from({ length: 180 }, (_, index) => message(`m${index}`))
     const first = mount({ positionScope, items })
-    first.move(800)
+    first.move(1800)
     first.view.unmount()
     const returned = mount({ positionScope, items: [], initialScrollReady: false, positionDataState: "pending" })
     const jump = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
     fireEvent.wheel(returned.root, { deltaY: -10 })
-    returned.update({ items, initialScrollReady: true, positionDataState: "pending" })
+    returned.update({ items, initialPositionMessageId: "m120", initialScrollReady: true, positionDataState: "pending" })
     expect(jump).not.toHaveBeenCalled()
     expect(scrollFixture.latest.positionOutcome).toBe("user-cancelled")
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     returned.update({ positionDataState: "ready" })
     expect(jump).not.toHaveBeenCalled()
-    expect(scrollFixture.latest.readPositionReady).toBe(true)
-  })
-
-  it.each(["other-channel", "other-account", "changed-rows", "changed-width", "explicit-target"] as const)("does not restore stale pixels for %s", async mode => {
-    const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
-    const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
-    const h = mount({ positionScope, items })
-    h.move(600)
-    resize()
-    h.view.unmount()
-    const otherClient = mode === "other-account" ? (await createCommunityQueryOwner("other")).client : client
-    const scope = mode === "other-channel" || mode === "other-account"
-      ? { ...positionScope, proof: captureChannelMetadataToken(otherClient, mode === "other-channel" ? "B" : "A") } : positionScope
-    if (mode === "changed-width") scrollFixture.width = 600
-    const restored = mount({ positionScope: scope,
-      items: mode === "changed-rows" ? items.map((item, index) => index === 1 ? { ...item, m: { ...item.m, content: "Edited body" } } : item) : items,
-      ...(mode === "explicit-target" ? { scrollToMessageId: "m5" } : {}),
-    })
-    const native = scrollFixture.latest.virtualizer
-    if (mode === "explicit-target") {
-      const index = native.getVirtualItems().find(row => row.key === "msg:m5")!.index
-      expect(restored.root.scrollTop).toBeCloseTo(native.getOffsetForIndex(index, "center")![0], 0)
-    } else expect(restored.root.scrollHeight - restored.root.clientHeight - restored.root.scrollTop).toBeLessThanOrEqual(1)
-    expect(scrollFixture.latest.positionOutcome).toBe("success")
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 

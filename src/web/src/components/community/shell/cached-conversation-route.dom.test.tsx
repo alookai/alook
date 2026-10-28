@@ -12,8 +12,6 @@ import { installMessageScrollFixture, restoreMessageScrollFixture, resize, scrol
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { resolveCommunityLandingHref } from "@/lib/community/last-channel"
-import { virtualListPositionKey } from "@/lib/community/virtual-list-position"
-import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
 import { disposeReadCoordinator, getLocalReadingPosition } from "@/hooks/community/read-coordinator"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 
@@ -100,7 +98,7 @@ async function mount(restoring = false, target = href) {
 }
 
 describe("cached target through the real route, entry and message consumers", () => {
-  it.each([false, true])("keeps the restored offset through an already-active row selection after a server return (StrictMode=%s)", async strict => {
+  it.each([false, true])("uses ordinary tail entry after a server return and preserves an already-active selection (StrictMode=%s)", async strict => {
     const entry = conversationEntryFixture()
     entry.channel = { ...entry.channel, type: "text", messageCount: 42 }
     entry.messages = Array.from({ length: 42 }, (_, index) => ({ ...entry.messages[0], id: `m${index + 1}`, seq: index + 1,
@@ -137,13 +135,7 @@ describe("cached target through the real route, entry and message consumers", ()
     fireEvent.wheel(previous, { deltaY: -600 })
     act(() => previous.scrollTo({ top: previous.scrollHeight - previous.clientHeight - 600 }))
     resize()
-    const body = Array.from(previous.querySelectorAll<HTMLElement>("[data-msg-id]"))
-      .find(row => row.getBoundingClientRect().bottom > 0)!
-    const id = body.dataset.msgId!
-    const top = body.getBoundingClientRect().top
     const offset = previous.scrollTop
-    const scope = { proof: captureChannelMetadataToken(owner.client, "c1"), kind: "messages" as const, tag: null }
-    expect(owner.client.getQueryData(virtualListPositionKey(scope))).toMatchObject({ offset })
     const go = async (target: string) => {
       await act(async () => navigation.push(target))
       mocks.href = target
@@ -162,13 +154,14 @@ describe("cached target through the real route, entry and message consumers", ()
     await go(serverTarget)
     expect(serverTarget).toBe(href)
     expect(mocks.load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1")).toBe(true)
-    expect(root().scrollTop).toBeCloseTo(offset, 0)
-    expect(root().querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top).toBeCloseTo(top, 0)
+    expect(root().scrollTop).not.toBe(offset)
+    expect(root().scrollHeight - root().clientHeight - root().scrollTop).toBeLessThanOrEqual(1)
+    expect(root().querySelector('[data-message-list-content]')).toHaveAttribute("aria-hidden", "false")
+    const entered = root().scrollTop
     const admitted = navigation.entryIntent
     await act(async () => { navigation.cancelPendingNavigation(); navigation.push(href) })
     resize()
-    expect(root().scrollTop).toBeCloseTo(offset, 0)
-    expect(root().querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top).toBeCloseTo(top, 0)
+    expect(root().scrollTop).toBeCloseTo(entered, 0)
     expect(navigation.entryIntent).toBe(admitted)
     expect(mocks.load.mock.calls.filter(([url, options]) => String(url).endsWith("/read") && options?.method === "PUT")).toEqual([])
   })

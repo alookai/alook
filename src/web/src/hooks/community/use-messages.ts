@@ -20,7 +20,7 @@ import type { Msg } from "@/lib/community/models/message"
 import type { MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
 import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { messageReconcileOptions } from "./community-ws/reconnect-messages"
-import type { VirtualListPositionScope } from "@/lib/community/virtual-list-position"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 
 export { channelMessagesQueryFn } from "@/lib/community/message-window"
 export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
@@ -91,8 +91,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const anchorMessageId = opts?.anchorMessageId ?? null
   const entry = useConversationEntry(channelId && opts?.enabled !== false ? { channelId, serverId, anchorMessageId, tag } : null)
   const proof = entry.scope?.proof
-  const positionScope = useMemo<VirtualListPositionScope | undefined>(() => entry.canRead && proof
-    ? { proof, kind: "messages", tag } : undefined, [entry.canRead, proof, tag])
+  const positionScope = useMemo<ConversationListScope | undefined>(() => entry.canRead && proof
+    ? { proof, tag } : undefined, [entry.canRead, proof, tag])
   const viewKey = hashKey([channelId, serverId, anchorMessageId, tag, proof?.accountEpoch ?? -1, proof?.accessEpoch ?? -1,
     channelId ? proof?.channelScopes.get(channelId)?.generation ?? 0 : 0])
   const present = useMemo(() => ({ viewKey, intent: entry.intent,

@@ -1,12 +1,12 @@
-import { beginPositionObservation, type PositionDecision, type PositionReason, type PositionSnapshotReason } from "@/lib/observability/position"
+import { beginPositionObservation, type PositionDecision, type PositionReason } from "@/lib/observability/position"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { measureElement, useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS, type VirtualRowsLayoutSnapshot } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 import type { MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
-import { assessVirtualListPosition, saveVirtualListPosition, virtualListLayoutFingerprint, type VirtualListPositionScope } from "@/lib/community/virtual-list-position"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 
 export const MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX = 100
 const VIEWPORT_RESIZE_TAIL_DISTANCE_PX = 100
@@ -61,6 +61,14 @@ export function measureMessageRow(element: Element): number {
   const row = element as HTMLElement
   return Math.ceil(Math.max(element.getBoundingClientRect().height, row.scrollHeight))
 }
+function messageContentBounds(element: HTMLElement | undefined) {
+  if (!element) return
+  const rect = element.getBoundingClientRect()
+  if (rect.height <= 0) return
+  const overflow = window.getComputedStyle(element).overflowY
+  const height = overflow === "visible" || overflow === "" ? measureMessageRow(element) : rect.height
+  return { top: rect.top, bottom: rect.top + height, height }
+}
 export function findMessageIndex(items: FlatItem[], messageId: string): number | null {
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
@@ -110,7 +118,7 @@ export function useScrollAnchor({
   scrollToMessageId?: string | null
   initialPositionMessageId?: string | null
   positionEntry?: object | null
-  positionScope?: VirtualListPositionScope
+  positionScope?: ConversationListScope
   onScrollTargetPositioned?: (id: string) => void
   onScrollTargetCancelled?: (id: string) => void
   hasMoreOlder?: boolean
@@ -126,7 +134,7 @@ export function useScrollAnchor({
   type Kind = "initial" | "late-new" | "target" | "present" | "idle"
   type Intent = {
     epoch: number
-    type: "unread" | "target" | "end" | "restore"
+    type: "unread" | "target" | "end"
     id: string | null
     index: number | null
     behavior: ScrollBehavior
@@ -151,14 +159,7 @@ export function useScrollAnchor({
     isScrolling: boolean
   }
   const scrollRef = useRef<HTMLDivElement>(null)
-  const fingerprint = useMemo(() => virtualListLayoutFingerprint(items), [items])
-  const [initialPosition] = useState(() => scrollToMessageId
-    ? { snapshot: null, reason: "not_requested" as const } : assessVirtualListPosition(positionScope, fingerprint))
-  const initialSnapshot = initialPosition.snapshot
-  const restorationRef = useRef(initialSnapshot)
-  const snapshotReasonRef = useRef<PositionSnapshotReason>(initialPosition.reason)
-  const snapshotReadRef = useRef(initialSnapshot !== null || !!scrollToMessageId)
-  const snapshotContextRef = useRef({ scope: positionScope, fingerprint })
+  const positionScopeRef = useRef(positionScope)
   const virtualizerRef = useRef<ReactVirtualizer<HTMLDivElement, Element> | null>(null)
   const positionOwnerRef = useRef({ epoch: 0, active: true })
   const positionObservationRef = useRef<{ epoch: number; finish: ReturnType<typeof beginPositionObservation>; decision: PositionDecision } | null>(null)
@@ -178,7 +179,7 @@ export function useScrollAnchor({
   const readReady = useCreateAtom(false)
   const [readPositionReady, setReadPositionReady] = useAtom(readReady)
   const [resumeValidated, setResumeValidated] = useState(true)
-  const [shortGap, setShortGap] = useAtom(useCreateAtom(initialSnapshot?.paddingStart ?? 0))
+  const [shortGap, setShortGap] = useAtom(useCreateAtom(0))
   const presentation = useCreateAtom<PositionOutcome>("pending")
   const [positionOutcome, setPositionOutcome] = useAtom(presentation)
   const [paginationDirection, setPaginationDirection] = useAtom(useCreateAtom<"older" | "newer" | null>(null))
@@ -222,12 +223,11 @@ export function useScrollAnchor({
     onTargetCancelledRef.current = onScrollTargetCancelled
     settleCallbackRef.current = onInitialPositionSettled
     contextRef.current = { dataState, targetDataState, initialScrollReady, messageWindow, isFetchingOlder, isFetchingNewer, visible, newDividerBefore }
-    snapshotContextRef.current = { scope: positionScope, fingerprint }
-  }, [items, positionEntry, positionScope, fingerprint, initialScrollReady, newDividerBefore, onScrollTargetPositioned, onScrollTargetCancelled, onInitialPositionSettled, dataState, targetDataState, messageWindow, isFetchingOlder, isFetchingNewer, visible])
+    positionScopeRef.current = positionScope
+  }, [items, positionEntry, positionScope, initialScrollReady, newDividerBefore, onScrollTargetPositioned, onScrollTargetCancelled, onInitialPositionSettled, dataState, targetDataState, messageWindow, isFetchingOlder, isFetchingNewer, visible])
   const followSuspension = useCreateAtom(false)
   const [followSuspended, setFollowSuspended] = useAtom(followSuspension)
   const acceptedGeometryRef = useRef<Geometry | null>(null)
-  const savedPositionRef = useRef<{ scope: VirtualListPositionScope; fingerprint: string; geometry: Geometry } | null>(null)
   const geometryFrameRef = useRef<number | null>(null)
   const geometryObserverRef = useRef<ResizeObserver | null>(null)
   const observedPageBodyRef = useRef<HTMLElement | null>(null)
@@ -269,8 +269,7 @@ export function useScrollAnchor({
   const adjustAnchoredMeasurement = useCallback<NonNullable<ReactVirtualizer<HTMLDivElement, Element>["shouldAdjustScrollPositionOnItemSizeChange"]>>((item) => {
     const anchor = measurementAnchorRef.current
     const owner = positionOwnerRef.current
-    const intent = semanticIntentRef.current
-    const ownsAnchor = positionKind.get() === "idle" || intent?.type === "restore" && intent.epoch === owner.epoch && intent.id === anchor?.key
+    const ownsAnchor = positionKind.get() === "idle"
     const index = anchor && anchor.epoch === owner.epoch && owner.active && ownsAnchor
       ? currentItemsRef.current.findIndex(row => row.key === anchor.key) : -1
     return item.index < index
@@ -278,18 +277,13 @@ export function useScrollAnchor({
   const beginPosition = useCallback((kind: Kind) => {
     const epoch = positionOwnerRef.current.epoch
     if (kind === "idle" || !contextRef.current.visible || positionObservationRef.current?.epoch === epoch) return
-    positionObservationRef.current = { epoch, finish: beginPositionObservation(kind, snapshotContextRef.current.scope, positionEntryRef.current),
-      decision: { position_source: "unknown", position_snapshot: kind === "initial" ? snapshotReasonRef.current : "not_requested" } }
+    positionObservationRef.current = { epoch, finish: beginPositionObservation(kind, positionScopeRef.current, positionEntryRef.current),
+      decision: { position_source: "unknown" } }
   }, [])
   const finishPosition = useCallback((reason: PositionReason) => {
     const observation = positionObservationRef.current
     observation?.finish(reason, observation.decision)
   }, [])
-  const recordSnapshotDecision = useCallback((reason: PositionSnapshotReason) => {
-    snapshotReasonRef.current = reason
-    const observation = positionObservationRef.current
-    if (observation?.epoch === positionOwnerRef.current.epoch && positionKind.get() === "initial") observation.decision.position_snapshot = reason
-  }, [positionKind])
   const claimPosition = useCallback((kind: Kind) => {
     if (kind === "target" || kind === "present") lateNewRef.current.allowed = false
     const owner = positionOwnerRef.current
@@ -380,10 +374,7 @@ export function useScrollAnchor({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     directDomUpdates: false,
     useFlushSync: true,
-    initialRect: initialSnapshot ? { width: initialSnapshot.width, height: initialSnapshot.height }
-      : { width: 0, height: items.reduce((size, item) => size + estimateRowHeight(item, !!hasMoreOlder), shortGap + tailPaddingEnd) },
-    initialOffset: initialSnapshot?.offset ?? 0,
-    initialMeasurementsCache: initialSnapshot?.measurements ?? [],
+    initialRect: { width: 0, height: 800 },
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize,
@@ -443,7 +434,7 @@ export function useScrollAnchor({
     const wrapperRect = wrapper.getBoundingClientRect()
     const viewport = root.getBoundingClientRect()
     if (wrapperRect.height <= 0
-      || Math.abs(wrapperRect.height - fold.size) > 1
+      || Math.abs((item.kind === "message" ? measureMessageRow(wrapper) : wrapperRect.height) - fold.size) > 1
       || Math.abs(wrapperRect.top - viewport.top + root.scrollTop - fold.start) > 1) return null
     return {
       epoch: owner.epoch, key: fold.key,
@@ -475,29 +466,6 @@ export function useScrollAnchor({
           && row.end === current.end && row.lane === current.lane
       })
   }, [])
-  const savePosition = useCallback((geometry: Geometry) => {
-    const { scope, fingerprint: currentFingerprint } = snapshotContextRef.current
-    const native = virtualizerRef.current
-    const committed = committedRowsRef.current
-    if (!scope || !native || !positionOwnerRef.current.active || !contextRef.current.visible
-      || positionKind.get() !== "idle" || geometry.epoch !== positionOwnerRef.current.epoch
-      || geometry.isScrolling || paginationRef.current || contextRef.current.dataState === "error"
-      || committed?.items !== currentItemsRef.current || committed.layout.totalSize !== native.getTotalSize()
-      || native.options.count !== currentItemsRef.current.length
-      || currentItemsRef.current.some((item, index) => native.options.getItemKey(index) !== item.key)) return
-    const previous = savedPositionRef.current
-    if (previous?.scope === scope && previous.fingerprint === currentFingerprint
-      && previous.geometry.scrollTop === geometry.scrollTop && previous.geometry.total === geometry.total
-      && previous.geometry.clientWidth === geometry.clientWidth && previous.geometry.clientHeight === geometry.clientHeight) return
-    saveVirtualListPosition(scope, {
-      version: 1, fingerprint: currentFingerprint, offset: geometry.scrollTop,
-      width: geometry.clientWidth, height: geometry.clientHeight,
-      paddingStart: native.options.paddingStart ?? 0, paddingEnd: geometry.paddingEnd,
-      anchorKey: geometry.key, anchorOffset: geometry.itemStart - geometry.scrollTop,
-      measurements: native.takeSnapshot(), at: Date.now(),
-    })
-    savedPositionRef.current = { scope, fingerprint: currentFingerprint, geometry }
-  }, [positionKind])
   const scheduleInitialPositionSettled = useCallback(() => {
     if (initialSettleFrameRef.current !== null) return
     const epoch = positionOwnerRef.current.epoch
@@ -514,9 +482,8 @@ export function useScrollAnchor({
         return
       }
       const index = intent.type === "end" ? currentItemsRef.current.length - 1
-        : intent.type === "restore" ? currentItemsRef.current.findIndex(item => item.key === intent.id)
-          : intent.id ? intent.type === "unread" ? findMountScrollTargetIndex(currentItemsRef.current, intent.id)
-            : findMessageIndex(currentItemsRef.current, intent.id) : null
+        : intent.id ? intent.type === "unread" ? findMountScrollTargetIndex(currentItemsRef.current, intent.id)
+          : findMessageIndex(currentItemsRef.current, intent.id) : null
       if (index === null || index < 0) {
         if (intent.type !== "end" && (positionKind.get() === "target" ? contextRef.current.targetDataState : contextRef.current.dataState) === "ready") releasePosition(false, "cancelled", "target_missing")
         return
@@ -531,7 +498,7 @@ export function useScrollAnchor({
         if (intent.type === "end") native.scrollToEnd({ behavior: intent.behavior })
         else {
           intent.index = index
-          native.scrollToIndex(index, { align: intent.type === "restore" ? "start" : "center", behavior: intent.behavior })
+          native.scrollToIndex(index, { align: "center", behavior: intent.behavior })
         }
         intent.issued = true
         intent.origin = null
@@ -543,20 +510,12 @@ export function useScrollAnchor({
         const tail = currentItemsRef.current.findLast(item => item.kind === "message")
         const body = tail?.kind === "message" ? Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
           .find(element => element.dataset.msgId === tail.m.id) : undefined
-        const rect = body?.getBoundingClientRect()
+        const rect = messageContentBounds(body)
         const wrapper = body?.closest("[data-index]")?.getBoundingClientRect()
         landed = native.isAtEnd(1)
           && Math.abs(Math.max(0, root.scrollHeight - root.clientHeight) - root.scrollTop) <= 1
           && !!rect && rect.height > 0 && !!wrapper && wrapper.height > 0
           && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
-      } else if (intent.type === "restore") {
-        if (index !== intent.index) {
-          intent.index = index
-          native.scrollToIndex(index, { align: "start", behavior: intent.behavior })
-        }
-        const targetOffset = native.getOffsetForIndex(index, "start")?.[0]
-        landed = targetOffset !== undefined && Math.abs(root.scrollTop - targetOffset) <= 1 && readGeometry() !== null
-          && (currentItemsRef.current[index]?.kind !== "message" || readPageMessageGeometry(intent.id!) !== null)
       } else if (intent.id) {
         if (index !== intent.index) {
           intent.index = index
@@ -568,8 +527,8 @@ export function useScrollAnchor({
           ? Array.from(root.querySelectorAll<HTMLElement>("[data-message-divider-for]"))
             .find((element) => element.dataset.messageDividerFor === intent.id)?.querySelector<HTMLElement>("[data-new-divider]") ?? row
           : row
-        const rect = boundary?.getBoundingClientRect()
-        const body = row?.getBoundingClientRect()
+        const body = messageContentBounds(row)
+        const rect = boundary === row ? body : boundary?.getBoundingClientRect()
         const wrapper = row?.closest("[data-index]")?.getBoundingClientRect()
         if (rect && body && wrapper && wrapper.height > 0 && rect.height > 0 && body.height > 0) {
           const targetOffset = native.getOffsetForIndex(index, "center")?.[0]
@@ -588,12 +547,6 @@ export function useScrollAnchor({
         if (!initial && (positionKind.get() === "target" ? contextRef.current.targetDataState : contextRef.current.dataState) === "pending") return
         finishPosition("settled")
         acceptedGeometryRef.current = geometry
-        if (intent.type === "restore") {
-          native.cancelScroll()
-          clearMeasurementAnchor()
-          scrollPaddingStartRef.current = 0
-          native.setOptions({ ...native.options, scrollPaddingStart: 0 })
-        }
         semanticIntentRef.current = null
         setOwnerKind("idle")
         setReadPositionReady(true)
@@ -608,7 +561,7 @@ export function useScrollAnchor({
       }
     }
     initialSettleFrameRef.current = window.requestAnimationFrame(settle)
-  }, [clearMeasurementAnchor, finishPosition, hasCommittedRows, holdNativeOrigin, positionKind, readGeometry, readPageMessageGeometry, releasePosition, retireInitialPosition, setFollowSuspended, setOwnerKind, setReadPositionReady, settlePresentation])
+  }, [finishPosition, hasCommittedRows, holdNativeOrigin, positionKind, readGeometry, releasePosition, retireInitialPosition, setFollowSuspended, setOwnerKind, setReadPositionReady, settlePresentation])
 
   const onRowsLayoutCommit = useCallback((layout: VirtualRowsLayoutSnapshot | null) => {
     committedRowsRef.current = layout ? { layout, native: virtualizer, entry: positionEntry, items } : null
@@ -623,11 +576,9 @@ export function useScrollAnchor({
     beginPosition(positionKind.get())
     const observation = positionObservationRef.current
     if (observation?.epoch === owner.epoch) observation.decision = {
-      position_source: type === "restore" ? "snapshot" : type === "end" ? "tail" : type === "unread" ? "new_divider" : positionKind.get() === "initial" ? "read_anchor" : "explicit_target",
-      position_snapshot: positionKind.get() === "initial" ? snapshotReasonRef.current : "not_requested",
+      position_source: type === "end" ? "tail" : type === "unread" ? "new_divider" : positionKind.get() === "initial" ? "read_anchor" : "explicit_target",
     }
-    const index = type === "restore" ? currentItemsRef.current.findIndex(item => item.key === id)
-      : type === "end" ? currentItemsRef.current.length - 1
+    const index = type === "end" ? currentItemsRef.current.length - 1
       : id ? type === "unread" ? findMountScrollTargetIndex(currentItemsRef.current, id)
         : findMessageIndex(currentItemsRef.current, id) : null
     semanticIntentRef.current = {
@@ -635,24 +586,15 @@ export function useScrollAnchor({
       awaitingData: positionKind.get() === "initial" || positionKind.get() === "late-new" ? !contextRef.current.initialScrollReady : (positionKind.get() === "target" ? contextRef.current.targetDataState : contextRef.current.dataState) === "pending",
       viewport: { width: scrollRef.current?.clientWidth ?? 0, height: scrollRef.current?.clientHeight ?? 0 },
       issued: false,
-      origin: positionKind.get() === "initial" && type !== "restore" && !initialSnapshot ? { root: scrollRef.current, offset: scrollRef.current?.scrollTop ?? 0 } : null,
+      origin: positionKind.get() === "initial" ? { root: scrollRef.current, offset: scrollRef.current?.scrollTop ?? 0 } : null,
     }
     if (semanticIntentRef.current.awaitingData) return
     if (type === "end" && loadedTailPresent) {
       virtualizerRef.current?.scrollToEnd({ behavior })
       semanticIntentRef.current.issued = true
     }
-    if (type === "restore" && restorationRef.current) {
-      scrollPaddingStartRef.current = restorationRef.current.anchorOffset
-      const native = virtualizerRef.current
-      if (native) {
-        measurementAnchorRef.current = { key: id!, epoch: owner.epoch }
-        native.shouldAdjustScrollPositionOnItemSizeChange = adjustAnchoredMeasurement
-        native.setOptions({ ...native.options, scrollPaddingStart: scrollPaddingStartRef.current })
-      }
-    }
     scheduleInitialPositionSettled()
-  }, [adjustAnchoredMeasurement, beginPosition, initialSnapshot, positionKind, scheduleInitialPositionSettled])
+  }, [beginPosition, positionKind, scheduleInitialPositionSettled])
 
   useLayoutEffect(() => {
     const owner = positionOwnerRef.current
@@ -714,11 +656,8 @@ export function useScrollAnchor({
     finishPosition("entry_changed")
     claimPosition("initial")
     entryResolvedRef.current = false
-    snapshotReadRef.current = initialRetiredRef.current
-    recordSnapshotDecision(snapshotReadRef.current ? "entry_changed" : "not_requested")
     initialRetiredRef.current = false
     setPositionOutcome("pending")
-    restorationRef.current = null
     lateNewRef.current = { allowed: true, consumed: false }
     targetIntentRef.current = null
     positionedTargetRef.current = null
@@ -726,7 +665,7 @@ export function useScrollAnchor({
     consumedLocalSubmitVersionRef.current = localSubmitVersion ?? 0
     userInputRef.current.handover = false
     setFollowSuspended(false)
-  }, [claimPosition, committedEntry, finishPosition, localSubmitVersion, positionEntry, presentVersion, recordSnapshotDecision, setFollowSuspended, setPositionOutcome])
+  }, [claimPosition, committedEntry, finishPosition, localSubmitVersion, positionEntry, presentVersion, setFollowSuspended, setPositionOutcome])
 
   useLayoutEffect(() => {
     const target = scrollToMessageId ?? null
@@ -779,11 +718,10 @@ export function useScrollAnchor({
       acceptedGeometryRef.current = {
         ...next, isScrolling: next.isScrolling && unchangedPosition ? previous.isScrolling : next.isScrolling,
       }
-      savePosition(acceptedGeometryRef.current)
       if (readReady.get()) setResumeValidated(true)
       holdNativeOrigin(next.scrollTop <= 1 && !next.pinEligible ? currentItemsRef.current[0]?.key ?? null : null)
     }
-  }, [holdNativeOrigin, positionKind, readReady, savePosition])
+  }, [holdNativeOrigin, positionKind, readReady])
 
   const reconcilePage = useCallback(() => {
     const page = paginationRef.current
@@ -945,12 +883,8 @@ export function useScrollAnchor({
       scheduleInitialPositionSettled()
     }
     if (intent) scheduleInitialPositionSettled()
-    if (positionKind.get() === "idle") {
-      const geometry = readGeometry()
-      if (geometry) savePosition(geometry)
-    }
     reconcileGeometry(true)
-  }, [positionKind, readGeometry, reconcileGeometry, savePosition, scheduleInitialPositionSettled])
+  }, [reconcileGeometry, scheduleInitialPositionSettled])
   const reconcileGeometryRef = useRef(reconcileGeometry)
   useLayoutEffect(() => {
     reconcileGeometryRef.current = reconcileGeometry
@@ -1240,37 +1174,11 @@ export function useScrollAnchor({
     if (dataState === "pending" && !initialScrollReady) return
     if (positionKind.get() !== "initial" || initialRetiredRef.current || !hasMessages) return
     if (!entryResolvedRef.current) {
-      if (!snapshotReadRef.current) {
-        snapshotReadRef.current = true
-        const read = scrollToMessageId ? { snapshot: null, reason: "not_requested" as const } : assessVirtualListPosition(positionScope, fingerprint)
-        restorationRef.current = read.snapshot
-        recordSnapshotDecision(read.reason)
-      }
-      const snapshot = restorationRef.current
-      const root = scrollRef.current
-      if (snapshot && (!root || root.clientWidth <= 0 || root.clientHeight <= 0)) return
       entryResolvedRef.current = true
       if (newDividerBefore) lateNewRef.current.consumed = true
-      if (snapshot && snapshot.fingerprint === fingerprint && snapshot.width === root?.clientWidth
-        && snapshot.height === root.clientHeight && snapshot.paddingEnd === tailPaddingEnd
-        && items.some(item => item.key === snapshot.anchorKey)) {
-        recordSnapshotDecision("accepted")
-        startIntent("restore", String(snapshot.anchorKey))
-      }
-      else {
-        if (snapshot) {
-          recordSnapshotDecision(snapshot.fingerprint !== fingerprint ? "fingerprint_mismatch"
-            : snapshot.width !== root?.clientWidth || snapshot.height !== root?.clientHeight ? "viewport_mismatch"
-              : snapshot.paddingEnd !== tailPaddingEnd ? "padding_mismatch" : "anchor_missing")
-          restorationRef.current = null
-          virtualizer.setOptions({ ...virtualizer.options, initialMeasurementsCache: [] })
-          virtualizer.measure()
-          scrollRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach(element => virtualizer.measureElement(element))
-        }
-        startIntent(initialPositionMessageId ? "target" : newDividerBefore ? "unread" : "end", initialPositionMessageId ?? newDividerBefore ?? null)
-      }
+      startIntent(initialPositionMessageId ? "target" : newDividerBefore ? "unread" : "end", initialPositionMessageId ?? newDividerBefore ?? null)
     } else scheduleInitialPositionSettled()
-  }, [dataState, targetDataState, fingerprint, hasMessages, initialPositionMessageId, initialScrollReady, items, newDividerBefore, positionEntry, positionScope, positionKind, recordSnapshotDecision, scrollToMessageId, releasePosition, scheduleInitialPositionSettled, setReadPositionReady, startIntent, tailPaddingEnd, virtualItems, virtualizer, visible])
+  }, [dataState, targetDataState, hasMessages, initialPositionMessageId, initialScrollReady, items, newDividerBefore, positionEntry, positionKind, releasePosition, scheduleInitialPositionSettled, setReadPositionReady, startIntent, virtualItems, visible])
 
   const scrollToBottom = useCallback(() => {
     if (!positionOwnerRef.current.active || !contextRef.current.visible) return

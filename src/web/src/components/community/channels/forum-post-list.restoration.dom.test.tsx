@@ -3,17 +3,16 @@ import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { ForumPostList } from "./forum-post-list"
 import type { ForumThread } from "@/lib/community/models/message"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
-import { virtualListPositionKey, type VirtualListPositionScope, type VirtualListPositionSnapshot } from "@/lib/community/virtual-list-position"
+import { captureChannelMetadataToken, type ConversationListScope } from "@/lib/community/conversation-qualification"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
-const posts = Array.from({ length: 40 }, (_, index) => ({ id: `p${index}`, openerMessageId: `m${index}` } as ForumThread))
+const posts = Array.from({ length: 180 }, (_, index) => ({ id: `p${index}`, openerMessageId: `m${index}` } as ForumThread))
 const renderPost = (post: ForumThread) => <div data-msg-id={post.openerMessageId} />
 
-describe("Forum native list identity and restoration", () => {
-  it("keeps an unscoped native list readable without creating a snapshot record", () => {
+describe("Forum native list identity and ordinary reconstruction", () => {
+  it("keeps an unscoped native list readable", () => {
     const view = render(<ForumPostList posts={posts} renderPost={renderPost} loadingContent={<span>Loading</span>} />)
     resize()
     const root = view.getByTestId("community-forum-post-list")
@@ -21,9 +20,9 @@ describe("Forum native list identity and restoration", () => {
     expect(root.scrollTop).toBe(0)
   })
 
-  it.each(["same", "other-tag", "messages", "width", "hidden"] as const)("restores only the matching forum layout: %s", async mode => {
+  it.each(["same", "other-tag", "width", "hidden"] as const)("starts a new Forum instance at its normal first item: %s", async mode => {
     const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "forum"), kind: "forum", tag: null }
+    const positionScope: ConversationListScope = { proof: captureChannelMetadataToken(client, "forum"), tag: null }
     const props = { posts, renderPost, loadingContent: <span>Loading</span>, positionScope }
     const first = render(<ForumPostList {...props} />)
     resize()
@@ -31,12 +30,9 @@ describe("Forum native list identity and restoration", () => {
     act(() => root.scrollTo({ top: 800 }))
     runFrames()
     resize()
-    const before = root.scrollTop
-    const saved = client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))
-    expect(saved?.offset).toBe(before)
+    expect(root.scrollTop).toBe(800)
     first.unmount()
-    const scope = mode === "other-tag" ? { ...positionScope, tag: "bug" }
-      : mode === "messages" ? { ...positionScope, kind: "messages" as const } : positionScope
+    const scope = mode === "other-tag" ? { ...positionScope, tag: "bug" } : positionScope
     if (mode === "width") scrollFixture.width = 600
     if (mode === "hidden") { scrollFixture.width = 0; scrollFixture.height = 0 }
     const second = render(<ForumPostList {...props} positionScope={scope} />)
@@ -47,14 +43,15 @@ describe("Forum native list identity and restoration", () => {
       scrollFixture.height = 500
       resize()
     }
-    const restored = second.getByTestId("community-forum-post-list")
-    expect(restored.scrollTop).toBe(mode === "same" || mode === "hidden" ? before : 0)
-    expect(restored.querySelector("[data-read-position-ready]")?.getAttribute("data-read-position-ready")).toBe("true")
+    const entered = second.getByTestId("community-forum-post-list")
+    expect(entered.scrollTop).toBe(0)
+    expect(entered.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    expect(entered.querySelectorAll('[data-index]').length).toBeLessThan(60)
   })
 
-  it("admits a cached list after loading and retains its current instance across ordinary updates", async () => {
+  it("admits a cached list after loading and retains its current instance across ordinary proof refreshes", async () => {
     const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "forum"), kind: "forum", tag: null }
+    const positionScope: ConversationListScope = { proof: captureChannelMetadataToken(client, "forum"), tag: null }
     const props = { renderPost, loadingContent: <span>Loading</span>, positionScope }
     const view = render(<ForumPostList {...props} posts={[]} loading />)
     expect(view.getByText("Loading")).toBeDefined()
@@ -65,9 +62,13 @@ describe("Forum native list identity and restoration", () => {
     act(() => root.scrollTo({ top: 700 }))
     runFrames()
     resize()
-    view.rerender(<ForumPostList {...props} posts={posts} isFetching />)
+    view.rerender(<ForumPostList {...props} positionScope={{ ...positionScope, proof: captureChannelMetadataToken(client, "forum") }} posts={posts} isFetching />)
     resize()
     expect(view.getByTestId("community-forum-post-list")).toBe(root)
     expect(root.scrollTop).toBe(700)
+    view.rerender(<ForumPostList {...props} positionScope={{ ...positionScope, tag: "bug" }} posts={posts} />)
+    resize()
+    expect(root.isConnected).toBe(false)
+    expect(view.getByTestId("community-forum-post-list").scrollTop).toBe(0)
   })
 })
