@@ -80,7 +80,7 @@ test("participating text threads share sidebar limits, retention and live member
   await expect(sidebarRow(excludedId)).toHaveCount(0)
   await seed.seedMessage("alice", threads[0], "Live activity lifts the oldest thread")
   await expect(sidebarRow(threads[0])).toBeVisible()
-  const ordered = await page.locator('[data-testid^="community-forum-sidebar-thread-"]').evaluateAll((rows) => rows.map((row) => row.getAttribute("data-testid")))
+  const ordered = await page.locator(`[data-testid^="${tid.forumSidebarThread("")}"]`).evaluateAll((rows) => rows.map((row) => row.getAttribute("data-testid")))
   expect(ordered.indexOf(tid.forumSidebarThread(threads[0]))).toBeLessThan(ordered.indexOf(tid.forumSidebarThread(threads[6])))
   await expect.poll(() => events.some((event) => JSON.stringify(event).includes(excludedId))).toBe(true)
   const membershipResponse = await page.request.get(`/api/community/channels/${threads[0]}/members`)
