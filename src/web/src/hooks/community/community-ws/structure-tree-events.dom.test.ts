@@ -935,9 +935,9 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 })
 
 describe("useCommunityWs — channel.delete refreshes the parent forum feed", () => {
-  it("invalidates the parent's message feed + threads list when parentChannelId is present", async () => {
+  it.each(["forum", "text"])("invalidates the %s parent feed while preserving ordinary thread openers", async parentType => {
     await mountHook()
-    seedCanonicalServer({ id: "srv_1", categories: [{ id: "cat1", name: "Forum", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
+    seedCanonicalServer({ id: "srv_1", categories: [{ id: "cat1", name: "Forum", channels: [{ id: "forum_1", name: "Forum", type: parentType, active: false, unread: false }] }] })
     seedCanonicalMessages("forum_1", [{ id: "opener_1", content: "Post", thread: { id: "post_1", name: "Post", messageCount: 0 } }])
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const allKey = communityKeys.channelMessages("forum_1")
@@ -960,8 +960,8 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     const invalidatedKeys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.channelMessages("forum_1")))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.threads("forum_1")))
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(allKey)?.pages[0].messages).toHaveLength(0)
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(allKey)?.pages[0].messages).toHaveLength(parentType === "forum" ? 0 : 1)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(parentType === "forum" ? 0 : 1)
   })
 
   it("does not throw and still evicts own caches when parentChannelId is absent (legacy event)", async () => {

@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from "next/server"
+import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { getDb } from "@/lib/db"
-import { compareAsciiSqliteBinary, isForum, parseNameAndTag, queries } from "@alook/shared"
+import { compareAsciiSqliteBinary, parseNameAndTag, queries } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
 import { requireServerMember } from "@/lib/community/permissions"
@@ -37,12 +38,12 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
 
     if (
       search.get("type") !== "thread" ||
-      search.get("parentType") !== "forum" ||
+      !["forum", "forum,text"].includes(search.get("parentType") ?? "") ||
       search.get("participating") !== "true" ||
       search.get("activeWithin") !== "72h" ||
       search.get("include") !== "parentMessage"
     ) {
-      return NextResponse.json({ error: "invalid forum sidebar query" }, { status: 400 })
+      return NextResponse.json({ error: "invalid thread sidebar query" }, { status: 400 })
     }
     const rawLimit = search.get("limitPerParent")
     const limitPerParent = rawLimit && /^\d+$/.test(rawLimit) ? Number(rawLimit) : NaN
@@ -54,12 +55,14 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       return NextResponse.json({ error: "retainId is required" }, { status: 400 })
     }
 
-    const forumIds = visibleChannels.filter((channel) => isForum(channel.type)).map((channel) => channel.id)
+    const parentIds = visibleChannels.filter((channel) =>
+      supportsSidebarThreads(channel.type) && (search.get("parentType") !== "forum" || channel.type === "forum")
+    ).map((channel) => channel.id)
     const serverNow = new Date().toISOString()
     const windowMs = 72 * 60 * 60 * 1000
     const activeAfter = new Date(Date.parse(serverNow) - windowMs).toISOString()
     const projection = await queries.communityThread.listParticipatingForumThreads(db, {
-      parentChannelIds: forumIds,
+      parentChannelIds: parentIds,
       userId: ctx.actor.userId,
       activeAfter,
       limitPerParent,
@@ -75,7 +78,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       .map((channel) => channel.parentMessageId)
       .filter((id): id is string => !!id)
     const [parentMessages, unreadRows] = await Promise.all([
-      queries.communityMessage.getMessagesByIdsInChannels(db, parentMessageIds, forumIds),
+      queries.communityMessage.getMessagesByIdsInChannels(db, parentMessageIds, parentIds),
       queries.communityInbox.listEligibleUnreadChannels(db, ctx.actor.userId, rows.map((channel) => channel.id)),
     ])
     const unreadIds = new Set(unreadRows.map((row) => row.channelId))

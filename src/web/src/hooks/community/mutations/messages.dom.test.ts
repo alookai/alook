@@ -325,7 +325,7 @@ describe("useSendMessage — happy path", () => {
     })
   })
 
-  it("does not touch forum resources when sending in an ordinary text thread", async () => {
+  it("refreshes the shared sidebar when sending in an ordinary text thread", async () => {
     await seedParent("text", "text_parent")
     const baseKey = communityKeys.forumSidebarThreads("s1")
     const retainedKey = communityKeys.forumSidebarRetained("s1", "forum_post")
@@ -353,7 +353,7 @@ describe("useSendMessage — happy path", () => {
       author: { id: "u_me", name: "me", avatar: "M" },
     })
 
-    expect(capturedQc.getQueryState(baseKey)?.isInvalidated).toBe(false)
+    expect(capturedQc.getQueryState(baseKey)?.isInvalidated).toBe(true)
     expect([
       capturedQc.getQueryData(baseKey),
       capturedQc.getQueryData(retainedKey),

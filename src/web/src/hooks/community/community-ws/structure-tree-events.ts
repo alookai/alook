@@ -14,6 +14,7 @@ import type {
   CommunityServerDelete,
   CommunityServerUpdate,
 } from "@alook/shared"
+import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -44,7 +45,7 @@ import {
 
 export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
   invalidateChannelRefTargets(projection)
-  const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")
+  const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && supportsSidebarThreads(row.type))
   if (parent?.serverId) invalidateForumSidebar(projection, parent.serverId)
   projection.fence("threads", { queryKey: communityKeys.threads(event.parentChannelId) })
   if (event.parentMessageId) invalidateChannelMessages(projection, event.parentChannelId)
@@ -66,7 +67,7 @@ export function handleChildChannelUpdate(
       queryKey: communityKeys.forumTags(event.parentChannelId),
     })
   }
-  const sidebarServerId = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")?.serverId
+  const sidebarServerId = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && supportsSidebarThreads(row.type))?.serverId
   if (
     sidebarServerId &&
     isForumSidebarParent(queryClient, sidebarServerId, event.parentChannelId)
