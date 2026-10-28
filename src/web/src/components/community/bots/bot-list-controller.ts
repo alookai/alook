@@ -68,6 +68,15 @@ export function useBotListController(): BotListController {
   const editingBot = bots.find((bot) => bot.id === editingBotId) ?? null
   const setEditingBot = (bot: BotSummary | null) => setEditingBotId(bot?.id ?? null)
   const [editOpen, setEditOpen] = useAtom(useCreateAtom(false))
+  const [membershipBotId, setMembershipBotId] = useAtom(useCreateAtom<string | null>(null))
+  const [membershipsOpen, setMembershipsOpen] = useAtom(useCreateAtom(false))
+  const [membershipsGeneration, setMembershipsGeneration] = useAtom(useCreateAtom(0))
+  const membershipBot = bots.find((bot) => bot.id === membershipBotId) ?? null
+  const openMemberships = (bot: BotSummary) => {
+    setMembershipBotId(bot.id)
+    setMembershipsGeneration((generation) => generation + 1)
+    setMembershipsOpen(true)
+  }
   const [activityBotId, setActivityBotId] = useAtom(useCreateAtom<string | null>(null))
   const activityBot = bots.find((bot) => bot.id === activityBotId) ?? null
   const setActivityBot = useCallback((bot: BotSummary | null) => setActivityBotId(bot?.id ?? null), [setActivityBotId])
@@ -352,15 +361,15 @@ export function useBotListController(): BotListController {
     try {
       await resetSession.mutateAsync({ id: confirmReset.id, assertActive: assert })
       assert()
-      toast.success("Session reset.")
+      toast.success("Restart requested.")
     } catch (e) {
       try { assert() } catch { return }
       const status = (e as { status?: number } | undefined)?.status
       const message = (e as { message?: string } | undefined)?.message ?? ""
       if (status === 409 && message.toLowerCase().includes("offline")) {
-        toast.error("Bot is offline — bring it online before resetting.")
+        toast.error("Bot is offline — bring it online before restarting.")
       } else {
-        toastApiError(e, "Couldn't reset the bot's session")
+        toastApiError(e, "Couldn't restart the bot")
       }
     } finally {
       try { assert(); setResetBotId((current) => current === id ? null : current) } catch {}
@@ -376,16 +385,16 @@ export function useBotListController(): BotListController {
       const { dispatched } = await resetMachineAgents.mutateAsync({ id: confirmResetMachine, assertActive: assert })
       assert()
       toast.success(
-        `Dispatched reset to ${dispatched} agent${dispatched === 1 ? "" : "s"} on ${name}.`,
+        `Dispatched restart to ${dispatched} agent${dispatched === 1 ? "" : "s"} on ${name}.`,
       )
     } catch (e) {
       try { assert() } catch { return }
       const status = (e as { status?: number } | undefined)?.status
       const message = (e as { message?: string } | undefined)?.message ?? ""
       if (status === 409 && message.toLowerCase().includes("offline")) {
-        toast.error(`${name} is offline — bring it online before resetting.`)
+        toast.error(`${name} is offline — bring it online before restarting.`)
       } else {
-        toastApiError(e, "Couldn't reset the machine's agents")
+        toastApiError(e, "Couldn't restart the machine's agents")
       }
     } finally {
       try { assert(); setConfirmResetMachine((current) => current === id ? null : current) } catch {}
@@ -416,6 +425,11 @@ export function useBotListController(): BotListController {
     setEditingBot,
     editOpen,
     setEditOpen,
+    membershipBot,
+    membershipsOpen,
+    setMembershipsOpen,
+    membershipsGeneration,
+    openMemberships,
     activityBot,
     activityOpen,
     activityGeneration,
