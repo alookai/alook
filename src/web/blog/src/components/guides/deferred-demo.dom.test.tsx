@@ -8,7 +8,10 @@ const scene = vi.hoisted(() => ({
 }));
 vi.mock("./scenes/connect", () => ({ createScene: scene.create }));
 vi.mock("./scenes/bots", () => ({ createScene: scene.create }));
+vi.mock("./scenes/server", () => ({ createScene: scene.create }));
+vi.mock("./scenes/message", () => ({ createScene: scene.create }));
 let reduced = false;
+let motionChanged: () => void;
 const observers: Array<(entries: { isIntersecting: boolean; intersectionRatio: number }[]) => void> = [];
 let intersect: (entries: { isIntersecting: boolean; intersectionRatio: number }[]) => void;
 const disconnect = vi.fn();
@@ -19,7 +22,7 @@ beforeEach(() => {
   reduced = false;
   observers.length = 0;
   scene.create.mockReturnValue(scene);
-  vi.stubGlobal("matchMedia", () => ({ matches: reduced, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  vi.stubGlobal("matchMedia", () => ({ get matches() { return reduced; }, addEventListener: (_type: string, callback: () => void) => { motionChanged = callback; }, removeEventListener: vi.fn() }));
   vi.stubGlobal("IntersectionObserver", class {
     constructor(callback: typeof intersect, options: IntersectionObserverInit) {
       intersect = callback;
@@ -100,5 +103,54 @@ describe("deferred guide demos", () => {
     expect(screen.getByText("Static command")).toBeVisible();
     expect(screen.queryByText(/Illustrative demo/)).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Connection playback" })).toBeVisible();
+  });
+});
+
+
+describe("animation lifecycle changes", () => {
+  it.each(["server", "message"] as const)("loads and resumes the %s scene, then replays after completion", async (kind) => {
+    const user = setupUser();
+    render(<DeferredDemo scene={kind} label="Demo">Static</DeferredDemo>);
+    await act(async () => intersect([{ isIntersecting: true, intersectionRatio: 1 }]));
+    await waitFor(() => expect(scene.play).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Pause Demo" }));
+    scene.play.mockClear();
+    await user.click(screen.getByRole("button", { name: "Play Demo" }));
+    expect(scene.play).toHaveBeenCalledOnce();
+    act(() => scene.create.mock.calls[0][1]());
+    await user.click(screen.getByRole("button", { name: "Play Demo" }));
+    expect(scene.restart).toHaveBeenCalledOnce();
+  });
+
+  it("returns to static content when reduced motion is enabled and reloads when disabled", async () => {
+    const { container } = render(<DeferredDemo scene="connect" label="Demo">Static</DeferredDemo>);
+    await act(async () => intersect([{ isIntersecting: true, intersectionRatio: 1 }]));
+    await waitFor(() => expect(scene.play).toHaveBeenCalled());
+    act(() => { reduced = true; motionChanged(); });
+    expect(scene.progress).toHaveBeenCalledWith(0);
+    expect(scene.kill).toHaveBeenCalledOnce();
+    expect(container.querySelector("figure")).toHaveAttribute("data-demo-status", "static");
+    await act(async () => { reduced = false; motionChanged(); });
+    await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
+  });
+
+  it("rebuilds only on width changes and pauses in a hidden tab", async () => {
+    let width = 390;
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+    render(<DeferredDemo scene="connect" label="Demo">Static</DeferredDemo>);
+    act(() => { width = 400; window.dispatchEvent(new Event("resize")); });
+    expect(scene.create).not.toHaveBeenCalled();
+    await act(async () => intersect([{ isIntersecting: true, intersectionRatio: 1 }]));
+    await waitFor(() => expect(scene.play).toHaveBeenCalled());
+    act(() => window.dispatchEvent(new Event("resize")));
+    expect(scene.kill).not.toHaveBeenCalled();
+    await act(async () => { width = 600; window.dispatchEvent(new Event("resize")); });
+    await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
+    expect(scene.progress).toHaveBeenCalledWith(0);
+    expect(scene.kill).toHaveBeenCalledOnce();
+    scene.pause.mockClear();
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(scene.pause).toHaveBeenCalled();
   });
 });

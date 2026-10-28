@@ -50,7 +50,8 @@ describe("rendered article contract", () => {
   });
 });
 
-vi.mock("../../src/lib/step-guides", () => ({ stepGuides: [] }));
+const tutorialFixtures = vi.hoisted(() => ({ guides: [] as { slug: string; title: string }[] }));
+vi.mock("../../src/lib/step-guides", () => ({ stepGuides: tutorialFixtures.guides }));
 
 vi.mock("../src/lib/blog/topics", () => ({ blogTopics: [{ entries: [{ slug: "example" }] }] }));
 
@@ -102,8 +103,16 @@ describe("Blog build gate", () => {
       put(".next/server/app/blog/example.html", html);
       put("src/content/draft.mdx", source({ ...metadata, slug: "draft", draft: true }));
       expect(() => validateBlogBuild(root)).not.toThrow();
+      tutorialFixtures.guides.push({ slug: "two-agents", title: "Two agents" });
+      put(".next/server/app/tutorials.html", '<a href="/tutorials/two-agents">Two agents</a>');
+      const tutorial = `<title>Two agents</title><meta name="description" content="Connect two agents"><meta property="og:image" content="https://alook.ai/og.png"><link rel="canonical" href="https://alook.ai/tutorials/two-agents"><article data-step-guide><h1>Two agents</h1>${["one", "two", "three", "four"].map(id => `<section id="${id}"><h2>${id}</h2><p>${"Complete this step. ".repeat(10)}</p></section>`).join("")}<a href="/c">Open Alook</a></article><footer>Home</footer>`;
+      put(".next/server/app/tutorials/two-agents.html", tutorial);
+      expect(() => validateBlogBuild(root)).not.toThrow();
+      put(".next/server/app/tutorials/two-agents.html", tutorial.replace("<footer>Home</footer>", ""));
+      expect(() => validateBlogBuild(root)).toThrow("missing footer");
+      put(".next/server/app/tutorials/two-agents.html", tutorial);
       put(".next/server/app/blog/draft.html", html);
       expect(() => validateBlogBuild(root)).toThrow("Draft was prerendered");
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    } finally { tutorialFixtures.guides.length = 0; rmSync(root, { recursive: true, force: true }); }
   });
 });
