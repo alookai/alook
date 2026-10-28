@@ -8,7 +8,7 @@ describe("protected community JSON policy", () => {
     const response = await protectCommunityJsonResponse(request, Response.json(status === 200 ? { value: 1 } : { error: "blocked" }, { status,
       headers: { "Vary": "Origin, cookie", "Cache-Control": "public, max-age=600", "ETag": "old", "Last-Modified": "old", "Set-Cookie": "session=refreshed; HttpOnly" } }))
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
-    expect(response.headers.get("Vary")).toBe("Origin, cookie, X-Alook-Community-Contract, Authorization")
+    expect(response.headers.get("Vary")).toBe("Origin, cookie, X-Alook-Community-Contract, Authorization, X-Alook-Bot-Id")
     expect(response.headers.get("ETag")).toBeNull()
     expect(response.headers.get("Last-Modified")).toBeNull()
     expect(response.headers.get("Set-Cookie")).toBe("session=refreshed; HttpOnly")

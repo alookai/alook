@@ -1032,7 +1032,7 @@ describe("useBotListController", () => {
     select()
     await act(async () => { await latest.resetConfirmedBot() })
     expect(mocks.resetBot).toHaveBeenCalledWith({ id: "reset-me", assertActive: expect.any(Function) })
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("Session reset.")
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Restart requested.")
     expect(latest.confirmReset).toBeNull()
 
     for (const error of [
@@ -1044,7 +1044,7 @@ describe("useBotListController", () => {
       mocks.resetBot.mockRejectedValueOnce(error)
       select()
       await act(async () => { await latest.resetConfirmedBot() })
-      expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Couldn't reset the bot's session")
+      expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Couldn't restart the bot")
       expect(mocks.toastError).not.toHaveBeenCalled()
       expect(latest.confirmReset).toBeNull()
     }
@@ -1054,7 +1054,7 @@ describe("useBotListController", () => {
     select()
     await act(async () => { await latest.resetConfirmedBot() })
     expect(mocks.toastError).toHaveBeenCalledWith(
-      "Bot is offline — bring it online before resetting.",
+      "Bot is offline — bring it online before restarting.",
     )
     expect(mocks.toastApiError).not.toHaveBeenCalled()
     expect(latest.confirmReset).toBeNull()
@@ -1069,14 +1069,14 @@ describe("useBotListController", () => {
     select()
     await act(async () => { await latest.resetConfirmedMachine() })
     expect(mocks.resetMachine).toHaveBeenCalledWith({ id: "mac1", assertActive: expect.any(Function) })
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched reset to 1 agent on One.")
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched restart to 1 agent on One.")
     expect(latest.confirmResetMachine).toBeNull()
 
     vi.clearAllMocks()
     mocks.resetMachine.mockResolvedValueOnce({ dispatched: 3 })
     select()
     await act(async () => { await latest.resetConfirmedMachine() })
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched reset to 3 agents on One.")
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched restart to 3 agents on One.")
     expect(latest.confirmResetMachine).toBeNull()
 
     for (const generic of [
@@ -1089,7 +1089,7 @@ describe("useBotListController", () => {
       await act(async () => { await latest.resetConfirmedMachine() })
       expect(mocks.toastApiError).toHaveBeenCalledWith(
         generic,
-        "Couldn't reset the machine's agents",
+        "Couldn't restart the machine's agents",
       )
       expect(mocks.toastError).not.toHaveBeenCalled()
       expect(latest.confirmResetMachine).toBeNull()
@@ -1100,7 +1100,7 @@ describe("useBotListController", () => {
     select()
     await act(async () => { await latest.resetConfirmedMachine() })
     expect(mocks.toastError).toHaveBeenCalledWith(
-      "One is offline — bring it online before resetting.",
+      "One is offline — bring it online before restarting.",
     )
     expect(mocks.toastApiError).not.toHaveBeenCalled()
     expect(latest.confirmResetMachine).toBeNull()

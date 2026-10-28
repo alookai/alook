@@ -1,4 +1,4 @@
-import { Activity, ChevronDown, Monitor, MoreVertical, RotateCcw } from "lucide-react"
+import { Network, Activity, ChevronDown, Monitor, MoreVertical, RotateCcw } from "lucide-react"
 import { formatModelLabel, isPresenceOnline } from "@alook/shared"
 import { AgentAvatar } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
@@ -72,7 +72,7 @@ export function renderBotMachineGroup(
             onClick={() => controller.setConfirmResetMachine(machineId)}
           >
             <RotateCcw className="size-3.5" />
-            Reset all
+            Restart all
           </Button>
         </div>
         <div className="pl-5">
@@ -183,6 +183,9 @@ export function renderBotMachineGroup(
                     <DropdownMenuItem onClick={() => controller.chatWithBot(bot)}>
                       <span className="size-4" aria-hidden /> Chat
                     </DropdownMenuItem>
+                    <DropdownMenuItem data-testid={tid.botMembershipsMenu(bot.id)} onClick={() => controller.openMemberships(bot)}>
+                      <Network className="size-4" /> Servers &amp; channels
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => controller.openActivity(bot)}
                     >
@@ -200,7 +203,7 @@ export function renderBotMachineGroup(
                       data-testid={`bot-reset-session-item`}
                       onClick={() => controller.setConfirmReset(bot)}
                     >
-                      <RotateCcw className="size-4" /> Reset
+                      <RotateCcw className="size-4" /> Restart
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       data-testid={tid.botReportProblemItem}

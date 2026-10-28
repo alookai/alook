@@ -1,7 +1,7 @@
 import { observeWorkerOperation } from "@/lib/observability/worker"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries } from "@alook/shared"
+import { COMMUNITY_BOT_ACTOR_HEADER, queries } from "@alook/shared"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
 import { getKV, cacheKeys, bindCacheKV } from "@/lib/cache"
@@ -249,6 +249,9 @@ export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
     req: NextRequest,
     context?: { params?: Promise<Record<string, string>> | Record<string, string> },
   ) => {
+    if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)) {
+      return NextResponse.json({ error: "bot selection is not supported by this endpoint" }, { status: 403 })
+    }
     const resolvedParams = context?.params
       ? context.params instanceof Promise
         ? await context.params
@@ -304,16 +307,19 @@ export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
   }
 }
 
-export function withAuth(handler: AuthenticatedHandler) {
-  const authenticate = createAuthenticatedHandler(handler)
+export function withAuth(handler: AuthenticatedHandler, options: { allowBotSelection?: boolean } = {}) {
+  const authenticate = createAuthenticatedHandler(handler, options)
   return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], rejectUnknownCommunityContract(args[0]) ?? await authenticate(...args))
 }
 
-function createAuthenticatedHandler(handler: AuthenticatedHandler) {
+function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { allowBotSelection?: boolean }) {
   return async (
     req: NextRequest,
     context?: { params?: Promise<Record<string, string>> | Record<string, string> }
   ) => {
+    if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER) && !options.allowBotSelection) {
+      return NextResponse.json({ error: "bot selection is not supported by this endpoint" }, { status: 403 })
+    }
     const resolvedParams = context?.params
       ? context.params instanceof Promise
         ? await context.params
@@ -459,6 +465,9 @@ export function withOptionalAuth(handler: OptionalAuthHandler) {
     req: NextRequest,
     context?: { params?: Promise<Record<string, string>> | Record<string, string> }
   ) => {
+    if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)) {
+      return NextResponse.json({ error: "bot selection is not supported by this endpoint" }, { status: 403 })
+    }
     const resolvedParams = context?.params
       ? context.params instanceof Promise
         ? await context.params

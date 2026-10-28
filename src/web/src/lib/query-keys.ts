@@ -161,6 +161,7 @@ export const communityKeys = {
   // ── Notification settings ───────────────────────────────────────────────
   notificationSettings: () =>
     [...communityKeys.all, "notification-settings"] as const,
+  botMemberships: (botId: string) => [...communityKeys.all, "bot", botId, "memberships"] as const,
   botNotificationSetting: (botId: string, scope: "server" | "channel", scopeId: string) =>
     [...communityKeys.all, "bot", botId, "notification-settings", scope, scopeId] as const,
 
