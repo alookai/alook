@@ -314,6 +314,32 @@ describe("useBotListController", () => {
     }
   })
 
+  it("opens fresh membership views and resolves the selected bot from current data", () => {
+    mocks.target = null
+    const first = bot("b1", "mac1")
+    const second = bot("b2", "mac2")
+    mocks.bots = [first, second]
+    const renderer = render()
+    expect(latest.membershipsOpen).toBe(false)
+    expect(latest.membershipBot).toBeNull()
+    const generation = latest.membershipsGeneration
+    act(() => latest.openMemberships(first))
+    expect(latest.membershipsOpen).toBe(true)
+    expect(latest.membershipBot?.id).toBe(first.id)
+    expect(latest.membershipsGeneration).toBe(generation + 1)
+    act(() => latest.setMembershipsOpen(false))
+    expect(latest.membershipsOpen).toBe(false)
+    act(() => latest.openMemberships(second))
+    expect(latest.membershipBot?.id).toBe(second.id)
+    expect(latest.membershipsGeneration).toBe(generation + 2)
+    mocks.bots = [first, { ...second, name: "Renamed bot" }]
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.membershipBot?.name).toBe("Renamed bot")
+    mocks.bots = [first]
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.membershipBot).toBeNull()
+  })
+
   it("retains non-URL state and both ref-backed lifecycles across loading/data rerenders", () => {
     mocks.target = null
     const renderer = render()
