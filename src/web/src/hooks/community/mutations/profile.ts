@@ -38,8 +38,8 @@ export function useUpdateProfile() {
       origin.assert(original); assertActive?.()
       writeCommunityProfilePatches([{
         id: profile.id,
-        identityAbout: { ...(patch.name === undefined ? {} : { name: profile.name }), ...(patch.aboutMe === undefined ? {} : { aboutMe: profile.aboutMe }) },
-        ...("statusEmoji" in patch || "statusText" in patch ? { status: { ...(patch.statusEmoji === undefined ? {} : { statusEmoji: profile.statusEmoji }), ...(patch.statusText === undefined ? {} : { statusText: profile.statusText }) } } : {}),
+        ...(patch.name !== undefined || patch.aboutMe !== undefined ? { identityAbout: { ...(patch.name === undefined ? {} : { name: profile.name }), ...(patch.aboutMe === undefined ? {} : { aboutMe: profile.aboutMe }) } } : {}),
+        ...(patch.statusEmoji !== undefined || patch.statusText !== undefined ? { status: { ...(patch.statusEmoji === undefined ? {} : { statusEmoji: profile.statusEmoji }), ...(patch.statusText === undefined ? {} : { statusText: profile.statusText }) } } : {}),
       }], snapshot.registry, { snapshot, command: true })
       return profile
     },

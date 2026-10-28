@@ -132,3 +132,43 @@ it("publishes only the confirmed command fields and keeps newer unrelated profil
   expect(apiFetchMock).toHaveBeenCalledOnce()
   hook.unmount()
 })
+
+it.each([
+  { label: "status-only", command: { statusText: "Command status" }, name: "Read identity", status: "Command status" },
+  { label: "status-null", command: { statusText: null }, name: "Read identity", status: null },
+  { label: "name-only", command: { name: "Command name" }, name: "Command name", status: "Read status" },
+  { label: "name-with-undefined-status", command: { name: "Command name", statusText: undefined }, name: "Command name", status: "Read status" },
+])("keeps the in-flight card's independent groups for $label", async scenario => {
+  const { useUpdateProfile } = await import("./profile")
+  const { userProfileQueryFn } = await import("../use-user-profile")
+  const { communityKeys } = await import("@/lib/query-keys")
+  const { beginCommunityProfileSeed } = await import("@/lib/community/profile-seed")
+  const owner = await createCommunityQueryOwner()
+  const initial = { id: "viewer", name: "Before", discriminator: "0042", avatar: null, avatarVersion: 3, aboutMe: "Original about", bannerColor: null, statusEmoji: null, statusText: "Original status" }
+  owner.registry.collections.profiles.utils.writeUpsert(initial)
+  const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
+  const hook = renderHook(() => useUpdateProfile(), { wrapper })
+  let releaseCard!: (value: unknown) => void
+  apiFetchMock.mockImplementation((path: string, options: { method?: string }) => {
+    if (path === "/api/community/users/viewer/profile") return new Promise(done => { releaseCard = done })
+    if (path === "/api/community/users/me/profile" && options.method === "PATCH") return Promise.resolve({
+      ...initial,
+      ...(scenario.command.name === undefined ? {} : { name: scenario.command.name }),
+      ...(scenario.command.statusText === undefined ? {} : { statusText: scenario.command.statusText }),
+    })
+    throw new Error(`Unexpected profile transport: ${path}`)
+  })
+  let read!: Promise<unknown>
+  act(() => { read = owner.client.query({ queryKey: communityKeys.profile("viewer"), queryFn: userProfileQueryFn("viewer") }) })
+  await waitFor(() => expect(releaseCard).toBeTypeOf("function"))
+  const beforeCommand = beginCommunityProfileSeed(owner.registry).revision
+  await act(async () => { await hook.result.current.mutateAsync(scenario.command) })
+  const afterCommand = beginCommunityProfileSeed(owner.registry).revision
+  expect(afterCommand).toBe(beforeCommand + 1)
+  const { avatar: _avatar, ...cardFields } = initial
+  await act(async () => { releaseCard({ ...cardFields, kind: "human", name: "Read identity", image: null, mutualServers: 2, statusText: "Read status" }); await read })
+  expect(owner.registry.collections.profiles.get("viewer")).toMatchObject({ name: scenario.name, statusText: scenario.status })
+  expect(beginCommunityProfileSeed(owner.registry).revision).toBe(afterCommand)
+  expect(apiFetchMock).toHaveBeenCalledTimes(2)
+  hook.unmount()
+})
