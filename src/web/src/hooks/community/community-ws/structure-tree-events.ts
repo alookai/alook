@@ -63,7 +63,7 @@ export function handleChildChannelUpdate(
       queryKey: communityKeys.threads(event.parentChannelId),
     })
     invalidateChannelMessages(projection, event.parentChannelId)
-    projection.invalidate("forum-post-tags", {
+    projection.fence("forum-post-tags", {
       queryKey: communityKeys.forumTags(event.parentChannelId),
     })
   }

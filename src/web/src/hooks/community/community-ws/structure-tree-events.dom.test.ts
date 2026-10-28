@@ -591,6 +591,31 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     })
   })
 
+  it.each([
+    ["Archive", [], ["archived"]],
+    ["Unarchive", ["archived"], []],
+  ] as const)("replaces a pending first vocabulary read after remote %s", async (_action, staleTags, tags) => {
+    await mountHook()
+    const key = communityKeys.forumTags("forum_1")
+    let release!: (value: { tags: string[] }) => void
+    const oldRead = new Promise<{ tags: string[] }>(resolve => { release = resolve })
+    const read = vi.fn().mockImplementationOnce(() => oldRead).mockResolvedValue({ tags: [...tags] })
+    const observer = new QueryObserver(capturedQueryClient, { queryKey: key, queryFn: read, staleTime: Infinity })
+    const unsubscribe = observer.subscribe(() => {})
+    try {
+      await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1))
+      await act(async () => { capturedOnMessage!({
+        type: "community:channel.child_update",
+        parentChannelId: "forum_1",
+        channelId: "post_1",
+        changes: { tags: [...tags] },
+      } satisfies CommunityChildChannelUpdate) })
+      await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+      await act(async () => { release({ tags: [...staleTags] }); await oldRead })
+      await vi.waitFor(() => expect(capturedQueryClient.getQueryData(key)).toEqual({ tags: [...tags] }))
+    } finally { unsubscribe() }
+  })
+
   it("projects remote Archive out of warm All and ordinary feeds synchronously", async () => {
     await mountHook()
     seedForumFeed([{ id: "post_1", opener: "opener_1", tags: ["bug"] }])
