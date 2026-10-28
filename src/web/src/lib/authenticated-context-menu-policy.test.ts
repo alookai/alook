@@ -43,6 +43,8 @@ class FakeElement {
     ) {
       return this
     }
+    if (selector === '[data-message-context-menu="true"]'
+      && this.attributes.get("data-message-context-menu") === "true") return this
     return this.parentElement?.closest(selector) ?? null
   }
 }
@@ -114,6 +116,18 @@ describe("authenticated context-menu policy", () => {
 
   afterAll(() => {
     vi.unstubAllGlobals()
+  })
+
+  it("uses the message menu for selected message text but preserves editable and native escapes", () => {
+    const row = element()
+    row.setAttribute("data-message-context-menu", "true")
+    const ownerDocument = { caretPositionFromPoint: () => ({ offsetNode: {}, offset: 0 }) } as unknown as Document
+    expect(contextMenuDisposition({ event: eventAt(row), selection: selectionWith(), ownerDocument })).toBe("product")
+    const input = element("input")
+    ;(row as unknown as FakeElement).append(input as unknown as FakeElement)
+    expect(contextMenuDisposition({ event: eventAt(input), selection: selectionWith(), ownerDocument })).toBe("native")
+    row.setAttribute("data-native-context-menu", "true")
+    expect(contextMenuDisposition({ event: eventAt(row), selection: selectionWith(), ownerDocument })).toBe("native")
   })
 
   it("excludes only the standalone workspace invite route", () => {

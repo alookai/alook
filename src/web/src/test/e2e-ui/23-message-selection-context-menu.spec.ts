@@ -30,7 +30,7 @@ async function contextMenuProbe(page: import("@playwright/test").Page) {
   ).__contextMenuProbe)
 }
 
-test("selected message text keeps the native context menu", async ({ caseActors }) => {
+test("message context menu preserves and copies selected text", async ({ caseActors }) => {
   const actors = await caseActors(["alice"])
   const { asUser } = actors
   const { seedChannel, seedMessage, seedServer } = actors.seed
@@ -39,7 +39,7 @@ test("selected message text keeps the native context menu", async ({ caseActors 
   const channelId = await seedChannel("alice", serverId, "selection-menu")
   const body = `copy only this phrase ${Date.now()}`
   const messageId = await seedMessage("alice", channelId, body)
-  const { page } = await asUser("alice")
+  const { page } = await asUser("alice", { permissions: ["clipboard-read", "clipboard-write"] })
 
   await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
   const row = page.getByTestId(tid.message(messageId))
@@ -47,6 +47,7 @@ test("selected message text keeps the native context menu", async ({ caseActors 
   await expect(messageBody).toContainText(body)
 
   await row.hover()
+  const openContextMenu = page.locator('[data-slot="context-menu-content"][data-open]')
   const trigger = row.locator('[data-slot="context-menu-trigger"]')
   await expect(trigger).toHaveCount(1)
 
@@ -76,27 +77,42 @@ test("selected message text keeps the native context menu", async ({ caseActors 
   await page.mouse.click(points.selection.x, points.selection.y, { button: "right" })
 
   await expect.poll(() => contextMenuProbe(page)).toEqual({
-    defaultPrevented: false,
+    defaultPrevented: true,
     bubbled: true,
   })
-  await expect(page.locator('[data-slot="context-menu-content"]')).toHaveCount(0)
+  await expect(openContextMenu).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString()))
     .toBe("copy only this phrase")
 
-  await observeNextContextMenu(page)
-  await page.mouse.click(points.outsideSelection.x, points.outsideSelection.y, { button: "right" })
-  const openContextMenu = page.locator('[data-slot="context-menu-content"][data-open]')
-  await expect(openContextMenu).toBeVisible()
-  await expect.poll(() => contextMenuProbe(page).then((probe) => probe?.defaultPrevented)).toBe(true)
   await page.keyboard.press("Escape")
   await expect(openContextMenu).toHaveCount(0)
-  await page.waitForTimeout(150)
+
+  await observeNextContextMenu(page)
+  await page.mouse.click(points.outsideSelection.x, points.outsideSelection.y, { button: "right" })
+  await expect(openContextMenu).toBeVisible()
+  await expect.poll(() => contextMenuProbe(page).then((probe) => probe?.defaultPrevented)).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString()))
+    .toBe("copy only this phrase")
+  await openContextMenu.getByRole("menuitem", { name: "Copy Text", exact: true }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("copy only this phrase")
+  await expect(openContextMenu).toHaveCount(0)
 
   await page.evaluate(() => window.getSelection()?.removeAllRanges())
+  await page.mouse.click(points.selection.x, points.selection.y, { button: "right" })
+  await expect(openContextMenu).toBeVisible()
+  await openContextMenu.getByRole("menuitem", { name: "Copy Text", exact: true }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(body)
+  await expect(openContextMenu).toHaveCount(0)
+
+  await page.evaluate(() => navigator.clipboard.writeText("keyboard-copy-sentinel"))
   await trigger.evaluate((element) => {
     element.setAttribute("tabindex", "0")
     element.focus()
   })
   await page.keyboard.press("Shift+F10")
   await expect(openContextMenu).toBeVisible()
+  await openContextMenu.getByRole("menuitem", { name: "Copy Text", exact: true }).focus()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(body)
+  await expect(openContextMenu).toHaveCount(0)
 })
