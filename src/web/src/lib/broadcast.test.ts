@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest"
 
 const mockInfo = vi.fn()
@@ -267,17 +269,17 @@ describe("broadcastToUser", () => {
     expect(String(bindingFetch.mock.calls[0]?.[0])).toBe(
       `http://internal/broadcast/community/user/u:${encodeURIComponent(target)}`,
     )
-    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(communityEvent)
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(currentCommunityEventFixture(communityEvent))
     },
   )
 
-  it.each([undefined, "1", "2"])("projects committed membership for producer contract %s before transport", async contract => {
+  it("emits the sole current membership envelope before transport", async () => {
     const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
-    mockGetCloudflareContext.mockReturnValue({ env: { ...makeEnv(bindingFetch), COMMUNITY_EVENT_CONTRACT: contract }, ctx: { waitUntil: mockCtxWaitUntil } })
+    mockGetCloudflareContext.mockReturnValue({ env: makeEnv(bindingFetch), ctx: { waitUntil: mockCtxWaitUntil } })
     const event = { type: "community:channel.membership.change", channelId: "thread", serverId: "server", userId: "viewer", relation: "notify", present: true } as const
     await broadcastToUser("viewer", event)
-    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(contract === "2" ? event
-      : { type: "community:channel.member_add", channelId: "thread", serverId: "server", userId: "viewer" })
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(currentCommunityEventFixture(event))
+    expect(bindingFetch.mock.calls[0]?.[1]?.headers).toEqual({ "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) })
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).not.toHaveBeenCalled()
   })
@@ -434,7 +436,7 @@ describe("broadcastToUsers", () => {
     expect(bindingFetch.mock.calls.every((call) => (
       String(call[0]) === "http://internal/broadcast/community/users"
       && call[1]?.method === "POST"
-      && JSON.stringify(call[1]?.headers) === JSON.stringify({ "Content-Type": "application/json" })
+      && JSON.stringify(call[1]?.headers) === JSON.stringify({ "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) })
     ))).toBe(true)
     expect(mockInfo).toHaveBeenCalledWith(
       "broadcast_users_complete",

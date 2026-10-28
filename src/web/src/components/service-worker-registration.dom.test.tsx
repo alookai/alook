@@ -18,7 +18,7 @@ describe("public asset service worker registration", () => {
   it("registers the production script with root scope and no HTTP update cache", async () => {
     vi.stubEnv("NODE_ENV", "production")
     const register = vi.fn().mockResolvedValue({})
-    vi.stubGlobal("navigator", { serviceWorker: { register } })
+    vi.stubGlobal("navigator", { serviceWorker: Object.assign(new EventTarget(), { register }) })
     await mount()
     expect(register).toHaveBeenCalledWith("/sw.js", { scope: "/", updateViaCache: "none" })
   })
@@ -26,7 +26,7 @@ describe("public asset service worker registration", () => {
   it("does not install a worker in development", async () => {
     vi.stubEnv("NODE_ENV", "development")
     const register = vi.fn()
-    vi.stubGlobal("navigator", { serviceWorker: { register } })
+    vi.stubGlobal("navigator", { serviceWorker: Object.assign(new EventTarget(), { register }) })
     await mount()
     expect(register).not.toHaveBeenCalled()
   })
@@ -42,7 +42,7 @@ describe("public asset service worker registration", () => {
     vi.stubEnv("NODE_ENV", "production")
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const navigator = failure === "rejection"
-      ? { serviceWorker: { register: vi.fn().mockRejectedValue(new Error("unavailable")) } }
+      ? { serviceWorker: Object.assign(new EventTarget(), { register: vi.fn().mockRejectedValue(new Error("unavailable")) }) }
       : Object.defineProperty({}, "serviceWorker", { get() { throw new Error("denied") } })
     vi.stubGlobal("navigator", navigator)
     await mount()

@@ -1,3 +1,4 @@
+import { channelResourceFixture, categoryResourceFixture, serverRailResponseFixture, serverDirectoryFixture } from "@/test/community-resource-fixtures"
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -28,13 +29,12 @@ afterEach(async () => {
 })
 function Owner({ children }: PropsWithChildren) { return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children)) }
 const server = { id: "s1", name: "Studio", discriminator: "0042", description: "", icon: null, ownerId: "viewer" }
-const categories: ServerDetail["categories"] = [{ id: "cat_1", name: "General", private: 0, channels: [{ id: "c1", name: "general", active: false, unread: false }, { id: "c2", name: "random", active: false, unread: true }] }, { id: "cat_2", name: "Ideas", private: 0, channels: [] }]
+const categories: ServerDetail["categories"] = [{ id: "cat_1", name: "General", private: false, channels: [{ id: "c1", name: "general", active: false, unread: false }, { id: "c2", name: "random", active: false, unread: true }] }, { id: "cat_2", name: "Ideas", private: false, channels: [] }]
 function publish(snapshot: Parameters<typeof publishCommunityLiveSnapshot>[1]["snapshot"]) { publishCommunityLiveSnapshot(client, { snapshot, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } }) }
 function seed(cats = categories) {
-  publish({ kind: "servers", data: { servers: [server, { ...server, id: "s2", name: "Elsewhere" }].map((row) => ({ ...row, initial: "S", active: false, unread: false, mentions: 0 })) } })
-  publish({ kind: "server-detail", data: { ...server, categories: cats } })
-  publish({ kind: "server-detail", data: { ...server, id: "s2", categories: [{ id: "other-cat", name: "Other", channels: [{ id: "c3", name: "other", active: false, unread: false }] }] } })
-  client.setQueryData(communityKeys.server("s1"), "s1")
+  publish({ kind: "servers", data: serverRailResponseFixture({ servers: [server, { ...server, id: "s2", name: "Elsewhere" }] }, "viewer") })
+  publish({ kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: cats.filter(category => category.id !== UNCATEGORIZED_CATEGORY_ID), channels: cats.filter(category => category.id === UNCATEGORIZED_CATEGORY_ID).flatMap(category => category.channels) }) })
+  publish({ kind: "server-detail", data: serverDirectoryFixture({ ...server, id: "s2", categories: [{ id: "other-cat", name: "Other", channels: [{ id: "c3", name: "other", active: false, unread: false }] }] }) })
   client.setQueryData(communityKeys.channelRefDirectory(), { serverIds: ["s1", "s2"] })
 }
 function mount<T>(hook: () => T) { return renderHook(() => { const command = hook(), tree = useServerTreeProjection("s1"), directory = useChannelRefDirectoryProjection(), sidebar = useChannelTree(tree?.categories ?? []); return { command, tree, directory, sidebar } }, { wrapper: Owner }) }
@@ -65,7 +65,7 @@ describe("canonical channel rename", () => {
     await act(async () => { await rendered.result.current.command.mutateAsync(rename) })
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).find((row) => row.id === "c1")?.name).toBe("General-Chat"))
     expect(rendered.result.current.directory?.[0]?.channels.find((row) => row.id === "c1")?.name).toBe("General-Chat")
-    expect(client.getQueryData(communityKeys.server("s1"))).toBe("s1")
+    expect(client.getQueryData(communityKeys.server("s1"))).toMatchObject({ serverId: "s1" })
     expect(registry.collections.channels.get("c3")?.name).toBe("other")
   })
   it("restores both consumers on failure without optimistic residue", async () => {
@@ -123,7 +123,7 @@ describe("canonical channel move and create", () => {
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).find((row) => row.pending)).toMatchObject({ name: "hi", type: "text" }))
     const row = treeChannels(rendered.result.current.tree).find((row) => row.pending)!
     expect(row.id).toMatch(/^tmp_ch_/)
-    await act(async () => { held.resolve({ channel: { id: "ch_real" } }); await pending })
+    await act(async () => { held.resolve({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) }); await pending })
   })
   it("physically cancels an in-flight server refetch before the optimistic write", async () => {
     seed()
@@ -132,7 +132,7 @@ describe("canonical channel move and create", () => {
     const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).some((row) => row.pending)).toBe(true))
     expect(signal.aborted).toBe(true)
-    await act(async () => { held.resolve({ channel: { id: "ch_real" } }); await pending; await read })
+    await act(async () => { held.resolve({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) }); await pending; await read })
   })
   it("leaves existing categories unchanged when the target category is absent", async () => {
     seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, { ...create, categoryId: "missing" })
@@ -153,18 +153,18 @@ describe("canonical channel move and create", () => {
     seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)
     await waitFor(() => expect(Array.from(registry.collections.channels.values()).some((row) => row.pending)).toBe(true))
     const temp = Array.from(registry.collections.channels.values()).find((row) => row.pending)!.id
-    await act(async () => { held.resolve({ channel: { id: "ch_real", name: "normalized", position: 8 } }); await pending })
+    await act(async () => { held.resolve({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "normalized", position: 8 }) }); await pending })
     expect(registry.collections.channels.has(temp)).toBe(false)
     expect(registry.collections.channels.get("ch_real")).toMatchObject({ name: "normalized", pending: false, position: 8 })
   })
   it.each(["success", "failure"] as const)("invalidates the original server tree on create %s", async (outcome) => {
-    seed(); if (outcome === "success") api.mockResolvedValueOnce({ channel: { id: "ch_real" } }); else api.mockRejectedValueOnce(new Error("boom"))
+    seed(); if (outcome === "success") api.mockResolvedValueOnce({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) }); else api.mockRejectedValueOnce(new Error("boom"))
     const rendered = mount(commands.useCreateChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync(create).catch(() => {}) })
     expect(client.getQueryState(communityKeys.server("s1"))?.isInvalidated).toBe(true)
   })
   it("POSTs type, serverId, categoryId and original name to the unified create door", async () => {
-    seed(); api.mockResolvedValueOnce({ channel: { id: "ch_real" } })
+    seed(); api.mockResolvedValueOnce({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) })
     const rendered = mount(commands.useCreateChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync(create) })
     expect(api).toHaveBeenCalledWith("/api/community/channels", expect.objectContaining({ method: "POST" }))
@@ -174,12 +174,12 @@ describe("canonical channel move and create", () => {
     seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, { ...create, categoryId })
     await waitFor(() => expect(rendered.result.current.tree?.categories.find((row) => row.id === UNCATEGORIZED_CATEGORY_ID)?.channels[0]).toMatchObject({ pending: true, name: "hi" }))
     expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ ...create, categoryId: null })
-    await act(async () => { held.resolve({ channel: { id: "ch_real" } }); await pending })
+    await act(async () => { held.resolve({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: null, name: "hi" }) }); await pending })
     expect(rendered.result.current.tree?.categories.filter((row) => row.id === UNCATEGORIZED_CATEGORY_ID)).toHaveLength(1)
   })
   it("reuses the canonical uncategorized projection without a duplicate category", async () => {
     seed([...categories, { id: UNCATEGORIZED_CATEGORY_ID, name: "", channels: [{ id: "top", name: "Top", active: false, unread: false }] }])
-    api.mockResolvedValueOnce({ channel: { id: "ch_real" } })
+    api.mockResolvedValueOnce({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: null, name: "hi", position: 1 }) })
     const rendered = mount(commands.useCreateChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync({ ...create, categoryId: "" }) })
     await waitFor(() => expect(rendered.result.current.tree?.categories.find((row) => row.id === UNCATEGORIZED_CATEGORY_ID)?.channels.map((row) => row.id)).toEqual(["top", "ch_real"]))
@@ -188,15 +188,31 @@ describe("canonical channel move and create", () => {
   })
 })
 
+describe("current create resource admission", () => {
+  it.each(["channel", "category"] as const)("rejects incomplete successful %s confirmation without publishing a confirmed row", async kind => {
+    seed()
+    api.mockResolvedValueOnce({ [kind]: { id: "partial-real" } })
+    const rendered = mount(kind === "channel" ? commands.useCreateChannel : commands.useCreateCategory)
+    let error: unknown
+    await act(async () => {
+      try { await rendered.result.current.command.mutateAsync(kind === "channel" ? create : { serverId: "s1", name: "New Ideas" }) }
+      catch (failure) { error = failure }
+    })
+    expect(error).toBeInstanceOf(Error)
+    expect(registry.collections.channels.has("partial-real")).toBe(false)
+    expect(registry.collections.categories.has("partial-real")).toBe(false)
+  })
+})
+
 describe("canonical category commands and channel deletion", () => {
   it("appends a pending category with a tmp_cat_ id", async () => {
     seed(); const held = deferred(), rendered = mount(commands.useCreateCategory), pending = start(rendered.result.current.command, { serverId: "s1", name: "  New Ideas  " })
     await waitFor(() => expect(rendered.result.current.tree?.categories.find((row) => row.pending)).toMatchObject({ name: "New Ideas" }))
     expect(rendered.result.current.tree?.categories.find((row) => row.pending)?.id).toMatch(/^tmp_cat_/)
-    await act(async () => { held.resolve({ category: { id: "cat_real" } }); await pending })
+    await act(async () => { held.resolve({ category: categoryResourceFixture({ id: "cat_real", serverId: "s1", name: "New Ideas" }) }); await pending })
   })
   it("swaps the temp category id to the real id and clears pending", async () => {
-    seed(); api.mockResolvedValueOnce({ category: { id: "cat_real" } })
+    seed(); api.mockResolvedValueOnce({ category: categoryResourceFixture({ id: "cat_real", serverId: "s1", name: "New Ideas" }) })
     const rendered = mount(commands.useCreateCategory)
     await act(async () => { await rendered.result.current.command.mutateAsync({ serverId: "s1", name: "New Ideas" }) })
     expect(registry.collections.categories.get("cat_real")).toMatchObject({ name: "New Ideas", pending: false })

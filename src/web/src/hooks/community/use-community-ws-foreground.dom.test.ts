@@ -1,3 +1,4 @@
+import { messageResourceFixture, currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { getCapturedRuntime } from "./community-ws/test-harness"
 import { act } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -23,19 +24,20 @@ import {
 } from "./community-ws/test-harness"
 
 const subscriptions: Array<() => void> = []
-const message = (id: string, seq = 1) => ({
+const message = (channelId: string, id: string, seq = 1) => messageResourceFixture({
+  channelId,
   id, seq, type: "chat" as const, content: id, authorId: "author",
   createdAt: `2026-08-15T00:00:0${seq}.000Z`,
 })
-const page = (id: string) => ({ messages: [message(id)], latestSeq: 1, hasMore: false })
+const page = (channelId: string, id: string) => ({ messages: [message(channelId, id)], latestSeq: 1, hasMore: false })
 
 function seed(id: string, kind: "channel" | "dm" = "channel") {
   const key = kind === "channel" ? communityKeys.channelMessages(id) : communityKeys.dmMessages(id)
-  seedCanonicalMessages(id, [message(`old-${id}`)])
-  capturedQueryClient.setQueryData(key, { pages: [messageWindowPage(page(`old-${id}`))], pageParams: [{ mode: "newest" }] })
+  seedCanonicalMessages(id, [message(id, `old-${id}`)])
+  capturedQueryClient.setQueryData(key, { pages: [messageWindowPage(page(id, `old-${id}`))], pageParams: [{ mode: "newest" }] })
   const observer = new QueryObserver(capturedQueryClient, {
     queryKey: key,
-    queryFn: async () => ({ pages: [messageWindowPage(page(`query-${id}`))], pageParams: [{ mode: "newest" }] }),
+    queryFn: async () => ({ pages: [messageWindowPage(page(id, `query-${id}`))], pageParams: [{ mode: "newest" }] }),
     staleTime: Infinity,
   })
   subscriptions.push(observer.subscribe(() => undefined))
@@ -65,7 +67,7 @@ describe("community foreground message reconciliation", () => {
     await mountHook()
     flushEffects()
     await act(async () => { getCapturedRuntime().ws.actions.markAccessDisconnected() })
-    getCommunityApiFetchMock().mockImplementation(async (path) => page(String(path)))
+    getCommunityApiFetchMock().mockImplementation(async (path) => page(String(path).split("/")[4]!, String(path)))
     const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
     await act(async () => { await capturedUseUserWsOptions!.onForeground!() })
     const paths = getCommunityApiFetchMock().mock.calls.map(([path]) => path)
@@ -97,7 +99,7 @@ describe("community foreground message reconciliation", () => {
         return new Promise((resolve) => { release = resolve })
       }
       if (String(path).includes("/messages?since=")) return {
-        messages: [message("missed", 2), message("live", 3)], latestSeq: 3, hasMoreNewer: false,
+        messages: [message("focused", "missed", 2), message("focused", "live", 3)], latestSeq: 3, hasMoreNewer: false,
       }
       if (path === "/api/community/users/me/read-state") return { revision: 0, readStates: [] }
       throw new Error(`unexpected fetch: ${String(path)}`)
@@ -110,11 +112,11 @@ describe("community foreground message reconciliation", () => {
     expect(capturedQueryClient.getQueryState([...key, "reconcile"])?.fetchStatus).toBe("fetching")
     const event = messageCreate("focused", "live")
     event.message.seq = 3
-    await act(async () => { capturedOnMessage!(event) })
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture(event)) })
     await Promise.resolve()
     expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/channels/focused/messages")).toHaveLength(1)
     expect(cancel.mock.calls.filter(([filters]) => JSON.stringify(filters.queryKey) === JSON.stringify(key))).toHaveLength(1)
-    await act(async () => { release(page("snapshot-before-gap")) })
+    await act(async () => { release(page("focused", "snapshot-before-gap")) })
     await act(async () => { await Promise.all([foreground, duplicate, reconnect]) })
     expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => String(path).includes("/channels/focused/messages"))).toHaveLength(2)
     expect(cancel.mock.calls.filter(([filters]) => JSON.stringify(filters.queryKey) === JSON.stringify(key))).toHaveLength(1)
@@ -129,14 +131,14 @@ describe("community foreground message reconciliation", () => {
     let releaseOld!: (value: unknown) => void
     getCommunityApiFetchMock().mockImplementation(async (path) => {
       if (path === "/api/community/channels/a/messages") return new Promise((resolve) => { releaseOld = resolve })
-      if (path === "/api/community/channels/b/messages") return page("current-b")
+      if (path === "/api/community/channels/b/messages") return page("b", "current-b")
       throw new Error(`unexpected fetch: ${String(path)}`)
     })
     let old!: void | Promise<void>; act(() => { old = capturedUseUserWsOptions!.onForeground!() })
     await vi.waitFor(() => expect(releaseOld).toBeTypeOf("function"))
     await act(async () => { getCapturedRuntime().ui.actions.subscribe({ channelId: "b" }) })
     await act(async () => { await capturedUseUserWsOptions!.onForeground!() })
-    await act(async () => { releaseOld(page("late-a")) })
+    await act(async () => { releaseOld(page("a", "late-a")) })
     await act(async () => { await old })
     expect(capturedQueryClient.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(currentKey)?.pages.flatMap((entry) => entry.messages.map((row) => row.id))).toEqual(["old-b", "current-b"])
   })
@@ -155,7 +157,7 @@ describe("community foreground message reconciliation", () => {
     await mountHook({ viewerUserId: "b" })
     await old()
     expect(getCommunityApiFetchMock()).not.toHaveBeenCalled()
-    getCommunityApiFetchMock().mockResolvedValue(page("current-account"))
+    getCommunityApiFetchMock().mockResolvedValue(page("account-target", "current-account"))
     await act(async () => { await capturedUseUserWsOptions!.onForeground!() })
     expect(getCommunityApiFetchMock()).toHaveBeenCalledOnce()
   })

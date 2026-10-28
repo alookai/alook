@@ -19,7 +19,8 @@ import { readCommunitySelfProfile } from "@/lib/community/self-profile.server"
 export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId
-  return writeJSON((await readCommunitySelfProfile(db, userId)).profile)
+  const self = await readCommunitySelfProfile(db, userId)
+  return self ? writeJSON(self.profile) : writeError("profile not found", 404)
 })
 
 export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {

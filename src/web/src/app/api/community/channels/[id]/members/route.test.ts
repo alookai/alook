@@ -1,3 +1,5 @@
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -7,6 +9,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockResolveChannelAccessContext = vi.fn()
 const mockGetMember = vi.fn()
+const mockGetChannel = vi.fn()
+const mockGetChannelForMember = vi.fn()
 const mockCreateChannelMember = vi.fn()
 const mockListChannelMembers = vi.fn()
 const mockGetPrivateChannelAudienceUserIds = vi.fn()
@@ -45,6 +49,8 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityChannel: {
+        getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
         createChannelMember: (...a: unknown[]) => mockCreateChannelMember(...a),
         listChannelMembers: (...a: unknown[]) => mockListChannelMembers(...a),
@@ -101,6 +107,9 @@ vi.mock("@/lib/middleware/helpers", () => {
 import { GET, POST } from "./route"
 
 const ctx = { params: { id: "c1" } } as any
+function getReq(channelId = "c1", relation = "access") {
+  return new NextRequest(`http://localhost/api/community/channels/${channelId}/members?relation=${relation}`, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
+}
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/channels/c1/members", {
     method: "POST",
@@ -124,6 +133,10 @@ describe("GET /channels/[id]/members", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockResolveChannelAccessContext.mockResolvedValue(managerCtx())
+    const channel = channelResourceFixture({ id: "c1", serverId: "s1", creatorId: "u1" })
+    mockGetChannel.mockResolvedValue(channel)
+    mockGetChannelForMember.mockResolvedValue(channel)
+    mockGetUsersByIds.mockResolvedValue(["Ann", "Bob", "Cy"].map((name, i) => ({ id: `u${i + 1}`, name, discriminator: `000${i + 1}`, image: null, avatarVersion: 0 })))
     // Full resolved audience: creator (u1), an added member (u2), an admin (u3).
     mockResolveScopeMembers.mockResolvedValue([
       { userId: "u1", role: "member", source: "explicit" },
@@ -138,7 +151,7 @@ describe("GET /channels/[id]/members", () => {
   })
 
   it("lists the full audience with role + source + isCreator", async () => {
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/c1/members"), ctx)
+    const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.members).toHaveLength(3)
@@ -153,30 +166,30 @@ describe("GET /channels/[id]/members", () => {
     expect(admin.role).toBe("admin")
   })
 
-  it("retries a BUSY scope resolution and preserves the resolved member result", async () => {
+  it("retries a BUSY scoped channel access and preserves the resolved member result", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0)
-    mockResolveScopeMembers
-      .mockRejectedValueOnce(new Error("D1_ERROR: database is locked"))
-      .mockResolvedValueOnce([{ userId: "u1", role: "member", source: "explicit" }])
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/c1/members"), ctx)
+    mockGetChannelForMember.mockRejectedValueOnce(new Error("D1_ERROR: database is locked"))
+    mockResolveScopeMembers.mockResolvedValueOnce([{ userId: "u1", role: "member", source: "explicit" }])
+    const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
     expect((await res.json()).members.map((member: { userId: string }) => member.userId)).toEqual(["u1"])
-    expect(mockResolveScopeMembers).toHaveBeenCalledTimes(2)
-    expect(mockResolveChannelAccessContext).toHaveBeenCalledTimes(1)
+    expect(mockResolveScopeMembers).toHaveBeenCalledTimes(1)
+    expect(mockGetChannelForMember).toHaveBeenCalledTimes(3)
   })
 
   it("rethrows a non-BUSY scope-resolution failure without retrying", async () => {
     const error = new Error("programmer bug")
     mockResolveScopeMembers.mockRejectedValueOnce(error)
-    await expect(GET(new NextRequest("http://localhost/api/community/channels/c1/members"), ctx)).rejects.toBe(error)
+    await expect(GET(getReq(), ctx)).rejects.toBe(error)
     expect(mockResolveScopeMembers).toHaveBeenCalledTimes(1)
   })
 
-  it("drops audience members with no hydrated (non-deleted) server row", async () => {
+  it("drops audience members without a non-deleted full user profile", async () => {
+    mockGetUsersByIds.mockResolvedValue([{ id: "u1", name: "Ann", discriminator: "0001", image: null, avatarVersion: 0 }])
     mockGetMembersByUserIds.mockResolvedValue([
       { id: "m1", serverId: "s1", userId: "u1", role: "member", nickname: null, userName: "Ann", userImage: null, discriminator: "0001", statusEmoji: null, statusText: null, userIsBot: false, userOwnerUserId: null },
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/c1/members"), ctx)
+    const res = await GET(getReq(), ctx)
     const body = await res.json()
     expect(body.members).toHaveLength(1)
     expect(body.members[0].userId).toBe("u1")
@@ -188,10 +201,11 @@ describe("GET /channels/[id]/members", () => {
       anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
       role: "admin", isPrivate: true, isChannelMember: true, isCreator: true,
     })
+    mockGetChannelForMember.mockResolvedValue(channelResourceFixture({ id: "t1", serverId: "s1", type: "thread", parentChannelId: "c1", parentMessageId: "m1", creatorId: "u1" }))
     mockListThreadParticipants.mockResolvedValue([
       { userId: "u1", source: "spoke", userName: "Ann", userImage: null, discriminator: "0001", addedAt: "" },
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/t1/members"), { params: { id: "t1" } } as any)
+    const res = await GET(getReq("t1", "notify"), { params: { id: "t1" } } as any)
     expect(res.status).toBe(200)
     // A thread reads participants, NOT the access audience.
     expect(mockListThreadParticipants).toHaveBeenCalledWith(expect.anything(), "t1")
@@ -207,11 +221,12 @@ describe("GET /channels/[id]/members", () => {
       anchor: { id: "f1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
       role: "member", isPrivate: false, isChannelMember: false, isCreator: false,
     })
+    mockGetChannelForMember.mockResolvedValue(channelResourceFixture({ id: "p1", serverId: "s1", type: "thread", parentChannelId: "f1", parentMessageId: "m1", creatorId: "u2" }))
     mockListThreadParticipants.mockResolvedValue([
       { userId: "u2", source: "spoke", userName: "Bob", userImage: null, discriminator: "0002", addedAt: "" },
       { userId: "u1", source: "added", userName: "Ann", userImage: null, discriminator: "0001", addedAt: "" },
     ])
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/p1/members"), { params: { id: "p1" } } as any)
+    const res = await GET(getReq("p1", "notify"), { params: { id: "p1" } } as any)
     const body = await res.json()
     expect(mockListThreadParticipants).toHaveBeenCalledWith(expect.anything(), "p1")
     expect(mockResolveScopeMembers).not.toHaveBeenCalled()
@@ -221,8 +236,8 @@ describe("GET /channels/[id]/members", () => {
   })
 
   it("403 for a caller without access", async () => {
-    mockResolveChannelAccessContext.mockResolvedValue(null)
-    const res = await GET(new NextRequest("http://localhost/api/community/channels/c1/members"), ctx)
+    mockGetChannelForMember.mockResolvedValue(null)
+    const res = await GET(getReq(), ctx)
     expect(res.status).toBe(403)
   })
 })

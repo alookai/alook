@@ -1,7 +1,8 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
-  decodeCommunityBrowserEvent,
+  validateCommunityWsEvent,
   reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
@@ -16,7 +17,7 @@ import {
 import { mapMessageForWs, type MessageRow } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
-import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
+
 import { communityProducerContract } from "./producer-contract"
 import { groupAttachments } from "./messages"
 
@@ -24,7 +25,6 @@ const log = createLogger({ service: "committed-message-dispatcher" })
 
 export type CommittedMessageStructuralOutcome = {
   /** A participant row inserted by this exact message write. */
-  memberAddedUserId?: string
   joinedParticipantUserIds?: string[]
   /** Existing thread-open collision suppression; no audience/policy input. */
   suppressParentProjection?: boolean
@@ -60,7 +60,7 @@ export async function planCommittedMessage(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
-  contract: CommunityContract = 2,
+  contract: CommunityContract = BUSINESS_SCHEMA_VERSION,
 ): Promise<MessageDeliveryPlan> {
   const message = await withD1Retry(
     () => queries.communityMessage.getMessage(db, messageId),
@@ -194,22 +194,10 @@ export async function planCommittedMessage(
       replyMap,
       botCreation: creationRequest,
       clientNonce: clientNonce ?? undefined,
-      ...(contract === 3 ? { resourceAttachments: groupAttachments(attachments)[message.id] ?? [] } : {}),
-      attachments: attachments.map((attachment) => ({
-        id: attachment.id,
-        filename: attachment.filename,
-        url: attachmentUrl(attachment.targetId, attachment.id),
-        ...(attachment.thumbnailR2Key
-          ? { thumbnailUrl: attachmentThumbnailUrl(attachment.targetId, attachment.id) }
-          : {}),
-        contentType: attachment.contentType ?? undefined,
-        size: attachment.size ?? undefined,
-        width: attachment.width ?? undefined,
-        height: attachment.height ?? undefined,
-      })),
+      resourceAttachments: groupAttachments(attachments)[message.id] ?? [],
     }, contract, message.channelId),
   }
-  const messageResult = decodeCommunityBrowserEvent(messageInput, contract)
+  const messageResult = validateCommunityWsEvent(messageInput, contract)
   if (!messageResult.ok || messageResult.event.type !== WS_EVENTS.MESSAGE_CREATE) throw new Error("Invalid committed message event")
   const messageEvent = messageResult.event
 
@@ -224,22 +212,16 @@ export async function planCommittedMessage(
         channelId: channel.id,
         changes: {
           messageCount: channel.messageCount,
-          lastMessageAt: contract === 3 ? channel.lastMessageAt : channel.lastMessageAt ?? message.createdAt,
+          lastMessageAt: channel.lastMessageAt,
         },
       } as const
     : undefined
 
   const joinedParticipantUserIds = [...new Set(structural.joinedParticipantUserIds ?? [])]
   if (joinedParticipantUserIds.some((id) => !channel.serverId || !contentUserIds.includes(id))) throw new Error("committed participant outcome is outside message scope")
-  if (
-    structural.memberAddedUserId
-    && (!channel.serverId || !contentUserIds.includes(structural.memberAddedUserId))
-  ) {
-    throw new Error("committed participant outcome is outside message scope")
-  }
 
   return {
-    ...(contract === 3 ? { communityContract: 3 as const } : {}),
+    communityContract: contract,
     operationId: await deriveCommunityDeliveryOperationId(message.id),
     messageId: message.id,
     messageEvent,
@@ -250,15 +232,6 @@ export async function planCommittedMessage(
     wakeBotUserIds,
     pushUserIds,
     ...(joinedParticipantUserIds.length ? { joinedParticipantUserIds, rosterRefreshUserId: joinedParticipantUserIds[0]! } : {}),
-    ...(structural.memberAddedUserId && channel.serverId
-      ? {
-          memberAdded: {
-            userId: structural.memberAddedUserId,
-            serverId: channel.serverId,
-            channelId: channel.id,
-          },
-        }
-      : {}),
     ...(parentProjection
       ? { parentProjection, parentProjectionUserIds }
       : {}),
@@ -271,8 +244,8 @@ async function runCommittedMessageDispatch(
   structural: CommittedMessageStructuralOutcome,
 ): Promise<void> {
   const startedAt = Date.now()
-  const { env } = getCloudflareContext()
-  const contract = communityProducerContract(env as Env)
+  getCloudflareContext()
+  const contract = communityProducerContract()
   const plan = await planCommittedMessage(
     db,
     messageId,

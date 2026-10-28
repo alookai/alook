@@ -1,3 +1,4 @@
+import { serverDirectoryFixture, serverRailResponseFixture, channelResourceFixture, categoryResourceFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, expect, it, vi } from "vitest"
 import { useLayoutEffect } from "react"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
@@ -31,22 +32,21 @@ async function setup(method: "push" | "pushImmediate", { cold = false, empty = f
   const { client, registry } = await createCommunityQueryOwner()
   const server = { id: "target", name: "Target", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
   mocks.breakpoint = mobile ? "mobile" : "desktop"
-  mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role: "owner", memberId: "membership" }] })
+  mocks.load.mockResolvedValueOnce(serverRailResponseFixture({ servers: [{ ...server, role: "owner", memberId: "membership" }] }))
   await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client) })
   const channels = empty ? [] : [{ id: "channel", name: "Channel", active: false, unread: false, muted: false, type: "text" as const }]
   if (!cold) {
     publishCommunityLiveSnapshot(client, {
-      snapshot: { kind: "server-detail", data: { ...server, categories: [{ id: "category", name: "", private: 0, channels }] } },
+      snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [{ id: "category", name: "", private: false, channels }] }) },
       proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
     })
-    client.setQueryData(communityKeys.server(server.id), server.id)
   }
   let release!: () => void
   const response = new Promise<void>(resolve => { release = resolve })
   mocks.load.mockImplementation(async (path: string) => {
     await response
-    if (path.endsWith("/categories")) return { categories: [{ id: "category", name: "", private: 0 }] }
-    if (path.endsWith("/channels")) return { channels: channels.map(channel => ({ ...channel, categoryId: "category" })) }
+    if (path.endsWith("/categories")) return { categories: [categoryResourceFixture({ id: "category", serverId: server.id, name: "", private: false })] }
+    if (path.endsWith("/channels")) return { channels: channels.map(channel => channelResourceFixture({ id: channel.id, name: channel.name, type: channel.type, serverId: server.id, categoryId: "category" })) }
     throw new Error(`Unexpected request ${path}`)
   })
   const calls: string[] = []
@@ -111,7 +111,7 @@ it("finishes the current root after an older server deletion retires its in-flig
   const token = createOwnerServerDeleteRouteToken(client)
   act(() => {
     publishCommunityLiveSnapshot(client, {
-      snapshot: { kind: "server-detail", data: { id: "deleted", name: "Deleted", discriminator: "0002", description: "", icon: null, ownerId: "viewer", categories: [{ id: "old-category", name: "", private: 0, channels: [{ id: "old-channel", name: "Old", active: false, unread: false }] }] } },
+      snapshot: { kind: "server-detail", data: serverDirectoryFixture({ id: "deleted", name: "Deleted", discriminator: "0002", description: "", icon: null, ownerId: "viewer", categories: [{ id: "old-category", name: "", private: false, channels: [{ id: "old-channel", name: "Old", active: false, unread: false }] }] }) },
       proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
     })
     beginOwnerServerDelete(client, "deleted", token)
@@ -133,7 +133,7 @@ it("finishes the current root after an older server deletion retires its in-flig
   })
   expect(client.getQueryCache().find({ queryKey: communityKeys.server("target"), exact: true })).toBe(original)
   expect(registry.collections.servers.get("deleted")).toBeUndefined()
-  expect(registry.collections.servers.get("target")?.detailComplete).toBe(true)
+  expect(registry.collections.servers.has("target")).toBe(true)
   expect(original.state.error).toBeNull()
   expect(mocks.load.mock.calls.filter(([path]) => String(path).endsWith("/target/categories"))).toHaveLength(2)
 })

@@ -1,3 +1,4 @@
+import { currentCommunityFixtureError, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { readFileSync } from "node:fs"
 import type { Page, Request } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -40,10 +41,10 @@ async function serveMachines(page: Page, {
   await page.route(url => url.pathname === "/api/community/machines", async (route) => {
     const optional = new URL(route.request().url()).searchParams.get("view") === "observations"
     if (!optional) requestCount += 1
-    await route.fulfill({
+    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(optional ? { quotas: machines.map(machine => ({ machineId: machine.id, quota: machine.quota })) } : { machines }),
+      body: JSON.stringify(optional ? { quotas: machines.map(machine => ({ machineId: machine.id, quota: machine.quota })) } : { machines: machines.map(({ quota: _quota, ...identity }) => identity), complete: true }),
     })
   })
   await page.route("**/api/community/machines/*/update", async (route) => {
@@ -51,14 +52,10 @@ async function serveMachines(page: Page, {
     const machineId = match?.[1]
     if (machineId) updateRequests.push(machineId)
     if (machineId && remainingFailures.delete(machineId)) {
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "temporary unavailable" }),
-      })
+      await route.fulfill(currentCommunityFixtureError("temporary unavailable", 503))
       return
     }
-    await route.fulfill({
+    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ dispatched: true }),

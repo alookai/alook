@@ -1,4 +1,6 @@
 "use client"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { getServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { useMountedClock } from "@/hooks/use-mounted-clock"
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -6,7 +8,7 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 
 import { useEffect,useMemo,useRef } from "react"
 import { QueryObserver,useQuery,useQueryClient,type QueryClient } from "@tanstack/react-query"
-import { type CommunityChannelIdentity, normalizeCommunityChannelIdentity } from "@alook/shared"
+import { CommunityForumSidebarEnvelopeSchema, type CommunityForumSidebarEnvelope, type CommunityResourceBundle, type CommunityChannelIdentity } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
@@ -26,12 +28,13 @@ patchCanonicalCommunityChannel,
 patchCanonicalCommunityMessage,
 publishCommunityForumSidebar,
 removeCanonicalCommunityChannelMembership,
+setCanonicalCommunityChannelMember,
 setCanonicalCommunityChannelMembership,
 type CommunityFreshQueryProof,
 type CommunityForumSidebarChannel,
 type CommunityForumSidebarOpener,
 } from "@/lib/community-db/sync"
-import { forumSidebarCandidates, viewerNotifyChannelIds, compareForumSidebarThreads as compareThreads,
+import { supportsSidebarThreads, forumSidebarCandidates, viewerNotifyChannelIds, compareForumSidebarThreads as compareThreads,
   FORUM_SIDEBAR_ACTIVITY_WINDOW_MS as SIDEBAR_ACTIVITY_WINDOW_MS, type ForumSidebarThread } from "@/lib/community/forum-sidebar"
 export type { ForumSidebarThread } from "@/lib/community/forum-sidebar"
 
@@ -40,14 +43,7 @@ type ForumSidebarRetainedDisposition =
   | "opener-archived"
   | "genuine-negative"
 
-export type SidebarThreadEnvelope = {
-  channels: Array<CommunityForumSidebarChannel & { expiresAt: string; createdAt?: string }>
-  canonicalChannels?: SidebarThreadEnvelope["channels"]
-  retainedChannel?: SidebarThreadEnvelope["channels"][number] | null
-  retainedDisposition?: ForumSidebarRetainedDisposition | null
-  included: { parentMessages: Array<Omit<CommunityForumSidebarOpener, "type"> & { type?: string }> }
-  serverNow: string
-}
+export type SidebarThreadEnvelope = CommunityForumSidebarEnvelope
 
 export type ForumSidebarQueryData = {
   /** Empty with a DB registry; only the explicit providerless test boundary uses rows. */
@@ -64,6 +60,8 @@ export type ChildChannelMeta = Omit<CommunityChannelIdentity, "serverId" | "name
 }
 
 export type NormalizedForumSidebarEnvelope = {
+  serverId: string
+  resources: CommunityResourceBundle
   base: ForumSidebarQueryData
   retained: ForumSidebarThread | null
   retainedDisposition: ForumSidebarRetainedDisposition | null
@@ -74,9 +72,9 @@ export type NormalizedForumSidebarEnvelope = {
 export function resolveForumSidebarRouteCandidate(
   channelId: string | null,
   topLevelChannelIds: Iterable<string> | null,
-  parentIsForum: boolean | null | undefined,
+  parentSupportsThreads: boolean | null | undefined,
 ) {
-  if (!channelId || !topLevelChannelIds || !parentIsForum) return null
+  if (!channelId || !topLevelChannelIds || !parentSupportsThreads) return null
   return new Set(topLevelChannelIds).has(channelId) ? null : channelId
 }
 
@@ -88,14 +86,14 @@ export function hasForumSidebarThread(
 }
 
 function projectForumSidebarThreads(data: SidebarThreadEnvelope) {
-  const openerById = new Map(data.included.parentMessages.map((message) => [message.id, message]))
+  const openerById = new Map(data.resources.messages.map((message) => [message.id, message]))
   return data.channels.flatMap((channel): ForumSidebarThread[] => {
     if (!channel.parentChannelId || !channel.parentMessageId) return []
     return [{
       id: channel.id,
       parentChannelId: channel.parentChannelId,
       parentMessageId: channel.parentMessageId,
-      title: openerById.get(channel.parentMessageId)?.content || channel.name,
+      title: openerById.get(channel.parentMessageId)?.content || channel.name || "Post",
       activityAt: channel.activityAt,
       expiresAt: channel.expiresAt,
       unread: false,
@@ -103,64 +101,31 @@ function projectForumSidebarThreads(data: SidebarThreadEnvelope) {
   })
 }
 
-function sidebarChannelResource(
-  channel: SidebarThreadEnvelope["channels"][number],
-): CommunityForumSidebarChannel | null {
-  if (!channel.serverId || !channel.type || !channel.parentChannelId || !channel.parentMessageId) {
-    return null
-  }
-  return {
-    ...normalizeCommunityChannelIdentity({ ...channel, archived: channel.archived ?? false, creatorId: channel.creatorId ?? null, lastMessageAt: channel.activityAt }),
-    serverId: channel.serverId,
-    name: channel.name,
-    parentChannelId: channel.parentChannelId,
-    parentMessageId: channel.parentMessageId,
-    activityAt: channel.activityAt,
-    unread: false,
-    participating: true,
-  }
-}
-
 export function normalizeForumSidebarEnvelope(
-  envelope: SidebarThreadEnvelope,
+  value: unknown,
   retainId: string | null,
   serverClockOffsetOverride?: number,
 ): NormalizedForumSidebarEnvelope {
-  const canonicalChannels = envelope.canonicalChannels ?? envelope.channels
+  const envelope = CommunityForumSidebarEnvelopeSchema.parse(value)
+  if (retainId ? envelope.retainedDisposition === null || envelope.retainedChannel && envelope.retainedChannel.id !== retainId
+    : envelope.retainedDisposition !== null || envelope.retainedChannel !== null) throw new Error("Forum retained result scope mismatch")
   const base: ForumSidebarQueryData = {
-    threads: projectForumSidebarThreads({ ...envelope, channels: canonicalChannels }),
-    serverNow: envelope.serverNow,
-    verifiedEpoch: -1,
-    serverClockOffsetMs: serverClockOffsetOverride ?? (() => {
-      const serverNowMs = Date.parse(envelope.serverNow)
-      return Number.isFinite(serverNowMs) ? serverNowMs - Date.now() : 0
-    })(),
+    threads: projectForumSidebarThreads({ ...envelope, channels: envelope.canonicalChannels }),
+    serverNow: envelope.serverNow, verifiedEpoch: -1,
+    serverClockOffsetMs: serverClockOffsetOverride ?? Date.parse(envelope.serverNow) - Date.now(),
   }
-  const retainedChannel = retainId && envelope.retainedChannel?.id === retainId
-    ? envelope.retainedChannel
-    : retainId && envelope.retainedDisposition == null
-      ? canonicalChannels.find(channel => channel.id === retainId) ?? null
-      : null
-  const retained = retainedChannel
-    ? projectForumSidebarThreads({ ...envelope, channels: [retainedChannel] })[0] ?? null
-    : null
-  const retainedDisposition = retainId
-    ? envelope.retainedDisposition ?? (retained ? "eligible" : "genuine-negative")
-    : null
-  const channels = [...new Map([
-    ...canonicalChannels,
-    ...(retainedDisposition === "eligible" && retainedChannel ? [retainedChannel] : []),
-  ].map((channel) => [channel.id, sidebarChannelResource(channel)])).values()].filter((channel) => channel !== null)
-  const openers = envelope.included.parentMessages.map((message) => ({
-    ...message, type: message.type === "system" ? "system" as const : "chat" as const,
+  const retained = envelope.retainedChannel ? projectForumSidebarThreads({ ...envelope, channels: [envelope.retainedChannel] })[0] : null
+  const selected = [...new Map([...envelope.canonicalChannels, ...(envelope.retainedChannel ? [envelope.retainedChannel] : [])].map(row => [row.id, row])).values()]
+  const channels = selected.map(summary => ({
+    ...envelope.resources.channels.find(row => row.id === summary.id)!, activityAt: summary.activityAt, unread: summary.unread, participating: true,
   }))
-  return { base, retained, retainedDisposition, channels, openers }
+  return { serverId: envelope.serverId, resources: envelope.resources, base, retained, retainedDisposition: envelope.retainedDisposition, channels, openers: envelope.resources.messages }
 }
 
 function sidebarUrl(serverId: string, retainId: string | null) {
   const params = new URLSearchParams({
     type: "thread",
-    parentType: "forum",
+    parentType: "forum,text",
     participating: "true",
     activeWithin: "72h",
     limitPerParent: "5",
@@ -199,8 +164,9 @@ function publishNormalizedForumSidebar(
   signal: AbortSignal | undefined,
   token: ReturnType<typeof captureCommunityLiveSnapshotToken>,
 ) {
+  if (normalized.serverId !== serverId) throw new Error("Forum sidebar server mismatch")
   publishCommunityForumSidebar(queryClient, {
-    serverId, channels: normalized.channels, openers: normalized.openers,
+    serverId, resources: normalized.resources, channels: normalized.channels, openers: normalized.openers,
     negativeRetain: retainId && normalized.retainedDisposition !== "eligible"
       ? {
           id: retainId,
@@ -215,8 +181,8 @@ function publishNormalizedForumSidebar(
   const result = {
     ...normalized.base, threads: [], verifiedEpoch: token.accessEpoch,
     window: {
-      version: 1 as const, accountId: token.viewerId!, serverId,
-      parents: [...new Set([...getCanonicalCommunityChannels(queryClient).filter(row => row.serverId === serverId && row.type === "forum").map(row => row.id), ...normalized.channels.flatMap(row => row.parentChannelId ? [row.parentChannelId] : [])])],
+      version: BUSINESS_SCHEMA_VERSION, accountId: token.viewerId!, serverId,
+      parents: [...new Set([...getCanonicalCommunityChannels(queryClient).filter(row => row.serverId === serverId && supportsSidebarThreads(row.type)).map(row => row.id), ...normalized.channels.flatMap(row => row.parentChannelId ? [row.parentChannelId] : [])])],
       base: normalized.base.threads.map(reference),
       retained: retainId ? normalized.retainedDisposition === "eligible" && normalized.retained
         ? { id: retainId, disposition: "eligible" as const, reference: reference(normalized.retained) }
@@ -225,9 +191,9 @@ function publishNormalizedForumSidebar(
     },
   }
   const registry = getCommunityDbRegistry(queryClient)!
-  if (!readForumSidebarWindowResult(result) || registry.collections.servers.get(serverId)?.detailComplete
+  if (!readForumSidebarWindowResult(result) || getServerDirectoryWindow(registry, serverId)
     && !forumSidebarWindowComplete(result.window, {
-      servers: [...registry.collections.servers.values()], channels: getCanonicalCommunityChannels(queryClient),
+      directory: getServerDirectoryWindow(registry, serverId), servers: [...registry.collections.servers.values()], channels: getCanonicalCommunityChannels(queryClient),
       channelMemberships: getCanonicalCommunityChannelMemberships(queryClient), messages: getCanonicalCommunityMessages(queryClient),
     }, registry.accountId, serverId, retainId, Date.now() + result.serverClockOffsetMs)) throw new Error("Incomplete forum sidebar window")
   return { data: result, reconciliation }
@@ -256,9 +222,9 @@ export function isKnownNonForumSidebarChannel(
   const channel = channels.find((candidate) => candidate.id === channelId)
   if (!channel) return false
   if (channel.serverId !== serverId) return true
-  if (channel.type !== "thread") return channel.type !== "forum"
+  if (channel.type !== "thread") return !supportsSidebarThreads(channel.type)
   const parent = channels.find((candidate) => candidate.id === channel.parentChannelId)
-  return !!parent && parent.type !== "forum"
+  return !!parent && !supportsSidebarThreads(parent.type)
 }
 
 export function isForumSidebarParent(
@@ -269,7 +235,7 @@ export function isForumSidebarParent(
   return getCanonicalCommunityChannels(queryClient).some((channel) => (
     channel.id === parentChannelId
     && channel.serverId === serverId
-    && channel.type === "forum"
+    && supportsSidebarThreads(channel.type)
   ))
 }
 
@@ -401,7 +367,7 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
     && channel.type === "thread"
     && notifyIds.has(channel.id)
     && !!channel.parentChannelId
-    && channelById.get(channel.parentChannelId)?.type === "forum"
+    && supportsSidebarThreads(channelById.get(channel.parentChannelId)?.type)
   ))
 
   const baseIds = new Set(base.threads.map((thread) => thread.id))
@@ -442,14 +408,8 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
       unread: false,
     }
     if (siblings.length >= 5 && compareThreads(candidate, siblings[4]!) > 0) continue
-    publishCommunityForumSidebar(queryClient, {
-      serverId,
-      channels: [],
-      openers: [],
-      negativeRetain: { id: channel.id, disposition: "genuine-negative" },
-      proof,
-    })
-    removedIds.push(channel.id)
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+    if (setCanonicalCommunityChannelMember(queryClient, channel.id, proof.token.registry!.accountId!, "notify", false, { proof })) removedIds.push(channel.id)
   }
   return { removedIds }
 }
@@ -480,6 +440,7 @@ export async function reconcileForumSidebarArchiveTag(
   childId: string,
   archived: boolean,
 ) {
+  void queryClient.invalidateQueries({ queryKey: communityKeys.forumSidebarThreads(serverId), exact: true, refetchType: "none" })
   const cancellation = queryClient.cancelQueries({ queryKey: communityKeys.forumSidebarRetained(serverId, childId), exact: true })
   if (archived) {
     removeCanonicalCommunityChannelMembership(queryClient, childId, "notify")

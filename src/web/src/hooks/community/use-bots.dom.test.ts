@@ -473,7 +473,7 @@ describe("bot mutation origin retirement", () => {
       unregisterA()
       unregisterB = registerCommunityDbRegistry(registryB)
 
-      writeCommunityProfilePatches([{ id: "bot", identityAbout: { name: "B latest" } }], registryB)
+      writeCommunityProfilePatches([{ id: "bot", identityAbout: { name: "B latest", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } }], registryB)
       await act(async () => resolve(kind === "avatar"
         ? { url: "old-photo", avatarVersion: 5 }
         : { bot: { id: "bot", name: "Old", image: null, avatarVersion: 4 } }))
@@ -499,6 +499,7 @@ describe("bot mutation origin retirement", () => {
     const { useUpdateBot } = await import("./use-bots")
     const qc = new QueryClient()
     const registry = createCommunityDbRegistry(qc, "viewer")
+    writeCommunityProfilePatches([{ id: "bot", identityAbout: { name: "Before", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } }], registry)
     const unregister = registerCommunityDbRegistry(registry)
     let resolve!: (value: unknown) => void
     apiFetchMock.mockReturnValue(new Promise((done) => { resolve = done }))

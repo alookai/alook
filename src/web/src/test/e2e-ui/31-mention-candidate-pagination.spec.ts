@@ -1,3 +1,4 @@
+import { currentCommunityFixtureError, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
 
@@ -9,6 +10,7 @@ type Candidate = {
   name: string
   discriminator: string
   avatar: string
+  avatarVersion: number
   status: "offline"
   sub: string
   role: "member"
@@ -22,6 +24,7 @@ function candidate(prefix: string, index: number): Candidate {
     name: `${prefix}${tag}`,
     discriminator: tag,
     avatar: prefix[0] ?? "M",
+    avatarVersion: 0,
     status: "offline",
     sub: "",
     role: "member",
@@ -90,23 +93,23 @@ test("@ candidates page to completion and shared popups stay anchored through vi
       const cursor = url.searchParams.get("cursor")
       searchCursors.set(query, [...(searchCursors.get(query) ?? []), cursor])
       if (query === "Fail") {
-        await route.fulfill({ status: 500, json: { error: "forced failure" } })
+        await route.fulfill(currentCommunityFixtureError("forced failure", 500))
         return
       }
       if (query === "NoMatch") {
-        await route.fulfill({ json: { members: [], limit: 200, hasMore: false } })
+        await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, json: { members: [], limit: 200, hasMore: false } })
         return
       }
       if (query === "CapMatch" && cursor) {
         markSearchTailRequested()
         await searchTailReleased
-        await route.fulfill({
+        await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
           json: { members: matches.slice(200), limit: 200, hasMore: false },
         })
         return
       }
       if (query === "CapMatch") {
-        await route.fulfill({
+        await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
           json: {
             members: matches.slice(0, 200),
             limit: 200,
@@ -120,7 +123,7 @@ test("@ candidates page to completion and shared popups stay anchored through vi
 
     const cursor = url.searchParams.get("cursor")
     browseCursors.push(cursor)
-    await route.fulfill({
+    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
       json: cursor
         ? { members: browse.slice(8), limit: 8, total: 12, hasMore: false }
         : {

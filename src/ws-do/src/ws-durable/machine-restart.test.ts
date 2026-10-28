@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
 import {
@@ -171,7 +172,7 @@ describe("WebSocketDurableObject", () => {
         const call = auditBroadcast()
         expect(call).toBeDefined()
         const body = JSON.parse(await (call!).clone().text()) as Record<string, unknown>
-        expect(body).toEqual({
+        expect(body).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
           type: "community:bot.audit_event",
           botId: "bot_1",
           id: "bae_reset",

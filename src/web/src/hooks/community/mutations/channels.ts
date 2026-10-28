@@ -15,7 +15,7 @@ import {
 import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
 import type { ChannelRow, CategoryRow } from "@/lib/community-db/schema"
-import { UNCATEGORIZED_CATEGORY_ID, type ChannelCategoryMove, type ChannelType } from "@alook/shared"
+import { UNCATEGORIZED_CATEGORY_ID, CommunityChannelResourceSchema, CommunityCategoryResourceSchema, type CommunityCategoryResource, type CommunityChannelResource, type ChannelCategoryMove, type ChannelType } from "@alook/shared"
 
 // Prefix marks an optimistic row so every consumer can tell it from a real
 // `ch_…` id without a separate flag, and guarantees it never collides with one.
@@ -50,7 +50,7 @@ export type CreateChannelArgs = {
   name: string
   type: ChannelType
 }
-export type CreateChannelResult = { channel: { id: string; name?: string; position?: number } }
+export type CreateChannelResult = { channel: CommunityChannelResource }
 
 async function persistTreeChange<T>(
   origin: ReturnType<typeof useCommunityMutationOrigin>,
@@ -100,14 +100,16 @@ export function useCreateChannel() {
       return persistTreeChange(origin, queryClient, args, (db) => {
         const rows = [...db.collections.channels.values()].filter((row) => row.serverId === args.serverId && row.categoryId === categoryId)
         const position = Math.max(-1, ...rows.map((row) => row.position)) + 1
-        pending = { id, serverId: args.serverId, categoryId, name: args.name.trim(), type: args.type, resourceComplete: false,
+        pending = { id, serverId: args.serverId, categoryId, name: args.name.trim(), type: args.type, topic: "", createdAt: new Date().toISOString(), messageCount: 0,
           parentChannelId: null, parentMessageId: null, creatorId: db.accountId,
           position, archived: false, muted: false, tags: [], pending: true, lastMessageAt: null }
         db.collections.channels.insert(pending)
       }, async (proof, options) => {
         const result = await apiFetch<CreateChannelResult>("/api/community/channels", { method: "POST", body: JSON.stringify({ type: args.type, serverId: args.serverId, categoryId, name: args.name }), ...options })
         origin.assert(proof.token)
-        publishCommunityCreatedChannel(queryClient, { ...pending, id: result.channel.id, name: result.channel.name ?? pending.name, position: result.channel.position ?? pending.position, pending: false }, proof)
+        const channel = CommunityChannelResourceSchema.parse(result.channel)
+        if (channel.serverId !== args.serverId || channel.type !== args.type || channel.categoryId !== categoryId) throw new Error("Created channel scope mismatch")
+        publishCommunityCreatedChannel(queryClient, { ...channel, pending: false }, proof)
         return result
       })
     },
@@ -195,7 +197,7 @@ export type CreateCategoryArgs = {
   name: string
   private?: boolean
 }
-export type CreateCategoryResult = { category: { id: string; name?: string; position?: number; private?: boolean } }
+export type CreateCategoryResult = { category: CommunityCategoryResource }
 
 const tempCategoryId = () => `tmp_cat_${nanoid()}`
 
@@ -214,7 +216,9 @@ export function useCreateCategory() {
       }, async (proof, options) => {
         const result = await apiFetch<CreateCategoryResult>(`/api/community/servers/${args.serverId}/categories`, { method: "POST", body: JSON.stringify({ name: args.name, private: args.private }), ...options })
         origin.assert(proof.token)
-        publishCommunityCreatedCategory(queryClient, { ...pending, id: result.category.id, name: result.category.name ?? pending.name, position: result.category.position ?? pending.position, private: result.category.private ?? pending.private, pending: false }, proof)
+        const category = CommunityCategoryResourceSchema.parse(result.category)
+        if (category.serverId !== args.serverId) throw new Error("Created category scope mismatch")
+        publishCommunityCreatedCategory(queryClient, { ...category, pending: false }, proof)
         return result
       })
     },

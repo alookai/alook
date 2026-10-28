@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { InfiniteQueryObserver } from "@tanstack/react-query"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -36,7 +37,7 @@ describe("native message window identity", () => {
 
   it("uses native bidirectional pages and stores only references while the canonical owner holds bodies", async () => {
     const { client, registry } = await createCommunityQueryOwner()
-    const row = (id: string, seq: number) => ({ id, channelId: "c1", type: "chat", seq, createdAt: `2026-10-01T00:00:0${seq}.000Z`, content: `Body ${seq}` })
+    const row = (id: string, seq: number) => messageResourceFixture({ id, channelId: "c1", seq, createdAt: `2026-10-01T00:00:0${seq}.000Z`, content: `Body ${seq}` })
     load.mockResolvedValueOnce({ messages: [row("m2", 2)], olderCursor: "older", newerCursor: "newer", hasMoreOlder: true, hasMoreNewer: true, latestSeq: 3 })
       .mockResolvedValueOnce({ messages: [row("m1", 1)], hasMoreOlder: false, hasMoreNewer: true, newerCursor: "m2", latestSeq: 3 })
       .mockResolvedValueOnce({ messages: [row("m3", 3)], hasMoreOlder: true, hasMoreNewer: false, olderCursor: "m2", latestSeq: 3 })

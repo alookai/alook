@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import "fake-indexeddb/auto"
 import React from "react"
 import { dehydrate, useIsRestoring } from "@tanstack/react-query"
@@ -60,7 +61,7 @@ it.each([null, false, true].flatMap(blockMode => (["accepted", "incoming"] as co
     await act(async () => { await seedConversationEntry(registry!.queryClient, fresh) })
     expect(ids).toContain("m2")
     if (blocked) act(() => dispatchCommunityWsEvents([{ type: "community:friend.block", userId: "peer", ...(blockMode ? { blockedByViewer: true } : {}) }], {
-      deliveryMode: "batch", contract: 2, queryClient: registry!.queryClient, communityStore: registry!.runtime.ui, wsStore: registry!.runtime.ws,
+      deliveryMode: "batch", contract: BUSINESS_SCHEMA_VERSION, queryClient: registry!.queryClient, communityStore: registry!.runtime.ui, wsStore: registry!.runtime.ws,
       sub: { dmConversationId: "c1" }, viewerUserIdRef: { current: "viewer" }, matchesFocus: event => event.channelId === "c1",
     }))
     expect(registry!.runtime.ws.actions.isChannelAccessRevoked("c1", null)).toBe(blocked)

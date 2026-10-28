@@ -1,3 +1,4 @@
+import { resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { StrictMode, useLayoutEffect } from "react"
 import { useChannelMessageFeed } from "./use-channel-message-feed"
@@ -110,7 +111,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   await seedConversationEntry(owner.client, entry("channel", "c2"))
   if (options.readPointer) ingestReadStateSnapshot(owner.registry, { revision: 2, readStates: [options.readPointer] })
   if (options.latestAttentionSeq) publishAccountAttentionSnapshot(owner.client, {
-    snapshot: { scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true,
+    snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true,
       lastUnreadSeq: options.latestAttentionSeq, lastAttentionSeq: null, attentionCount: 0 }],
     items: [], limit: 100, truncated: false,
     included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },

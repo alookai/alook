@@ -58,10 +58,9 @@ describe("queue-worker queue consumer", () => {
   })
 
   it.each([
-    ["legacy bot wake", legacyWake, botWake],
     ["v1 bot wake", botWake, botWake],
     ["v1 mobile push", mobilePush, mobilePush],
-  ])("normalizes and ACKs a completed %s", async (_name, body, expected) => {
+  ])("executes and ACKs a completed %s", async (_name, body, expected) => {
     const message = makeMessage(body)
 
     await handler.queue({ messages: [message] } as never, env)
@@ -77,6 +76,7 @@ describe("queue-worker queue consumer", () => {
   })
 
   it.each([
+    ["unversioned", legacyWake, "malformed"],
     ["malformed", { messageId: "message-1" }, "malformed"],
     ["unknown", { version: 1, kind: "email", messageId: "message-1", userId: "user-1" }, "unknown_kind"],
     ["unsupported", { version: 2, kind: "bot-wake", messageId: "message-1", botUserId: "bot-1" }, "unsupported_version"],
@@ -131,8 +131,8 @@ describe("queue-worker development HTTP entrypoint", () => {
 
   afterEach(() => vi.useRealTimers())
 
-  it("accepts mixed versioned tasks and normalizes legacy wakes", async () => {
-    const response = await handler.fetch!(request("POST", [legacyWake, mobilePush]), env)
+  it("accepts mixed current versioned tasks", async () => {
+    const response = await handler.fetch!(request("POST", [botWake, mobilePush]), env)
 
     expect(response.status).toBe(202)
     expect(mockExecuteQueueTask.mock.calls.map((call) => call[2])).toEqual([
@@ -143,7 +143,7 @@ describe("queue-worker development HTTP entrypoint", () => {
 
   it("deduplicates only the same kind/message/recipient tuple", async () => {
     const response = await handler.fetch!(request("POST", [
-      legacyWake,
+      botWake,
       botWake,
       mobilePush,
       { ...mobilePush, userId: "user-2" },
@@ -155,8 +155,9 @@ describe("queue-worker development HTTP entrypoint", () => {
 
   it.each([
     ["non-array", legacyWake],
-    ["malformed item", [legacyWake, { messageId: "message-2" }]],
-    ["unknown item", [legacyWake, { version: 1, kind: "email", messageId: "message-2", userId: "user-2" }]],
+    ["unversioned item", [botWake, legacyWake]],
+    ["malformed item", [botWake, { messageId: "message-2" }]],
+    ["unknown item", [botWake, { version: 1, kind: "email", messageId: "message-2", userId: "user-2" }]],
   ])("rejects a %s body before D1", async (_name, body) => {
     const response = await handler.fetch!(request("POST", body), env)
     expect(response.status).toBe(400)
@@ -172,7 +173,7 @@ describe("queue-worker development HTTP entrypoint", () => {
       }
     })
 
-    const responsePromise = handler.fetch!(request("POST", [legacyWake, mobilePush]), env)
+    const responsePromise = handler.fetch!(request("POST", [botWake, mobilePush]), env)
     await vi.runAllTimersAsync()
     const response = await responsePromise
 

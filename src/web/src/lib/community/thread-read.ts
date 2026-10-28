@@ -1,4 +1,4 @@
-import { CommunityResourceProfileSchema, communityReadSchemas, communityChannelResourceFromStorage, normalizeCommunityChannelResource, normalizeCommunityMessageResource, queries, type Database } from "@alook/shared"
+import { CommunityResourceProfileSchema, communityReadSchemas, communityChannelResourceFromStorage, COMMUNITY_CONTRACT_VERSION, type CommunityContract, queries, type Database } from "@alook/shared"
 import { writeCommunityContractJSON } from "./read-contract"
 import { loadApiMessageContext, mapMessageForApi } from "./message-payload"
 import { canonicalUserImage } from "./storage"
@@ -9,13 +9,13 @@ type Included = { messages: Array<Parameters<typeof mapMessageForApi>[0] & { cha
   participants: Awaited<ReturnType<typeof queries.communityThread.listParticipantsForChannels>> }
 
 export async function writeCommunityThreadsRead(db: Database, userId: string, channel: unknown, threads: unknown[], included?: Included,
-  page = { nextCursor: null as string | null, hasMore: false }, contract: 2 | 3 = 2) {
+  page = { nextCursor: null as string | null, hasMore: false }, contract: CommunityContract = COMMUNITY_CONTRACT_VERSION) {
   return writeCommunityContractJSON(await readCommunityThreadsResource(db, userId, channel, threads, included, page, contract), contract)
 }
 
 export async function readCommunityThreadsResource(db: Database, userId: string, channel: unknown, threads: unknown[], included?: Included,
-  page = { nextCursor: null as string | null, hasMore: false }, contract: 2 | 3 = 2) {
-  const normalizeChannel = contract === 3 ? (value: unknown) => communityChannelResourceFromStorage(value) : normalizeCommunityChannelResource
+  page = { nextCursor: null as string | null, hasMore: false }, contract: CommunityContract = COMMUNITY_CONTRACT_VERSION) {
+  const normalizeChannel = communityChannelResourceFromStorage
   const parent = normalizeChannel(channel)
   const children = threads.map(normalizeChannel)
   if (children.some((child) => child.parentChannelId !== parent.id || child.serverId !== parent.serverId)) throw new Error("Thread resource scope mismatch")
@@ -28,13 +28,13 @@ export async function readCommunityThreadsResource(db: Database, userId: string,
   )
   const messages = items.map((item) => {
     const message = mapMessageForApi(item, contextForChannel(item.channelId), contract, item.channelId)
-    return contract === 3 ? message : normalizeCommunityMessageResource(message, item.channelId)
+    return message
   })
   const participants = threadParticipantResources((included?.participants ?? []).map((row) => ({
     channelId: row.channelId, userId: row.userId, isCreator: children.find((child) => child.id === row.channelId)?.creatorId === row.userId,
     participantCount: "participantCount" in row ? Number(row.participantCount) : undefined,
-    profile: resourceProfile({ id: row.userId, name: contract === 3 ? CommunityResourceProfileSchema.shape.name.parse(row.userName) : row.userName ?? "", discriminator: row.discriminator, avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion), avatarVersion: row.userAvatarVersion }),
+    profile: resourceProfile({ id: row.userId, name: CommunityResourceProfileSchema.shape.name.parse(row.userName), discriminator: row.discriminator, avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion), avatarVersion: row.userAvatarVersion }),
   })))
   return communityReadSchemas(contract).threads.parse({ contractVersion: contract, channelId: parent.id, channel: parent, threads: children,
-    included: { messages, ...participants, profiles: contract === 2 ? participants.profiles.map((profile) => ({ id: profile.id, name: profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "" })) : participants.profiles, tags: included?.tags ?? [] }, page })
+    included: { messages, ...participants, profiles: participants.profiles, tags: included?.tags ?? [] }, page })
 }

@@ -1,5 +1,6 @@
-import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, requestedCommunityContract } from "@alook/shared"
-import { communityReadTarget, decodeCommunityReadResponse } from "@/lib/community/read-response"
+import { BusinessSchemaMismatch, requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, CommunityReadErrorSchema } from "@alook/shared"
+import { decodeCommunityReadResponse } from "@/lib/community/read-response"
 import { createStore } from "@tanstack/store";
 import { ApiError, UnauthorizedError, isAbortError } from "@/lib/errors";
 import { startRequest, requestHeaders, requestRejected, finishRequest, readObservedResponse, runObservedFetch, type RequestObservation } from "@/lib/observability/requests";
@@ -106,7 +107,7 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
   try {
     assertEligible();
     const headers = new Headers(request.headers);
-    if (communityReadTarget(path, request.method) && !headers.has(COMMUNITY_CONTRACT_HEADER)) headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_CONTRACT_VERSION));
+    if (path.startsWith("/api/community/")) headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_CONTRACT_VERSION));
     if (!headers.has("Content-Type") && !(typeof FormData !== "undefined" && request.body instanceof FormData)) headers.set("Content-Type", "application/json");
     res = await runObservedFetch(observation, () => fetch(API_BASE + path, {
       ...request,
@@ -132,15 +133,32 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
     throw new UnauthorizedError();
   }
 
+  const contentType = res.headers.get("Content-Type") ?? "";
+  if (path.startsWith("/api/community/") && (contentType.includes("json") || res.status === 204)
+    && res.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(COMMUNITY_CONTRACT_VERSION)) {
+    throw requestBusinessSchemaUpdate(Number(res.headers.get(COMMUNITY_CONTRACT_HEADER)));
+  }
+
   if (!res.ok) {
     let serverError: string | undefined;
     let details: string[] | undefined;
+    const currentCommunityError = path.startsWith("/api/community/") && contentType.includes("json");
     try {
-      const body = (await res.json()) as { error?: string | { message?: string }; details?: string[] };
-      serverError = typeof body.error === "string" ? body.error : body.error?.message;
-      details = body.details;
-    } catch {
-      // non-JSON body (HTML from proxy, empty body, etc.)
+      const body: unknown = await res.json();
+      assertEligible();
+      if (currentCommunityError) {
+        const parsed = CommunityReadErrorSchema.safeParse(body);
+        if (!parsed.success) throw parsed.error;
+        serverError = parsed.data.error.message;
+        details = parsed.data.error.details;
+      } else if (typeof body === "object" && body !== null) {
+        if ("error" in body && typeof body.error === "string") serverError = body.error;
+        if ("details" in body && Array.isArray(body.details) && body.details.every(detail => typeof detail === "string")) details = body.details;
+      }
+    } catch (error) {
+      assertEligible();
+      if (isAbortError(error)) throw error;
+      if (currentCommunityError) throw error instanceof BusinessSchemaMismatch ? error : requestBusinessSchemaUpdate();
     }
 
     assertEligible();
@@ -169,13 +187,24 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
 }
 
 export async function apiFetch<T>(path: string, options?: ApiRequestOptions): Promise<T> {
-  const res = await apiFetchResponse(path, options, true);
-  if (res.status === 204) return readObservedResponse(res, async () => undefined as T);
-  const data = await readObservedResponse(res, async () => decodeCommunityReadResponse(path, options?.method, res, await res.json(), new Headers(options?.headers).has(COMMUNITY_CONTRACT_HEADER) ? requestedCommunityContract(new Headers(options?.headers)) ?? COMMUNITY_CONTRACT_VERSION : COMMUNITY_CONTRACT_VERSION) as T, () => {
+  const qualify = () => {
     options?.assertActive?.();
     if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
-  });
-  return data;
+  };
+  const res = await apiFetchResponse(path, options, true);
+  if (res.status === 204) return readObservedResponse(res, async () => undefined as T, qualify);
+  return readObservedResponse(res, async () => {
+    try {
+      const body: unknown = await res.json();
+      qualify();
+      return decodeCommunityReadResponse(path, options?.method, res, body, COMMUNITY_CONTRACT_VERSION) as T;
+    } catch (error) {
+      qualify();
+      if (isAbortError(error)) throw error;
+      if (path.startsWith("/api/community/")) throw requestBusinessSchemaUpdate();
+      throw error;
+    }
+  }, qualify);
 }
 
 export function getErrorMessage(err: unknown, fallback: string): string {

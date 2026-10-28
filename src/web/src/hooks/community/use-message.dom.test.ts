@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -29,14 +30,14 @@ function Owner({ children }: PropsWithChildren) {
   return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children))
 }
 const scope = { channelId: "channel-1", serverId: "server-1" }
-const message = { id: "m_1", type: "chat" as const, authorId: "u_1", authorName: "Alice", content: "cached opener", createdAt: "2026-07-03T00:00:00.000Z" }
+const message = messageResourceFixture({ id: "m_1", channelId: scope.channelId, authorId: "u_1", authorName: "Alice", content: "cached opener", createdAt: "2026-07-03T00:00:00.000Z" })
 
 describe("useMessage cache-first placeholder", () => {
   it("returns a cached canonical list message while the exact query is pending", async () => {
     ingestMessages(registry, scope.channelId, [message])
     client.setQueryData(communityKeys.channelMessages(scope.channelId), { pages: [{ ids: [message.id], hasMore: false }], pageParams: [{ mode: "newest" }] })
     const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
-    await waitFor(() => expect(rendered.result.current.message).toMatchObject(message))
+    await waitFor(() => expect(rendered.result.current.message).toMatchObject({ id: message.id, type: message.type, seq: message.seq, authorId: message.authorId, authorName: message.authorName, content: message.content, createdAt: message.createdAt }))
     expect(rendered.result.current.isPlaceholderData).toBe(true)
     expect(rendered.result.current.fetchStatus).toBe("fetching")
   })

@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { act } from "@/test/react-dom-harness"
 import { render } from "@/test/react-dom-harness"
@@ -71,7 +72,8 @@ function sheetCache(me: boolean) {
   return {
     notFound: false,
     anchorId: "message_1",
-    messages: [{
+    messages: [messageResourceFixture({
+      channelId: "channel_1",
       id: "message_1",
       seq: 1,
       type: "chat",
@@ -82,7 +84,7 @@ function sheetCache(me: boolean) {
       reactions: me
         ? [{ emoji: "👍", count: 1, me: true, userIds: ["viewer_1"] }]
         : [],
-    }],
+    })],
   }
 }
 

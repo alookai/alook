@@ -51,10 +51,10 @@ const ctx = { params: { id: "s1" } } as any
 
 it("GET returns the canonical category rows for a server member", async () => {
   mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "member" })
-  mockFindMany.mockResolvedValue([{ id: "cat1", serverId: "s1", name: "General", position: 0, private: 0 }])
+  mockFindMany.mockResolvedValue([{ id: "cat1", serverId: "s1", name: "General", position: 0, private: 0, creatorId: "u1" }])
   const res = await GET(new NextRequest("http://localhost/api/community/servers/s1/categories"), ctx)
   expect(res.status).toBe(200)
-  expect(await res.json()).toEqual({ categories: [{ id: "cat1", serverId: "s1", name: "General", position: 0, private: 0 }] })
+  expect(await res.json()).toEqual({ categories: [{ id: "cat1", serverId: "s1", name: "General", position: 0, private: false, creatorId: "u1" }] })
 })
 
 function postReq(body: unknown) {
@@ -74,7 +74,7 @@ describe("POST /api/community/servers/[id]/categories", () => {
   })
 
   it("creates a category", async () => {
-    mockCreateCategory.mockResolvedValue({ id: "cat1", name: "General", position: 0, private: 0 })
+    mockCreateCategory.mockResolvedValue({ id: "cat1", serverId: "s1", name: "General", position: 0, private: 0, creatorId: "u1" })
 
     const res = await POST(postReq({ name: "General" }), ctx)
     expect(res.status).toBe(201)

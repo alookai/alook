@@ -232,6 +232,9 @@ export async function listDMs(db: Database, userId: string) {
   const rows = await db
     .select({
       id: communityChannel.id,
+      channel: communityChannel,
+      selfSource: selfMember.source,
+      peerSource: peerMember.source,
       otherUserId: user.id,
       otherUserName: user.name,
       otherUserEmail: user.email,

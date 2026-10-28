@@ -1,3 +1,4 @@
+import { serverDirectoryFixture } from "@/test/community-resource-fixtures"
 import { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { communityKeys } from "@/lib/query-keys"
@@ -30,10 +31,10 @@ describe("owner-delete scope eviction", () => {
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestServerDetail(registry, {
+    ingestServerDetail(registry, serverDirectoryFixture({
       id: otherServerId, name: "Other", discriminator: "0001", description: "",
       icon: null, ownerId: "viewer", categories: [],
-    })
+    }))
 
     expect(evictServerChannelScopes(queryClient, otherServerId)).toBe(true)
     expect(registry.collections.servers.get(otherServerId)).toBeUndefined()

@@ -4,7 +4,7 @@ import type {
   CommunityProfilePatch,
 } from "@/lib/community/models/people"
 import type { MessageInput } from "@/lib/community/models/message"
-import { CommunityResourceProfileSchema, type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
+import { type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -13,7 +13,7 @@ import {
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
-import { avatarInitial } from "@/lib/community/avatar"
+
 
 type ProfileFieldRevisions = {
   identityAbout: number
@@ -31,8 +31,6 @@ export type CommunityProfileSeedSnapshot = {
   registry: CommunityDbRegistry | null
   revision: number
 }
-
-const profileIdentitySchema = CommunityResourceProfileSchema.pick({ id: true, name: true, discriminator: true, avatar: true, avatarVersion: true }).extend({ discriminator: CommunityResourceProfileSchema.shape.discriminator.unwrap() })
 
 const createProfileRevisions = () => createStore<ProfileRevisionState>({ revision: 0, fieldsByUserId: new Map() })
 const profileRevisionState = new WeakMap<CommunityDbRegistry, ReturnType<typeof createProfileRevisions>>()
@@ -57,16 +55,15 @@ type CommunityUserProfileSeed = Partial<Pick<CommunityResourceProfile, "name" | 
 export function communityUserProfilePatch(
   userId: string,
   row: CommunityUserProfileSeed,
-  options?: { legacyPresentation?: boolean },
 ): CommunityProfilePatch {
-  const statusText = options?.legacyPresentation && row.statusText === "" ? undefined : row.statusText
+  const statusText = row.statusText
   return {
     id: userId,
     identityAbout: {
       ...(row.name !== undefined ? { name: row.name } : {}),
-      ...(row.discriminator ? { discriminator: row.discriminator } : {}),
+      ...(row.discriminator === undefined ? {} : { discriminator: row.discriminator }),
     },
-    ...(row.avatarVersion === undefined ? {} : { avatar: { avatarVersion: row.avatarVersion, ...(row.avatar === undefined || options?.legacyPresentation && row.avatar === avatarInitial(row.name ?? "") ? {} : { avatar: row.avatar }) } }),
+    ...(row.avatarVersion === undefined ? {} : { avatar: { avatarVersion: row.avatarVersion, ...(row.avatar === undefined ? {} : { avatar: row.avatar }) } }),
     ...(row.statusEmoji === undefined && statusText === undefined
       ? {}
       : { status: {
@@ -174,7 +171,7 @@ export function writeCommunityProfilePatches(
     const fields = {
       id: patch.id,
       name: identityAbout?.name ?? current?.name,
-      discriminator: identityAbout?.discriminator || current?.discriminator,
+      discriminator: identityAbout?.discriminator === undefined ? current?.discriminator : identityAbout.discriminator,
       avatar: incomingAvatar?.avatar === undefined ? current?.avatar : incomingAvatar.avatar,
       avatarVersion: incomingAvatar?.avatarVersion ?? current?.avatarVersion,
       aboutMe: identityAbout?.aboutMe ?? current?.aboutMe,
@@ -195,14 +192,9 @@ export function writeCommunityProfilePatches(
         ? current?.statusText
         : status.statusText,
     }
-    const identity = profileIdentitySchema.safeParse({
-      id: fields.id,
-      name: fields.name,
-      discriminator: fields.discriminator,
-      avatar: fields.avatar,
-      avatarVersion: fields.avatarVersion,
-    })
-    const next = profileSchema.parse({ ...Object.fromEntries(Object.entries(fields).filter(([, field]) => field !== undefined)), identityComplete: current?.identityComplete === true || identity.success })
+    const parsed = profileSchema.safeParse(Object.fromEntries(Object.entries(fields).filter(([, field]) => field !== undefined)))
+    if (!parsed.success) continue
+    const next = parsed.data
     profiles.set(patch.id, next)
     if (writeRevision !== null) {
       const nextRevisions = { ...fieldRevisions }

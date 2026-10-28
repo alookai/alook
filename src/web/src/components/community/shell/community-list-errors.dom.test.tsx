@@ -1,3 +1,4 @@
+import { friendBucketScenarioFixture, dmListRowFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, expect, it, vi } from "vitest"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -21,16 +22,16 @@ vi.mock("@/hooks/community/use-inbox", () => ({ useInboxUnreads: () => ({ friend
 beforeEach(() => { load.mockReset() })
 
 type Kind = "friends" | "dms"
-const friend = { id: "friendship", userId: "peer", name: "Cached person", discriminator: "0001", avatar: "P", status: "offline", sub: "" }
-const dm = { id: "dm", userId: "peer", name: "Cached person", discriminator: "0001", avatar: "P", status: "offline", preview: "Cached conversation" }
+const friend = { id: "friendship", userId: "peer", name: "Cached person", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline" as const, sub: "" }
+const dm = { id: "dm", userId: "peer", name: "Cached person", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline" as const, preview: "Cached conversation" }
 const primaryPath = (kind: Kind) => kind === "friends" ? "/api/community/friends/accepted" : "/api/community/users/me/dms"
 const key = (kind: Kind) => kind === "friends" ? communityKeys.friends() : communityKeys.dms()
 const emptyText = (kind: Kind) => kind === "friends" ? "No friends yet. Add someone from the New tab." : "Your direct messages will appear here."
 function response(path: string, populated = false) {
-  if (path.endsWith("/accepted")) return { friends: populated ? [friend] : [] }
-  if (path.endsWith("/blocked")) return { blocked: [] }
-  if (path.endsWith("/pending")) return { pending: [] }
-  if (path.endsWith("/dms")) return { conversations: populated ? [dm] : [] }
+  if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", populated ? [friend] : [])
+  if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
+  if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
+  if (path.endsWith("/dms")) return { conversations: populated ? [dmListRowFixture(dm)] : [] }
   throw new Error(`Unexpected list request: ${path}`)
 }
 function SharedAccountReader() { useFriends(); return null }

@@ -1,15 +1,11 @@
+import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { flattenError } from "zod"
 import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { queries, withD1Retry, CommunityAgentSendRequestSchema, MAX_FORUM_TAG_LENGTH, utcDayKey, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
-import {
-  parseCursor,
-  parseAnchor,
-  parsePageSize,
-  parseCommunityMessageWindow,
-} from "@/lib/community/messages"
+import { parseCommunityMessageWindow } from "@/lib/community/messages"
 import { mapPostedMessageForApi } from "@/lib/community/message-payload"
 import { readCommunityMessageWindow } from "@/lib/community/message-window.server"
 import { readCommunityConversationEntry } from "@/lib/community/conversation-entry.server"
@@ -79,8 +75,8 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     )
   }
   const channelId = resolved.value.target.channelId
-  if (params.has("entry") && (params.get("entry") !== "1" || ctx.actor.kind !== "human" || requestedCommunityContract(req.headers) !== 3)) {
-    return writeError("entry requires human resource contract 3", 400)
+  if (params.has("entry") && (params.get("entry") !== "1" || ctx.actor.kind !== "human" || requestedCommunityContract(req.headers) !== COMMUNITY_RESOURCE_CONTRACT_VERSION)) {
+    return writeError("entry requires current human resource contract", 400)
   }
   // TODO(route-disc): unify the two response projections.
   // Auth/pagination-scope already single-source (one mask, one channel-scoped set);
@@ -111,10 +107,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   // ── human arm: createdAt-anchored window → enrich → {messages} ──
   const userId = ctx.actor.userId
   let window
-  try { window = requestsCommunityContract(req.headers) ? parseCommunityMessageWindow(params) : {
-    anchorId: parseAnchor(params.get("anchor")), since: parseCursor(params.get("since")),
-    cursor: parseCursor(params.get("cursor")), pageSize: parsePageSize(params.get("limit")),
-  } } catch (error) { return writeError(error instanceof Error ? error.message : "invalid message window", 400) }
+  try { window = parseCommunityMessageWindow(params) } catch (error) { return writeError(error instanceof Error ? error.message : "invalid message window", 400) }
   const rawTag = params.get("tag")
   const tag = rawTag?.trim().toLowerCase()
   if (rawTag !== null && !tag) return writeError("tag must not be empty", 400)
@@ -129,7 +122,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   }
 
   const result = await readCommunityMessageWindow(db, {
-    viewerId: userId, target: resolved.value, window, tag, contract: requestedCommunityContract(req.headers) ?? 1,
+    viewerId: userId, target: resolved.value, window, tag, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION,
   })
   if (!result.ok) return NextResponse.json({ error: result.error, details: result.details }, { status: result.status })
   return writeCommunityMessagesRead(req, channelId, result.page)
@@ -173,7 +166,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   if (ctx.actor.kind === "bot") {
     return handleBotSend(db, ctx.actor.userId, ctx.env, raw)
   }
-  return handleHumanSend(db, ctx.actor.userId, ctx.env, ctx.params?.id, raw, requestedCommunityContract(req.headers) ?? 1)
+  return handleHumanSend(db, ctx.actor.userId, ctx.env, ctx.params?.id, raw, COMMUNITY_RESOURCE_CONTRACT_VERSION)
 })
 
 /**
@@ -232,7 +225,7 @@ async function handleHumanSend(
     })
     if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
     const response = humanMessageConfirmation(contract, target.channelId, {
-      message: contract === 3 ? await mapPostedMessageForApi(db, target.channelId, created.message, contract) : created.message,
+      message: await mapPostedMessageForApi(db, target.channelId, created.message, contract),
       threadId: created.thread.id,
       deduped: created.deduped,
     }, created.deduped ? 200 : 201)
@@ -265,9 +258,8 @@ async function handleHumanSend(
 }
 
 function humanMessageConfirmation(contract: CommunityContract, channelId: string, payload: { message: unknown; deduped?: boolean; threadId?: string }, status: number): NextResponse {
-  if (contract !== 3) return NextResponse.json(payload, { status })
-  return NextResponse.json(CommunityMessagePostedSchema.parse({ contractVersion: 3, channelId, ...payload, deduped: payload.deduped === true }), {
-    status, headers: { [COMMUNITY_CONTRACT_HEADER]: "3" },
+  return NextResponse.json(CommunityMessagePostedSchema.parse({ contractVersion: contract, channelId, ...payload, deduped: payload.deduped === true }), {
+    status, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) },
   })
 }
 

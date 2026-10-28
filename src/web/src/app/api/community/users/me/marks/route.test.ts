@@ -1,3 +1,5 @@
+import { channelResourceFixture, messageResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -7,6 +9,7 @@ const mockGetServersByIds = vi.fn()
 const mockListAccessVisibleChannelIds = vi.fn()
 const mockToAgentMessages = vi.fn()
 const mockListByMessageIds = vi.fn()
+const mockGetMessageResources = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -26,19 +29,26 @@ vi.mock("@alook/shared", async () => {
         listAccessVisibleChannelIdsForUser: (...args: unknown[]) => mockListAccessVisibleChannelIds(...args),
         toAgentMessages: (...args: unknown[]) => mockToAgentMessages(...args),
       },
+      communityMessage: { getMessagesByIdsInChannels: async (db: unknown, ids: string[], channels: string[]) => (await mockGetMessageResources(db, ids, channels)).filter((row: { id: string; channelId: string }) => ids.includes(row.id) && channels.includes(row.channelId)) },
+      communityReaction: { listReactionsByMessageIds: vi.fn(async () => []) },
+      communityUserProfile: { getProfilesByUserIds: vi.fn(async () => []) },
+      user: { getUsersByIds: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: id === "u-alice" ? "Alice" : "Viewer", discriminator: "0001", image: null, avatarVersion: 0 }))) },
       communityAttachment: {
         listByMessageIds: (...args: unknown[]) => mockListByMessageIds(...args),
       },
       communityChannel: {
+        listChannelMembershipsForUserInChannels: vi.fn(async () => []),
         getChannelsByIds: (...args: unknown[]) => mockGetChannelsByIds(...args),
       },
       communityServer: {
+        listUserServers: vi.fn(async () => [{ ...serverResourceFixture({ id: "s1", ownerId: "u1" }), role: "owner", memberId: "server-member" }]),
         getServersByIds: (...args: unknown[]) => mockGetServersByIds(...args),
       },
     },
   }
 })
 
+vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: async (_db: unknown, id: string) => ({ ok: true, value: { channel: channelResourceFixture({ id, serverId: "s1", type: id === "c1" ? "thread" : "text", name: id === "c1" ? "general" : "Parent", parentChannelId: id === "c1" ? "parent1" : null, parentMessageId: id === "c1" ? "opener" : null }) } }) }))
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
@@ -77,6 +87,7 @@ describe("GET /api/community/users/me/marks", () => {
     mockGetServersByIds.mockResolvedValue([])
     mockListAccessVisibleChannelIds.mockResolvedValue(["c1"])
     mockListByMessageIds.mockResolvedValue([])
+    mockGetMessageResources.mockResolvedValue([])
     mockToAgentMessages.mockResolvedValue([])
   })
 
@@ -106,6 +117,7 @@ describe("GET /api/community/users/me/marks", () => {
         author: { id: "u-alice", name: "Alice", email: "alice@t.com", image: null },
       },
     ])
+    mockGetMessageResources.mockResolvedValue([{ ...messageResourceFixture({ id: "m1", channelId: "c1", authorId: "u-alice", type: "system", seq: 42, content: "pinned thought", createdAt: "2026-06-25T09:00:00Z" }), authorName: "Alice", authorImage: null, authorAvatarVersion: 0 }])
     mockGetChannelsByIds.mockResolvedValue([{
       id: "c1",
       name: "general",
@@ -127,8 +139,11 @@ describe("GET /api/community/users/me/marks", () => {
       // serverId + channelId locate the channel, m.seq jumps to the message —
       // all three required for cross-channel navigation. seq lives inside `m`
       // to match the frontend `Marked` type (m: Msg).
-      m: { id: "m1", type: "system", authorId: "u-alice", authorName: "Alice", content: "pinned thought", seq: 42 },
+      m: { id: "m1" },
     })
+    expect(body.resources.messages[0]).toMatchObject({ id: "m1", channelId: "c1", type: "system", authorId: "u-alice", authorName: "Alice", content: "pinned thought", seq: 42 })
+    expect(body.resources.messages[0]).not.toHaveProperty("authorEmail")
+    expect(mockGetMessageResources).toHaveBeenCalledWith({}, ["m1"], ["c1", "parent1"])
   })
 
   it("normalizes an ordinary stored message to the canonical chat wire type", async () => {
@@ -143,13 +158,15 @@ describe("GET /api/community/users/me/marks", () => {
       },
       author: { id: "u-alice", name: "Alice", image: null, avatarVersion: 0 },
     }])
+    mockGetMessageResources.mockResolvedValue([{ ...messageResourceFixture({ id: "m-default", channelId: "c1", authorId: "u-alice", content: "hello", createdAt: "2026-06-25T09:00:00Z" }), type: "default", authorName: "Alice", authorImage: null, authorAvatarVersion: 0 }])
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
     mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
 
     const body = await (await GET(new NextRequest(
       "http://localhost/api/community/users/me/marks",
     ))).json()
-    expect(body.marked[0].m).toMatchObject({ id: "m-default", type: "chat" })
+    expect(body.marked[0].m).toEqual({ id: "m-default" })
+    expect(body.resources.messages[0]).toMatchObject({ id: "m-default", type: "chat" })
   })
 
   it("returns empty marked array when none", async () => {

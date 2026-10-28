@@ -97,7 +97,7 @@ describe("FriendsPage actionable requests", () => {
     const onAccept = vi.fn((_id: string) => new Promise<void>((next) => { resolve = next }))
     const onOpenProfile = vi.fn()
     const { client, registry } = await createCommunityQueryOwner()
-    publishCommunityFriendships(client, pending, { token: captureCommunityLiveSnapshotToken(client), signal: undefined })
+    publishCommunityFriendships(client, pending.map(({ id, userId, kind, needsOwnerApproval }) => ({ id, userId, kind, needsOwnerApproval })), { token: captureCommunityLiveSnapshotToken(client), signal: undefined })
     function NativeRequests() {
       const rows = useFriendshipRows()
       const command = useMutation({ mutationKey: ["community", "friend-request", "accept"], mutationFn: async ({ friendshipId }: { friendshipId: string }) => {

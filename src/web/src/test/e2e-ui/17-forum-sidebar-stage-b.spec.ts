@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { holdRoute } from "./_fixtures/held-route"
@@ -8,7 +9,7 @@ import type { CaseActors } from "./_fixtures/case-fixture"
 
 async function prepareCase(_actors: CaseActors) {
   async function participantUserIds(page: Page, channelId: string): Promise<string[]> {
-    const response = await page.request.get(`/api/community/channels/${channelId}/members`)
+    const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${channelId}/members`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(response.status()).toBe(200)
     const payload = await response.json() as {
       members: Array<{
@@ -83,9 +84,9 @@ async function strictSidebar(page: Page, serverId: string, retainId?: string) {
     include: "parentMessage",
   })
   if (retainId) params.set("retainId", retainId)
-  const response = await page.request.get(
-    `/api/community/servers/${serverId}/channels?${params.toString()}`,
-  )
+  const response = await confirmCommunityFixtureApiResponse(page.request.get(
+    `/api/community/servers/${serverId}/channels?${params.toString()}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))
   expect(response.status()).toBe(200)
   return await response.json() as {
     canonicalChannels: Array<{ id: string }>
@@ -318,7 +319,7 @@ test.describe("forum sidebar Stage B request shape", () => {
     expect(await participantUserIds(page, threadId)).not.toContain(userId("carol"))
   })
 
-  test("a grouped ordinary thread never asks the forum sidebar to retain it", async ({ caseActors }) => {
+  test("an ordinary thread checks sidebar retention without enrolling a nonparticipant", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser, userId } = actors
     const { participantUserIds, serverId, ordinaryThreadId } = await prepareCase1(actors)
@@ -344,10 +345,11 @@ test.describe("forum sidebar Stage B request shape", () => {
 
     expect(successfulResponses.filter((url) => isConversationEntryRequest(url, ordinaryThreadId)))
       .toHaveLength(1)
-    expect(requests.filter((url) =>
+    await expect.poll(() => requests.filter((url) =>
       isSidebarRequest(url, serverId)
       && new URL(url).searchParams.get("retainId") === ordinaryThreadId
-    )).toHaveLength(0)
+    ).length).toBe(1)
+    await expect(page.getByTestId(tid.forumSidebarThread(ordinaryThreadId))).toHaveCount(0)
     expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
     expect(await participantUserIds(page, ordinaryThreadId)).not.toContain(userId("bob"))
   })
@@ -544,9 +546,9 @@ test.describe("forum sidebar archived opener projection", () => {
     expect(archivedProjection.canonicalChannels.map(({ id }) => id)).toEqual(
       initialIds.filter((id) => id !== archivedId).concat(refillId),
     )
-    const exact = await viewer.page.request.get(`/api/community/channels/${archivedId}`)
+    const exact = await confirmCommunityFixtureApiResponse(viewer.page.request.get(`/api/community/channels/${archivedId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(exact.status()).toBe(200)
-    expect((await exact.json() as { archived: boolean | number }).archived).toBeFalsy()
+    expect((await exact.json() as { channel: { archived: boolean } }).channel.archived).toBeFalsy()
 
     await viewer.page.goto(`/c/channels/${serverId}/${archivedId}`)
     await expect(childPanel(viewer.page).getByRole("heading", { name: titles.get(archivedId)! })).toBeVisible({

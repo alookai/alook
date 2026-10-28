@@ -1,18 +1,14 @@
-export const COMMUNITY_CONTRACT_HEADER = "X-Alook-Community-Contract"
-export const COMMUNITY_CONTRACT_VERSION = 2 as const
-export const COMMUNITY_RESOURCE_CONTRACT_VERSION = 3 as const
+import { BUSINESS_SCHEMA_VERSION } from "./business-schema-version"
 
-export type CommunityContract = 1 | 2 | 3
+export const COMMUNITY_CONTRACT_HEADER = "X-Alook-Community-Contract"
+export const COMMUNITY_CONTRACT_VERSION = BUSINESS_SCHEMA_VERSION
+export const COMMUNITY_RESOURCE_CONTRACT_VERSION = BUSINESS_SCHEMA_VERSION
+export type CommunityContract = typeof BUSINESS_SCHEMA_VERSION
 
 export function requestedCommunityContract(headers: Pick<Headers, "get">): CommunityContract | null {
-  const value = headers.get(COMMUNITY_CONTRACT_HEADER)
-  if (value === null || value === "1") return 1
-  if (value === "2") return 2
-  if (value === "3") return 3
-  return null
+  return headers.get(COMMUNITY_CONTRACT_HEADER) === String(BUSINESS_SCHEMA_VERSION) ? BUSINESS_SCHEMA_VERSION : null
 }
 
 export function requestsCommunityContract(headers: Pick<Headers, "get">): boolean {
-  const contract = requestedCommunityContract(headers)
-  return contract === 2 || contract === 3
+  return requestedCommunityContract(headers) === BUSINESS_SCHEMA_VERSION
 }

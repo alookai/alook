@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, CommunityReadErrorSchema } from "@alook/shared"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 const mocks = vi.hoisted(() => ({ session: vi.fn(), liveUser: vi.fn(), bot: vi.fn(), machine: vi.fn(), dispatch: vi.fn() }))
@@ -16,7 +17,7 @@ vi.mock("@alook/shared", async (original) => ({
 import { POST } from "./route"
 const body = { requestId: "request", operation: { action: "list" } }
 const request = (value: unknown = body, headers: Record<string, string> = {}) => new NextRequest("https://alook.ai/api/community/bots/bot/pii", {
-  method: "POST", headers: { Origin: "https://alook.ai", "content-type": "application/json", ...headers }, body: JSON.stringify(value),
+  method: "POST", headers: { Origin: "https://alook.ai", "content-type": "application/json", "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION), ...headers }, body: JSON.stringify(value),
 })
 const context = { params: Promise.resolve({ id: "bot" }) }
 describe("human-only PII management", () => {
@@ -60,7 +61,7 @@ describe("human-only PII management", () => {
     const value = { requestId: "r", operation: { action: "setEnabled", pluginId: "p", enabled: false, expectedRevision: 2 } }
     const response = await POST(request(value), context)
     expect(response.status).toBe(202)
-    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
     expect(await response.json()).toEqual({ dispatched: true, requestId: "r" })
     expect(mocks.dispatch.mock.calls[0][1]).toBe("/community-machine/by-id/machine/pii")
     expect(JSON.parse(mocks.dispatch.mock.calls[0][2].body)).toEqual({ type: "pii:manage", botId: "bot", ...value })
@@ -69,7 +70,7 @@ describe("human-only PII management", () => {
     const preview = { requestId: "preview", operation: { action: "preview", text: "private-test-input", expectedRevision: 0 } }
     const response = await POST(request(preview), context)
     expect(response.status).toBe(202)
-    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
     expect(await response.json()).toEqual({ dispatched: true, requestId: "preview" })
     expect(JSON.parse(mocks.dispatch.mock.calls[0][2].body)).toEqual({ type: "pii:manage", botId: "bot", ...preview })
     for (const operation of [{ ...preview.operation, text: "中".repeat(400) }, { ...preview.operation, text: " " }, { action: "preview", text: "text" }]) {
@@ -84,17 +85,17 @@ describe("human-only PII management", () => {
       mocks.dispatch.mockResolvedValueOnce(response)
       const result = await POST(request(), context)
       expect(result.status).toBe(503)
-      expect(await result.json()).toEqual({ error: "PII_UNAVAILABLE" })
+      expect(CommunityReadErrorSchema.parse(await result.json())).toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, error: { code: "temporarily_unavailable", message: "PII_UNAVAILABLE", retryable: true } })
     }
     mocks.dispatch.mockRejectedValueOnce(new Error("PRIVATE_EXCEPTION"))
     const result = await POST(request(), context)
     expect(result.status).toBe(503)
-    expect(await result.json()).toEqual({ error: "PII_UNAVAILABLE" })
+    expect(CommunityReadErrorSchema.parse(await result.json())).toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, error: { code: "temporarily_unavailable", message: "PII_UNAVAILABLE", retryable: true } })
   })
   it.each([[{ sent: 0, unsupported: 1 }, 409, "UPGRADE_REQUIRED"], [{ sent: 0, unsupported: 0 }, 409, "MACHINE_OFFLINE"], [{ sent: "1" }, 503, "PII_UNAVAILABLE"]])("reports %j without claiming application", async (receipt, status, error) => {
     mocks.dispatch.mockResolvedValue(Response.json(receipt))
     const response = await POST(request(), context)
     expect(response.status).toBe(status)
-    expect(await response.json()).toEqual({ error })
+    expect(CommunityReadErrorSchema.parse(await response.json())).toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, error: { code: status === 409 ? "idempotency_conflict" : "temporarily_unavailable", message: error, retryable: status >= 500 } })
   })
 })

@@ -1,6 +1,7 @@
+import { dmListRowFixture } from "@/test/community-resource-fixtures"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONVERSATION_ANCHOR_MISSING, type CommunityConversationEntryRead } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONVERSATION_ANCHOR_MISSING, type CommunityConversationEntryRead } from "@alook/shared"
 import { ApiError } from "@/lib/errors"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
@@ -50,7 +51,7 @@ describe("conversation entry canonical publication", () => {
     } finally { vi.useRealTimers() }
   })
 
-  it.each(["missing", "incomplete", "pending", "archived", "foreign", "parent-missing", "parent-foreign", "retired"] as const)("rejects a %s cache closure without deleting its retained message window", async condition => {
+  it.each(["missing", "pending", "archived", "foreign", "parent-missing", "parent-foreign", "retired"] as const)("rejects a %s cache closure without deleting its retained message window", async condition => {
     const { client, registry } = await createCommunityQueryOwner()
     const value = entry()
     if (condition.startsWith("parent")) {
@@ -64,8 +65,7 @@ describe("conversation entry canonical publication", () => {
     if (condition === "retired") registry.runtime.lifecycle.setState(state => ({ active: false, generation: state.generation + 1 }))
     else await writeCommunityCollectionRows(registry, "channels", (client.getQueryData<ChannelRow[]>(channels) ?? []).flatMap(row => {
       if (condition === "missing" && row.id === "c1" || condition === "parent-missing" && row.id === "parent") return []
-      if (row.id === "c1") return [{ ...row, ...(condition === "incomplete" ? { resourceComplete: false as const } : {}),
-        ...(condition === "pending" ? { pending: true } : {}), ...(condition === "archived" ? { archived: true } : {}),
+      if (row.id === "c1") return [{ ...row, ...(condition === "pending" ? { pending: true } : {}), ...(condition === "archived" ? { archived: true } : {}),
         ...(condition === "foreign" ? { serverId: "foreign" } : {}) }]
       return [{ ...row, ...(condition === "parent-foreign" ? { serverId: "foreign" } : {}) }]
     }), row => row.id)
@@ -185,13 +185,13 @@ describe("conversation entry canonical publication", () => {
     expect(JSON.stringify(window)).not.toContain("Body")
     expect(window).toMatchObject({ pages: [{ threads: [{ id: "t1", openerMessageId: "m1" }] }], pageParams: [null] })
     expect(registry.collections.messages.get("m1")?.content).toBe("Body")
-    expect(registry.collections.channels.get("t1")).toMatchObject({ parentChannelId: "c1", resourceComplete: true })
+    expect(registry.collections.channels.get("t1")).toMatchObject({ parentChannelId: "c1" })
     expect(client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages("c1") })).toHaveLength(0)
     await client.query({ ...conversationEntryOptions(client, target), select: undefined })
     expect(load).toHaveBeenCalledOnce()
   })
 
-  it.each(["child-missing", "child-incomplete", "child-type", "child-server", "child-parent", "opener-missing", "opener-incomplete", "opener-channel"] as const)("rejects a cached Forum display window with %s without refreshing its qualification", async invalid => {
+  it.each(["child-missing", "child-type", "child-server", "child-parent", "opener-missing", "opener-channel"] as const)("rejects a cached Forum display window with %s without refreshing its qualification", async invalid => {
     const { client, registry } = await createCommunityQueryOwner()
     const value = forumConversationEntryFixture()
     const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
@@ -200,18 +200,15 @@ describe("conversation entry canonical publication", () => {
     if (invalid === "child-missing") await registry.collections.channels.utils.writeDelete("t1")
     else if (invalid.startsWith("child-")) {
       const child = registry.collections.channels.get("t1")!
-      await registry.collections.channels.utils.writeUpsert({ ...child,
-        ...(invalid === "child-incomplete" ? { resourceComplete: false } : {}),
+      await writeCommunityCollectionRows(registry, "channels", Array.from(registry.collections.channels.values()).map(row => row.id === child.id ? { ...row,
         ...(invalid === "child-type" ? { type: "text" as const } : {}),
         ...(invalid === "child-server" ? { serverId: "other" } : {}),
         ...(invalid === "child-parent" ? { parentChannelId: "other" } : {}),
-      })
+      } : row), row => row.id)
     } else if (invalid === "opener-missing") await registry.collections.messages.utils.writeDelete("m1")
     else {
       const opener = registry.collections.messages.get("m1")!
-      await registry.collections.messages.utils.writeUpsert({ ...opener,
-        ...(invalid === "opener-incomplete" ? { resourceComplete: false } : { channelId: "other" }),
-      })
+      await writeCommunityCollectionRows(registry, "messages", Array.from(registry.collections.messages.values()).map(row => row.id === opener.id ? { ...row, channelId: "other" } : row), row => row.id)
     }
     expect(getQualifiedConversationScope(client, target)).toBeDefined()
     expect(findConversationDisplayWindow(client, target, scope)).toBeUndefined()
@@ -277,7 +274,7 @@ describe("conversation entry canonical publication", () => {
 
   it("keeps a structural directory from creating a second reading-proof cache", async () => {
     const { client, registry } = await createCommunityQueryOwner()
-    publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [{ id: "dm", userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0, status: "offline", preview: "" }] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "dm", userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0, status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
     expect(registry.collections.channels.has("dm")).toBe(true)
     expect(client.getQueryData(communityKeys.channelMeta(null, "dm"))).toBeUndefined()
     expect(client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries("dm") })).toEqual([])
@@ -289,10 +286,10 @@ describe("conversation entry canonical publication", () => {
     const resource = await client.query({ ...conversationEntryOptions(client, target), select: undefined })
     expect(load).toHaveBeenCalledOnce()
     expect(load).toHaveBeenCalledWith("/api/community/channels/c1/messages?entry=1", expect.objectContaining({
-      authenticationAccount: "viewer", signal: expect.any(AbortSignal), headers: { [COMMUNITY_CONTRACT_HEADER]: "3" },
+      authenticationAccount: "viewer", signal: expect.any(AbortSignal), headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
     }))
-    expect(registry.collections.channels.get("c1")).toMatchObject({ resourceComplete: true, name: "Channel" })
-    expect(registry.collections.messages.get("m1")).toMatchObject({ resourceComplete: true, content: "Body" })
+    expect(registry.collections.channels.get("c1")).toMatchObject({ name: "Channel" })
+    expect(registry.collections.messages.get("m1")).toMatchObject({ content: "Body" })
     expect(registry.collections.readStates.get("c1")).toMatchObject({ lastReadSeq: 1, observedRevision: 4 })
     expect(registry.collections.readStateClock.get("account")).toBeUndefined()
     const window = client.getQueryData<MessageWindowData>(resource.windowKey)!
@@ -392,7 +389,7 @@ describe("conversation entry canonical publication", () => {
     const value = entry()
     const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     client.removeQueries({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "channels"), exact: true })
-    expect(registry.collections.channels.get("c1")?.resourceComplete).toBe(true)
+    expect(registry.collections.channels.get("c1")).toMatchObject(value.channel)
     expect(findConversationEntryWindow(client, target, resource, value.readState)?.key).toEqual(resource.windowKey)
   })
 

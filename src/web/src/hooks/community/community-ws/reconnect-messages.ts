@@ -1,4 +1,5 @@
-import { CommunityMessageResourceSchema } from "@alook/shared"
+import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, CommunityMessageResourceSchema } from "@alook/shared"
 import { CancelledError, hashKey, queryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -40,7 +41,7 @@ function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: Mess
 function cachedCoverage(queryClient: QueryClient, scopeId: string, cache: MessageCache, refreshed: MessagesPage, target: number, tag: string | null) {
   if (tag !== null || !Number.isSafeInteger(target)) return
   const byId = new Map<string, MessageInput>(getCanonicalCommunityMessages(queryClient)
-    .filter(row => row.channelId === scopeId && row.resourceComplete === true).map(row => [row.id, row]))
+    .filter(row => row.channelId === scopeId).map(row => [row.id, row]))
   for (const message of refreshed.messages) {
     const parsed = CommunityMessageResourceSchema.strip().safeParse(message)
     if (parsed.success && parsed.data.channelId === scopeId) byId.set(message.id, parsed.data)
@@ -176,7 +177,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         const load = async (param: MessagesPageParam) => {
           assert()
           const page = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesPage>(
-            url(scopeId, param, tag), { signal: readSignal, assertActive: assert,
+            url(scopeId, param, tag), { signal: readSignal, assertActive: assert, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) },
               observation: { ...observation, reason: "background", role: "reconcile", windowMode: param.mode } }, token,
           ))
           assert()

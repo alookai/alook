@@ -8,6 +8,7 @@ import {
 } from "./test-harness"
 import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 import {
+  BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_BULK_BODY_MAX_BYTES,
   encodeCommunityBrowserEvent,
@@ -36,6 +37,7 @@ function makeBulkRequest(body: string): Request {
 }
 
 const communityPresenceEvent = {
+  schemaVersion: BUSINESS_SCHEMA_VERSION,
   type: "community:presence.update",
   userId: "presence-user",
   online: true,
@@ -52,7 +54,7 @@ function maximumAuditEnvelope() {
       payload: { padding: "x".repeat(mid) },
     })
     if (encoded.ok) {
-      best = encoded.event
+      best = encoded.envelope
       low = mid + 1
     } else {
       high = mid - 1
@@ -169,7 +171,7 @@ describe("ws-do router", () => {
       doMock.stubFetch.mockImplementation(async () => Response.json({ sent: 1 }))
       const req = new Request(
         `http://localhost/broadcast/community/user/${encodeCommunityUserTargetPathSegment(target)}`,
-        { method: "POST", body: JSON.stringify(communityPresenceEvent) },
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST", body: JSON.stringify(communityPresenceEvent) },
       )
 
       const res = await handler.fetch(req, env as any)
@@ -190,7 +192,7 @@ describe("ws-do router", () => {
     ])("rejects a %s before Durable Object access", async (_label, event) => {
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/user/u:user-1",
-        { method: "POST", body: JSON.stringify(event) },
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST", body: JSON.stringify(event) },
       ), env as any)
 
       expect(res.status).toBe(400)
@@ -201,7 +203,7 @@ describe("ws-do router", () => {
       doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1 }))
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/user/u:user-1",
-        { method: "POST", body: JSON.stringify(communityPresenceEvent) },
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST", body: JSON.stringify(communityPresenceEvent) },
       ), env as any)
 
       expect(res.status).toBe(200)
@@ -212,14 +214,14 @@ describe("ws-do router", () => {
     it("rejects malformed target escapes and generic bodies on the strict route", async () => {
       const malformedTarget = await handler.fetch(new Request(
         "http://localhost/broadcast/community/user/u:%zz",
-        { method: "POST", body: JSON.stringify(communityPresenceEvent) },
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST", body: JSON.stringify(communityPresenceEvent) },
       ), env as any)
       const spoofedGeneric = await handler.fetch(new Request(
         "http://localhost/broadcast/community/user/u:user-1",
         {
           method: "POST",
-          headers: { "x-alook-ws-message-type": "generic" },
-          body: JSON.stringify({ type: "task.updated", taskId: "t1" }),
+          headers: { "x-alook-ws-message-type": "generic", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
+          body: JSON.stringify({ type: "task.updated", taskId: "t1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
         },
       ), env as any)
 
@@ -239,7 +241,7 @@ describe("ws-do router", () => {
     it("rejects an oversized strict community frame before Durable Object access", async () => {
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/user/u:user-1",
-        { method: "POST", body: "x".repeat(65_537) },
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST", body: "x".repeat(65_537) },
       ), env as any)
 
       expect(res.status).toBe(400)
@@ -250,7 +252,7 @@ describe("ws-do router", () => {
       doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1 }))
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/users",
-        {
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
           method: "POST",
           body: JSON.stringify({
             userIds: ["u2", "u1", "u2"],
@@ -278,7 +280,7 @@ describe("ws-do router", () => {
 
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/users",
-        { method: "POST", body },
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST", body },
       ), env as any)
 
       expect(res.status).toBe(200)
@@ -293,7 +295,7 @@ describe("ws-do router", () => {
     ])("rejects strict community bulk with %s", async (_label, body) => {
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/users",
-        { method: "POST", body: JSON.stringify(body) },
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST", body: JSON.stringify(body) },
       ), env as any)
 
       expect(res.status).toBe(400)
@@ -308,7 +310,7 @@ describe("ws-do router", () => {
     ])("rejects %s as invalid-target before namespace access", async (_label, body) => {
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/users",
-        { method: "POST", body: JSON.stringify(body) },
+        { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST", body: JSON.stringify(body) },
       ), env as any)
 
       expect(res.status).toBe(400)

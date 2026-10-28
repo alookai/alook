@@ -124,7 +124,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
         ownerMember.userId,
         ownerMember.userImage,
         ownerMember.userAvatarVersion,
-      ) ?? undefined,
+      ),
       avatarVersion: ownerMember.userAvatarVersion,
       role: ROLES.OWNER,
       joinedAt: ownerMember.joinedAt,

@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { currentCommunityEventFixture, forumFeedScenarioFixture, channelResourceFixture, categoryResourceFixture } from "@/test/community-resource-fixtures"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { act } from "@/test/react-dom-harness"
@@ -7,7 +9,7 @@ import { getCapturedRuntime, seedCanonicalStream, seedCanonicalMessages, canonic
 import { useServerRailProjection, useServerTreeProjection } from "@/lib/community-db/projections"
 import { mapForumFeedPages } from "@/hooks/community/use-forum-feed"
 import { normalizeThreadResources, forumFeedWindow } from "@/hooks/community/forum-feed-window"
-import { publishCommunityForumFeed, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { publishCommunityChannelMetadata, publishCommunityForumFeed, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryObserver } from "@tanstack/react-query"
 import type {
@@ -43,9 +45,9 @@ import {
 } from "./test-harness"
 import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
 
-function forumFeedFixture(rows: Array<{ id: string; opener: string; tags: string[] }>) {
+function forumFeedTransportFixture(rows: Array<{ id: string; opener: string; tags: string[] }>) {
   return {
-    pages: [{
+    pages: [forumFeedScenarioFixture("forum_1", {
       serverId: "s1",
       parentType: "forum",
       threads: rows.map((row) => ({
@@ -86,9 +88,20 @@ function forumFeedFixture(rows: Array<{ id: string; opener: string; tags: string
         })),
       },
       hasMore: false,
-    }],
+    })],
     pageParams: [null],
   }
+}
+
+function forumFeedFixture(rows: Parameters<typeof forumFeedTransportFixture>[0]) {
+  const transport = forumFeedTransportFixture(rows)
+  return { ...transport, pages: transport.pages.map(page => forumFeedWindow(normalizeThreadResources("forum_1", page))) }
+}
+
+function seedKnownThread(serverId: string, parentId: string, parentType: "text" | "forum", childId: string, openerId: string) {
+  seedCanonicalServer({ id: serverId, channels: [{ id: parentId, type: parentType, name: "Parent" }] })
+  publishCommunityChannelMetadata(capturedQueryClient, { metadata: channelResourceFixture({ id: childId, serverId, type: "thread", parentChannelId: parentId, parentMessageId: openerId }),
+    proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient, childId) } })
 }
 
 function forumFeedIds(filter: string | null) {
@@ -97,12 +110,12 @@ function forumFeedIds(filter: string | null) {
   )?.pages ?? []
   const messages = new Map([...canonicalRegistry!.collections.messages.values()].map((message) => [message.id, message]))
   const channels = new Map([...canonicalRegistry!.collections.channels.values()].map((channel) => [channel.id, channel]))
-  return mapForumFeedPages(pages.map((page) => forumFeedWindow(normalizeThreadResources("forum_1", page))), messages, channels, new Map(), filter).map((thread) => thread.id)
+  return mapForumFeedPages(pages, messages, channels, new Map(), filter).map((thread) => thread.id)
 }
 
 function seedForumFeed(rows: Parameters<typeof forumFeedFixture>[0]) {
   seedCanonicalServer({ id: "s1", categories: [{ id: "cat1", name: "Forum", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
-  const page = forumFeedFixture(rows).pages[0]!
+  const page = forumFeedTransportFixture(rows).pages[0]!
   act(() => { publishCommunityForumFeed(capturedQueryClient, "forum_1", normalizeThreadResources("forum_1", page), { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined }) })
 }
 
@@ -114,33 +127,12 @@ describe("useCommunityWs — server.update patches server + list caches", () => 
     await mountHook()
     seedCanonicalServer({ id: "srv_1", name: "old", description: "old description", ownerId: "u_1" })
     const view = await mountCanonicalHook(() => ({ rail: useServerRailProjection(), detail: useServerTreeProjection("srv_1") }))
-    act(() => { capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
-      id: "srv_1",
-      name: "old",
-      description: "d",
-      icon: null,
-      ownerId: "u_1",
-      categories: [],
-    }) })
-    act(() => { capturedQueryClient.setQueryData(communityKeys.servers(), {
-      servers: [
-        {
-          id: "srv_1",
-          name: "old",
-          description: "old description",
-          initial: "O",
-          active: false,
-          unread: false,
-          mentions: 0,
-        },
-      ],
-    }) })
     const event: CommunityServerUpdate = {
       type: "community:server.update",
       serverId: "srv_1",
       changes: { name: "new", description: "new description" },
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     expect(view.result.current.detail).toMatchObject({
       name: "new",
       description: "new description",
@@ -151,7 +143,7 @@ describe("useCommunityWs — server.update patches server + list caches", () => 
   })
 })
 describe("useCommunityWs — child channel events", () => {
-  it("child_create without a parentMessageId only invalidates threads", async () => {
+  it("rejects child_create without a parentMessageId before invalidations", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityChildChannelCreate = {
@@ -164,9 +156,9 @@ describe("useCommunityWs — child channel events", () => {
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     }
-    await act(async () => { capturedOnMessage!(event) })
+    await act(async () => { capturedOnMessage!({ ...event, schemaVersion: BUSINESS_SCHEMA_VERSION }) })
     const keys = spy.mock.calls.map((c) => c[0]?.queryKey as unknown[])
-    expect(keys.some((k) => k?.includes("threads"))).toBe(true)
+    expect(keys.some((k) => k?.includes("threads"))).toBe(false)
     expect(keys.some((k) => k?.includes("forum-threads"))).toBe(false)
     expect(keys).not.toContainEqual(communityKeys.channelMessages("ch_1"))
   })
@@ -180,15 +172,15 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
     const event: CommunityChannelCreate = {
       type: "community:channel.create",
       serverId: "srv_1",
-      channel: {
+      channel: channelResourceFixture({ serverId: "srv_1", ...{
         id: "ch_new",
         name: "n",
         type: "text",
         position: 0,
         createdAt: "2026-07-03T00:00:00.000Z",
-      },
+      } }),
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     expect(
       spy.mock.calls.some((c) => {
         const key = c[0]?.queryKey as unknown[] | undefined
@@ -203,16 +195,10 @@ describe("useCommunityWs — category.* invalidates tree projections", () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
-    capturedOnMessage!({
-      type: "community:category.create",
-      serverId: "srv_1",
-      category: {
-        id: "cat_new",
-        name: "Category",
-        position: 0,
-        private: false,
-      },
-    } satisfies CommunityCategoryCreate)
+    capturedOnMessage!(currentCommunityEventFixture({
+      type: "community:category.create", serverId: "srv_1",
+      category: categoryResourceFixture({ id: "cat_new", name: "Category", position: 0, private: false, serverId: "srv_1" }),
+    } satisfies CommunityCategoryCreate))
 
     expect(spy).toHaveBeenCalledWith({
       queryKey: communityKeys.channelRefDirectory(),
@@ -234,7 +220,7 @@ describe("useCommunityWs — invite.create", () => {
     act(() => { capturedQueryClient.setQueryData(matchingKey, { invites: [] }) })
     act(() => { capturedQueryClient.setQueryData(otherKey, { invites: [] }) })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:invite.create",
       serverId: "srv_1",
       invite: {
@@ -242,7 +228,7 @@ describe("useCommunityWs — invite.create", () => {
         token: "token_1",
         createdAt: "2026-08-08T00:00:00.000Z",
       },
-    })
+    }))
 
     expect(capturedQueryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true)
     expect(capturedQueryClient.getQueryState(otherKey)?.isInvalidated).toBe(false)
@@ -256,11 +242,11 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     act(() => { getCapturedRuntime().ui.setState((state) => ({ ...state, ...{
       typingByScope: new Map([["ch:ch_old", new Map([["u_typing", "Typer"]])]]),
     } })) })
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.delete",
       serverId: "srv_1",
       channelId: "ch_old",
-    } satisfies CommunityChannelDelete)
+    } satisfies CommunityChannelDelete))
 
     expect(getCapturedRuntime().ui.get().typingByScope.has("ch:ch_old")).toBe(false)
   })
@@ -270,11 +256,11 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
 
     seedCommunityAttentionScope(capturedQueryClient, { channelId: "ch_dead", serverId: "srv_1", seq: 1 })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.delete",
       serverId: "srv_1",
       channelId: "ch_dead",
-    } satisfies CommunityChannelDelete)
+    } satisfies CommunityChannelDelete))
 
     expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("ch_dead")?.ordinaryUnread)).toBe(false)
   })
@@ -296,7 +282,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       serverId: "srv_1",
       channelId: "ch_dead",
     }
-    await act(async () => { capturedOnMessage!(event) })
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture(event)) })
 
     expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
@@ -321,7 +307,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       description: "",
       icon: null,
       ownerId: "u_owner",
-      categories: [{ id: "cat_1", name: "Category", private: 0, channels: [] }],
+      categories: [{ id: "cat_1", name: "Category", private: false, channels: [] }],
     }
     seedCanonicalServer({ ...freshServer, categories: [{ ...freshServer.categories[0], channels: [{ ...deletedChannel, active: false, unread: false }] }] })
     act(() => { capturedQueryClient.setQueryData(serverKey, {
@@ -343,11 +329,11 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     const unsubscribe = observer.subscribe(() => {})
 
     try {
-      capturedOnMessage!({
+      capturedOnMessage!(currentCommunityEventFixture({
         type: "community:channel.delete",
         serverId: "srv_1",
         channelId: "ch_dead",
-      } satisfies CommunityChannelDelete)
+      } satisfies CommunityChannelDelete))
 
       expect(fetchServer).toHaveBeenCalledTimes(1)
       expect(canonicalRegistry!.collections.channels.has("ch_dead")).toBe(false)
@@ -374,7 +360,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       pages: [{
         messages: [
           { id: "opener-post_1", thread: { id: "post_1" } },
-          { id: "opener-keep", thread: { id: "post_keep" } },
+          { id: "opener-post_keep", thread: { id: "post_keep" } },
         ],
         hasMore: false,
       }],
@@ -382,22 +368,9 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     }
     await act(async () => { capturedQueryClient.setQueryData(communityKeys.channelMessages("forum_1"), feed) })
     const forumFeed = {
-      pages: [{
-        serverId: "srv_1",
-        parentType: "forum",
-        threads: [
-          { id: "post_1", parentMessageId: "opener-post_1" },
-          { id: "post_keep", parentMessageId: "opener-keep" },
-        ],
-        included: {
-          parentMessages: [{ id: "opener-post_1" }, { id: "opener-keep" }],
-          firstMessages: [{ channelId: "post_1" }, { channelId: "post_keep" }],
-          tags: [{ messageId: "opener-post_1" }, { messageId: "opener-keep" }],
-          participants: [{ channelId: "post_1" }, { channelId: "post_keep" }],
-        },
-        hasMore: false,
-      }],
-      pageParams: [null],
+      pages: [{ serverId: "srv_1", parentType: "forum", hasMore: false,
+        threads: [{ id: "post_1", openerMessageId: "opener-post_1", participantIds: [] }, { id: "post_keep", openerMessageId: "opener-post_keep", participantIds: [] }],
+      }], pageParams: [null],
     }
     await act(async () => { capturedQueryClient.setQueryData(communityKeys.forumFeed("forum_1", "bug"), forumFeed) })
     await act(async () => { capturedQueryClient.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] }) })
@@ -424,16 +397,16 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       },
     }) })
 
-    await act(async () => { capturedOnMessage!({
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.delete",
       serverId: "srv_1",
       channelId: "post_1",
       parentChannelId: "forum_1",
       parentMessageId: "opener-post_1",
-    } satisfies CommunityChannelDelete) })
+    } satisfies CommunityChannelDelete)) })
 
     expect(capturedQueryClient.getQueryData<typeof feed>(communityKeys.channelMessages("forum_1"))
-      ?.pages[0].messages.map((message) => message.id)).toEqual(["opener-keep"])
+      ?.pages[0].messages.map((message) => message.id)).toEqual(["opener-post_keep"])
     expect(capturedQueryClient.getQueryData<typeof forumFeed>(communityKeys.forumFeed("forum_1", "bug"))
       ?.pages[0].threads.map((thread) => thread.id)).toEqual(["post_keep"])
     expect(canonicalForumSidebar("srv_1").threads.map((thread) => thread.id))
@@ -458,20 +431,20 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       pages: [{ messages: [], hasMore: false }],
       pageParams: [null],
     }) })
-    capturedOnMessage!(messageCreate("ch_parent", "m_parent"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_parent", "m_parent")))
 
     const event: CommunityChildChannelCreate = {
       type: "community:channel.child_create",
       parentChannelId: "ch_parent",
       parentMessageId: "m_parent",
-      channel: {
+      channel: channelResourceFixture({ serverId: canonicalRegistry?.collections.channels.get("ch_parent")?.serverId ?? "s1", parentChannelId: "ch_parent", parentMessageId: "m_parent", ...{
         id: "ch_thread",
         name: "New thread",
         type: "thread",
         createdAt: "2026-07-03T00:00:00.000Z",
-      },
+      } }),
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string; thread?: { id: string; name: string; messageCount: number } }[] }[]
@@ -502,15 +475,15 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       type: "community:channel.child_create",
       parentChannelId: "ch_parent",
       parentMessageId: "m_parent",
-      channel: {
+      channel: channelResourceFixture({ serverId: canonicalRegistry?.collections.channels.get("ch_parent")?.serverId ?? "s1", parentChannelId: "ch_parent", parentMessageId: "m_parent", ...{
         id: "ch_thread",
         name: "New thread",
         type: "thread",
         createdAt: "2026-07-03T00:00:00.000Z",
-      },
+      } }),
     }
 
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: parentMessagesKey })
 
     act(() => { capturedQueryClient.setQueryData(parentMessagesKey, {
@@ -524,7 +497,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       }],
       pageParams: [null],
     }) })
-    capturedOnMessage!(messageCreate("ch_parent", "m_parent"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_parent", "m_parent")))
 
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string; thread?: { id: string } }[] }[]
@@ -535,6 +508,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("child_update still applies the reported messageCount unchanged", async () => {
     await mountHook()
+    seedKnownThread("s1", "ch_parent", "text", "ch_thread", "m_parent")
     seedCanonicalMessages("ch_parent", [{ id: "m_parent", content: "hello", thread: { id: "ch_thread", name: "old", messageCount: 0 } }])
     act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
       pages: [
@@ -558,7 +532,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       channelId: "ch_thread",
       changes: { messageCount: 5 },
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { thread?: { messageCount: number } }[] }[]
@@ -577,18 +551,43 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       act(() => { capturedQueryClient.setQueryData(key, { value: "stale" }) })
     }
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: ["archived"] },
-    } satisfies CommunityChildChannelUpdate)
+    } satisfies CommunityChildChannelUpdate))
 
     await vi.waitFor(() => {
       for (const key of [allFeed, archivedFeed, tags, messages]) {
         expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
       }
     })
+  })
+
+  it.each([
+    ["Archive", [], ["archived"]],
+    ["Unarchive", ["archived"], []],
+  ] as const)("replaces a pending first vocabulary read after remote %s", async (_action, staleTags, tags) => {
+    await mountHook()
+    const key = communityKeys.forumTags("forum_1")
+    let release!: (value: { tags: string[] }) => void
+    const oldRead = new Promise<{ tags: string[] }>(resolve => { release = resolve })
+    const read = vi.fn().mockImplementationOnce(() => oldRead).mockResolvedValue({ tags: [...tags] })
+    const observer = new QueryObserver(capturedQueryClient, { queryKey: key, queryFn: read, staleTime: Infinity })
+    const unsubscribe = observer.subscribe(() => {})
+    try {
+      await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1))
+      await act(async () => { capturedOnMessage!(currentCommunityEventFixture({
+        type: "community:channel.child_update",
+        parentChannelId: "forum_1",
+        channelId: "post_1",
+        changes: { tags: [...tags] },
+      } satisfies CommunityChildChannelUpdate)) })
+      await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+      await act(async () => { release({ tags: [...staleTags] }); await oldRead })
+      await vi.waitFor(() => expect(capturedQueryClient.getQueryData(key)).toEqual({ tags: [...tags] }))
+    } finally { unsubscribe() }
   })
 
   it("projects remote Archive out of warm All and ordinary feeds synchronously", async () => {
@@ -607,12 +606,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       forumFeedFixture([]),
     ) })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: ["bug", "archived"] },
-    } satisfies CommunityChildChannelUpdate)
+    } satisfies CommunityChildChannelUpdate))
 
     expect(forumFeedIds(null)).toEqual([])
     expect(forumFeedIds("bug")).toEqual([])
@@ -635,12 +634,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       forumFeedFixture([]),
     ) })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: ["bug"] },
-    } satisfies CommunityChildChannelUpdate)
+    } satisfies CommunityChildChannelUpdate))
 
     expect(forumFeedIds("archived")).toEqual([])
     expect(forumFeedIds(null)).toEqual([])
@@ -658,18 +657,18 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       forumFeedFixture([{ id: "post_1", opener: "opener_two", tags: ["bug"] }]),
     ) })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: ["bug", "archived"] },
-    } satisfies CommunityChildChannelUpdate)
+    } satisfies CommunityChildChannelUpdate))
 
     expect(forumFeedIds(null)).toEqual([])
     expect(forumFeedIds("bug")).toEqual([])
     expect(canonicalRegistry!.collections.channels.get("post_1")).toMatchObject({ parentMessageId: "opener_one", tags: ["bug", "archived"] })
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumFeedFixture>>(communityKeys.forumFeed("forum_1", null))?.pages[0].threads[0].parentMessageId).toBe("opener_one")
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumFeedFixture>>(communityKeys.forumFeed("forum_1", "bug"))?.pages[0].threads[0].parentMessageId).toBe("opener_two")
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumFeedFixture>>(communityKeys.forumFeed("forum_1", null))?.pages[0].threads[0].openerMessageId).toBe("opener_one")
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumFeedFixture>>(communityKeys.forumFeed("forum_1", "bug"))?.pages[0].threads[0].openerMessageId).toBe("opener_two")
   })
 
   it("archive-tag updates evict only the sidebar projection and keep the active route", async () => {
@@ -684,12 +683,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       parentMessageId: "opener-post_1",
     }) })
 
-    await act(async () => { capturedOnMessage!({
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: ["bug", "archived"] },
-    } satisfies CommunityChildChannelUpdate) })
+    } satisfies CommunityChildChannelUpdate)) })
 
     expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["post_2"])
     expect(getCanonicalCommunityChannels(capturedQueryClient)
@@ -718,12 +717,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       parentMessageId: "opener-post_1",
     }) })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags },
-    } satisfies CommunityChildChannelUpdate)
+    } satisfies CommunityChildChannelUpdate))
 
     expect(canonicalForumSidebar("s1").threads).toEqual(before)
     expect(getCapturedRuntime().ui.get().currentChannelId).toBe("post_1")
@@ -747,12 +746,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       parentChannelId: "ch_parent",
     }) })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "ch_parent",
       channelId: "ch_thread",
       changes: { name: "new" },
-    } satisfies CommunityChildChannelUpdate)
+    } satisfies CommunityChildChannelUpdate))
 
     expect(readCurrentCommunityChannelMeta(capturedQueryClient)?.name).toBe("new")
     expect(capturedQueryClient.getQueryData<{ name: string }>(
@@ -772,21 +771,21 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       parentMessageId: "opener-ch_thread",
     }) })
 
-    await act(async () => { capturedOnMessage!({
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "ch_thread",
       changes: { archived: true, tags: ["bug"] },
-    } satisfies CommunityChildChannelUpdate) })
+    } satisfies CommunityChildChannelUpdate)) })
     expect(canonicalForumSidebar("s1").threads).toEqual([])
     expect(readCurrentCommunityChannelMeta(capturedQueryClient)).toMatchObject({ id: "ch_thread", archived: true })
 
-    await act(async () => { capturedOnMessage!({
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "ch_thread",
       changes: { archived: false },
-    } satisfies CommunityChildChannelUpdate) })
+    } satisfies CommunityChildChannelUpdate)) })
     expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["ch_thread"])
   })
 
@@ -795,12 +794,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     seedCanonicalForumSidebar("s1", [])
     getCommunityApiFetchMock().mockRejectedValueOnce(new Error("offline"))
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "missing-post",
       changes: { archived: false },
-    } satisfies CommunityChildChannelUpdate)
+    } satisfies CommunityChildChannelUpdate))
 
     await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
       expect.stringContaining("retainId=missing-post"),
@@ -818,12 +817,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       parentChannelId: "forum_1",
     })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.delete",
       serverId: "srv_1",
       channelId: "ch_dead",
       parentChannelId: "forum_1",
-    } satisfies CommunityChannelDelete)
+    } satisfies CommunityChannelDelete))
 
     expect(readCurrentCommunityChannelMeta(capturedQueryClient)).toBeNull()
   })
@@ -854,12 +853,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       { archived: false },
       { lastMessageAt: "2026-08-09T00:00:00.000Z" },
     ]) {
-      capturedOnMessage!({
+      capturedOnMessage!(currentCommunityEventFixture({
         type: "community:channel.child_update",
         parentChannelId: "text_parent",
         channelId: "text_thread",
         changes,
-      } satisfies CommunityChildChannelUpdate)
+      } satisfies CommunityChildChannelUpdate))
     }
 
     expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
@@ -873,6 +872,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("child_update keeps newer thread fields from the current base row when refreshing fallback", async () => {
     await mountHook()
+    seedKnownThread("s1", "ch_parent", "text", "ch_thread", "m_parent")
     const { useCommunityStore } = await import("@/stores/community")
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentServerId("s1") })
     const scope = { kind: "channel" as const, id: "ch_parent", serverId: "s1" }
@@ -918,12 +918,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
     await act(async () => { seedCanonicalMessages("ch_parent", [{ id: "m_parent", content: "hello", seq: 1, thread: { id: "ch_thread", name: "base", messageCount: 2, lastReplyAt: "2026-08-06T00:00:02.000Z" } }]) })
 
-    await act(async () => { capturedOnMessage!({
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.child_update",
       parentChannelId: "ch_parent",
       channelId: "ch_thread",
       changes: { messageCount: 5 },
-    } satisfies CommunityChildChannelUpdate) })
+    } satisfies CommunityChildChannelUpdate)) })
 
     expect(canonicalMessage("m_parent")?.thread).toMatchObject({
       id: "ch_thread",
@@ -935,9 +935,10 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 })
 
 describe("useCommunityWs — channel.delete refreshes the parent forum feed", () => {
-  it("invalidates the parent's message feed + threads list when parentChannelId is present", async () => {
+  it.each(["forum", "text"] as const)("invalidates the %s parent feed while preserving ordinary thread openers", async parentType => {
     await mountHook()
-    seedCanonicalServer({ id: "srv_1", categories: [{ id: "cat1", name: "Forum", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
+    seedKnownThread("srv_1", "forum_1", parentType, "post_1", "opener_1")
+    seedCanonicalServer({ id: "srv_1", categories: [{ id: "cat1", name: "Forum", channels: [{ id: "forum_1", name: "Forum", type: parentType, active: false, unread: false }] }] })
     seedCanonicalMessages("forum_1", [{ id: "opener_1", content: "Post", thread: { id: "post_1", name: "Post", messageCount: 0 } }])
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const allKey = communityKeys.channelMessages("forum_1")
@@ -955,16 +956,16 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
       channelId: "post_1",
       parentChannelId: "forum_1",
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     const invalidatedKeys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.channelMessages("forum_1")))
     expect(invalidatedKeys).toContain(JSON.stringify(communityKeys.threads("forum_1")))
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(allKey)?.pages[0].messages).toHaveLength(0)
-    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(allKey)?.pages[0].messages).toHaveLength(parentType === "forum" ? 0 : 1)
+    expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(parentType === "forum" ? 0 : 1)
   })
 
-  it("does not throw and still evicts own caches when parentChannelId is absent (legacy event)", async () => {
+  it("does not throw and still evicts own caches when the optional parentChannelId is absent", async () => {
     await mountHook()
     // Seed the deleted channel's own message cache so we can assert eviction.
     act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("post_1"), { pages: [], pageParams: [] }) })
@@ -976,7 +977,7 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
       serverId: "srv_1",
       channelId: "post_1",
     }
-    expect(() => capturedOnMessage!(event)).not.toThrow()
+    expect(() => capturedOnMessage!(currentCommunityEventFixture(event))).not.toThrow()
 
     expect(removeSpy.mock.calls.some(([filters]) => filters?.predicate?.(query) || JSON.stringify(filters?.queryKey) === JSON.stringify(query.queryKey))).toBe(true)
     expect(capturedQueryClient.getQueryState(query.queryKey)).toBeUndefined()
@@ -1000,7 +1001,7 @@ describe("useCommunityWs — server.update icon removal", () => {
       serverId: "srv_1",
       changes: { icon: null },
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     const detail = canonicalRegistry!.collections.servers.get("srv_1")
     expect(detail?.icon).toBeNull()
   })
@@ -1012,10 +1013,10 @@ describe("useCommunityWs — server.delete resets store when focused server dies
 
     seedCommunityAttentionScope(capturedQueryClient, { channelId: "ch_dead", serverId: "srv_doomed", seq: 1 })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:server.delete",
       serverId: "srv_doomed",
-    } satisfies CommunityServerDelete)
+    } satisfies CommunityServerDelete))
 
     expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("ch_dead")?.ordinaryUnread)).toBe(false)
   })
@@ -1034,7 +1035,7 @@ describe("useCommunityWs — server.delete resets store when focused server dies
       type: "community:server.delete",
       serverId: "srv_doomed",
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(getCapturedRuntime().ui.get().currentServerId).toBeNull()
     expect(getCapturedRuntime().ui.get().currentChannelId).toBeNull()
@@ -1051,7 +1052,7 @@ describe("useCommunityWs — server.delete resets store when focused server dies
       type: "community:server.delete",
       serverId: "srv_other",
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(getCapturedRuntime().ui.get().currentServerId).toBe("srv_active")
     expect(getCapturedRuntime().ui.get().currentChannelId).toBe("ch_1")

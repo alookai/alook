@@ -1,3 +1,4 @@
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -6,7 +7,8 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { dmConversationEntryFixture as fixture, conversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { CommunityDbProvider, useDmProjection } from "@/lib/community-db/projections"
 import { conversationEntryOptions } from "@/lib/community/conversation-entry"
-import { applyCommunityDmBlockAccess, captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
+import { applyCommunityDmBlockAccess, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { COMMUNITY_CONVERSATION_ANCHOR_MISSING } from "@alook/shared"
@@ -56,8 +58,9 @@ describe("qualified canonical channel identity", () => {
 
   it("does not qualify a persisted or structural peer list as current reading permission", async () => {
     const { client, wrapper } = await setup()
-    publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [{ id: "c1", userId: "peer", name: "Old peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "old" }] } },
-      proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    const registry = getCommunityDbRegistry(client)!
+    registry.collections.channels.utils.writeUpsert({ ...channelResourceFixture({ id: "c1", type: "dm", serverId: null, name: null }), muted: false, tags: [], pending: false })
+    registry.collections.profiles.utils.writeUpsert({ id: "peer", name: "Old peer", discriminator: "0042", avatarVersion: 0, avatar: null })
     const request = deferred<ReturnType<typeof fixture>>()
     load.mockReturnValue(request.promise)
     const hook = renderHook(() => useChannelMetadata(null, "c1"), { wrapper })

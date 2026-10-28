@@ -1,3 +1,4 @@
+import { serverDirectoryFixture, channelResourceFixture, currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { getCapturedRuntime } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
@@ -33,7 +34,7 @@ it("purges canonical rows for authoritative channel and forum-post eviction", as
   const registry = createCommunityDbRegistry(queryClient, "viewer")
   await registry.preload()
   const unregister = registerCommunityDbRegistry(registry)
-  ingestServerDetail(registry, {
+  ingestServerDetail(registry, serverDirectoryFixture({
     id: "server", name: "Server", discriminator: "0001", description: "",
     icon: null, ownerId: "viewer",
     categories: [{
@@ -43,10 +44,10 @@ it("purges canonical rows for authoritative channel and forum-post eviction", as
         { id: "forum", name: "forum", active: false, unread: false, type: "forum" },
       ],
     }],
-  })
+  }))
   projectCommunityWsEventToDb(queryClient, {
     type: "community:channel.child_create", parentChannelId: "forum", parentMessageId: "opener",
-    channel: { id: "thread", name: "Thread", type: "thread", createdAt: "2026-09-25T00:00:00.000Z" },
+    channel: channelResourceFixture({ id: "thread", serverId: "server", parentChannelId: "forum", parentMessageId: "opener", name: "Thread", type: "thread", createdAt: "2026-09-25T00:00:00.000Z" }),
   } as CommunityWsEvent)
   retireCommunityChannelReading(registry, "channel", { reason: "read-denied", serverId: "server" })
   expect(registry.collections.channels.get("channel")).toBeUndefined()
@@ -75,17 +76,8 @@ function seedThreads(serverId: string, parentId: string, children: string[], sha
     }
     capturedQueryClient.setQueryData(communityKeys.threads(parentId), data)
   } else {
-    const pages: ForumFeedPage[] = children.map((id) => ({
-      serverId,
-      parentType: "forum",
-      threads: [{
-        id, name: id, creatorId: "author", messageCount: 1,
-        parentMessageId: `opener_${id}`, lastMessageAt: "2026-09-06T00:00:00Z",
-        createdAt: "2026-09-06T00:00:00Z", activityAt: "2026-09-06T00:00:00Z",
-      }],
-      included: { parentMessages: [], firstMessages: [], tags: [], participants: [] },
-      hasMore: true,
-      nextCursor: id,
+    const pages: ForumFeedPage[] = children.map(id => ({ serverId, parentType: "forum",
+      threads: [{ id, openerMessageId: `opener_${id}`, participantIds: [] }], hasMore: true, nextCursor: id,
     }))
     capturedQueryClient.setQueryData(communityKeys.forumFeed(parentId, null), {
       pages, pageParams: children.map((_, index) => index === 0 ? null : children[index - 1]),
@@ -100,7 +92,7 @@ const preview = {
 }
 
 const controls: CommunityWsEvent[] = [
-  { type: "community:channel.member_remove", serverId: "server", channelId: "parent", userId: "u_me" },
+  { type: "community:channel.membership.change", serverId: "server", channelId: "parent", userId: "u_me", relation: "access", present: false },
   { type: "community:channel.delete", serverId: "server", channelId: "parent" },
   { type: "community:member.leave", serverId: "server", userId: "u_me" },
   { type: "community:server.delete", serverId: "server" },
@@ -141,7 +133,7 @@ describe.each(["text", "forum"] as const)("%s canonical thread scope eviction", 
     const apiCalls = getCommunityApiFetchMock().mock.calls.length
     const retireDisk = vi.spyOn(getCommunityDbRegistry(capturedQueryClient)!, "retireReadingDisk")
 
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(capturedQueryClient.getQueryState(contextKey)).toBeUndefined()
     expect(capturedQueryClient.getQueryState(pendingKey)).toBeUndefined()
@@ -179,7 +171,7 @@ it("cancels an unresolved parent thread list before its child rows can arrive", 
     },
   }).catch(() => undefined)
 
-  capturedOnMessage!({ type: "community:channel.delete", serverId: "server", channelId: "parent" })
+  capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.delete", serverId: "server", channelId: "parent" }))
 
   expect(requestSignal.aborted).toBe(true)
   expect(capturedQueryClient.getQueryState(key)).toBeUndefined()
@@ -198,9 +190,9 @@ it("preserves readable previews when leaving only a thread's notify membership",
   const key = communityKeys.messageContext("channel", "preview_child", 1)
   capturedQueryClient.setQueryData(key, preview)
 
-  capturedOnMessage!({
+  capturedOnMessage!(currentCommunityEventFixture({
     type: "community:channel.membership.change", serverId: "server", channelId: "preview_child", userId: "u_me", relation: "notify", present: false,
-  })
+  }))
 
   expect(capturedQueryClient.getQueryData(key)).toEqual(preview)
   expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("preview_child", "server")).toBe(false)

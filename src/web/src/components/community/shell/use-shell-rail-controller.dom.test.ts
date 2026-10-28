@@ -1,3 +1,8 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { QueryClient } from "@tanstack/react-query"
+import type { CommunityDbRegistry } from "@/lib/community-db/collections"
+import { communityKeys } from "@/lib/query-keys"
+import { serverResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement } from "react"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -17,10 +22,7 @@ const mocks = vi.hoisted(() => ({
   toastApiError: vi.fn(),
   lastChannel: { current: null as string | null },
   lastMeLeaf: { current: null as string | null },
-  communityDb: { current: null as null | { collections: {
-    servers: { get: (id: string) => { detailComplete?: boolean } | undefined; subscribeChanges: (notify: () => void) => { unsubscribe: () => void } }
-    channels: { values: () => IterableIterator<Record<string, unknown>>; subscribeChanges: (notify: () => void) => { unsubscribe: () => void } }
-  } } },
+  communityDb: { current: null as CommunityDbRegistry | null },
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -269,21 +271,24 @@ describe("useShellRailController", () => {
     expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
   })
 
-  it("uses canonical channels only when the restored server detail is complete", async () => {
+  it("uses canonical channels only when the restored directory window is complete", async () => {
     const servers = new Map([
-      ["s1", { id: "s1", detailComplete: true }],
-      ["s2", { id: "s2", detailComplete: false }],
+      ["s1", serverResourceFixture({ id: "s1" })],
+      ["s2", serverResourceFixture({ id: "s2" })],
     ])
     const channels = new Map([
-      ["pending", { id: "pending", serverId: "s1", type: "text", pending: true }],
-      ["thread", { id: "thread", serverId: "s1", type: "thread", pending: false }],
-      ["canonical", { id: "canonical", serverId: "s1", type: "text", pending: false }],
-      ["foreign", { id: "foreign", serverId: "s2", type: "text", pending: false }],
+      ["pending", { ...channelResourceFixture({ id: "pending", serverId: "s1" }), pending: true }],
+      ["thread", { ...channelResourceFixture({ id: "thread", serverId: "s1", type: "thread", parentChannelId: "canonical", parentMessageId: "opener" }), pending: false }],
+      ["canonical", { ...channelResourceFixture({ id: "canonical", serverId: "s1" }), pending: false }],
+      ["foreign", { ...channelResourceFixture({ id: "foreign", serverId: "s2" }), pending: false }],
     ])
-    mocks.communityDb.current = { collections: {
-      servers: { get: (id) => servers.get(id), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
+    const directoryClient = new QueryClient()
+    directoryClient.setQueryData(communityKeys.server("s1"), { schemaVersion: BUSINESS_SCHEMA_VERSION, accountId: "viewer", serverId: "s1", categoryIds: [], channelIds: ["canonical"] })
+    mocks.communityDb.current = { queryClient: directoryClient, scopeId: "viewer", accountId: "viewer", collections: {
+      categories: { values: () => [][Symbol.iterator]() },
+      servers: { get: (id: string) => servers.get(id), values: () => servers.values(), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
       channels: { values: () => channels.values(), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
-    } }
+    } } as unknown as CommunityDbRegistry
     const hook = await renderController()
 
     await act(async () => hook.current.navigate("s1"))

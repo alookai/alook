@@ -593,6 +593,13 @@ export async function getServerRootChannelsByIds(db: Database, serverId: string,
   ));
 }
 
+export async function listChannelMembershipsForUserInChannels(db: Database, userId: string, channelIds: string[]) {
+  return (await Promise.all(chunk([...new Set(channelIds)], D1_MAX_IN_PARAMS).map(ids =>
+    db.select({ channelId: communityChannelMember.channelId, userId: communityChannelMember.userId, relation: communityChannelMember.relation, source: communityChannelMember.source })
+      .from(communityChannelMember).where(and(eq(communityChannelMember.userId, userId), inArray(communityChannelMember.channelId, ids)))
+  ))).flat();
+}
+
 export async function getChannelsByIds(db: Database, channelIds: string[]) {
   if (channelIds.length === 0) return [];
   // Hydration on the mentions/unreads paths passes up to a full page (200) of

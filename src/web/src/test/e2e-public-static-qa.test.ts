@@ -438,7 +438,7 @@ describe("original-path forensic evidence", () => {
     const actors = { sessionCookie: () => "unit-private-cookie" } as unknown as Parameters<typeof qaApi>[0]
     await expect(qaApi(actors, observed.resources, "alice", "/api/community/machines")).rejects.toThrow("QA GET /api/community/machines returned 500")
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ headers: { Cookie: "unit-private-cookie" } })
+    expect(new Headers(fetchMock.mock.calls[0]![1]?.headers).get("Cookie")).toBe("unit-private-cookie")
     expect(json).not.toHaveBeenCalled()
     await observed.flush()
     const snapshot = JSON.parse(observed.attachments[0]!.body)
@@ -526,5 +526,44 @@ describe("original-path forensic evidence", () => {
     const { order, dependencies } = cleanup({ waitForStop: async () => false })
     await expect(cleanupWithPublicStaticEvidence(initial(), dependencies)).rejects.toThrow("E2E services did not stop")
     expect(order).toEqual(["terminate", "terminate"])
+  })
+})
+
+describe("current persistence fixture byte ownership", () => {
+  async function disk() {
+    const { IDBFactory } = await import("fake-indexeddb")
+    vi.stubGlobal("indexedDB", new IDBFactory())
+    const { createStore, set, get } = await import("idb-keyval")
+    const store = createStore("keyval-store", "keyval")
+    const page = { evaluate: <T, A>(fn: (arg: A) => Promise<T>, argument: A) => fn(argument) } as unknown as import("@playwright/test").Page
+    return { page, put: (key: string, value: unknown) => set(key, value, store), read: (key: string) => get(key, store) }
+  }
+  it("captures current both-domain payloads and inserts only explicitly artificial retirement negatives", async () => {
+    const { BUSINESS_SCHEMA_VERSION } = await import("@alook/shared")
+    const { deviceSnapshot, insertArtificialRetiredResidual } = await import("./e2e-ui/_fixtures/public-static-qa")
+    const h = await disk(), userId = "fixture", device = crypto.randomUUID(), account = crypto.randomUUID()
+    const key = `alook:business:v${BUSINESS_SCHEMA_VERSION}:${userId}:client`
+    const payload = JSON.stringify({ version: BUSINESS_SCHEMA_VERSION, buster: String(BUSINESS_SCHEMA_VERSION), timestamp: 123, clientState: { queries: [], mutations: [] }, channelFences: [], ownerEpochs: { device, account } })
+    await h.put("alook:qc:device-epoch", device); await h.put(`alook:qc:cache:${userId}:account-epoch`, account)
+    await h.put(`alook:qc:cache:${userId}:account-epoch:channels`, new Map())
+    await h.put(key, payload); await h.put(`alook:business:v${BUSINESS_SCHEMA_VERSION}:${userId}:application:client`, payload)
+    const captured = await deviceSnapshot(h.page)
+    expect(captured.payloadKeys).toHaveLength(2)
+    const result = await insertArtificialRetiredResidual(h.page, userId, captured)
+    expect(result.preparation).toContain("artificial")
+    for (const written of result.keys) expect(await h.read(written)).toBe(payload)
+    const map = await h.read(`alook:qc:cache:${userId}:account-epoch:channels`) as Map<string, unknown>
+    expect(map.get(result.channelFixture.channelId)).toEqual({ epoch: result.channelFixture.epoch, deleted: true })
+    expect(result.sha256).toBe(createHash("sha256").update(payload).digest("hex"))
+  })
+  it("refuses an unbound or old captured envelope before writing residual bytes", async () => {
+    const { BUSINESS_SCHEMA_VERSION } = await import("@alook/shared")
+    const { insertArtificialRetiredResidual } = await import("./e2e-ui/_fixtures/public-static-qa")
+    const h = await disk(), userId = "fixture", epoch = crypto.randomUUID()
+    for (const body of [{ version: BUSINESS_SCHEMA_VERSION - 1, buster: String(BUSINESS_SCHEMA_VERSION - 1), ownerEpochs: { device: epoch, account: "account" } }, { version: BUSINESS_SCHEMA_VERSION, buster: String(BUSINESS_SCHEMA_VERSION) }]) {
+      const captured = { epoch, payloadKeys: [], records: [{ key: `alook:business:v${BUSINESS_SCHEMA_VERSION}:${userId}:client`, encoded: JSON.stringify(JSON.stringify({ ...body, clientState: {}, channelFences: [] })) }, { key: `alook:qc:cache:${userId}:account-epoch`, encoded: JSON.stringify("account") }] }
+      await expect(insertArtificialRetiredResidual(h.page, userId, captured)).rejects.toThrow("not bound to the current business owner")
+      expect(await h.read(`alook:business:v${BUSINESS_SCHEMA_VERSION}:${userId}:client`)).toBeUndefined()
+    }
   })
 })

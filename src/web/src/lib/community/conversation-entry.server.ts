@@ -1,3 +1,4 @@
+import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { COMMUNITY_CONVERSATION_ANCHOR_MISSING, communityChannelResourceFromStorage, CommunityConversationEntryReadSchema, CommunityThreadsReadSchema, CommunityMessageResourceSchema, queries, withD1Retry, type CommunityConversationEntryRead, type Database } from "@alook/shared"
 import { canonicalUserImage } from "./storage"
 import { readCommunityMessageWindow } from "./message-window.server"
@@ -58,7 +59,7 @@ async function readEntryWindow(db: Database, { viewerId, target, window, preferT
   if (target.access.channel.type === "forum" && !window.anchorId) {
     const page = await readCommunityForumRows(db, channelId, { tag, pageSize: window.pageSize, includes: new Set(["parentMessage", "firstMessage", "tags", "participants"]) })
     const forumFeed = CommunityThreadsReadSchema.parse(await readCommunityThreadsResource(db, viewerId, target.access.channel, page.threads,
-      { messages: [...page.parentMessages, ...page.firstMessages], tags: page.tags, participants: page.participants }, { hasMore: page.hasMore, nextCursor: page.nextCursor ?? null }, 3))
+      { messages: [...page.parentMessages, ...page.firstMessages], tags: page.tags, participants: page.participants }, { hasMore: page.hasMore, nextCursor: page.nextCursor ?? null }, COMMUNITY_RESOURCE_CONTRACT_VERSION))
     return { ok: true as const, page: { messages: [], latestSeq: readState.lastReadSeq, hasMoreOlder: false, hasMoreNewer: false, surfaceReceipt: { channelId, surfaceKind: "forum" as const } },
       readState, revision, selection: { reason: "tail" as const, anchorMessageId: null }, forumFeed }
   }
@@ -67,12 +68,12 @@ async function readEntryWindow(db: Database, { viewerId, target, window, preferT
     reason: window.anchorId ? "explicit_anchor" : anchorId ? "read_pointer" : "tail", anchorMessageId: anchorId ?? null,
   }
   let result = await readCommunityMessageWindow(db, {
-    viewerId, target, window: { ...window, anchorId }, contract: 3, tag,
+    viewerId, target, window: { ...window, anchorId }, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION, tag,
   })
   if (!result.ok && !window.anchorId && anchorId) {
     selection = { reason: "read_pointer_missing", anchorMessageId: null }
     result = await readCommunityMessageWindow(db, {
-      viewerId, target, window: { ...window, anchorId: undefined }, contract: 3, tag,
+      viewerId, target, window: { ...window, anchorId: undefined }, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION, tag,
     })
   }
   if (!result.ok) return { ...result, ...(window.anchorId ? { details: [COMMUNITY_CONVERSATION_ANCHOR_MISSING] } : {}) }
@@ -87,7 +88,7 @@ async function readPeer(db: Database, peerId: string) {
 
 async function readOpener(db: Database, viewerId: string, channelId: string, messageId: string) {
   const [message] = await withD1Retry(() => queries.communityMessage.getMessagesByIdsInScope(db, [messageId], { channelId }), { route: "community/messages:entry-opener" })
-  return message ? CommunityMessageResourceSchema.parse(await readCommunityMessageResource(db, viewerId, message, 3)) : undefined
+  return message ? CommunityMessageResourceSchema.parse(await readCommunityMessageResource(db, viewerId, message, COMMUNITY_RESOURCE_CONTRACT_VERSION)) : undefined
 }
 
 async function readParent(db: Database, viewerId: string, channelId: string) {

@@ -70,6 +70,8 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
       ALTER TABLE user ADD COLUMN email TEXT;
       ALTER TABLE user ADD COLUMN image TEXT;
       ALTER TABLE user ADD COLUMN avatarVersion INTEGER DEFAULT 0;
+      UPDATE user SET name='Author' WHERE id='author';
+      UPDATE user SET name='Peer' WHERE id='peer';
       CREATE TABLE community_bot_daily_activity (bot_id TEXT NOT NULL, day TEXT NOT NULL, handled_count INTEGER NOT NULL DEFAULT 0, sent_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(bot_id, day));
       INSERT INTO community_attachment(id, uploader_id, r2_key, filename, created_at) VALUES ('a', 'author', 'original', 'a.png', 'now');
     `)

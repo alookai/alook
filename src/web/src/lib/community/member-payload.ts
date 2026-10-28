@@ -1,4 +1,5 @@
-import { avatarInitial } from "./avatar"
+import { CommunityResourceProfileSchema } from "@alook/shared"
+
 import { canonicalUserImage } from "./storage"
 
 // Canonical row shape the member-list queries produce. Bot columns
@@ -22,8 +23,8 @@ export type MappedMember = {
   id: string
   userId: string
   name: string
-  discriminator: string | undefined
-  avatar: string
+  discriminator: string | null
+  avatar: string | null
   avatarVersion: number
   status: "online" | "offline"
   sub: string
@@ -50,7 +51,7 @@ export function mapMemberForApi(
   viewerUserId: string,
   opts?: { botGating?: boolean; isCreator?: boolean; source?: string },
 ): MappedMember {
-  const display = row.userName ?? ""
+  const display = CommunityResourceProfileSchema.shape.name.parse(row.userName)
   const isOwnBot =
     !!opts?.botGating &&
     row.userIsBot === true &&
@@ -59,9 +60,8 @@ export function mapMemberForApi(
     id: row.id,
     userId: row.userId,
     name: display,
-    discriminator: row.discriminator ?? undefined,
-    avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion)
-      ?? avatarInitial(display),
+    discriminator: CommunityResourceProfileSchema.shape.discriminator.parse(row.discriminator),
+    avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion),
     avatarVersion: row.userAvatarVersion,
     status: row.userId === viewerUserId ? "online" : "offline",
     sub: "",

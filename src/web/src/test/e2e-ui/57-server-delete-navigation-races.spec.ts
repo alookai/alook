@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Page, WebSocket } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, openServer } from "./_fixtures/actions"
@@ -12,7 +13,7 @@ async function prepareCase(actors: CaseActors) {
   const { sessionCookie } = actors
   const { seedChannel, seedServer } = actors.seed
   async function serverIds(key: UserKey): Promise<string[]> {
-    const response = await fetch(`${WEB_URL}/api/community/servers`, {
+    const response = await communityFixtureFetch(`${WEB_URL}/api/community/servers`, {
       headers: { Cookie: sessionCookie(key), Origin: WEB_URL },
     })
     expect(response.status).toBe(200)
@@ -63,9 +64,9 @@ function deferred<T>(): Deferred<T> {
 }
 
 async function firstTextChannelId(page: Page, serverId: string): Promise<string> {
-  const response = await page.request.get(
-    `/api/community/servers/${serverId}/channels`,
-  )
+  const response = await confirmCommunityFixtureApiResponse(page.request.get(
+    `/api/community/servers/${serverId}/channels`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+  ))
   expect(response.status()).toBe(200)
   const body = await response.json() as {
     channels: Array<{ id: string; type: string; parentChannelId?: string | null }>
@@ -213,7 +214,7 @@ test("deleting the only Server replaces once to Home", async ({ caseActors }) =>
 
   await clickDeleteServer(page, route.serverId, async () => {
     expect(await serverIds(key)).toEqual([route.serverId])
-    const membershipResponse = await page.request.get(`/api/community/servers/${route.serverId}/members`)
+    const membershipResponse = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/servers/${route.serverId}/members`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(membershipResponse.status()).toBe(200)
     const body = await membershipResponse.json() as { members: Array<{ userId: string }> }
     expect(body.members.map((member) => member.userId)).toContain(userId(key))
@@ -409,11 +410,7 @@ test("a failed DELETE keeps the current route and emits no success frame", async
       await request.continue()
       return
     }
-    await request.fulfill({
-      status: 500,
-      contentType: "application/json",
-      body: JSON.stringify({ error: "forced delete failure" }),
-    })
+    await request.fulfill(currentCommunityFixtureError("forced delete failure", 500))
   })
   const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"

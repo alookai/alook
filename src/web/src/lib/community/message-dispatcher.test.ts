@@ -74,7 +74,7 @@ vi.mock("./queue-producer", () => ({
   enqueueQueueTasks: (...args: unknown[]) => mockEnqueueQueueTasks(...args),
 }))
 import { dispatchCommittedMessage, planCommittedMessage } from "./message-dispatcher"
-import { deriveCommunityDeliveryOperationId } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, deriveCommunityDeliveryOperationId } from "@alook/shared"
 
 const message = {
   id: "msg_1",
@@ -281,6 +281,8 @@ describe("planCommittedMessage", () => {
     }))
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
+      messageId: "msg_1",
+      r2Key: "channel/c1/photo.png",
       targetId: "c1",
       filename: "photo.png",
       thumbnailR2Key: "thumb",
@@ -324,6 +326,8 @@ describe("planCommittedMessage", () => {
     mockListAttention.mockResolvedValue([{ userId: "bot_1", kind: "mention" }])
     mockListAttachments.mockResolvedValue([{
       id: "att_1",
+      messageId: "msg_1",
+      r2Key: "channel/c1/photo.png",
       targetId: "c1",
       filename: "private-name.png",
       thumbnailR2Key: null,
@@ -500,13 +504,15 @@ describe("planCommittedMessage", () => {
     const plan = await planCommittedMessage(
       {} as never,
       "msg_1",
-      { memberAddedUserId: "u_all" },
+      { joinedParticipantUserIds: ["u_all"] },
     )
-    expect(plan.memberAdded).toEqual({ userId: "u_all", serverId: "s1", channelId: "c1" })
+    expect(plan.joinedParticipantUserIds).toEqual(["u_all"])
+    expect(plan.rosterRefreshUserId).toBe("u_all")
+    expect(plan.communityContract).toBe(BUSINESS_SCHEMA_VERSION)
     await expect(planCommittedMessage(
       {} as never,
       "msg_1",
-      { memberAddedUserId: "outside" },
+      { joinedParticipantUserIds: ["outside"] },
     )).rejects.toThrow("outside message scope")
   })
 
@@ -586,11 +592,11 @@ describe("dispatchCommittedMessage", () => {
     await expect(work).resolves.toBeUndefined()
     expect(mockSendMessageDeliveryBatch).toHaveBeenCalledTimes(1)
     expect(mockSendMessageDeliveryBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ messageId: "msg_1" }),
+      expect.objectContaining({ messageId: "msg_1", communityContract: BUSINESS_SCHEMA_VERSION }),
       await deriveCommunityDeliveryOperationId("msg_1"),
     )
     expect(Object.keys(mockSendMessageDeliveryBatch.mock.calls[0]![0]).sort()).toEqual([
-      "contentUserIds", "mentionUserIds", "messageEvent", "messageId",
+      "communityContract", "contentUserIds", "mentionUserIds", "messageEvent", "messageId",
       "unreadMentionUserIds", "unreadPlainUserIds",
     ])
     expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([])
@@ -610,7 +616,7 @@ describe("dispatchCommittedMessage", () => {
     )
 
     await dispatchCommittedMessage({} as never, "msg_1", {
-      memberAddedUserId: "author_1", joinedParticipantUserIds: ["author_1"],
+      joinedParticipantUserIds: ["author_1"],
     })
 
     expect(mockSendMessageDeliveryBatch).toHaveBeenCalledWith(
@@ -620,14 +626,14 @@ describe("dispatchCommittedMessage", () => {
           channelId: "t1",
         }),
         parentProjectionUserIds: ["parent_viewer"],
-        memberAdded: { userId: "author_1", serverId: "s1", channelId: "t1" },
+        communityContract: BUSINESS_SCHEMA_VERSION,
         joinedParticipantUserIds: ["author_1"],
         rosterRefreshUserId: "author_1",
       }),
       await deriveCommunityDeliveryOperationId("msg_1"),
     )
     expect(Object.keys(mockSendMessageDeliveryBatch.mock.calls[0]![0]).sort()).toEqual([
-      "contentUserIds", "joinedParticipantUserIds", "memberAdded", "mentionUserIds",
+      "communityContract", "contentUserIds", "joinedParticipantUserIds", "mentionUserIds",
       "messageEvent", "messageId", "parentProjection", "parentProjectionUserIds",
       "rosterRefreshUserId", "unreadMentionUserIds", "unreadPlainUserIds",
     ])

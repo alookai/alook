@@ -43,19 +43,6 @@ export function invalidateChannelMembers(
   })
 }
 
-export function invalidateChannelRoster(
-  projection: CommunityWsProjectionTransaction,
-  channelId: string,
-) {
-  invalidateChannelMembers(projection, channelId)
-  projection.invalidate("channel-addable-members", {
-    queryKey: communityKeys.channelAddableMembers(channelId),
-  })
-  projection.invalidate("thread-participants", {
-    queryKey: communityKeys.threadParticipants(channelId),
-  })
-}
-
 export function invalidateThreads(
   projection: CommunityWsProjectionTransaction,
   channelId: string,

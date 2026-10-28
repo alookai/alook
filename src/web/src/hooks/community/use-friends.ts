@@ -1,4 +1,6 @@
 "use client"
+import { CommunityAcceptedFriendsReadSchema, CommunityBlockedFriendsReadSchema, CommunityPendingFriendsReadSchema, type CommunityResourceBundle } from "@alook/shared"
+import type { z } from "zod"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
@@ -6,7 +8,6 @@ import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react
 import { useMemo } from "react"
 import { apiFetch } from "@/lib/api/client"
 import {
-  apiFetchProfiles,
   communityUserProfilePatch,
   loadAndSeedProfiles,
 } from "@/lib/community/profile-seed"
@@ -57,49 +58,27 @@ export const friendsQueryFn = async (context: QueryFunctionContext) => {
   // bucket from its own sub-resource endpoint (friends/accepted · friends/blocked
   // · friends/pending) and compose the same triad. Same query key / cache grain
   // as before, so mutations still fire one invalidation.
+  const readBucket = <T extends { resources: CommunityResourceBundle; stale?: false } | { stale: true }>(path: string, schema: z.ZodType<T>) => loadAndSeedProfiles(
+    origin => apiFetch<unknown>(path, { ...origin, signal: context.signal }).then(data => schema.parse(data)),
+    data => {
+      if (data.stale) throw new StaleReadError()
+      if (data.resources.viewerId !== registry!.accountId) throw new Error("Friend profile account mismatch")
+      return data.resources.profiles.map(profile => communityUserProfilePatch(profile.id, profile))
+    }, registry, context.signal, token,
+  )
   const [acceptedData, blockedData, pendingData] = await Promise.all([
-    apiFetchProfiles<{ friends: Friend[]; stale?: boolean }>(
-      "/api/community/friends/accepted",
-      (data) => {
-        throwIfStale(data)
-        return data.friends.map((friend) => communityUserProfilePatch(friend.userId ?? friend.id, friend, { legacyPresentation: true }))
-      }, { signal: context.signal }, getCommunityDbRegistry(context.client),
-    ),
-    apiFetchProfiles<{ blocked: BlockedUser[]; stale?: boolean }>(
-      "/api/community/friends/blocked",
-      (data) => {
-        throwIfStale(data)
-        return data.blocked.map((blocked) => ({
-              id: blocked.userId ?? blocked.id,
-              identityAbout: { name: blocked.name },
-              avatar: {
-                avatar: blocked.avatar,
-                avatarVersion: blocked.avatarVersion,
-              },
-            }))
-      }, { signal: context.signal }, getCommunityDbRegistry(context.client),
-    ),
-    apiFetchProfiles<{ pending: PendingRequest[]; stale?: boolean }>(
-      "/api/community/friends/pending",
-      (data) => {
-        throwIfStale(data)
-        return data.pending.map((pending) => ({
-          id: pending.userId,
-          identityAbout: { name: pending.name },
-          avatar: {
-            avatar: pending.avatar,
-            avatarVersion: pending.avatarVersion,
-          },
-        }))
-      }, { signal: context.signal }, getCommunityDbRegistry(context.client),
-    ),
+    readBucket("/api/community/friends/accepted", CommunityAcceptedFriendsReadSchema),
+    readBucket("/api/community/friends/blocked", CommunityBlockedFriendsReadSchema),
+    readBucket("/api/community/friends/pending", CommunityPendingFriendsReadSchema),
   ])
-  publishCommunityFriendships(context.client, [
-    ...acceptedData.friends.map((friend) => ({ id: friend.id, userId: friend.userId ?? friend.id, kind: "accepted" as const, sub: friend.sub })),
-    ...pendingData.pending.map((pending) => ({ id: pending.id, userId: pending.userId, kind: pending.kind, needsOwnerApproval: pending.needsOwnerApproval })),
-    ...blockedData.blocked.map((blocked) => ({ id: `blocked:${blocked.userId ?? blocked.id}`, userId: blocked.userId ?? blocked.id, kind: "blocked" as const })),
-  ], { token, signal: context.signal })
-  return { ids: [...acceptedData.friends.map((friend) => friend.id), ...pendingData.pending.map((pending) => pending.id), ...blockedData.blocked.map((blocked) => `blocked:${blocked.userId ?? blocked.id}`)] }
+  if (acceptedData.stale || blockedData.stale || pendingData.stale) throw new StaleReadError()
+  const rows = [
+    ...acceptedData.friends.map(row => ({ ...row, kind: "accepted" as const })),
+    ...pendingData.pending,
+    ...blockedData.blocked.map(row => ({ ...row, id: `blocked:${row.userId}`, kind: "blocked" as const })),
+  ]
+  publishCommunityFriendships(context.client, rows, { token, signal: context.signal })
+  return { ids: rows.map(row => row.id) }
 }
 
 export function useFriends(options?: { enabled?: boolean }): UseQueryResult<{ ids: string[] }> & {

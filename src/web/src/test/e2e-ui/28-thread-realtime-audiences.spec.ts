@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { COMMUNITY_CONTRACT_VERSION, WS_EVENTS } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { captureNotificationRequests, gotoAfterNotificationStartup } from "./_fixtures/community-notification-requests"
@@ -9,7 +10,7 @@ import type { CaseActors } from "./_fixtures/case-fixture"
 async function prepareCase(actors: CaseActors) {
   const { sessionCookie } = actors
   async function mutate(path: string, method: string, body?: unknown) {
-    return fetch(`${WEB_URL}${path}`, {
+    return communityFixtureFetch(`${WEB_URL}${path}`, {
       method,
       headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL, "Content-Type": "application/json" },
       ...(body ? { body: JSON.stringify(body) } : {}),
@@ -61,10 +62,10 @@ for (const parentType of ["text", "forum"] as const) {
         }).toBe(true)
         const added = await mutate(`/api/community/channels/${childId}/participants`, "POST", { userId: userId("bob") })
         expect(added.status).toBe(201)
-        await expect.poll(() => trace.events.some((event) => event.type === WS_EVENTS.CHANNEL_MEMBER_ADD && event.serverId === serverId && event.channelId === childId && event.userId === userId("bob"))).toBe(true)
-        const removed = await bob.page.request.delete(`/api/community/channels/${childId}/participants/${userId("bob")}`)
+        await expect.poll(() => trace.events.some((event) => event.type === WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE && event.relation === "notify" && event.present === true && event.serverId === serverId && event.channelId === childId && event.userId === userId("bob"))).toBe(true)
+        const removed = await confirmCommunityFixtureApiResponse(bob.page.request.delete(`/api/community/channels/${childId}/participants/${userId("bob")}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
         expect(removed.status()).toBe(204)
-        await expect.poll(() => trace.events.some((event) => event.type === WS_EVENTS.CHANNEL_MEMBER_REMOVE && event.serverId === serverId && event.channelId === childId && event.userId === userId("bob"))).toBe(true)
+        await expect.poll(() => trace.events.some((event) => event.type === WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE && event.relation === "notify" && event.present === false && event.serverId === serverId && event.channelId === childId && event.userId === userId("bob"))).toBe(true)
         await expect(bob.page.getByTestId(tid.message(firstId))).toBeVisible()
         const secondId = await seedMessage("alice", childId, "Still readable after leaving participation")
         await expect(bob.page.getByTestId(tid.message(secondId))).toBeVisible()
@@ -73,7 +74,7 @@ for (const parentType of ["text", "forum"] as const) {
           const revoked = await mutate(`/api/community/channels/${parentId}/members/${userId("bob")}`, "DELETE")
           expect(revoked.status).toBe(204)
           await expect(bob.page.getByTestId(tid.message(secondId))).toHaveCount(0)
-          const denied = await bob.page.request.get(`/api/community/channels/${childId}`)
+          const denied = await confirmCommunityFixtureApiResponse(bob.page.request.get(`/api/community/channels/${childId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
           expect([403, 404]).toContain(denied.status())
           const lastId = await seedMessage("alice", childId, "Revoked reader cannot receive this")
           await bob.page.waitForTimeout(750)

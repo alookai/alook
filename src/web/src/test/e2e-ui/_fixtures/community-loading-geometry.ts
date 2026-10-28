@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./business-contract"
 import { expectInertBackground } from "./inert-background"
 import type {
   BrowserContext,
@@ -157,7 +158,7 @@ async function holdRequest(page: Page, pattern: string) {
 }
 
 async function pairMachine(actors: CaseActors, resources: CaseResources) {
-  const pair = await fetch(`${WEB_URL}/api/community/machines/pair`, {
+  const pair = await communityFixtureFetch(`${WEB_URL}/api/community/machines/pair`, {
     method: "POST",
     headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL },
   })
@@ -184,7 +185,7 @@ async function pairMachine(actors: CaseActors, resources: CaseResources) {
   expect(activate.status).toBe(200)
   const { machineId } = await activate.json() as { machineId: string }
   resources.own(machineId, async (id) => {
-    const response = await fetch(`${WEB_URL}/api/community/machines/${id}`, { method: "DELETE", headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL } })
+    const response = await communityFixtureFetch(`${WEB_URL}/api/community/machines/${id}`, { method: "DELETE", headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL } })
     expect([204, 404]).toContain(response.status)
   })
   activationProof.response = activate

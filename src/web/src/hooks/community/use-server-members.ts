@@ -45,7 +45,7 @@ export function applyJoinEvent(
       id: event.member.id,
       userId: event.member.userId,
       name: event.member.name,
-      discriminator: event.member.discriminator,
+      discriminator: event.member.discriminator ?? "",
       avatar: event.member.avatar ?? avatarInitial(event.member.name),
       avatarVersion: event.member.avatarVersion,
       status: "online",
@@ -271,7 +271,7 @@ export const membersPageQueryFn = (serverId: string, search = "", limit?: number
     const data = await apiFetch<MembersEnvelope | SearchEnvelope>(path, communityRequestOptions(client, token, signal, assert))
     assert()
     if (data.hasMore && !data.cursor) throw new Error("members page missing cursor")
-    writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member, { legacyPresentation: true })), registry, { snapshot: profileSnapshot })
+    writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
     publishCommunityMembersSnapshot(client, serverId, data.members, { token, signal })
     assert()
     return { members: data.members.map(({ id, userId }) => ({ id, userId })), hasMore: data.hasMore, cursor: data.cursor, limit: data.limit, ...("total" in data ? { total: data.total } : {}), liveRevision: protocol.liveRevision }
@@ -430,7 +430,7 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     })
   }, [identities, membershipProjection.data, profiles])
   const active = searching ? search : infinite
-  const readState = getMemberReadState(!!serverId, { pending: !data || active.isRefetching, failed: (!searching || searchReady) && active.isError && !active.isFetching }, [membershipProjection, profileProjection], members.filter((member) => member.userId !== membershipProjection.registry?.accountId).map((member) => member.userId), profiles)
+  const readState = getMemberReadState(!!serverId, { pending: !data || active.isRefetching, failed: (!searching || searchReady) && active.isError && !active.isFetching }, [membershipProjection, profileProjection], identities.filter((member) => member.userId !== membershipProjection.registry?.accountId).map((member) => member.userId), profileProjection.resourceProfiles)
   const pendingKicks = useMutationState({ filters: { mutationKey: ["community", "member-command"], status: "pending" }, select: (mutation) => {
     const variables = mutation.state.variables as { kind: string; input: { serverId: string; memberId: string } }
     const current = queryClient.getQueryData<MembersWindowCache>(key)

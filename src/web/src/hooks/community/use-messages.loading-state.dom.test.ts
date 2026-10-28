@@ -1,7 +1,8 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { conversationEntryFixture, conversationEntryFromChannel, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { createCommunityQueryOwner, seedCommunityMessageWindow } from "@/test/community-query-owner"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { ingestMessages } from "@/lib/community-db/sync"
+import { ingestMessages, publishCommunityMessageFields, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import type { CanonicalMessage, MessageScope } from "@/lib/community/message-stream"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
@@ -16,7 +17,7 @@ import { getMessageStreamState } from "@/test/community-query-owner"
 function dispatchLive(client: QueryClient, scope: MessageScope, event: { type: "wsMessage"; message: CanonicalMessage }) {
   const registry = getCommunityDbRegistry(client)
   if (!registry) throw new Error("Missing original message fixture owner")
-  ingestMessages(registry, scope.id, [event.message])
+  ingestMessages(registry, scope.id, [messageResourceFixture({ ...event.message, channelId: scope.id })])
   registry.runtime.messageStream.actions.dispatch(scope, event)
 }
 
@@ -47,7 +48,7 @@ async function renderChannelMessages(
     await seedConversationEntry(queryClient, conversationEntryFromChannel({ id: "ch_new", serverId: "s1", type: "text", name: "Channel", archived: false, createdAt: "2026-10-01T00:00:00Z" }))
     seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_new"), {
       pages: [{
-        messages: seedTail.map(row => ({ ...conversationEntryFixture().messages[0], content: row.id, ...getCommunityDbRegistry(queryClient)!.collections.messages.get(row.id), ...row, resourceComplete: true as const, channelId: "ch_new" })),
+        messages: seedTail.map(row => ({ ...conversationEntryFixture().messages[0], content: row.id, ...getCommunityDbRegistry(queryClient)!.collections.messages.get(row.id), ...row, channelId: "ch_new" })),
         hasMore: false,
         latestSeq: seedTail.at(-1)?.seq ?? 0,
       }],
@@ -67,7 +68,7 @@ async function renderDmMessages(seedTail: { id: string; seq: number }[], origina
   await seedConversationEntry(queryClient, conversationEntryFromChannel({ id: "dm_new", serverId: null, type: "dm", name: null, archived: false, createdAt: "2026-10-01T00:00:00Z" }))
   seedCommunityMessageWindow(queryClient, communityKeys.dmMessages("dm_new"), {
     pages: [{
-      messages: seedTail.map(row => ({ ...conversationEntryFixture().messages[0], content: row.id, ...getCommunityDbRegistry(queryClient)!.collections.messages.get(row.id), ...row, resourceComplete: true as const, channelId: "dm_new" })),
+      messages: seedTail.map(row => ({ ...conversationEntryFixture().messages[0], content: row.id, ...getCommunityDbRegistry(queryClient)!.collections.messages.get(row.id), ...row, channelId: "dm_new" })),
       hasMore: false,
       latestSeq: seedTail.at(-1)?.seq ?? 0,
     }],
@@ -106,13 +107,13 @@ describe("useMessages — instant channel switch", () => {
     const presentedAttachments = [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, contentType: "text/plain", kind: "file", size: "1.0 KB" }]
     const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorName: "Peer", text: "reply" }
     const message: CanonicalMessage = { id: "rich", seq: 3, type: "chat", authorId: "peer", authorName: "Peer", content: "before", clientNonce: "rich-nonce", createdAt: "2026-08-07T10:00:00.000Z" }
-    ingestMessages(registry, scope.id, [{ ...message, attachments, embeds, replyTo }])
+    ingestMessages(registry, scope.id, [messageResourceFixture({ ...message, channelId: scope.id, replyToId: "reply", attachments, embeds, replyTo })])
     const rendered = kind === "channel" ? await renderChannelMessages(undefined, [{ id: message.id, seq: message.seq }], client) : await renderDmMessages([{ id: message.id, seq: message.seq }], client)
     expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, attachments: presentedAttachments, embeds, replyTo })])
-    await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, content: "sparse live" } }) })
-    expect(registry.collections.messages.get(message.id)).toMatchObject({ content: "sparse live", attachments, embeds, replyTo })
-    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "sparse live", attachments: presentedAttachments, embeds, replyTo })])
-    await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, resourceComplete: true, channelId: scope.id, replyToId: "reply", content: "cleared", attachments: [], embeds: [] } }) })
+    await act(async () => { publishCommunityMessageFields(client, message.id, { content: "content patch" }, { token: captureCommunityLiveSnapshotToken(client, scope.id) }) })
+    expect(registry.collections.messages.get(message.id)).toMatchObject({ content: "content patch", attachments, embeds, replyTo })
+    expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "content patch", attachments: presentedAttachments, embeds, replyTo })])
+    await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, channelId: scope.id, replyToId: "reply", content: "cleared", attachments: [], embeds: [] } }) })
     expect(registry.collections.messages.get(message.id)).toMatchObject({ attachments: [], embeds: [] })
     expect(rendered.result.current.messages, JSON.stringify(rendered.result.current.messages)).toEqual([expect.objectContaining({ id: message.id, content: "cleared", attachments: [], embeds: [], replyTo })])
     expect(apiFetchMock).not.toHaveBeenCalled()

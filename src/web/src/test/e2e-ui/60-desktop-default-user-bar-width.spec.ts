@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
 import type { Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
@@ -170,10 +171,10 @@ async function holdCommunityReads(page: Page, caseResources: CaseResources) {
 async function serveOutdatedMachine(page: Page) {
   await page.route(url => url.pathname === "/api/community/machines", async (route) => {
     const optional = new URL(route.request().url()).searchParams.get("view") === "observations"
-    await route.fulfill({
+    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(optional ? { quotas: [{ machineId: outdatedMachine.id, quota: [] }] } : { machines: [outdatedMachine] }),
+      body: JSON.stringify(optional ? { quotas: [{ machineId: outdatedMachine.id, quota: [] }] } : { machines: [outdatedMachine], complete: true }),
     })
   })
 }

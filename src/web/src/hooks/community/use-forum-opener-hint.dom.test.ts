@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto"
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -53,7 +54,7 @@ describe("useForumOpenerHint", () => {
   it("times out a cold opener, rejects its late publication, and recovers through refetch", async () => {
     const { queryClient, wrapper } = await canonicalSetup()
     let release!: (value: unknown) => void
-    const payload = { id: "opener-1", content: "Recovered title", seq: 7, channelId: "forum-1", type: "chat" }
+    const payload = messageResourceFixture({ id: "opener-1", content: "Recovered title", seq: 7, channelId: "forum-1" })
     apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
     vi.useFakeTimers()
     let rendered!: ReturnType<typeof renderHook<ReturnType<typeof useForumOpenerHint>, unknown>>
@@ -76,7 +77,7 @@ describe("useForumOpenerHint", () => {
 
   it("keeps a readable canonical opener after a transient background failure", async () => {
     const { queryClient, wrapper } = await canonicalSetup()
-    publishCommunityMessages(queryClient, { channelId: "forum-1", messages: [{ id: "opener-1", channelId: "forum-1", type: "chat", content: "Warm title", seq: 7 }], proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined } })
+    publishCommunityMessages(queryClient, { channelId: "forum-1", messages: [messageResourceFixture({ id: "opener-1", channelId: "forum-1", content: "Warm title", seq: 7 })], proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined } })
     apiFetchMock.mockRejectedValue(new Error("offline"))
     const rendered = renderHook(() => useForumOpenerHint("server-1", "opener-1", true), { wrapper })
     await waitFor(() => expect(rendered.result.current.isError).toBe(true))
@@ -96,14 +97,11 @@ describe("useForumOpenerHint", () => {
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
   })
 
-  it("refetches a legacy seeded hint that lacks the opener seq", async () => {
+  it("reads the complete opener independently of an unrelated presentation hint", async () => {
     const { queryClient, wrapper } = await canonicalSetup()
-    apiFetchMock.mockResolvedValue({
-      id: "opener-1",
-      content: "Seeded",
-      seq: 7,
-      channelId: "forum-1",
-    })
+    apiFetchMock.mockResolvedValue(messageResourceFixture({
+      id: "opener-1", content: "Seeded", seq: 7, channelId: "forum-1",
+    }))
     queryClient.setQueryData(
       communityKeys.forumOpenerHint("server-1", "opener-1"),
       { id: "opener-1", content: "Seeded" },
@@ -129,13 +127,9 @@ describe("useForumOpenerHint", () => {
     const { queryClient, wrapper } = await canonicalSetup()
     publishCommunityMessages(queryClient, {
       channelId: "forum-1",
-      messages: [{
-        id: "opener-1",
-        channelId: "forum-1",
-        type: "chat",
-        content: "Warm title",
-        seq: 7,
-      }],
+      messages: [messageResourceFixture({
+        id: "opener-1", channelId: "forum-1", content: "Warm title", seq: 7,
+      })],
       proof: {
         token: captureCommunityLiveSnapshotToken(queryClient),
         signal: undefined,

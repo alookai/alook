@@ -9,7 +9,7 @@ import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { communityKeys } from "@/lib/query-keys"
 import { useMessages } from "@/hooks/community/use-messages"
 import { announceAnalyticsConsent } from "@/lib/analytics-consent"
-import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { traceResponse } from "./trace-response"
 import { useObservedRegion } from "./regions"
 import { installMessageScrollFixture, restoreMessageScrollFixture, mount } from "@/test/message-scroll-fixture"
@@ -67,12 +67,12 @@ it("exports real cache, entry, repair and request roles through installed Faro a
     const respond = (body: unknown, version: number) => traceResponse(new Response(JSON.stringify(body), {
       headers: { "content-type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(version) },
     }), request, { isTraced: true, spanContext: () => ({ traceId: "a".repeat(32), spanId: "b".repeat(16), traceFlags: 1 }) })
-    if (url.searchParams.has("entry")) return new Promise<Response>(resolve => { releaseEntry = () => resolve(respond(next, 3)) })
-    const page = { contractVersion: 2, channelId: "c1", surfaceReceipt: value.surfaceReceipt,
+    if (url.searchParams.has("entry")) return new Promise<Response>(resolve => { releaseEntry = () => resolve(respond(next, BUSINESS_SCHEMA_VERSION)) })
+    const page = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", surfaceReceipt: value.surfaceReceipt,
       messages: [second], page: { ...value.page, latestSeq: 2, hasMoreNewer: false } }
-    if (url.searchParams.has("since")) return new Promise<Response>(resolve => { releaseRepair = () => resolve(respond(page, 2)) })
-    if (url.searchParams.has("cursor")) return respond({ ...page, messages: [{ ...value.messages[0], id: "m0", seq: 0 }], page: { ...page.page, hasMoreOlder: false, olderCursor: null } }, 2)
-    return respond({ ...page, messages: [...value.messages, second] }, 2)
+    if (url.searchParams.has("since")) return new Promise<Response>(resolve => { releaseRepair = () => resolve(respond(page, BUSINESS_SCHEMA_VERSION)) })
+    if (url.searchParams.has("cursor")) return respond({ ...page, messages: [{ ...value.messages[0], id: "m0", seq: 0 }], page: { ...page.page, hasMoreOlder: false, olderCursor: null } }, BUSINESS_SCHEMA_VERSION)
+    return respond({ ...page, messages: [...value.messages, second] }, BUSINESS_SCHEMA_VERSION)
   }))
   document.cookie = "alook_analytics_consent=v1.granted; path=/"
   announceAnalyticsConsent("granted")

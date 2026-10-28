@@ -1,3 +1,4 @@
+import { fullResourceBundleFixture, serverResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect } from "react"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient } from "@tanstack/react-query"
@@ -5,27 +6,33 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { communityKeys } from "@/lib/query-keys"
-import { serverSchema, channelSchema } from "@/lib/community-db/schema"
+import { channelSchema } from "@/lib/community-db/schema"
 import { channelRefDirectoryQueryFn, useChannelRefDirectory } from "./use-channel-ref-directory"
 
 const api = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: api }))
 const directory = [{ id: "srv", name: "Studio", discriminator: "0001", channels: [{ id: "ch", name: "general", type: "text" as const }] }]
+function directoryResponse(rows = directory) {
+  return { directory: rows, resources: fullResourceBundleFixture("viewer",
+    rows.map(server => serverResourceFixture({ id: server.id, name: server.name, discriminator: server.discriminator })),
+    rows.flatMap(server => server.channels.map(channel => channelResourceFixture({ ...channel, serverId: server.id }))),
+  ) }
+}
 const clients: QueryClient[] = []
 function client() { const qc = new QueryClient({ defaultOptions: { queries: { retry: 2 } } }); clients.push(qc); return qc }
 function wrapper(qc: QueryClient) { return function Owner({ children }: PropsWithChildren) { return createElement(CommunityTestProvider, { client: qc }, children) } }
 function mount(qc = client(), enabled = true) { return renderHook(({ active }: { active: boolean }) => useChannelRefDirectory(active), { initialProps: { active: enabled }, wrapper: wrapper(qc) }) }
-function deferred() { let resolve!: (value: { directory: typeof directory }) => void; const promise = new Promise<{ directory: typeof directory }>((done) => { resolve = done }); return { promise, resolve } }
+function deferred() { let resolve!: (value: ReturnType<typeof directoryResponse>) => void; const promise = new Promise<ReturnType<typeof directoryResponse>>((done) => { resolve = done }); return { promise, resolve } }
 function seed(qc: QueryClient, channels = true) {
-  qc.setQueryData(communityKeys.communityDbCollection("viewer", "servers"), [serverSchema.parse({ id: "srv", name: "Studio", discriminator: "0001", description: "", ownerId: "viewer", icon: null, official: false, isOwner: true, unread: false, mentions: 0 })])
-  qc.setQueryData(communityKeys.communityDbCollection("viewer", "channels"), channels ? [channelSchema.parse({ id: "ch", serverId: "srv", name: "general", type: "text", position: 0, archived: false, muted: false, unread: false, tags: [], pending: false })] : [])
+  qc.setQueryData(communityKeys.communityDbCollection("viewer", "servers"), [serverResourceFixture({ id: "srv", name: "Studio", discriminator: "0001", ownerId: "viewer" })])
+  qc.setQueryData(communityKeys.communityDbCollection("viewer", "channels"), channels ? [channelSchema.parse({ ...channelResourceFixture({ id: "ch", serverId: "srv", name: "general" }), muted: false, tags: [], pending: false })] : [])
 }
 beforeEach(() => { api.mockReset() })
 beforeEach(() => () => { act(() => { clients.splice(0).forEach((qc) => qc.clear()) }) })
 describe("native canonical channel directory", () => {
   it("uses the qualified lightweight API helper", async () => {
-    api.mockResolvedValue({ directory }); const options = { authenticationAccount: "viewer" }
-    await expect(channelRefDirectoryQueryFn(options)).resolves.toEqual(directory)
+    api.mockResolvedValue(directoryResponse()); const options = { authenticationAccount: "viewer" }
+    await expect(channelRefDirectoryQueryFn(options)).resolves.toEqual(directoryResponse())
     expect(api).toHaveBeenCalledWith("/api/community/users/me/channel-directory", options)
   })
   it("stays dormant until enabled then publishes DB rows and transport IDs", async () => {
@@ -33,15 +40,15 @@ describe("native canonical channel directory", () => {
     expect(api).not.toHaveBeenCalled(); expect(view.result.current).toMatchObject({ directory: [], isResolved: false, isLoading: false })
     view.rerender({ active: true }); await waitFor(() => expect(api).toHaveBeenCalledOnce())
     expect(view.result.current.isLoading).toBe(true)
-    await act(async () => held.resolve({ directory })); await waitFor(() => expect(view.result.current.directory).toEqual(directory))
+    await act(async () => held.resolve(directoryResponse())); await waitFor(() => expect(view.result.current.directory).toEqual(directory))
     expect(qc.getQueryData(communityKeys.channelRefDirectory())).toEqual(["srv"])
   })
   it("treats a successful empty response as resolved", async () => {
-    api.mockResolvedValue({ directory: [] }); const view = mount()
+    api.mockResolvedValue(directoryResponse([])); const view = mount()
     await waitFor(() => expect(view.result.current).toMatchObject({ directory: [], isResolved: true, isLoading: false, isError: false }))
   })
   it("does not retry ordinary failure and refetches once on demand", async () => {
-    api.mockRejectedValueOnce(new Error("unavailable")).mockResolvedValueOnce({ directory }); const view = mount()
+    api.mockRejectedValueOnce(new Error("unavailable")).mockResolvedValueOnce(directoryResponse()); const view = mount()
     await waitFor(() => expect(view.result.current.isError).toBe(true)); expect(api).toHaveBeenCalledOnce()
     await act(async () => { await view.result.current.refetch() }); await waitFor(() => expect(view.result.current.directory).toEqual(directory)); expect(api).toHaveBeenCalledTimes(2)
   })
@@ -58,7 +65,7 @@ describe("native canonical channel directory", () => {
     const signal = api.mock.calls[0][1].signal as AbortSignal
     view.rerender(tree(false)); expect(signal.aborted).toBe(false)
     expect(qc.getQueryCache().find({ queryKey: communityKeys.channelRefDirectory() })!.getObserversCount()).toBe(1)
-    await act(async () => held.resolve({ directory })); await waitFor(() => expect(qc.getQueryData(communityKeys.channelRefDirectory())).toEqual(["srv"]))
+    await act(async () => held.resolve(directoryResponse())); await waitFor(() => expect(qc.getQueryData(communityKeys.channelRefDirectory())).toEqual(["srv"]))
     expect(qc.getQueryCache().find({ queryKey: communityKeys.channelRefDirectory() })!.getObserversCount()).toBe(0)
     view.rerender(tree(true)); await waitFor(() => expect(result.directory).toEqual(directory)); expect(api).toHaveBeenCalledOnce()
   })
@@ -88,6 +95,6 @@ describe("native canonical channel directory", () => {
     const held = deferred(); api.mockReturnValue(held.promise); const qc = client(), view = mount(qc)
     await waitFor(() => expect(api).toHaveBeenCalledOnce()); const signal = api.mock.calls[0][1].signal as AbortSignal
     view.unmount(); qc.clear(); expect(signal.aborted).toBe(true)
-    await act(async () => held.resolve({ directory })); expect(qc.getQueryData(communityKeys.channelRefDirectory())).toBeUndefined()
+    await act(async () => held.resolve(directoryResponse())); expect(qc.getQueryData(communityKeys.channelRefDirectory())).toBeUndefined()
   })
 })

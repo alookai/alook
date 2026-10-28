@@ -1,3 +1,4 @@
+import { messageSeedFixture, fullResourceBundleFixture, channelResourceFixture, serverResourceFixture, messageResourceFixture, resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { AccountAttentionSnapshotSchema } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -91,7 +92,7 @@ function submitTimeline(
   seq: number,
 ) {
   const registry = getCommunityDbRegistry(leaseClients.get(lease)!)
-  if (registry) ingestMessages(registry, "channel-1", [{ id: `message-${seq}`, type: "chat", authorId: "peer", seq, createdAt: new Date(seq * 1000).toISOString(), content: "Message" }])
+  if (registry) ingestMessages(registry, "channel-1", messageSeedFixture("channel-1", [{ id: `message-${seq}`, type: "chat", authorId: "peer", seq, createdAt: new Date(seq * 1000).toISOString(), content: "Message" }]))
   return submitReadIntent(lease, {
     kind: "timeline",
     channelId: "channel-1",
@@ -252,7 +253,7 @@ describe("read coordinator", () => {
       actorUserId: "user-2",
       createdAt: "2026-09-27T01:00:00.000Z",
     }
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [scope],
       items: [item],
       limit: 100,
@@ -271,7 +272,7 @@ describe("read coordinator", () => {
 
       await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
       expect(apiFetch).toHaveBeenCalledOnce()
-      ingestAttentionSnapshot(registry, {
+      ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
         scopes: [scope],
         items: [item],
         limit: 100,
@@ -298,12 +299,12 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestMessages(registry, "channel-1", [3, 4].map((seq) => ({
+    ingestMessages(registry, "channel-1", messageSeedFixture("channel-1", [3, 4].map((seq) => ({
       id: `message-${seq}`,
       type: "chat" as const,
       authorId: "user-2",
       seq,
-    })))
+    }))))
     const items = [3, 4].map((seq) => ({
       id: `mention:${seq}`,
       kind: "mention" as const,
@@ -323,7 +324,7 @@ describe("read coordinator", () => {
       lastAttentionSeq: 4,
       attentionCount: 2,
     }
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [scope],
       items,
       limit: 100,
@@ -369,7 +370,7 @@ describe("read coordinator", () => {
       lastAttentionSeq: null,
       attentionCount: 0,
     }
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [scope],
       items: [],
       limit: 100,
@@ -379,7 +380,7 @@ describe("read coordinator", () => {
       .mockRejectedValueOnce(new ApiError("unavailable", 500))
       .mockResolvedValueOnce({ changed: true, revision: 9, targetSeq: 4 })
     reconcileAccountAttention.mockImplementationOnce(async () => {
-      ingestAttentionSnapshot(registry, {
+      ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
         scopes: [],
         items: [],
         limit: 100,
@@ -412,7 +413,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -436,7 +437,7 @@ describe("read coordinator", () => {
       const lease = timelineLease(queryClient)
       submitTimeline(lease, 4)
       await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
-      ingestMessages(registry, "other", [{ id: "event", type: "chat", content: "old" }])
+      ingestMessages(registry, "other", messageSeedFixture("other", [{ id: "event", type: "chat", content: "old" }]))
       projectCommunityWsEventToDb(queryClient, {
         type: "community:reaction.add",
         channelId: "other",
@@ -460,7 +461,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -504,7 +505,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -541,7 +542,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -617,7 +618,7 @@ describe("read coordinator", () => {
       const registry = createCommunityDbRegistry(queryClient, "user-1")
       await registry.preload()
       const unregister = registerCommunityDbRegistry(registry)
-      ingestAttentionSnapshot(registry, {
+      ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
         scopes: [{
           scopeId: "channel-1",
           channelId: "channel-1",
@@ -644,7 +645,7 @@ describe("read coordinator", () => {
       const ticket = registerInboxProjectionTicket(queryClient, 1, target, vi.fn())
       activateInboxProjectionTicket(ticket)
       if (conflict) {
-        ingestMessages(registry, "other", [{ id: "event", type: "chat", content: "old" }])
+        ingestMessages(registry, "other", messageSeedFixture("other", [{ id: "event", type: "chat", content: "old" }]))
         projectCommunityWsEventToDb(queryClient, {
           type: "community:reaction.add",
           channelId: "other",
@@ -675,7 +676,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -718,7 +719,7 @@ describe("read coordinator", () => {
       const registry = createCommunityDbRegistry(queryClient, "user-1")
       await registry.preload()
       const unregister = registerCommunityDbRegistry(registry)
-      ingestAttentionSnapshot(registry, {
+      ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
         scopes: [{
           scopeId: "channel-1",
           channelId: "channel-1",
@@ -768,7 +769,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -816,7 +817,7 @@ describe("read coordinator", () => {
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    ingestAttentionSnapshot(registry, {
+    ingestAttentionSnapshot(registry, { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: resourceBundleFixture({ viewerId: registry.accountId! }),
       scopes: [{
         scopeId: "channel-1",
         channelId: "channel-1",
@@ -1172,7 +1173,7 @@ describe("read coordinator", () => {
     const db = getCommunityDbRegistry(queryClient)!
     await db.preload()
     const at = "2026-10-08T00:00:00.000Z"
-    const snapshot = (seq: number) => AccountAttentionSnapshotSchema.parse({
+    const snapshot = (seq: number) => AccountAttentionSnapshotSchema.parse({ resources: { ...fullResourceBundleFixture("user-1", [serverResourceFixture({ id: "server-1" })], [channelResourceFixture({ id: "forum-1", serverId: "server-1", type: "forum", creatorId: "peer", lastMessageAt: at }), channelResourceFixture({ id: "channel-1", serverId: "server-1", type: "thread", parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: "peer", lastMessageAt: at })], [messageResourceFixture({ id: "opener-1", channelId: "forum-1", authorId: "peer", seq: 1, createdAt: at, content: "Title" }), messageResourceFixture({ id: `message-${seq}`, channelId: "channel-1", authorId: "peer", seq, createdAt: at, content: "Reply" })], [{ id: "peer", name: "Peer", discriminator: "0002", avatar: null, avatarVersion: 0 }]), memberships: [{ channelId: "forum-1", userId: "user-1", relation: "access", source: "explicit" }, { channelId: "channel-1", userId: "user-1", relation: "access", source: "explicit" }] },
       scopes: [{ scopeId: "channel-1", channelId: "channel-1", serverId: "server-1", parentChannelId: "forum-1", ordinaryUnread: true, lastUnreadSeq: seq, lastAttentionSeq: seq, attentionCount: 1 }],
       items: [{ id: `reply:message-${seq}`, kind: "reply", sourceId: `message-${seq}`, scopeId: "channel-1", messageId: `message-${seq}`, actorUserId: "peer", createdAt: at }],
       limit: 100, truncated: false,

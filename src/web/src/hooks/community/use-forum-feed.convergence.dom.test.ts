@@ -1,3 +1,4 @@
+import { forumFeedScenarioFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
 import { type QueryClient } from "@tanstack/react-query"
@@ -40,14 +41,14 @@ describe("useForumFeed", () => {
     client.setDefaultOptions({ queries: { retry: false, staleTime: Infinity } })
     const target = { channelId: "forum_one", serverId: "server_one", tag }
     client.setQueryData(conversationEntryOptions(client, target).queryKey, publishConversationEntry(client, target, forumConversationEntryFixture("forum_one", "server_one", true), { token: captureCommunityLiveSnapshotToken(client, "forum_one") }))
-    const page = (ids: string[]): ForumFeedTransportPage => ({
+    const page = (ids: string[]): ForumFeedTransportPage => (forumFeedScenarioFixture("forum_one", {
       serverId: "server_one", parentType: "forum", hasMore: false,
       threads: ids.map((id) => ({ id, name: id, creatorId: "author", messageCount: 1, parentMessageId: `opener_${id}`, createdAt: "2026-10-26T00:00:00Z", activityAt: "2026-10-26T00:00:00Z", lastMessageAt: null })),
       included: { ...emptyIncluded,
         parentMessages: ids.map((id) => ({ id: `opener_${id}`, channelId: "forum_one", seq: 1, content: id, authorId: "author", authorName: "Author", authorImage: null, authorAvatarVersion: 0 })),
         tags: ids.map((id) => ({ messageId: `opener_${id}`, tag: "bug" })),
       },
-    })
+    }))
     client.removeQueries({ queryKey: communityKeys.threads("forum_one") })
     let release!: (value: ForumFeedTransportPage) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve })).mockResolvedValue(page(["old", "new"]))
@@ -81,7 +82,7 @@ describe("useForumFeed", () => {
       runCommunityWsProjectionTransaction(client, (projection) => handleChildChannelCreate({ type: "community:channel.child_create", parentChannelId: "forum_one", channel: { id: "new", name: "new", type: "thread", createdAt: "2026-10-26T00:00:00Z" }, parentMessageId: "opener_new" }, { queryClient: client, projection }))
       rendered.unmount()
       client.removeQueries({ queryKey: communityKeys.threads("forum_one") })
-      release({ serverId: "server_one", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false })
+      release(forumFeedScenarioFixture("forum_one", { serverId: "server_one", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false }))
     })
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(client.getQueryCache().findAll({ queryKey: communityKeys.threads("forum_one") })).toEqual([])

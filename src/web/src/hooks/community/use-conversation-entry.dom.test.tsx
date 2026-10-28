@@ -1,3 +1,4 @@
+import { resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -461,7 +462,7 @@ describe("conversation entry return during accepted reading", () => {
     await act(async () => {
       ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [readState] })
       publishAccountAttentionSnapshot(owner.client, {
-        snapshot: { scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1",
+        snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1",
           ordinaryUnread: true, lastUnreadSeq: 45, lastAttentionSeq: null, attentionCount: 0 }], items: [], limit: 100, truncated: false,
           included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
         proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined },
@@ -887,7 +888,7 @@ describe("conversation entry return during accepted reading", () => {
     fresh.page = { olderCursor: "older", newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 }
     await act(async () => {
       ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [read60] })
-      ingestMessages(owner.registry, "c1", [{ ...fresh.messages.at(-1)!, resourceComplete: true }])
+      ingestMessages(owner.registry, "c1", [fresh.messages.at(-1)!])
       owner.runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, {
         type: "wsMessage", message: fresh.messages.at(-1)!,
       })
@@ -937,7 +938,7 @@ describe("native entry freshness with authoritative newer attention", () => {
     expect(client.getQueryCache().find({ queryKey: original.windowKey, exact: true })?.isActive()).toBe(false)
     load.mockClear()
     publishAccountAttentionSnapshot(client, {
-      snapshot: { scopes: [{ scopeId: packet.channelId, channelId: packet.channelId, serverId: packet.channel.serverId,
+      snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: packet.channelId, channelId: packet.channelId, serverId: packet.channel.serverId,
         ordinaryUnread: newer, lastUnreadSeq: newer ? 2 : 1, lastAttentionSeq: null, attentionCount: 0 }], items: [], limit: 100, truncated: false,
         included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
       proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },

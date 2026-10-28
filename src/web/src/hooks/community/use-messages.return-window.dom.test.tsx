@@ -104,8 +104,8 @@ describe("returned entry and selected message window", () => {
     fresh.channel.messageCount = 13
     fresh.channel.lastMessageAt = fresh.messages.at(-1)!.createdAt
     fresh.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 13 }
-    await act(async () => ingestMessages(registry, "c1", fresh.messages.map(message => ({ ...message, resourceComplete: true }))))
-    expect(fresh.messages.every(message => registry.collections.messages.get(message.id)?.resourceComplete === true)).toBe(true)
+    await act(async () => ingestMessages(registry, "c1", fresh.messages))
+    expect(fresh.messages.every(message => registry.collections.messages.has(message.id))).toBe(true)
     const response = deferred<ReturnType<typeof fixture>>()
     load.mockImplementation((url: string) => {
       const search = new URL(url, "https://example.test").searchParams
@@ -127,7 +127,7 @@ describe("returned entry and selected message window", () => {
       const expectedIds = fresh.messages.map(message => message.id)
       const anchorKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
       expect(client.getQueryData<MessageWindowData>(anchorKey)?.pages.flatMap(page => page.messages.map(message => message.id))).toEqual(expectedIds)
-      expect(expectedIds.every(id => registry.collections.messages.get(id)?.resourceComplete === true)).toBe(true)
+      expect(expectedIds.every(id => registry.collections.messages.has(id))).toBe(true)
       expect(returned.result.current.readSnapshot?.lastReadMessageId).toBe("m1")
       expect(returned.result.current.readSnapshot?.lastReadSeq).toBe(1)
       expect(returned.result.current.initialPositionKnown).toBe(true)

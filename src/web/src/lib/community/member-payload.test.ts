@@ -8,6 +8,7 @@ function row(overrides: Partial<MemberRow> = {}): MemberRow {
     role: "member",
     userName: "Ann",
     userImage: null,
+    userAvatarVersion: 0,
     discriminator: "0001",
     statusEmoji: null,
     statusText: null,
@@ -39,10 +40,11 @@ describe("mapMemberForApi", () => {
     expect(mapMemberForApi(row({ userId: "viewer" }), "viewer").status).toBe("online")
   })
 
-  it("falls back to avatarInitial when image absent", () => {
+  it("preserves a null avatar when the stored image is absent", () => {
     const m = mapMemberForApi(row({ userName: "Zed", userImage: null }), "viewer")
     expect(m.name).toBe("Zed")
-    expect(m.avatar).toBeTruthy()
+    expect(m.avatar).toBeNull()
+    expect(m.avatarVersion).toBe(0)
   })
 
   it("botGating exposes isBot/ownerUserId only on the viewer's own bot", () => {

@@ -18,12 +18,12 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
   const tag = selectedTag === "All" ? null : selectedTag
   const entry = useConversationResource(channelId ? { channelId, serverId, ...intent, tag } : null, null, false, "metadata", selectedTag !== null)
   const { query, canonical, scope, canRead, revoked, denied } = entry
-  const identityKnown = canRead && !!scope && !!canonical && canonical.id === channelId && canonical.serverId === serverId && !canonical.pending && canonical.resourceComplete === true
+  const identityKnown = canRead && !!scope && !!canonical && canonical.id === channelId && canonical.serverId === serverId && !canonical.pending
   const error = entry.verificationError
   const status: ChannelReadingStatus = !channelId ? "no-target" : denied ? "denied" : canRead ? "readable"
     : error || entry.verificationFailed ? "retryable-error" : query.isFetching || entry.verificationPending ? "pending" : "unresolved"
   const data = useMemo(() => {
-    if (!identityKnown || !canonical || canonical.resourceComplete !== true || !scope) return undefined
+    if (!identityKnown || !canonical || !scope) return undefined
     return { ...canonical, serverId,
     createdAt: canonical.createdAt ?? "", name: canonical.name ?? "",
     verifiedEpoch: scope.proof.accessEpoch, identityProof: scope.proof, readProof: scope.proof,
@@ -31,7 +31,7 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
     creatorId: canonical.creatorId ?? null, lastMessageAt: canonical.lastMessageAt ?? null,
   } }, [canonical, identityKnown, scope, serverId])
   return { ...query, error, data, status, identityKnown, canRead, isVerified: canRead,
-    isArchived: canonical?.resourceComplete === true && !!canonical.archived, denied, revoked, canonical,
+    isArchived: !!canonical?.archived, denied, revoked, canonical,
     retry: entry.retryVerification, retrying: entry.verificationFetching,
   }
 }

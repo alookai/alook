@@ -1,3 +1,6 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
+import { serverDirectoryFixture, channelResourceFixture, messageResourceFixture, serverResourceFixture, fullResourceBundleFixture } from "@/test/community-resource-fixtures"
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -27,16 +30,23 @@ afterEach(async () => {
 function Owner({ children }: PropsWithChildren) {
   return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children))
 }
-function seedSidebar() {
-  ingestServerDetail(registry, { id: "server_1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer_1", categories: [{ id: "category", name: "Channels", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
+function seedSidebar(parentType: "forum" | "text" = "forum") {
+  ingestServerDetail(registry, serverDirectoryFixture({ id: "server_1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer_1", categories: [{ id: "category", name: "Channels", channels: [{ id: "forum_1", name: "Forum", type: parentType, active: false, unread: false }] }] }))
   const key = communityKeys.forumSidebarThreads("server_1")
-  client.setQueryData(key, { ids: ["post_1"], serverNow: "2026-08-08T00:00:00.000Z", serverClockOffsetMs: 0 })
+  const now = new Date().toISOString()
+  const parent = channelResourceFixture({ id: "forum_1", serverId: "server_1", type: parentType })
+  const child = channelResourceFixture({ id: "post_1", serverId: "server_1", type: "thread", name: "Post", parentChannelId: parent.id, parentMessageId: "opener_1", lastMessageAt: now })
+  const opener = messageResourceFixture({ id: "opener_1", channelId: parent.id, authorId: "viewer_1", content: "Post" })
   publishCommunityForumSidebar(client, {
-    serverId: "server_1",
-    channels: [{ id: "post_1", name: "Post", parentChannelId: "forum_1", parentMessageId: "opener_1", activityAt: "2026-08-08T00:00:00.000Z", unread: false, type: "thread", participating: true }],
-    openers: [{ id: "opener_1", channelId: "forum_1", content: "Post", type: "chat" }],
+    serverId: "server_1", resources: fullResourceBundleFixture("viewer_1", [serverResourceFixture({ id: "server_1", ownerId: "viewer_1" })], [parent, child], [opener]),
+    channels: [{ ...child, activityAt: now, unread: false, participating: true }], openers: [opener],
     proof: { token: captureCommunityLiveSnapshotToken(client) },
   })
+  const window = readForumSidebarWindowResult({ serverNow: now, serverClockOffsetMs: 0, window: {
+    version: BUSINESS_SCHEMA_VERSION, accountId: "viewer_1", serverId: "server_1", parents: [parent.id], base: [{ id: child.id, parentChannelId: parent.id, parentMessageId: opener.id }], retained: null,
+  } })
+  if (!window) throw new Error("Invalid current sidebar fixture window")
+  client.setQueryData(key, window)
   return key
 }
 async function command<T>(run: () => Promise<T>) {
@@ -45,8 +55,8 @@ async function command<T>(run: () => Promise<T>) {
   return value
 }
 describe("useRemoveThreadParticipant", () => {
-  it("removes the child from every sidebar view when the viewer leaves", async () => {
-    seedSidebar()
+  it.each(["forum", "text"] as const)("removes the %s child from every sidebar view when the viewer leaves", async (parentType) => {
+    seedSidebar(parentType)
     const metaKey = communityKeys.channelMeta("server_1", "post_1")
     client.setQueryData(metaKey, { id: "post_1", parentChannelId: "forum_1" })
 

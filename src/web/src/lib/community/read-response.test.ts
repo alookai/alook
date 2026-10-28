@@ -1,35 +1,33 @@
 import { describe, expect, it } from "vitest"
-import { COMMUNITY_CONTRACT_HEADER, normalizeCommunityChannelResource, normalizeCommunityMessageResource } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import { communityReadTarget, decodeCommunityReadResponse } from "./read-response"
 
-const parent = normalizeCommunityChannelResource({ id: "forum", type: "forum", serverId: "server", name: "Forum", archived: 0, createdAt: "2026-10-07T12:00:00Z" })
-const child = normalizeCommunityChannelResource({ ...parent, id: "thread", type: "thread", parentChannelId: "forum", parentMessageId: "opener", creatorId: "viewer", lastMessageAt: "2026-10-07T13:00:00Z" })
+const parent = channelResourceFixture({ id: "forum", type: "forum", serverId: "server", name: "Forum", archived: false, createdAt: "2026-10-07T12:00:00Z" })
+const child = channelResourceFixture({ ...parent, id: "thread", type: "thread", parentChannelId: "forum", parentMessageId: "opener", creatorId: "viewer", lastMessageAt: "2026-10-07T13:00:00Z" })
 const profile = { id: "viewer", name: "Viewer", discriminator: null, avatar: null, avatarVersion: 0, statusEmoji: null, statusText: "" }
 const member = { channelId: "thread", userId: "viewer", relation: "notify" as const, source: "spoke", isCreator: true, role: null, memberId: null }
-const message = (id: string, channelId: string) => normalizeCommunityMessageResource({ id, channelId, seq: 1, authorId: "viewer", authorAvatar: "avatar", createdAt: "2026-10-07T12:00:00Z", type: "chat", content: id }, channelId)
-const confirmed = () => new Response(null, { headers: { [COMMUNITY_CONTRACT_HEADER]: "2" } })
-const threads = () => ({ contractVersion: 2, channelId: "forum", channel: { ...parent }, threads: [{ ...child }],
+const message = (id: string, channelId: string) => messageResourceFixture({ id, channelId, authorAvatar: "avatar", content: id })
+const confirmed = () => new Response(null, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
+const threads = () => ({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "forum", channel: { ...parent }, threads: [{ ...child }],
   included: { messages: [message("opener", "forum"), message("reply", "thread")], members: [{ ...member }], profiles: [{ ...profile }], tags: [{ messageId: "opener", tag: "bug" }], participantCounts: [{ channelId: "thread", count: 7 }] },
   page: { hasMore: true, nextCursor: "next" as string | null } })
 const decodeThreads = (body: unknown) => decodeCommunityReadResponse("/api/community/channels/forum/threads", "GET", confirmed(), body)
-const members = () => ({ contractVersion: 2, channelId: "thread", relation: "notify" as const, members: [{ ...member }], profiles: [{ ...profile }] })
+const members = () => ({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "thread", relation: "notify" as const, members: [{ ...member }], profiles: [{ ...profile }] })
 const decodeMembers = (body: unknown, path = "/api/community/channels/thread/members?relation=notify") => decodeCommunityReadResponse(path, "GET", confirmed(), body)
 
 describe("common read response publication", () => {
-  it("admits a legacy single-message preview only with an explicit valid scope", () => {
-    const value = { id: "legacy", channelId: "thread", seq: 1, authorId: "viewer", createdAt: "now", type: "chat", content: "body" }
-    expect(decodeCommunityReadResponse("/api/community/messages/legacy", "GET", new Response(), value))
-      .toEqual({ ...value, resourceComplete: false })
-    for (const invalid of [null, {}, { ...value, channelId: undefined }, { ...value, channelId: 4 }, { ...value, channelId: "" }]) {
-      expect(() => decodeCommunityReadResponse("/api/community/messages/legacy", "GET", new Response(), invalid)).toThrow()
-    }
+  it("rejects unconfirmed single-message resources and incomplete current messages", () => {
+    const value = message("message", "thread")
+    expect(() => decodeCommunityReadResponse("/api/community/messages/message", "GET", new Response(), value)).toThrow("confirmation mismatch")
+    expect(() => decodeCommunityReadResponse("/api/community/messages/message", "GET", confirmed(), { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "thread", message: { id: "message" } })).toThrow()
   })
   it("recognizes only complete read routes and decodes their encoded channel identity", () => {
     expect(communityReadTarget("/api/community/channels/a%2Fb/read?lastReadSeq=4", "put")).toEqual({ channelId: "a/b", resource: "read" })
     expect(communityReadTarget("/api/community/channels/thread/members?relation=notify")).toEqual({ channelId: "thread", resource: "members" })
     for (const [path, method] of [["/api/community/channels/thread/read", "GET"], ["/api/community/channels/thread/read-state", "GET"], ["/api/community/channels/thread/messages/extra", "GET"], ["/api/community/channels/thread", "PUT"], ["/api/community/messages/search?q=term", "GET"], ["/api/community/messages/batch", "GET"]]) {
       expect(communityReadTarget(path!, method)).toBeNull()
-      const body = { contractVersion: 2, private: "unrelated endpoint" }
+      const body = { contractVersion: BUSINESS_SCHEMA_VERSION, private: "unrelated endpoint" }
       expect(decodeCommunityReadResponse(path!, method, confirmed(), body)).toBe(body)
     }
   })
@@ -38,14 +36,14 @@ describe("common read response publication", () => {
     const channel = threads().channel
     const access = { channelId: channel.id, canRead: false, canSend: false, canCreateDiscussion: false }
     const path = `/api/community/channels/${channel.id}`
-    const current = decodeCommunityReadResponse(path, "GET", confirmed(), { contractVersion: 2, channelId: channel.id, channel, access })
-    expect(current).toEqual({ ...channel, resourceComplete: true, accessDecision: access })
+    const current = decodeCommunityReadResponse(path, "GET", confirmed(), { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: channel.id, channel, access })
+    expect(current).toEqual({ ...channel, accessDecision: access })
     expect(current).not.toHaveProperty("readContractVersion")
-    expect(decodeCommunityReadResponse(path, "GET", new Response(), { ...channel, readContractVersion: 2, accessDecision: access })).toEqual(channel)
+    expect(() => decodeCommunityReadResponse(path, "GET", new Response(), { ...channel, accessDecision: access })).toThrow("confirmation mismatch")
   })
 
   it("publishes only a confirmed scoped read-waterline advancement", () => {
-    const body = { contractVersion: 2, channelId: "thread", changed: false, targetSeq: 8, revision: 12 }
+    const body = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "thread", changed: false, targetSeq: 8, revision: 12 }
     expect(decodeCommunityReadResponse("/api/community/channels/thread/read", "PUT", confirmed(), body)).toEqual({ changed: false, targetSeq: 8, revision: 12 })
     expect(() => decodeCommunityReadResponse("/api/community/channels/other/read", "PUT", confirmed(), body)).toThrow("scope mismatch")
     expect(() => decodeCommunityReadResponse("/api/community/channels/thread/read", "PUT", confirmed(), { ...body, targetSeq: -1 })).toThrow()
@@ -100,36 +98,36 @@ describe("common read response publication", () => {
     expect(() => decodeMembers({ ...body, profiles: [] })).toThrow("profile missing")
   })
 
-  it("keeps legacy nonmessage resources but rejects unconfirmed version claims", () => {
+  it("rejects unconfirmed nonmessage resources and old claims", () => {
     const legacy = { relation: "notify", members: [] }
-    expect(decodeCommunityReadResponse("/api/community/channels/thread/members", "GET", new Response(), legacy)).toBe(legacy)
+    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/members", "GET", new Response(), legacy)).toThrow("confirmation mismatch")
     expect(() => decodeMembers({ ...members(), contractVersion: 1 })).toThrow("confirmation mismatch")
-    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "GET", new Response(), {})).toThrow("resource missing")
+    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "GET", new Response(), {})).toThrow("confirmation mismatch")
   })
 })
 
 
-describe("explicit v3 HTTP confirmation", () => {
+describe("current HTTP confirmation", () => {
   const full = { ...message("message", "thread"), authorAvatar: null, attachments: [
     { id: "a2", name: "unknown", url: "/a2", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null },
     { id: "a1", name: "photo", url: "/a1", thumbnailUrl: null, contentType: "image/png", sizeBytes: 12, width: 1, height: 1 },
   ], embeds: [null, { raw: "unknown" }] }
   const response = (version: string | null) => new Response(null, { headers: version === null ? {} : { [COMMUNITY_CONTRACT_HEADER]: version } })
-  const body = { contractVersion: 3, channelId: "thread", message: full, deduped: false }
-  it("retains full POST and single-read resources with exact positive v3 claims", () => {
+  const body = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "thread", message: full, deduped: false }
+  it("retains full POST and single-read resources with exact current claims", () => {
     expect(communityReadTarget("/api/community/channels/thread/messages", "POST")).toEqual({ channelId: "thread", resource: "posted" })
-    expect(decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response("3"), body, 3)).toEqual({ message: { ...full, resourceComplete: true }, deduped: false })
+    expect(decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(String(BUSINESS_SCHEMA_VERSION)), body, BUSINESS_SCHEMA_VERSION)).toEqual({ message: { ...full }, deduped: false })
     const { deduped: _deduped, ...read } = body
-    expect(decodeCommunityReadResponse("/api/community/messages/message", "GET", response("3"), read, 3)).toEqual({ ...full, resourceComplete: true })
-    expect(() => decodeCommunityReadResponse("/api/community/messages/other", "GET", response("3"), read, 3)).toThrow("scope mismatch")
-    expect(() => decodeCommunityReadResponse("/api/community/channels/other/messages", "POST", response("3"), body, 3)).toThrow("scope mismatch")
-    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response("3"), { ...body, message: { ...full, attachments: undefined } }, 3)).toThrow()
+    expect(decodeCommunityReadResponse("/api/community/messages/message", "GET", response(String(BUSINESS_SCHEMA_VERSION)), read, BUSINESS_SCHEMA_VERSION)).toEqual({ ...full })
+    expect(() => decodeCommunityReadResponse("/api/community/messages/other", "GET", response(String(BUSINESS_SCHEMA_VERSION)), read, BUSINESS_SCHEMA_VERSION)).toThrow("scope mismatch")
+    expect(() => decodeCommunityReadResponse("/api/community/channels/other/messages", "POST", response(String(BUSINESS_SCHEMA_VERSION)), body, BUSINESS_SCHEMA_VERSION)).toThrow("scope mismatch")
+    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(String(BUSINESS_SCHEMA_VERSION)), { ...body, message: { ...full, attachments: undefined } }, BUSINESS_SCHEMA_VERSION)).toThrow()
   })
-  it("refuses missing, mixed and unknown confirmation without downgrading a v3 request", () => {
-    for (const header of [null, "1", "2", "4"]) expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(header), body, 3)).toThrow("confirmation mismatch")
-    for (const contractVersion of [undefined, 1, 2, 4]) expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response("3"), { ...body, contractVersion }, 3)).toThrow("confirmation mismatch")
-    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(null), { message: full }, 3)).toThrow("confirmation mismatch")
+  it("refuses missing, mixed and unknown confirmation without accepting an old request", () => {
+    for (const header of [null, "1", "2", "4"]) expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(header), body, BUSINESS_SCHEMA_VERSION)).toThrow("confirmation mismatch")
+    for (const contractVersion of [undefined, 1, 2, 4]) expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(String(BUSINESS_SCHEMA_VERSION)), { ...body, contractVersion }, BUSINESS_SCHEMA_VERSION)).toThrow("confirmation mismatch")
+    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(null), { message: full }, BUSINESS_SCHEMA_VERSION)).toThrow("confirmation mismatch")
     const old = { message: { id: "old" } }
-    expect(decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(null), old, 2)).toBe(old)
+    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(null), old, 2)).toThrow("confirmation mismatch")
   })
 })

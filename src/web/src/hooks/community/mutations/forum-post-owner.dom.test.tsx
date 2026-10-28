@@ -1,3 +1,4 @@
+import { channelResourceFixture, messageResourceFixture, fullResourceBundleFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -26,8 +27,12 @@ async function seed(qc: QueryClient) {
   const registry = getCommunityDbRegistry(qc)!
   await act(async () => { await registry.ready; await registry.preload() })
   act(() => {
-    projectCommunityWsEventToDb(qc, { type: "community:channel.create", serverId: "server", channel: { id: "forum", name: "Forum", type: "forum", categoryId: null, position: 0, createdAt: new Date().toISOString() } })
-    publishCommunityForumSidebar(qc, { serverId: "server", channels: [{ id: "child", name: "Original", parentChannelId: "forum", parentMessageId: "opener", activityAt: new Date().toISOString(), unread: false, type: "thread", serverId: "server", archived: false }], openers: [{ id: "opener", channelId: "forum", seq: 1, type: "chat", content: "Original opener" }], proof: { token: captureCommunityLiveSnapshotToken(qc), signal: undefined } })
+    projectCommunityWsEventToDb(qc, { type: "community:channel.create", serverId: "server", channel: { ...channelResourceFixture({ id: "forum", name: "Forum", type: "forum", serverId: "server" }), type: "forum" } })
+    const parent = channelResourceFixture({ id: "forum", type: "forum", serverId: "server" })
+    const child = channelResourceFixture({ id: "child", type: "thread", name: "Original", serverId: "server", parentChannelId: "forum", parentMessageId: "opener" })
+    const opener = messageResourceFixture({ id: "opener", channelId: "forum", content: "Original opener" })
+    publishCommunityForumSidebar(qc, { serverId: "server", resources: fullResourceBundleFixture(registry.accountId!, [serverResourceFixture({ id: "server" })], [parent, child], [opener]),
+      channels: [{ ...child, activityAt: new Date().toISOString(), unread: false, participating: true }], openers: [opener], proof: { token: captureCommunityLiveSnapshotToken(qc), signal: undefined } })
     const runtime = getCommunityRuntime(qc); runtime.ui.actions.setCurrentServerId("server"); runtime.ui.actions.setCurrentChannelId("child"); runtime.ui.actions.registerUiHandlers({ replacePath: navigate })
   })
   await waitFor(() => expect(screen.getByTestId("child").textContent).toBe("Original"))

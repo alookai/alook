@@ -14,36 +14,31 @@
  * embeds pass-through, and mentionType projection so adding/removing a
  * field on the wire is one edit, not four.
  */
-import { CommunityMessageResourceSchema, queries, truncateMessagePreview, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment, type CommunityLegacyMessageCreate } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, queries, truncateMessagePreview, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
 import type { BotCreationPayload, FriendApprovalPayload } from "@alook/shared"
-import { avatarInitial } from "@/lib/community/avatar"
+
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectMessageWireType } from "@/lib/community/message-wire-type"
 import { groupAttachments, groupReactions } from "./messages"
-import { presentMessageAttachment } from "./attachment-presentation"
 
 export type MessageRow = Pick<Awaited<ReturnType<typeof queries.communityMessage.getMessagesByIdsInScope>>[number],
   "id" | "authorId" | "authorName" | "authorImage" | "authorAvatarVersion" | "mentionType" | "replyToId" | "seq" | "createdAt"> & { content: string | null; type: string | null; embeds: unknown; clientNonce?: string | null; friendshipId?: string | null }
 
 type ReplyTargetRow = Pick<MessageRow, "id" | "authorId" | "authorName" | "content">
 
-type WsAttachment = NonNullable<CommunityLegacyMessageCreate["message"]["attachments"]>[number]
 type UiReaction = NonNullable<CommunityMessageResource["reactions"]>[number]
 type ReplyPreview = NonNullable<CommunityMessageResource["replyTo"]>
 type ThreadPreview = NonNullable<CommunityMessageResource["thread"]>
 
 /** Common fields shared by both API and WS variants — derived exactly once. */
-function coreFields(row: MessageRow, replyMap: Map<string, ReplyTargetRow>, nonce = row.clientNonce) {
-  const clientNonce = nonce && !nonce.startsWith("srv:") ? nonce : undefined
+function coreFields(row: MessageRow, replyMap: Map<string, ReplyTargetRow>) {
   return {
     ...projectMessageWireType(row.type),
-    ...(clientNonce ? { clientNonce } : {}),
     replyTo: resolveReply(row, replyMap),
     id: row.id,
     authorId: row.authorId,
     authorName: row.authorName,
-    authorAvatar: canonicalUserImage(row.authorId, row.authorImage, row.authorAvatarVersion)
-      ?? avatarInitial(row.authorName),
+    authorAvatar: canonicalUserImage(row.authorId, row.authorImage, row.authorAvatarVersion),
     authorAvatarVersion: row.authorAvatarVersion,
     // `content` is nullable in the DB (empty message with attachments) but
     // both the API response and the WS payload treat it as string; coerce
@@ -78,6 +73,7 @@ function resolveReply(row: MessageRow, replyMap: Map<string, ReplyTargetRow>): R
 }
 
 export type ApiMessageContext = {
+  viewerId: string
   replyMap: Map<string, ReplyTargetRow>
   attachmentsByMessage: Record<string, CommunityMessageAttachment[] | undefined>
   reactionsByMessage: Record<string, UiReaction[] | undefined>
@@ -95,7 +91,7 @@ export async function loadApiMessageContext(db: Database, userId: string, ids: s
     readReplies(),
   ])
   const attachmentsByMessage = groupAttachments(attachments), reactionsByMessage = groupReactions(reactions, userId)
-  return (channelId: string): ApiMessageContext => ({ attachmentsByMessage, reactionsByMessage,
+  return (channelId: string): ApiMessageContext => ({ viewerId: userId, attachmentsByMessage, reactionsByMessage,
     replyMap: new Map(replies.filter((reply) => reply.channelId === channelId).map((reply) => [reply.id, reply])),
   })
 }
@@ -121,90 +117,45 @@ export async function readCommunityMessageResource(db: Database, userId: string,
 // in message-wire-type so cross-scope feeds (Mentions/Marked) use the exact
 // same DB-to-wire normalization as channel message responses.
 
-export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext, contract: CommunityContract = 1, channelId?: string) {
-  if (contract === 3) return CommunityMessageResourceSchema.strip().parse({
+export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext, contract: number = BUSINESS_SCHEMA_VERSION, channelId?: string) {
+  if (contract !== BUSINESS_SCHEMA_VERSION) throw new Error("Message resource protocol mismatch")
+  return mapMessageResource(row, ctx, channelId, row.authorId === ctx.viewerId ? row.clientNonce ?? null : null)
+}
+
+function mapMessageResource(row: MessageRow, ctx: Omit<ApiMessageContext, "viewerId">, channelId: string | undefined, clientNonce: string | null) {
+  return CommunityMessageResourceSchema.parse({
     ...coreFields(row, ctx.replyMap), channelId,
     authorAvatar: canonicalUserImage(row.authorId, row.authorImage, row.authorAvatarVersion),
-    clientNonce: row.clientNonce && !row.clientNonce.startsWith("srv:") ? row.clientNonce : null,
+    clientNonce: clientNonce && !clientNonce.startsWith("srv:") ? clientNonce : null,
     attachments: ctx.attachmentsByMessage[row.id] ?? [],
     ...(Array.isArray(row.embeds) ? { embeds: row.embeds } : {}),
     reactions: ctx.reactionsByMessage[row.id], thread: ctx.threadByMessageId?.get(row.id),
     approval: ctx.approvalByMessageId?.get(row.id),
     botCreation: ctx.botCreationByMessageId?.get(row.id),
   })
-  return {
-    ...coreFields(row, ctx.replyMap),
-    embeds: row.embeds,
-    attachments: ctx.attachmentsByMessage[row.id]?.length ? ctx.attachmentsByMessage[row.id]!.map((attachment) => {
-      const presented = presentMessageAttachment(attachment)
-      return presented.kind === "file" && attachment.sizeBytes == null ? { ...presented, size: undefined } : presented
-    }) : undefined,
-    reactions: ctx.reactionsByMessage[row.id]?.length ? ctx.reactionsByMessage[row.id] : undefined,
-    thread: ctx.threadByMessageId?.get(row.id),
-    approval: ctx.approvalByMessageId?.get(row.id),
-    botCreation: ctx.botCreationByMessageId?.get(row.id),
-  }
 }
 
-export async function mapPostedMessageForApi(db: Database, channelId: string, row: MessageRow, contract: CommunityContract = 2) {
+export async function mapPostedMessageForApi(db: Database, channelId: string, row: MessageRow, contract: number = BUSINESS_SCHEMA_VERSION) {
+  if (contract !== BUSINESS_SCHEMA_VERSION) throw new Error("Posted message protocol mismatch")
   const [replies, attachments] = await Promise.all([
     row.replyToId ? queries.communityMessage.getMessagesByIdsInScope(db, [row.replyToId], { channelId }) : Promise.resolve([]),
-    contract === 3 ? queries.communityAttachment.listByMessageIds(db, [row.id]) : Promise.resolve([]),
+    queries.communityAttachment.listByMessageIds(db, [row.id]),
   ])
-  const replyMap = new Map(replies.filter((reply) => reply.channelId === channelId).map((reply) => [reply.id, reply]))
-  const attachmentsByMessage = groupAttachments(attachments)
-  if (contract === 3) return mapMessageForApi(row, { replyMap, attachmentsByMessage, reactionsByMessage: {} }, 3, channelId)
-  return { ...row, replyTo: resolveReply(row, replyMap) }
+  const replyMap = new Map(replies.filter(reply => reply.channelId === channelId).map(reply => [reply.id, reply]))
+  return mapMessageForApi(row, { viewerId: row.authorId, replyMap, attachmentsByMessage: groupAttachments(attachments), reactionsByMessage: {} }, contract, channelId)
 }
 
 export type WsMessageContext = {
   replyMap: Map<string, ReplyTargetRow>
-  attachments: WsAttachment[]
-  resourceAttachments?: CommunityMessageAttachment[]
-  /**
-   * The sender's client-provided idempotency nonce, echoed on the broadcast so
-   * the sender's optimistic row can be reconciled in place (see
-   * `CommunityMessageCreate.message.clientNonce`). Pass the RAW client nonce
-   * (undefined when the client sent none); the `srv:`-prefixed server fallback
-   * is filtered out below so a content fingerprint never reaches the wire.
-   */
+  resourceAttachments: CommunityMessageAttachment[]
   clientNonce?: string
   botCreation?: BotCreationPayload
 }
 
-export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext, contract: CommunityContract = 2, channelId?: string) {
-  if (contract === 3) return CommunityMessageResourceSchema.required({ authorName: true, authorAvatarVersion: true }).parse({
-    ...coreFields(row, ctx.replyMap, ctx.clientNonce ?? null),
-    botCreation: ctx.botCreation,
-    channelId,
-    authorAvatar: canonicalUserImage(row.authorId, row.authorImage, row.authorAvatarVersion),
-    clientNonce: ctx.clientNonce && !ctx.clientNonce.startsWith("srv:") ? ctx.clientNonce : null,
-    attachments: ctx.resourceAttachments,
-    embeds: Array.isArray(row.embeds) ? row.embeds : undefined,
-  })
-  // Echo ONLY a client-provided nonce, and never the `srv:`-prefixed server
-  // fallback (a content fingerprint — a content-correlation leak on the
-  // broadcast wire, and a fallback send has no client optimistic row to match
-  // anyway). The prefix guard is defense-in-depth: callers pass the raw client
-  // nonce, but if a `srv:` value ever reaches here it is dropped, not fanned.
-  return {
-    ...coreFields(row, ctx.replyMap, ctx.clientNonce ?? null),
-    botCreation: ctx.botCreation,
-    // The shared CommunityMessageCreate.embeds is `unknown[]` — narrow here
-    // rather than widening the wire type.
-    embeds: Array.isArray(row.embeds) ? row.embeds : undefined,
-    attachments:
-      ctx.attachments.length > 0
-        ? ctx.attachments.map((a) => ({
-            id: a.id,
-            filename: a.filename,
-            url: a.url,
-            thumbnailUrl: a.thumbnailUrl,
-            contentType: a.contentType,
-            size: a.size,
-            width: a.width,
-            height: a.height,
-          }))
-        : undefined,
-  }
+export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext, contract: number = BUSINESS_SCHEMA_VERSION, channelId?: string) {
+  if (contract !== BUSINESS_SCHEMA_VERSION) throw new Error("Message resource protocol mismatch")
+  return mapMessageResource(row, {
+    replyMap: ctx.replyMap, attachmentsByMessage: { [row.id]: ctx.resourceAttachments }, reactionsByMessage: {},
+    botCreationByMessageId: ctx.botCreation ? new Map([[row.id, ctx.botCreation]]) : undefined,
+  }, channelId, ctx.clientNonce ?? row.clientNonce ?? null)
 }

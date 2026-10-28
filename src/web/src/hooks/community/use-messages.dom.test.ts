@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { messageWindowOptions } from "@/lib/community/message-window"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
@@ -167,7 +168,7 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
 
   it("populates queryClient at communityKeys.channelMessages(channelId)", async () => {
     const { channelMessagesQueryFn } = await loadHook()
-    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_1" }], hasMore: false })
+    apiFetchMock.mockResolvedValueOnce({ messages: [messageResourceFixture({ id: "m_1", channelId: "ch_1" })], hasMore: false })
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.channelMessages("ch_1")
     await qc.infiniteQuery({
@@ -251,8 +252,8 @@ describe("shared DM message window transport", () => {
 
   it("fetchNextPage (older) produces a new page under the same infinite key", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ messages: [{ id: "m_1" }], hasMore: true, cursor: "cur_1", latestSeq: 1 })
-      .mockResolvedValueOnce({ messages: [{ id: "m_2" }], hasMore: false, latestSeq: 1 })
+      .mockResolvedValueOnce({ messages: [messageResourceFixture({ id: "m_1", channelId: "dm_1" })], hasMore: true, cursor: "cur_1", latestSeq: 1 })
+      .mockResolvedValueOnce({ messages: [messageResourceFixture({ id: "m_2", channelId: "dm_1", seq: 2 })], hasMore: false, latestSeq: 1 })
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.dmMessages("dm_1")
     await qc.infiniteQuery({
@@ -390,13 +391,13 @@ describe("bounded messages publication", () => {
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     retireCommunityChannelReading(registry, "parent", { reason: "read-denied", serverId: "server" })
     if (lineage === "late-lineage") runtime.ws.actions.observeChannelScope("server", "child", "parent")
-    resolve({ messages: [{ id: "late-child-message", type: "chat", seq: 1, authorId: "late-author", authorName: "Late", content: "private" }], hasMore: false, latestSeq: 1, surfaceReceipt: { channelId: "child", surfaceKind: "thread" } })
+    resolve({ messages: [messageResourceFixture({ channelId: "child", id: "late-child-message", type: "chat", seq: 1, authorId: "late-author", authorName: "Late", content: "private" })], hasMore: false, latestSeq: 1, surfaceReceipt: { channelId: "child", surfaceKind: "thread" } })
     await rejected
     expect(registry.collections.messages.has("late-child-message")).toBe(false)
     expect(registry.collections.profiles.has("late-author")).toBe(false)
     expect(client.getQueryData(key)).toBeUndefined()
     expect(() => assertCommunityLiveSnapshotTokenCurrent(client, sibling, undefined)).not.toThrow()
-    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "fresh-child-message", type: "chat", seq: 2, authorId: "fresh-author", authorName: "Fresh", content: "fresh" }], hasMore: false, latestSeq: 2 })
+    apiFetchMock.mockResolvedValueOnce({ messages: [messageResourceFixture({ channelId: "child", id: "fresh-child-message", type: "chat", seq: 2, authorId: "fresh-author", authorName: "Fresh", content: "fresh" })], hasMore: false, latestSeq: 2 })
     await client.infiniteQuery({ queryKey: key, queryFn: channelMessagesQueryFn("child"), initialPageParam: { mode: "newest" }, getNextPageParam: () => undefined, retry: false })
     expect(registry.collections.messages.has("fresh-child-message")).toBe(true)
     expect(client.getQueryData(key)).toBeDefined()
@@ -412,10 +413,10 @@ describe("bounded messages publication", () => {
     const request = channelMessagesQueryFn("sibling-dm")({ client, pageParam: { mode: "newest" } })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     retireCommunityChannelReading(registry, "parent", { reason: "read-denied", serverId: "server" })
-    resolve({ messages: [{ id: "dm-message", type: "chat", seq: 1, authorId: "peer", authorName: "Peer", content: "current" }], hasMore: false, latestSeq: 1 })
+    resolve({ messages: [messageResourceFixture({ channelId: "sibling-dm", id: "dm-message", type: "chat", seq: 1, authorId: "peer", authorName: "Peer", content: "current" })], hasMore: false, latestSeq: 1 })
     await expect(request).resolves.toMatchObject({ messages: [{ id: "dm-message" }] })
     expect(registry.collections.messages.has("dm-message")).toBe(true)
-    expect(registry.collections.profiles.has("peer")).toBe(true)
+    expect(registry.collections.profiles.has("peer")).toBe(false)
   })
 
   it("does not publish a late message, profile or navigation receipt after deadline failure", async () => {
@@ -430,7 +431,7 @@ describe("bounded messages publication", () => {
     await rejected
     expect(apiFetchMock.mock.calls[0][1].signal.aborted).toBe(true)
     await act(async () => {
-      resolve({ messages: [{ id: "late_message", type: "chat", seq: 1, authorId: "late_author", authorName: "Late", content: "late" }], hasMore: false, latestSeq: 1, surfaceReceipt: { channelId: "ch_deadline", surfaceKind: "channel" } })
+      resolve({ messages: [messageResourceFixture({ channelId: "ch_deadline", id: "late_message", type: "chat", seq: 1, authorId: "late_author", authorName: "Late", content: "late" })], hasMore: false, latestSeq: 1, surfaceReceipt: { channelId: "ch_deadline", surfaceKind: "channel" } })
       await vi.advanceTimersByTimeAsync(0)
     })
     const registry = getCommunityDbRegistry(client)!

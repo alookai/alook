@@ -56,6 +56,7 @@ describe("useUpdateProfile", () => {
 
   it("keeps public methods stable and returns only the original business input to per-call callbacks", async () => {
     const owner = await createCommunityQueryOwner()
+    owner.registry.collections.profiles.utils.writeUpsert({ id: "viewer", name: "Before", discriminator: "0042", avatar: null, avatarVersion: 0 })
     const { useUpdateProfile } = await import("./profile")
     const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
     const rendered = renderHook(() => useUpdateProfile(), { wrapper })

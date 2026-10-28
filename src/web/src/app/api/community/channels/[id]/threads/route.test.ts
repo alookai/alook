@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -42,9 +44,12 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIds(...a),
+        getMessagesByIdsInChannels: vi.fn(async () => []),
         getFirstMessageResourcesByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
       },
+      communityAttachment: { listByMessageIds: vi.fn(async () => []) },
+      communityReaction: { listReactionsByMessageIds: vi.fn(async () => []) },
       communityMessageTag: {
         filterMessageIdsByTag: (...a: unknown[]) => mockFilterMessageIdsByTag(...a),
         listTagsForMessages: (...a: unknown[]) => mockListTagsForMessages(...a),
@@ -79,7 +84,22 @@ vi.mock("@/lib/middleware/helpers", () => {
 import { GET } from "./route"
 
 function req(url = "http://localhost/api/community/channels/c1/threads") {
-  return new NextRequest(url, { method: "GET" })
+  return new NextRequest(url, { method: "GET", headers: { "x-alook-community-contract": String(BUSINESS_SCHEMA_VERSION) } })
+}
+
+function parentRow(fields: Record<string, unknown>) {
+  return channelResourceFixture({ id: "c1", serverId: "s1", type: "forum", creatorId: null, ...fields })
+}
+function childRow(fields: Record<string, unknown>) {
+  const { activityAt, ...core } = fields
+  return { ...channelResourceFixture({ id: String(core.id), serverId: "s1", type: "thread", parentChannelId: "c1", ...core }), ...(activityAt === undefined ? {} : { activityAt }) }
+}
+function messageRow(fields: Record<string, unknown>) {
+  return { id: fields.id ?? "first-" + fields.channelId, channelId: "c1", seq: 1, authorId: "u1", authorName: "User", authorImage: null, authorAvatarVersion: 0,
+    content: "Body", type: "default", mentionType: null, replyToId: null, clientNonce: null, embeds: null, createdAt: "2026-10-01T00:00:00.000Z", ...fields }
+}
+function participantRow(fields: Record<string, unknown>) {
+  return { userName: "User", discriminator: null, userImage: null, userAvatarVersion: 0, ...fields }
 }
 
 const ctx = { params: { id: "c1" } } as any
@@ -87,14 +107,18 @@ const ctx = { params: { id: "c1" } } as any
 describe("GET /api/community/channels/[id]/threads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetMessagesByIds.mockResolvedValue([])
+    mockGetFirstMessageByChannelIds.mockResolvedValue([])
+    mockListTagsForMessages.mockResolvedValue([])
+    mockListParticipantsForChannels.mockResolvedValue([])
     mockFilterMessageIdsByTag.mockResolvedValue([])
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetChannel.mockResolvedValue(parentRow({ id: "c1", serverId: "s1" }))
     mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1" })
     // requireChannelAccess resolves through resolveChannelAccessContext — a
     // public channel the caller is a member of.
     mockResolveChannelAccessContext.mockResolvedValue({
-      channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "forum" },
-      anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "forum" },
+      channel: parentRow({ id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "forum" }),
+      anchor: parentRow({ id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "forum" }),
       role: "member",
       isPrivate: false,
       isChannelMember: false,
@@ -107,7 +131,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
     //   thread-B: creator only, has a first message
     //   thread-C: creator only, no first message
     mockListChildChannels.mockResolvedValue([
-      {
+      childRow({
         id: "t-A",
         name: "A",
         type: "thread",
@@ -116,8 +140,8 @@ describe("GET /api/community/channels/[id]/threads", () => {
         createdAt: "2026-06-30T00:00:00.000Z",
         parentMessageId: "msg-p",
         creatorId: null,
-      },
-      {
+      }),
+      childRow({
         id: "t-B",
         name: "B",
         type: "thread",
@@ -126,8 +150,8 @@ describe("GET /api/community/channels/[id]/threads", () => {
         createdAt: "2026-06-30T00:00:00.000Z",
         parentMessageId: null,
         creatorId: "u-b",
-      },
-      {
+      }),
+      childRow({
         id: "t-C",
         name: "C",
         type: "thread",
@@ -136,19 +160,19 @@ describe("GET /api/community/channels/[id]/threads", () => {
         createdAt: "2026-06-30T00:00:00.000Z",
         parentMessageId: null,
         creatorId: "u-c",
-      },
+      }),
     ])
     const res = await GET(req(), ctx)
     expect(res.status).toBe(200)
     const body = await res.json() as { threads: Array<{ id: string; parentMessageId: string | null }> }
 
-    expect((body as typeof body & { parentType: string }).parentType).toBe("forum")
-    expect((body as typeof body & { serverId: string }).serverId).toBe("s1")
+    expect((body as typeof body & { channel: { type: string } }).channel.type).toBe("forum")
+    expect((body as typeof body & { channel: { serverId: string } }).channel.serverId).toBe("s1")
 
     expect(body.threads).toEqual([
-      { id: "t-A", name: "A", type: "thread", messageCount: 3, lastMessageAt: "2026-06-30T01:00:00.000Z", createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: "msg-p", creatorId: null },
-      { id: "t-B", name: "B", type: "thread", messageCount: 2, lastMessageAt: null, createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: null, creatorId: "u-b" },
-      { id: "t-C", name: "C", type: "thread", messageCount: 1, lastMessageAt: null, createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: null, creatorId: "u-c" },
+      childRow({ id: "t-A", name: "A", type: "thread", messageCount: 3, lastMessageAt: "2026-06-30T01:00:00.000Z", createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: "msg-p", creatorId: null }),
+      childRow({ id: "t-B", name: "B", type: "thread", messageCount: 2, lastMessageAt: null, createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: null, creatorId: "u-b" }),
+      childRow({ id: "t-C", name: "C", type: "thread", messageCount: 1, lastMessageAt: null, createdAt: "2026-06-30T00:00:00.000Z", parentMessageId: null, creatorId: "u-c" }),
     ])
     expect(mockGetMessagesByIds).not.toHaveBeenCalled()
     expect(mockGetUsersByIds).not.toHaveBeenCalled()
@@ -161,16 +185,16 @@ describe("GET /api/community/channels/[id]/threads", () => {
   })
 
   it("loads requested included resources for the regular child collection through the same scoped batches", async () => {
-    mockListChildChannels.mockResolvedValue([{ id: "t1", parentMessageId: "opener1" }])
-    mockGetMessagesByIds.mockResolvedValue([{ id: "opener1", channelId: "c1" }])
-    mockGetFirstMessageByChannelIds.mockResolvedValue([{ channelId: "t1", content: "first" }])
+    mockListChildChannels.mockResolvedValue([childRow({ id: "t1", parentMessageId: "opener1" })])
+    mockGetMessagesByIds.mockResolvedValue([messageRow({ id: "opener1", channelId: "c1" })])
+    mockGetFirstMessageByChannelIds.mockResolvedValue([messageRow({ channelId: "t1", content: "first" })])
     mockListTagsForMessages.mockResolvedValue([{ messageId: "opener1", tag: "bug" }])
-    mockListParticipantsForChannels.mockResolvedValue([{ channelId: "t1", userId: "u1" }])
+    mockListParticipantsForChannels.mockResolvedValue([participantRow({ channelId: "t1", userId: "u1" })])
     const response = await GET(req("http://localhost/api/community/channels/c1/threads?include=parentMessage,firstMessage,tags,participants"), ctx)
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ threads: [{ id: "t1" }], hasMore: false, included: {
-      parentMessages: [{ id: "opener1", channelId: "c1" }], firstMessages: [{ channelId: "t1", content: "first" }],
-      tags: [{ messageId: "opener1", tag: "bug" }], participants: [{ channelId: "t1", userId: "u1" }],
+    expect(await response.json()).toMatchObject({ threads: [{ id: "t1" }], page: { hasMore: false }, included: {
+      messages: [{ id: "opener1", channelId: "c1" }, { channelId: "t1", content: "first" }],
+      tags: [{ messageId: "opener1", tag: "bug" }], members: [{ channelId: "t1", userId: "u1" }],
     } })
     expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["opener1"], { channelId: "c1" })
     expect(mockListParticipantsForChannels).toHaveBeenCalledWith(expect.anything(), ["t1"], 5)
@@ -178,32 +202,32 @@ describe("GET /api/community/channels/[id]/threads", () => {
 
   it("keeps non-forum child collections unchanged without querying archive tags", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
-      channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "text" },
-      anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "text" },
+      channel: parentRow({ id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "text" }),
+      anchor: parentRow({ id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "text" }),
       role: "member",
       isPrivate: false,
       isChannelMember: false,
     })
     mockListChildChannels.mockResolvedValue([
-      { id: "thread_1", parentMessageId: "opener_1" },
-      { id: "thread_2", parentMessageId: null },
+      childRow({ id: "thread_1", parentMessageId: "opener_1" }),
+      childRow({ id: "thread_2", parentMessageId: null }),
     ])
 
     const res = await GET(req(), ctx)
 
     expect(res.status).toBe(200)
     expect((await res.json()).threads).toEqual([
-      { id: "thread_1", parentMessageId: "opener_1" },
-      { id: "thread_2", parentMessageId: null },
+      childRow({ id: "thread_1", parentMessageId: "opener_1" }),
+      childRow({ id: "thread_2", parentMessageId: null }),
     ])
     expect(mockFilterMessageIdsByTag).not.toHaveBeenCalled()
   })
 
   it("filters only the scoped child opener candidates for a normalized tag", async () => {
     mockListChildChannels.mockResolvedValue([
-      { id: "post_1", parentMessageId: "opener_1" },
-      { id: "post_2", parentMessageId: "opener_2" },
-      { id: "plain_thread", parentMessageId: null },
+      childRow({ id: "post_1", parentMessageId: "opener_1" }),
+      childRow({ id: "post_2", parentMessageId: "opener_2" }),
+      childRow({ id: "plain_thread", parentMessageId: null }),
     ])
     mockFilterMessageIdsByTag
       .mockResolvedValueOnce([])
@@ -213,14 +237,14 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(res.status).toBe(200)
     expect(mockFilterMessageIdsByTag).toHaveBeenNthCalledWith(1, expect.anything(), ["opener_1", "opener_2"], "archived")
     expect(mockFilterMessageIdsByTag).toHaveBeenNthCalledWith(2, expect.anything(), ["opener_1", "opener_2"], "bug")
-    expect((await res.json()).threads).toEqual([{ id: "post_2", parentMessageId: "opener_2" }])
+    expect((await res.json()).threads).toEqual([childRow({ id: "post_2", parentMessageId: "opener_2" })])
   })
 
-  it("reuses the archive opener set for the legacy Archived tag filter", async () => {
+  it("reuses the archive opener set for the Archived tag filter", async () => {
     mockListChildChannels.mockResolvedValue([
-      { id: "post_1", parentMessageId: "opener_1" },
-      { id: "post_2", parentMessageId: "opener_2" },
-      { id: "plain_thread", parentMessageId: null },
+      childRow({ id: "post_1", parentMessageId: "opener_1" }),
+      childRow({ id: "post_2", parentMessageId: "opener_2" }),
+      childRow({ id: "plain_thread", parentMessageId: null }),
     ])
     mockFilterMessageIdsByTag.mockResolvedValueOnce(["opener_1"])
 
@@ -235,7 +259,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
       ["opener_1", "opener_2"],
       "archived",
     )
-    expect((await res.json()).threads).toEqual([{ id: "post_1", parentMessageId: "opener_1" }])
+    expect((await res.json()).threads).toEqual([childRow({ id: "post_1", parentMessageId: "opener_1" })])
   })
 
   it("rejects an empty tag before querying message_tags", async () => {
@@ -255,14 +279,14 @@ describe("GET /api/community/channels/[id]/threads", () => {
 
   it("returns a created-order page with scoped included resources and an opaque next cursor", async () => {
     mockListForumThreadsByCreatedAt.mockResolvedValue([
-      { id: "t3", parentMessageId: "m3", createdAt: "2026-08-08T03:00:00.000Z", activityAt: "2026-08-10T03:00:00.000Z" },
-      { id: "t2", parentMessageId: "m2", createdAt: "2026-08-08T02:00:00.000Z", activityAt: "2026-08-11T02:00:00.000Z" },
-      { id: "t1", parentMessageId: "m1", createdAt: "2026-08-08T01:00:00.000Z", activityAt: "2026-08-12T01:00:00.000Z" },
+      childRow({ id: "t3", parentMessageId: "m3", createdAt: "2026-08-08T03:00:00.000Z", activityAt: "2026-08-10T03:00:00.000Z" }),
+      childRow({ id: "t2", parentMessageId: "m2", createdAt: "2026-08-08T02:00:00.000Z", activityAt: "2026-08-11T02:00:00.000Z" }),
+      childRow({ id: "t1", parentMessageId: "m1", createdAt: "2026-08-08T01:00:00.000Z", activityAt: "2026-08-12T01:00:00.000Z" }),
     ])
-    mockGetMessagesByIds.mockResolvedValue([{ id: "m3" }, { id: "m2" }])
-    mockGetFirstMessageByChannelIds.mockResolvedValue([{ channelId: "t3", content: "preview" }])
+    mockGetMessagesByIds.mockResolvedValue([messageRow({ id: "m3" }), messageRow({ id: "m2" })])
+    mockGetFirstMessageByChannelIds.mockResolvedValue([messageRow({ channelId: "t3", content: "preview" })])
     mockListTagsForMessages.mockResolvedValue([{ messageId: "m3", tag: "bug" }])
-    mockListParticipantsForChannels.mockResolvedValue([{ channelId: "t3", userId: "u1" }])
+    mockListParticipantsForChannels.mockResolvedValue([participantRow({ channelId: "t3", userId: "u1" })])
 
     const res = await GET(req(
       "http://localhost/api/community/channels/c1/threads?order=createdAt&limit=2&include=parentMessage,firstMessage,tags,participants",
@@ -271,17 +295,15 @@ describe("GET /api/community/channels/[id]/threads", () => {
     const body = await res.json()
     expect(body.threads.map((thread: { id: string }) => thread.id)).toEqual(["t3", "t2"])
     expect(body).toMatchObject({
-      parentType: "forum",
-      serverId: "s1",
-      hasMore: true,
+      channel: { type: "forum", serverId: "s1" },
+      page: { hasMore: true },
       included: {
-        parentMessages: [{ id: "m3" }, { id: "m2" }],
-        firstMessages: [{ channelId: "t3", content: "preview" }],
+        messages: [{ id: "m3" }, { id: "m2" }, { channelId: "t3", content: "preview" }],
         tags: [{ messageId: "m3", tag: "bug" }],
-        participants: [{ channelId: "t3", userId: "u1" }],
+        members: [{ channelId: "t3", userId: "u1" }],
       },
     })
-    expect(body.nextCursor).toEqual(expect.any(String))
+    expect(body.page.nextCursor).toEqual(expect.any(String))
     expect(mockListForumThreadsByCreatedAt).toHaveBeenCalledWith(expect.anything(), {
       parentChannelId: "c1",
       limit: 3,
@@ -292,7 +314,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
 
     mockListForumThreadsByCreatedAt.mockResolvedValue([])
     const next = await GET(req(
-      `http://localhost/api/community/channels/c1/threads?order=createdAt&limit=2&cursor=${encodeURIComponent(body.nextCursor)}`,
+      `http://localhost/api/community/channels/c1/threads?order=createdAt&limit=2&cursor=${encodeURIComponent(body.page.nextCursor)}`,
     ), ctx)
     expect(next.status).toBe(200)
     expect(mockListForumThreadsByCreatedAt).toHaveBeenLastCalledWith(expect.anything(), {
@@ -359,8 +381,8 @@ describe("GET /api/community/channels/[id]/threads", () => {
 
   it("does not query created-order children when the forum access gate rejects the viewer", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
-      channel: { id: "c1", serverId: "s1", type: "forum" },
-      anchor: { id: "c1", serverId: "s1", type: "forum" },
+      channel: parentRow({ id: "c1", serverId: "s1", type: "forum" }),
+      anchor: parentRow({ id: "c1", serverId: "s1", type: "forum" }),
       role: "member",
       isPrivate: true,
       isCreator: false,

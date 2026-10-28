@@ -17,7 +17,7 @@ function row(seq: number) {
   return { ...fixture().messages[0], id: `m${seq}`, seq,
     createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, seq)).toISOString(),
     authorName: "Peer", authorAvatar: "", authorAvatarVersion: 0,
-    content: `Body ${seq}`, resourceComplete: true as const, embeds: [], reactions: [],
+    content: `Body ${seq}`, embeds: [], reactions: [],
   }
 }
 function page(messages: ReturnType<typeof row>[], latestSeq: number): MessagesPage {
@@ -73,7 +73,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockResolvedValueOnce(hint === "exact-ID" ? row(101) : page([row(101)], 101))
     if (hint === "exact-ID") await prefetchCommunityMessage(h.client, "m101", { channelId: "c1", serverId: "s1" })
     else await prefetchCommunityLatestMessage(h.client, "c1")
-    expect(h.registry.collections.messages.get("m101")?.resourceComplete).toBe(true)
+    expect(h.registry.collections.messages.get("m101")).toMatchObject(row(101))
     expect(h.ids()).toEqual(["m98", "m99", "m100"])
     load.mockReset().mockResolvedValue(page([{ ...row(100), content: "corrected" }], 101))
     try {
@@ -193,7 +193,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
   it.each(["missing", "partial", "other-channel", "duplicate-seq", "cursor-order", "invalid-time", "cursor-separator"] as const)("does not let %s evidence or a maximum seq hide a missing resource", async kind => {
     const h = await setup()
     ingestMessages(h.registry, "c1", [row(103)])
-    if (kind === "partial") ingestMessages(h.registry, "c1", [{ id: "m101", seq: 101, createdAt: row(101).createdAt, content: "partial" }])
+    if (kind === "partial") expect(() => ingestMessages(h.registry, "c1", [{ id: "m101", seq: 101, createdAt: row(101).createdAt, content: "partial" }])).toThrow()
     if (kind === "other-channel") ingestMessages(h.registry, "c2", [{ ...row(101), channelId: "c2" }])
     if (kind === "duplicate-seq") ingestMessages(h.registry, "c1", [row(101), { ...row(101), id: "other101" }])
     if (kind === "cursor-order") ingestMessages(h.registry, "c1", [{ ...row(101), createdAt: row(99).createdAt }])

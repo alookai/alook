@@ -6,9 +6,9 @@ import { createCommunityRestorePersister, PERSIST_BUSTER, PERSIST_MAX_AGE_MS } f
 
 function snapshot(): PersistedClient {
   const client = new QueryClient()
-  client.setQueryData(communityKeys.communityDbCollection("viewer", "profiles"), [{ id: "peer", identityComplete: false, name: "Disk" }], { updatedAt: 0 })
+  client.setQueryData(communityKeys.communityDbCollection("viewer", "profiles"), [{ id: "peer", name: "Disk", discriminator: null, avatar: null, avatarVersion: 0 }], { updatedAt: 0 })
   client.setQueryData(communityKeys.communityDbCollection("viewer", "messages"), [])
-  client.setQueryData(communityKeys.communityDbCollection("other", "profiles"), [{ id: "private", identityComplete: false, name: "Other" }])
+  client.setQueryData(communityKeys.communityDbCollection("other", "profiles"), [{ id: "private", name: "Other", discriminator: null, avatar: null, avatarVersion: 0 }])
   client.setQueryData(communityKeys.communityDbCollection("viewer", "folders"), [{ invalid: true }])
   client.setQueryData(["resource-window"], { ids: ["id"] })
   const value = { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client) }
@@ -23,13 +23,13 @@ describe("community native restore input", () => {
     const restore = createCommunityRestorePersister(original, "viewer")
     const client = new QueryClient()
     const profileKey = communityKeys.communityDbCollection("viewer", "profiles")
-    client.setQueryData(profileKey, [{ id: "peer", identityComplete: false, name: "RSC" }])
+    client.setQueryData(profileKey, [{ id: "peer", name: "RSC", discriminator: null, avatar: null, avatarVersion: 0 }])
     await persistQueryClientRestore({ queryClient: client, persister: restore.persister, buster: PERSIST_BUSTER, maxAge: PERSIST_MAX_AGE_MS })
-    expect(client.getQueryData(profileKey)).toEqual([{ id: "peer", identityComplete: false, name: "RSC" }])
+    expect(client.getQueryData(profileKey)).toEqual([{ id: "peer", name: "RSC", discriminator: null, avatar: null, avatarVersion: 0 }])
     expect(client.getQueryData(["resource-window"])).toEqual({ ids: ["id"] })
     const input = restore.takeCollections()
     expect(Object.keys(input).sort()).toEqual(["messages", "profiles"])
-    expect(input.profiles).toEqual({ rows: [{ id: "peer", identityComplete: false, name: "Disk" }], updatedAt: 0 })
+    expect(input.profiles).toEqual({ rows: [{ id: "peer", name: "Disk", discriminator: null, avatar: null, avatarVersion: 0 }], updatedAt: 0 })
     expect(input.messages?.rows).toEqual([])
     expect(restore.takeCollections()).toEqual({})
     await restore.persister.persistClient(disk)

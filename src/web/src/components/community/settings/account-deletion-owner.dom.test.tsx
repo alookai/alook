@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -36,7 +37,7 @@ async function deleteRequest() {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
   fireEvent.click(screen.getByTestId(tid.accountDeletionSendCode))
   await act(async () => { await vi.waitFor(() => expect(held).toHaveLength(1)) })
-  await act(async () => held[0].resolve(Response.json({ ok: true, resend_after: 60 })))
+  await act(async () => held[0].resolve(Response.json({ ok: true, expires_in: 300, resend_after: 60 }, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })))
   const input = screen.getByTestId(tid.accountDeletionOtp)
   await act(async () => { await vi.advanceTimersByTimeAsync(50) })
   await act(async () => { fireEvent.change(input, { target: { value: "123456" } }) })
@@ -54,7 +55,7 @@ describe("actual account deletion original root settlement", () => {
     await act(async () => { await b.restoreClient(); }) ; await act(async () => { await set(legacyB, "retained legacy B") })
     act(() => current.queryClient.setQueryData(["private", "B"], { current: "B" }))
     await act(async () => { await set("alook:qc:v2:A:client", "late original A"); }) ; await act(async () => { await set("alook:qc:v2:B:client", "current B") })
-    await act(async () => request.resolve(Response.json({ ok: true })))
+    await act(async () => request.resolve(Response.json({ ok: true }, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })))
     await waitFor(async () => expect(await get("alook:qc:v2:A:client")).toBeUndefined())
     expect(await get("alook:qc:v2:B:client")).toBe("current B"); expect(await b.isCurrent()).toBe(true); expect(await get(legacyB)).toBe("retained legacy B")
     expect(original.runtime.lifecycle.get().active).toBe(false); expect(original.queryClient.getQueryCache().getAll()).toHaveLength(0)
@@ -64,14 +65,14 @@ describe("actual account deletion original root settlement", () => {
   it("current positive deletion retires its actual parent and navigates even if the parent callback rejects", async () => {
     onDeleted.mockRejectedValue(new Error("parent callback failed"))
     render(<App />); const request = await deleteRequest(); const original = registry
-    await act(async () => request.resolve(Response.json({ ok: true })))
+    await act(async () => request.resolve(Response.json({ ok: true }, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })))
     await act(async () => { await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce()) })
     expect(onDeleted).toHaveBeenCalledOnce(); expect(original.runtime.lifecycle.get().active).toBe(false); expect(replace).toHaveBeenCalledWith("/sign-in?account_deleted=1")
   })
   it("a successful deletion callback held across B replacement cannot navigate B on completion", async () => {
     let finish!: () => void; onDeleted.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve }))
     const view = render(<App />); const request = await deleteRequest()
-    await act(async () => request.resolve(Response.json({ ok: true })))
+    await act(async () => request.resolve(Response.json({ ok: true }, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })))
     await act(async () => { await vi.waitFor(() => expect(finish).toBeTypeOf("function")) })
     sdk.id = "B"; await act(async () => { view.rerender(<App id="B" deletion={false} />) }); await act(async () => { await vi.advanceTimersByTimeAsync(0) }); vi.useRealTimers(); await waitFor(() => expect(registry.accountId).toBe("B")); await waitFor(() => expect(restoring).toBe(false))
     await act(async () => finish()); expect(replace).not.toHaveBeenCalled(); expect(registry.runtime.lifecycle.get().active).toBe(true)

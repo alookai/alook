@@ -1,4 +1,5 @@
 "use client"
+import type { CommunityChannelResource } from "@alook/shared"
 
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
@@ -68,7 +69,10 @@ export function useCreateForumThread() {
       const parent = origin.registry!.collections.channels.get(channelId)
       if (parent && structure.message) {
         publishCommunityMessages(queryClient, { channelId, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
-        publishCommunityCreatedChannel(queryClient, { id: structure.threadId, serverId: parent.serverId, categoryId: null, name, type: "thread", parentChannelId: channelId, parentMessageId: structure.message.id, creatorId: structure.message.authorId, position: 0, archived: false, muted: false, tags: [], pending: false, resourceComplete: false }, { token, signal: assertActive?.signal })
+        const child = await origin.request<CommunityChannelResource>(token, `/api/community/channels/${structure.threadId}`, { method: "GET", signal: assertActive?.signal, assertActive })
+        assert()
+        if (child.parentChannelId !== channelId || child.parentMessageId !== structure.message.id || child.serverId !== parent.serverId) throw new Error("Created forum child scope mismatch")
+        publishCommunityCreatedChannel(queryClient, child, { token, signal: assertActive?.signal })
       }
       assert()
       const reply = await origin.request<{ message: PostedMessage }>(token, `/api/community/channels/${structure.threadId}/messages`, {

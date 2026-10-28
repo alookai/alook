@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, CommunityMessageReadSchema } from "@alook/shared"
 
 const cloudflareMocks = vi.hoisted(() => ({
   mediaDelete: vi.fn(),
@@ -145,6 +146,9 @@ describe("GET /api/community/messages/[id]", () => {
   it("returns the hydrated payload for a channel message when caller is a server member", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
+      seq: 7,
+      clientNonce: null,
+      authorAvatarVersion: 0,
       authorId: "u-author",
       authorName: "Alice",
       authorImage: null,
@@ -168,7 +172,9 @@ describe("GET /api/community/messages/[id]", () => {
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
     expect(res.status).toBe(200)
-    const body = await res.json()
+    expect(res.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    const envelope = CommunityMessageReadSchema.parse(await res.json())
+    const body = envelope.message
     expect(body.id).toBe("m1")
     expect(body.channelId).toBe("c1")
     expect(body.content).toBe("hello")
@@ -177,7 +183,7 @@ describe("GET /api/community/messages/[id]", () => {
     // id-addressed render URL (attachments fold), served by the canonical
     // channels/{targetId}/attachments/{attachmentId} door.
     expect(body.attachments).toEqual([
-      { kind: "image", name: "photo.png", url: "/api/community/channels/c1/attachments/att_1", contentType: "image/png", sizeBytes: 12345 },
+      { id: "att_1", name: "photo.png", url: "/api/community/channels/c1/attachments/att_1", thumbnailUrl: null, contentType: "image/png", sizeBytes: 12345, width: null, height: null },
     ])
     // Reactions came through with `me: true` since userId matches.
     expect(body.reactions).toEqual([
@@ -191,6 +197,9 @@ describe("GET /api/community/messages/[id]", () => {
   it("hydrates reply preview when replyToId is set + target is in the same channel", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
+      seq: 7,
+      clientNonce: null,
+      authorAvatarVersion: 0,
       authorId: "u-author",
       authorName: "Alice",
       authorImage: null,
@@ -209,7 +218,9 @@ describe("GET /api/community/messages/[id]", () => {
     ])
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
-    const body = await res.json()
+    expect(res.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    const envelope = CommunityMessageReadSchema.parse(await res.json())
+    const body = envelope.message
     expect(body.replyTo).toEqual({ id: "m0", authorName: "Bob", text: "question?" })
     const [, , scope] = mockGetMessagesByIdsInScope.mock.calls[0]
     expect(scope).toEqual({ channelId: "c1" })
@@ -218,6 +229,9 @@ describe("GET /api/community/messages/[id]", () => {
   it("omits reply preview when target is in a different channel (scope guard)", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
+      seq: 7,
+      clientNonce: null,
+      authorAvatarVersion: 0,
       authorId: "u-author",
       authorName: "Alice",
       authorImage: null,
@@ -236,7 +250,9 @@ describe("GET /api/community/messages/[id]", () => {
     mockGetMessagesByIdsInScope.mockResolvedValue([])
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
-    const body = await res.json()
+    expect(res.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    const envelope = CommunityMessageReadSchema.parse(await res.json())
+    const body = envelope.message
     // Target not found in scope — mapper returns the `deleted` sentinel.
     expect(body.replyTo).toEqual({ id: "m0", authorName: "Deleted user", text: "", deleted: true })
   })
@@ -251,6 +267,9 @@ describe("GET /api/community/messages/[id]", () => {
   it("returns 403 when the caller isn't a member of the channel's server", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
+      seq: 7,
+      clientNonce: null,
+      authorAvatarVersion: 0,
       authorId: "u-author",
       authorName: "Alice",
       authorImage: null,
@@ -271,6 +290,9 @@ describe("GET /api/community/messages/[id]", () => {
   it("returns the payload for a DM message when caller participates", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
+      seq: 7,
+      clientNonce: null,
+      authorAvatarVersion: 0,
       authorId: "u1",
       authorName: "Alice",
       authorImage: null,
@@ -293,7 +315,9 @@ describe("GET /api/community/messages/[id]", () => {
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
     expect(res.status).toBe(200)
-    const body = await res.json()
+    expect(res.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    const envelope = CommunityMessageReadSchema.parse(await res.json())
+    const body = envelope.message
     expect(body.content).toBe("hi dm")
     // Never touched the channel-permission path.
     expect(mockGetChannelForMember).not.toHaveBeenCalled()
@@ -302,6 +326,9 @@ describe("GET /api/community/messages/[id]", () => {
   it("returns 404 when the caller doesn't participate in the DM (no access-member row)", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
+      seq: 7,
+      clientNonce: null,
+      authorAvatarVersion: 0,
       authorId: "u-other",
       authorName: "Someone",
       authorImage: null,

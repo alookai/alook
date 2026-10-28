@@ -1,11 +1,11 @@
-import { CommunityResourceProfileSchema, communityReadSchemas, queries, type Database } from "@alook/shared"
+import { COMMUNITY_CONTRACT_VERSION, type CommunityContract, CommunityResourceProfileSchema, communityReadSchemas, queries, type Database } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "./permissions"
 import { writeError } from "@/lib/middleware/helpers"
 import { writeCommunityContractJSON } from "./read-contract"
 import { canonicalUserImage } from "./storage"
 import { resourceProfile } from "./participant-resources"
 
-export async function readCommunityMembers(db: Database, channelId: string, userId: string, relation: string | null, contract: 2 | 3 = 2) {
+export async function readCommunityMembers(db: Database, channelId: string, userId: string, relation: string | null, contract: CommunityContract = COMMUNITY_CONTRACT_VERSION) {
   const access = await requireMessageSurfaceAccess(db, channelId, userId)
   if (!access.ok) return writeError(access.error, access.status)
   if (relation !== "access" && relation !== "notify") return writeError("relation must be access or notify", 400)
@@ -23,7 +23,7 @@ export async function readCommunityMembers(db: Database, channelId: string, user
       ? queries.communityMember.getMembersByUserIds(db, channel.serverId, ids) : Promise.resolve([]),
   ])
   const memberByUser = new Map(serverMembers.map((row) => [row.userId, row]))
-  const profiles = users.map((row) => resourceProfile({ id: row.id, name: contract === 3 ? CommunityResourceProfileSchema.shape.name.parse(row.name) : row.name ?? "", discriminator: row.discriminator ?? null,
+  const profiles = users.map((row) => resourceProfile({ id: row.id, name: CommunityResourceProfileSchema.shape.name.parse(row.name), discriminator: row.discriminator ?? null,
     avatar: canonicalUserImage(row.id, row.image, row.avatarVersion), avatarVersion: row.avatarVersion,
     ...(memberByUser.has(row.id) ? {
       statusEmoji: memberByUser.get(row.id)!.statusEmoji, statusText: memberByUser.get(row.id)!.statusText,
@@ -32,5 +32,5 @@ export async function readCommunityMembers(db: Database, channelId: string, user
   return writeCommunityContractJSON(communityReadSchemas(contract).members.parse({ contractVersion: contract, channelId, relation,
     members: relations.filter((row) => available.has(row.userId)).map((row) => ({ channelId, userId: row.userId,
       relation, source: row.source ?? "explicit", isCreator: row.userId === channel.creatorId,
-      role: memberByUser.get(row.userId)?.role ?? null, memberId: memberByUser.get(row.userId)?.id ?? null })), profiles: contract === 2 ? profiles.map((profile) => ({ id: profile.id, name: profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "" })) : profiles }), contract)
+      role: memberByUser.get(row.userId)?.role ?? null, memberId: memberByUser.get(row.userId)?.id ?? null })), profiles }), contract)
 }

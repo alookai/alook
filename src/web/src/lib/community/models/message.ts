@@ -1,8 +1,13 @@
 import { z } from "zod"
-import type { CommunityChannelResource, CommunityMessageResource, CommunityMessagePreview, CommunityLegacyMessageResource, CommunityLegacyMessageAttachment, CommunityMessagesRead } from "@alook/shared"
+import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment, CommunityMessagesRead } from "@alook/shared"
 
 // ── Messages ───────────────────────────────────────────────────────────────
-type AttachmentMetadata = Pick<CommunityLegacyMessageAttachment, "name" | "url" | "contentType" | "sizeBytes">
+export type AttachmentPreview = Pick<CommunityMessageAttachment, "name" | "url"> & Partial<Omit<CommunityMessageAttachment, "name" | "url">>
+
+type AttachmentMetadata = Pick<CommunityMessageAttachment, "name" | "url"> & {
+  contentType?: NonNullable<CommunityMessageAttachment["contentType"]>
+  sizeBytes?: NonNullable<CommunityMessageAttachment["sizeBytes"]>
+}
 
 export type FileAttachment = AttachmentMetadata & { kind: "file"; size: string }
 
@@ -47,11 +52,11 @@ export type Msg = Pick<CommunityMessageResource, "id" | "type"> & Partial<Omit<C
   attachments?: Attachment[]
   embeds?: Embed[]
   authorAvatar?: string
-  thread?: CommunityLegacyMessageResource["thread"]
+  thread?: CommunityMessageResource["thread"]
 }
 
-export type MessageInput = Pick<CommunityMessagePreview, "id"> & Partial<Omit<CommunityMessagePreview, "id">> & { resourceComplete?: boolean; failed?: boolean }
-export type CanonicalMessage = CommunityMessagePreview & Pick<CommunityMessageResource, "seq"> & { resourceComplete?: boolean }
+export type MessageInput = CommunityMessageResource & { failed?: boolean }
+export type CanonicalMessage = CommunityMessageResource
 
 export function applyMessageReaction(source: Msg["reactions"], emoji: string, userId: string, add: boolean, viewerId: string | null): Reaction[] {
   const rows = (source ?? []).map((row) => ({ ...row, userIds: [...row.userIds] }))
@@ -63,7 +68,7 @@ export function applyMessageReaction(source: Msg["reactions"], emoji: string, us
   return rows.filter((row) => row.userIds.length).map((row) => ({ ...row, count: row.userIds.length, me: viewerId !== null && row.userIds.includes(viewerId) }))
 }
 
-export function messageProfileIds(message: Pick<CommunityMessagePreview, "authorId" | "replyTo" | "thread" | "approval" | "botCreation">): string[] {
+export function messageProfileIds(message: Partial<Pick<CommunityMessageResource, "authorId" | "replyTo" | "thread" | "approval" | "botCreation">>): string[] {
   return [
     ...(message.authorId ? [message.authorId] : []),
     ...(message.botCreation ? [message.botCreation.requesterId, ...message.botCreation.bots.flatMap((bot) => bot.createdBot ? [bot.createdBot.id] : [])] : []),
@@ -100,7 +105,7 @@ export type ForumThread = Thread & Required<Pick<CommunityMessageResource,
   openerCreatedAt?: CommunityMessageResource["createdAt"]
   tags: NonNullable<NonNullable<CommunityMessageResource["thread"]>["tags"]>
   preview: NonNullable<NonNullable<CommunityMessageResource["thread"]>["preview"]>
-  participants: NonNullable<NonNullable<CommunityLegacyMessageResource["thread"]>["participants"]>
+  participants: NonNullable<NonNullable<CommunityMessageResource["thread"]>["participants"]>
   participantCount: NonNullable<NonNullable<CommunityMessageResource["thread"]>["participantCount"]>
 }
 

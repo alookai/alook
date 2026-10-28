@@ -525,6 +525,7 @@ describe("useShellProfileController", () => {
 
   it("seeds canonical mutation responses through the captured request snapshot", async () => {
     const hook = await renderController()
+    hook.registry.collections.profiles.utils.writeUpsert({ id: "self", name: "Self", discriminator: "0001", avatar: null, avatarVersion: 0 })
 
     await act(async () => hook.current.updateOwnStatus("🌱", "Growing"))
     expect(mocks.updateProfile).toHaveBeenLastCalledWith({

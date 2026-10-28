@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -32,7 +33,7 @@ async function mount() {
     const key = `${options.authenticationAccount}:${path}`
     if (seen.has(key)) return new Promise((_, fail) => options.signal?.addEventListener("abort", () => fail(new DOMException("aborted", "AbortError")), { once: true }))
     seen.add(key)
-    return Promise.resolve({ id: "m1", channelId: "c1", seq: 1, type: "chat", content: "original", authorId: "peer", authorName: "Peer", authorAvatar: "", authorAvatarVersion: 0, createdAt: "2026-10-02T00:00:00Z" })
+    return Promise.resolve(messageResourceFixture({ id: "m1", channelId: "c1", seq: 1, type: "chat", content: "original", authorId: "peer", authorName: "Peer", authorAvatar: "", authorAvatarVersion: 0, createdAt: "2026-10-02T00:00:00Z" }))
   })
   const view = render(<Root />)
   await waitFor(() => expect(screen.getByTestId("canonical").textContent).toBe("original"))

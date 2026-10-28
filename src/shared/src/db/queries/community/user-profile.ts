@@ -1,4 +1,5 @@
-import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { and, inArray, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { communityUserProfile } from "../../community-schema";
 import { user } from "../../schema";
@@ -101,6 +102,12 @@ export async function getPublicProfileForViewer(
     statusText: row.statusText ?? "",
     identity,
   };
+}
+
+export async function getProfilesByUserIds(db: Database, userIds: string[]) {
+  return (await Promise.all(chunk([...new Set(userIds)], D1_MAX_IN_PARAMS).map(ids =>
+    db.select().from(communityUserProfile).where(inArray(communityUserProfile.userId, ids))
+  ))).flat();
 }
 
 export async function getProfile(db: Database, userId: string) {

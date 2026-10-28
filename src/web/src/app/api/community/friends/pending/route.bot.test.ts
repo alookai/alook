@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -45,7 +46,7 @@ const BOT = "bot_zoe"
 function req(headers: Record<string, string> = { Authorization: "Bearer crk_abc" }): NextRequest {
   return new NextRequest("http://localhost/api/community/friends/pending", {
     method: "GET",
-    headers: { ...headers },
+    headers: { ...(headers.Authorization ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }), ...headers },
   })
 }
 

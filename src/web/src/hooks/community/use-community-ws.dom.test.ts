@@ -29,14 +29,14 @@ import {
 import {
   COMMUNITY_WS_FAILED_AFTER_MS,
 } from "./community-ws/connection-status"
-import { deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatch, prepareCommunityDeliveryEvents } from "@alook/shared"
+import { communityBrowserEventBatchType, deriveCommunityDeliveryOperationId, encodeCommunityBrowserEventBatch, prepareCommunityDeliveryEvents } from "@alook/shared"
 import * as analytics from "@/lib/analytics"
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
 describe("useCommunityWs — non-community events bail", () => {
-  it("drops a v3 batch on a v2 connection while retaining legacy admission", async () => {
+  it("rejects an old v3 batch and admits a current encoded batch", async () => {
     await mountHook()
     const dropped = vi.spyOn(analytics, "trackCommunityWsFrameDropped")
     const setSpy = vi.spyOn(capturedQueryClient, "setQueryData")
@@ -47,10 +47,10 @@ describe("useCommunityWs — non-community events bail", () => {
     const events = [{ type: "community:presence.update", userId: "peer", online: true }]
     const prepared = await prepareCommunityDeliveryEvents(events)
     if (!prepared.ok) throw new Error("invalid presence fixture")
-    const encoded = await encodeCommunityBrowserEventBatch({ operationDigest: prepared.prepared.digest, operationId: await deriveCommunityDeliveryOperationId("legacy-presence"),
+    const encoded = await encodeCommunityBrowserEventBatch({ operationDigest: prepared.prepared.digest, operationId: await deriveCommunityDeliveryOperationId("current-presence"),
       events })
-    if (!encoded.ok) throw new Error("invalid legacy fixture")
-    expect(encoded.batch.type).toBe("community:events.batch")
+    if (!encoded.ok) throw new Error("invalid current fixture")
+    expect(encoded.batch.type).toBe(communityBrowserEventBatchType())
     await capturedOnMessage!(encoded.batch)
     await vi.waitFor(() => expect(getCapturedRuntime().ws.get().presenceByUserId.get("peer")).toBe("online"))
     expect(dropped).toHaveBeenCalledOnce()

@@ -1,4 +1,5 @@
 "use client"
+import type { CommunityResourceBundle } from "@alook/shared"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
 import {
@@ -19,11 +20,11 @@ import {
 
 const EMPTY_DIRECTORY = Object.freeze([]) as unknown as ChannelRefDirectory
 
-export const channelRefDirectoryQueryFn = async (options: ApiRequestOptions): Promise<ChannelRefDirectory> => {
-  const data = await apiFetch<{ directory: ChannelRefDirectory }>(
+export const channelRefDirectoryQueryFn = async (options: ApiRequestOptions): Promise<{ directory: ChannelRefDirectory; resources: CommunityResourceBundle }> => {
+  const data = await apiFetch<{ directory: ChannelRefDirectory; resources: CommunityResourceBundle }>(
     "/api/community/users/me/channel-directory", options,
   )
-  return data.directory
+  return data
 }
 
 export function useChannelRefDirectory(enabled = true): {
@@ -47,9 +48,9 @@ export function useChannelRefDirectory(enabled = true): {
       })
       signal.addEventListener("abort", release, { once: true })
       const token = captureCommunityLiveSnapshotToken(queryClient)
-      const directory = await channelRefDirectoryQueryFn(communityRequestOptions(queryClient, token, signal))
+      const { directory, resources } = await channelRefDirectoryQueryFn(communityRequestOptions(queryClient, token, signal))
       publishCommunityChannelDirectory(queryClient, {
-        directory,
+        directory, resources,
         proof: { token, signal },
       })
       return directory.map((server) => server.id)

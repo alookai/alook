@@ -1,12 +1,34 @@
 import { z } from "zod"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "./community-contract"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
+import { PARTICIPANT_SOURCE } from "./constants/community"
 import { BotCreationPayloadSchema } from "./community-bot-creation"
 
 const id = z.string().min(1)
 const nullableId = id.nullable()
 export const COMMUNITY_CONVERSATION_ANCHOR_MISSING = "conversation_anchor_missing"
-const legacyArchivedSchema = z.union([z.boolean(), z.literal(0), z.literal(1)]).transform((value) => value === true || value === 1)
+const storedArchivedSchema = z.union([z.boolean(), z.literal(0), z.literal(1)]).transform((value) => value === true || value === 1)
+
+export const CommunityServerResourceSchema = z.strictObject({
+  id: z.string().min(1),
+  position: z.number().int().nonnegative(),
+  name: z.string(),
+  discriminator: z.string(),
+  description: z.string(),
+  ownerId: z.string(),
+  icon: z.string().nullable(),
+  official: z.boolean(),
+  isOwner: z.boolean(),
+})
+
+export const CommunityCategoryResourceSchema = z.strictObject({
+  id: z.string().min(1),
+  serverId: z.string().min(1),
+  name: z.string(),
+  position: z.number(),
+  private: z.boolean(),
+  creatorId: z.string().nullable(),
+})
 
 export const CommunityChannelResourceSchema = z.strictObject({
   id,
@@ -28,19 +50,7 @@ export const CommunityChannelResourceSchema = z.strictObject({
 export const CommunityChannelIdentitySchema = CommunityChannelResourceSchema.pick({
   id: true, type: true, serverId: true, name: true, parentChannelId: true,
   parentMessageId: true, creatorId: true, archived: true, lastMessageAt: true, createdAt: true,
-}).partial({ createdAt: true }).strip()
-
-const legacyChannelIdentitySchema = CommunityChannelIdentitySchema.extend({
-  archived: legacyArchivedSchema,
-  parentChannelId: nullableId.default(null),
-  parentMessageId: nullableId.default(null),
-  creatorId: nullableId.default(null),
-  lastMessageAt: CommunityChannelResourceSchema.shape.lastMessageAt.default(null),
-})
-
-export function normalizeCommunityChannelIdentity(value: unknown) {
-  return legacyChannelIdentitySchema.parse(value)
-}
+}).strip()
 
 export const CommunityAccessDecisionSchema = z.strictObject({
   channelId: id,
@@ -48,19 +58,6 @@ export const CommunityAccessDecisionSchema = z.strictObject({
   canSend: z.boolean(),
   canCreateDiscussion: z.boolean(),
 })
-
-export const CommunityLegacyMessageAttachmentSchema = z.strictObject({
-  kind: z.enum(["image", "file"]),
-  name: z.string(),
-  url: z.string(),
-  thumbnailUrl: z.string().optional(),
-  contentType: z.string().optional(),
-  size: z.string().optional(),
-  sizeBytes: z.number().nonnegative().optional(),
-  width: z.number().nonnegative().optional(),
-  height: z.number().nonnegative().optional(),
-})
-
 
 export const CommunityMessageAttachmentSchema = z.strictObject({
   id,
@@ -72,8 +69,6 @@ export const CommunityMessageAttachmentSchema = z.strictObject({
   width: z.number().int().nonnegative().nullable(),
   height: z.number().int().nonnegative().nullable(),
 })
-
-export const CommunityMessagePreviewAttachmentSchema = CommunityMessageAttachmentSchema.partial().required({ name: true, url: true })
 
 export const CommunityResourceProfileSchema = z.strictObject({
   id,
@@ -104,15 +99,6 @@ const messageThreadSchema = z.strictObject({
   participants: z.array(CommunityMessageThreadParticipantSchema).optional(),
   participantCount: z.number().int().nonnegative().optional(),
 })
-const legacyMessageThreadSchema = messageThreadSchema.extend({
-  name: z.string(),
-  lastReplyAt: z.string().optional(),
-  participants: z.array(CommunityMessageThreadParticipantSchema.extend({ avatar: z.string() })).optional(),
-})
-const messageThreadPreviewSchema = messageThreadSchema.partial().required({ id: true }).extend({
-  participants: z.array(CommunityMessageThreadParticipantSchema.partial().required({ id: true })).optional(),
-})
-
 export const CommunityMessageResourceSchema = z.strictObject({
   id,
   channelId: id,
@@ -148,10 +134,6 @@ export const CommunityMessageResourceSchema = z.strictObject({
   botCreation: BotCreationPayloadSchema.optional(),
 })
 
-export const CommunityMessagePreviewSchema = CommunityMessageResourceSchema.partial().required({
-  id: true, type: true,
-}).extend({ attachments: z.array(CommunityMessagePreviewAttachmentSchema).optional(), thread: messageThreadPreviewSchema.optional() })
-
 export const CommunityReadStateResourceSchema = z.strictObject({
   channelId: id,
   lastReadMessageId: nullableId,
@@ -159,11 +141,18 @@ export const CommunityReadStateResourceSchema = z.strictObject({
   lastReadSeq: z.number().int().nonnegative(),
 })
 
-export const CommunityMemberRelationSchema = z.strictObject({
+export const CommunityServerMembershipResourceSchema = z.strictObject({
+  serverId: id, userId: id, memberId: id, role: z.string(),
+})
+
+export const CommunityChannelMembershipResourceSchema = z.strictObject({
   channelId: id,
   userId: id,
   relation: z.enum(["access", "notify"]),
-  source: z.string(),
+  source: z.enum([...Object.values(PARTICIPANT_SOURCE), "explicit", "inherited", "admin", "access-decision"]),
+})
+
+export const CommunityMemberRelationSchema = CommunityChannelMembershipResourceSchema.extend({
   isCreator: z.boolean(),
   role: z.string().nullable(),
   memberId: nullableId,
@@ -179,6 +168,28 @@ export const CommunityPageSchema = z.strictObject({
 })
 
 const envelope = { contractVersion: z.literal(COMMUNITY_RESOURCE_CONTRACT_VERSION), channelId: id }
+export const CommunityResourceBundleSchema = z.strictObject({
+  viewerId: id,
+  servers: z.array(CommunityServerResourceSchema), serverMemberships: z.array(CommunityServerMembershipResourceSchema),
+  channels: z.array(CommunityChannelResourceSchema), memberships: z.array(CommunityChannelMembershipResourceSchema),
+  profiles: z.array(CommunityResourceProfileSchema), messages: z.array(CommunityMessageResourceSchema),
+}).superRefine((bundle, ctx) => {
+  const channels = new Set(bundle.channels.map(row => row.id))
+  const servers = new Set(bundle.servers.map(row => row.id))
+  if (channels.size !== bundle.channels.length || servers.size !== bundle.servers.length
+    || new Set(bundle.messages.map(row => row.id)).size !== bundle.messages.length
+    || new Set(bundle.profiles.map(row => row.id)).size !== bundle.profiles.length
+    || new Set(bundle.memberships.map(row => `${row.channelId}:${row.userId}:${row.relation}`)).size !== bundle.memberships.length
+    || new Set(bundle.serverMemberships.map(row => `${row.serverId}:${row.userId}`)).size !== bundle.serverMemberships.length
+    || bundle.messages.some(row => !channels.has(row.channelId))
+    || bundle.servers.some(row => !bundle.serverMemberships.some(member => member.serverId === row.id && member.userId === bundle.viewerId))
+    || bundle.channels.some(row => !bundle.memberships.some(member => member.channelId === row.id && member.userId === bundle.viewerId && member.relation === "access"))
+    || bundle.channels.some(row => row.serverId !== null && !servers.has(row.serverId) || row.parentChannelId !== null && !channels.has(row.parentChannelId))
+    || bundle.memberships.some(row => row.userId !== bundle.viewerId || !channels.has(row.channelId))
+    || bundle.serverMemberships.some(row => row.userId !== bundle.viewerId || !servers.has(row.serverId))) ctx.addIssue({ code: "custom", message: "Resource bundle scope mismatch" })
+})
+export type CommunityResourceBundle = z.infer<typeof CommunityResourceBundleSchema>
+
 export const CommunityChannelReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema, access: CommunityAccessDecisionSchema })
 export const CommunityMessagesReadSchema = z.strictObject({ ...envelope, messages: z.array(CommunityMessageResourceSchema), page: CommunityPageSchema,
   surfaceReceipt: z.strictObject({ channelId: id, surfaceKind: z.enum(["channel", "forum", "thread", "dm"]) }) })
@@ -238,38 +249,24 @@ export const CommunityThreadsReadSchema = z.strictObject({ ...envelope, channel:
     participantCounts: z.array(z.strictObject({ channelId: id, count: z.number().int().nonnegative() })) }),
   page: z.strictObject({ nextCursor: z.string().nullable(), hasMore: z.boolean() }) })
 export const CommunityReadAdvanceSchema = z.strictObject({ ...envelope, changed: z.boolean(), targetSeq: z.number().int().nonnegative(), revision: z.number().int().nonnegative() })
+export const CommunityInviteJoinTargetSchema = z.object({ serverId: CommunityServerResourceSchema.shape.id }).strip()
 export const CommunityReadErrorSchema = z.strictObject({ contractVersion: z.literal(COMMUNITY_RESOURCE_CONTRACT_VERSION), error: z.strictObject({
   code: z.enum(["invalid_input", "invalid_reply_target", "unauthenticated", "not_found", "not_allowed", "blocked", "idempotency_conflict", "rate_limited", "temporarily_unavailable"]),
-  message: z.string(), retryable: z.boolean(),
+  message: z.string(), retryable: z.boolean(), details: z.array(z.string()).optional(),
 }) })
 
-const legacyProfileSchema = CommunityResourceProfileSchema.pick({
-  id: true, name: true, avatar: true, avatarVersion: true,
-}).extend({ discriminator: z.string().nullable(), statusEmoji: z.string().nullable(), statusText: z.string() })
-export const CommunityLegacyMessageResourceSchema = CommunityMessageResourceSchema.extend({ authorAvatar: z.string().optional(), attachments: z.array(CommunityLegacyMessageAttachmentSchema), thread: legacyMessageThreadSchema.optional() })
-const legacyEnvelope = { contractVersion: z.literal(2), channelId: id }
-const legacyReadSchemas = {
-  channel: CommunityChannelReadSchema.extend(legacyEnvelope),
-  messages: CommunityMessagesReadSchema.extend({ ...legacyEnvelope, messages: z.array(CommunityLegacyMessageResourceSchema) }),
-  members: CommunityMembersReadSchema.extend({ ...legacyEnvelope, profiles: z.array(legacyProfileSchema) }),
-  threads: CommunityThreadsReadSchema.extend({ ...legacyEnvelope, included: CommunityThreadsReadSchema.shape.included.extend({
-    messages: z.array(CommunityLegacyMessageResourceSchema), profiles: z.array(legacyProfileSchema),
-  }) }),
-  readAdvance: CommunityReadAdvanceSchema.extend(legacyEnvelope),
-  error: CommunityReadErrorSchema.extend({ contractVersion: z.literal(2) }),
-}
 const resourceReadSchemas = {
   channel: CommunityChannelReadSchema, messages: CommunityMessagesReadSchema,
   members: CommunityMembersReadSchema, threads: CommunityThreadsReadSchema, readAdvance: CommunityReadAdvanceSchema, error: CommunityReadErrorSchema,
 }
 
-export function communityReadSchemas(contract: 2): typeof legacyReadSchemas
-export function communityReadSchemas(contract: 3): typeof resourceReadSchemas
-export function communityReadSchemas(contract: 2 | 3): typeof legacyReadSchemas | typeof resourceReadSchemas
-export function communityReadSchemas(contract: 2 | 3) {
-  return contract === 2 ? legacyReadSchemas : resourceReadSchemas
+export function communityReadSchemas(contract: number = COMMUNITY_RESOURCE_CONTRACT_VERSION) {
+  if (contract !== COMMUNITY_RESOURCE_CONTRACT_VERSION) throw new Error("Community resource protocol mismatch")
+  return resourceReadSchemas
 }
 
+export type CommunityServerResource = z.infer<typeof CommunityServerResourceSchema>
+export type CommunityCategoryResource = z.infer<typeof CommunityCategoryResourceSchema>
 export type CommunityChannelResource = z.infer<typeof CommunityChannelResourceSchema>
 export type CommunityChannelIdentity = z.infer<typeof CommunityChannelIdentitySchema>
 export type CommunityMessageResource = z.infer<typeof CommunityMessageResourceSchema>
@@ -278,77 +275,12 @@ export type CommunityReadStateResource = z.infer<typeof CommunityReadStateResour
 export type CommunityAccessDecision = z.infer<typeof CommunityAccessDecisionSchema>
 export type CommunityResourceProfile = z.infer<typeof CommunityResourceProfileSchema>
 export type CommunityMessageAttachment = z.infer<typeof CommunityMessageAttachmentSchema>
-export type CommunityMessagePreview = z.infer<typeof CommunityMessagePreviewSchema>
-export type CommunityMessagePreviewAttachment = z.infer<typeof CommunityMessagePreviewAttachmentSchema>
-export type CommunityLegacyMessageAttachment = z.infer<typeof CommunityLegacyMessageAttachmentSchema>
 export type CommunityMessagesRead = z.infer<typeof CommunityMessagesReadSchema>
 export type CommunityConversationEntryRead = z.infer<typeof CommunityConversationEntryReadSchema>
 export type CommunityThreadsRead = z.infer<typeof CommunityThreadsReadSchema>
-export type CommunityLegacyThreadsRead = z.infer<typeof legacyReadSchemas.threads>
 export type CommunityMembersRead = z.infer<typeof CommunityMembersReadSchema>
 export type CommunityMessageSurfaceReceipt = CommunityMessagesRead["surfaceReceipt"]
 
-const legacyChannelResourcePreviewSchema = CommunityChannelResourceSchema.partial().strip().extend({
-  archived: legacyArchivedSchema.optional(),
-})
-
-export function normalizeCommunityChannelResourcePreview(value: unknown): Partial<CommunityChannelResource> {
-  return legacyChannelResourcePreviewSchema.parse(value)
-}
-
-const legacyChannelResourceSchema = CommunityChannelResourceSchema.strip().extend({
-  topic: CommunityChannelResourceSchema.shape.topic.nullish().transform((value) => value ?? ""),
-  position: CommunityChannelResourceSchema.shape.position.nullish().transform((value) => value ?? 0),
-  messageCount: CommunityChannelResourceSchema.shape.messageCount.nullish().transform((value) => value ?? 0),
-  categoryId: nullableId.default(null),
-  parentChannelId: nullableId.default(null),
-  parentMessageId: nullableId.default(null),
-  creatorId: nullableId.default(null),
-  lastMessageAt: CommunityChannelResourceSchema.shape.lastMessageAt.default(null),
-  archived: legacyArchivedSchema,
-})
-
-export function normalizeCommunityChannelResource(value: unknown): CommunityChannelResource {
-  return legacyChannelResourceSchema.parse(value)
-}
-
 export function communityChannelResourceFromStorage(value: unknown): CommunityChannelResource {
-  return CommunityChannelResourceSchema.strip().extend({ archived: legacyArchivedSchema }).parse(value)
+  return CommunityChannelResourceSchema.strip().extend({ archived: storedArchivedSchema }).parse(value)
 }
-
-const legacyMessageResourceSchema = CommunityLegacyMessageResourceSchema.strip().extend({
-  channelId: id.optional(),
-  replyToId: nullableId.optional(),
-  clientNonce: CommunityMessageResourceSchema.shape.clientNonce.default(null),
-  attachments: CommunityLegacyMessageResourceSchema.shape.attachments.default([]),
-  embeds: CommunityMessageResourceSchema.shape.embeds.nullable().transform((value) => value ?? undefined),
-})
-
-export function normalizeCommunityMessageResource(value: unknown, channelId: string) {
-  const raw = legacyMessageResourceSchema.parse(value)
-  if (raw.channelId !== undefined && raw.channelId !== channelId) throw new Error("Message resource scope mismatch")
-  return { ...raw, channelId: id.parse(channelId), replyToId: raw.replyToId ?? raw.replyTo?.id ?? null }
-}
-
-export function communityMessagePreviewFromLegacy(value: unknown, channelId: string): CommunityMessagePreview {
-  const input = typeof value === "object" && value !== null ? value as Record<string, unknown> : {}
-  const message = normalizeCommunityMessageResource(value, channelId)
-  const attachments = message.attachments.map(({ kind: _kind, size: _size, ...metadata }) => metadata)
-  const preview = CommunityMessagePreviewSchema.parse({
-    ...message,
-    attachments: input.attachments === undefined ? undefined : attachments,
-    clientNonce: input.clientNonce === undefined ? undefined : message.clientNonce,
-    replyToId: input.replyToId === undefined ? message.replyTo?.id : input.replyToId,
-    thread: message.thread ? {
-      ...message.thread,
-      participants: message.thread.participants?.map(({ avatar, name, ...identity }) => ({
-        ...identity,
-        ...(name ? { name } : {}),
-        ...(avatar && avatar !== (name.trim().charAt(0) || "?").toUpperCase() ? { avatar } : {}),
-      })),
-    } : undefined,
-  })
-  return Object.fromEntries(Object.entries(preview).filter(([, field]) => field !== undefined)) as CommunityMessagePreview
-}
-
-export type CommunityLegacyMessageResource = z.infer<typeof CommunityLegacyMessageResourceSchema>

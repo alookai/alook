@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { ingestMessages, retireCommunityChannelReading } from "@/lib/community-db/sync"
@@ -9,13 +9,13 @@ const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
 beforeEach(() => { apiFetchMock.mockReset() })
 
-const payload = {
+const payload = { seq: 4, replyToId: null, clientNonce: null, attachments: [],
   id: "m_1", channelId: "channel-1", type: "chat" as const, authorId: "u_1",
   authorName: "Alice", authorAvatar: "", authorAvatarVersion: 0, content: "hi there",
   createdAt: "2026-07-03T00:00:00.000Z",
 }
 
-const completePayload = { ...payload, resourceComplete: true as const, seq: 4, replyToId: null, clientNonce: null, attachments: [], embeds: [], reactions: [] }
+const completePayload = { ...payload, seq: 4, replyToId: null, clientNonce: null, attachments: [], embeds: [], reactions: [] }
 
 describe("background canonical message hydration", () => {
   it("deduplicates concurrent reads and shares the exact message cache without opening a window", async () => {
@@ -27,7 +27,7 @@ describe("background canonical message hydration", () => {
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
     release(completePayload)
     await Promise.all([first, second])
-    expect(registry.collections.messages.get(payload.id)).toMatchObject({ resourceComplete: true, content: payload.content, seq: 4 })
+    expect(registry.collections.messages.get(payload.id)).toMatchObject({ content: payload.content, seq: 4 })
     expect(client.getQueryData(communityKeys.message(payload.id))).toBe(payload.id)
     expect(client.getQueryData(communityKeys.channelMessages(payload.channelId))).toBeUndefined()
     await prefetchCommunityMessage(client, payload.id, { channelId: payload.channelId })
@@ -42,19 +42,21 @@ describe("background canonical message hydration", () => {
       prefetchCommunityLatestMessage(client, payload.channelId),
     ])
     expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/channel-1/messages?limit=1"])
-    expect(new Headers(apiFetchMock.mock.calls[0][1].headers).get(COMMUNITY_CONTRACT_HEADER)).toBe("3")
-    expect(registry.collections.messages.get(payload.id)?.resourceComplete).toBe(true)
+    expect(new Headers(apiFetchMock.mock.calls[0][1].headers).get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    expect(registry.collections.messages.get(payload.id)).toMatchObject(payload)
     expect(client.getQueryData(communityKeys.channelLatestMessage(payload.channelId))).toBe(payload.id)
     expect(client.getQueryData(communityKeys.channelMessages(payload.channelId))).toBeUndefined()
   })
 
-  it("hydrates a partial canonical message through the existing exact-ID reader", async () => {
+  it("rejects a partial canonical message and hydrates through the existing exact-ID reader", async () => {
     const { client, registry } = await createCommunityQueryOwner()
-    ingestMessages(registry, payload.channelId, [{ ...payload, seq: 4 }])
+    const { attachments: _attachments, ...partial } = payload
+    expect(() => ingestMessages(registry, payload.channelId, [partial])).toThrow()
+    expect(registry.collections.messages.get(payload.id)).toBeUndefined()
     apiFetchMock.mockResolvedValueOnce(completePayload)
     await prefetchCommunityMessage(client, payload.id, { channelId: payload.channelId })
     expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/community/messages/m_1"])
-    expect(registry.collections.messages.get(payload.id)?.resourceComplete).toBe(true)
+    expect(registry.collections.messages.get(payload.id)).toMatchObject(payload)
   })
 
   it("does not fetch for retired access or an inactive owner", async () => {
@@ -102,7 +104,7 @@ describe("background canonical message hydration", () => {
     await Promise.all([old, secondChannel])
     expect(registry.collections.messages.get(payload.id)).toBeUndefined()
     expect(registry.collections.messages.get(next.id)?.content).toBe("newest")
-    expect(registry.collections.messages.get(other.id)?.resourceComplete).toBe(true)
+    expect(registry.collections.messages.get(other.id)).toMatchObject(other)
     expect(client.getQueryData(communityKeys.channelLatestMessage(payload.channelId))).toBe(next.id)
     expect(client.getQueryData(communityKeys.channelLatestMessage(other.channelId))).toBe(other.id)
   })
@@ -140,11 +142,11 @@ describe("useMessage / messageQueryFn", () => {
   it("clears absent rich fields from a fresh complete exact response", async () => {
     const { client, registry } = await createCommunityQueryOwner()
     ingestMessages(registry, payload.channelId, [{ ...payload,
-      attachments: [{ name: "old.txt", url: "/old", sizeBytes: 1024 }],
+      attachments: [{ id: "old", name: "old.txt", url: "/old", sizeBytes: 1024, thumbnailUrl: null, contentType: null, width: null, height: null }],
       embeds: [{ title: "Old" }], reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
       replyTo: { id: "reply", authorName: "Peer", text: "Old reply" },
     }])
-    apiFetchMock.mockResolvedValueOnce({ ...payload, resourceComplete: true, seq: 1, replyToId: null, clientNonce: null, attachments: [], embeds: [], reactions: [] })
+    apiFetchMock.mockResolvedValueOnce({ ...payload, seq: 1, replyToId: null, clientNonce: null, attachments: [], embeds: [], reactions: [] })
     await client.query({ queryKey: communityKeys.message(payload.id), queryFn: messageQueryFn(payload.id, client) })
     expect(registry.collections.messages.get(payload.id)).toMatchObject({ attachments: [], embeds: [], reactions: [], replyToId: null })
     expect(registry.collections.messages.get(payload.id)?.replyTo).toBeUndefined()
@@ -156,7 +158,7 @@ describe("useMessage / messageQueryFn", () => {
     expect(data).toBe(payload.id)
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m_1", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
     expect(registry.collections.messages.get(payload.id)).toMatchObject(payload)
-    expect(registry.collections.profiles.get(payload.authorId)).toMatchObject({ name: "Alice" })
+    expect(registry.collections.profiles.get(payload.authorId)).toBeUndefined()
   })
 
   it("populates queryClient at communityKeys.message(messageId) with only the ID", async () => {
@@ -179,13 +181,13 @@ describe("useMessage / messageQueryFn", () => {
     const message = {
       ...payload, content: "cached opener",
       replyTo: { id: "m_0", authorName: "Bob", text: "parent" },
-      attachments: [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024 }],
+      attachments: [{ id: "notes", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, thumbnailUrl: null, contentType: null, width: null, height: null }],
       embeds: [{ title: "Reference" }],
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
     }
     ingestMessages(registry, "channel-1", [message])
     client.setQueryData(communityKeys.channelMessages("channel-1"), { pages: [{ ids: [message.id], hasMoreOlder: false, hasMoreNewer: false }], pageParams: [{ mode: "newest" }] })
-    const { channelId: _channelId, ...view } = message
+    const { channelId: _channelId, replyToId: _replyToId, clientNonce: _clientNonce, ...view } = message
     expect(findCachedMessage(client, message.id)).toMatchObject({ ...view, attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, size: "1.0 KB" }] })
     expect(findCachedMessage(client, "missing")).toBeUndefined()
   })

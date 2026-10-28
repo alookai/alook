@@ -3,8 +3,10 @@ import { act } from "@/test/react-dom-harness"
 import { getCapturedRuntime, seedCanonicalStream, canonicalMessage } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  BUSINESS_SCHEMA_VERSION,
+  computeCommunityDeliveryDigestFromBodies,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
-  COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+  communityBrowserEventBatchType,
   deriveCommunityDeliveryOperationId,
   encodeCommunityBrowserEventBatch,
   encodeCommunityBrowserEventBatchForContract,
@@ -60,6 +62,7 @@ const message = {
   channelId: "ch-1",
   serverId: "server-1",
   message: {
+    channelId: "ch-1", replyToId: null, clientNonce: null, attachments: [],
     id: "message-1",
     seq: 1,
     authorId: "author-1",
@@ -114,11 +117,27 @@ function attentionReconcileCount(): number {
 }
 
 describe("useCommunityWs — operation bundles", () => {
-  it("admits a v2 batch only after its exact wire digest verifies", async () => {
+  it.each(["operation-only", "wire-rehashed"] as const)("rejects current %s tampering before operation observation", async mode => {
+    await mountHook()
+    const frame = await batchFor(`digest-${mode}`, [message])
+    const altered = structuredClone(frame)
+    if (mode === "operation-only") altered.operationDigest = "0".repeat(64)
+    else {
+      altered.events[0] = { ...altered.events[0], message: { ...message.message, content: "Changed bytes" } } as typeof altered.events[0]
+      altered.wireDigest = await computeCommunityDeliveryDigestFromBodies(altered.events.map(row => JSON.stringify(row)))
+    }
+    const observation = vi.spyOn(getCapturedRuntime().ws.actions, "observeDeliveryOperation")
+    await act(async () => { await capturedOnMessage!(altered) })
+    expect(observation).not.toHaveBeenCalled()
+    expect(getCapturedRuntime().ws.get().seenDeliveryOperations.size).toBe(0)
+    expect(canonicalMessage(message.message.id)).toBeUndefined()
+  })
+
+  it("admits a current batch only after its exact wire digest verifies", async () => {
     await mountHook()
     const prepared = await prepareCommunityDeliveryEvents([message])
     if (!prepared.ok) throw new Error("Invalid test event")
-    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-wire"), prepared: prepared.prepared, contract: 2 })
+    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-wire"), prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
     if (!frame.ok) throw new Error("Invalid test batch")
     const tampered = JSON.parse(frame.body)
     tampered.events[0].message.content = "changed after encoding"
@@ -134,7 +153,7 @@ describe("useCommunityWs — operation bundles", () => {
     await mountHook()
     const prepared = await prepareCommunityDeliveryEvents([message])
     if (!prepared.ok) throw new Error("Invalid test event")
-    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-retired"), prepared: prepared.prepared, contract: 2 })
+    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-retired"), prepared: prepared.prepared, contract: BUSINESS_SCHEMA_VERSION })
     if (!frame.ok) throw new Error("Invalid test batch")
     let release!: () => void
     let retired = false
@@ -160,12 +179,12 @@ describe("useCommunityWs — operation bundles", () => {
     const baseKey = communityKeys.forumSidebarThreads("s1")
     seedCanonicalForumSidebar("s1", ["post_1", "post_2"])
 
-    capturedOnMessage!(await batchFor("forum-archive", [{
+    await act(async () => { await capturedOnMessage!(await batchFor("forum-archive", [{
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: ["archived"] },
-    }]))
+    }])) })
 
     expect(canonicalForumSidebar("s1").threads.map(({ id }) => id)).toEqual(["post_2"])
     expect(getCanonicalCommunityChannels(capturedQueryClient)
@@ -174,12 +193,12 @@ describe("useCommunityWs — operation bundles", () => {
     expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
     expect(getCanonicalCommunityMessages(capturedQueryClient)
       .find(({ id }) => id === "opener-post_1")).toMatchObject({ content: "title-post_1" })
-    capturedOnMessage!(await batchFor("forum-unarchive", [{
+    await act(async () => { await capturedOnMessage!(await batchFor("forum-unarchive", [{
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "post_1",
       changes: { tags: null },
-    }]))
+    }])) })
 
     expect(canonicalForumSidebar("s1").threads.map(({ id }) => id).sort())
       .toEqual(["post_1", "post_2"])
@@ -199,17 +218,17 @@ describe("useCommunityWs — operation bundles", () => {
       vi.spyOn(capturedQueryClient, "query")
       const frame = await batchFor("message-1", mentionEvents)
 
-      capturedOnMessage!(frame)
+      await act(async () => { await capturedOnMessage!(frame) })
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ id: string; mentions: number }> }>(
         communityKeys.servers(),
       )?.servers[0]?.mentions).toBe(5)
-      expect(attentionReconcileCount()).toBe(0)
+      expect(attentionReconcileCount()).toBe(1)
       expect(invalidationCount(communityKeys.servers())).toBe(0)
       await vi.advanceTimersByTimeAsync(500)
       expect(attentionReconcileCount()).toBe(1)
 
       const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-      capturedOnMessage!(frame)
+      await act(async () => { await capturedOnMessage!(frame) })
       await vi.advanceTimersByTimeAsync(500)
       expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
       expect(attentionReconcileCount()).toBe(1)
@@ -228,7 +247,7 @@ describe("useCommunityWs — operation bundles", () => {
       { ...message, message: { ...message.message, id: "ambiguous-2", seq: 2 } },
       mentionEvents[1]!,
     ])
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
   })
 
   it("keeps content and refreshes attention regardless of child order", async () => {
@@ -238,7 +257,7 @@ describe("useCommunityWs — operation bundles", () => {
       mentionEvents[2]!,
       mentionEvents[0]!,
     ])
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
   })
 
   it("does not invent attention from a different mention message id", async () => {
@@ -253,7 +272,7 @@ describe("useCommunityWs — operation bundles", () => {
         authorName: "Alice",
       },
     ])
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
   })
 
   it("does not cancel or restart an in-flight raw server resource for a projected bump", async () => {
@@ -276,7 +295,7 @@ describe("useCommunityWs — operation bundles", () => {
     await vi.waitFor(() => expect(queryCalls).toBe(1))
     const cancel = vi.spyOn(capturedQueryClient, "cancelQueries")
 
-    capturedOnMessage!(await batchFor("message-fenced-mention", mentionEvents))
+    await act(async () => { await capturedOnMessage!(await batchFor("message-fenced-mention", mentionEvents)) })
 
     expect(queryCalls).toBe(1)
     expect(cancel.mock.calls.filter(([filters]) => JSON.stringify(filters.queryKey) === JSON.stringify(key))).toEqual([])
@@ -296,11 +315,11 @@ describe("useCommunityWs — operation bundles", () => {
       vi.spyOn(capturedQueryClient, "invalidateQueries")
       vi.spyOn(capturedQueryClient, "query")
 
-      capturedOnMessage!(await batchFor("message-late", mentionEvents))
+      await act(async () => { await capturedOnMessage!(await batchFor("message-late", mentionEvents)) })
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
         communityKeys.servers(),
       )?.servers[0]?.mentions).toBe(9)
-      expect(attentionReconcileCount()).toBe(0)
+      expect(attentionReconcileCount()).toBe(1)
       expect(invalidationCount(communityKeys.servers())).toBe(0)
       await vi.advanceTimersByTimeAsync(500)
       expect(attentionReconcileCount()).toBe(1)
@@ -312,10 +331,10 @@ describe("useCommunityWs — operation bundles", () => {
   it("rejects malformed children without poisoning the operation map", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
     const frame = await batchFor("message-malformed", mentionEvents)
-    capturedOnMessage!({
+    await act(async () => { await capturedOnMessage!({
       ...frame,
       events: [{ ...frame.events[0], contractVersion: 1 }, ...frame.events.slice(1)],
-    })
+    }) })
 
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.size).toBe(0)
@@ -326,15 +345,15 @@ describe("useCommunityWs — operation bundles", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     await mountHook({ viewerUserId: "viewer-1" })
 
-    capturedOnMessage!({
-      type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+    await act(async () => { await capturedOnMessage!({
+      type: communityBrowserEventBatchType(),
       padding: "x".repeat(COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES),
-    })
-    capturedOnMessage!({
-      type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+    }) })
+    await act(async () => { await capturedOnMessage!({
+      type: communityBrowserEventBatchType(),
       extra: true,
-    })
-    capturedOnMessage!({ ...message, contractVersion: 1 })
+    }) })
+    await act(async () => { await capturedOnMessage!({ ...message, contractVersion: 1 }) })
 
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
@@ -342,7 +361,7 @@ describe("useCommunityWs — operation bundles", () => {
     )
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
-      expect.objectContaining({ reason: "invalid-payload", type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE }),
+      expect.objectContaining({ reason: "invalid-payload", type: communityBrowserEventBatchType() }),
     )
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
@@ -358,7 +377,7 @@ describe("useCommunityWs — operation bundles", () => {
     const conflicting = await batchFor("message-conflict", [
       { ...message, message: { ...message.message, content: "different" } },
     ])
-    capturedOnMessage!(first)
+    await act(async () => { await capturedOnMessage!(first) })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const seenMessages = getCapturedRuntime().ws.get().seenMessageIds.size
     const overlayBeforeConflict = getMessageStreamState(capturedQueryClient, {
@@ -368,7 +387,7 @@ describe("useCommunityWs — operation bundles", () => {
     })
     const invalidationsBeforeConflict = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
 
-    capturedOnMessage!(conflicting)
+    await act(async () => { await capturedOnMessage!(conflicting) })
     expect(getCapturedRuntime().ws.get().seenMessageIds.size).toBe(seenMessages)
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }))
       .toStrictEqual(overlayBeforeConflict)
@@ -421,7 +440,7 @@ describe("useCommunityWs — operation bundles", () => {
       events[1]!,
     ])
 
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
@@ -430,7 +449,7 @@ describe("useCommunityWs — operation bundles", () => {
 
     recordArrival.mockRestore()
     const invalidationsAfterFailure = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-    capturedOnMessage!(conflicting)
+    await act(async () => { await capturedOnMessage!(conflicting) })
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: false })
@@ -439,7 +458,7 @@ describe("useCommunityWs — operation bundles", () => {
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsAfterFailure)
 
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: true })
@@ -448,7 +467,7 @@ describe("useCommunityWs — operation bundles", () => {
       .toBe(1)
 
     const invalidationsAfterCompletion = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsAfterCompletion)
   })
@@ -531,7 +550,7 @@ describe("useCommunityWs — operation bundles", () => {
         authorName: "Alice",
       },
       {
-        type: "community:channel.member_add",
+        type: "community:channel.membership.change", relation: "notify", present: true,
         userId: "viewer-1",
         serverId: "s1",
         channelId: "ch-1",
@@ -545,7 +564,7 @@ describe("useCommunityWs — operation bundles", () => {
     ])
 
     try {
-      capturedOnMessage!(frame)
+      await act(async () => { await capturedOnMessage!(frame) })
       expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
       expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
         .toEqual({ digest: frame.operationDigest, completed: false })
@@ -565,7 +584,7 @@ describe("useCommunityWs — operation bundles", () => {
       publish.mockRestore()
     }
 
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: true })
@@ -581,7 +600,7 @@ describe("useCommunityWs — operation bundles", () => {
       .toBe(2)
 
     const invalidationsAfterSuccess = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-    capturedOnMessage!(frame)
+    await act(async () => { await capturedOnMessage!(frame) })
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsAfterSuccess)
   })
@@ -595,8 +614,8 @@ describe("useCommunityWs — operation bundles", () => {
       { ...message, message: { ...message.message, content: "different" } },
     ])
 
-    capturedOnMessage!(first)
-    capturedOnMessage!(conflicting)
+    await act(async () => { await capturedOnMessage!(first) })
+    await act(async () => { await capturedOnMessage!(conflicting) })
 
     await vi.waitFor(() => {
       expect(warn).toHaveBeenCalledWith(

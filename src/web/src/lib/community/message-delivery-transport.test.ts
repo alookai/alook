@@ -1,3 +1,5 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
@@ -19,7 +21,7 @@ const {
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: () => ({
     env: {
-      COMMUNITY_EVENT_CONTRACT: "2",
+      COMMUNITY_EVENT_CONTRACT: String(BUSINESS_SCHEMA_VERSION),
       WS_DO_WORKER: { fetch: bindingFetch },
       DEV_WS_DO_URL: "http://dev-ws:8789",
     },
@@ -46,14 +48,14 @@ const originalFetch = globalThis.fetch
 const globalFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
 
 function batch(overrides: Partial<MessageDeliveryBatch> = {}): MessageDeliveryBatch {
-  return {
+  return { communityContract: BUSINESS_SCHEMA_VERSION,
     messageId: "message-1",
     messageEvent: {
       type: "community:message.create",
       channelId: "thread-1",
       serverId: "server-1",
       parentChannelId: "forum-1",
-      message: {
+      message: messageResourceFixture({ channelId: "thread-1",
         id: "message-1",
         seq: 4,
         authorId: "u1",
@@ -62,13 +64,13 @@ function batch(overrides: Partial<MessageDeliveryBatch> = {}): MessageDeliveryBa
         content: "hello",
         type: "chat",
         createdAt: "2026-08-18T00:00:00.000Z",
-      },
+      }),
     },
     contentUserIds: ["u1", "u2", "u3"],
     unreadPlainUserIds: ["u2"],
     unreadMentionUserIds: ["u3"],
     mentionUserIds: ["u3"],
-    memberAdded: { userId: "u1", serverId: "server-1", channelId: "thread-1" },
+    joinedParticipantUserIds: ["u1"], rosterRefreshUserId: "u1",
     parentProjection: {
       type: "community:channel.child_update",
       parentChannelId: "forum-1",
@@ -106,7 +108,7 @@ describe("sendMessageDeliveryBatch", () => {
   it("retains the original roster refresh identity after a partial retry subset", async () => {
     bindingFetch.mockResolvedValueOnce(Response.json({ failedUserIds: ["u2"] }, { status: 207 }))
       .mockResolvedValueOnce(Response.json({ failedUserIds: [] }))
-    await sendMessageDeliveryBatch(batch({ joinedParticipantUserIds: ["u1", "u2"], rosterRefreshUserId: "u1", memberAdded: undefined }))
+    await sendMessageDeliveryBatch(batch({ joinedParticipantUserIds: ["u1", "u2"], rosterRefreshUserId: "u1",  }))
     expect(requestBatch(0)).toMatchObject({ joinedParticipantUserIds: ["u1", "u2"], rosterRefreshUserId: "u1" })
     expect(requestBatch(1)).toMatchObject({ joinedParticipantUserIds: ["u2"], rosterRefreshUserId: "u1" })
     expect(requestOperationId(1)).toBe(requestOperationId(0))
@@ -137,7 +139,7 @@ describe("sendMessageDeliveryBatch", () => {
       unreadPlainUserIds: [],
       unreadMentionUserIds: [],
       mentionUserIds: [],
-      memberAdded: undefined,
+      joinedParticipantUserIds: undefined, rosterRefreshUserId: undefined,
       parentProjection: undefined,
       parentProjectionUserIds: undefined,
     }))
@@ -156,7 +158,7 @@ describe("sendMessageDeliveryBatch", () => {
       unreadPlainUserIds: [],
       unreadMentionUserIds: ids,
       mentionUserIds: ids,
-      memberAdded: undefined,
+      joinedParticipantUserIds: undefined, rosterRefreshUserId: undefined,
       parentProjectionUserIds: ids,
     })
 
@@ -187,7 +189,7 @@ describe("sendMessageDeliveryBatch", () => {
       unreadPlainUserIds: [],
       unreadMentionUserIds: [],
       mentionUserIds: [],
-      memberAdded: undefined,
+      joinedParticipantUserIds: undefined, rosterRefreshUserId: undefined,
       parentProjection: undefined,
       parentProjectionUserIds: undefined,
     })
@@ -210,7 +212,7 @@ describe("sendMessageDeliveryBatch", () => {
       unreadMentionUserIds: [],
       mentionUserIds: [],
     })
-    expect(requestBatch(1).memberAdded).toBeUndefined()
+    expect(requestBatch(1).joinedParticipantUserIds).toEqual([])
     expect(requestBatch(1).parentProjection).toBeUndefined()
     expect(requestOperationId(1)).toBe(requestOperationId(0))
     expect(globalFetch).not.toHaveBeenCalled()

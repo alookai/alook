@@ -1,6 +1,7 @@
+import { machineResourceFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import React from "react"
-import { dehydrate, QueryClient, useIsRestoring } from "@tanstack/react-query"
+import { dehydrate, HydrationBoundary, QueryClient, useIsRestoring } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, screen, waitFor } from "@/test/react-dom-harness"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
@@ -35,8 +36,10 @@ describe("native client-entry consumers", () => {
     { diskVersion: 5, liveVersion: 8, winner: 8 },
   ])("preserves qualified avatar v$winner through disk restoration and live updates", async ({ diskVersion, liveVersion, winner }) => {
     const initial = { id: "viewer", name: "Session viewer", email: "viewer@example.test", discriminator: "0042", avatar: "/avatar?v=6", avatarVersion: 6 }
-    const disk = new QueryClient()
-    disk.setQueryData(communityKeys.communityDbCollection("viewer", "profiles"), [profileSchema.parse({ ...initial, identityComplete: true, avatar: `/avatar?v=${diskVersion}`, avatarVersion: diskVersion, aboutMe: "Cached about" })], { updatedAt: Date.now() - 10_000 })
+    const disk = new QueryClient(), bootstrap = new QueryClient()
+    bootstrap.setQueryData(communityKeys.communityDbCollection("viewer", "profiles"), [profileSchema.parse({ id: initial.id, name: initial.name, discriminator: initial.discriminator, avatar: initial.avatar, avatarVersion: initial.avatarVersion })])
+    const authUser = { ...initial, name: "Auth hint", avatar: "/avatar?v=1", avatarVersion: 1 }
+    disk.setQueryData(communityKeys.communityDbCollection("viewer", "profiles"), [profileSchema.parse({ id: initial.id, name: initial.name, discriminator: initial.discriminator, avatar: `/avatar?v=${diskVersion}`, avatarVersion: diskVersion, aboutMe: "Cached about" })], { updatedAt: Date.now() - 10_000 })
     let release!: (value: unknown) => void
     mocks.restore.mockReturnValue(new Promise(resolve => { release = resolve }))
     let restoring = true
@@ -47,7 +50,7 @@ describe("native client-entry consumers", () => {
       React.useLayoutEffect(() => { registry = owned; restoring = pending }, [owned, pending])
       return <section><output data-testid="avatar-version">{self.avatarVersion}</output><span data-testid="profile-about">{self.aboutMe}</span><Avatar label={self.avatar} seed={self.id} /></section>
     }
-    const view = render(<QueryProvider userId="viewer" initialUser={initial}><CurrentUserProvider initialUser={initial}><Self /></CurrentUserProvider></QueryProvider>)
+    const view = render(<QueryProvider userId="viewer" initialUser={authUser}><HydrationBoundary state={dehydrate(bootstrap)}><CurrentUserProvider initialUser={authUser}><Self /></CurrentUserProvider></HydrationBoundary></QueryProvider>)
     try {
       await waitFor(() => expect(screen.getByTestId("avatar-version")).toHaveTextContent("6"))
       const image = view.container.querySelector("img")
@@ -59,13 +62,13 @@ describe("native client-entry consumers", () => {
       expect(view.container.querySelector("img")).toBe(image)
       expect(image).toHaveAttribute("src", `/avatar?v=${winner}`)
       expect(screen.getByTestId("profile-about")).toHaveTextContent("Cached about")
-    } finally { release(undefined); view.unmount(); disk.clear() }
+    } finally { release(undefined); view.unmount(); disk.clear(); bootstrap.clear() }
   })
   it("hydrates the persisted machine list into an already mounted native query while live list waits", async () => {
     const actual = await vi.importActual<typeof import("@/lib/query-persister")>("@/lib/query-persister")
     const disk = new QueryClient()
-    const machine = { id: "machine", hostname: "Restored host", displayName: "Computer", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "1", createdAt: "created", updatedAt: "updated", status: "online" }
-    disk.setQueryData(communityKeys.machines(), { machines: [machine] }, { updatedAt: 1000 })
+    const machine = machineResourceFixture({ id: "machine", hostname: "Restored host", displayName: "Computer", osRelease: "24", daemonVersion: "1", createdAt: "created", updatedAt: "updated" })
+    disk.setQueryData(communityKeys.machines(), { machines: [machine], complete: true, observed: true, source: "network" }, { updatedAt: 1000 })
     const persister = actual.createIdbPersister("viewer-machine-roundtrip")
     await persister.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(disk) })
     const stored = await persister.restoreClient()
@@ -86,10 +89,10 @@ describe("native client-entry consumers", () => {
       await waitFor(() => expect(screen.getByTestId("machines")).toHaveTextContent("Restored host"))
       expect(current.data?.machines[0].status).toBeUndefined()
       expect(current.data?.machineCapacity).toBeUndefined()
-      await act(async () => release({ machines: [{ ...machine, status: "offline" }] }))
+      await act(async () => release({ machines: [{ ...machine, status: "offline" }], complete: true }))
       await waitFor(() => expect(current.data?.machines[0].status).toBe("offline"))
     } finally {
-      release({ machines: [] })
+      release({ machines: [], complete: true })
       view.unmount()
       await persister.removeClient()
       disk.clear()

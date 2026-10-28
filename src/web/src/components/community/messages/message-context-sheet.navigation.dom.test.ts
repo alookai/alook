@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
@@ -133,14 +134,14 @@ describe("MessageContextSheet native query publication", () => {
   beforeEach(() => mocks.apiFetch.mockReset())
   afterEach(() => vi.restoreAllMocks())
 
-  it("publishes author profiles once with the sorted canonical context window and ID-only sheet cache", async () => {
+  it("publishes sorted complete context messages without inventing full author profiles from history hints", async () => {
     const owner = await createCommunityQueryOwner("context_viewer")
     const writer = await import("@/lib/community-db/write")
     const write = vi.spyOn(writer, "writeCommunityCollectionRows")
     const signal = new AbortController().signal
     mocks.apiFetch.mockResolvedValueOnce({ id: "anchor" }).mockResolvedValueOnce({ messages: [
-      { id: "after", seq: 3, type: "chat", content: "after", authorId: "author", authorName: "Author" },
-      { id: "anchor", seq: 2, type: "chat", content: "anchor", authorId: "author", authorName: "Author" },
+      messageResourceFixture({ id: "after", channelId: "context_channel", seq: 3, content: "after", authorId: "author", authorName: "Author" }),
+      messageResourceFixture({ id: "anchor", channelId: "context_channel", seq: 2, content: "anchor", authorId: "author", authorName: "Author" }),
     ], hasMore: false })
     await expect(messageContextQueryFn("channel", "context_channel", 2, owner.client)({ signal })).resolves.toEqual({
       notFound: false, anchorId: "anchor", messages: [{ id: "anchor" }, { id: "after" }],
@@ -150,9 +151,9 @@ describe("MessageContextSheet native query publication", () => {
       "/api/community/channels/context_channel/messages?anchor=anchor&limit=11",
     ])
     expect(mocks.apiFetch.mock.calls.every(([, options]) => options.signal === signal)).toBe(true)
-    expect(write.mock.calls.filter(([, collection]) => collection === "profiles")).toHaveLength(1)
+    expect(write.mock.calls.filter(([, collection]) => collection === "profiles")).toHaveLength(0)
     expect(owner.registry.collections.messages.get("anchor")).toMatchObject({ content: "anchor", channelId: "context_channel", authorId: "author" })
-    expect(owner.registry.collections.profiles.get("author")).toMatchObject({ name: "Author" })
+    expect(owner.registry.collections.profiles.get("author")).toBeUndefined()
     write.mockRestore()
   })
 
@@ -175,7 +176,7 @@ describe("MessageContextSheet native query publication", () => {
     const pending = messageContextQueryFn("channel", "context_channel", 2, owner.client)().catch((error) => error)
     while (!resolvePage) await Promise.resolve()
     retireCommunityChannelReading(owner.registry, "context_channel", { reason: "read-denied", serverId: "context_server" })
-    resolvePage({ messages: [{ id: "anchor", seq: 2, type: "chat", content: "late", authorId: "author", authorName: "Late Author" }], hasMore: false })
+    resolvePage({ messages: [messageResourceFixture({ id: "anchor", channelId: "context_channel", seq: 2, content: "late", authorId: "author", authorName: "Late Author" })], hasMore: false })
     expect(await pending).toMatchObject({ name: "AbortError" })
     expect(owner.registry.collections.messages.get("anchor")).toBeUndefined()
     expect(owner.registry.collections.profiles.get("author")).toBeUndefined()

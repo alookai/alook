@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { CommunityChannelResourceSchema, CommunityMessagePreviewSchema, CommunityResourceProfileSchema } from "./community-resources"
+import { CommunityResourceBundleSchema, CommunityServerResourceSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityResourceProfileSchema } from "./community-resources"
 
 const id = z.string().min(1)
 
@@ -63,11 +63,7 @@ export const AttentionItemSchema = z.strictObject({
   }
 })
 
-export const AttentionIncludedServerSchema = z.strictObject({
-  id,
-  name: z.string(),
-  discriminator: z.string(),
-})
+export const AttentionIncludedServerSchema = CommunityServerResourceSchema.pick({ id: true, name: true, discriminator: true })
 
 export const AttentionIncludedChannelSchema = CommunityChannelResourceSchema.pick({
   id: true, serverId: true, name: true, type: true, parentChannelId: true, parentMessageId: true,
@@ -85,7 +81,7 @@ export const AttentionIncludedDmSchema = z.strictObject({
   userId: id,
   name: z.string(),
   discriminator: z.string(),
-  avatar: z.string(),
+  avatar: CommunityResourceProfileSchema.shape.avatar,
   avatarVersion: z.number().int().nonnegative(),
   lastMessageAt: z.string(),
   lastUnreadSeq: z.number().int().nonnegative(),
@@ -94,14 +90,13 @@ export const AttentionIncludedDmSchema = z.strictObject({
 export const AttentionIncludedProfileSchema = z.strictObject({
   userId: CommunityResourceProfileSchema.shape.id,
   ...CommunityResourceProfileSchema.pick({ name: true, discriminator: true, avatar: true, avatarVersion: true }).shape,
-  // The existing unversioned Attention wire uses strings for absent identity.
-  discriminator: z.string(),
-  avatar: z.string(),
+  discriminator: CommunityResourceProfileSchema.shape.discriminator,
+  avatar: CommunityResourceProfileSchema.shape.avatar,
 })
 
-export const AttentionIncludedMessageSchema = CommunityMessagePreviewSchema.pick({
+export const AttentionIncludedMessageSchema = CommunityMessageResourceSchema.pick({
   id: true, channelId: true, type: true, authorId: true, authorName: true, seq: true, createdAt: true, content: true,
-}).required({ channelId: true, seq: true, createdAt: true, content: true })
+}).partial({ authorId: true })
 
 export const AttentionIncludedSchema = z.strictObject({
   servers: z.array(AttentionIncludedServerSchema),
@@ -111,13 +106,24 @@ export const AttentionIncludedSchema = z.strictObject({
   messages: z.array(AttentionIncludedMessageSchema),
 })
 
-export const AccountAttentionSnapshotSchema = z.strictObject({
+export const AccountAttentionProjectionSchema = z.strictObject({
   scopes: z.array(AttentionScopeSchema),
   items: z.array(AttentionItemSchema),
   limit: z.number().int().positive(),
   truncated: z.boolean(),
   included: AttentionIncludedSchema,
+})
+
+export const AccountAttentionSnapshotSchema = AccountAttentionProjectionSchema.extend({
+  resources: CommunityResourceBundleSchema,
 }).superRefine((snapshot, ctx) => {
+  const resources = snapshot.resources
+  if (snapshot.included.servers.some(summary => !resources.servers.some(row => row.id === summary.id))
+    || [...snapshot.included.channels, ...snapshot.included.dms].some(summary => !resources.channels.some(row => row.id === summary.id))
+    || snapshot.included.profiles.some(summary => !resources.profiles.some(row => row.id === summary.userId))
+    || snapshot.included.messages.some(summary => !resources.messages.some(row => row.id === summary.id && row.channelId === summary.channelId))
+    || resources.memberships.some(row => row.userId !== resources.viewerId || row.relation !== "access" || !resources.channels.some(channel => channel.id === row.channelId))
+    || resources.serverMemberships.some(row => row.userId !== resources.viewerId || !resources.servers.some(server => server.id === row.serverId))) ctx.addIssue({ code: "custom", message: "Attention resource closure mismatch" })
   const scopeIds = new Set<string>()
   for (const scope of snapshot.scopes) {
     if (scopeIds.has(scope.scopeId)) {
@@ -227,4 +233,5 @@ export const AccountAttentionSnapshotSchema = z.strictObject({
 
 export type AttentionScope = z.infer<typeof AttentionScopeSchema>
 export type AttentionItem = z.infer<typeof AttentionItemSchema>
+export type AccountAttentionProjection = z.infer<typeof AccountAttentionProjectionSchema>
 export type AccountAttentionSnapshot = z.infer<typeof AccountAttentionSnapshotSchema>

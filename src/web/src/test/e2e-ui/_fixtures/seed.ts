@@ -1,3 +1,5 @@
+import { CommunityReadErrorSchema } from "../../../../../shared/src/community-resources"
+import { communityFixtureFetch, assertCurrentCommunityFixtureResponse } from "./business-contract"
 import { WEB_URL } from "../_setup/paths"
 import { sessionCookie, userId } from "./community-fixture"
 import type { UserKey } from "../_setup/users"
@@ -29,7 +31,7 @@ type SeedIdentity = {
 export function createSeed(identity: SeedIdentity) {
   const { sessionCookie, userId } = identity
   async function postRaw(key: UserKey, path: string, body?: unknown): Promise<Response> {
-    return fetch(`${WEB_URL}${path}`, {
+    return communityFixtureFetch(`${WEB_URL}${path}`, {
       method: "POST",
       headers: {
         Cookie: sessionCookie(key),
@@ -59,7 +61,7 @@ export function createSeed(identity: SeedIdentity) {
     const errors: unknown[] = []
     for (const serverId of serverIds) {
       try {
-        const response = await retrySeedRequest(() => fetch(`${WEB_URL}/api/community/servers/${serverId}`, {
+        const response = await retrySeedRequest(() => communityFixtureFetch(`${WEB_URL}/api/community/servers/${serverId}`, {
           method: "DELETE",
           headers: { Cookie: sessionCookie(owner), Origin: WEB_URL },
         }))
@@ -119,11 +121,17 @@ export function createSeed(identity: SeedIdentity) {
     // "Already a member" and counts as success (idempotent on a Playwright retry).
     let lastStatus = 0
     for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await fetch(`${WEB_URL}/api/community/invites/${token}/join`, {
+      const res = await communityFixtureFetch(`${WEB_URL}/api/community/invites/${token}/join`, {
         method: "POST",
         headers: { Cookie: sessionCookie(joiner), "Content-Type": "application/json", Origin: WEB_URL },
       })
-      if (res.ok || res.status === 400) return
+      if (res.ok) return
+      if (res.status === 400) {
+        assertCurrentCommunityFixtureResponse(res)
+        const error = CommunityReadErrorSchema.parse(await res.json())
+        if (error.error.message === "Already a member") return
+        throw new Error(`seedJoinServer join rejected: ${error.error.message}`)
+      }
       lastStatus = res.status
       if (!isRetryableSeedStatus(res.status)) break
       await new Promise((r) => setTimeout(r, seedRetryDelayMs(res)))
@@ -176,7 +184,7 @@ export function createSeed(identity: SeedIdentity) {
   // user, from the requester's friends list. Used to recover idempotently when a
   // re-run (Playwright retry) finds the pair already friends.
   async function findFriendshipId(requester: UserKey, targetUserId: string): Promise<string | undefined> {
-    const res = await retrySeedRequest(() => fetch(
+    const res = await retrySeedRequest(() => communityFixtureFetch(
       `${WEB_URL}/api/community/friends/accepted`,
       { headers: { Cookie: sessionCookie(requester), Origin: WEB_URL } },
     ))
@@ -197,8 +205,8 @@ export function createSeed(identity: SeedIdentity) {
   }> {
     const headers = { Cookie: sessionCookie(key), Origin: WEB_URL }
     const [accepted, pending] = await Promise.all([
-      retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/accepted`, { headers })),
-      retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/pending`, { headers })),
+      retrySeedRequest(() => communityFixtureFetch(`${WEB_URL}/api/community/friends/accepted`, { headers })),
+      retrySeedRequest(() => communityFixtureFetch(`${WEB_URL}/api/community/friends/pending`, { headers })),
     ])
     if (!accepted.ok) throw new Error(`listSeedRelationships accepted failed (${accepted.status})`)
     if (!pending.ok) throw new Error(`listSeedRelationships pending failed (${pending.status})`)
@@ -209,7 +217,7 @@ export function createSeed(identity: SeedIdentity) {
   }
 
   async function deleteSeedRelationship(key: UserKey, id: string): Promise<Response> {
-    return retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/${id}`, {
+    return retrySeedRequest(() => communityFixtureFetch(`${WEB_URL}/api/community/friends/${id}`, {
       method: "DELETE",
       headers: { Cookie: sessionCookie(key), Origin: WEB_URL },
     }))
@@ -287,8 +295,8 @@ export function createSeed(identity: SeedIdentity) {
       { userId: targetUserId },
     ))
     if (!response.ok) throw new Error(`seedPendingFriendRequest request failed (${response.status})`)
-    const body = (await response.json()) as { id?: string; friendship?: { id: string } | null }
-    const id = body.id ?? body.friendship?.id
+    const body = (await response.json()) as { id: string }
+    const id = body.id
     if (!id) throw new Error("seedPendingFriendRequest: no friendship id in response")
     identity.onResourceCreated?.("friendship", id)
     return id
@@ -340,8 +348,8 @@ export function createSeed(identity: SeedIdentity) {
       throw new Error("seedFriendship: 409 but no accepted or pending friendship found")
     }
     if (!reqRes!.ok) throw new Error(`seedFriendship request failed (${reqRes!.status})`)
-    const reqData = (await reqRes!.json()) as { id?: string; friendship?: { id: string } | null }
-    const friendshipId = reqData.id ?? reqData.friendship?.id
+    const reqData = (await reqRes!.json()) as { id: string }
+    const friendshipId = reqData.id
     if (!friendshipId) throw new Error("seedFriendship: no friendship id in response")
     return acceptSeedFriendship(requester, addressee, targetUserId, {
       id: friendshipId,
@@ -363,7 +371,7 @@ export function createSeed(identity: SeedIdentity) {
 
   async function seedReaction(author: UserKey, messageId: string, emoji: string): Promise<void> {
     identity.assertResource?.("message", messageId)
-    const response = await retrySeedRequest(() => fetch(
+    const response = await retrySeedRequest(() => communityFixtureFetch(
       `${WEB_URL}/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
       { method: "PUT", headers: { Cookie: sessionCookie(author), Origin: WEB_URL } },
     ))
@@ -373,7 +381,7 @@ export function createSeed(identity: SeedIdentity) {
   async function seedMark(author: UserKey, channelId: string, messageId: string): Promise<void> {
     identity.assertResource?.("channel", channelId)
     identity.assertResource?.("message", messageId)
-    const response = await retrySeedRequest(() => fetch(
+    const response = await retrySeedRequest(() => communityFixtureFetch(
       `${WEB_URL}/api/community/messages/${messageId}/marks`,
       {
         method: "PUT",
@@ -436,7 +444,7 @@ export function createSeed(identity: SeedIdentity) {
   async function renameUser(key: UserKey, name: string): Promise<void> {
     let lastStatus = 0
     for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await fetch(`${WEB_URL}/api/community/users/me/profile`, {
+      const res = await communityFixtureFetch(`${WEB_URL}/api/community/users/me/profile`, {
         method: "PATCH",
         headers: { Cookie: sessionCookie(key), "Content-Type": "application/json", Origin: WEB_URL },
         body: JSON.stringify({ name }),
@@ -463,7 +471,7 @@ export function createSeed(identity: SeedIdentity) {
   ): Promise<{ id: string; name: string; discriminator: string }> {
     identity.assertResource?.("server", serverId)
     identity.assertResource?.("user", targetUserId)
-    const res = await fetch(`${WEB_URL}/api/community/servers/${serverId}/members`, {
+    const res = await communityFixtureFetch(`${WEB_URL}/api/community/servers/${serverId}/members`, {
       headers: { Cookie: sessionCookie(viewer), Origin: WEB_URL },
     })
     if (!res.ok) throw new Error(`memberInfo list failed (${res.status})`)

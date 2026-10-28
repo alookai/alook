@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { canonicalMessageReader } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -25,7 +26,7 @@ beforeEach(() => {
 const scope = { kind: "dm" as const, id: "dm_1" }
 const author = { id: "u_me", name: "Me", avatar: "M" }
 function posted(id = "server_1", seq = 7, content = "hello") {
-  return { message: { id, seq, content, type: "chat", createdAt: "2026-08-07T10:00:00.000Z", authorId: author.id, authorName: author.name, authorImage: null, authorAvatarVersion: 0, embeds: [] } }
+  return { message: messageResourceFixture({ id, seq, content, channelId: scope.id, clientNonce: "fresh_nonce", createdAt: "2026-08-07T10:00:00.000Z", authorId: author.id, authorName: author.name, authorAvatar: null, authorAvatarVersion: 0, embeds: [] }) }
 }
 async function setup() {
   const owner = await createCommunityQueryOwner("u_me")
@@ -59,8 +60,7 @@ describe("Native DM sender", () => {
     const receipt = owner.accept({ content: "@Peer\nhello", replyTo: { id: "prior", authorName: "Peer", text: "quoted" } })
     expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.message).toMatchObject({ authorId: "u_me", authorName: "Me", content: "@Peer\nhello", replyTo: { id: "prior", authorName: "Peer", text: "quoted" } })
     await waitFor(() => expect(mocks.post).toHaveBeenCalledExactlyOnceWith({ content: "@Peer\nhello", replyToId: "prior", nonce: "fresh_nonce" }))
-    resolve({ message: Object.assign({}, posted().message, { channelId: scope.id, type: "default", replyToId: "prior",
-      authorEmail: "legacy@example.test", storageMetadata: { legacy: true } }) })
+    resolve({ message: { ...posted().message, replyToId: "prior" } })
     expect(await owner.settle(receipt)).toMatchObject({ ok: true, message: { id: "server_1", seq: 7 } })
     const canonical = owner.registry.collections.messages.get("server_1")
     expect(canonical).toMatchObject({ id: "server_1", seq: 7, channelId: scope.id, clientNonce: "fresh_nonce",
@@ -71,6 +71,14 @@ describe("Native DM sender", () => {
     const onCommitted = vi.fn()
     await awaitCommittedInvite(receipt, onCommitted)
     expect(onCommitted).toHaveBeenCalledOnce()
+  })
+
+  it.each([{ type: "default" }, { authorEmail: "legacy@example.test" }, { attachments: undefined }])("rejects raw obsolete or incomplete POST resource %j", async (fields) => {
+    mocks.post.mockResolvedValueOnce({ message: Object.assign({}, posted().message, fields) })
+    const owner = await setup()
+    expect(await owner.settle(owner.accept({ content: "hello" }))).toMatchObject({ ok: false, error: expect.any(Error) })
+    expect(owner.registry.collections.messages.has("server_1")).toBe(false)
+    expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.status).toBe("failed")
   })
 
   it("normalizes upload failure, marks the intent failed and never POSTs", async () => {
@@ -153,7 +161,7 @@ describe("Native DM sender", () => {
     const receipt = owner.accept({ content: "out of view" })
     expect(await owner.settle(receipt)).toMatchObject({ ok: true, message: { id: "server_1", seq: 11 } })
     expect(materializeMessageStream([], owner.overlay(), canonicalMessageReader(owner.client)).map(({ id }) => id)).toEqual(["server_1"])
-    const base = [{ id: "server_1", seq: 11, clientNonce: "fresh_nonce", type: "chat" as const, authorId: "u_me", authorName: "Me", content: "out of view" }]
+    const base = [posted("server_1", 11, "out of view").message]
     act(() => owner.runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: base }))
     expect(materializeMessageStream(base, owner.overlay(), canonicalMessageReader(owner.client)).map(({ id }) => id)).toEqual(["server_1"])
   })
@@ -161,7 +169,7 @@ describe("Native DM sender", () => {
 
 
 describe("confirmed native DM receipt", () => {
-  const confirmed = { id: "server_confirmed", seq: 17, type: "chat" as const, content: "hello", authorId: "u_me", clientNonce: "fresh_nonce" }
+  const confirmed = messageResourceFixture({ id: "server_confirmed", channelId: scope.id, seq: 17, content: "hello", authorId: "u_me", clientNonce: "fresh_nonce" })
   it.each(["ordinary", 0, 500, 503])("returns the canonical receipt after a late %s while Native POST stays rejected", async (status) => {
     const owner = await setup()
     mocks.post.mockImplementationOnce(async () => { ingestMessages(owner.registry, scope.id, [confirmed]); throw status === "ordinary" ? new Error("late failure") : new ApiError("late failure", Number(status)) })

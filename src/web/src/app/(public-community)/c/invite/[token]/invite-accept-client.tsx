@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button"
 import { avatarInitial } from "@/lib/community/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api/client"
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, CommunityReadErrorSchema, CommunityInviteJoinTargetSchema } from "@alook/shared"
+import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
+import { isAbortError } from "@/lib/errors"
 import { ApiError } from "@/lib/errors"
 import { ServerIcon } from "@/components/community/server-icon"
 import { Avatar } from "@/components/community/avatar"
@@ -67,18 +70,28 @@ function InviteAcceptInner({ token }: { token: string }) {
       try {
         const res = await fetch(`/api/community/invites/${token}/join`, {
           signal: original.signal,
-          method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+          method: "POST", credentials: "include", headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
         })
         original.assert()
         if (res.status === 401) return { kind: "sign-in" as const }
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null
-          original.assert()
-          throw new Error(body?.error || "Couldn't join the server — try the invite again")
+        if (res.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) {
+          throw requestBusinessSchemaUpdate(Number(res.headers.get(COMMUNITY_CONTRACT_HEADER)))
         }
-        const result = await res.json() as { serverId: string }
-        original.assert()
-        return { kind: "joined" as const, serverId: result.serverId }
+        let body: unknown
+        try {
+          body = await res.json()
+          original.assert()
+          if (res.ok) {
+            const result = CommunityInviteJoinTargetSchema.parse(body)
+            return { kind: "joined" as const, serverId: result.serverId }
+          }
+          const error = CommunityReadErrorSchema.parse(body)
+          throw new ApiError(error.error.message, res.status, error.error.details)
+        } catch (error) {
+          original.assert()
+          if (isAbortError(error) || error instanceof ApiError) throw error
+          throw requestBusinessSchemaUpdate()
+        }
       } catch (error) { original.assert(); throw error }
     },
   })

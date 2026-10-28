@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import type { ElementHandle, Locator, Page, Request, Route } from "@playwright/test"
 import type { TiptapEditorHTMLElement } from "@tiptap/react"
@@ -380,7 +381,7 @@ async function typeReplyAfterAuthorMention(
 }
 
 async function latestSeq(page: Page, channelId: string): Promise<number> {
-  const response = await page.request.get(`/api/community/channels/${channelId}/messages`)
+  const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${channelId}/messages`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(response.ok()).toBe(true)
   return ((await response.json()) as { latestSeq: number }).latestSeq
 }
@@ -393,7 +394,7 @@ type ReadState = {
 async function settledReadState(page: Page, channelId: string): Promise<ReadState> {
   let previous: ReadState | null = null
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const response = await page.request.get("/api/community/users/me/read-state")
+    const response = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(response.ok()).toBe(true)
     const snapshot = await response.json() as { readStates: Array<ReadState & { channelId: string }> }
     const current = snapshot.readStates.find((row) => row.channelId === channelId)

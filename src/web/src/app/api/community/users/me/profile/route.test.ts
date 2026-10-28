@@ -91,6 +91,7 @@ describe("GET /api/community/users/me/profile", () => {
       name: "Jane Roe",
       discriminator: "4242",
       image: "/api/community/users/u1/avatar",
+      avatarVersion: 0,
     })
   })
 
@@ -107,7 +108,7 @@ describe("GET /api/community/users/me/profile", () => {
       discriminator: "4242",
       name: "Jane Roe",
       statusEmoji: null,
-      statusText: "",
+      statusText: null,
     })
   })
 
@@ -127,21 +128,12 @@ describe("GET /api/community/users/me/profile", () => {
     })
   })
 
-  it("falls back to \"0000\" when the user row is missing", async () => {
+  it("returns404 when the self user row is missing without inventing an identity", async () => {
     getProfile.mockResolvedValue(null)
     getUser.mockResolvedValue(null)
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
-    expect(await res.json()).toEqual({
-      id: "u1",
-      aboutMe: "",
-      avatar: "?",
-      avatarVersion: 0,
-      bannerColor: null,
-      discriminator: "0000",
-      name: "",
-      statusEmoji: null,
-      statusText: "",
-    })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "profile not found" })
   })
 })
 

@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, CommunityMessagePostedSchema } from "@alook/shared"
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -14,7 +16,8 @@ import { materializeMessageStream } from "@/lib/community/message-stream"
 
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
 const author = { id: "u_me", name: "Me", avatar: "M" }
-const posted = { message: { id: "confirmed", seq: 12, type: "chat", content: "hello", authorId: "u_me", authorName: "Me", authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-09T01:00:00Z", embeds: [] } }
+const posted = CommunityMessagePostedSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "scope", deduped: false, message: messageResourceFixture({ id: "confirmed", channelId: "scope", seq: 12, content: "hello", authorId: "u_me", authorName: "Me", authorAvatar: null, authorAvatarVersion: 0, clientNonce: "nonce", createdAt: "2026-10-09T01:00:00Z", embeds: [] }) })
+const postedResponse = () => Response.json(posted, { status: 201, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
 afterEach(() => vi.unstubAllGlobals())
 
 describe("accepted IO survives real view retirement", () => {
@@ -24,7 +27,7 @@ describe("accepted IO survives real view retirement", () => {
       owner.runtime.ws.actions.rememberChannelAccess(kind === "dm" ? null : "server", "scope", kind === "dm" ? null : "parent")
       const scope = kind === "dm" ? { kind, id: "scope" } : { kind, id: "scope", serverId: "server" }
       const gate = deferred<Response>(), decode = deferred<void>()
-      const response = new Response(JSON.stringify(posted), { status: 201 })
+      const response = postedResponse()
       const json = vi.spyOn(response, "json").mockImplementation(async () => { await decode.promise; return posted })
       const fetchMock = vi.fn(async (path: string) => {
         if (path.endsWith("/attachments")) return gate.promise
@@ -55,13 +58,13 @@ describe("accepted IO survives real view retirement", () => {
       if (phase !== "preparation") view.unmount()
       owner.runtime.ws.actions.beginChannelMembershipChange("other-server", "other-channel")
       await act(async () => {
-        gate.resolve(phase === "upload" ? new Response(JSON.stringify({ id: "attachment", filename: "x.txt", contentType: "text/plain", size: 1 }), { status: 201 }) : new Response(JSON.stringify(posted), { status: 201 }))
+        gate.resolve(phase === "upload" ? new Response(JSON.stringify({ id: "attachment", filename: "x.txt", contentType: "text/plain", size: 1 }), { status: 201 }) : postedResponse())
         decode.resolve()
         await committed
       })
       expect(owner.registry.collections.messages.get("confirmed")).toMatchObject({ channelId: "scope", authorId: "u_me", clientNonce: "nonce" })
       for (const [, options] of fetchMock.mock.calls as unknown as [string, RequestInit][]) expect(options.signal?.aborted).toBe(false)
-      const base = [{ id: "confirmed", seq: 12, clientNonce: "nonce", authorId: "u_me", type: "chat" as const, content: "hello" }]
+      const base = [posted.message]
       owner.runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: base })
       const rows = materializeMessageStream(base, getMessageStreamState(owner.client, scope), canonicalMessageReader(owner.client))
       expect(rows).toHaveLength(1)

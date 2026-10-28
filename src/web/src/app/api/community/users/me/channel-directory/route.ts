@@ -1,3 +1,4 @@
+import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { queries } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
@@ -9,5 +10,6 @@ export const GET = withAuth(async (_req, ctx) => {
     db,
     ctx.userId,
   )
-  return writeJSON({ directory })
+  const resources = await readCommunityResourceBundle(db, ctx.userId, { serverIds: directory.map(row => row.id), channelIds: directory.flatMap(row => row.channels.map(channel => channel.id)) })
+  return writeJSON({ directory, resources })
 })

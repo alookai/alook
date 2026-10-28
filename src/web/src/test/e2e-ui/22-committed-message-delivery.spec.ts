@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, expectMessageVisible, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import type { Frame, Page, Request, Response as PlaywrightResponse } from "@playwright/test"
@@ -72,7 +73,7 @@ test.describe("committed message delivery QA", () => {
     const carolProxy = await proxyCommunityWebSockets(carol.context)
     await gotoAfterUserWsAuth(carol.page, `/c/channels/${serverId}/${forumId}`)
     await expect(carol.page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible({ timeout: 20_000 })
-    const membersBefore = await carol.page.request.get(`/api/community/channels/${threadId}/members`)
+    const membersBefore = await confirmCommunityFixtureApiResponse(carol.page.request.get(`/api/community/channels/${threadId}/members`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(membersBefore.status()).toBe(200)
     expect((await membersBefore.json() as { members: Array<{ id: string }> }).members.map((member) => member.id)).not.toContain(userId("carol"))
     const frameStart = carolProxy.frames.length
@@ -94,7 +95,7 @@ test.describe("committed message delivery QA", () => {
     expect(carolProxy.frames.slice(frameStart).flatMap(communityFrameEvents).filter((event) =>
       event.channelId === threadId && event.userId === userId("carol")
       && (event.type === "community:unread.bump" || event.type === "community:mention.create" || event.type === "community:channel.member_add"))).toEqual([])
-    const membersAfter = await carol.page.request.get(`/api/community/channels/${threadId}/members`)
+    const membersAfter = await confirmCommunityFixtureApiResponse(carol.page.request.get(`/api/community/channels/${threadId}/members`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(membersAfter.status()).toBe(200)
     expect((await membersAfter.json() as { members: Array<{ id: string }> }).members.map((member) => member.id)).not.toContain(userId("carol"))
     await expect(carol.page.getByText(body, { exact: false })).toHaveCount(0)
@@ -160,7 +161,7 @@ test.describe("committed message delivery QA", () => {
     await expect(bob.page.getByText(missing, { exact: false })).toHaveCount(1)
     expect(proxy.frames.filter((frame) => messageFrame(frame, channelId, missing))).toHaveLength(1)
     await expect.poll(async () => {
-      const response = await bob.page.request.get("/api/community/servers")
+      const response = await confirmCommunityFixtureApiResponse(bob.page.request.get("/api/community/servers", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
       const data = await response.json() as { servers: Array<{ id: string; mentions: number }> }
       const authoritative = data.servers.find((server) => server.id === serverId)?.mentions ?? 0
       const badge = bob.page.getByTestId(tid.railUnreadBadge(serverId))

@@ -1,3 +1,4 @@
+import { dmListRowFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
@@ -18,7 +19,7 @@ import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { ingestDms } from "@/lib/community-db/sync"
 
 function seedDms(client: QueryClient, data: { conversations: DM[] }) {
-  ingestDms(getCommunityDbRegistry(client)!, data)
+  ingestDms(getCommunityDbRegistry(client)!, { conversations: data.conversations.map(dmFacts) })
   client.setQueryData(communityKeys.dms(), { ids: data.conversations.map((dm) => dm.id) })
 }
 
@@ -33,16 +34,12 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function dm(id: string): DM {
-  return {
-    id,
-    userId: `${id}-peer`,
-    name: id,
-    discriminator: "0001",
-    avatar: id,
-    status: "offline",
-    preview: "",
-  }
+function dmFacts(fields: { id: string; userId: string; [field: string]: unknown }) {
+  const full = dmListRowFixture(fields as DM, "viewer")
+  return { ...full, profile: { ...full.profile, avatar: typeof fields.avatar === "string" ? fields.avatar : null } }
+}
+function dm(id: string) {
+  return dmFacts({ id, userId: id + "-peer", name: id, discriminator: "0001", avatar: id, status: "offline", preview: "" })
 }
 
 beforeEach(() => {
@@ -53,9 +50,9 @@ beforeEach(() => {
 
 describe("useDms / dmsQueryFn", () => {
   it("returns the DM conversations from GET /api/community/users/me/dms", async () => {
-    const conversations = [
+    const conversations = ([
       { id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0000", avatar: "A", status: "offline", preview: "" },
-    ]
+    ]).map(dmFacts)
     apiFetchMock.mockResolvedValueOnce({ conversations })
     const { client: qc, registry } = await createCommunityQueryOwner()
     const data = await qc.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(qc) })
@@ -128,7 +125,7 @@ describe("useDms / dmsQueryFn", () => {
   })
 
   it("reuses a projected DM across layout mounts without refetching the canonical list", async () => {
-    const conversations = [{
+    const conversations = ([{
       id: "dm_projected",
       userId: "u_1",
       name: "Alice",
@@ -136,7 +133,7 @@ describe("useDms / dmsQueryFn", () => {
       avatar: "a",
       status: "offline",
       preview: "projected from inbox",
-    }]
+    }]).map(dmFacts)
     apiFetchMock.mockResolvedValue({ conversations })
     const { useDms } = await import("./use-dms")
     const { client: qc } = await createCommunityQueryOwner()
@@ -158,7 +155,7 @@ describe("useDms / dmsQueryFn", () => {
   })
 
   it("ignores legacy transport conversations without a canonical provider", async () => {
-    const conversations = [dm("dm-providerless")]
+    const conversations = ([dm("dm-providerless")]).map(dmFacts)
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
     qc.setQueryData(communityKeys.dms(), { conversations })
@@ -281,7 +278,7 @@ describe("useDms / dmsQueryFn", () => {
   })
 
   it("keeps legacy unread flags subordinate to canonical attention", async () => {
-    const conversations = [
+    const conversations = ([
       {
         id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0001",
         avatar: "a", avatarVersion: 1, status: "offline", preview: "one", unread: false,
@@ -295,7 +292,7 @@ describe("useDms / dmsQueryFn", () => {
         id: "dm_legacy", userId: "u_3", name: "Carol", discriminator: "0003",
         avatar: "c", avatarVersion: 1, status: "offline", preview: "three", unread: true,
       },
-    ] as DM[]
+    ]).map(dmFacts) as DM[]
     apiFetchMock.mockResolvedValue({ conversations })
     const { useDms } = await import("./use-dms")
     const { client: qc } = await createCommunityQueryOwner()
@@ -320,7 +317,7 @@ describe("useDms / dmsQueryFn", () => {
   })
 
   it("does not let a legacy Inbox reservation mutate canonical DM attention", async () => {
-    const conversations = [
+    const conversations = ([
       {
         id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0001",
         avatar: "a", avatarVersion: 1, status: "offline", preview: "one",
@@ -331,7 +328,7 @@ describe("useDms / dmsQueryFn", () => {
         avatar: "b", avatarVersion: 1, status: "offline", preview: "two",
         unread: true, lastUnreadSeq: 3,
       },
-    ] as DM[]
+    ]).map(dmFacts) as DM[]
     const inboxDm = {
       channelId: "dm_1",
       otherUserId: "u_1",

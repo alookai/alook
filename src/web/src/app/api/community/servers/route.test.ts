@@ -65,7 +65,7 @@ describe("POST /api/community/servers", () => {
   it("does not accept official status when creating a server", async () => {
     createServer.mockResolvedValue({
       server: { id: "srv_1", name: "New", ownerId: "u1", official: false },
-      ownerMember: { id: "mem_1", userId: "u1", joinedAt, userName: "Alice" },
+      ownerMember: { id: "mem_1", userId: "u1", joinedAt, userName: "Alice", userImage: null, userAvatarVersion: 0, userDiscriminator: "0042" },
     })
     const res = await POST(postReq({ name: "New", official: true }))
     expect(res.status).toBe(201)
@@ -74,10 +74,10 @@ describe("POST /api/community/servers", () => {
     })
   })
 
-  it("fires MEMBER_JOIN with byte-identical payload sourced from createServer's ownerMember", async () => {
+  it("fires current MEMBER_JOIN identity sourced from createServer's ownerMember", async () => {
     createServer.mockResolvedValue({
       server: { id: "srv_1", name: "My Server", ownerId: "u1" },
-      ownerMember: { id: "mem_1", userId: "u1", joinedAt, userName: "Alice" },
+      ownerMember: { id: "mem_1", userId: "u1", joinedAt, userName: "Alice", userImage: null, userAvatarVersion: 0, userDiscriminator: "0042" },
     })
 
     const res = await POST(postReq({ name: "My Server" }))
@@ -91,6 +91,7 @@ describe("POST /api/community/servers", () => {
         id: "mem_1",
         userId: "u1",
         name: "Alice",
+        avatar: null, avatarVersion: 0, discriminator: "0042",
         role: ROLES.OWNER,
         joinedAt,
       },
@@ -125,7 +126,7 @@ describe("POST /api/community/servers", () => {
   it("normalizes a spaced name via slugify before creating the server", async () => {
     createServer.mockResolvedValue({
       server: { id: "srv_1", name: "My-Home", ownerId: "u1" },
-      ownerMember: { id: "mem_1", userId: "u1", joinedAt, userName: "Alice" },
+      ownerMember: { id: "mem_1", userId: "u1", joinedAt, userName: "Alice", userImage: null, userAvatarVersion: 0, userDiscriminator: "0042" },
     })
 
     const res = await POST(postReq({ name: "My Home" }))
@@ -147,7 +148,7 @@ describe("POST /api/community/servers", () => {
     const server = { id: "srv_x", name: "S", ownerId: "u1" }
     createServer.mockResolvedValue({
       server,
-      ownerMember: { id: "mem_x", userId: "u1", joinedAt, userName: "Alice" },
+      ownerMember: { id: "mem_x", userId: "u1", joinedAt, userName: "Alice", userImage: null, userAvatarVersion: 0, userDiscriminator: "0042" },
     })
 
     const res = await POST(postReq({ name: "S" }))

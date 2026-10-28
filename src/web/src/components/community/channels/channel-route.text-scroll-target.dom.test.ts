@@ -489,8 +489,8 @@ describe("ChannelRoute message surface ownership", () => {
     vi.mocked(useChannelRouteModel).mockImplementation((_server, _param, id) => (id === "channel_1" ? parent : child) as never)
     const base = conversationEntryFixture().channel
     registry.collections.channels.utils.writeUpsert([
-      channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
-      channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+      channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", muted: false, tags: [], pending: false }),
+      channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, tags: [], pending: false }),
     ])
     mockBreakpoint.value = "mobile"
     mockSearchParams.value = ""
@@ -529,7 +529,11 @@ describe("ChannelRoute message surface ownership", () => {
     if (boundary === "forward") mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1" }
     if (boundary === "unhydrated") mockRouteModel.routeHydrated = false
     if (boundary === "pending") mockRouteModel.routeLifecycle = "pending"
-    if (boundary === "text") mockRouteModel.isForum = false
+    if (boundary === "text") {
+      mockRouteModel.isForum = false
+      mockRouteModel.channel = { id: "channel_1", name: "Text", type: "text" }
+      mockedUseChannelMessageFeed.mockReturnValue(feed())
+    }
     render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1", routeCommitted: false }))
     const model = mockedUseChannelMemberViewModel.mock.calls.at(-1)![0]
     expect(model.accessAllowed).toBe(false)

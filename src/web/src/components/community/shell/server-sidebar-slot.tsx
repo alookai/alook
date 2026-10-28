@@ -1,4 +1,5 @@
 "use client"
+import { getServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { readCommunityServerRailServers } from "@/lib/community-db/server-rail"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -26,7 +27,8 @@ import { ServerSettings } from "@/components/community/settings/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { SettingsSection } from "@/components/community/settings/settings-types"
-import { canManageServer, isForum, notifLevelDisplay, type ChannelType } from "@alook/shared"
+import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
+import { canManageServer, notifLevelDisplay, type ChannelType } from "@alook/shared"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
@@ -159,7 +161,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     const parent = sidebarCategories
       .flatMap((category) => category.channels)
       .find((channel) => channel.id === currentChannelMeta.parentChannelId)
-    return isForum(parent?.type) ? currentChannelId : null
+    return supportsSidebarThreads(parent?.type) ? currentChannelId : null
   }, [currentChannelId, currentChannelMeta?.parentChannelId, sidebarCategories])
   const sidebarRouteCandidate = useMemo(() => {
     const topLevelChannels = sidebarCategories.length > 0
@@ -171,7 +173,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     return resolveForumSidebarRouteCandidate(
       routeChannelId,
       topLevelChannels?.map((channel) => channel.id) ?? null,
-      isForum(parent?.type),
+      supportsSidebarThreads(parent?.type),
     )
   }, [currentChannelId, currentChannelMeta?.parentChannelId, routeChannelId, sidebarCategories])
   const forumSidebar = useForumSidebarThreads(
@@ -193,7 +195,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   const serverDestination = useCallback(async (id: string) => {
     const lastChannel = getLastChannel(id)
     const read = () => communityDb ? Array.from(communityDb.collections.channels.values()).filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending).map((channel) => channel.id) : []
-    if (!communityDb?.collections.servers.get(id)?.detailComplete && !lastChannel && read().length === 0) {
+    if (!getServerDirectoryWindow(communityDb, id) && !lastChannel && read().length === 0) {
       try {
         await queryClient.query({ queryKey: communityKeys.server(id), queryFn: ({ signal }) => serverProjectedQueryFn(queryClient, id, signal)(), staleTime: Infinity, select: undefined })
       } catch {}
@@ -606,7 +608,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   return <>{serverReadFailed && !currentServer || forumSidebar.sidebar.status === "error" ? (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div role="alert" className="flex flex-col gap-2 p-4 text-sm text-muted-foreground">
-        <span>{serverReadFailed && !currentServer ? "Couldn't load server channels." : "Couldn't load forum posts."}</span>
+        <span>{serverReadFailed && !currentServer ? "Couldn't load server channels." : "Couldn't load threads."}</span>
         <button
           type="button"
           disabled={!routeCommitted || serverReadPending || forumSidebar.isFetching}

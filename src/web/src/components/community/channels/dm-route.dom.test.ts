@@ -1,3 +1,4 @@
+import { dmListRowFixture } from "@/test/community-resource-fixtures"
 import React, { useLayoutEffect, type PropsWithChildren } from "react"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -58,7 +59,7 @@ beforeEach(() => {
 describe("DM target main owns identity, retry and fallback", () => {
   it.each(["pending", "retryable-error", "denied"])("keeps canonical DM presentation while entry is %s without granting read permission", async status => {
     const owner = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
-    await act(async () => { ingestDms(owner, { conversations: [{ id: "dm-a", userId: "peer", name: "Peer", discriminator: "0042", avatar: "/avatar", avatarVersion: 1, status: "offline", preview: "" }] }) })
+    await act(async () => { ingestDms(owner, { conversations: [dmListRowFixture({ id: "dm-a", userId: "peer", name: "Peer", discriminator: "0042", avatar: "/avatar", avatarVersion: 1, status: "offline", preview: "" })] }) })
     mocks.verification.status = status
     expect(mocks.verification.identityKnown).toBe(false)
     const route = render(React.createElement(DmRoute, { dmId: "dm-a" }))

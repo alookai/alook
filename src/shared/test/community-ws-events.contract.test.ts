@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "../src/business-schema-version"
 import { describe, expect, it } from "vitest"
 import {
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
@@ -6,6 +7,7 @@ import {
   CommunityWsEventSchema,
   WS_EVENTS,
   decodeCommunityBrowserEvent,
+  validateCommunityWsEvent,
   encodeCommunityBrowserEvent,
   isCommunityEventCandidate,
   isCommunityEventType,
@@ -65,22 +67,24 @@ describe("Community browser event runtime contract", () => {
   const fixtures = Object.values(communityWsEventFixtures)
   const names = Object.values(WS_EVENTS).sort()
 
-  it("locks the exact 48-event inventory", () => {
-    expect(names).toHaveLength(48)
+  it("locks the exact 46-event inventory", () => {
+    expect(names).toHaveLength(46)
     expect(Object.keys(communityWsEventFixtures).sort()).toEqual(names)
     expect(Object.keys(requiredFixturePaths).sort()).toEqual(names)
   })
 
-  it("decodes and canonically encodes all 48 current event fixtures", () => {
+  it("decodes and canonically encodes all 46 current event fixtures", () => {
     for (const fixture of fixtures) {
-      expect(decodeCommunityBrowserEvent(fixture)).toEqual({ ok: true, event: fixture })
+      expect(validateCommunityWsEvent(fixture)).toEqual({ ok: true, event: fixture })
       const encoded = encodeCommunityBrowserEvent(fixture)
       expect(encoded.ok).toBe(true)
       if (!encoded.ok) continue
       expect(encoded.event).toEqual(fixture)
       expect(encoded.event).not.toHaveProperty("contractVersion")
-      expect(JSON.parse(encoded.body)).toEqual(fixture)
-      expect(decodeCommunityBrowserEvent(encoded.event)).toEqual({ ok: true, event: fixture })
+      expect(JSON.parse(encoded.body)).toEqual({ ...fixture, schemaVersion: BUSINESS_SCHEMA_VERSION })
+      expect(decodeCommunityBrowserEvent(JSON.parse(encoded.body))).toEqual({ ok: true, event: fixture })
+      expect(decodeCommunityBrowserEvent(encoded.envelope)).toEqual({ ok: true, event: fixture })
+      expect(decodeCommunityBrowserEvent(fixture).ok).toBe(false)
     }
   })
 
@@ -90,14 +94,14 @@ describe("Community browser event runtime contract", () => {
       kind: "turn_interrupt",
       payload: { status: "accepted" },
     }
-    expect(decodeCommunityBrowserEvent(event)).toEqual({ ok: true, event })
+    expect(validateCommunityWsEvent(event)).toEqual({ ok: true, event })
   })
 
   it("rejects missing fields or extra payload on every event", () => {
     for (const fixture of fixtures) {
       const path = requiredFixturePaths[fixture.type]
       const corrupted = path.length ? withoutPath(fixture, path) : { ...fixture, entries: [] }
-      expect(decodeCommunityBrowserEvent(corrupted)).toMatchObject({
+      expect(validateCommunityWsEvent(corrupted)).toMatchObject({
         ok: false,
         reason: "invalid-payload",
         type: fixture.type,
@@ -106,12 +110,12 @@ describe("Community browser event runtime contract", () => {
   })
 
   it("uses a bounded read-state dirty hint instead of an account-sized frame", () => {
-    expect(decodeCommunityBrowserEvent({
+    expect(validateCommunityWsEvent({
       type: "community:read_state.advanced",
       revision: 4,
       inboxChanged: true,
     })).toMatchObject({ ok: true })
-    expect(decodeCommunityBrowserEvent({
+    expect(validateCommunityWsEvent({
       type: "community:inbox.changed",
       revision: 5,
       inboxChanged: true,
@@ -131,7 +135,7 @@ describe("Community browser event runtime contract", () => {
     }
     expect(utf8ByteLength(JSON.stringify(accountSizedFrame)))
       .toBeGreaterThan(COMMUNITY_BROWSER_EVENT_MAX_BYTES)
-    expect(decodeCommunityBrowserEvent(accountSizedFrame))
+    expect(validateCommunityWsEvent(accountSizedFrame))
       .toMatchObject({ ok: false, reason: "invalid-payload" })
     const encodedHint = encodeCommunityBrowserEvent({
       type: "community:read_state.advanced",
@@ -143,24 +147,24 @@ describe("Community browser event runtime contract", () => {
   })
 
   it("fails closed for family, removed-version, shape, and strict-key errors", () => {
-    expect(decodeCommunityBrowserEvent(null)).toMatchObject({ reason: "non-object" })
-    expect(decodeCommunityBrowserEvent([])).toMatchObject({ reason: "non-object" })
-    expect(decodeCommunityBrowserEvent({})).toMatchObject({ reason: "missing-type" })
-    expect(decodeCommunityBrowserEvent({ type: "task.messages" })).toMatchObject({ reason: "wrong-family" })
-    expect(decodeCommunityBrowserEvent({ type: "community:future" })).toMatchObject({ reason: "unknown-community-type" })
-    expect(decodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 1 }))
+    expect(validateCommunityWsEvent(null)).toMatchObject({ reason: "non-object" })
+    expect(validateCommunityWsEvent([])).toMatchObject({ reason: "non-object" })
+    expect(validateCommunityWsEvent({})).toMatchObject({ reason: "missing-type" })
+    expect(validateCommunityWsEvent({ type: "task.messages" })).toMatchObject({ reason: "wrong-family" })
+    expect(validateCommunityWsEvent({ type: "community:future" })).toMatchObject({ reason: "unknown-community-type" })
+    expect(validateCommunityWsEvent({ ...fixtures[0], contractVersion: 1 }))
       .toMatchObject({ reason: "invalid-payload" })
     expect(encodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 1 }))
       .toMatchObject({ ok: false, reason: "invalid-payload" })
-    expect(decodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 2 }))
+    expect(validateCommunityWsEvent({ ...fixtures[0], contractVersion: 2 }))
       .toMatchObject({ reason: "invalid-payload" })
-    expect(decodeCommunityBrowserEvent({ ...fixtures[0], extra: true })).toMatchObject({ reason: "invalid-payload" })
+    expect(validateCommunityWsEvent({ ...fixtures[0], extra: true })).toMatchObject({ reason: "invalid-payload" })
     const nestedExtra = clone(communityWsEventFixtures["community:message.create"]) as CommunityMessageCreate & {
       message: CommunityMessageCreate["message"] & { extra: boolean }
     }
     nestedExtra.message.extra = true
-    expect(decodeCommunityBrowserEvent(nestedExtra)).toMatchObject({ reason: "invalid-payload" })
-    expect(decodeCommunityBrowserEvent({
+    expect(validateCommunityWsEvent(nestedExtra)).toMatchObject({ reason: "invalid-payload" })
+    expect(validateCommunityWsEvent({
       type: "community:message.edited",
       channelId: "child",
       messageId: "message",
@@ -184,10 +188,10 @@ describe("Community browser event runtime contract", () => {
         content: "m".repeat(4000),
         attachments: Array.from({ length: 10 }, (_, index) => ({
           id: `attachment-${index}`,
-          filename: `file-${index}.txt`,
+          name: `file-${index}.txt`, thumbnailUrl: null, width: null, height: null,
           url: `/api/community/channels/channel-1/attachments/attachment-${index}`,
           contentType: "text/plain",
-          size: 25 * 1024 * 1024,
+          sizeBytes: 25 * 1024 * 1024,
         })),
         embeds: [{ padding }],
       },
@@ -238,47 +242,48 @@ describe("Community browser event runtime contract", () => {
 })
 
 
-describe("explicit v3 browser events", () => {
+describe("current full-resource browser events", () => {
   it("admits child resources only with matching parent identities", () => {
     const event = { type: "community:channel.child_create", parentChannelId: "parent", parentMessageId: "opener", channel: {
       ...communityResourceChannelFixture, id: "thread", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
     } }
-    expect(decodeCommunityBrowserEvent(event, 3)).toEqual({ ok: true, event })
+    expect(validateCommunityWsEvent(event, BUSINESS_SCHEMA_VERSION)).toEqual({ ok: true, event })
     const { parentMessageId: _parentMessageId, ...withoutOpenerClaim } = event
-    expect(decodeCommunityBrowserEvent(withoutOpenerClaim, 3)).toEqual({ ok: true, event: withoutOpenerClaim })
+    expect(validateCommunityWsEvent(withoutOpenerClaim, BUSINESS_SCHEMA_VERSION)).toEqual({ ok: true, event: withoutOpenerClaim })
     for (const fields of [{ parentChannelId: "other" }, { parentMessageId: "other" }]) {
-      expect(decodeCommunityBrowserEvent({ ...event, ...fields }, 3)).toMatchObject({ ok: false, reason: "invalid-payload" })
+      expect(validateCommunityWsEvent({ ...event, ...fields }, BUSINESS_SCHEMA_VERSION)).toMatchObject({ ok: false, reason: "invalid-payload" })
     }
   })
-  it("requires a positive avatar version on a v3 identity update", () => {
+  it("requires a positive avatar version on a current identity update", () => {
     const event = { type: WS_EVENTS.IDENTITY_UPDATE, userId: "user-1", avatar: null, avatarVersion: 1 }
-    expect(decodeCommunityBrowserEvent(event, 3)).toEqual({ ok: true, event })
+    expect(validateCommunityWsEvent(event, BUSINESS_SCHEMA_VERSION)).toEqual({ ok: true, event })
     for (const avatarVersion of [0, -1, 0.5]) {
-      expect(decodeCommunityBrowserEvent({ ...event, avatarVersion }, 3)).toMatchObject({ ok: false, reason: "invalid-payload" })
+      expect(validateCommunityWsEvent({ ...event, avatarVersion }, BUSINESS_SCHEMA_VERSION)).toMatchObject({ ok: false, reason: "invalid-payload" })
     }
   })
   it("requires full resources on create and preserves partial deltas", () => {
-    expect(decodeCommunityBrowserEvent(communityResourceMessageFixture, 3)).toEqual({ ok: true, event: communityResourceMessageFixture })
-    expect(decodeCommunityBrowserEvent(communityResourceMessageFixture, 2).ok).toBe(false)
-    expect(decodeCommunityBrowserEvent(communityWsEventFixtures["community:message.create"], 3).ok).toBe(false)
-    expect(decodeCommunityBrowserEvent({ ...communityResourceMessageFixture, channelId: "other" }, 3).ok).toBe(false)
+    expect(validateCommunityWsEvent(communityResourceMessageFixture, BUSINESS_SCHEMA_VERSION)).toEqual({ ok: true, event: communityResourceMessageFixture })
+    expect(validateCommunityWsEvent(communityResourceMessageFixture, 2).ok).toBe(false)
+    expect(validateCommunityWsEvent({ ...communityWsEventFixtures["community:message.create"], message: { id: "message-1", content: "weak" } }, BUSINESS_SCHEMA_VERSION).ok).toBe(false)
+    expect(validateCommunityWsEvent({ ...communityResourceMessageFixture, channelId: "other" }, BUSINESS_SCHEMA_VERSION).ok).toBe(false)
     const create = { type: WS_EVENTS.CHANNEL_CREATE, serverId: "server-1", channel: communityResourceChannelFixture }
-    expect(decodeCommunityBrowserEvent(create, 3)).toEqual({ ok: true, event: create })
-    expect(decodeCommunityBrowserEvent({ ...create, serverId: "other" }, 3).ok).toBe(false)
-    expect(decodeCommunityBrowserEvent({ ...create, channel: { id: "channel-1", name: "Channel", type: "text" } }, 3).ok).toBe(false)
+    expect(validateCommunityWsEvent(create, BUSINESS_SCHEMA_VERSION)).toEqual({ ok: true, event: create })
+    expect(validateCommunityWsEvent({ ...create, serverId: "other" }, BUSINESS_SCHEMA_VERSION).ok).toBe(false)
+    expect(validateCommunityWsEvent({ ...create, channel: { id: "channel-1", name: "Channel", type: "text" } }, BUSINESS_SCHEMA_VERSION).ok).toBe(false)
     const delta = { type: WS_EVENTS.CHANNEL_UPDATE, serverId: "server-1", channelId: "channel-1", changes: { name: "Renamed" } }
-    expect(decodeCommunityBrowserEvent(delta, 3)).toEqual({ ok: true, event: delta })
-    const encoded = encodeCommunityBrowserEvent(communityResourceMessageFixture, 3)
+    expect(validateCommunityWsEvent(delta, BUSINESS_SCHEMA_VERSION)).toEqual({ ok: true, event: delta })
+    const encoded = encodeCommunityBrowserEvent(communityResourceMessageFixture, BUSINESS_SCHEMA_VERSION)
     expect(encoded.ok).toBe(true)
     if (encoded.ok) expect(encoded.byteLength).toBe(utf8ByteLength(encoded.body))
-    expect(encodeCommunityBrowserEvent({ ...communityResourceMessageFixture, message: { ...communityResourceMessageFixture.message, content: "😀".repeat(COMMUNITY_BROWSER_EVENT_MAX_BYTES) } }, 3).ok).toBe(false)
+    expect(encodeCommunityBrowserEvent({ ...communityResourceMessageFixture, message: { ...communityResourceMessageFixture.message, content: "😀".repeat(COMMUNITY_BROWSER_EVENT_MAX_BYTES) } }, BUSINESS_SCHEMA_VERSION).ok).toBe(false)
   })
 })
 
-it("server rail hints carry no order or account payload in either contract", () => {
-  for (const contract of [2, 3] as const) {
-    const hint = { type: "community:server_rail.changed" };
-    expect(decodeCommunityBrowserEvent(hint, contract)).toMatchObject({ ok: true, event: hint });
-    for (const extra of [{ entries: [] }, { userId: "other" }]) expect(decodeCommunityBrowserEvent({ ...hint, ...extra }, contract)).toMatchObject({ ok: false, reason: "invalid-payload" });
-  }
-});
+it("current server rail hints carry no order or account payload; old versions reject", () => {
+  const hint = { type: "community:server_rail.changed" }
+  const encoded = encodeCommunityBrowserEvent(hint)
+  if (!encoded.ok) throw new Error("invalid current fixture")
+  expect(decodeCommunityBrowserEvent(encoded.envelope)).toEqual({ ok: true, event: hint })
+  for (const version of [1, 2, 3, BUSINESS_SCHEMA_VERSION - 1]) expect(decodeCommunityBrowserEvent({ ...hint, schemaVersion: version }).ok).toBe(false)
+  for (const extra of [{ entries: [] }, { userId: "other" }]) expect(validateCommunityWsEvent({ ...hint, ...extra }).ok).toBe(false)
+})

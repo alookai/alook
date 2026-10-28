@@ -23,13 +23,21 @@ const machine = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 }
 
+export const communityResourceChannelFixture = {
+  id: "channel-1", type: "text", serverId: "server-1", categoryId: null,
+  name: "Channel", topic: "Keep this topic", parentChannelId: null, parentMessageId: null,
+  creatorId: "user-1", position: 4, archived: false, createdAt: "2026-01-01T00:00:00.000Z",
+  lastMessageAt: null, messageCount: 0,
+} as const
+
+
 export const communityWsEventFixtures = {
   "community:message.create": {
     type: "community:message.create",
     channelId: "channel-1",
     serverId: "server-1",
     message: {
-      id: "message-1",
+      id: "message-1", channelId: "channel-1", replyToId: null, clientNonce: null,
       seq: 1,
       authorId: "user-1",
       authorName: "Author",
@@ -38,7 +46,7 @@ export const communityWsEventFixtures = {
       type: "chat",
       attachments: [{
         id: "attachment-1",
-        filename: "photo.png",
+        name: "photo.png", sizeBytes: 2048, width: 640, height: 480,
         url: "/api/community/channels/channel-1/attachments/attachment-1",
         thumbnailUrl: "/api/community/channels/channel-1/attachments/attachment-1/thumbnail",
         contentType: "image/png",
@@ -89,12 +97,7 @@ export const communityWsEventFixtures = {
   "community:channel.child_create": {
     type: "community:channel.child_create",
     parentChannelId: "channel-1",
-    channel: {
-      id: "thread-1",
-      name: "Thread",
-      type: "thread",
-      createdAt: "2026-01-01T00:00:00.000Z",
-    },
+    channel: { ...communityResourceChannelFixture, id: "thread-1", name: "Thread", type: "thread", parentChannelId: "channel-1", parentMessageId: "message-1" },
   },
   "community:channel.child_update": {
     type: "community:channel.child_update",
@@ -112,13 +115,7 @@ export const communityWsEventFixtures = {
   "community:channel.create": {
     type: "community:channel.create",
     serverId: "server-1",
-    channel: {
-      id: "channel-1",
-      name: "Channel",
-      type: "text",
-      position: 0,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    },
+    channel: { ...communityResourceChannelFixture, position: 0 },
   },
   "community:channel.update": {
     type: "community:channel.update",
@@ -136,25 +133,13 @@ export const communityWsEventFixtures = {
     serverId: "server-1",
     channels: [{ id: "channel-1", position: 0 }],
   },
-  "community:channel.member_add": {
-    type: "community:channel.member_add",
-    serverId: "server-1",
-    channelId: "channel-1",
-    userId: "user-1",
-  },
-  "community:channel.member_remove": {
-    type: "community:channel.member_remove",
-    serverId: "server-1",
-    channelId: "channel-1",
-    userId: "user-1",
-  },
   "community:channel.membership.change": {
     type: "community:channel.membership.change", serverId: "server-1", channelId: "channel-1", userId: "user-1", relation: "notify", present: true,
   },
   "community:category.create": {
     type: "community:category.create",
     serverId: "server-1",
-    category: { id: "category-1", name: "Category", position: 0, private: false },
+    category: { id: "category-1", serverId: "server-1", creatorId: "user-1", name: "Category", position: 0, private: false },
   },
   "community:category.update": {
     type: "community:category.update",
@@ -178,7 +163,7 @@ export const communityWsEventFixtures = {
     member: {
       id: "member-1",
       userId: "user-1",
-      name: "Member",
+      name: "Member", avatar: null,
       discriminator: "0001",
       avatarVersion: 0,
       role: "member",
@@ -309,8 +294,6 @@ export const requiredFixturePaths = {
   "community:channel.update": ["changes"],
   "community:channel.delete": ["channelId"],
   "community:channel.reorder": ["channels"],
-  "community:channel.member_add": ["userId"],
-  "community:channel.member_remove": ["userId"],
   "community:channel.membership.change": ["relation"],
   "community:category.create": ["category"],
   "community:category.update": ["changes"],
@@ -342,12 +325,6 @@ export const requiredFixturePaths = {
   "community:bot.audit_event": ["payload"],
 } satisfies Record<CommunityWsEvent["type"], readonly [] | readonly [string, ...string[]]>
 
-export const communityResourceChannelFixture = {
-  id: "channel-1", type: "text", serverId: "server-1", categoryId: null,
-  name: "Channel", topic: "Keep this topic", parentChannelId: null, parentMessageId: null,
-  creatorId: "user-1", position: 4, archived: false, createdAt: "2026-01-01T00:00:00.000Z",
-  lastMessageAt: null, messageCount: 0,
-} as const
 
 export const communityResourceMessageFixture = {
   ...communityWsEventFixtures["community:message.create"],

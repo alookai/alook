@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import { readFileSync } from "node:fs"
@@ -734,10 +735,10 @@ test("late original IDB cannot revive a DM after a real WS block", async ({ case
     await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
     expect(targetGets).toEqual([])
     await expect.poll(() => proxy.connectionFrames.some(frame => frame.type === "auth.ok")).toBe(true)
-    const blocked = await bob.page.request.post(`/api/community/users/${userId("alice")}/block`)
+    const blocked = await confirmCommunityFixtureApiResponse(bob.page.request.post(`/api/community/users/${userId("alice")}/block`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(blocked.status()).toBe(200)
     await expect.poll(() => proxy.frames.some(frame => frame.type === "community:friend.block" && frame.userId === userId("bob"))).toBe(true)
-    const denied = await alice.page.request.get(`/api/community/channels/${dmId}/messages?entry=1`, { headers: { "x-alook-community-contract": "3" } })
+    const denied = await confirmCommunityFixtureApiResponse(alice.page.request.get(`/api/community/channels/${dmId}/messages?entry=1`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(denied.status()).toBe(403)
     await expect(alice.page.getByTestId(tid.message(oldId))).toHaveCount(0)
     await expect(alice.page.getByTestId(tid.message(newId))).toHaveCount(0)
@@ -799,7 +800,7 @@ test("a real empty machine list is usable before optional observations or bots r
 })
 
 async function activateRealMachine(page: Page, caseResources: CaseResources) {
-  const paired = await page.request.post("/api/community/machines/pair")
+  const paired = await confirmCommunityFixtureApiResponse(page.request.post("/api/community/machines/pair", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(paired.status()).toBe(200)
   const { tokenId } = await paired.json() as { tokenId: string }
   const activationProof: { response?: APIResponse; machineId?: string } = {}
@@ -813,7 +814,7 @@ async function activateRealMachine(page: Page, caseResources: CaseResources) {
   })
   expect(activated.status()).toBe(200)
   const { machineId, credential } = await activated.json() as { machineId: string; credential: string }
-  caseResources.own(machineId, async id => { const removed = await page.request.delete(`/api/community/machines/${id}`); expect([204, 404]).toContain(removed.status()) })
+  caseResources.own(machineId, async id => { const removed = await confirmCommunityFixtureApiResponse(page.request.delete(`/api/community/machines/${id}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })); expect([204, 404]).toContain(removed.status()) })
   activationProof.response = activated
   activationProof.machineId = machineId
   await pairingToken.close()
@@ -961,19 +962,19 @@ test("real machine status, removal and creation retire an older list response", 
     await connection.opened
     connection.socket.send(JSON.stringify(HostReadyMessageSchema.parse({ type: "ready", runtimeReport: [{ id: "pi", status: "healthy" }], capabilities: [CONTROL_HEARTBEAT_CAPABILITY], runningAgents: [], hostname: first.hostname, platform: "linux", arch: "x64", daemonVersion: (JSON.parse(readFileSync(resolve(REPO_ROOT, "src/daemon/package.json"), "utf8")) as { version: string }).version })))
     await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.status" && frame.machineId === first.machineId && frame.status === "online")).toBe(true)
-    const online = await page.request.get("/api/community/machines?view=list")
+    const online = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/machines?view=list", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(online.status()).toBe(200)
     expect((await online.json()).machines).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.machineId, status: "online" })]))
     await connection.close()
     await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.status" && frame.machineId === first.machineId && frame.status === "offline")).toBe(true)
-    const removed = await page.request.delete(`/api/community/machines/${first.machineId}`)
+    const removed = await confirmCommunityFixtureApiResponse(page.request.delete(`/api/community/machines/${first.machineId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(removed.status()).toBe(204)
     await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.removed" && frame.machineId === first.machineId)).toBe(true)
     const second = await activateRealMachine(page, caseResources)
     await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.created" && (frame.machine as { id?: string } | undefined)?.id === second.machineId)).toBe(true)
     await page.getByRole("link", { name: "Machines", exact: true }).click()
     await expect(page.getByText(second.hostname, { exact: true })).toBeVisible()
-    const current = await page.request.get("/api/community/machines?view=list")
+    const current = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/machines?view=list", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(current.status()).toBe(200)
     expect((await current.json()).machines.map((machine: { id: string }) => machine.id)).toEqual([second.machineId])
     held.release()

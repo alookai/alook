@@ -496,7 +496,7 @@ describe("useServerMembers search lifecycle", () => {
       expect(resultRef.current).toMatchObject({ loading: true, failed: false })
       expect(observations.every((value) => value.loading || value.failed)).toBe(true)
       await act(async () => {
-        queryClient.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ identityComplete: false, id: person.userId, name: person.name, discriminator: person.discriminator, avatar: person.avatar, avatarVersion: 0 })])
+        queryClient.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ id: person.userId, name: person.name, discriminator: person.discriminator, avatar: person.avatar, avatarVersion: 0 })])
         restore.resolve(); await registry.preload()
       })
       await vi.waitFor(() => expect(resultRef.current).toMatchObject({ loading: false, failed: false, members: [expect.objectContaining({ id: "a", discriminator: "0000" })] }))

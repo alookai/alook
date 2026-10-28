@@ -95,16 +95,12 @@ describe("native notification conversation dismissal revisions", () => {
     expect(queue.complete("desktop", "viewer_1", target, second.revision)).toBe(false)
     expect(queue.pending("desktop", "viewer_1")).toHaveLength(1)
   })
-  it("migrates a legacy demand once in the same key and survives recreation", () => {
-    const values = new Map([[key, JSON.stringify([{version:1, platform:"mobile", viewerUserId:"viewer_1", target}])]])
-    const first = createNativeSystemNotificationConversationDismissalQueue(deps(values))
-    const demand = first.pending("mobile", "viewer_1")[0]!
-    expect(JSON.parse(values.get(key)!)[0].version).toBe(2)
-    const restored = createNativeSystemNotificationConversationDismissalQueue(deps(values))
-    expect(restored.pending("mobile", "viewer_1")).toEqual([demand])
-    expect(restored.pending("desktop", "viewer_1")).toEqual([])
-    expect(restored.complete("mobile", "viewer_1", target, demand.revision)).toBe(true)
-    expect(values.size).toBe(0)
+  it("rejects and removes unversioned-old demand without conversion", () => {
+    const values = new Map([[key, JSON.stringify([{ version: 1, platform: "mobile", viewerUserId: "viewer_1", target }])]])
+    const queue = createNativeSystemNotificationConversationDismissalQueue(deps(values))
+    expect(queue.pending("mobile", "viewer_1")).toEqual([])
+    expect(values.has(key)).toBe(false)
+    expect(createNativeSystemNotificationConversationDismissalQueue(deps(values)).pending("mobile", "viewer_1")).toEqual([])
   })
   it("bounds scopes and rejects corrupt storage, unsafe identities, and failed writes", () => {
     const values = new Map<string, string>()

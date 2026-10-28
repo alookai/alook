@@ -1,3 +1,7 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { QueryClient } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
+import { serverResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -29,12 +33,12 @@ afterEach(() => { vi.restoreAllMocks() })
 
 describe("rail hrefs derived from canonical rows and existing navigation memory", () => {
   it.each(["desktop", "mobile", "unknown"] as const)("server-renders deterministic %s links without reading client memory or subscribing", (breakpoint) => {
-    const servers = collection([["s", { detailComplete: true }], ["other", { detailComplete: true }]])
+    const servers = collection([["s", serverResourceFixture({ id: "s" })], ["other", serverResourceFixture({ id: "other" })]])
     const channels = collection([
-      ["first", { id: "first", serverId: "s", type: "text" }],
-      ["second", { id: "second", serverId: "other", type: "text" }],
+      ["first", channelResourceFixture({ id: "first", serverId: "s" })],
+      ["second", channelResourceFixture({ id: "second", serverId: "other" })],
     ])
-    owner.registry = { collections: { servers, channels } } as unknown as CommunityDbRegistry
+    owner.registry = { queryClient: new QueryClient(), accountId: "viewer", scopeId: "viewer", collections: { servers, categories: collection([]), channels } } as unknown as CommunityDbRegistry
     setLastMeLocation("/c/me/machines")
     setLastChannel("s", "remembered")
     setLastChannel("other", "other-remembered")
@@ -78,19 +82,22 @@ describe("rail hrefs derived from canonical rows and existing navigation memory"
   })
 
   it("subscribes to complete canonical channels, filters placeholders/threads, and follows the latest memory", () => {
-    const servers = collection<{ detailComplete: boolean }>([["s", { detailComplete: false }]])
-    const channels = collection<{ id: string; serverId: string; type: string; pending?: boolean }>([
-      ["pending", { id: "pending", serverId: "s", type: "text", pending: true }],
-      ["thread", { id: "thread", serverId: "s", type: "thread" }],
-      ["first", { id: "first", serverId: "s", type: "text" }],
-      ["foreign", { id: "foreign", serverId: "other", type: "text" }],
+    const servers = collection([["s", serverResourceFixture({ id: "s" })]])
+    const channels = collection<ReturnType<typeof channelResourceFixture> & { pending?: boolean }>([
+      ["pending", { ...channelResourceFixture({ id: "pending", serverId: "s" }), pending: true }],
+      ["thread", channelResourceFixture({ id: "thread", serverId: "s", type: "thread", parentChannelId: "first", parentMessageId: "opener" })],
+      ["first", channelResourceFixture({ id: "first", serverId: "s" })],
+      ["foreign", channelResourceFixture({ id: "foreign", serverId: "other" })],
     ])
-    owner.registry = { collections: { servers, channels } } as unknown as CommunityDbRegistry
+    owner.registry = { queryClient: new QueryClient(), accountId: "viewer", scopeId: "viewer", collections: { servers, categories: collection([]), channels } } as unknown as CommunityDbRegistry
     const rows = [{ id: "s" }]
     const view = renderHook(({ breakpoint }: { breakpoint: "desktop" | "mobile" }) =>
       useCommunityRailHrefs(rows, breakpoint), { initialProps: { breakpoint: "desktop" } })
     expect(view.result.current.serverHrefs.s).toBe("/c/channels/s")
-    act(() => servers.put("s", { detailComplete: true }))
+    act(() => {
+      owner.registry!.queryClient.setQueryData(communityKeys.server("s"), { schemaVersion: BUSINESS_SCHEMA_VERSION, accountId: "viewer", serverId: "s", categoryIds: [], channelIds: ["first"] })
+      servers.put("s", serverResourceFixture({ id: "s" }))
+    })
     expect(view.result.current.serverHrefs.s).toBe("/c/channels/s/first")
     act(() => setLastChannel("s", "latest"))
     expect(view.result.current.serverHrefs.s).toBe("/c/channels/s/latest")

@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch } from "./_fixtures/business-contract"
 import { randomUUID } from "node:crypto"
 import { spawnSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
@@ -13,7 +14,7 @@ import type { CaseActors } from "./_fixtures/case-fixture"
 async function prepareCase(actors: CaseActors) {
   const { sessionCookie } = actors
   async function postAsAlice(path: string, body?: unknown): Promise<Response> {
-    return fetch(`${WEB_URL}${path}`, {
+    return communityFixtureFetch(`${WEB_URL}${path}`, {
       method: "POST",
       headers: {
         Cookie: sessionCookie("alice"),
@@ -280,11 +281,11 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
 
   const { page } = await asUser("alice", { hasTouch: true })
   await page.route("**/api/community/bots", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(botsResponse) })
+    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, contentType: "application/json", body: JSON.stringify(botsResponse) })
   })
   await page.route(url => url.pathname === "/api/community/machines", async (route) => {
     const optional = new URL(route.request().url()).searchParams.get("view") === "observations"
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(optional ? { quotas: [] } : { machines: [machine] }) })
+    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, contentType: "application/json", body: JSON.stringify(optional ? { quotas: [] } : { machines: [(({ quota: _quota, ...identity }) => identity)(machine)], complete: true }) })
   })
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" })
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -603,7 +604,7 @@ let caseJourneyFailure1Present = false
     writeFileSync(d1EvidencePath, `${JSON.stringify(d1Evidence, null, 2)}\n`)
     await testInfo.attach("real-pi-d1-token-usage.json", { path: d1EvidencePath })
 
-    const apiResponse = await fetch(`${WEB_URL}/api/community/bots`, {
+    const apiResponse = await communityFixtureFetch(`${WEB_URL}/api/community/bots`, {
       headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL },
     })
     expect(apiResponse.ok).toBe(true)

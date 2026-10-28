@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  BUSINESS_SCHEMA_VERSION,
   COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
   MESSAGE_DELIVERY_MAX_EVENTS_PER_USER,
   deriveCommunityDeliveryOperationId,
@@ -20,7 +21,7 @@ const messageEvent = {
   serverId: "server-1",
   parentChannelId: "forum-1",
   message: {
-    id: "message-1",
+    id: "message-1", channelId: "thread-1", replyToId: null, clientNonce: null, attachments: [],
     seq: 4,
     authorId: "author",
     authorName: "Alice",
@@ -32,13 +33,13 @@ const messageEvent = {
 }
 
 const batch = {
+  communityContract: BUSINESS_SCHEMA_VERSION,
   messageId: "message-1",
   messageEvent,
   contentUserIds: ["author", "overlap"],
   unreadPlainUserIds: [],
   unreadMentionUserIds: ["overlap"],
   mentionUserIds: ["overlap", "mention-only"],
-  memberAdded: { userId: "author", serverId: "server-1", channelId: "thread-1" },
   parentProjection: {
     type: "community:channel.child_update" as const,
     parentChannelId: "forum-1",
@@ -101,12 +102,12 @@ describe("message delivery route", () => {
       inputs.set(target, await request.clone().json() as InternalBundleBody)
       return successfulReceipt(request)
     })
-    const input: MessageDeliveryBatch = { ...batch, memberAdded: undefined,
+    const input: MessageDeliveryBatch = { ...batch,
       contentUserIds: ["author", "overlap", "joined-reply", "reader"], joinedParticipantUserIds: ["author", "overlap", "joined-reply"], rosterRefreshUserId: "author" }
     expect((await handler.fetch(await deliveryRequest(input), env as never)).status).toBe(200)
     for (const id of input.contentUserIds) {
       const changes = inputs.get(id)!.events.filter((event) => event.type === "community:channel.membership.change")
-      expect(changes).toEqual([{ type: "community:channel.membership.change", channelId: "thread-1", serverId: "server-1",
+      expect(changes).toEqual([{ schemaVersion: BUSINESS_SCHEMA_VERSION, type: "community:channel.membership.change", channelId: "thread-1", serverId: "server-1",
         userId: id === "reader" ? "author" : id, relation: "notify", present: true }])
       expect(inputs.get(id)!.events.length).toBeLessThanOrEqual(MESSAGE_DELIVERY_MAX_EVENTS_PER_USER)
     }
@@ -126,7 +127,7 @@ describe("message delivery route", () => {
       if (target === "transient" && failTransient) return Response.json({ error: "D1 unavailable" }, { status: 503 })
       return successfulReceipt(request)
     })
-    const mixed = { messageId: batch.messageId, messageEvent, contentUserIds: ["success", "revoked", "transient"], unreadPlainUserIds: ["success", "revoked", "transient"], unreadMentionUserIds: [], mentionUserIds: [] }
+    const mixed = { communityContract: BUSINESS_SCHEMA_VERSION, messageId: batch.messageId, messageEvent, contentUserIds: ["success", "revoked", "transient"], unreadPlainUserIds: ["success", "revoked", "transient"], unreadMentionUserIds: [], mentionUserIds: [] }
     const first = await handler.fetch(await deliveryRequest(mixed), env as never)
     expect(first.status).toBe(207)
     expect(await first.json()).toEqual({ failedUserIds: ["transient"] })
@@ -180,9 +181,7 @@ describe("message delivery route", () => {
       railChannelId: "forum-1",
       isMention: true,
     })
-    // Exact legacy strict shape: scope travels on the pre-existing bump so an
-    // already-open client running the previous decoder accepts the whole batch.
-    expect(byUser.get("mention-only")?.events[1]).toEqual({
+    expect(byUser.get("mention-only")?.events[1]).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
       type: "community:mention.create",
       userId: "mention-only",
       messageId: "message-1",
@@ -234,7 +233,6 @@ describe("message delivery route", () => {
       contentUserIds: [],
       unreadMentionUserIds: [],
       mentionUserIds: ["mention-only"],
-      memberAdded: undefined,
       parentProjectionUserIds: ["mention-only"],
     }
     const first = await handler.fetch(await deliveryRequest(retryBatch), env as never)
@@ -248,20 +246,19 @@ describe("message delivery route", () => {
     expect(mentionOnlyBodies[0]?.events).toHaveLength(3)
   })
 
-  it("keeps a mention-only DM scoped as a DM in the legacy-compatible batch", async () => {
+  it("keeps a mention-only DM scoped as a DM in the current batch", async () => {
     doMock.stubFetch.mockImplementation(successfulReceipt)
     const dmBatch = {
       ...batch,
       messageEvent: {
         ...batch.messageEvent,
-        channelId: "dm-1",
+        channelId: "dm-1", message: { ...batch.messageEvent.message, channelId: "dm-1" },
         serverId: undefined,
         parentChannelId: undefined,
       },
       contentUserIds: [],
       unreadMentionUserIds: [],
       mentionUserIds: ["mention-only"],
-      memberAdded: undefined,
       parentProjection: undefined,
       parentProjectionUserIds: undefined,
     }
@@ -271,13 +268,13 @@ describe("message delivery route", () => {
     const request = doMock.stubFetch.mock.calls[0]?.[0] as Request
     const body = await request.clone().json() as InternalBundleBody
     expect(body.events).toEqual([
-      {
+      { schemaVersion: BUSINESS_SCHEMA_VERSION,
         type: "community:unread.bump",
         userId: "mention-only",
         channelId: "dm-1",
         isMention: true,
       },
-      {
+      { schemaVersion: BUSINESS_SCHEMA_VERSION,
         type: "community:mention.create",
         userId: "mention-only",
         messageId: "message-1",
@@ -397,7 +394,6 @@ describe("message delivery route", () => {
       unreadPlainUserIds: [],
       unreadMentionUserIds: [],
       mentionUserIds: [],
-      memberAdded: undefined,
       parentProjection: undefined,
       parentProjectionUserIds: undefined,
     }), env as never)
@@ -410,7 +406,7 @@ describe("message delivery route", () => {
   it.each([
     ["invalid JSON", "{"],
     ["extra key", JSON.stringify({ ...batch, extra: true })],
-    ["cross-scope member", JSON.stringify({ ...batch, memberAdded: { ...batch.memberAdded, channelId: "other" } })],
+    ["obsolete memberAdded field", JSON.stringify({ ...batch, memberAdded: { userId: "author", serverId: "server-1", channelId: "thread-1" } })],
   ])("rejects %s before DO access", async (_label, body) => {
     const response = await handler.fetch(new Request(
       "http://localhost/broadcast/community/message-delivery",

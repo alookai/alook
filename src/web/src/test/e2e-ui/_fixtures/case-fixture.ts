@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./business-contract"
 import { createNaturalVisibilityActor } from "./natural-visibility-actor"
 import type { APIResponse, BrowserContext, BrowserContextOptions, Page, Response as PlaywrightResponse, TestInfo } from "@playwright/test"
 import { createHash } from "crypto"
@@ -180,7 +181,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       return state.cookies.filter((cookie) => cookie.name.startsWith("better-auth")).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ")
     }
     const read = async (key: UserKey, path: string): Promise<Record<string, unknown>> => {
-      const response = await retrySeedRequest(() => fetch(`${WEB_URL}${path}`, { headers: { Cookie: sessionCookie(key), Origin: WEB_URL } }))
+      const response = await retrySeedRequest(() => communityFixtureFetch(`${WEB_URL}${path}`, { headers: { Cookie: sessionCookie(key), Origin: WEB_URL } }))
       if (!response.ok) throw new Error(`Case baseline ${key} GET ${path} failed (${response.status})`)
       const body = await response.json() as Record<string, unknown>
       if (!body || typeof body !== "object" || body.stale === true || body.truncated === true) throw new Error(`Case baseline ${key} GET ${path} is incomplete`)

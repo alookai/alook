@@ -1,3 +1,4 @@
+import { friendBucketScenarioFixture } from "@/test/community-resource-fixtures"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
 import { type QueryClient } from "@tanstack/react-query"
@@ -43,7 +44,7 @@ describe("useFriends / friendsQueryFn", () => {
       "/api/community/friends/blocked": {
         blocked: [
           { id: "b_1", userId: "blocked_1", name: "b", avatar: "b", avatarVersion: 2 },
-          { id: "b_legacy", name: "legacy", avatar: "l", avatarVersion: 0 },
+          { id: "b_legacy", userId: "other_blocked_peer", name: "legacy", avatar: "l", avatarVersion: 0 },
         ],
       },
       "/api/community/friends/pending": {
@@ -59,13 +60,15 @@ describe("useFriends / friendsQueryFn", () => {
     }
     apiFetchMock.mockImplementation(async (url: string) => {
       if (!(url in byUrl)) throw new Error(`unexpected url ${url}`)
-      return byUrl[url]
+      const data = byUrl[url] as { friends?: Array<{ userId: string; name: string; avatar: string; avatarVersion: number }>; pending?: Array<{ userId: string; name: string; avatar: string; avatarVersion: number }>; blocked?: Array<{ userId: string; name: string; avatar: string; avatarVersion: number }> }
+      const bucket = url.endsWith("/accepted") ? "friends" : url.endsWith("/blocked") ? "blocked" : "pending"
+      return friendBucketScenarioFixture(bucket, data[bucket]!)
     })
 
     const { friendsQueryFn } = await import("./use-friends")
     const { client } = await createCommunityQueryOwner()
     const data = await client.query({ queryKey: communityKeys.friends(), queryFn: friendsQueryFn })
-    expect(data.ids).toEqual(["f_1", "p_1", "blocked:blocked_1", "blocked:b_legacy"])
+    expect(data.ids).toEqual(["f_1", "p_1", "blocked:blocked_1", "blocked:other_blocked_peer"])
     expect([...getCommunityDbRegistry(client)!.collections.friendships.values()]).toHaveLength(4)
     expect(apiFetchMock).toHaveBeenCalledTimes(3)
     expect(apiFetchMock.mock.calls.map((call) => call[0]).sort()).toEqual([
@@ -94,6 +97,7 @@ describe("useFriends / friendsQueryFn", () => {
         },
         {
           id: "legacy",
+          userId: "other_friend_peer",
           name: "legacy",
           discriminator: "0002",
           avatar: "legacy",
@@ -126,17 +130,17 @@ describe("useFriends / friendsQueryFn", () => {
       ],
       blocked: [
         { id: "b1", userId: "blocked_1", name: "raw blocked", avatar: "raw", avatarVersion: 1 },
-        { id: "legacy-blocked", name: "legacy blocked", avatar: "legacy", avatarVersion: 0 },
+        { id: "legacy-blocked", userId: "other_blocked_peer", name: "legacy blocked", avatar: "legacy", avatarVersion: 0 },
         { id: "missing-blocked", userId: "blocked_missing", name: "missing blocked", avatar: "missing", avatarVersion: 0 },
       ],
     }
     const registry = getCommunityDbRegistry(queryClient)!
-    for (const row of [...raw.friends.map((friend) => ({ id: friend.id, userId: "userId" in friend ? friend.userId : friend.id, kind: "accepted", sub: friend.sub })),
-      ...raw.pending.map((pending) => ({ ...pending })),
-      ...raw.blocked.map((blocked) => ({ id: "blocked:" + ("userId" in blocked ? blocked.userId : blocked.id), userId: "userId" in blocked ? blocked.userId : blocked.id, kind: "blocked" }))]) await act(async () => { registry.collections.friendships.utils.writeUpsert(friendshipSchema.parse(row)) });
+    for (const row of [...raw.friends.map((friend) => ({ id: friend.id, userId: friend.userId, kind: "accepted", sub: friend.sub })),
+      ...raw.pending.map((pending) => ({ id: pending.id, userId: pending.userId, kind: pending.kind })),
+      ...raw.blocked.map((blocked) => ({ id: "blocked:" + (blocked.userId), userId: blocked.userId, kind: "blocked" }))]) await act(async () => { registry.collections.friendships.utils.writeUpsert(friendshipSchema.parse(row)) });
     for (const row of [...raw.friends, ...raw.pending, ...raw.blocked]) {
-      const userId = "userId" in row ? row.userId : row.id
-      await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ identityComplete: false, discriminator: null, ...row, kind: "human", id: userId })) });
+      const userId = row.userId
+      await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ id: userId, name: row.name, discriminator: "discriminator" in row ? row.discriminator : null, avatar: row.avatar, avatarVersion: row.avatarVersion, kind: "human" })) });
     }
     const window = { ids: [...registry.collections.friendships.values()].map((row) => row.id) }
     queryClient.setQueryData(communityKeys.friends(), window)
@@ -164,7 +168,7 @@ describe("useFriends / friendsQueryFn", () => {
         avatarVersion: 6,
       }],
     ])
-    for (const [userId, fields] of canonicalProfiles) await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ identityComplete: false, ...registry.collections.profiles.get(userId), ...fields, id: userId })) });
+    for (const [userId, fields] of canonicalProfiles) await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ ...Object.fromEntries(Object.entries(registry.collections.profiles.get(userId)!).filter(([key]) => key in profileSchema.shape)), ...Object.fromEntries(Object.entries(fields).filter(([key]) => key !== "presence")), id: userId })) });
     await act(async () => { registry.runtime.ws.actions.seedPresence(registry.runtime.ws.actions.beginPresenceSnapshot(), [["friend_1", "online"]]) });
     let rendered!: ReturnType<typeof renderHook<ReturnType<typeof useFriends>, unknown>>
     await act(async () => { rendered = renderHook(() => useFriends(), {
@@ -204,11 +208,44 @@ describe("useFriends / friendsQueryFn", () => {
     expect(queryClient.getQueryData(communityKeys.friends())).toBe(window)
   })
 
+  it.each(["accepted-user-id", "blocked-user-id", "pending-user-id", "relationship-id", "full-peer-profile", "partial-peer-profile", "wrong-viewer", "pending-kind"] as const)("rejects raw current bucket missing %s before publishing that bucket", async variant => {
+    const { friendsQueryFn } = await import("./use-friends")
+    const { client, registry } = await createCommunityQueryOwner()
+    const peer = { id: "relationship-raw", kind: "incoming", userId: "peer-raw", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0 }
+    const bucket = variant === "blocked-user-id" ? "blocked" : variant.startsWith("pending") ? "pending" : "friends"
+    const data = friendBucketScenarioFixture(bucket, [peer])
+    if (variant === "full-peer-profile") data.resources.profiles = []
+    else if (variant === "partial-peer-profile") delete (data.resources.profiles[0] as Partial<typeof data.resources.profiles[0]>).avatar
+    else if (variant === "wrong-viewer") data.resources.viewerId = "other"
+    else if (variant === "relationship-id") data[bucket][0]!.id = ""
+    else if (variant === "pending-kind") data[bucket][0]!.kind = "accepted"
+    else delete (data[bucket][0] as Partial<typeof peer>).userId
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith(bucket === "friends" ? "/accepted" : "/blocked")) return data
+      return friendBucketScenarioFixture(url.endsWith("/accepted") ? "friends" : url.endsWith("/pending") ? "pending" : "blocked", [])
+    })
+    await expect(client.query({ queryKey: communityKeys.friends(), queryFn: friendsQueryFn, retry: false })).rejects.toThrow()
+    expect([...registry.collections.friendships.values()]).toEqual([])
+    expect([...registry.collections.profiles.values()]).toEqual([])
+  })
+
+  it("uses complete resource identity while retaining only relationship presentation from its summary", async () => {
+    const { friendsQueryFn } = await import("./use-friends")
+    const { client, registry } = await createCommunityQueryOwner()
+    const response = friendBucketScenarioFixture("friends", [{ id: "relation", userId: "peer", name: "Old hint", discriminator: "0001", avatar: "old", avatarVersion: 1, sub: "relationship detail" }])
+    response.resources.profiles[0] = { id: "peer", name: "Full identity", discriminator: "0042", avatar: "actual", avatarVersion: 4 }
+    apiFetchMock.mockImplementation(async (url: string) => url.endsWith("/accepted") ? response : friendBucketScenarioFixture(url.endsWith("/pending") ? "pending" : "blocked", []))
+    await client.query({ queryKey: communityKeys.friends(), queryFn: friendsQueryFn })
+    expect(registry.collections.profiles.get("peer")).toMatchObject({ name: "Full identity", discriminator: "0042", avatar: "actual", avatarVersion: 4 })
+    expect(registry.collections.friendships.get("relation")).toMatchObject({ userId: "peer", sub: "relationship detail" })
+    expect(registry.collections.profiles.has("relation")).toBe(false)
+  })
+
   it("populates queryClient at communityKeys.friends() and is invalidated by prefix", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ friends: [] })
-      .mockResolvedValueOnce({ blocked: [] })
-      .mockResolvedValueOnce({ pending: [] })
+      .mockResolvedValueOnce(friendBucketScenarioFixture("friends", []))
+      .mockResolvedValueOnce(friendBucketScenarioFixture("blocked", []))
+      .mockResolvedValueOnce(friendBucketScenarioFixture("pending", []))
     const { friendsQueryFn } = await import("./use-friends")
     const { client: queryClient } = await createCommunityQueryOwner()
     const key = communityKeys.friends()

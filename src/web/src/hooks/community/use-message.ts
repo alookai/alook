@@ -91,7 +91,7 @@ export async function prefetchCommunityMessage(queryClient: QueryClient, message
     || !communityScopeAllowsAccess(registry.runtime.ws.get(), scope)
     || queryClient.getMutationCache().findAll({ mutationKey: communityServerRetirementKey, status: "pending" }).some(mutation => communityServerRetirementId(mutation, registry) === scope.serverId && scope.serverId != null)) return
   rememberMessageAccessScope(queryClient, messageId, scope)
-  if (registry.collections.messages.get(messageId)?.resourceComplete) return
+  if (registry.collections.messages.has(messageId)) return
   await queryClient.query({ ...messageQueryOptions(queryClient, messageId, scope.channelId), staleTime: 0, select: undefined })
 }
 

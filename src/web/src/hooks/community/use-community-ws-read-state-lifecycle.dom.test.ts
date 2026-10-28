@@ -1,3 +1,4 @@
+import { currentCommunityEventFixture, messageResourceFixture, resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { getCapturedRuntime } from "./community-ws/test-harness"
 import { act } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -17,7 +18,7 @@ import {
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { registerReadSurface, releaseReadSurface, submitReadIntent } from "./read-coordinator"
 
-const emptyAttention = { scopes: [], items: [], limit: 50, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
+const emptyAttention = { resources: resourceBundleFixture({ viewerId: "u_me" }), scopes: [], items: [], limit: 50, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
 const attentionCalls = () => getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/users/me/attention")
 beforeEach(async () => {
   vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
@@ -29,7 +30,7 @@ describe("community read-state lifecycle reconciliation", () => {
   it("settles admitted reading through its account owner after the WS hook unmounts without old structural fallback", async () => {
     vi.useFakeTimers()
     getCapturedRuntime().ui.actions.subscribe({ channelId: "ch-1" })
-    await mountHook({ viewerUserId: "viewer-1" })
+    await mountHook({ viewerUserId: "u_me" })
     flushEffects()
     seedCommunityAttentionScope(capturedQueryClient, { channelId: "ch-1", serverId: "s1", seq: 1 })
     let releaseRead!: () => void
@@ -44,9 +45,9 @@ describe("community read-state lifecycle reconciliation", () => {
       throw new Error(`unexpected API fetch: ${String(url)}`)
     })
     const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    const lease = registerReadSurface(capturedQueryClient, "viewer-1", { kind: "timeline", channelId: "ch-1" })
+    const lease = registerReadSurface(capturedQueryClient, "u_me", { kind: "timeline", channelId: "ch-1" })
     try {
-      await act(async () => { await capturedOnMessage!({ type: "community:message.create", channelId: "ch-1", message: { id: "message-1", seq: 1, authorId: "author-1", authorName: "Alice", authorAvatarVersion: 0, content: "hello", type: "chat", createdAt: "2026-08-27T00:00:00.000Z" } }) })
+      await act(async () => { await capturedOnMessage!(currentCommunityEventFixture({ type: "community:message.create", channelId: "ch-1", message: messageResourceFixture({ id: "message-1", channelId: "ch-1", seq: 1, authorId: "author-1", authorName: "Alice", authorAvatarVersion: 0, content: "hello", createdAt: "2026-08-27T00:00:00.000Z" }) })) })
       expect(canonicalRegistry!.collections.messages.get("message-1")?.createdAt).toBe("2026-08-27T00:00:00.000Z")
       await act(async () => {
         expect(submitReadIntent(lease, { kind: "timeline", channelId: "ch-1", messageId: "message-1", seq: 1 })).toBe(true)
@@ -60,20 +61,20 @@ describe("community read-state lifecycle reconciliation", () => {
       expect(canonicalRegistry!.collections.attentionScopes.get("ch-1")).toBeUndefined()
       expect(capturedQueryClient.getQueryData(communityKeys.accountReadStateSnapshot())).toEqual({ revision: 1 })
       expect(invalidate.mock.calls.some(([filters]) => [communityKeys.inbox(), communityKeys.dms()].some(key => JSON.stringify(filters.queryKey) === JSON.stringify(key)))).toBe(false)
-    } finally { releaseRead(); releaseReadSurface(lease); await vi.runAllTimersAsync() }
+    } finally { releaseRead(); releaseReadSurface(lease); await vi.advanceTimersByTimeAsync(0) }
   })
 
   it("schedules the first-auth attention owner before read-state reconciliation completes", async () => {
     vi.useFakeTimers()
-    await mountHook({ viewerUserId: "viewer-1" })
-    act(() => getCapturedRuntime().ws.actions.setPresence("viewer-1", "offline"))
+    await mountHook({ viewerUserId: "u_me" })
+    act(() => getCapturedRuntime().ws.actions.setPresence("u_me", "offline"))
     let releaseSnapshot!: (value: unknown) => void
     getCommunityApiFetchMock().mockImplementationOnce(() => new Promise(resolve => { releaseSnapshot = resolve }))
     let outcome!: Promise<unknown>
     act(() => { outcome = Promise.resolve(capturedUseUserWsOptions!.onAuthenticated!()).then(() => null, error => error) })
     try {
       expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
-      expect(getCapturedRuntime().ws.get().presenceByUserId.get("viewer-1")).toBe("online")
+      expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_me")).toBe("online")
       await vi.waitFor(() => expect(attentionCalls()).toHaveLength(1))
       expect(capturedQueryClient.getQueryState(communityKeys.accountReadStateSnapshot())?.fetchStatus).toBe("fetching")
     } finally {

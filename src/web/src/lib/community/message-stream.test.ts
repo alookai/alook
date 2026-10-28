@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, describe, expect, it } from "vitest"
 import type { Msg } from "@/lib/community/models/message"
 import {
@@ -15,7 +16,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { ingestMessages } from "@/lib/community-db/sync"
 
 function message(id: string, seq: number, extra: Partial<CanonicalMessage> = {}): CanonicalMessage {
-  return {
+  return messageResourceFixture({ channelId: "channel",
     id,
     seq,
     type: "chat",
@@ -24,7 +25,7 @@ function message(id: string, seq: number, extra: Partial<CanonicalMessage> = {})
     content: id,
     createdAt: `2026-08-06T00:00:${String(seq).padStart(2, "0")}.000Z`,
     ...extra,
-  }
+  })
 }
 
 function localMessage(content: string): NewOutboxIntent["message"] {
@@ -501,10 +502,10 @@ describe("attachment ownership effects", () => {
       })
       return apply(ws.state, {
         type: "baseChanged",
-        messages: [canonical("mf", 20, "files")],
+        messages: [canonical("mf", 20, "files", { attachments: settledResourceAttachments })],
       }).state
     }],
-  ])("preserves settled attachments through a lagging canonical %s", (_label, arrange) => {
+  ])("preserves settled attachments through matching full canonical %s", (_label, arrange) => {
     let state = submit(emptyMessageOverlay(), attachedIntent())
     state = apply(state, {
       type: "uploadSettled",
@@ -553,7 +554,7 @@ describe("attachment ownership effects", () => {
     }).state
 
     const replacementCanonical = canonical("mf", 20, "files", {
-      attachments: [{ id: "replacement", name: "canonical.txt", url: "/media/canonical", sizeBytes: 2048 }],
+      attachments: [{ id: "replacement", name: "canonical.txt", url: "/media/canonical", sizeBytes: 2048, thumbnailUrl: null, contentType: null, width: null, height: null }],
     })
     state = apply(state, {
       type: "baseChanged",
@@ -561,7 +562,7 @@ describe("attachment ownership effects", () => {
     }).state
 
     expect(state.liveIds).toContain("mf")
-    expect(canonicalRows().get("mf")?.attachments).toEqual([{ id: "replacement", name: "canonical.txt", url: "/media/canonical", sizeBytes: 2048 }])
+    expect(canonicalRows().get("mf")?.attachments).toEqual([{ id: "replacement", name: "canonical.txt", url: "/media/canonical", sizeBytes: 2048, thumbnailUrl: null, contentType: null, width: null, height: null }])
     expect(materializeMessageStream([replacementCanonical], state)[0]?.attachments).toEqual(
       replacement,
     )

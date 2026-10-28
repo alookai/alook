@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable } from "./_fixtures/actions"
@@ -75,14 +76,14 @@ test.describe("mentions — mandatory discriminator", () => {
     const sent: Array<{ id: string; content: string; mentionType?: string }> = []
 
     async function participants(): Promise<string[]> {
-      const response = await page.request.get(`/api/community/channels/${threadId}/members`)
+      const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${threadId}/members`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
       expect(response.status()).toBe(200)
       const payload = await response.json() as { members: Array<{ userId: string }> }
       return payload.members.map((member) => member.userId).sort()
     }
 
     async function attention(role: "bob" | "carol") {
-      const response = await fetch(new URL("/api/community/users/me/attention?limit=200", page.url()), {
+      const response = await communityFixtureFetch(new URL("/api/community/users/me/attention?limit=200", page.url()), {
         headers: { Cookie: actors.sessionCookie(role) },
       })
       expect(response.status).toBe(200)
@@ -144,9 +145,9 @@ test.describe("mentions — mandatory discriminator", () => {
       expect(outgoing.mentionType).toBe(mentionType)
       const created = await response.json() as { message: { id: string; content: string } }
       expect(created.message.content).toBe(content)
-      const persisted = await page.request.get(`/api/community/messages/${created.message.id}`)
+      const persisted = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/messages/${created.message.id}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
       expect(persisted.status()).toBe(200)
-      expect(await persisted.json()).toMatchObject({ id: created.message.id, content, channelId: threadId })
+      expect((await persisted.json()).message).toMatchObject({ id: created.message.id, content, channelId: threadId })
       const body = threadSurface.getByTestId(tid.message(created.message.id)).locator("[data-community-message-body]")
       await expect(body).toBeVisible()
       await expect(editable).toHaveText("")
@@ -185,9 +186,9 @@ test.describe("mentions — mandatory discriminator", () => {
     expect(await attention("carol")).toEqual([broadcast.id])
     expect(await participants()).toEqual([actors.userId("alice"), actors.userId("bob")].sort())
 
-    const explicit = await page.request.post(`/api/community/channels/${threadId}/messages`, {
+    const explicit = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${threadId}/messages`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
       data: { content: "explicit API broadcast without body token", mentionType: "everyone" },
-    })
+    }))
     expect(explicit.status()).toBe(201)
     const explicitBody = await explicit.json() as { message: { id: string } }
     expect(await attention("carol")).toEqual(expect.arrayContaining([broadcast.id, explicitBody.message.id]))
@@ -357,17 +358,17 @@ test.describe("mentions — mandatory discriminator", () => {
 
     const { page } = await asUser("alice")
     for (const bad of ["Ann#1234", "bad@name", "line\nbreak"]) {
-      const res = await page.request.patch("/api/community/users/me/profile", {
-        headers: { "Content-Type": "application/json" },
+      const res = await confirmCommunityFixtureApiResponse(page.request.patch("/api/community/users/me/profile", {
+        headers: { "Content-Type": "application/json", ...CURRENT_COMMUNITY_FIXTURE_HEADERS },
         data: { name: bad },
-      })
+      }))
       expect(res.status()).toBe(400)
     }
     // A valid spaced name still saves.
-    const ok = await page.request.patch("/api/community/users/me/profile", {
-      headers: { "Content-Type": "application/json" },
+    const ok = await confirmCommunityFixtureApiResponse(page.request.patch("/api/community/users/me/profile", {
+      headers: { "Content-Type": "application/json", ...CURRENT_COMMUNITY_FIXTURE_HEADERS },
       data: { name: "Jane Roe" },
-    })
+    }))
     expect(ok.status()).toBe(200)
   })
 })

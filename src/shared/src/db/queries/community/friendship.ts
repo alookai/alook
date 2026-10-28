@@ -448,6 +448,7 @@ export async function sendRequest(
         channelId: dm.id,
         message: {
           id: msg.id,
+          channelId: dm.id, replyToId: null, clientNonce: null, attachments: [],
           seq: msg.seq,
           authorId: botId,
           authorName: botP?.name ?? "",
@@ -1145,6 +1146,7 @@ export async function ownerDecideOnRow(
               channelId: dm.id,
               message: {
                 id: msg.id,
+                channelId: dm.id, replyToId: null, clientNonce: null, attachments: [],
                 seq: msg.seq,
                 authorId: row.addresseeId,
                 authorName: botP?.name ?? "",

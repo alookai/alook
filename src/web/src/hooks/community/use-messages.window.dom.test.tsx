@@ -22,7 +22,7 @@ function deferred<T>() {
 }
 function page(id: string, seq: number, more = false): MessagesPage {
   const row = fixture().messages[0]
-  return { messages: [{ ...row, resourceComplete: true, id, seq, content: id }], latestSeq: seq, hasMoreOlder: more, hasMoreNewer: false, olderCursor: more ? "older" : undefined }
+  return { messages: [{ ...row, id, seq, content: id }], latestSeq: seq, hasMoreOlder: more, hasMoreNewer: false, olderCursor: more ? "older" : undefined }
 }
 async function setup() {
   const owner = await createCommunityQueryOwner()

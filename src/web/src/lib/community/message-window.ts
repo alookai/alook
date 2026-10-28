@@ -1,6 +1,7 @@
+import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { infiniteQueryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
-import type { CommunityMessageSurfaceReceipt } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, type CommunityMessageSurfaceReceipt } from "@alook/shared"
 import { actionAttributes } from "@/lib/observability/context"
 import { emitTelemetry, telemetryGeneration } from "@/lib/observability/telemetry"
 import { apiFetchCommunity } from "./account-cache-lifecycle"
@@ -50,7 +51,7 @@ async function fetchMessagesTransport(
 ): Promise<WireMessagesPage> {
   const transport = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesTransportPage>(
     url,
-    { signal: readSignal, observation: typeof options?.observation === "function" ? options.observation() : options?.observation }, token,
+    { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) }, observation: typeof options?.observation === "function" ? options.observation() : options?.observation }, token,
   ))
   const { surfaceReceipt: _surfaceReceipt, ...page } = transport
   return page
