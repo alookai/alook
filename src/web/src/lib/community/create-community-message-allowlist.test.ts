@@ -9,7 +9,7 @@ import { join, relative, sep } from "path"
  * the set equals a hand-maintained allowlist — a NEW caller (e.g. a re-added flat
  * verb, or a route that should have folded into the canonical door) fails the
  * test until it's consciously added here. That's the point: the allowlist is the
- * positive proof that the flat tree stayed deleted and no fourth door-bypass
+ * positive proof that the flat tree stayed deleted and no unapproved door-bypass
  * caller crept in (Melly #346 / Aigneis ③).
  *
  * Paths are repo-relative to src/web (the vitest cwd). `message-handler.ts` is
@@ -27,6 +27,7 @@ const ALLOWLIST = [
   // primitive — shared by the send-fold (step 4) and the existing-data
   // migration (step 5) to open a message with its own auto-created thread.
   "src/lib/community/create-channels.ts",
+  "src/lib/community/automation-invite.server.ts",
 ].sort()
 
 function walk(dir: string, acc: string[] = []): string[] {
