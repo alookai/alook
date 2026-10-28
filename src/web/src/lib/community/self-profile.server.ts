@@ -1,4 +1,4 @@
-import { CommunityResourceProfileSchema, queries, withD1Retry, type Database } from "@alook/shared"
+import { CommunitySelfProfileReadSchema, queries, withD1Retry, type Database } from "@alook/shared"
 import { canonicalUserImage } from "./storage"
 
 export async function readCommunitySelfProfile(db: Database, userId: string) {
@@ -7,7 +7,7 @@ export async function readCommunitySelfProfile(db: Database, userId: string) {
     withD1Retry(() => queries.user.getUserSelf(db, userId), { route: "community/profile:self-user" }),
   ])
   if (!viewer) return null
-  return { viewer, profile: CommunityResourceProfileSchema.parse({
+  return { viewer, profile: CommunitySelfProfileReadSchema.parse({
     id: viewer.id, name: viewer.name, aboutMe: profile?.aboutMe ?? "",
     avatar: canonicalUserImage(viewer.id, viewer.image, viewer.avatarVersion), avatarVersion: viewer.avatarVersion,
     bannerColor: profile?.bannerColor ?? null, discriminator: viewer.discriminator,

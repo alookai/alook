@@ -87,9 +87,9 @@ describe("GET /api/community/users/me/dms — name projection", () => {
     const body = (await res.json()) as {
       conversations: Array<{ id: string; name: string; avatar: string; profile: unknown; memberships: unknown[]; channel: unknown }>
     }
-    expect(body.conversations[0]?.name).toBe("Alice")
-    expect(body.conversations[0]?.name).not.toContain("@")
-    expect(body.conversations[0]?.avatar).toBe("A")
+    expect(body.conversations[0]?.profile).toMatchObject({ name: "Alice" })
+    expect(JSON.stringify(body.conversations[0]?.profile)).not.toContain("alice@example.com")
+    for (const key of ["name", "discriminator", "avatar", "avatarVersion"]) expect(body.conversations[0]).not.toHaveProperty(key)
     expect(body.conversations[0]?.profile).toEqual({ id: "u2", name: "Alice", discriminator: "0001", avatar: null, avatarVersion: 0 })
     expect(body.conversations[0]?.channel).toMatchObject({ id: "d1", type: "dm", serverId: null })
     expect(body.conversations[0]?.memberships).toEqual(["u1", "u2"].map(userId => ({ channelId: "d1", userId, relation: "access", source: "added", isCreator: false, role: null, memberId: null })))

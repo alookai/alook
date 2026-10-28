@@ -1,7 +1,7 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
+import { parseCommunityServerMembersRead, queries, MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
 import { requireServerMember } from "@/lib/community/permissions"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { mapMemberForApi } from "@/lib/community/member-payload"
@@ -49,5 +49,5 @@ export const GET = withAuth(async (req, ctx) => {
       })
     : undefined
 
-  return writeJSON({ members, limit, hasMore: page.hasMore, cursor: nextCursor })
+  return writeJSON(parseCommunityServerMembersRead({ viewerId: ctx.userId, serverId, members, limit, hasMore: page.hasMore, cursor: nextCursor }, serverId, ctx.userId, true))
 })

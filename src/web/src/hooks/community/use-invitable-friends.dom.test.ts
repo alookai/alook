@@ -1,4 +1,4 @@
-import { friendBucketScenarioFixture } from "@/test/community-resource-fixtures"
+import { serverMembersReadFixture, friendBucketScenarioFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -22,7 +22,7 @@ describe("Native invitable friend projection", () => {
       if (path.endsWith("/accepted")) return accepted
       if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
       if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000, retry: false } } })
@@ -50,7 +50,7 @@ describe("Native invitable friend projection", () => {
       if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", [friend])
       if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
       if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000, retry: false } } })
@@ -74,7 +74,7 @@ describe("Native invitable friend projection", () => {
       if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", [friend])
       if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
       if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000, retry: false } } })
@@ -93,7 +93,7 @@ describe("Native invitable friend projection", () => {
   it("keeps raw complete member pages with a default selector on fetched and cached reads", async () => {
     const member = { id: "member_selected", userId: "user_selected", name: "Member", discriminator: "0042", avatar: "M", avatarVersion: 0, status: "offline", sub: "", role: "member" }
     api.mockClear()
-    api.mockResolvedValue({ members: [member], hasMore: false, cursor: null, limit: 100, total: 1 })
+    api.mockResolvedValue(serverMembersReadFixture("server_1", [member]))
     const owner = await createCommunityQueryOwner()
     const select = vi.fn(() => ({ pages: [], pageParams: [] }))
     owner.client.setQueryDefaults(communityKeys.members("server_1"), { select })
@@ -116,7 +116,7 @@ describe("Native invitable friend projection", () => {
       }
       if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
       if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: 1, retryDelay: 0 } } })
@@ -137,7 +137,7 @@ describe("Native invitable friend projection", () => {
       if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", [identified, other])
       if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
       if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner()

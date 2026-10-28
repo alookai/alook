@@ -134,7 +134,9 @@ vi.mock("@alook/shared", async () => {
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
       },
+      communityUserProfile: { getProfilesByUserIds: vi.fn(async () => []) },
       user: {
+        getUsersByIds: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Author", discriminator: "0042", image: null, avatarVersion: 0 }))),
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
         getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),

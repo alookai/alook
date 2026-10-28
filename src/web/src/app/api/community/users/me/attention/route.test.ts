@@ -17,7 +17,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       ...actual.queries,
       communityMessage: { getMessagesByIdsInChannels: vi.fn(async () => []) },
-      communityChannel: { listChannelMembershipsForUserInChannels: vi.fn(async () => []) },
+      communityChannel: { listReadableMessageChannelsForUser: vi.fn(async (_db: unknown, _viewer: string, ids: string[]) => ids.map(id => channelResourceFixture({ id, serverId: null, type: "dm", name: null }))), listChannelMembershipsForUserInChannels: vi.fn(async () => []) },
       communityUserProfile: { getProfilesByUserIds: vi.fn(async () => []) },
       user: { getUsersByIds: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: id === "u2" ? "Alice" : id === "u3" ? "Bob" : id === "peer" ? "Peer" : "Viewer", discriminator: id === "u2" ? "0002" : id === "u3" ? "0003" : "0042", image: id === "u2" ? "/api/community/users/u2/avatar" : null, avatarVersion: id === "u2" ? 7 : 0 }))) },
       communityAttention: {

@@ -10,11 +10,12 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query"
 import {
-  apiFetchProfiles,
+  loadAndSeedProfiles,
   communityUserProfilePatch,
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import type { CommunityChannelResource, CommunityResourceProfile, CommunityMemberRelation } from "@alook/shared"
+import { parseCommunityDmsRead, type CommunityDmsRead } from "@alook/shared"
+import { apiFetch } from "@/lib/api/client"
 import type { DM } from "@/lib/community/models/people"
 import { useMemo } from "react"
 import {
@@ -37,26 +38,32 @@ import { sortDmsByActivity } from "@/lib/community/dm-order"
  * The WS handler invalidates this key on `community:message.create` events
  * (a DM is a channel now) so previews and unread flags stay live.
  */
-export type DmsResponse = { conversations: Array<DM & { channel: CommunityChannelResource; profile: CommunityResourceProfile; memberships: CommunityMemberRelation[] }> }
+export type DmsResponse = CommunityDmsRead
 
 // Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_DMS: readonly DM[] = Object.freeze([])
 
-const loadDms = (
-  context: QueryFunctionContext,
-) =>
-  apiFetchProfiles<DmsResponse>(
-    "/api/community/users/me/dms",
-    (data) => data.conversations.map((dm) => communityUserProfilePatch(dm.profile.id, dm.profile)),
-    context.signal ? { signal: context.signal } : undefined, getCommunityDbRegistry(context.client),
+const loadDms = (context: QueryFunctionContext, token: ReturnType<typeof captureCommunityLiveSnapshotToken>) => {
+  const registry = getCommunityDbRegistry(context.client)
+  return loadAndSeedProfiles(
+    async origin => {
+      const data = await apiFetch<unknown>("/api/community/users/me/dms", { ...origin, signal: context.signal })
+      if (!registry?.accountId) throw new DOMException("Missing DM viewer", "AbortError")
+      return parseCommunityDmsRead(data, registry.accountId)
+    },
+    data => data.conversations.map(dm => communityUserProfilePatch(dm.profile.id, dm.profile)),
+    registry,
+    context.signal,
+    token,
   )
+}
 
 export const dmsProjectedQueryFn = (
   queryClient: QueryClient,
 ) => async (context: QueryFunctionContext) => {
   const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
   try {
-    const data = await loadDms(context)
+    const data = await loadDms(context, publicationToken)
     assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, context.signal)
     publishCommunityLiveSnapshot(queryClient, {
       snapshot: { kind: "dms", data },

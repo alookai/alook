@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   BUSINESS_SCHEMA_VERSION,
+  projectCommunityEventForContract,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
   communityBrowserEventBatchType,
@@ -298,4 +299,12 @@ describe("current full-resource delivery codec", () => {
     expect(await admitCommunityBrowserEventBatch(tampered)).toMatchObject({ ok: false })
     for (const type of ["community:events.batch", "community:events.batch.v2", "community:events.batch.v3"]) expect(await admitCommunityBrowserEventBatch({ ...encoded.batch, type })).toMatchObject({ ok: false })
   })
+})
+
+it("projects only a validated current event with matching source and recipient contracts", () => {
+  const event = communityWsEventFixtures["community:message.create"]
+  expect(projectCommunityEventForContract(event, BUSINESS_SCHEMA_VERSION)).toEqual(event)
+  expect(projectCommunityEventForContract(event, BUSINESS_SCHEMA_VERSION - 1)).toBeNull()
+  expect(projectCommunityEventForContract(event, BUSINESS_SCHEMA_VERSION, BUSINESS_SCHEMA_VERSION - 1)).toBeNull()
+  expect(projectCommunityEventForContract({ ...event, message: { ...event.message, avatarVersion: 4 } } as never, BUSINESS_SCHEMA_VERSION)).toBeNull()
 })

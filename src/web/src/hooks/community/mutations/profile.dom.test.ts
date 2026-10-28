@@ -35,7 +35,7 @@ describe("useUpdateProfile", () => {
     )
     const rendered = renderHook(() => useUpdateProfile(), { wrapper })
 
-    let result!: typeof response
+    let result!: unknown
     await act(async () => {
       result = await rendered.result.current.mutateAsync({
         name: "Renamed",
@@ -51,7 +51,7 @@ describe("useUpdateProfile", () => {
         authenticationAccount: "viewer", signal: expect.any(AbortSignal), assertActive: expect.any(Function),
       }),
     )
-    expect(result).toBe(response)
+    expect(result).toEqual(response)
   })
 
   it("keeps public methods stable and returns only the original business input to per-call callbacks", async () => {
@@ -93,4 +93,42 @@ describe("useUpdateProfile", () => {
     for (const callback of Object.values(callbacks)) expect(callback).not.toHaveBeenCalled()
     expect(owner.registry.collections.profiles.has("viewer")).toBe(false)
   })
+})
+
+it.each(["missing-core", "wrong-self"])("rejects a warm complete PATCH %s before command publication", async defect => {
+  const { communityRegistrySnapshot } = await import("@/test/community-registry-snapshot")
+  const { useUpdateProfile } = await import("./profile")
+  const owner = await createCommunityQueryOwner()
+  const initial = { id: "viewer", name: "Before", discriminator: "0042", avatar: null, avatarVersion: 3, aboutMe: "Keep about", bannerColor: null, statusEmoji: null, statusText: "Keep status" }
+  owner.registry.collections.profiles.utils.writeUpsert(initial)
+  const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
+  const hook = renderHook(() => useUpdateProfile(), { wrapper })
+  const before = communityRegistrySnapshot(owner.registry)
+  const malformed: Record<string, unknown> = { ...initial, name: "Must not publish" }
+  if (defect === "missing-core") delete malformed.avatarVersion
+  if (defect === "wrong-self") malformed.id = "foreign"
+  apiFetchMock.mockResolvedValueOnce(malformed)
+  await act(async () => { await expect(hook.result.current.mutateAsync({ name: "Must not publish" })).rejects.toThrow() })
+  expect(communityRegistrySnapshot(owner.registry)).toEqual(before)
+  hook.unmount()
+})
+
+it("publishes only the confirmed command fields and keeps newer unrelated profile facts", async () => {
+  const { writeCommunityProfilePatches } = await import("@/lib/community/profile-seed")
+  const { useUpdateProfile } = await import("./profile")
+  const owner = await createCommunityQueryOwner()
+  const initial = { id: "viewer", name: "Before", discriminator: "0042", avatar: null, avatarVersion: 3, aboutMe: "Original about", bannerColor: null, statusEmoji: null, statusText: "Original status" }
+  owner.registry.collections.profiles.utils.writeUpsert(initial)
+  const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
+  const hook = renderHook(() => useUpdateProfile(), { wrapper })
+  let release!: (value: unknown) => void
+  apiFetchMock.mockImplementationOnce(() => new Promise(done => { release = done }))
+  let operation!: Promise<unknown>
+  act(() => { operation = hook.result.current.mutateAsync({ name: "Confirmed" }) })
+  await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+  act(() => writeCommunityProfilePatches([{ id: "viewer", avatar: { avatar: "newer-avatar", avatarVersion: 6 }, status: { statusEmoji: "🌿", statusText: "Newer status" } }], owner.registry, { event: true }))
+  await act(async () => { release({ ...initial, name: "Confirmed", aboutMe: "Unrequested response about", bannerColor: "#abcdef" }); await operation })
+  expect(owner.registry.collections.profiles.get("viewer")).toMatchObject({ ...initial, name: "Confirmed", avatar: "newer-avatar", avatarVersion: 6, statusEmoji: "🌿", statusText: "Newer status" })
+  expect(apiFetchMock).toHaveBeenCalledOnce()
+  hook.unmount()
 })

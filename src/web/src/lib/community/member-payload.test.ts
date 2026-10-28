@@ -28,7 +28,7 @@ describe("mapMemberForApi", () => {
       sub: "",
       role: "member",
       statusEmoji: null,
-      statusText: "",
+      statusText: null,
     })
     // No opt-in flags → no isCreator/source/isBot fields.
     expect("isCreator" in m).toBe(false)
@@ -79,4 +79,8 @@ describe("mapMemberForApi", () => {
     expect(m.isCreator).toBe(true)
     expect(m.source).toBe("explicit")
   })
+})
+
+it.each([null, "", "Busy"])("preserves actual member status %s without a display fallback", statusText => {
+  expect(mapMemberForApi(row({ statusText }), "viewer").statusText).toBe(statusText)
 })

@@ -66,3 +66,11 @@ describe("actual API body eligibility before global update", () => {
   it.each(kinds)("calibrates an active owner's %s body against cancellation and protocol failure", kind => bodyCase(kind, "active"))
   it("keeps the existing late valid-body retirement protection", () => bodyCase("valid", "retired"))
 })
+
+it("retains an active non-community JSON parse error without starting a business update", async () => {
+  const upgrade = vi.spyOn(lifecycle, "requestBusinessSchemaUpdate")
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("{bad-json", { headers: { "Content-Type": "application/json" } })))
+  await expect(apiFetch("/api/other-resource")).rejects.toBeInstanceOf(SyntaxError)
+  expect(upgrade).not.toHaveBeenCalled()
+  expect(lifecycle.businessSchemaLifecycle.get().phase).toBe("current")
+})

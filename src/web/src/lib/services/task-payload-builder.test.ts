@@ -202,3 +202,21 @@ describe("TaskPayloadBuilder", () => {
     expect(mockGetMemberByUserAndWorkspace).toHaveBeenCalledTimes(1);
   });
 });
+
+it.each(["same", "foreign", "missing"])("binds the actual task sender identity cache loader to its requested user: %s", async mode => {
+  const { cached } = await import("@/lib/cache")
+  const mock = vi.mocked(cached)
+  const previous = mock.getMockImplementation()
+  mock.mockImplementation(async (_key, _ttl, load, schema) => schema.parse(await load()))
+  mockGetAllAgentsForWorkspace.mockResolvedValue([])
+  mockGetAllEmailAccountsForWorkspace.mockResolvedValue([])
+  mockGetAllColleaguesForWorkspace.mockResolvedValue([])
+  mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "sender1", channel: "slack" }])
+  mockGetUser.mockResolvedValue(mode === "missing" ? null : { id: mode === "same" ? "sender1" : "foreign", name: "Sender", email: "sender@example.test" })
+  try {
+    const operation = new TaskPayloadBuilder({} as never).buildFullPayloads([makeTask({ type: "user_dm_message" })], "w1")
+    if (mode === "foreign") await expect(operation).rejects.toThrow()
+    else expect((await operation)[0]!.sender).toEqual(mode === "missing" ? null : { name: "Sender", email: "sender@example.test", is_owner: false })
+    expect(mockGetUser).toHaveBeenLastCalledWith({}, "sender1")
+  } finally { if (previous) mock.mockImplementation(previous) }
+})

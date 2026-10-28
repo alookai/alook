@@ -164,7 +164,7 @@ describe("PATCH /api/community/users/me/profile", () => {
         aboutMe: data.aboutMe ?? "",
         bannerColor: data.bannerColor ?? null,
         statusEmoji: data.statusEmoji ?? null,
-        statusText: data.statusText ?? "",
+        statusText: data.statusText === undefined ? "" : data.statusText,
         identity: id === "b1"
           ? { kind: "bot", ownerProfile: { id: "u1" } }
           : { kind: "human" },
@@ -287,7 +287,7 @@ describe("PATCH /api/community/users/me/profile", () => {
       id: "u1",
       name: "Jane Roe",
       discriminator: "4242",
-      avatar: "J",
+      avatar: null,
       avatarVersion: 0,
       aboutMe: "hi",
       bannerColor: "#aabbcc",

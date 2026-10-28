@@ -1,3 +1,4 @@
+import { assertCaseProfileBaseline } from "./case-profile-baseline"
 import { communityFixtureFetch } from "./business-contract"
 import { createNaturalVisibilityActor } from "./natural-visibility-actor"
 import type { APIResponse, BrowserContext, BrowserContextOptions, Page, Response as PlaywrightResponse, TestInfo } from "@playwright/test"
@@ -321,8 +322,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
           })
           originalSessions.set(key, sessionCookie(key))
           const profile = await read(key, "/api/community/users/me/profile")
-          if (profile.id !== user(key).userId || profile.name !== user(key).name) throw new Error(`Case baseline ${key} has a different profile identity`)
-          if (profile.aboutMe !== "" || profile.avatarVersion !== 0 || profile.bannerColor !== null || profile.statusEmoji !== null || profile.statusText !== "") throw new Error(`Case baseline ${key} has modified profile defaults`)
+          assertCaseProfileBaseline(profile, user(key), key)
           await Promise.all([
             assertEmpty(key, "/api/community/servers", "servers"),
             assertEmpty(key, "/api/community/users/me/server-folders", "folders"),

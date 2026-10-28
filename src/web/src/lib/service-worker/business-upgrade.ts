@@ -1,4 +1,4 @@
-import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared/business-schema-version"
 import { resolveCommunityModulePlan } from "../community/community-route"
 import { isCommunityApplicationPath } from "../community/application-route"
 

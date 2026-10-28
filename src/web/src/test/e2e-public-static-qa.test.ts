@@ -106,6 +106,45 @@ describe("public static QA immutable input and phase controls", () => {
     expect((globalThis as Record<symbol, unknown>)[sentinel]).toBeUndefined()
   })
 
+  it.each([
+    'var q=p??[];new W({precacheEntries:q})',
+    'var urls=p.map(e=>typeof e==="string"?e:e.url);new W({precacheEntries:p})',
+    'var q=p??[];var shells=q.map(e=>typeof e==="string"?e:e.url).filter(u=>shellHash(u));if(shells.length!==1)throw new Error("shell required");var shell=shells[0];new W({precacheEntries:q})',
+  ])("extracts immutable catalogues through emitted shell reads: %s", body => {
+    expect(builtPrecacheEntries(`(()=>{var p=[{url:"/community-shell/actual",revision:"hash"}];${body}})()`)).toEqual([{ url: "/community-shell/actual", revision: "hash" }])
+  })
+
+  it("keeps shell reads primitive and rejects escaping or mutated catalogue/guard inputs", () => {
+    const prefix = 'var p=[{url:"/shell",revision:null}];'
+    const suffix = 'new W({precacheEntries:p})'
+    const invalid = [
+      'var q=p??other;',
+      'var q=p??[{}];',
+      'p.map(e=>e);',
+      'p.map(e=>({url:e.url}));',
+      'p.map(e=>mutate(e));',
+      'p.map(e=>{e.url="bad";return e.url});',
+      'p.map((e=escape(p))=>e.url);',
+      'p.map(async e=>e.url);',
+      'p.map(e=>typeof e==="string"?e:escape(e));',
+      'p.map(e=>e.url,escape);',
+      'var q=p??[];q.push({url:"/bad",revision:null});',
+      'var shells=p.map(e=>e.url).filter(Boolean);if(shells.length!==1){sideEffect();throw new Error("bad")}',
+      'var shells=p.map(e=>e.url).filter(Boolean);if(shells.length!==1)throw new Error("bad");else sideEffect();',
+      'var shells=["/fake"];if(shells.length!==1)throw new Error("bad");',
+      'var shells=p.map(e=>e.url).filter(Boolean);shells=[];if(shells.length!==1)throw new Error("bad");',
+      'var shells=p.map(e=>e.url).filter(Boolean);shells[0]="bad";if(shells.length!==1)throw new Error("bad");',
+      'var shells=p.map(e=>e.url).filter(Boolean);escape(shells);if(shells.length!==1)throw new Error("bad");',
+      'Array.prototype.map=function(){return this};p.map(e=>e.url);',
+      'var prototype=Array.prototype;prototype.map=escape;p.map(e=>e.url);',
+      'if(other)throw new Error("bad");',
+    ]
+    for (const body of invalid) expect(() => builtPrecacheEntries(`(()=>{${prefix}${body}${suffix}})()`), body).toThrow("unambiguous")
+    for (const map of ['e=>e.url', 'e=>typeof e!="string"?e.url:e']) {
+      expect(builtPrecacheEntries(`(()=>{${prefix}var shells=p.map(${map}).filter(Boolean);if(1!=shells.length){throw new Error("shell")};var url=shells[0];${suffix}})()`)).toEqual([{url:"/shell",revision:null}])
+    }
+  })
+
   it("resolves the real memoized bundler initializer only after its unchanged factory is called directly", () => {
     const factory = '(e,t,s)=>()=>{if(s)throw s[0];try{return e&&(t=e(e=0)),t}catch(r){throw s=[r],r}}'
     const array = '[{url:"/real",revision:"revision"}]'

@@ -37,6 +37,7 @@ vi.mock("@alook/shared", async () => {
         listByMessageIds: (...args: unknown[]) => mockListByMessageIds(...args),
       },
       communityChannel: {
+        listReadableMessageChannelsForUser: vi.fn(async (_db: unknown, _viewer: string, ids: string[]) => ids.map(id => channelResourceFixture({ id, serverId: "s1", type: id === "c1" ? "thread" : "text", name: id === "c1" ? "general" : "Parent", parentChannelId: id === "c1" ? "parent1" : null, parentMessageId: id === "c1" ? "opener" : null }))),
         listChannelMembershipsForUserInChannels: vi.fn(async () => []),
         getChannelsByIds: (...args: unknown[]) => mockGetChannelsByIds(...args),
       },

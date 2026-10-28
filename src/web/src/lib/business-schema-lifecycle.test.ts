@@ -67,3 +67,38 @@ describe("business protocol retirement", () => {
   })
 
 })
+
+it.each(["normal", "storage-denied", "public-path"])("bounds the no-worker document fallback: %s", async mode => {
+  const replace = vi.fn()
+  vi.stubGlobal("window", { location: { href: mode === "public-path" ? "https://alook.test/blog" : "https://alook.test/c/me", replace } })
+  vi.stubGlobal("navigator", {})
+  const stored = new Map<string, string>()
+  vi.stubGlobal("sessionStorage", { getItem: (key: string) => { if (mode === "storage-denied") throw new Error("denied"); return stored.get(key) ?? null }, setItem: (key: string, value: string) => { if (mode === "storage-denied") throw new Error("denied"); stored.set(key, value) } })
+  requestBusinessSchemaUpdate()
+  if (mode === "public-path") await vi.waitFor(() => expect(businessSchemaLifecycle.get().phase).toBe("failed"))
+  else await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(`https://alook.test/c/me?__alook_schema_update=${BUSINESS_SCHEMA_VERSION}`))
+  if (mode === "normal") expect(stored.get("alook:business-schema-update-attempt")).toBe(String(BUSINESS_SCHEMA_VERSION))
+  if (mode === "public-path") expect(replace).not.toHaveBeenCalled()
+})
+
+it("fails when a current worker explicitly refuses navigation and closes both reply ports", async () => {
+  vi.useFakeTimers()
+  const closed: ReturnType<typeof vi.fn>[] = []
+  class Channel {
+    port1 = { onmessage: null as ((event: { data: unknown }) => void) | null, close: vi.fn() }
+    port2 = { postMessage: (data: unknown) => this.port1.onmessage?.({ data }), close: vi.fn() }
+    constructor() { closed.push(this.port1.close, this.port2.close) }
+  }
+  const worker = { postMessage: (message: { type: string }, ports: Array<{ postMessage(data: unknown): void }>) => ports[0]!.postMessage(message.type === WORKER_VERSION_PROBE ? { schemaVersion: BUSINESS_SCHEMA_VERSION + 1 } : { navigating: false }) }
+  vi.stubGlobal("MessageChannel", Channel)
+  vi.stubGlobal("window", { location: { href: "https://alook.test/c/me" } })
+  vi.stubGlobal("sessionStorage", { getItem: () => null, setItem: vi.fn() })
+  const registration = Object.assign(new EventTarget(), { update: vi.fn(async () => {}), active: worker, waiting: null, installing: null })
+  vi.stubGlobal("navigator", { serviceWorker: Object.assign(new EventTarget(), { controller: worker, getRegistration: vi.fn(async () => registration) }) })
+  requestBusinessSchemaUpdate(BUSINESS_SCHEMA_VERSION + 1)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(businessSchemaLifecycle.get()).toEqual({ phase: "failed", expectedVersion: BUSINESS_SCHEMA_VERSION + 1 })
+  expect(closed.length).toBeGreaterThan(0)
+  expect(closed.every(close => close.mock.calls.length > 0)).toBe(true)
+  expect(vi.getTimerCount()).toBe(0)
+})

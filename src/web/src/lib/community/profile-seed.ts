@@ -50,7 +50,7 @@ export function beginCommunityProfileSeed(
   return { registry, revision: registry ? revisionState(registry).get().revision : 0 }
 }
 
-type CommunityUserProfileSeed = Partial<Pick<CommunityResourceProfile, "name" | "discriminator" | "avatarVersion" | "statusEmoji" | "statusText" | "avatar">>
+type CommunityUserProfileSeed = Partial<Omit<CommunityResourceProfile, "id">>
 
 export function communityUserProfilePatch(
   userId: string,
@@ -62,8 +62,17 @@ export function communityUserProfilePatch(
     identityAbout: {
       ...(row.name !== undefined ? { name: row.name } : {}),
       ...(row.discriminator === undefined ? {} : { discriminator: row.discriminator }),
+      ...(row.aboutMe === undefined ? {} : { aboutMe: row.aboutMe }),
+      ...(row.bannerColor === undefined ? {} : { bannerColor: row.bannerColor }),
+      ...(row.kind === undefined ? {} : { kind: row.kind }),
+      ...(row.ownerUserId === undefined ? {} : { ownerUserId: row.ownerUserId }),
     },
     ...(row.avatarVersion === undefined ? {} : { avatar: { avatarVersion: row.avatarVersion, ...(row.avatar === undefined ? {} : { avatar: row.avatar }) } }),
+    ...(row.ownerHandle === undefined && row.mutualServers === undefined && row.ownedByViewer === undefined ? {} : { card: {
+      ...(row.ownerHandle === undefined ? {} : { ownerHandle: row.ownerHandle }),
+      ...(row.mutualServers === undefined ? {} : { mutualServers: row.mutualServers }),
+      ...(row.ownedByViewer === undefined ? {} : { ownedByViewer: row.ownedByViewer }),
+    } }),
     ...(row.statusEmoji === undefined && statusText === undefined
       ? {}
       : { status: {

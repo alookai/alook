@@ -7,7 +7,7 @@ import { createPublicRuntimeCaching } from "../lib/service-worker/public-cache-r
 
 import { clearOutdatedPublicWorkerCaches } from "../lib/service-worker/public-cache-storage"
 import { communityShellHash, isCommunityShellAssetRequest, isCommunityShellNavigation, isCommunityShellResponse } from "../lib/service-worker/community-shell"
-import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared/business-schema-version"
 import { CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE, upgradeBusinessWindow } from "../lib/service-worker/business-upgrade"
 
 declare global {

@@ -14,6 +14,7 @@ import { serverMembershipKey } from "@/lib/community-db/schema"
 import { useCommunityViewSource } from "./use-community-view-source"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/lib/community/models/people"
+import { parseCommunityServerMembersRead } from "@alook/shared"
 import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate, CommunityRole } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 
@@ -78,13 +79,6 @@ export type MembersEnvelope = {
   cursor?: string
   limit: number
   total: number
-}
-
-type SearchEnvelope = {
-  members: Member[]
-  limit: number
-  hasMore: boolean
-  cursor?: string
 }
 
 export function mergeMemberSearchPage(
@@ -268,7 +262,7 @@ export const membersPageQueryFn = (serverId: string, search = "", limit?: number
     if (search) params.set("q", search)
     if (limit) params.set("limit", String(limit))
     const path = "/api/community/servers/" + serverId + "/members" + (search ? "/search" : "") + (params.size ? "?" + params : "")
-    const data = await apiFetch<MembersEnvelope | SearchEnvelope>(path, communityRequestOptions(client, token, signal, assert))
+    const data = parseCommunityServerMembersRead(await apiFetch<unknown>(path, communityRequestOptions(client, token, signal, assert)), serverId, registry.accountId!, !!search)
     assert()
     if (data.hasMore && !data.cursor) throw new Error("members page missing cursor")
     writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })

@@ -1,10 +1,9 @@
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { parseCommunityReactionDetailsRead, queries } from "@alook/shared"
 import { authorizeReaction } from "@/lib/community/reaction-access"
 import { canonicalUserImage } from "@/lib/community/storage"
-import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withCommunityActor(async (_req, ctx) => {
   if (ctx.actor.kind !== "human") return writeError("human session required", 401)
@@ -20,7 +19,7 @@ export const GET = withCommunityActor(async (_req, ctx) => {
     messageId,
     access.scope,
   )
-  return writeJSON({
+  return writeJSON(parseCommunityReactionDetailsRead({
     messageId,
     scope: access.scope,
     actors: actors.map((actor) => ({
@@ -34,10 +33,10 @@ export const GET = withCommunityActor(async (_req, ctx) => {
               actor.profile.id,
               actor.profile.image,
               actor.profile.avatarVersion,
-            ) ?? avatarInitial(actor.profile.name),
+            ),
             avatarVersion: actor.profile.avatarVersion,
           }
         : null,
     })),
-  })
+  }, messageId, access.scope))
 })

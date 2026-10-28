@@ -23,7 +23,7 @@ export type PublicProfileForViewer = {
   aboutMe: string;
   bannerColor: string | null;
   statusEmoji: string | null;
-  statusText: string;
+  statusText: string | null;
   identity: PublicProfileIdentity;
 };
 
@@ -99,7 +99,7 @@ export async function getPublicProfileForViewer(
     aboutMe: row.aboutMe ?? "",
     bannerColor: row.bannerColor ?? null,
     statusEmoji: row.statusEmoji ?? null,
-    statusText: row.statusText ?? "",
+    statusText: row.statusText,
     identity,
   };
 }
@@ -135,7 +135,7 @@ export async function updateProfile(
       aboutMe: data.aboutMe ?? "",
       bannerColor: data.bannerColor ?? null,
       statusEmoji: data.statusEmoji ?? null,
-      statusText: data.statusText ?? "",
+      statusText: data.statusText === undefined ? "" : data.statusText,
     })
     .onConflictDoUpdate({
       target: communityUserProfile.userId,

@@ -1,4 +1,7 @@
 "use client"
+
+import { parseCommunitySelfProfileRead } from "@alook/shared"
+import { apiFetch } from "@/lib/api/client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
@@ -8,7 +11,7 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { useLayoutEffect, type ReactNode } from "react"
 import { usePathname } from "next/navigation"
-import { apiFetchProfiles } from "@/lib/community/profile-seed"
+import { loadAndSeedProfiles } from "@/lib/community/profile-seed"
 import { QueryProvider } from "./QueryProvider"
 import {
   CurrentUserProvider,
@@ -94,14 +97,15 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   useQuery({
     queryKey: communityKeys.selfProfile(),
     queryFn: async ({ signal }) => {
-      const profile = await apiFetchProfiles<{ id: string; aboutMe: string; avatar: string; avatarVersion: number; discriminator: string; name: string; statusEmoji: string | null; statusText: string }>(
-      "/api/community/users/me/profile",
+      const profile = await loadAndSeedProfiles(
+      async origin => parseCommunitySelfProfileRead(await apiFetch<unknown>("/api/community/users/me/profile", { ...origin, signal }), currentUser.id),
       (profile) => [{
         id: profile.id,
         identityAbout: {
           name: profile.name,
           discriminator: profile.discriminator,
           aboutMe: profile.aboutMe,
+          bannerColor: profile.bannerColor,
         },
         avatar: {
           avatar: profile.avatar,
@@ -111,7 +115,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
           statusEmoji: profile.statusEmoji,
           statusText: profile.statusText,
         },
-      }], { signal }, registry,
+      }], registry, signal,
       )
       return { id: profile.id }
     },

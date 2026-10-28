@@ -86,6 +86,8 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
         id: "bot_1",
         name: "Seeded Bot",
         discriminator: "0001",
+        ownerUserId: "viewer",
+        presence: "offline",
         image: null,
         avatarVersion: 2,
         description: "",
@@ -139,7 +141,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       }
       return {
         plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 1, activeCount: Number(active),
-        bots: [{ id: "bot_1", name: "Bot", image: null, avatarVersion: 0, isActive: active, presence: active ? "online" : "offline" }],
+        bots: [{ id: "bot_1", name: "Bot", discriminator: "0001", ownerUserId: "viewer", description: "", image: null, avatarVersion: 0, isActive: active, presence: active ? "online" : "offline" }],
       }
     })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -162,7 +164,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     act(() => createCommunityDbRegistry(queryClient, "viewer").runtime.ws.actions.setPresence("bot_1", "offline"))
     await act(async () => resolve({
       plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 1, activeCount: 1,
-      bots: [{ id: "bot_1", name: "Bot", image: null, avatarVersion: 0, isActive: true, presence: "online" }],
+      bots: [{ id: "bot_1", name: "Bot", discriminator: "0001", ownerUserId: "viewer", description: "", image: null, avatarVersion: 0, isActive: true, presence: "online" }],
     }))
     await waitFor(() => expect(queryClient.getQueryData(communityKeys.bots())).toBeDefined())
     expect(createCommunityDbRegistry(queryClient, "viewer").runtime.ws.get().presenceByUserId.get("bot_1")).toBe("offline")
@@ -523,4 +525,24 @@ describe("bot mutation origin retirement", () => {
       qc.clear()
     }
   })
+})
+
+it.each(["wrong-owner", "duplicate-id", "missing-catalog-discriminator"])("rejects a later malformed bot directory %s before canonical publication", async defect => {
+  const { createCommunityQueryOwner } = await import("@/test/community-query-owner")
+  const { communityRegistrySnapshot } = await import("@/test/community-registry-snapshot")
+  const { botsOptions } = await import("@/lib/community/bots")
+  const { client, registry } = await createCommunityQueryOwner()
+  const row = (id: string) => ({ id, name: id, discriminator: "0042", ownerUserId: "viewer", image: null, avatarVersion: 1, description: "Real about", presence: "offline", machineId: "machine", runtime: "codex", modelName: null, reasoningEffort: null, runtimeConfigRevision: 0 })
+  const initial = { isFounder: false, plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 2, activeCount: 0, bots: [row("first"), row("second")] }
+  apiFetchMock.mockResolvedValueOnce(initial)
+  await client.query(botsOptions())
+  const before = communityRegistrySnapshot(registry)
+  const malformed = structuredClone(initial)
+  malformed.bots[0]!.name = "Must not publish"
+  if (defect === "wrong-owner") malformed.bots[1]!.ownerUserId = "foreign"
+  if (defect === "duplicate-id") malformed.bots[1]!.id = "first"
+  if (defect === "missing-catalog-discriminator") delete (malformed.bots[1] as Partial<ReturnType<typeof row>>).discriminator
+  apiFetchMock.mockResolvedValueOnce(malformed)
+  await expect(client.query({ ...botsOptions(), staleTime: 0 })).rejects.toThrow()
+  expect(communityRegistrySnapshot(registry)).toEqual(before)
 })

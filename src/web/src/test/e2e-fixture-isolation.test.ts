@@ -276,7 +276,7 @@ describe("test-scoped case actors and cleanup", () => {
         if (path.endsWith("/friends/request")) return communityJsonReply({ id: "case-friendship" })
         return communityJsonReply({})
       }
-      if (path.endsWith("/profile")) return communityJsonReply({ id: actor.userId, name: actor.name, aboutMe: baselineFault === "profile" ? "old account profile" : "", avatarVersion: 0, bannerColor: null, statusEmoji: null, statusText: "" })
+      if (path.endsWith("/profile")) return communityJsonReply({ id: actor.userId, name: actor.name, discriminator: "0042", avatar: null, aboutMe: baselineFault === "profile" ? "old account profile" : "", avatarVersion: 0, bannerColor: null, statusEmoji: null, statusText: null })
       if (path === "/api/community/servers") {
         if (serverListFault === "error") return communityJsonReply({ error: "Unavailable" }, { status: 503 })
         if (serverListFault === "missing") return communityJsonReply({})

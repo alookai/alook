@@ -1,4 +1,4 @@
-import { CommunityResourceProfileSchema } from "@alook/shared"
+import { CommunityResourceProfileSchema, type CommunityResourceProfile } from "@alook/shared"
 
 import { canonicalUserImage } from "./storage"
 
@@ -19,18 +19,12 @@ export type MemberRow = {
   userOwnerUserId?: string | null
 }
 
-export type MappedMember = {
+export type MappedMember = Pick<CommunityResourceProfile, "name" | "discriminator" | "avatar" | "avatarVersion"> & Required<Pick<CommunityResourceProfile, "statusEmoji" | "statusText">> & {
   id: string
   userId: string
-  name: string
-  discriminator: string | null
-  avatar: string | null
-  avatarVersion: number
   status: "online" | "offline"
   sub: string
   role: string
-  statusEmoji: string | null
-  statusText: string
   isCreator?: boolean
   source?: string
   isBot?: true
@@ -38,14 +32,8 @@ export type MappedMember = {
 }
 
 // The single canonical member-DTO mapper shared by every UI member-list
-// endpoint. Centralizes the `avatarInitial` default, the self-→`online` status
-// guess, the constant `sub: ""` (the client `Member` type requires `sub:
-// string`), and the owner-scoped `isBot`/`ownerUserId` projection.
-//
-// `botGating` is opt-in: only the server-members LIST route applies the
-// owner-scoped `isBot`/`ownerUserId` projection. The search route never emitted
-// bot fields (and doesn't select the columns), so it passes `botGating: false`
-// to stay byte-identical.
+// endpoint. Bot ownership is exposed only when botGating is enabled and the
+// actor owns that bot. Search rows do not carry bot ownership columns.
 export function mapMemberForApi(
   row: MemberRow,
   viewerUserId: string,
@@ -67,7 +55,7 @@ export function mapMemberForApi(
     sub: "",
     role: row.role ?? "member",
     statusEmoji: row.statusEmoji ?? null,
-    statusText: row.statusText ?? "",
+    statusText: row.statusText,
     ...(opts?.isCreator !== undefined ? { isCreator: opts.isCreator } : {}),
     ...(opts?.source !== undefined ? { source: opts.source } : {}),
     ...(isOwnBot ? { isBot: true as const, ownerUserId: row.userOwnerUserId! } : {}),

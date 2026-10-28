@@ -1,4 +1,4 @@
-import { CommunityInvitesReadSchema, type CommunityInviteListItem, type CommunityResourceProfile } from "@alook/shared"
+import { parseCommunityServerMembersRead, CommunityInvitesReadSchema, type CommunityInviteListItem, type CommunityResourceProfile } from "@alook/shared"
 import { CommunityAcceptedFriendsReadSchema, CommunityBlockedFriendsReadSchema, CommunityPendingFriendsReadSchema, AccountAttentionSnapshotSchema, CommunityThreadsReadSchema, encodeCommunityBrowserEvent, BUSINESS_SCHEMA_VERSION, CommunityMachineSummarySchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityServerResourceSchema, CommunityCategoryResourceSchema, CommunityResourceBundleSchema,
   type CommunityChannelResource, type CommunityMessageResource, type CommunityResourceBundle } from "@alook/shared"
 
@@ -61,9 +61,11 @@ export function forumSidebarEnvelopeFixture(serverId: string, ids = ["post_1"], 
 
 export function dmListRowFixture(fields: Partial<import("@/lib/community/models/people").DM> & { id: string; userId: string }, viewerId = "viewer") {
   const profile = { id: fields.userId, name: fields.name ?? "Peer", discriminator: fields.discriminator ?? "1234", avatar: null, avatarVersion: fields.avatarVersion ?? 0 }
-  return { name: profile.name, discriminator: profile.discriminator, avatar: "P", avatarVersion: profile.avatarVersion,
-    status: "offline" as const, preview: "", ...fields, profile,
-    channel: channelResourceFixture({ id: fields.id, type: "dm", serverId: null, name: null }),
+  const channel = channelResourceFixture({ id: fields.id, type: "dm", serverId: null, name: null })
+  return { id: fields.id, userId: fields.userId, preview: fields.preview ?? "", profile, channel,
+    activityAt: fields.activityAt ?? channel.lastMessageAt ?? channel.createdAt,
+    unread: fields.unread ?? false,
+    ...(fields.lastUnreadSeq === undefined ? {} : { lastUnreadSeq: fields.lastUnreadSeq }),
     memberships: [viewerId, fields.userId].map(userId => ({ channelId: fields.id, userId, relation: "access" as const, source: "added" as const, isCreator: false, role: null, memberId: null })),
   }
 }
@@ -163,4 +165,15 @@ export function invitesReadFixture(serverId: string, invites: CommunityInviteLis
   return CommunityInvitesReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, serverId, invites,
     resources: fullResourceBundleFixture(viewerId, [serverResourceFixture({ id: serverId, ownerId: viewerId, isOwner: true })], [], [], profiles),
   })
+}
+
+export function serverMembersReadFixture(serverId: string, members: Array<{ id: string; userId: string; [field: string]: unknown }>, options: { viewerId?: string; search?: boolean; hasMore?: boolean; cursor?: string; limit?: number; total?: number } = {}) {
+  const viewerId = options.viewerId ?? "viewer"
+  const rows = members.map(row => ({ id: row.id, userId: row.userId, name: row.name, discriminator: row.discriminator, avatar: row.avatar, avatarVersion: row.avatarVersion,
+    role: row.role, status: row.status ?? (row.userId === viewerId ? "online" : "offline"), sub: row.sub ?? "",
+    statusEmoji: row.statusEmoji === undefined ? null : row.statusEmoji, statusText: row.statusText === undefined ? null : row.statusText,
+  }))
+  return parseCommunityServerMembersRead({ viewerId, serverId, members: rows, hasMore: options.hasMore ?? false, limit: options.limit ?? 100,
+    ...(options.cursor === undefined ? {} : { cursor: options.cursor }), ...(options.search ? {} : { total: options.total ?? rows.length }),
+  }, serverId, viewerId, options.search ?? false)
 }

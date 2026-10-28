@@ -33,7 +33,7 @@ import { CommunityShell } from "./community-shell"
 const registries = new Map<string, CommunityDbRegistry>()
 const seen: Array<{ viewer: string | null; presence: string[] }> = []
 const selfProfileCalls = () => fixtures.fetch.mock.calls.filter(([path]) => path === "/api/community/users/me/profile")
-const self = (id: string) => ({ id, name: "Jane Roe", discriminator: "4242", aboutMe: "hello", avatar: "new-avatar", avatarVersion: 3, statusEmoji: null, statusText: "" })
+const self = (id: string) => ({ id, name: "Jane Roe", discriminator: "4242", aboutMe: "hello", bannerColor: null, avatar: "new-avatar", avatarVersion: 3, statusEmoji: null, statusText: "" })
 function Probe() {
   const client = useQueryClient()
   const registry = getCommunityDbRegistry(client)!
@@ -139,4 +139,20 @@ describe("CommunityShell actual identity and bootstrap boundary", () => {
     expect(current.collections.profiles.get("user-a")).toBeUndefined()
     await waitFor(() => expect(original.queryClient.getQueryCache().getAll()).toHaveLength(0))
   })
+})
+
+it.each(["missing-core", "wrong-self"])("refuses a warm complete self %s before any canonical write", async defect => {
+  const { communityRegistrySnapshot } = await import("@/test/community-registry-snapshot")
+  render(tree())
+  await waitFor(() => expect(registries.get("user-a")?.collections.profiles.get("user-a")?.avatarVersion).toBe(3))
+  const registry = registries.get("user-a")!
+  const before = communityRegistrySnapshot(registry)
+  const malformed: Record<string, unknown> = { ...self("user-a"), name: "Must not publish" }
+  if (defect === "missing-core") delete malformed.avatarVersion
+  if (defect === "wrong-self") malformed.id = "foreign-self"
+  const original = fixtures.fetch.getMockImplementation()!
+  fixtures.fetch.mockImplementation((path: string, options: unknown) => path === "/api/community/users/me/profile" ? Promise.resolve(malformed) : original(path, options))
+  const query = registry.queryClient.getQueryCache().find({ queryKey: communityKeys.selfProfile(), exact: true })!
+  await expect(registry.queryClient.query({ ...query.options, queryKey: communityKeys.selfProfile(), staleTime: 0 })).rejects.toThrow()
+  expect(communityRegistrySnapshot(registry)).toEqual(before)
 })

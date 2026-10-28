@@ -1,3 +1,4 @@
+import { serverMembersReadFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
@@ -22,7 +23,7 @@ describe("current nullable identity through actual member hooks", () => {
     const owner = await createCommunityQueryOwner()
     load.mockResolvedValue(surface === "channel"
       ? { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "channel", relation: "access", members: [member], profiles: [profile] }
-      : { members: [{ ...profile, id: member.memberId, userId: profile.id, role: "member", sub: "", status: "offline" }], hasMore: false, total: 1, limit: 50 })
+      : serverMembersReadFixture("server", [{ ...profile, id: member.memberId, userId: profile.id, role: "member", sub: "", status: "offline" }], { limit: 50 }))
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client }, children)
     const hook = renderHook(() => (surface === "channel" ? useChannel : useServer)(), { wrapper })
     await waitFor(() => expect(hook.result.current.loading).toBe(false))
@@ -38,7 +39,7 @@ describe("current nullable identity through actual member hooks", () => {
     expect(owner.runtime.ws.get().presenceByUserId.get("peer")).toBe("online")
     load.mockResolvedValue(surface === "channel"
       ? { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "channel", relation: "access", members: [member], profiles: [] }
-      : { members: [{ id: member.memberId, userId: profile.id, role: "member" }], hasMore: false, total: 1, limit: 50 })
+      : { viewerId: "viewer", serverId: "server", members: [{ id: member.memberId, userId: profile.id, role: "member" }], hasMore: false, total: 1, limit: 50 })
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client }, children)
     const hook = renderHook(() => (surface === "channel" ? useChannel : useServer)(), { wrapper })
     await waitFor(() => expect(hook.result.current.loading).toBe(false))

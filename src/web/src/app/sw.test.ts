@@ -153,3 +153,39 @@ describe("public worker activation", () => {
     expect(listeners.has("fetch")).toBe(true)
   })
 })
+
+it.each(["probe", "probe-no-port", "unrelated", "missing-source", "source-without-id", "wrong-version", "missing-shell", "missing-client", "public-client", "current-marker", "navigate", "retry-marker", "navigation-refused"])("handles the actual worker message lifecycle: %s", async scenario => {
+  const { BUSINESS_SCHEMA_VERSION } = await import("@alook/shared/business-schema-version")
+  const { CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE } = await import("../lib/service-worker/business-upgrade")
+  const location = new URL("https://example.test/sw.js")
+  const match = vi.spyOn(Serwist.prototype, "matchPrecache").mockResolvedValue(scenario === "missing-shell" ? undefined : new Response("cached current shell"))
+  const handlers: Array<(event: MessageEvent & { waitUntil: (value: Promise<unknown>) => void }) => void> = []
+  const marker = scenario === "current-marker" || scenario === "retry-marker" ? `?__alook_schema_update=${BUSINESS_SCHEMA_VERSION}` : ""
+  const client = { id: "document", url: `https://example.test/${scenario === "public-client" ? "blog" : "c/me"}${marker}`, navigate: vi.fn(async () => scenario === "navigation-refused" ? null : ({ id: "new-document" })), postMessage: vi.fn() }
+  const clients = { matchAll: vi.fn(async () => scenario === "missing-client" ? [] : [client]), claim: vi.fn() }
+  vi.stubGlobal("location", location)
+  vi.stubGlobal("self", { location, skipWaiting: vi.fn(async () => undefined), registration: { scope: "https://example.test/" }, clients, __SW_MANIFEST: [{ url: shellUrl, revision: null }], addEventListener: (type: string, handler: typeof handlers[number]) => { if (type === "message") handlers.push(handler) } })
+  await import("./sw")
+  const reply = vi.fn()
+  const pending: Promise<unknown>[] = []
+  const data = { type: scenario.startsWith("probe") ? WORKER_VERSION_PROBE : scenario === "unrelated" ? "unrelated" : CURRENT_DOCUMENT_REQUEST, schemaVersion: scenario === "wrong-version" ? BUSINESS_SCHEMA_VERSION - 1 : BUSINESS_SCHEMA_VERSION, explicitRetry: scenario === "retry-marker" }
+  const source = scenario === "missing-source" ? null : scenario === "source-without-id" ? {} : { id: "document" }
+  handlers.at(-1)!({ data, source, ports: scenario === "probe-no-port" ? [] : [{ postMessage: reply }], waitUntil: promise => { pending.push(promise) } } as never)
+  await Promise.all(pending)
+  if (scenario.startsWith("probe")) {
+    expect(pending).toHaveLength(0)
+    if (scenario === "probe") expect(reply).toHaveBeenCalledWith({ schemaVersion: BUSINESS_SCHEMA_VERSION })
+    else expect(reply).not.toHaveBeenCalled()
+    expect(match).not.toHaveBeenCalled()
+  } else if (scenario === "unrelated") {
+    expect(pending).toHaveLength(0)
+    expect(reply).not.toHaveBeenCalled()
+    expect(match).not.toHaveBeenCalled()
+  } else {
+    const navigates = scenario === "navigate" || scenario === "retry-marker"
+    expect(reply).toHaveBeenCalledWith({ navigating: navigates })
+    expect(pending).toHaveLength(1)
+    expect(client.navigate).toHaveBeenCalledTimes(navigates || scenario === "navigation-refused" ? 1 : 0)
+    if (navigates) expect(client.navigate).toHaveBeenCalledWith(`https://example.test/c/me?__alook_schema_update=${BUSINESS_SCHEMA_VERSION}`)
+  }
+})

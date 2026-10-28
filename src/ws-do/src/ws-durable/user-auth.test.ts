@@ -1574,3 +1574,19 @@ describe("persisted user session lease", () => {
     expect(ws.close).not.toHaveBeenCalled()
   })
 })
+
+describe("current socket frame version admission", () => {
+  beforeEach(() => resetHarness())
+  afterEach(() => cleanupHarness())
+  it.each([undefined, BUSINESS_SCHEMA_VERSION - 1, BUSINESS_SCHEMA_VERSION + 1])("closes a current authenticated socket for community frame version %s before side effects", async version => {
+    const { durable } = createDO()
+    const ws = createMockWebSocket()
+    const state = { communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "session", sessionValidUntil: Date.now() + 60_000 }
+    ws.serializeAttachment(state)
+    await durable.webSocketMessage(ws as unknown as WebSocket, JSON.stringify({ type: "community:status.update", schemaVersion: version, userId: "user-42", statusEmoji: null, statusText: "Must not publish" }))
+    expect(ws.close).toHaveBeenCalledWith(1008, "Unsupported community contract")
+    expect(mockUpdateProfile).not.toHaveBeenCalled()
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.deserializeAttachment()).toEqual(state)
+  })
+})

@@ -1,3 +1,4 @@
+import { serverMembersReadFixture } from "@/test/community-resource-fixtures"
 import { machineResourceFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -102,7 +103,7 @@ describe("native client-entry consumers", () => {
   it.each([true, false])("connects real member search and popup after client entry when the directory starts ready=%s", async (serverReady) => {
     const person = { id: "member-peer", userId: "peer", name: "John Doe", discriminator: "0042", avatar: "J", avatarVersion: 0, role: "member", status: "offline", sub: "" }
     mocks.api.mockImplementation(async (url: string) => {
-      if (url.startsWith("/api/community/servers/s1/members")) return { members: [person], hasMore: false, limit: 50, total: 1 }
+      if (url.startsWith("/api/community/servers/s1/members")) return serverMembersReadFixture("s1", [person], { search: url.includes("/members/search"), limit: 50 })
       if (url === "/api/community/servers") return { servers: [] }
       throw new Error(`Unexpected resource ${url}`)
     })
@@ -141,7 +142,7 @@ describe("native client-entry consumers", () => {
   it("releases real member and profile projections after native restore and allows mention search", async () => {
     const person = { id: "member-peer", userId: "peer", name: "John Doe", discriminator: "0042", avatar: "J", avatarVersion: 0, role: "member", status: "offline", sub: "" }
     mocks.api.mockImplementation(async (url: string) => {
-      if (url.startsWith("/api/community/servers/s1/members")) return { members: [person], hasMore: false, limit: 50, total: 1 }
+      if (url.startsWith("/api/community/servers/s1/members")) return serverMembersReadFixture("s1", [person], { search: url.includes("/members/search"), limit: 50 })
       throw new Error(`Unexpected resource ${url}`)
     })
     let members!: ReturnType<typeof useServerMembers>

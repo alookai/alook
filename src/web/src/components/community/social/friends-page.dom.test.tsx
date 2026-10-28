@@ -130,6 +130,26 @@ describe("FriendsPage actionable requests", () => {
 })
 
 describe("FriendsPage search owner", () => {
+  it.each(["cold", "warm", "newer"])("keeps a null search avatar canonical with mode=%s", async mode => {
+    const { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } = await import("@alook/shared")
+    const { writeCommunityProfilePatches } = await import("@/lib/community/profile-seed")
+    const { client, registry } = await createCommunityQueryOwner()
+    if (mode !== "cold") writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alice", discriminator: "0042", aboutMe: "Keep complete", bannerColor: "#123456" }, avatar: { avatar: "old-image", avatarVersion: 2 }, status: { statusText: "Keep status", statusEmoji: "🙂" } }], registry)
+    let release!: () => void
+    const pending = new Promise<void>(done => { release = done })
+    const fetch = vi.fn(async () => { await pending; return new Response(JSON.stringify({ users: [{ id: "alice", name: "Alice", discriminator: "0042", image: null, avatarVersion: 2 }] }), { headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) } }) })
+    vi.stubGlobal("fetch", fetch)
+    const view = render(<QueryClientProvider client={client} registry={registry} retainOwner><FriendsPage friends={[]} pending={[]} blocked={[]} activeTab="new" /></QueryClientProvider>)
+    try {
+      fireEvent.change(view.getByPlaceholderText("Search by username"), { target: { value: "alice" } })
+      await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+      if (mode === "newer") writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Newer Alice" }, avatar: { avatar: "newer-image", avatarVersion: 3 }, status: { statusText: "Newer status" } }], registry, { command: true })
+      await act(async () => release())
+      await waitFor(() => expect(client.getQueryData(["community", "user-search", "alice"])).toEqual(["alice"]))
+      expect(registry.collections.profiles.get("alice")).toMatchObject({ avatar: mode === "newer" ? "newer-image" : null, avatarVersion: mode === "newer" ? 3 : 2, name: mode === "newer" ? "Newer Alice" : "Alice", discriminator: "0042", ...(mode !== "cold" ? { aboutMe: "Keep complete", bannerColor: "#123456", statusText: mode === "newer" ? "Newer status" : "Keep status" } : {}) })
+    } finally { view.unmount(); vi.unstubAllGlobals() }
+  })
+
   it.each([false, true])("held search failure after retirement=%s only shows a current error", async (retired) => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
     const registry = createCommunityDbRegistry(queryClient, "viewer")

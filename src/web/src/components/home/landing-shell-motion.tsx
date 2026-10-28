@@ -653,11 +653,21 @@ export function LandingShellMotion({
   machineIntroDescription,
   overviewDetails = false,
   beat: controlledBeat,
+  children,
+  dms,
+  activeDm,
+  previewServers,
+  userAvatar,
 }: {
   scene: LandingScene
   machineIntroDescription?: string
   overviewDetails?: boolean
   beat?: number
+  children?: ReactNode
+  dms?: DM[]
+  activeDm?: string
+  previewServers?: Server[]
+  userAvatar?: string
 }) {
   const [localBeat, setLocalBeat] = useAtom(useCreateAtom(0))
   const {
@@ -754,10 +764,14 @@ export function LandingShellMotion({
                 <CommunityDbProvider registry={registry}>
                 <PrototypeShell
                   scene={scene}
+                  userAvatar={userAvatar}
+                  previewServers={previewServers}
+                  dms={dms}
+                  activeDm={activeDm}
                   snapshot={visualSnapshot}
                   machineIntroDescription={machineIntroDescription}
                   overviewDetails={overviewDetails}
-                />
+                >{children}</PrototypeShell>
                 </CommunityDbProvider>
               </QueryClientProvider>
             </CommunityPreviewProfileOwner>
@@ -862,11 +876,21 @@ function PrototypeShell({
   snapshot,
   machineIntroDescription,
   overviewDetails,
+  children,
+  dms,
+  activeDm,
+  previewServers,
+  userAvatar,
 }: {
   scene: LandingScene
   snapshot: SceneSnapshot
   machineIntroDescription?: string
   overviewDetails: boolean
+  children?: ReactNode
+  dms?: DM[]
+  activeDm?: string
+  previewServers?: Server[]
+  userAvatar?: string
 }) {
   const continuityRoom = scene === "continuity" && snapshot.beat >= 7
     ? snapshot.room
@@ -882,18 +906,18 @@ function PrototypeShell({
     room,
     overviewDetails,
   })
-  const servers = overviewDetails && scene === "server"
+  const servers = previewServers ?? (overviewDetails && scene === "server"
     ? OVERVIEW_SERVERS
     : scene === "continuity"
     ? SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))
     : room
     ? SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))
-    : SERVERS
+    : SERVERS)
   return (
     <Shell className={styles.productShell}>
       <PrototypeServerRail
         servers={servers}
-        activeServerId={room ?? "gus"}
+        activeServerId={previewServers?.find(server => server.active)?.id ?? room ?? "gus"}
         serverView={serverView}
       />
       <div className="relative flex min-w-0 flex-1 flex-col pt-2">
@@ -906,18 +930,20 @@ function PrototypeShell({
               {serverView ? (
                 <PrototypeChannelSidebar
                   room={room}
+                  serverNameOverride={previewServers?.find(server => server.active)?.name}
                   treeScopeKey={channelTreeScopeKey}
                   channels={scene === "continuity" ? CONTINUITY_CHANNELS : SPACE_CHANNELS}
                   rootChannels={overviewDetails && scene === "server" ? SPACE_CHANNELS.work : CHANNELS}
                 />
               ) : (
-                <PrototypeDmSidebar scene={scene} snapshot={snapshot} />
+                <PrototypeDmSidebar scene={scene} snapshot={snapshot} dms={dms} activeDm={activeDm} />
               )}
             </div>
             <div
               key={`content-${scene}-${room ?? "default"}`}
               className={`flex min-w-0 flex-1 flex-col bg-background ${styles.sceneEnter}`}
             >
+              {children ?? <>
               {scene === "server" && (
                 <ServerScene snapshot={snapshot} showTypingPill={overviewDetails} />
               )}
@@ -931,11 +957,12 @@ function PrototypeShell({
               {scene === "spaces" && <SpacesScene snapshot={snapshot} />}
               {scene === "identity" && <IdentityScene snapshot={snapshot} />}
               {scene === "continuity" && <ContinuityScene snapshot={snapshot} />}
+              </>}
             </div>
           </div>
         </AppSurface>
         <div className="absolute bottom-0 left-0 z-10 -ml-14 w-74">
-          <PrototypeUserBar scene={scene} snapshot={snapshot} />
+          <PrototypeUserBar scene={scene} snapshot={snapshot} userAvatar={userAvatar} />
         </div>
       </div>
     </Shell>
@@ -964,9 +991,11 @@ export function landingChannelTreeScopeKey({
 function PrototypeUserBar({
   scene,
   snapshot,
+  userAvatar,
 }: {
   scene: LandingScene
   snapshot: SceneSnapshot
+  userAvatar?: string
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const continuityBeat = scene === "continuity" ? snapshot.beat : -1
@@ -1012,7 +1041,7 @@ function PrototypeUserBar({
       )}
       <UserBar
         breakpoint="desktop"
-        user={{ id: "gus", name: "Gus", avatar: LANDING_HUMAN_AVATARS.gus }}
+        user={{ id: "gus", name: "Gus", avatar: userAvatar ?? LANDING_HUMAN_AVATARS.gus }}
         onEditProfile={() => {}}
         inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}
         hasUnread={hasUnread}
@@ -1069,19 +1098,21 @@ function PrototypeServerRail({
 
 function PrototypeChannelSidebar({
   room,
+  serverNameOverride,
   treeScopeKey,
   channels = SPACE_CHANNELS,
   rootChannels = CHANNELS,
 }: {
   room: LandingRoom | null
+  serverNameOverride?: string
   treeScopeKey: string
   channels?: Record<LandingRoom, Category[]>
   rootChannels?: Category[]
 }) {
   const categories = room ? channels[room] : rootChannels
-  const serverName = room
+  const serverName = serverNameOverride ?? (room
     ? SPACE_SERVERS.find((server) => server.id === room)?.name ?? ""
-    : "Gus"
+    : "Gus")
   const activeChannel = categories[0]?.channels[0]?.id ?? "general"
   const sidebarRef = useRef<HTMLDivElement>(null)
 
@@ -1117,7 +1148,7 @@ function PrototypeChannelSidebar({
         isAdmin={false}
         currentUserId="gus"
       />
-      {room && (
+      {(room || serverNameOverride) && (
         <button
           data-motion-target="invite-life"
           className="absolute right-2 top-2 grid size-7 place-items-center rounded-md text-muted-foreground"
@@ -1133,9 +1164,13 @@ function PrototypeChannelSidebar({
 function PrototypeDmSidebar({
   scene,
   snapshot,
+  dms = DMS,
+  activeDm,
 }: {
   scene: LandingScene
   snapshot: SceneSnapshot
+  dms?: DM[]
+  activeDm?: string
 }) {
   const sidebarRef = useRef<HTMLDivElement>(null)
   const dmOpen =
@@ -1155,14 +1190,14 @@ function PrototypeDmSidebar({
   return (
     <div ref={sidebarRef} className="flex min-h-0 flex-1 flex-col">
       <DmSidebar
-        dms={DMS}
-        activeDm={dmOpen ? "dm-alli" : null}
+        dms={dms}
+        activeDm={activeDm ?? (dmOpen ? "dm-alli" : null)}
         onPickDm={() => {}}
         onShowFriends={() => {}}
         onShowMachines={() => {}}
         onShowBots={() => {}}
         machinesActive={scene === "machine"}
-        botsActive={scene === "provider" && !dmOpen}
+        botsActive={scene === "provider" && !dmOpen && !activeDm}
       />
     </div>
   )
@@ -1178,7 +1213,7 @@ function targetClass(snapshot: SceneSnapshot, id: string, className?: string) {
     .join(" ")
 }
 
-function PrototypeSheet({
+export function PrototypeSheet({
   children,
   label,
   open = true,
@@ -1394,17 +1429,18 @@ function ContinuityScene({ snapshot }: { snapshot: SceneSnapshot }) {
   )
 }
 
-function PrototypeInviteSurface({ snapshot }: { snapshot: SceneSnapshot }) {
+export function PrototypeInviteSurface({ snapshot, serverName = "Home", inviteLink = "alook.ai/c/invite/home", children }: { snapshot: SceneSnapshot; serverName?: string; inviteLink?: string; children?: ReactNode }) {
   return (
     <aside
-      aria-label="Invite friends to Home"
+      aria-label={`Invite friends to ${serverName}`}
+      data-slot="dialog-content"
       aria-hidden={!snapshot.inviteOpen}
       data-open={snapshot.inviteOpen}
       className={styles.inviteSurface}
     >
       <header className="border-b border-border/50 px-4 py-3">
         <div className="truncate font-heading text-sm font-semibold leading-[1.2] tracking-[-0.015em]">
-          Invite friends to Home
+          Invite friends to {serverName}
         </div>
       </header>
       <div className="px-4 pt-3">
@@ -1417,7 +1453,7 @@ function PrototypeInviteSurface({ snapshot }: { snapshot: SceneSnapshot }) {
         </label>
       </div>
       <div className="px-2 py-2">
-        <div className="flex items-center gap-3 rounded-md px-2 py-2">
+        {children ?? <div className="flex items-center gap-3 rounded-md px-2 py-2">
           <Avatar label="Maya" seed="maya" size={32} presence="online" ringColor="var(--popover)" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">Maya</div>
@@ -1438,22 +1474,22 @@ function PrototypeInviteSurface({ snapshot }: { snapshot: SceneSnapshot }) {
               "Invite"
             )}
           </Button>
-        </div>
+        </div>}
       </div>
       <footer className="border-t border-border/50 px-4 py-3">
         <div className="text-xs font-medium text-muted-foreground">
           Or, send a server invite link to a friend
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <Input readOnly value="alook.ai/c/invite/home" className="font-mono text-xs" />
-          <Button size="sm">Copy</Button>
+          <Input readOnly value={inviteLink} className="font-mono text-xs" />
+          <Button size="sm" data-invite-copy>Copy</Button>
         </div>
       </footer>
     </aside>
   )
 }
 
-function PrototypeComposer({
+export function PrototypeComposer({
   snapshot,
   target,
   placeholder,
@@ -1761,14 +1797,16 @@ function ProviderScene({ snapshot }: { snapshot: SceneSnapshot }) {
   )
 }
 
-function BotCard({
+export function BotCard({
   runtime,
+  name = "Alli",
   model,
   status,
   snapshot,
   menuOpen = false,
 }: {
   runtime: string
+  name?: string
   model: string | null
   status: string
   snapshot?: SceneSnapshot
@@ -1782,10 +1820,10 @@ function BotCard({
     <div className="relative">
       <Card className="flex flex-col gap-3 p-4">
         <div className="flex items-start gap-3">
-          <AgentAvatar name="Alli" seed="alli" size={40} />
+          <AgentAvatar name={name} seed={name.toLowerCase()} size={40} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex items-center gap-2">
-              <span className="text-[15px] font-medium text-foreground">Alli</span>
+              <span className="text-[15px] font-medium text-foreground">{name}</span>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                 <span className="size-1.5 rounded-full bg-status-online" />
                 {status}

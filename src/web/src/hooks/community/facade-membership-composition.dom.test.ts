@@ -1,4 +1,4 @@
-import { friendBucketScenarioFixture, staleFriendBucketFixture } from "@/test/community-resource-fixtures"
+import { serverMembersReadFixture, friendBucketScenarioFixture, staleFriendBucketFixture } from "@/test/community-resource-fixtures"
 import { BUSINESS_SCHEMA_VERSION, CommunityMembersReadSchema } from "@alook/shared"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -35,8 +35,8 @@ function buckets(url: string) {
 describe("membership facade composition", () => {
   it("pages the canonical server roster before subtracting channel members", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
-      if (new URL(url, "https://alook.test").searchParams.get("cursor") === "next") return { members: [bob], hasMore: false }
-      if (url.includes("/servers/s1/members?")) return { members: [alice], hasMore: true, cursor: "next" }
+      if (new URL(url, "https://alook.test").searchParams.get("cursor") === "next") return serverMembersReadFixture("s1", [bob])
+      if (url.includes("/servers/s1/members?")) return serverMembersReadFixture("s1", [alice], { hasMore: true, cursor: "next" })
       if (url === "/api/community/channels/c1/members?relation=access") return CommunityMembersReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", relation: "access", members: [{ channelId: "c1", userId: alice.userId, relation: "access", memberId: alice.id, role: alice.role, source: alice.source, isCreator: alice.isCreator }], profiles: [{ id: alice.userId, name: alice.name, discriminator: alice.discriminator, avatar: alice.avatar, avatarVersion: alice.avatarVersion }] })
       return buckets(url)
     })
@@ -50,7 +50,7 @@ describe("membership facade composition", () => {
   it("subtracts canonical server members from accepted friends", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/community/friends/accepted") return friendBucketScenarioFixture("friends", [{ ...alice, id: "friend_1" }, { ...bob, id: "friend_2" }])
-      if (url.includes("/api/community/servers/s1/members?")) return { members: [alice], hasMore: false }
+      if (url.includes("/api/community/servers/s1/members?")) return serverMembersReadFixture("s1", [alice])
       return buckets(url)
     })
     const rendered = renderHook(() => useInvitableFriends("s1"), { wrapper: Owner })
@@ -62,7 +62,7 @@ describe("membership facade composition", () => {
   it("rejects a stale accepted-friends read instead of caching a false-empty candidate set", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/community/friends/accepted") return staleFriendBucketFixture("friends")
-      if (url.includes("/api/community/servers/s1/members?")) return { members: [], hasMore: false }
+      if (url.includes("/api/community/servers/s1/members?")) return serverMembersReadFixture("s1", [])
       return buckets(url)
     })
     const rendered = renderHook(() => useInvitableFriends("s1"), { wrapper: Owner })
@@ -74,13 +74,13 @@ describe("membership facade composition", () => {
   it("keeps last-good candidates when a QueryClient refetch gets a stale response", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/community/friends/accepted") return friendBucketScenarioFixture("friends", [{ ...bob, id: "friend_2" }])
-      if (url.includes("/api/community/servers/s1/members?")) return { members: [], hasMore: false }
+      if (url.includes("/api/community/servers/s1/members?")) return serverMembersReadFixture("s1", [])
       return buckets(url)
     })
     const rendered = renderHook(() => useInvitableFriends("s1"), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.friends).toHaveLength(1))
     const lastGood = client.getQueryData(communityKeys.invitableFriends("s1"))
-    apiFetchMock.mockImplementation(async (url: string) => url === "/api/community/friends/accepted" ? staleFriendBucketFixture("friends") : url.includes("/members?") ? { members: [], hasMore: false } : buckets(url))
+    apiFetchMock.mockImplementation(async (url: string) => url === "/api/community/friends/accepted" ? staleFriendBucketFixture("friends") : url.includes("/members?") ? serverMembersReadFixture("s1", []) : buckets(url))
     await act(async () => { await rendered.result.current.refetch() })
     await waitFor(() => expect(rendered.result.current.error).toMatchObject({ message: "stale D1 read" }))
     expect(client.getQueryData(communityKeys.invitableFriends("s1"))).toBe(lastGood)

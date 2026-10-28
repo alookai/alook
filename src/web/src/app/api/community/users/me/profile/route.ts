@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  queries,
+  queries, parseCommunitySelfProfileRead,
   MAX_PROFILE_ABOUT_LENGTH,
   MAX_STATUS_TEXT_LENGTH,
   MAX_EMOJI_BYTES,
@@ -13,7 +13,6 @@ import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { fanOutProfileUpdate, fanOutStatusUpdate } from "@/lib/community/fanout"
 import { canonicalUserImage } from "@/lib/community/storage"
-import { avatarInitial } from "@/lib/community/avatar"
 import { readCommunitySelfProfile } from "@/lib/community/self-profile.server"
 
 export const GET = withCommunityActor(async (_req, ctx) => {
@@ -172,7 +171,7 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
 
   // Normalise the response shape — same as GET — so callers don't see
   // `userId` leak through on PATCH.
-  const res = writeJSON({
+  const res = writeJSON(parseCommunitySelfProfileRead({
     id: canonical.id,
     name: canonical.name,
     discriminator: canonical.discriminator,
@@ -180,13 +179,13 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
       canonical.id,
       canonical.image,
       canonical.avatarVersion,
-    ) ?? avatarInitial(canonical.name),
+    ),
     avatarVersion: canonical.avatarVersion,
     aboutMe: canonical.aboutMe,
     bannerColor: canonical.bannerColor,
     statusEmoji: canonical.statusEmoji,
     statusText: canonical.statusText,
-  })
+  }, userId))
 
   // Forward the re-signed session cookies from a rename so the browser
   // picks up the new name immediately — `withAuth` also forwards its own

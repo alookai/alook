@@ -1249,7 +1249,11 @@
 
 .footerNavigation {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   justify-self: center;
   gap: 24px;
 }

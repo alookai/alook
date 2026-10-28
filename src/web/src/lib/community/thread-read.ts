@@ -3,6 +3,7 @@ import { writeCommunityContractJSON } from "./read-contract"
 import { loadApiMessageContext, mapMessageForApi } from "./message-payload"
 import { canonicalUserImage } from "./storage"
 import { resourceProfile, threadParticipantResources } from "./participant-resources"
+import { readCommunityResourceProfiles } from "./resource-profiles.server"
 
 type Included = { messages: Array<Parameters<typeof mapMessageForApi>[0] & { channelId: string; replyToId: string | null }>;
   tags: Array<{ messageId: string; tag: string }>;
@@ -35,6 +36,9 @@ export async function readCommunityThreadsResource(db: Database, userId: string,
     participantCount: "participantCount" in row ? Number(row.participantCount) : undefined,
     profile: resourceProfile({ id: row.userId, name: CommunityResourceProfileSchema.shape.name.parse(row.userName), discriminator: row.discriminator, avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion), avatarVersion: row.userAvatarVersion }),
   })))
+  const profileIds = new Set(participants.profiles.map(profile => profile.id))
+  const authorIds = [...new Set(items.flatMap(item => [item.authorId, ...(item.replyToId ? [contextForChannel(item.channelId).replyMap.get(item.replyToId)?.authorId] : [])]).filter((id): id is string => !!id && !profileIds.has(id)))]
+  const authorProfiles = await readCommunityResourceProfiles(db, authorIds)
   return communityReadSchemas(contract).threads.parse({ contractVersion: contract, channelId: parent.id, channel: parent, threads: children,
-    included: { messages, ...participants, profiles: participants.profiles, tags: included?.tags ?? [] }, page })
+    included: { messages, ...participants, profiles: [...participants.profiles, ...authorProfiles], tags: included?.tags ?? [] }, page })
 }

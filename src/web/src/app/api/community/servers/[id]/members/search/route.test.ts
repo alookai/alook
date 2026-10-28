@@ -59,6 +59,9 @@ function buildRow(i: number, name: string) {
     userName: name,
     userEmail: `${name.toLowerCase()}@x.com`,
     userImage: null,
+    userAvatarVersion: 0,
+    statusEmoji: null,
+    statusText: null,
     discriminator: String(i).padStart(4, "0"),
   }
 }
@@ -69,7 +72,7 @@ describe("GET /api/community/servers/[id]/members/search", () => {
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", serverId: "srv_1", role: "member" })
   })
 
-  it("returns matched members as a backward-compatible paginated envelope", async () => {
+  it("returns matched members as a current scoped paginated envelope", async () => {
     mockSearchMembers.mockResolvedValue({
       members: [buildRow(1, "Alice"), buildRow(2, "Alicia")],
       hasMore: false,
@@ -99,7 +102,7 @@ describe("GET /api/community/servers/[id]/members/search", () => {
     expect(body.members.map((m) => m.discriminator)).toEqual(["0001", "0002"])
   })
 
-  it("includes statusEmoji/statusText, defaulting for a user with no profile row", async () => {
+  it("includes statusEmoji/statusText, preserving NULL for a user with no profile row", async () => {
     mockSearchMembers.mockResolvedValue({
       members: [
         { ...buildRow(1, "Alex"), statusEmoji: "🎮", statusText: "Gaming" },
@@ -108,12 +111,12 @@ describe("GET /api/community/servers/[id]/members/search", () => {
       hasMore: false,
     })
     const res = await GET(getReq("?q=Alex"), ctx)
-    const body = await res.json() as { members: Array<{ statusEmoji: string | null; statusText: string }> }
+    const body = await res.json() as { members: Array<{ statusEmoji: string | null; statusText: string | null }> }
     expect(body.members[0]).toMatchObject({ statusEmoji: "🎮", statusText: "Gaming" })
-    expect(body.members[1]).toMatchObject({ statusEmoji: null, statusText: "" })
+    expect(body.members[1]).toMatchObject({ statusEmoji: null, statusText: null })
   })
 
-  it("never emits isBot/ownerUserId (no bot gating on search — byte-identical)", async () => {
+  it("never emits isBot/ownerUserId (no bot gating on search)", async () => {
     // Even if a row carried bot columns, search passes them through as humans.
     mockSearchMembers.mockResolvedValue({
       members: [

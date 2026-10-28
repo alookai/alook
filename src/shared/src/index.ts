@@ -850,3 +850,7 @@ export * from "./community-machine-resources"
 export * from "./community-friends";
 
 export { CommunityInviteListItemSchema, CommunityInvitesReadSchema, type CommunityInviteListItem, type CommunityInvitesRead } from "./community-invites";
+
+export { CommunityDmReadItemSchema, CommunityDmsReadSchema, parseCommunityDmsRead, type CommunityDmsRead } from "./community-dms";
+
+export * from "./community-profile-reads"

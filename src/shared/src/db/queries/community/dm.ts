@@ -6,6 +6,7 @@ import { user } from "../../schema";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import { compareAsciiSqliteBinary } from "../../../lib/sqlite-binary";
 import type { Database } from "../../index";
+import type { SQLWrapper } from "drizzle-orm";
 
 function dmChannelQuery(
   db: Database,
@@ -339,4 +340,18 @@ export async function getDMPeer(
   const other = memberIds.find((id) => id !== userId);
   if (!other) return null;
   return { otherUserId: other };
+}
+
+
+export function dmPeerReadableSql(db: Database, userId: string, channelId: SQLWrapper) {
+  const peer = alias(communityChannelMember, "message_dm_peer");
+  const hasPeer = db.select({ id: peer.id }).from(peer)
+    .where(and(eq(peer.channelId, channelId), eq(peer.relation, "access"), ne(peer.userId, userId)));
+  const blocked = db.select({ id: communityFriendship.id }).from(communityFriendship)
+    .innerJoin(peer, and(eq(peer.channelId, channelId), eq(peer.relation, "access"), ne(peer.userId, userId)))
+    .where(and(eq(communityFriendship.status, "blocked"), or(
+      and(eq(communityFriendship.requesterId, userId), eq(communityFriendship.addresseeId, peer.userId)),
+      and(eq(communityFriendship.addresseeId, userId), eq(communityFriendship.requesterId, peer.userId)),
+    )));
+  return and(exists(hasPeer), notExists(blocked))!;
 }

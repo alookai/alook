@@ -1,5 +1,7 @@
 "use client"
 
+import { parseCommunitySelfProfileRead, type CommunitySelfProfileRead } from "@alook/shared"
+
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
 import { useCallback } from "react"
@@ -18,17 +20,7 @@ export type UpdateProfileArgs = {
   statusText?: string | null
 }
 
-export type UpdateProfileResult = {
-  id: string
-  name: string
-  discriminator: string
-  avatar: string
-  avatarVersion: number
-  aboutMe: string
-  bannerColor: string | null
-  statusEmoji: string | null
-  statusText: string | null
-}
+export type UpdateProfileResult = CommunitySelfProfileRead
 
 /**
  * PATCH the current user's profile card. The shell applies the canonical
@@ -42,7 +34,7 @@ export function useUpdateProfile() {
     mutationFn: async ({ original, assertActive, ...patch }) => {
       origin.assert(original); assertActive?.()
       const snapshot = beginCommunityProfileSeed(origin.registry)
-      const profile = await origin.request<UpdateProfileResult>(original, "/api/community/users/me/profile", { method: "PATCH", body: JSON.stringify(patch), signal: assertActive?.signal, assertActive })
+      const profile = parseCommunitySelfProfileRead(await origin.request<unknown>(original, "/api/community/users/me/profile", { method: "PATCH", body: JSON.stringify(patch), signal: assertActive?.signal, assertActive }), original.viewerId!)
       origin.assert(original); assertActive?.()
       writeCommunityProfilePatches([{
         id: profile.id,

@@ -1,4 +1,4 @@
-import { invitesReadFixture, serverRailResponseFixture } from "@/test/community-resource-fixtures"
+import { serverMembersReadFixture, invitesReadFixture, serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
@@ -15,7 +15,7 @@ beforeEach(() => {
   api.mockImplementation(async (path: string) => {
     if (path.endsWith("/presence")) return { online: [] }
     if (path.endsWith("/invites")) return invitesReadFixture("srv_1")
-    if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+    if (path.includes("/members")) return serverMembersReadFixture("srv_1", [])
     if (path.endsWith("/categories")) return { categories: [] }
     if (path.endsWith("/channels")) return { channels: [] }
     return serverRailResponseFixture({ servers: [{ id: "srv_1", name: "Server", discriminator: "0001", ownerId: "viewer", role: "owner", memberId: "member-viewer", isOwner: true, icon: null }] })

@@ -2,7 +2,7 @@ import { readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-wind
 import { ZodError } from "zod"
 import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import type { DM } from "@/lib/community/models/people"
-import { CommunityResourceBundleSchema, type CommunityResourceBundle } from "@alook/shared"
+import { parseCommunityDmsRead, CommunityResourceBundleSchema, type CommunityResourceBundle } from "@alook/shared"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { ServerDirectorySnapshotSchema, recordServerDirectoryWindow, reconcileExistingServerDirectoryWindows, type ServerDirectorySnapshot } from "@/lib/community/server-directory-window"
 import { serverRailTopOrder } from "@alook/shared"
@@ -746,6 +746,7 @@ export function ingestDms(
 ) {
   const viewerId = registry.accountId
   if (!viewerId) return
+  response = parseCommunityDmsRead(response, viewerId)
   const currentDmIds = new Set(
     collectionRows(registry, "channels")
       .filter((row) => row.type === "dm")

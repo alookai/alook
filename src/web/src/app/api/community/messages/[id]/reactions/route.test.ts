@@ -116,7 +116,7 @@ describe("GET reaction details", () => {
     }])
     const response = await GET(request(), context)
     await expect(response.json()).resolves.toMatchObject({
-      actors: [{ userId: "user_1", profile: { avatar: "A" } }],
+      actors: [{ userId: "user_1", profile: { avatar: null } }],
     })
   })
 })
