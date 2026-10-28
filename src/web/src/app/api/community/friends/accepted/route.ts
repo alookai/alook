@@ -5,6 +5,8 @@ import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { resolvePresence, toFriendCard } from "@/lib/community/friend-cards"
+import { withAutomationOrExistingAuth } from "@/lib/automation"
+import { readAutomationFriends } from "@/lib/community/automation-read.server"
 
 /**
  * GET /api/community/friends/accepted — the accepted-friends bucket (route/disc
@@ -20,7 +22,7 @@ import { resolvePresence, toFriendCard } from "@/lib/community/friend-cards"
  * own userId (ctx.actor.userId) — this endpoint takes NO target-user param, so a
  * bot can only ever read ITS OWN accepted friends, never probe another user's.
  */
-export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
+export const GET = withAutomationOrExistingAuth("friend.read", readAutomationFriends, withCommunityActor(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId
 
@@ -56,4 +58,4 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
     statusText: f.statusText ?? "",
   }))
   return NextResponse.json(stale ? { friends, stale: true } : { friends })
-})
+}))

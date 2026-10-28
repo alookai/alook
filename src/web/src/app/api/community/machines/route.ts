@@ -4,8 +4,10 @@ import { getPrimaryDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { readPlatformMachines } from "@/lib/community/machine-options.server"
 import { writeJSON } from "@/lib/middleware/helpers"
+import { withAutomationOrExistingAuth } from "@/lib/automation"
+import { readAutomationMachines } from "@/lib/community/automation-read.server"
 
-export const GET = withCommunityActor(async (req, ctx) => {
+export const GET = withAutomationOrExistingAuth("machine.read", readAutomationMachines, withCommunityActor(async (req, ctx) => {
   const db = getPrimaryDb(ctx.env.DB)
   if (ctx.actor.kind === "bot") return writeJSON(await readPlatformMachines(db, ctx.actor.ownerUserId, ctx.actor.machineId))
   try {
@@ -17,4 +19,4 @@ export const GET = withCommunityActor(async (req, ctx) => {
     }
     throw error
   }
-})
+}))

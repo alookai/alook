@@ -7,7 +7,7 @@ import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard, FileText } from "lucide-react"
+import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard, FileText, KeyRound } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
@@ -29,6 +29,7 @@ import {
 import { SettingsShell, SettingsShellPanel, type SettingsShellTab } from "./settings-shell"
 import { BillingContent } from "../billing/billing-sheet"
 import { useBilling, type BillingReturn } from "@/hooks/community/use-billing"
+import { AutomationSettings } from "./automation-settings"
 import { AccountDeletionFlow } from "./account-deletion-flow"
 
 const THEME_OPTIONS = [
@@ -37,12 +38,13 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor },
 ] as const
 
-type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "terms" | "billing"
+type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "terms" | "billing" | "automation"
 
 const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "profile", label: "My Profile", icon: User },
   { value: "billing", label: "Subscription & billing", icon: CreditCard },
   { value: "appearance", label: "Appearance", icon: Palette },
+  { value: "automation", label: "Automation", icon: KeyRound },
   { value: "advanced", label: "Advanced", icon: Database },
   { value: "privacy", label: "Privacy", icon: Shield },
   { value: "terms", label: "Terms", icon: FileText },
@@ -246,7 +248,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
       value={tab}
       onValueChange={setTab}
       label="User Settings"
-      title={tab === "billing" ? "Subscription & billing" : deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : tab === "terms" ? "Terms of Service" : "My Profile"}
+      title={tab === "automation" ? "Automation" : tab === "billing" ? "Subscription & billing" : deletionOpen ? "Delete account" : tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : tab === "privacy" ? "Privacy Policy" : tab === "terms" ? "Terms of Service" : "My Profile"}
       tabs={USER_SETTINGS_TABS}
       onClose={onClose}
       disabled={deletionOpen}
@@ -332,6 +334,9 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
                 </div>
               </div>
             </div>
+          </SettingsShellPanel>
+          <SettingsShellPanel value="automation">
+            {tab === "automation" && userId ? <AutomationSettings key={userId} userId={userId} /> : null}
           </SettingsShellPanel>
           <SettingsShellPanel value="appearance">
             <AppearanceSettings />

@@ -12,6 +12,8 @@ import {
 import type { CommunityInviteCreate } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerMember } from "@/lib/community/permissions"
+import { withAutomationOrExistingAuth } from "@/lib/automation"
+import { inviteAutomationFriend } from "@/lib/community/automation-invite.server"
 
 export const GET = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
@@ -26,7 +28,7 @@ export const GET = withAuth(async (_req, ctx) => {
   return writeJSON({ invites })
 })
 
-export const POST = withAuth(async (req, ctx) => {
+export const POST = withAutomationOrExistingAuth("server.invite", inviteAutomationFriend, withAuth(async (req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("server id is required", 400)
 
@@ -102,4 +104,4 @@ export const POST = withAuth(async (req, ctx) => {
   fanOutToServerMembers(serverId, event)
 
   return writeJSON({ invite }, 201)
-})
+}))
