@@ -1,3 +1,5 @@
+import Image from "next/image";
+import { ProviderLogo } from "@/components/provider-logo";
 import { notFound } from "next/navigation";
 import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { ZoneLink } from "@/components/public-layout";
@@ -50,7 +52,7 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
     <div className={styles.layout}>
       <article className={styles.article} data-step-guide={guide.slug}>
         <header className={styles.header}>
-          <h1>{guide.title}</h1>
+          <h1>Use <span className={styles.titleProduct}><span aria-hidden="true"><ProviderLogo provider="codex" className={styles.titleIcon} /></span>Codex</span> and <span className={styles.titleProduct}><span aria-hidden="true"><ProviderLogo provider="claude" className={styles.titleIcon} /></span>Claude Code</span> together in <span className={styles.titleProduct}><Image src="/alook.svg" alt="" width={36} height={36} className={styles.titleIcon} /><span className={styles.titleBrand}>Alook</span></span></h1>
           <p className={styles.intro}>{guide.description}</p>
           <Prerequisites>
             Have Codex and Claude Code installed and signed in on your computer, plus Node.js and npm.
