@@ -139,11 +139,16 @@ describe("Automation settings", () => {
     expect(screen.getByDisplayValue("synthetic-only-copy-test")).toHaveAttribute("readonly")
     copy.mockRestore()
   })
-  it("does not submit expiresIn when saving a permissions-only edit", async () => {
+  it("shows a compact permission summary and preserves expiration when editing details", async () => {
     state.data = { accessCodes: [fixture] }; state.execute.mockResolvedValue(undefined)
     const user = setupUser()
     render(<AutomationSettings userId="owner" />)
+    expect(screen.getByText("Create bots")).toBeInTheDocument()
+    expect(screen.queryByText(/alk_test/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/12\/day/)).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Edit Build script" }))
+    await user.click(screen.getByRole("button", { name: "Advanced" }))
+    expect(screen.getByRole("spinbutton")).toHaveValue(12)
     await user.click(screen.getByRole("button", { name: "Save changes" }))
     expect(state.execute).toHaveBeenCalledWith({ kind: "update", id: fixture.id, data: { name: fixture.name, permissions: fixture.permissions } })
   })

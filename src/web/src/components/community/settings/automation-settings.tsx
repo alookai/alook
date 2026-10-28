@@ -105,9 +105,9 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
           {permissionOptions.map(({ permission, label }, index) => {
             const policy = policies[index]
             if (!policy.enabled) return null
-            return <div key={permission} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <span className="text-sm">{label}</span>
-              <div className="flex items-center gap-2">
+            return <div key={permission} className="flex items-center gap-4">
+              <span className="min-w-0 flex-1 text-sm">{label}</span>
+              <div className="flex shrink-0 items-center gap-2">
                 <Input type="number" aria-label={`${label} request limit`} className={`${control} w-24 font-mono tabular-nums`} min={1} max={policy.period === "hour" ? 64 : 1536} step={1} required value={policy.limit} onChange={(event) => updatePolicy(index, { limit: event.target.value })} />
                 <Select value={policy.period} onValueChange={(value) => { if (value) updatePolicy(index, { period: value }) }} disabled={pending}>
                   <SelectTrigger className={selectControl} aria-label={`${label} limit period`}><SelectValue>{policy.period === "hour" ? "per hour" : "per day"}</SelectValue></SelectTrigger>
@@ -173,12 +173,12 @@ export function AutomationSettings({ userId }: { userId: string }) {
         : !list.data?.accessCodes.length ? <p className="min-h-32 py-4 text-sm text-muted-foreground">No access codes yet. Create one to allow a script to act on your behalf.</p>
         : <ul className="divide-y divide-border">{list.data.accessCodes.map((code) => <li key={code.id} data-testid={tid.automationCode(code.id)} className="space-y-2 py-4 first:pt-0">
           <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1"><h2 className="wrap-break-word text-sm font-medium">{code.name}</h2><p className="break-all font-mono text-xs leading-6 text-muted-foreground">{code.prefix}…</p></div>
+            <div className="min-w-0 flex-1"><h2 className="wrap-break-word text-sm font-medium">{code.name}</h2></div>
             <Button variant="ghost" size="icon" className="size-11 shrink-0 sm:size-8" aria-label={`Edit ${code.name}`} onClick={() => { setError(null); setEditing(code) }}><Pencil className="size-4" /></Button>
             <Button variant="ghost" size="icon" className="size-11 shrink-0 sm:size-8" aria-label={`Delete ${code.name}`} onClick={() => { setError(null); setDeleting(code) }}><Trash2 className="size-4" /></Button>
           </div>
           <p className="text-xs leading-5 text-muted-foreground">{expiryLabel(code)}</p>
-          <ul className="space-y-2 text-sm">{code.permissions.map((policy) => <li key={policy.permission}>{permissionOptions.find((option) => option.permission === policy.permission)?.label} <span className="text-muted-foreground">· {policy.limit.toLocaleString()}/{policy.period}</span></li>)}</ul>
+          <p className="text-sm leading-6 text-muted-foreground">{code.permissions.map((policy) => permissionOptions.find((option) => option.permission === policy.permission)?.label).join(" · ")}</p>
         </li>)}</ul>}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </>}
