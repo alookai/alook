@@ -1,11 +1,12 @@
 import { BUSINESS_SCHEMA_VERSION, type CommunityChannelIdentity } from "@alook/shared"
-import { channelResourceFixture } from "./community-resource-fixtures"
+import { channelResourceFixture, profileResourceFixture } from "./community-resource-fixtures"
 import type { CommunityConversationEntryRead } from "@alook/shared"
 
 export function conversationEntryFixture(): CommunityConversationEntryRead {
   const at = "2026-10-01T00:00:01.000Z"
   return {
     contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", viewerId: "viewer", peer: null,
+    profiles: [profileResourceFixture({ id: "peer", name: "Peer", discriminator: "0042", avatarVersion: 5 })],
     channel: { id: "c1", type: "text", serverId: "s1", categoryId: null, name: "Channel", topic: "", parentChannelId: null, parentMessageId: null, creatorId: "viewer", position: 0, archived: false, createdAt: at, lastMessageAt: at, messageCount: 1 },
     access: { channelId: "c1", canRead: true, canSend: true, canCreateDiscussion: true },
     readState: { channelId: "c1", lastReadMessageId: "m1", lastReadAt: at, lastReadSeq: 1 }, readStateRevision: 4,
@@ -20,13 +21,13 @@ export const conversationEntryTarget = { channelId: "c1", serverId: "s1" }
 export function forumConversationEntryFixture(channelId = "c1", serverId = "s1", empty = false): CommunityConversationEntryRead {
   const base = conversationEntryFixture()
   const channel = { ...base.channel, id: channelId, serverId, type: "forum" as const, name: "Forum" }
-  return { ...base, channelId, channel, messages: [],
+  return { ...base, channelId, channel, messages: [], profiles: [],
     access: { ...base.access, channelId }, readState: { ...base.readState, channelId },
     selection: { reason: "tail", anchorMessageId: null }, surfaceReceipt: { channelId, surfaceKind: "forum" },
     page: { ...base.page, hasMoreOlder: false, olderCursor: null },
     forumFeed: { contractVersion: BUSINESS_SCHEMA_VERSION, channelId, channel,
       threads: empty ? [] : [{ ...channel, id: "t1", type: "thread", parentChannelId: channelId, parentMessageId: "m1", name: "Post" }],
-      included: { messages: empty ? [] : [{ ...base.messages[0], channelId }], members: [], profiles: [], tags: [], participantCounts: [] },
+      included: { messages: empty ? [] : [{ ...base.messages[0], channelId }], members: [], profiles: empty ? [] : base.profiles, tags: [], participantCounts: [] },
       page: { hasMore: false, nextCursor: null },
     },
   }
@@ -46,7 +47,7 @@ export function conversationEntryFromChannel(value: CommunityChannelIdentity, vi
     access: { channelId: channel.id, canRead: true, canSend: true, canCreateDiscussion: channel.type === "text" || channel.type === "forum" },
     readState: { channelId: channel.id, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }, readStateRevision: 0,
     selection: { reason: "tail", anchorMessageId: null }, surfaceReceipt: { channelId: channel.id, surfaceKind: channel.type === "text" ? "channel" : channel.type },
-    messages: [], page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 } }
+    messages: [], profiles: [], page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 } }
 }
 
 export async function seedConversationEntry(client: import("@tanstack/react-query").QueryClient, entry: CommunityConversationEntryRead, target: import("@/lib/community/conversation-entry").ConversationEntryTarget = { channelId: entry.channelId, serverId: entry.channel.serverId }) {

@@ -105,7 +105,7 @@ function installTransport(transport: Transport) {
     if (path === "/api/community/friends/blocked") return friendBucketScenarioFixture("blocked", [])
     if (path === "/api/community/friends/pending") {
       const ids = await transport.readFriends()
-      return friendBucketScenarioFixture("pending", pendingRows.filter((row) => ids.includes(row.id)))
+      return friendBucketScenarioFixture("pending", pendingRows.filter((row) => ids.includes(row.id)).map(row => ({ ...row, discriminator: "0001" })))
     }
     if (path === "/api/community/users/me/attention") {
       return attentionData(await transport.readInbox())

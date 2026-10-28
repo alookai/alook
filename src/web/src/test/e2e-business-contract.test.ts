@@ -107,6 +107,48 @@ describe("stock caller isolated serialized execution", () => {
     const failed = { ok: () => false, headers: () => ({}) }
     expect(await confirmCommunityFixtureApiResponse(Promise.resolve(failed))).toBe(failed)
   })
+  it("confirms only the case-insensitive contract header when Playwright merges response cookies", async () => {
+    const { confirmCommunityFixtureApiResponse } = await import("./e2e-ui/_fixtures/business-contract")
+    const good = { ok: () => true, headers: () => ({
+      [COMMUNITY_CONTRACT_HEADER.toUpperCase()]: String(BUSINESS_SCHEMA_VERSION),
+      "set-cookie": "fixture-a=value-a; Path=/\nfixture-b=value-b; Path=/",
+    }) }
+    expect(await confirmCommunityFixtureApiResponse(Promise.resolve(good))).toBe(good)
+    for (const version of [String(BUSINESS_SCHEMA_VERSION - 1), String(BUSINESS_SCHEMA_VERSION + 1)]) {
+      await expect(confirmCommunityFixtureApiResponse(Promise.resolve({ ...good, headers: () => ({ [COMMUNITY_CONTRACT_HEADER.toLowerCase()]: version }) })))
+        .rejects.toThrow("did not confirm current business version")
+    }
+  })
+  it("admits current notification frames in wire order while retaining exact rejected raw frames", async () => {
+    const { EventEmitter } = await import("node:events")
+    const { captureNotificationRequests } = await import("./e2e-ui/_fixtures/community-notification-requests")
+    const { encodeCommunityBrowserEvent, encodeCommunityBrowserEventBatch, prepareCommunityDeliveryEvents } = await import("@alook/shared")
+    const { communityWsEventFixtures } = await import("../../../shared/test/community-ws-events.fixtures")
+    const page = new EventEmitter()
+    const socket = new EventEmitter()
+    const trace = captureNotificationRequests(page as unknown as Parameters<typeof captureNotificationRequests>[0])
+    page.emit("websocket", socket)
+    const before = communityWsEventFixtures["community:presence.update"]
+    const children = [communityWsEventFixtures["community:reaction.remove"], communityWsEventFixtures["community:channel.delete"]]
+    const after = communityWsEventFixtures["community:identity.update"]
+    const first = encodeCommunityBrowserEvent(before), last = encodeCommunityBrowserEvent(after)
+    const prepared = await prepareCommunityDeliveryEvents(children)
+    if (!first.ok || !last.ok || !prepared.ok) throw new Error("Current notification fixtures did not encode")
+    const batch = await encodeCommunityBrowserEventBatch({ events: children, operationId: `message:${"a".repeat(43)}`, operationDigest: prepared.prepared.digest })
+    if (!batch.ok) throw new Error("Current notification batch did not encode")
+    const raw = [first.body, batch.body, last.body, JSON.stringify(before),
+      JSON.stringify({ ...batch.batch, type: "community:events.batch.v2" }),
+      JSON.stringify({ ...batch.batch, wireDigest: "0".repeat(64) }), "{"]
+    trace.phase("wire")
+    for (const payload of raw) socket.emit("framereceived", { payload })
+    trace.phase("after-wire")
+    await trace.framesSettled()
+    expect(trace.rawFrames).toEqual(raw)
+    expect(trace.events).toEqual([before, ...children, after])
+    expect(trace.timeline.filter(item => item.kind === "event").every(item => item.phase === "wire")).toBe(true)
+    expect(trace.timeline.filter(item => item.kind === "event").map(item => item.type)).toEqual([before, ...children, after].map(event => event.type))
+  })
+
   it("uses an actual current error body for stock retry faults", async () => {
     const { currentCommunityFixtureError } = await import("./e2e-ui/_fixtures/business-contract")
     const { apiFetch } = await import("@/lib/api/client")

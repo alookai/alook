@@ -123,11 +123,14 @@ export type MessagesPage = Partial<{ [Field in keyof CommunityMessagesRead["page
   cursor?: NonNullable<CommunityMessagesRead["page"]["olderCursor"]>
 }
 
+export type MessagesReadPage = MessagesPage & Pick<CommunityMessagesRead, "profiles">
+
 export type MessagesWindowPage = Omit<MessagesPage, "messages"> & { messages: Array<Pick<CommunityMessageResource, "id"> & Partial<Pick<CommunityMessageResource, "seq">>>; newestCursor?: string }
 
-export function messageWindowPage(page: MessagesPage): MessagesWindowPage {
+export function messageWindowPage(page: MessagesPage | MessagesReadPage): MessagesWindowPage {
   const newest = [...page.messages].filter((message) => message.createdAt).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id)).at(-1)
-  return { ...page, messages: page.messages.map((message) => ({ id: message.id, ...(message.seq === undefined ? {} : { seq: message.seq }) })), ...(newest?.createdAt ? { newestCursor: `${newest.createdAt}|${newest.id}` } : {}) }
+  const { profiles: _profiles, ...window } = page as MessagesReadPage
+  return { ...window, messages: page.messages.map((message) => ({ id: message.id, ...(message.seq === undefined ? {} : { seq: message.seq }) })), ...(newest?.createdAt ? { newestCursor: `${newest.createdAt}|${newest.id}` } : {}) }
 }
 
 // Discriminated pageParam. The queryFn dispatches on `mode` — the URL param

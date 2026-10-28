@@ -14,9 +14,10 @@
  * embeds pass-through, and mentionType projection so adding/removing a
  * field on the wire is one edit, not four.
  */
-import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, queries, truncateMessagePreview, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, queries, truncateMessagePreview, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
 import type { BotCreationPayload, FriendApprovalPayload } from "@alook/shared"
 
+import { readCommunityResourceProfiles } from "./resource-profiles.server"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectMessageWireType } from "@/lib/community/message-wire-type"
 import { groupAttachments, groupReactions } from "./messages"
@@ -158,4 +159,11 @@ export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext, contract
     replyMap: ctx.replyMap, attachmentsByMessage: { [row.id]: ctx.resourceAttachments }, reactionsByMessage: {},
     botCreationByMessageId: ctx.botCreation ? new Map([[row.id, ctx.botCreation]]) : undefined,
   }, channelId, ctx.clientNonce ?? row.clientNonce ?? null)
+}
+
+
+export async function readCommunityMessageProfiles(db: Database, messages: readonly CommunityMessageResource[]) {
+  const profiles = await readCommunityResourceProfiles(db, communityMessageProfileIds(messages))
+  CommunityMessageResourcesSchema.parse({ messages, profiles })
+  return profiles
 }

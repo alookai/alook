@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto"
 import { spawnSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import type { Page, TestInfo } from "@playwright/test"
-import { calendarDayKeyDaysAgo, dayKeyInTimeZone } from "@alook/shared"
+import { calendarDayKeyDaysAgo, dayKeyInTimeZone, parseCommunityBotsProfileRead } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
@@ -192,6 +192,9 @@ const bots = [
   {
     id: "bot_codex",
     name: "Alli",
+    avatarVersion: 0,
+    discriminator: "0001",
+    presence: "offline",
     description: "",
     image: null,
     machineId: machine.id,
@@ -204,6 +207,9 @@ const bots = [
   {
     id: "bot_pi",
     name: "Scout",
+    avatarVersion: 0,
+    discriminator: "0002",
+    presence: "offline",
     description: "",
     image: null,
     machineId: machine.id,
@@ -216,6 +222,9 @@ const bots = [
   {
     id: "bot_claude",
     name: "Draft",
+    avatarVersion: 0,
+    discriminator: "0003",
+    presence: "offline",
     description: "",
     image: null,
     machineId: machine.id,
@@ -228,6 +237,9 @@ const bots = [
   {
     id: "bot_small",
     name: "Pocket",
+    avatarVersion: 0,
+    discriminator: "0004",
+    presence: "offline",
     description: "",
     image: null,
     machineId: machine.id,
@@ -240,6 +252,9 @@ const bots = [
   {
     id: "bot_cursor",
     name: "Cursor",
+    avatarVersion: 0,
+    discriminator: "0005",
+    presence: "offline",
     description: "",
     image: null,
     machineId: machine.id,
@@ -251,13 +266,13 @@ const bots = [
   },
 ]
 
-const botsResponse = {
-  bots,
+const botsResponse = (ownerUserId: string) => ({
+  bots: bots.map(bot => ({ ...bot, ownerUserId })),
   plan: { id: "house", displayName: "House" },
   limit: 40,
   ownedCount: bots.length,
   activeCount: bots.length,
-}
+})
 
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
   const path = testInfo.outputPath(`${name}.png`)
@@ -281,7 +296,9 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
 
   const { page } = await asUser("alice", { hasTouch: true })
   await page.route("**/api/community/bots", async (route) => {
-    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, contentType: "application/json", body: JSON.stringify(botsResponse) })
+    const catalogue = botsResponse(actors.userId("alice"))
+    parseCommunityBotsProfileRead(catalogue, actors.userId("alice"))
+    await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, contentType: "application/json", body: JSON.stringify(catalogue) })
   })
   await page.route(url => url.pathname === "/api/community/machines", async (route) => {
     const optional = new URL(route.request().url()).searchParams.get("view") === "observations"

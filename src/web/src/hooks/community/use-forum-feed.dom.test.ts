@@ -136,7 +136,7 @@ describe("forumFeedPageQueryFn", () => {
 
   it("publishes included full profiles for fresh opener and first-message reply authors without participants", async () => {
     const feed = forumConversationEntryFixture("forum_one", "server_1").forumFeed!
-    const profiles = ["opener-author", "first-author", "reply-author"].map(id => ({ id, name: id, discriminator: null, avatar: null, avatarVersion: 1 }))
+    const profiles = ["opener-author", "first-author", "reply-author"].map(id => ({ id, name: id, discriminator: "0042", avatar: null, avatarVersion: 1 }))
     const messages = [messageResourceFixture({ id: "m1", channelId: "forum_one", authorId: "opener-author" }),
       messageResourceFixture({ id: "first-t1", channelId: "t1", authorId: "first-author", replyToId: "previous", replyTo: { id: "previous", authorId: "reply-author", authorName: "reply-author", text: "Earlier" } })]
     apiFetchMock.mockResolvedValue({ ...feed, included: { ...feed.included, profiles, messages } })

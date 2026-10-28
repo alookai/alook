@@ -16,7 +16,7 @@ import { materializeMessageStream } from "@/lib/community/message-stream"
 
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
 const author = { id: "u_me", name: "Me", avatar: "M" }
-const posted = CommunityMessagePostedSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "scope", deduped: false, message: messageResourceFixture({ id: "confirmed", channelId: "scope", seq: 12, content: "hello", authorId: "u_me", authorName: "Me", authorAvatar: null, authorAvatarVersion: 0, clientNonce: "nonce", createdAt: "2026-10-09T01:00:00Z", embeds: [] }) })
+const posted = CommunityMessagePostedSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "scope", deduped: false, profiles: [{ id: "u_me", name: "Me", discriminator: "0042", avatar: null, avatarVersion: 0 }], message: messageResourceFixture({ id: "confirmed", channelId: "scope", seq: 12, content: "hello", authorId: "u_me", authorName: "Me", authorAvatar: null, authorAvatarVersion: 0, clientNonce: "nonce", createdAt: "2026-10-09T01:00:00Z", embeds: [] }) })
 const postedResponse = () => Response.json(posted, { status: 201, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
 afterEach(() => vi.unstubAllGlobals())
 

@@ -31,6 +31,7 @@ vi.mock("@alook/shared", async () => {
     }),
     withD1Retry: (run: () => Promise<unknown>) => run(),
     queries: {
+      communityUserProfile: { getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 })) },
       communityMessage: {
         getMessage: (...args: unknown[]) => mockGetMessage(...args),
         getWakeContextMessageInScope: (...args: unknown[]) =>

@@ -15,7 +15,7 @@ import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/c
 import { notifyManager,type QueryClient } from "@tanstack/react-query"
 import { createStore } from "@tanstack/store"
 import type { Query } from "@tanstack/react-query"
-import { FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
 import type { DmsResponse } from "@/hooks/community/use-dms"
 import type { FoldersResponse } from "@/hooks/community/use-folders"
 import type {
@@ -75,9 +75,9 @@ type CanonicalWriteContext =
 const canonicalRevisionStates = new WeakMap<QueryClient, ReturnType<typeof createStore<CanonicalRevisionState>>>()
 const canonicalWriteContexts = new WeakMap<QueryClient, CanonicalWriteContext>()
 
-function writeCanonicalProfilePatches(registry: CommunityDbRegistry, patches: readonly CommunityProfilePatch[]) {
+function writeCanonicalProfilePatches(registry: CommunityDbRegistry, patches: readonly CommunityProfilePatch[], resourceSeed = false) {
   const context = canonicalWriteContexts.get(registry.queryClient)
-  return writeCommunityProfilePatches(patches, registry, context?.kind === "query" ? { snapshot: context.profileSnapshot } : { event: context?.kind === "event" })
+  return writeCommunityProfilePatches(patches, registry, context?.kind === "query" ? { snapshot: context.profileSnapshot } : { event: context?.kind === "event", resourceSeed })
 }
 
 function canonicalRevisionStore(queryClient: QueryClient) {
@@ -851,27 +851,55 @@ export function publishCommunityServerRailCommit(queryClient: QueryClient, proje
   })
 }
 
+function effectiveMessageResource(registry: CommunityDbRegistry, resource: CommunityMessageResource) {
+  const previous = registry.collections.messages.status === "ready" ? registry.collections.messages.get(resource.id)
+    : registry.queryClient.getQueryData<MessageRow[]>(communityKeys.communityDbCollection(registry.scopeId, "messages"))?.find(message => message.id === resource.id)
+  const retainReply = previous?.channelId === resource.channelId
+    && previous.authorId === resource.authorId && previous.clientNonce === resource.clientNonce
+    && previous.replyToId === resource.replyToId && resource.replyToId !== null && !("replyTo" in resource)
+  return messageSchema.parse({ ...resource, ...(retainReply && previous.replyTo ? { replyTo: previous.replyTo } : {}) })
+}
+
+export function getCanonicalCommunityMessageResources(queryClient: QueryClient, messages: readonly unknown[]) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return
+  const parsed = CommunityMessageResourceSchema.strip().array().safeParse(messages)
+  if (!parsed.success) return
+  const currentProfiles = new Map(collectionRows(registry, "profiles").map(profile => [profile.id, profile]))
+  const profiles = communityMessageProfileIds(parsed.data).flatMap(id => {
+    const profile = CommunityResourceProfileSchema.strip().safeParse(currentProfiles.get(id))
+    return profile.success ? [profile.data] : []
+  })
+  const graph = CommunityMessageResourcesSchema.safeParse({ messages: parsed.data, profiles })
+  return graph.success ? graph.data : undefined
+}
+
+export function validateCommunityMessagePublication(registry: CommunityDbRegistry, messages: readonly unknown[], profiles: readonly CommunityResourceProfile[]) {
+  const graph = CommunityMessageResourcesSchema.parse({ messages, profiles })
+  const retained = graph.messages.map(message => effectiveMessageResource(registry, message))
+  const currentProfiles = new Map(collectionRows(registry, "profiles").map(profile => [profile.id, profile]))
+  const available = new Map(communityMessageProfileIds(retained).flatMap(id => {
+    const profile = CommunityResourceProfileSchema.strip().safeParse(currentProfiles.get(id))
+    return profile.success ? [[id, profile.data] as const] : []
+  }))
+  for (const profile of graph.profiles) available.set(profile.id, profile)
+  if (!CommunityMessageResourcesSchema.safeParse({ messages: retained, profiles: [...available.values()] }).success) throw new Error("Retained message profile resource missing")
+  return graph
+}
+
 export function ingestMessages(
   registry: CommunityDbRegistry,
   channelId: string,
   messages: readonly unknown[],
   profiles: readonly CommunityResourceProfile[] = [],
 ) {
-  const fullProfileIds = new Set(profiles.map(profile => CommunityResourceProfileSchema.parse(profile).id))
+  const fullProfiles = new Map(profiles.map(profile => { const parsed = CommunityResourceProfileSchema.parse(profile); return [parsed.id, parsed] as const }))
   const resources = messages.map(message => {
       const resource = CommunityMessageResourceSchema.parse(message)
       if (resource.channelId !== channelId) throw new Error("Message channel mismatch")
       return resource
     })
-  const rows = resources.map(resource => {
-    const previous = registry.collections.messages.get(resource.id)
-    const retainReply = previous?.channelId === channelId
-      && previous.authorId === resource.authorId && previous.clientNonce === resource.clientNonce
-      && previous.replyToId === resource.replyToId && resource.replyToId !== null && !("replyTo" in resource)
-    return messageSchema.parse({ ...resource,
-      ...(retainReply && previous.replyTo ? { replyTo: previous.replyTo } : {}),
-    })
-  })
+  const rows = resources.map(resource => effectiveMessageResource(registry, resource))
   upsertRows(registry, "messages", rows)
   for (const resource of resources) {
     const thread = resource.thread
@@ -889,11 +917,13 @@ export function ingestMessages(
     const previous = registry.collections.profiles.get(patch.id)
     return previous !== undefined && CommunityResourceProfileSchema.strip().safeParse(previous).success
   }).map(patch => {
-    if (!fullProfileIds.has(patch.id)) return patch
+    const full = fullProfiles.get(patch.id)
+    if (!full) return patch
     const hints = { ...patch }
     delete hints.identityAbout
+    if (hints.avatar && hints.avatar.avatarVersion <= full.avatarVersion) delete hints.avatar
     return hints
-  }))
+  }), canonicalWriteContexts.get(registry.queryClient)?.kind === "event")
 }
 
 export function ingestReadStateSnapshot(
@@ -954,6 +984,7 @@ export function publishCommunityResourceBundle(queryClient: QueryClient, resourc
 function ingestCommunityResources(registry: CommunityDbRegistry, input: CommunityResourceBundle) {
   const resources = CommunityResourceBundleSchema.parse(input)
   if (resources.viewerId !== registry.accountId) throw new Error("Attention account mismatch")
+  validateCommunityMessagePublication(registry, resources.messages, resources.profiles)
   for (const server of resources.servers) registry.runtime.ws.actions.grantServerAccess(server.id)
   for (const channel of resources.channels) registry.runtime.ws.actions.rememberChannelAccess(channel.serverId, channel.id, channel.parentChannelId ?? undefined)
   upsertRows(registry, "servers", resources.servers)
@@ -1658,12 +1689,18 @@ export function publishCommunityMessages(
   publication: {
     channelId: string
     messages: MessageInput[]
-    profiles?: readonly CommunityResourceProfile[]
+    profiles: readonly CommunityResourceProfile[]
     proof: CommunityFreshQueryProof
   },
 ) {
   return withCommunityQueryProof(queryClient, publication.proof, (registry) => {
-    ingestMessages(registry, publication.channelId, publication.messages, publication.profiles)
+    const graph = validateCommunityMessagePublication(registry, publication.messages, publication.profiles)
+    if (graph.messages.some(message => message.channelId !== publication.channelId)) throw new Error("Message channel mismatch")
+    notifyManager.batch(() => {
+      ingestResourceProfiles(registry, graph.profiles, publication.proof)
+      if (!getCanonicalCommunityMessageResources(queryClient, graph.messages.map(message => effectiveMessageResource(registry, message)))) throw new Error("Message profile publication incomplete")
+      ingestMessages(registry, publication.channelId, graph.messages, graph.profiles)
+    })
     return "published" as const
   })
 }
@@ -1673,18 +1710,22 @@ export function publishCommunityEmbeddedMessages(
   queryClient: QueryClient,
   publication: {
     entries: Array<{ channelId: string; message: MessageInput | CommunityMessageResource }>
-    profiles?: readonly CommunityResourceProfile[]
+    profiles: readonly CommunityResourceProfile[]
     proof: CommunityFreshQueryProof
   },
 ) {
   return withCommunityQueryProof(queryClient, publication.proof, (registry) => {
+    const graph = validateCommunityMessagePublication(registry, publication.entries.map(entry => entry.message), publication.profiles)
+    if (publication.entries.some(entry => entry.channelId !== entry.message.channelId)) throw new Error("Message channel mismatch")
     const byChannel = new Map<string, Array<MessageInput | CommunityMessageResource>>()
     for (const { channelId, message } of publication.entries) {
       byChannel.set(channelId, [...(byChannel.get(channelId) ?? []), message])
     }
     notifyManager.batch(() => {
+      ingestResourceProfiles(registry, graph.profiles, publication.proof)
+      if (!getCanonicalCommunityMessageResources(queryClient, graph.messages.map(message => effectiveMessageResource(registry, message)))) throw new Error("Message profile publication incomplete")
       for (const [channelId, messages] of byChannel) {
-        ingestMessages(registry, channelId, messages, publication.profiles)
+        ingestMessages(registry, channelId, messages, graph.profiles)
       }
     })
     return "published" as const
@@ -1924,6 +1965,7 @@ export function publishCommunityForumFeed(queryClient: QueryClient, forumChannel
   return withCommunityQueryProof(queryClient, proof, (registry) => notifyManager.batch(() => {
     const { previews: _previews, ...included } = input.included
     const page = normalizeThreadResources(forumChannelId, { ...input, included })
+    validateCommunityMessagePublication(registry, page.included.messages, page.included.profiles)
     const rows = page.threads.map((thread) => {
       const first = page.included.previews.find((message) => message.channelId === thread.id)
       return canonicalChannelRow({
@@ -2362,7 +2404,11 @@ export function projectCommunityWsEventToDb(
     }
     case "community:message.create": {
       const projected = projectCommunityMessageCreate(event.message, event.channelId, contract)
-      ingestMessages(registry, event.channelId, [projected])
+      const graph = validateCommunityMessagePublication(registry, [projected], event.profiles)
+      notifyManager.batch(() => {
+        writeCanonicalProfilePatches(registry, graph.profiles.map(profile => communityUserProfilePatch(profile.id, profile)), true)
+        ingestMessages(registry, event.channelId, graph.messages, graph.profiles)
+      })
       if (event.message.createdAt) {
         patchRows(
           registry,

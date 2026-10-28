@@ -1,3 +1,4 @@
+import { currentCommunityFixtureError } from "./_fixtures/business-contract"
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, WS_EVENTS, admitCommunityBrowserEventBatch, decodeCommunityBrowserEvent, isCommunityBrowserEventBatchCandidate, type CommunityWsEvent } from "@alook/shared"
 import { spawnSync } from "node:child_process"
 import type { Page } from "@playwright/test"
@@ -152,7 +153,7 @@ test("owned bot exits preserve other identities, child participation boundaries 
     requests++
     expect(route.request().headers()[COMMUNITY_BOT_ACTOR_HEADER.toLowerCase()]).toBe(first.id)
     expect(route.request().headers().authorization).toBeUndefined()
-    if(fail){await route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"QA temporary failure"})});return}
+    if(fail){await route.fulfill(currentCommunityFixtureError("QA temporary failure",503));return}
     const response = await route.fetch()
     expect(response.status()).toBe(204)
     captured()
@@ -246,7 +247,7 @@ test("membership loading and late responses stay bound to the selected bot on de
   caseResources.own(releaseRead,async r=>r())
   await page.route("**/api/community/servers/channels",async route=>{
     if(route.request().headers()[COMMUNITY_BOT_ACTOR_HEADER.toLowerCase()]!==first.id){await route.continue();return}
-    if(fail){await failureGate;await route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"QA loading unavailable"})});return}
+    if(fail){await failureGate;await route.fulfill(currentCommunityFixtureError("QA loading unavailable",503));return}
     if(!hold){await route.continue();return}
     const response = await route.fetch()
     expect(response.status()).toBe(200)

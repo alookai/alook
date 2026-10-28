@@ -79,10 +79,7 @@ export const AttentionIncludedChannelSchema = CommunityChannelResourceSchema.pic
 export const AttentionIncludedDmSchema = z.strictObject({
   id,
   userId: id,
-  name: z.string(),
-  discriminator: z.string(),
-  avatar: CommunityResourceProfileSchema.shape.avatar,
-  avatarVersion: z.number().int().nonnegative(),
+  ...CommunityResourceProfileSchema.pick({ name: true, discriminator: true, avatar: true, avatarVersion: true }).shape,
   lastMessageAt: z.string(),
   lastUnreadSeq: z.number().int().nonnegative(),
 })

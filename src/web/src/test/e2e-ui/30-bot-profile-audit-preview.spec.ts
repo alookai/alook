@@ -620,13 +620,13 @@ test("owned bot profile preview stays root-bounded from its first visible frame"
   const forumRef = `/${server!.name}#${server!.discriminator}/${forumName}`
   const forumEnvelope = await jsonRequest<{
     threads: Array<{ id: string; parentMessageId: string | null }>
-    included: { parentMessages: Array<{ id: string; seq: number }> }
+    included: { messages: Array<{ id: string; seq: number }> }
   }>(
     "alice",
     `/api/community/channels/${forumId}/threads?order=createdAt&limit=50&include=parentMessage`,
   )
   const forumThread = forumEnvelope.threads.find((thread) => thread.id === forumThreadId)
-  const forumOpener = forumEnvelope.included.parentMessages.find(
+  const forumOpener = forumEnvelope.included.messages.find(
     (message) => message.id === forumThread?.parentMessageId,
   )
   expect(forumOpener?.seq).toBeGreaterThan(0)

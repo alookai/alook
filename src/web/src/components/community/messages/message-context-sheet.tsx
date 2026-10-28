@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useCommunityRouter } from "@/contexts/community/module-route"
 import { toast } from "sonner"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { deriveThreadName } from "@alook/shared"
+import { CommunityMessageResourcesSchema, CommunityResourceProfileSchema, communityMessageProfileIds, deriveThreadName } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { MessageRow } from "./message-row"
 import { MessageShareDialog } from "./message-share-dialog"
@@ -27,19 +27,22 @@ import {
   useUnpinMessage,
   type ReactionArgs,
 } from "@/hooks/community/mutations"
-import type { FileAttachment, ImagePreview, MessagesPage, Msg, RenderMsg, ReplyTarget } from "@/lib/community/models/message"
+import type { FileAttachment, ImagePreview, MessagesReadPage, Msg, RenderMsg, ReplyTarget } from "@/lib/community/models/message"
 import { apiFetchCommunity, communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { isAbortError } from "@/lib/errors"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { channelHref } from "@/lib/community/community-route"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
 import {
   materializeCanonicalMessage,
   materializeCanonicalMessages,
   useCanonicalMessagesById,
+  useCanonicalProfilesProjection,
 } from "@/lib/community-db/projections"
 import {
+  getCanonicalCommunityMessageResources,
   captureCommunityLiveSnapshotToken,
   assertCommunityLiveSnapshotTokenCurrent,
   publishCommunityEmbeddedMessages,
@@ -117,13 +120,14 @@ export function messageContextQueryFn(
       throw error
     }
     assert()
-    const page = await apiFetchCommunity<MessagesPage>(
+    const page = await apiFetchCommunity<MessagesReadPage>(
       anchorFetchUrl(type, channelId, lookup.id, CONTEXT_LIMIT),
       { signal, assertActive: assert }, publicationToken,
     )
     const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
     publishCommunityEmbeddedMessages(queryClient, {
       entries: messages.map((message) => ({ channelId, message })),
+      profiles: page.profiles,
       proof: { token: publicationToken, signal },
     })
     assert()
@@ -214,6 +218,20 @@ export function MessageContextSheet({
   })
   const selectedIds = useMemo(() => query.data?.messages?.map((message) => message.id) ?? [], [query.data?.messages])
   const canonicalMessages = useCanonicalMessagesById(selectedIds)
+  const registry = getCommunityDbRegistry(queryClient)
+  const selectedResources = selectedIds.map(id => registry?.collections.messages.get(id))
+  const graph = getCanonicalCommunityMessageResources(queryClient, selectedResources)
+  const profiles = useCanonicalProfilesProjection(graph ? communityMessageProfileIds(graph.messages) : [])
+  const nativeGraph = graph && CommunityMessageResourcesSchema.safeParse({ messages: graph.messages, profiles: [...profiles.resourceProfiles.values()].flatMap(profile => {
+    const parsed = CommunityResourceProfileSchema.strip().safeParse(profile)
+    return parsed.success ? [parsed.data] : []
+  }) })
+  const graphReady = !!graph && profiles.isReady && !profiles.isError && nativeGraph?.success === true
+  const refetch = query.refetch
+  useEffect(() => {
+    if (open && query.data && !query.data.notFound && !graph && query.isSuccess && !query.isFetching) void refetch({ cancelRefetch: false })
+  }, [open, query.data, graph, query.isSuccess, query.isFetching, refetch])
+
 
   const renderRows = useMemo<RenderMsg[]>(() => {
     if (!query.data || query.data.notFound || !query.data.messages) return []
@@ -238,8 +256,8 @@ export function MessageContextSheet({
 
   const anchorId = query.data && !query.data.notFound ? (query.data.anchorId ?? null) : null
 
-  const canonicalPending = !!query.data && !query.data.notFound && canonicalMessages === undefined
-  const anchorMissing = canonicalMessages !== undefined && !!anchorId && !canonicalMessages.has(anchorId)
+  const canonicalPending = !!query.data && !query.data.notFound && (canonicalMessages === undefined || !graphReady)
+  const anchorMissing = !canonicalPending && canonicalMessages !== undefined && !!anchorId && !canonicalMessages.has(anchorId)
 
   // ── Sheet-local actions ──────────────────────────────────────────────────
   const findMessage = useCallback(

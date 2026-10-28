@@ -1,3 +1,5 @@
+import { profileResourceFixture } from "@/test/community-resource-fixtures"
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { dmConversationEntryFixture, forumConversationEntryFixture, conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { publishConversationEntry } from "@/lib/community/conversation-entry"
 import { dmListRowFixture, categoryResourceFixture, serverRailResponseFixture, serverResourceFixture, messageSeedFixture, channelResourceFixture, messageResourceFixture, fullResourceBundleFixture, resourceBundleFixture, serverDirectoryFixture } from "@/test/community-resource-fixtures"
@@ -294,7 +296,7 @@ describe("community DB sync", () => {
   it.each(["author", "nonce", "channel"])("does not retain a confirmed quote for a different %s owner", async (field) => {
     const db = await registry()
     const identity = { id: "owned-reply", channelId: "c1", type: "chat" as const, authorId: "viewer", clientNonce: "nonce", seq: 1 }
-    ingestMessages(db, "c1", messageSeedFixture("c1", [{ ...identity, replyTo: { id: "target", authorName: "Peer", text: "private" }, replyToId: "target" }]))
+    ingestMessages(db, "c1", messageSeedFixture("c1", [{ ...identity, replyTo: { id: "target", authorId: "peer", authorName: "Peer", text: "private" }, replyToId: "target" }]))
     ingestMessages(db, field === "channel" ? "c2" : "c1", messageSeedFixture(field === "channel" ? "c2" : "c1", [{ ...identity,
       ...(field === "author" ? { authorId: "other" } : field === "nonce" ? { clientNonce: "other" } : { channelId: "c2" }) }]))
     expect(db.collections.messages.get(identity.id)?.replyTo).toBeUndefined()
@@ -303,7 +305,7 @@ describe("community DB sync", () => {
 
   it("rejects a weak preview instead of mutating full canonical message facts", async () => {
     const db = await registry()
-    const full = CommunityMessageResourceSchema.parse({ id: "raw", channelId: "c1", seq: 1, type: "chat", authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 4, content: "full", createdAt: "now", replyToId: "reply", replyTo: { id: "reply", authorName: "Peer", text: "prior" }, clientNonce: "nonce", attachments: [{ id: "a2", name: "raw", url: "/raw", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }], embeds: [null, { unsupported: true }], thread: { id: "thread", name: null, messageCount: 0, lastReplyAt: null, participants: [{ id: "peer", name: "Peer", avatar: null, avatarVersion: 4 }] } })
+    const full = CommunityMessageResourceSchema.parse({ id: "raw", channelId: "c1", seq: 1, type: "chat", authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 4, content: "full", createdAt: "now", replyToId: "reply", replyTo: { id: "reply", authorId: "peer", authorName: "Peer", text: "prior" }, clientNonce: "nonce", attachments: [{ id: "a2", name: "raw", url: "/raw", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }], embeds: [null, { unsupported: true }], thread: { id: "thread", name: null, messageCount: 0, lastReplyAt: null, participants: [{ id: "peer", name: "Peer", avatar: null, avatarVersion: 4 }] } })
     ingestMessages(db, "c1", messageSeedFixture("c1", [full]))
     const preview = { id: "raw", seq: 1, type: "chat", authorId: "peer", createdAt: "now", content: "preview" }
     expect(() => ingestMessages(db, "c1", [preview])).toThrow()
@@ -327,7 +329,7 @@ describe("community DB sync", () => {
     expect(() => decodeCommunityReadResponse("/api/community/channels/c1/messages", "GET", obsoleteResponse, body, 2)).toThrow()
     expect(db.collections.messages.get(full.id)?.attachments).toEqual(full.attachments)
     const currentResponse = new Response(null, { headers: { "X-Alook-Community-Contract": String(BUSINESS_SCHEMA_VERSION) } })
-    const currentBody = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", messages: [candidate], page, surfaceReceipt: { channelId: "c1", surfaceKind: "channel" } }
+    const currentBody = { profiles: messageProfilesFixture([full]), contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", messages: [candidate], page, surfaceReceipt: { channelId: "c1", surfaceKind: "channel" } }
     if (shape === "incomplete") {
       expect(() => decodeCommunityReadResponse("/api/community/channels/c1/messages", "GET", currentResponse, currentBody)).toThrow()
       expect(db.collections.messages.get(full.id)?.attachments).toEqual(full.attachments)
@@ -602,7 +604,7 @@ describe("community DB sync", () => {
       messageId: "m1",
       emoji: "👍", userId: "viewer",
     } as CommunityWsEvent)
-    publishCommunityMessages(db.queryClient, {
+    publishCommunityMessages(db.queryClient, { profiles: messageProfilesFixture(messageSeedFixture("c1", [staleMessage])),
       channelId: "c1",
       messages: messageSeedFixture("c1", [staleMessage]),
       proof: { token, signal: undefined },
@@ -628,7 +630,7 @@ describe("community DB sync", () => {
       ...message,
       reactions: [{ emoji: "👍", count: 2, me: true, userIds: ["peer", "viewer"] }],
     }))
-    publishCommunityMessages(db.queryClient, {
+    publishCommunityMessages(db.queryClient, { profiles: messageProfilesFixture(messageSeedFixture("c1", [staleMessage])),
       channelId: "c1",
       messages: messageSeedFixture("c1", [staleMessage]),
       proof: { token, signal: undefined },
@@ -649,7 +651,13 @@ describe("community DB sync", () => {
       messageId: "m1",
       emoji: "👍", userId: "viewer",
     } as CommunityWsEvent)
-    publishCommunityMessages(db.queryClient, {
+    publishCommunityMessages(db.queryClient, { profiles: messageProfilesFixture(messageSeedFixture("c1", [{
+        id: "m1",
+        type: "chat",
+        seq: 1,
+        content: "stale HTTP",
+        createdAt: "2026-09-26T00:00:00.000Z",
+      }])),
       channelId: "c1",
       messages: messageSeedFixture("c1", [{
         id: "m1",
@@ -668,7 +676,13 @@ describe("community DB sync", () => {
       communityKeys.communityDbCollection("viewer", "messages"),
       [],
     )
-    publishCommunityMessages(db.queryClient, {
+    publishCommunityMessages(db.queryClient, { profiles: messageProfilesFixture(messageSeedFixture("c1", [{
+        id: "m1",
+        type: "chat",
+        seq: 1,
+        content: "stale HTTP replay",
+        createdAt: "2026-09-26T00:00:00.000Z",
+      }])),
       channelId: "c1",
       messages: messageSeedFixture("c1", [{
         id: "m1",
@@ -706,7 +720,13 @@ describe("community DB sync", () => {
       communityKeys.communityDbCollection("viewer", "messages"),
       [],
     )
-    publishCommunityMessages(db.queryClient, {
+    publishCommunityMessages(db.queryClient, { profiles: messageProfilesFixture(messageSeedFixture("c1", [{
+        id: "m1",
+        type: "chat",
+        seq: 1,
+        content: "stale HTTP",
+        createdAt: "2026-09-26T00:00:00.000Z",
+      }])),
       channelId: "c1",
       messages: messageSeedFixture("c1", [{
         id: "m1",
@@ -2256,7 +2276,7 @@ describe("community DB sync", () => {
         publishCommunityResourceBundle(db.queryClient, resources, proof)
       } else if (surface === "dm-entry") {
         const value = dmConversationEntryFixture()
-        publishConversationEntry(db.queryClient, { channelId: "c1", serverId: null }, { ...value, peer: profile, messages: [message] }, proof)
+        publishConversationEntry(db.queryClient, { channelId: "c1", serverId: null }, { ...value, peer: profile, profiles: [profile], messages: [message] }, proof)
       } else {
         const value = forumConversationEntryFixture()
         const page = normalizeThreadResources("c1", { ...value.forumFeed, included: { ...value.forumFeed!.included, messages: [message], profiles: [profile] } })
@@ -2278,7 +2298,7 @@ describe("community DB sync", () => {
       replyTo: { id: "m0", authorId: "u3", authorName: "Bob", text: "earlier" } })
     ingestMessages(db, "c1", [rich])
     const profile = { id: "u2", name: "Alice Updated", discriminator: "0002", avatar: "base.png", avatarVersion: 2 }
-    const resources = fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "s1" })], [channelResourceFixture({ id: "c1", serverId: "s1" })], [{ ...rich, content: "new preview" }], [profile])
+    const resources = fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "s1" })], [channelResourceFixture({ id: "c1", serverId: "s1" })], [{ ...rich, content: "new preview" }], [profile, profileResourceFixture({ id: "u3", name: "Bob" })])
     ingestAttentionSnapshot(db, AccountAttentionSnapshotSchema.parse({ resources, scopes: [], items: [], limit: 100, truncated: false,
       included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }))
     expect(db.collections.profiles.get("u2")).toMatchObject({ name: "Alice Updated", aboutMe: "rich bio", ownerUserId: "owner", statusEmoji: "Shipping", statusText: "Shipping" })
@@ -2855,6 +2875,7 @@ describe("community DB sync", () => {
     } as CommunityWsEvent)
     projectCommunityWsEventToDb(db.queryClient, {
       type: "community:message.create",
+      profiles: [profileResourceFixture({ id: "peer", name: "Peer" })],
       channelId: "c1",
       serverId: "s1",
       message: messageResourceFixture({ channelId: "c1", ...{
@@ -2899,7 +2920,7 @@ describe("community DB sync", () => {
   it("rejects legacy WS attachment fields then stores exact current resource attachments", async () => {
     const db = await registry()
     const message = messageResourceFixture({ id: "m-attachment", channelId: "c1", authorId: "peer", authorName: "Peer", content: "files" })
-    const event = { type: "community:message.create" as const, channelId: "c1", serverId: "s1", message }
+    const event = { type: "community:message.create" as const, channelId: "c1", serverId: "s1", message, profiles: messageProfilesFixture([message]) }
     const legacy = { ...event, message: { ...message, attachments: [{ id: "image", filename: "photo.png", url: "/photo.png", contentType: "image/png", size: 2048 }] } }
     expect(() => projectCommunityWsEventToDb(db.queryClient, legacy as never)).toThrow()
     expect(db.collections.messages.has(message.id)).toBe(false)
@@ -3201,4 +3222,62 @@ describe("current message reference windows", () => {
     publishCommunityResourceBundle(db.queryClient, fullResourceBundleFixture("viewer", [], [channel], [message]), { token: captureCommunityLiveSnapshotToken(db.queryClient), signal: undefined }, [{ id: message.id, channelId: channel.id }])
     expect(db.collections.messages.get(message.id)).toMatchObject(message)
   })
+})
+
+it.each(["warm", "cold", "normal"])("retains newer profile and status domains when an older complete message create is delivered later (%s)", async order => {
+  const { encodeCommunityBrowserEvent, decodeCommunityBrowserEvent } = await import("@alook/shared")
+  const db = await registry()
+  const oldProfile = profileResourceFixture({ id: "late-author", name: "Before", aboutMe: "Before about", bannerColor: null, statusEmoji: "old", statusText: "Before status" })
+  if (order === "warm") publishCommunityResourceBundle(db.queryClient, resourceBundleFixture({ profiles: [oldProfile] }), { token: captureCommunityLiveSnapshotToken(db.queryClient) })
+  const delayed = encodeCommunityBrowserEvent({ type: "community:message.create", channelId: "c1", message: messageResourceFixture({ id: "late-create", authorId: oldProfile.id, authorName: oldProfile.name, authorAvatarVersion: oldProfile.avatarVersion }), profiles: [oldProfile] })
+  if (!delayed.ok) throw new Error(JSON.stringify(delayed))
+  if (order === "normal") projectCommunityWsEventToDb(db.queryClient, { type: "community:message.create", channelId: "c1", message: messageResourceFixture({ id: "late-create", authorId: oldProfile.id, authorName: oldProfile.name, authorAvatarVersion: oldProfile.avatarVersion }), profiles: [oldProfile] })
+  projectCommunityWsEventToDb(db.queryClient, { type: "community:profile.update", userId: oldProfile.id, name: "After", discriminator: "0042", aboutMe: "After about", bannerColor: "blue", kind: "human", ownerUserId: null })
+  projectCommunityWsEventToDb(db.queryClient, { type: "community:status.update", userId: oldProfile.id, statusEmoji: null, statusText: null })
+  projectCommunityWsEventToDb(db.queryClient, { type: "community:identity.update", userId: oldProfile.id, avatar: "/after.png", avatarVersion: 2 })
+  const received = decodeCommunityBrowserEvent(delayed.envelope)
+  if (!received.ok) throw new Error(JSON.stringify(received))
+  for (let delivery = 0; delivery < 3; delivery++) projectCommunityWsEventToDb(db.queryClient, received.event)
+  expect(db.collections.profiles.get(oldProfile.id)).toMatchObject({ name: "After", aboutMe: "After about", bannerColor: "blue", statusEmoji: null, statusText: null, avatar: "/after.png", avatarVersion: 2 })
+  expect(db.collections.messages.get("late-create")?.authorId).toBe(oldProfile.id)
+})
+
+it("does not let a message dependency seed fence an already in-flight valid HTTP profile read", async () => {
+  const { beginCommunityProfileSeed } = await import("@/lib/community/profile-seed")
+  const db = await registry()
+  const token = captureCommunityLiveSnapshotToken(db.queryClient)
+  const before = beginCommunityProfileSeed(db).revision
+  const profile = profileResourceFixture({ id: "seed-http", name: "Message snapshot", statusEmoji: null, statusText: "" })
+  projectCommunityWsEventToDb(db.queryClient, { type: "community:message.create", channelId: "c1", message: messageResourceFixture({ id: "seed-http-message", authorId: profile.id, authorName: profile.name, authorAvatarVersion: 0 }), profiles: [profile] })
+  expect(beginCommunityProfileSeed(db).revision).toBe(before)
+  publishCommunityResourceBundle(db.queryClient, resourceBundleFixture({ profiles: [{ ...profile, name: "Current HTTP", aboutMe: "Actual current read", statusEmoji: "🎧", statusText: "Current" }] }), { token })
+  expect(db.collections.profiles.get(profile.id)).toMatchObject({ name: "Current HTTP", aboutMe: "Actual current read", statusEmoji: "🎧", statusText: "Current" })
+})
+
+it("drops unmaterialized profile fields across the actual profile account epoch", async () => {
+  const db = await registry()
+  projectCommunityWsEventToDb(db.queryClient, { type: "community:profile.update", userId: "epoch-author", name: "Private prior account", discriminator: "9999", aboutMe: "Prior account", bannerColor: null, kind: "human", ownerUserId: null })
+  projectCommunityWsEventToDb(db.queryClient, { type: "community:status.update", userId: "epoch-author", statusEmoji: "old", statusText: "Prior account" })
+  expect(db.collections.profiles.has("epoch-author")).toBe(false)
+  db.runtime.ws.actions.activateProfileAccount("other")
+  db.runtime.ws.actions.activateProfileAccount("viewer")
+  const profile = profileResourceFixture({ id: "epoch-author", name: "Current owner", aboutMe: "Current", statusEmoji: null, statusText: "" })
+  projectCommunityWsEventToDb(db.queryClient, { type: "community:message.create", channelId: "c1", message: messageResourceFixture({ id: "epoch-message", authorId: profile.id, authorName: profile.name, authorAvatarVersion: 0 }), profiles: [profile] })
+  expect(db.collections.profiles.get(profile.id)).toMatchObject(profile)
+})
+
+it.each([
+  { image: "/api/community/users/other/avatar", currentVersion: 1, expected: "/api/community/users/other/avatar?v=2", expectedVersion: 2 },
+  { image: "/api/community/bots/other/avatar", currentVersion: 1, expected: "/api/community/bots/other/avatar?v=2", expectedVersion: 2 },
+  { image: null, currentVersion: 1, expected: null, expectedVersion: 2 },
+  { image: "https://images.example.test/other.png", currentVersion: 1, expected: "https://images.example.test/other.png", expectedVersion: 2 },
+  { image: "/api/community/users/other/avatar", currentVersion: 3, expected: "/current.png", expectedVersion: 3 },
+])("canonicalizes actual approval image values through the message writer ($image, current=$currentVersion)", async ({ image, currentVersion, expected, expectedVersion }) => {
+  const db = await registry()
+  const other = profileResourceFixture({ id: "other", name: "Current Other", avatar: "/current.png", avatarVersion: currentVersion })
+  publishCommunityResourceBundle(db.queryClient, resourceBundleFixture({ profiles: [other] }), { token: captureCommunityLiveSnapshotToken(db.queryClient) })
+  const author = profileResourceFixture({ id: "approval-bot", name: "Bot" })
+  projectCommunityWsEventToDb(db.queryClient, { type: "community:message.create", channelId: "c1", profiles: [author], message: messageResourceFixture({ id: "approval-image", authorId: author.id, authorName: author.name, authorAvatarVersion: 0,
+    approval: { friendshipId: "friendship", status: "pending", waitingOn: "you", otherProfile: { id: other.id, name: "Card label", discriminator: "0042", image, avatarVersion: 2 }, botProfile: { id: author.id, name: author.name, discriminator: author.discriminator, image: null, avatarVersion: 0 } } }) })
+  expect(db.collections.profiles.get(other.id)).toMatchObject({ name: "Current Other", avatar: expected, avatarVersion: expectedVersion })
 })

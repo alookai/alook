@@ -148,7 +148,7 @@ async function runBroadcastToUsers(
   }
   const encoded = community ? encodeCommunityProducerEvent(message) : null
   if (encoded && !encoded.ok) throw new Error(`invalid community event: ${encoded.reason}`)
-  const wireMessage = encoded?.event ?? message
+  const wireMessage = encoded?.envelope ?? message
   const chunks: string[][] = []
 
   for (let start = 0; start < targetUserIds.length; start += bulkBroadcastMaxUserIds) {

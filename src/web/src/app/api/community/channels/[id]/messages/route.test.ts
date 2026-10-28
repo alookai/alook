@@ -1,4 +1,4 @@
-import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, queries } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -134,7 +134,7 @@ vi.mock("@alook/shared", async () => {
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
       },
-      communityUserProfile: { getProfilesByUserIds: vi.fn(async () => []) },
+      communityUserProfile: { getResourceProfiles: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: id === "peer" ? "Peer" : "Author", discriminator: "0042", avatar: null, avatarVersion: id === "peer" ? 5 : 0 }))), getProfilesByUserIds: vi.fn(async () => []) },
       user: {
         getUsersByIds: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Author", discriminator: "0042", image: null, avatarVersion: 0 }))),
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
@@ -312,7 +312,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(response.status).toBe(replay ? 200 : 201)
     expect(response.headers.get("x-alook-community-contract")).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(response.cookies.get("alook_ga_session")).toBeUndefined()
-    expect(await response.json()).toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: replay, message: {
+    expect(await response.json()).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }], contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: replay, message: {
       id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorAvatar: null, authorAvatarVersion: 0,
       content: "hello", type: "chat", mentionType: null, replyToId: null, clientNonce: "v3-nonce", createdAt: "now", attachments: [],
     } })
@@ -522,7 +522,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped?: boolean }
 
     expect(res.status).toBe(201)
-    expect(body).toEqual({
+    expect(body).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
       contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: false,
       message: expect.objectContaining({ id: "m1", seq: 12, clientNonce: "n1" }),
     })
@@ -575,7 +575,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { message: { id: string; seq: number; clientNonce?: string }; deduped: boolean }
 
     expect(res.status).toBe(200)
-    expect(body).toEqual({
+    expect(body).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
       contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1",
       message: expect.objectContaining({ id: "m-existing", seq: 8, clientNonce: "n1" }),
       deduped: true,
@@ -608,7 +608,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(response.status).toBe(201)
     expect(response.headers.get("x-alook-community-contract")).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(response.cookies.get("alook_ga_session")).toBeUndefined()
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toEqual({ profiles: [{ id: "u1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }],
       contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", deduped: false,
       message: {
         id: "m_full", channelId: "c1", seq: 42, clientNonce: "client-1",
@@ -1098,7 +1098,7 @@ describe("GET /api/community/channels/[id]/messages", () => {
     // The (mocked) scoped query only ever returns in-scope rows — "r-out-of-scope"
     // and "r-missing" are absent, simulating the real WHERE-clause scoping.
     mockGetMessagesByIdsInScope.mockResolvedValue([
-      { id: "r-in-scope", authorName: "Zed", content: "original", channelId: "c1", dmConversationId: null },
+      { id: "r-in-scope", authorId: "zed", authorName: "Zed", content: "original", channelId: "c1", dmConversationId: null },
     ])
 
     const res = await GET(getReq(), ctx)
@@ -1106,10 +1106,10 @@ describe("GET /api/community/channels/[id]/messages", () => {
     const body = await res.json() as { messages: Array<{ id: string; replyTo?: { id: string; authorName: string; text: string; deleted?: boolean } }> }
     const byId = new Map(body.messages.map((m) => [m.id, m]))
 
-    expect(byId.get("m-a")?.replyTo).toEqual({ id: "r-in-scope", authorName: "Zed", text: "original" })
+    expect(byId.get("m-a")?.replyTo).toEqual({ id: "r-in-scope", authorId: "zed", authorName: "Zed", text: "original" })
     expect(byId.get("m-b")?.replyTo).toEqual({ id: "r-out-of-scope", authorName: "Deleted user", text: "", deleted: true })
     expect(byId.get("m-c")?.replyTo).toEqual({ id: "r-missing", authorName: "Deleted user", text: "", deleted: true })
-    expect(byId.get("m-d")?.replyTo).toEqual({ id: "r-in-scope", authorName: "Zed", text: "original" })
+    expect(byId.get("m-d")?.replyTo).toEqual({ id: "r-in-scope", authorId: "zed", authorName: "Zed", text: "original" })
     expect(byId.get("m-e")?.replyTo).toBeUndefined()
 
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
@@ -1125,11 +1125,11 @@ describe("GET /api/community/channels/[id]/messages", () => {
     ])
     mockGetMessagesByIdsInScope
       .mockRejectedValueOnce(new Error("D1_ERROR: database is locked"))
-      .mockResolvedValueOnce([{ id: "r1", authorName: "B", content: "root", channelId: "c1", dmConversationId: null }])
+      .mockResolvedValueOnce([{ id: "r1", authorId: "reply-author", authorName: "B", content: "root", channelId: "c1", dmConversationId: null }])
     const res = await GET(getReq(), ctx)
     const body = await res.json()
     expect(body.messages).toHaveLength(1)
-    expect(body.messages[0].replyTo).toEqual({ id: "r1", authorName: "B", text: "root" })
+    expect(body.messages[0].replyTo).toEqual({ id: "r1", authorId: "reply-author", authorName: "B", text: "root" })
     expect(body.page.hasMoreOlder).toBe(false)
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(2)
     expect(mockListMessages).toHaveBeenCalledTimes(1)
@@ -1645,7 +1645,7 @@ describe("GET explicit conversation entry", () => {
     const body = await response.json()
     expect(body).toMatchObject({ channel: { type: "dm", serverId: null }, access: { canRead: true, canSend: false, canCreateDiscussion: false }, peer: { id: "peer", name: "Peer", avatarVersion: 5 } })
     expect(body.peer).not.toHaveProperty("email")
-    expect(mockGetUserPublic).toHaveBeenCalledWith(expect.anything(), "peer")
+    expect(queries.communityUserProfile.getResourceProfiles).toHaveBeenCalledWith(expect.anything(), ["peer"])
     expect(mockAreFriends).toHaveBeenCalledWith(expect.anything(), "u1", "peer")
     expect(mockGetChannelForMember).not.toHaveBeenCalled()
     expect(mockCreateOrGetDM).not.toHaveBeenCalled()

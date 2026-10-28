@@ -14,7 +14,7 @@ import {
   type CommunityContract,
   type AlookQueueTask,
 } from "@alook/shared"
-import { mapMessageForWs, type MessageRow } from "./message-payload"
+import { mapMessageForWs, readCommunityMessageProfiles, type MessageRow } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
 
@@ -197,7 +197,8 @@ export async function planCommittedMessage(
       resourceAttachments: groupAttachments(attachments)[message.id] ?? [],
     }, contract, message.channelId),
   }
-  const messageResult = validateCommunityWsEvent(messageInput, contract)
+  const profiles = await readCommunityMessageProfiles(db, [messageInput.message])
+  const messageResult = validateCommunityWsEvent({ ...messageInput, profiles }, contract)
   if (!messageResult.ok || messageResult.event.type !== WS_EVENTS.MESSAGE_CREATE) throw new Error("Invalid committed message event")
   const messageEvent = messageResult.event
 

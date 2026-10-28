@@ -69,6 +69,12 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
       ALTER TABLE user ADD COLUMN name TEXT;
       ALTER TABLE user ADD COLUMN email TEXT;
       ALTER TABLE user ADD COLUMN image TEXT;
+      ALTER TABLE user ADD COLUMN emailVerified INTEGER;
+      ALTER TABLE user ADD COLUMN createdAt TEXT;
+      ALTER TABLE user ADD COLUMN updatedAt TEXT;
+      ALTER TABLE user ADD COLUMN discriminator TEXT NOT NULL DEFAULT '0000';
+      UPDATE user SET discriminator='0042',email=id || '@example.test',createdAt='2026-10-28T00:00:00Z',updatedAt='2026-10-28T00:00:00Z';
+      CREATE TABLE community_user_profile (user_id TEXT PRIMARY KEY REFERENCES user(id) ON DELETE CASCADE,about_me TEXT DEFAULT '',banner_color TEXT,status_emoji TEXT,status_text TEXT DEFAULT '');
       ALTER TABLE user ADD COLUMN avatarVersion INTEGER DEFAULT 0;
       UPDATE user SET name='Author' WHERE id='author';
       UPDATE user SET name='Peer' WHERE id='peer';

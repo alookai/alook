@@ -68,7 +68,7 @@ it("exports real cache, entry, repair and request roles through installed Faro a
       headers: { "content-type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(version) },
     }), request, { isTraced: true, spanContext: () => ({ traceId: "a".repeat(32), spanId: "b".repeat(16), traceFlags: 1 }) })
     if (url.searchParams.has("entry")) return new Promise<Response>(resolve => { releaseEntry = () => resolve(respond(next, BUSINESS_SCHEMA_VERSION)) })
-    const page = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", surfaceReceipt: value.surfaceReceipt,
+    const page = { profiles: value.profiles, contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", surfaceReceipt: value.surfaceReceipt,
       messages: [second], page: { ...value.page, latestSeq: 2, hasMoreNewer: false } }
     if (url.searchParams.has("since")) return new Promise<Response>(resolve => { releaseRepair = () => resolve(respond(page, BUSINESS_SCHEMA_VERSION)) })
     if (url.searchParams.has("cursor")) return respond({ ...page, messages: [{ ...value.messages[0], id: "m0", seq: 0 }], page: { ...page.page, hasMoreOlder: false, olderCursor: null } }, BUSINESS_SCHEMA_VERSION)

@@ -1,3 +1,4 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 /// <reference types="../../../../../ws-do/src/env" />
 import { resetCommunityWsHarness, cleanupCommunityWsHarness, mountHook, seedCanonicalThread, capturedOnMessage,
   canonicalRegistry, canonicalMessage, hasCanonicalChannelNotify } from "./test-harness"
@@ -15,7 +16,7 @@ beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
 const batch = (): MessageDeliveryBatch => ({ communityContract: BUSINESS_SCHEMA_VERSION, messageId: "message-current-join",
-  messageEvent: { type: "community:message.create", channelId: "thread-current", serverId: "server-current", parentChannelId: "parent-current",
+  messageEvent: { profiles: messageProfilesFixture([{ ...messageResourceFixture({ id: "message-current-join", channelId: "thread-current", authorId: "author-current" }), authorName: "Author", authorAvatarVersion: 1 }]), type: "community:message.create", channelId: "thread-current", serverId: "server-current", parentChannelId: "parent-current",
     message: { ...messageResourceFixture({ id: "message-current-join", channelId: "thread-current", authorId: "author-current" }), authorName: "Author", authorAvatarVersion: 1 } },
   contentUserIds: ["u_me"], unreadPlainUserIds: [], unreadMentionUserIds: [], mentionUserIds: [],
   joinedParticipantUserIds: ["u_me"], rosterRefreshUserId: "u_me",

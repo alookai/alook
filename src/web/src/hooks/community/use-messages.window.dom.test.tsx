@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -22,7 +23,7 @@ function deferred<T>() {
 }
 function page(id: string, seq: number, more = false): MessagesPage {
   const row = fixture().messages[0]
-  return { messages: [{ ...row, id, seq, content: id }], latestSeq: seq, hasMoreOlder: more, hasMoreNewer: false, olderCursor: more ? "older" : undefined }
+  return messageReadPageFixture({ messages: [{ ...row, id, seq, content: id }], latestSeq: seq, hasMoreOlder: more, hasMoreNewer: false, olderCursor: more ? "older" : undefined })
 }
 async function setup() {
   const owner = await createCommunityQueryOwner()

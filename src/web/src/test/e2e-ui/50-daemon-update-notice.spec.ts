@@ -1,3 +1,4 @@
+import { encodeCommunityBrowserEvent } from "@alook/shared"
 import { currentCommunityFixtureError, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { readFileSync } from "node:fs"
 import type { Page, Request } from "@playwright/test"
@@ -286,14 +287,20 @@ test("partial dispatch retries only failed eligible Machines and clears from liv
   await expect(progressBadge).toHaveAttribute("aria-label", "Machine update in progress")
   await expect(progressBadge).toHaveText("")
 
+  const sendCurrent = (event: unknown) => {
+    const encoded = encodeCommunityBrowserEvent(event)
+    if (!encoded.ok) throw new Error(`Invalid positive machine event: ${encoded.reason}`)
+    if (encoded.envelope.type !== "community:machine.updated") throw new Error("Expected a current machine update event")
+    ws.send(encoded.envelope)
+  }
   const { quota: _firstQuota, ...firstUpdated } = outdatedMachine
   const { quota: _secondQuota, ...secondUpdated } = secondMachine
-  ws.send({
+  sendCurrent({
     type: "community:machine.updated",
     machine: { ...firstUpdated, daemonVersion: latestDaemonVersion },
   })
   await expect(progressBadge).toBeVisible()
-  ws.send({
+  sendCurrent({
     type: "community:machine.updated",
     machine: { ...secondUpdated, daemonVersion: latestDaemonVersion },
   })

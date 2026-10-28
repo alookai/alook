@@ -84,7 +84,7 @@ test("participating text threads share sidebar limits, retention and live member
   const ordered = await page.locator(`[data-testid^="${tid.forumSidebarThread("")}"]`).evaluateAll((rows) => rows.map((row) => row.getAttribute("data-testid")))
   expect(ordered.indexOf(tid.forumSidebarThread(threads[0]))).toBeLessThan(ordered.indexOf(tid.forumSidebarThread(threads[6])))
   await expect.poll(() => events.some((event) => JSON.stringify(event).includes(excludedId))).toBe(true)
-  const membershipResponse = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${threads[0]}/members`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+  const membershipResponse = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${threads[0]}/members?relation=notify`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(membershipResponse.status()).toBe(200)
   const membership = await membershipResponse.json() as { members: Array<{ userId: string }> }
   expect(membership.members.map((member) => member.userId)).toContain(bobId)

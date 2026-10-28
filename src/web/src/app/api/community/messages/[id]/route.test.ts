@@ -59,6 +59,7 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
+      communityUserProfile: { getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 })) },
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
@@ -214,14 +215,14 @@ describe("GET /api/community/messages/[id]", () => {
     })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetMessagesByIdsInScope.mockResolvedValue([
-      { id: "m0", authorName: "Bob", content: "question?", channelId: "c1" },
+      { id: "m0", authorId: "bob", authorName: "Bob", content: "question?", channelId: "c1" },
     ])
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
     expect(res.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
     const envelope = CommunityMessageReadSchema.parse(await res.json())
     const body = envelope.message
-    expect(body.replyTo).toEqual({ id: "m0", authorName: "Bob", text: "question?" })
+    expect(body.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob", text: "question?" })
     const [, , scope] = mockGetMessagesByIdsInScope.mock.calls[0]
     expect(scope).toEqual({ channelId: "c1" })
   })

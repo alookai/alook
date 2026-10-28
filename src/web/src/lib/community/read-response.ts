@@ -39,7 +39,7 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
   if (target.resource === "message") {
     const data = CommunityMessageReadSchema.parse(value)
     if (data.channelId !== data.message.channelId || data.message.id !== target.messageId) throw new Error("Community message resource scope mismatch")
-    return data.message
+    return data
   }
   if (target.resource === "metadata") {
     const data = schemas.channel.parse(value)
@@ -49,13 +49,13 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
   if (target.resource === "posted") {
     const data = CommunityMessagePostedSchema.parse(value)
     assertScope(data.channelId); assertScope(data.message.channelId)
-    return { message: data.message, deduped: data.deduped, ...(data.threadId ? { threadId: data.threadId } : {}) }
+    return { profiles: data.profiles, message: data.message, deduped: data.deduped, ...(data.threadId ? { threadId: data.threadId } : {}) }
   }
   if (target.resource === "messages") {
     const data = schemas.messages.parse(value)
     assertScope(data.channelId); assertScope(data.surfaceReceipt.channelId)
     for (const message of data.messages) assertScope(message.channelId)
-    return { messages: data.messages,
+    return { profiles: data.profiles, messages: data.messages,
       olderCursor: data.page.olderCursor ?? undefined, newerCursor: data.page.newerCursor ?? undefined,
       hasMoreOlder: data.page.hasMoreOlder, hasMoreNewer: data.page.hasMoreNewer, latestSeq: data.page.latestSeq,
       surfaceReceipt: data.surfaceReceipt }

@@ -6,7 +6,7 @@ import { writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { queries, withD1Retry, CommunityAgentSendRequestSchema, MAX_FORUM_TAG_LENGTH, utcDayKey, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
 import { parseCommunityMessageWindow } from "@/lib/community/messages"
-import { mapPostedMessageForApi } from "@/lib/community/message-payload"
+import { mapPostedMessageForApi, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { readCommunityMessageWindow } from "@/lib/community/message-window.server"
 import { readCommunityConversationEntry } from "@/lib/community/conversation-entry.server"
 import { requestsCommunityContract, requestedCommunityContract, COMMUNITY_CONTRACT_HEADER, CommunityMessagePostedSchema, type CommunityContract } from "@alook/shared"
@@ -224,7 +224,7 @@ async function handleHumanSend(
       source: "web",
     })
     if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
-    const response = humanMessageConfirmation(contract, target.channelId, {
+    const response = humanMessageConfirmation(db, contract, target.channelId, {
       message: await mapPostedMessageForApi(db, target.channelId, created.message, contract),
       threadId: created.thread.id,
       deduped: created.deduped,
@@ -239,7 +239,7 @@ async function handleHumanSend(
     clientNonce,
   })
   if (replay) {
-    return humanMessageConfirmation(contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, replay.row, contract), deduped: true }, 200)
+    return humanMessageConfirmation(db, contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, replay.row, contract), deduped: true }, 200)
   }
 
   const result = await createCommunityMessage({
@@ -253,12 +253,14 @@ async function handleHumanSend(
     attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
-  const response = humanMessageConfirmation(contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, result.row, contract), deduped: result.deduped }, 201)
+  const response = humanMessageConfirmation(db, contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, result.row, contract), deduped: result.deduped }, 201)
   return response
 }
 
-function humanMessageConfirmation(contract: CommunityContract, channelId: string, payload: { message: unknown; deduped?: boolean; threadId?: string }, status: number): NextResponse {
-  return NextResponse.json(CommunityMessagePostedSchema.parse({ contractVersion: contract, channelId, ...payload, deduped: payload.deduped === true }), {
+async function humanMessageConfirmation(db: ReturnType<typeof getDb>, contract: CommunityContract, channelId: string, payload: { message: unknown; deduped?: boolean; threadId?: string }, status: number): Promise<NextResponse> {
+  const message = CommunityMessagePostedSchema.shape.message.parse(payload.message)
+  const profiles = await readCommunityMessageProfiles(db, [message])
+  return NextResponse.json(CommunityMessagePostedSchema.parse({ contractVersion: contract, channelId, ...payload, profiles, deduped: payload.deduped === true }), {
     status, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) },
   })
 }

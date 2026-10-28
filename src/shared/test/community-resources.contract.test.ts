@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { BUSINESS_SCHEMA_VERSION, communityChannelResourceFromStorage, CommunityMessageAttachmentSchema, CommunityResourceProfileSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema } from "../src"
 import { communityResourceChannelFixture, communityResourceMessageFixture } from "./community-ws-events.fixtures"
 import { COMMUNITY_CONTRACT_HEADER, requestsCommunityContract } from "../src/community-contract"
-import { CommunityConversationEntryReadSchema, communityReadSchemas, type CommunityChannelResource } from "../src/community-resources"
+import { CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityConversationEntryReadSchema, communityReadSchemas, type CommunityChannelResource } from "../src/community-resources"
 
 describe("current community resources", () => {
   it("accepts only the exact current read contract", () => {
@@ -45,7 +45,7 @@ describe("conversation entry resource", () => {
     channel: communityResourceChannelFixture,
     access: { channelId: communityResourceChannelFixture.id, canRead: true, canSend: true, canCreateDiscussion: false },
     readState: { channelId: communityResourceChannelFixture.id, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
-    messages: [],
+    messages: [], profiles: [],
     page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
     surfaceReceipt: { channelId: communityResourceChannelFixture.id, surfaceKind: "channel" },
     readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null },
@@ -61,7 +61,7 @@ describe("conversation entry resource", () => {
     return { ...value, channel, surfaceReceipt: { ...value.surfaceReceipt, surfaceKind: "forum" }, forumFeed: {
       contractVersion: BUSINESS_SCHEMA_VERSION, channelId: channel.id, channel, threads: [child],
       included: { messages: [opener, message], tags: [{ messageId: "opener", tag: "tag" }], participantCounts: [{ channelId: child.id, count: 1 }],
-        profiles: [{ id: "peer", name: "Peer", discriminator: "1234", avatar: null, avatarVersion: 0 }],
+        profiles: [...communityResourceMessageFixture.profiles, { id: "peer", name: "Peer", discriminator: "1234", avatar: null, avatarVersion: 0 }],
         members: [{ channelId: child.id, userId: "peer", relation: "notify", source: "added", isCreator: false, role: null, memberId: null }] },
       page: { nextCursor: null, hasMore: false },
     } }
@@ -175,5 +175,31 @@ describe("nested current resource facts", () => {
       const participant: Record<string, unknown> = { ...thread.participants[0] }; delete participant[field]
       expect(CommunityMessageResourceSchema.safeParse({ ...message, thread: { ...thread, participants: [participant] } }).success).toBe(false)
     }
+  })
+})
+
+
+describe("complete message author dependency graphs", () => {
+  const author = { id: "author", name: "Former", discriminator: "0042", avatar: null, avatarVersion: 0 }
+  const replyAuthor = { ...author, id: "reply-author", name: "Reply author" }
+  const message = { ...communityResourceMessageFixture.message, authorId: author.id, replyToId: "prior", replyTo: { id: "prior", authorId: replyAuthor.id, authorName: replyAuthor.name, text: "Prior" } }
+  it("requires every live author and preserves real nullable profile fields", () => {
+    const graph = { messages: [message], profiles: [author, replyAuthor] }
+    expect(CommunityMessageResourcesSchema.parse(graph)).toEqual(graph)
+    expect(communityMessageProfileIds(graph.messages)).toEqual([author.id, replyAuthor.id])
+    expect(CommunityMessageResourcesSchema.parse({ messages: [], profiles: [] })).toEqual({ messages: [], profiles: [] })
+  })
+  it.each(["main", "reply", "duplicate", "null-discriminator", "missing-avatar", "live-reply-id"])("rejects incomplete or ambiguous author dependencies (%s)", defect => {
+    const profiles = defect === "main" ? [replyAuthor] : defect === "reply" ? [author] : defect === "duplicate" ? [author, replyAuthor, author] : [author, replyAuthor]
+    const graph: { messages: unknown[]; profiles: unknown[] } = { messages: [message], profiles }
+    if (defect === "null-discriminator") graph.profiles = [{ ...author, discriminator: null }, replyAuthor]
+    if (defect === "missing-avatar") { const { avatar: _avatar, ...partial } = author; graph.profiles = [partial, replyAuthor] }
+    if (defect === "live-reply-id") { const { authorId: _authorId, ...partial } = message.replyTo; graph.messages = [{ ...message, replyTo: partial }] }
+    expect(CommunityMessageResourcesSchema.safeParse(graph).success).toBe(false)
+  })
+  it("keeps an explicit deleted reply sentinel separate from a missing live person", () => {
+    const sentinel = { ...message, replyTo: { id: "prior", authorName: "Deleted user", text: "", deleted: true } }
+    expect(CommunityMessageResourcesSchema.parse({ messages: [sentinel], profiles: [author] }).messages[0].replyTo).toEqual(sentinel.replyTo)
+    expect(communityMessageProfileIds([sentinel])).toEqual([author.id])
   })
 })

@@ -31,7 +31,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessage: { getMessagesByIdsInChannels: async (db: unknown, ids: string[], channels: string[]) => (await mockGetMessageResources(db, ids, channels)).filter((row: { id: string; channelId: string }) => ids.includes(row.id) && channels.includes(row.channelId)) },
       communityReaction: { listReactionsByMessageIds: vi.fn(async () => []) },
-      communityUserProfile: { getProfilesByUserIds: vi.fn(async () => []) },
+      communityUserProfile: { getResourceProfiles: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Alice", discriminator: "0001", avatar: null, avatarVersion: 0 }))), getProfilesByUserIds: vi.fn(async () => []) },
       user: { getUsersByIds: vi.fn(async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: id === "u-alice" ? "Alice" : "Viewer", discriminator: "0001", image: null, avatarVersion: 0 }))) },
       communityAttachment: {
         listByMessageIds: (...args: unknown[]) => mockListByMessageIds(...args),

@@ -1,3 +1,4 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { decodeCommunityReadResponse } from "@/lib/community/read-response"
 import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { fullResourceBundleFixture, serverResourceFixture, messageResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
@@ -96,9 +97,9 @@ function mockForumCreation(nonce: string, title: string, content: string, held?:
   const child = channelResourceFixture({ id: "p_new", serverId: "server_1", type: "thread", parentChannelId: "forum_1", parentMessageId: opener.id, name: title })
   const reply = messageResourceFixture({ id: "created-reply", channelId: child.id, content, clientNonce: `${nonce}:reply` })
   const response = new Response(null, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
-  const posted = decodeCommunityReadResponse("/api/community/channels/forum_1/messages", "POST", response, { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "forum_1", message: opener, deduped: false, threadId: child.id })
+  const posted = decodeCommunityReadResponse("/api/community/channels/forum_1/messages", "POST", response, { profiles: messageProfilesFixture([opener]), contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "forum_1", message: opener, deduped: false, threadId: child.id })
   const metadata = decodeCommunityReadResponse(`/api/community/channels/${child.id}`, "GET", response, { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: child.id, channel: child, access: { channelId: child.id, canRead: true, canSend: true, canCreateDiscussion: false } })
-  const replied = decodeCommunityReadResponse(`/api/community/channels/${child.id}/messages`, "POST", response, { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: child.id, message: reply, deduped: false })
+  const replied = decodeCommunityReadResponse(`/api/community/channels/${child.id}/messages`, "POST", response, { profiles: messageProfilesFixture([reply]), contractVersion: BUSINESS_SCHEMA_VERSION, channelId: child.id, message: reply, deduped: false })
   mocks.api.mockResolvedValueOnce(posted).mockResolvedValueOnce(metadata).mockReturnValueOnce(held?.promise ?? Promise.resolve(replied))
   return { opener, child, replied }
 }

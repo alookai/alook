@@ -16,7 +16,7 @@ import {
   broadcastToUserSafe,
   fanOutToServerMembers,
 } from "@/lib/community/fanout"
-import { readCommunityMessageResource } from "@/lib/community/message-payload"
+import { readCommunityMessageResource, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { scheduleForumPostMediaCleanup } from "@/lib/community/forum-post-media-cleanup"
 import { CommunityMessageReadSchema, COMMUNITY_RESOURCE_CONTRACT_VERSION, type CommunityContract } from "@alook/shared"
 import { writeCommunityContractJSON } from "@/lib/community/read-contract"
@@ -180,7 +180,8 @@ async function handleHumanGet(
   }
 
   const payload = await readCommunityMessageResource(db, userId, message, contract)
-  return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: contract, channelId: message.channelId, message: payload }), contract)
+  const profiles = await readCommunityMessageProfiles(db, [payload])
+  return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: contract, channelId: message.channelId, message: payload, profiles }), contract)
 }
 
 /**

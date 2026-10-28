@@ -4,6 +4,7 @@ import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, communityReadSchema
 
 const mocks = vi.hoisted(() => ({ attachments: vi.fn(), reactions: vi.fn(), replies: vi.fn() }))
 vi.mock("@alook/shared", async (original) => ({ ...await original<typeof import("@alook/shared")>(), queries: {
+  communityUserProfile: { getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Viewer", discriminator: "123456", avatar: null, avatarVersion: 0 })) },
   communityAttachment: { listByMessageIds: mocks.attachments },
   communityReaction: { listReactionsByMessageIds: mocks.reactions },
   communityMessage: { getMessagesByIdsInChannels: mocks.replies },

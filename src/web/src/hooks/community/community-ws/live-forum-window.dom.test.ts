@@ -53,7 +53,7 @@ describe("live forum window participation convergence", () => {
     }), proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined } }) })
     expect(hasCanonicalChannelNotify("post_live", "u_me")).toBe(false)
     const now = new Date().toISOString()
-    const message: CommunityWsEvent = { type: "community:message.create", serverId, channelId: "post_live", parentChannelId: "forum_1",
+    const message: CommunityWsEvent = { profiles: [{ id: "u_me", name: "Me", discriminator: "0042", avatar: null, avatarVersion: 0 }], type: "community:message.create", serverId, channelId: "post_live", parentChannelId: "forum_1",
       message: messageResourceFixture({ id: "live-reply", channelId: "post_live", type: "chat", authorId: "u_me", authorName: "Me", authorAvatarVersion: 0, content: "First reply", seq: 1, createdAt: now }) }
     const create: CommunityWsEvent = { type: "community:channel.child_create", parentChannelId: "forum_1", parentMessageId: "opener-post_live",
       channel: channelResourceFixture({ id: "post_live", serverId, parentChannelId: "forum_1", parentMessageId: "opener-post_live", name: "New live post", type: "thread", creatorId: "u_me", createdAt: now }) }

@@ -69,9 +69,9 @@ describe("mapMessageForApi", () => {
   })
 
   it("resolves replyTo from an in-scope replyMap entry", () => {
-    const replyMap = new Map([["m0", { id: "m0", authorName: "Bob", content: "hey there" }]])
+    const replyMap = new Map([["m0", { id: "m0", authorId: "bob", authorName: "Bob", content: "hey there" }]])
     const out = mapMessageForApi({ ...baseRow, replyToId: "m0" }, { ...emptyApiCtx, replyMap }, BUSINESS_SCHEMA_VERSION, "channel")
-    expect(out.replyTo).toEqual({ id: "m0", authorName: "Bob", text: "hey there" })
+    expect(out.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob", text: "hey there" })
   })
 
   it("emits { deleted: true } when replyToId is set but the target is missing (out-of-scope filtered upstream)", () => {
@@ -81,7 +81,7 @@ describe("mapMessageForApi", () => {
 
   it("gives API and WS projections the same ellipsized reply preview", () => {
     const long = "x".repeat(500)
-    const replyMap = new Map([["m0", { id: "m0", authorName: "Bob", content: long }]])
+    const replyMap = new Map([["m0", { id: "m0", authorId: "bob", authorName: "Bob", content: long }]])
     const apiOut = mapMessageForApi({ ...baseRow, replyToId: "m0" }, { ...emptyApiCtx, replyMap }, BUSINESS_SCHEMA_VERSION, "channel")
     const wsOut = mapMessageForWs({ ...baseRow, replyToId: "m0" }, { ...emptyWsCtx, replyMap }, BUSINESS_SCHEMA_VERSION, "channel")
     const expected = `${"x".repeat(119)}…`
@@ -156,12 +156,12 @@ describe("mapMessageForWs", () => {
   })
 
   it("carries replyTo and mentionType — regression for the thread-payload skip bug", () => {
-    const replyMap = new Map([["m0", { id: "m0", authorName: "Bob", content: "hey there" }]])
+    const replyMap = new Map([["m0", { id: "m0", authorId: "bob", authorName: "Bob", content: "hey there" }]])
     const out = mapMessageForWs(
       { ...baseRow, replyToId: "m0", mentionType: "everyone" },
       { ...emptyWsCtx, replyMap }, BUSINESS_SCHEMA_VERSION, "channel"
     )
-    expect(out.replyTo).toEqual({ id: "m0", authorName: "Bob", text: "hey there" })
+    expect(out.replyTo).toEqual({ id: "m0", authorId: "bob", authorName: "Bob", text: "hey there" })
     expect(out.mentionType).toBe("everyone")
   })
 

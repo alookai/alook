@@ -1,16 +1,16 @@
 import "fake-indexeddb/auto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import React from "react"
-import { act, render, waitFor } from "@/test/react-dom-harness"
-import { useQueryClient } from "@tanstack/react-query"
+import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
+import { dehydrate, QueryClient, useQueryClient } from "@tanstack/react-query"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { clearAllPersistedCaches } from "@/lib/query-persister"
+import { clearAllPersistedCaches, createIdbPersister, PERSIST_BUSTER } from "@/lib/query-persister"
 import { communityKeys } from "@/lib/query-keys"
 
 const fixtures = vi.hoisted(() => ({
   user: { id: "user-a", name: "A", email: "a@example.test", avatar: "A" },
-  fetch: vi.fn(), notifications: vi.fn(),
+  fetch: vi.fn(), notifications: vi.fn(), ws: vi.fn(), attention: vi.fn(), projectionError: false,
 }))
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: fixtures.user }, isPending: false }),
@@ -18,9 +18,20 @@ vi.mock("@/lib/auth-client", () => ({
 }))
 vi.mock("next/navigation", () => ({ usePathname: () => "/c/me", useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
-vi.mock("@/hooks/community/use-community-ws", () => ({ useCommunityWs: vi.fn() }))
-vi.mock("@/hooks/community/use-notification-settings", () => ({ useNotificationSettings: fixtures.notifications }))
-vi.mock("@/hooks/community/use-account-attention", () => ({ useAccountAttention: vi.fn() }))
+vi.mock("@/hooks/community/use-community-ws", () => ({ useCommunityWs: fixtures.ws }))
+vi.mock("@/hooks/community/use-notification-settings", () => ({ useNotificationSettings: () => {
+  fixtures.notifications()
+  const registry = getCommunityDbRegistry(useQueryClient())!
+  registries.set(registry.accountId!, registry)
+} }))
+vi.mock("@/lib/community-db/projections", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-db/projections")>()
+  return { ...actual, useCanonicalProfilesProjection: (...args: Parameters<typeof actual.useCanonicalProfilesProjection>) => {
+    const result = actual.useCanonicalProfilesProjection(...args)
+    return fixtures.projectionError ? { ...result, isReady: false, isError: true } : result
+  } }
+})
+vi.mock("@/hooks/community/use-account-attention", () => ({ useAccountAttention: fixtures.attention }))
 vi.mock("@/hooks/community/use-native-system-notifications", () => ({ useNativeSystemNotifications: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => fixtures.fetch(...args) }))
 vi.mock("@/components/perf/perf-trace-bootstrap", () => ({ PerfTraceBootstrap: () => null }))
@@ -68,6 +79,9 @@ beforeEach(async () => {
     throw new Error(`Unexpected bootstrap endpoint: ${path}`)
   })
   fixtures.notifications.mockClear()
+  fixtures.projectionError = false
+  fixtures.ws.mockClear()
+  fixtures.attention.mockClear()
   registries.clear(); seen.length = 0
 })
 afterEach(() => { vi.unstubAllGlobals() })
@@ -155,4 +169,140 @@ it.each(["missing-core", "wrong-self"])("refuses a warm complete self %s before 
   const query = registry.queryClient.getQueryCache().find({ queryKey: communityKeys.selfProfile(), exact: true })!
   await expect(registry.queryClient.query({ ...query.options, queryKey: communityKeys.selfProfile(), staleTime: 0 })).rejects.toThrow()
   expect(communityRegistrySnapshot(registry)).toEqual(before)
+})
+
+
+it("mounts the first full-user consumer only after native full self publication", async () => {
+  const { useCurrentUser } = await import("@/contexts/community/current-user")
+  let release!: (value: ReturnType<typeof self>) => void
+  const held = new Promise<ReturnType<typeof self>>(resolve => { release = resolve })
+  const normal = fixtures.fetch.getMockImplementation()!
+  fixtures.fetch.mockImplementation((path: string, options: unknown) => path === "/api/community/users/me/profile" ? held : normal(path, options))
+  const names: string[] = []
+  function FullUserChild() {
+    const user = useCurrentUser()
+    names.push(user.name)
+    return React.createElement("span", { "data-testid": "full-user-child" }, user.name)
+  }
+  const view = render(React.createElement(CommunityShell, { currentUser: fixtures.user }, React.createElement(FullUserChild)))
+  await waitFor(() => expect(selfProfileCalls()).toHaveLength(1))
+  expect(fixtures.notifications).toHaveBeenCalled()
+  expect(fixtures.attention).toHaveBeenCalled()
+  expect(fixtures.ws).toHaveBeenCalledWith({ viewerUserId: "user-a" })
+  await waitFor(() => expect(fixtures.fetch.mock.calls.some(([path]) => path === "/api/community/users/me/read-state")).toBe(true))
+  expect(view.queryByTestId("full-user-child")).toBeNull()
+  act(() => registries.get("user-a")!.runtime.ws.actions.setPresence("user-a", "online"))
+  expect(view.queryByTestId("full-user-child")).toBeNull()
+  await act(async () => { release(self(fixtures.user.id)) })
+  await waitFor(() => expect(view.getByTestId("full-user-child").textContent).toBe("Jane Roe"))
+  expect(names.length).toBeGreaterThan(0)
+  expect(names.every(name => name === "Jane Roe")).toBe(true)
+})
+
+it("admits required legitimate null self fields without inventing identity values", async () => {
+  const { useCurrentUser } = await import("@/contexts/community/current-user")
+  const profile = { ...self("user-a"), avatar: null, bannerColor: null, statusEmoji: null, statusText: null }
+  const normal = fixtures.fetch.getMockImplementation()!
+  fixtures.fetch.mockImplementation((path: string, options: unknown) => path === "/api/community/users/me/profile" ? Promise.resolve(profile) : normal(path, options))
+  function Name() { return React.createElement("span", null, useCurrentUser().name) }
+  const view = render(React.createElement(CommunityShell, { currentUser: fixtures.user }, React.createElement(Name)))
+  await waitFor(() => expect(view.getByText("Jane Roe")).toBeDefined())
+  expect(registries.get("user-a")!.collections.profiles.get("user-a")).toMatchObject(profile)
+})
+
+it("keeps the full warm UI during held and failed background refresh", async () => {
+  const view = render(tree())
+  await waitFor(() => expect(view.getByText("content")).toBeDefined())
+  const registry = registries.get("user-a")!
+  await waitFor(() => expect(registry.queryClient.getQueryState(communityKeys.selfProfile())?.status).toBe("success"))
+  let reject!: (error: Error) => void
+  const held = new Promise((_, fail) => { reject = fail })
+  const normal = fixtures.fetch.getMockImplementation()!
+  fixtures.fetch.mockImplementation((path: string, options: unknown) => path === "/api/community/users/me/profile" ? held : normal(path, options))
+  act(() => { void registry.queryClient.invalidateQueries({ queryKey: communityKeys.selfProfile() }) })
+  await waitFor(() => expect(selfProfileCalls()).toHaveLength(2))
+  expect(view.getByText("content")).toBeDefined()
+  await act(async () => { reject(new Error("background unavailable")) })
+  await waitFor(() => expect(registry.queryClient.getQueryState(communityKeys.selfProfile())?.status).toBe("error"), { timeout: 5_000 })
+  expect(view.getByText("content")).toBeDefined()
+  expect(view.queryByRole("alert")).toBeNull()
+})
+
+it("rereads a fresh cached ID if its full canonical self resource is absent", async () => {
+  const { writeCommunityCollectionRows } = await import("@/lib/community-db/write")
+  const view = render(tree())
+  await waitFor(() => expect(view.getByText("content")).toBeDefined())
+  const registry = registries.get("user-a")!
+  let release!: (value: ReturnType<typeof self>) => void
+  const held = new Promise<ReturnType<typeof self>>(resolve => { release = resolve })
+  const normal = fixtures.fetch.getMockImplementation()!
+  fixtures.fetch.mockImplementation((path: string, options: unknown) => path === "/api/community/users/me/profile" ? held : normal(path, options))
+  await act(async () => { await writeCommunityCollectionRows(registry, "profiles", [], row => row.id) })
+  expect(registry.queryClient.getQueryData(communityKeys.selfProfile())).toEqual({ id: "user-a" })
+  await waitFor(() => expect(selfProfileCalls()).toHaveLength(2))
+  expect(view.queryByText("content")).toBeNull()
+  await act(async () => { release(self("user-a")) })
+  await waitFor(() => expect(view.getByText("content")).toBeDefined())
+  expect(selfProfileCalls()).toHaveLength(2)
+})
+
+it.each(["read-error", "malformed"])("offers retry without mounting missing-self UI on %s", async defect => {
+  const normal = fixtures.fetch.getMockImplementation()!
+  fixtures.fetch.mockImplementation((path: string, options: unknown) => path === "/api/community/users/me/profile"
+    ? defect === "read-error" ? Promise.reject(new Error("self unavailable")) : Promise.resolve({ ...self("user-a"), avatarVersion: undefined })
+    : normal(path, options))
+  const view = render(tree())
+  await waitFor(() => expect(selfProfileCalls()).toHaveLength(2), { timeout: 5_000 })
+  const retry = await waitFor(() => view.getByRole("button", { name: "Try again" }), { timeout: 5_000 })
+  expect(view.queryByText("content")).toBeNull()
+  expect(view.getByRole("alert").textContent).toContain("Could not load your profile")
+  expect(registries.get("user-a")!.collections.profiles.get("user-a")).toBeUndefined()
+  fixtures.fetch.mockImplementation(normal)
+  fireEvent.click(retry)
+  await waitFor(() => expect(view.getByText("content")).toBeDefined())
+  expect(selfProfileCalls()).toHaveLength(3)
+})
+
+it("offers a reload exit for a reported native self projection failure", async () => {
+  fixtures.projectionError = true
+  const view = render(tree())
+  await waitFor(() => expect(registries.get("user-a")?.collections.profiles.get("user-a")?.avatarVersion).toBe(3))
+  expect(view.queryByText("content")).toBeNull()
+  const reload = vi.fn()
+  const browserWindow = window
+  vi.stubGlobal("window", new Proxy(browserWindow, { get: (target, key) => key === "location" ? { reload } : Reflect.get(target, key) }))
+  fireEvent.click(view.getByRole("button", { name: "Reload" }))
+  expect(reload).toHaveBeenCalledOnce()
+  vi.stubGlobal("window", browserWindow)
+  expect(view.getByRole("alert").textContent).toContain("Could not load your profile")
+})
+
+
+it.each([true, false])("uses restored full self immediately but waits for absent self fields (%s)", async complete => {
+  const { useCurrentUser } = await import("@/contexts/community/current-user")
+  const client = new QueryClient()
+  const profile = self("user-a")
+  client.setQueryData(communityKeys.communityDbCollection("user-a", "profiles"), complete ? [profile] : [{ id: profile.id, name: profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion }])
+  const persister = createIdbPersister("user-a")
+  await persister.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client) })
+  await waitFor(async () => expect((await persister.restoreClient())?.clientState.queries).toHaveLength(1))
+  let release!: (value: ReturnType<typeof self>) => void
+  const held = new Promise<ReturnType<typeof self>>(resolve => { release = resolve })
+  const normal = fixtures.fetch.getMockImplementation()!
+  fixtures.fetch.mockImplementation((path: string, options: unknown) => path === "/api/community/users/me/profile" ? held : normal(path, options))
+  const names: string[] = []
+  function Name() {
+    const user = useCurrentUser()
+    names.push(user.name)
+    return React.createElement("span", { "data-testid": "restored-user" }, user.name)
+  }
+  const view = render(React.createElement(CommunityShell, { currentUser: fixtures.user }, React.createElement(Name)))
+  await waitFor(() => expect(selfProfileCalls()).toHaveLength(1))
+  if (complete) await waitFor(() => expect(view.getByTestId("restored-user").textContent).toBe("Jane Roe"))
+  else expect(view.queryByTestId("restored-user")).toBeNull()
+  await act(async () => { release(profile) })
+  await waitFor(() => expect(view.getByTestId("restored-user").textContent).toBe("Jane Roe"))
+  expect(names.every(name => name === "Jane Roe")).toBe(true)
+  expect(selfProfileCalls()).toHaveLength(1)
+  client.clear()
 })

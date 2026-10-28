@@ -58,7 +58,7 @@ beforeEach(async () => {
 afterEach(cleanupCommunityWsHarness)
 
 const message = {
-  type: "community:message.create" as const,
+  type: "community:message.create" as const, profiles: [{ id: "author-1", name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 }],
   channelId: "ch-1",
   serverId: "server-1",
   message: {

@@ -46,7 +46,7 @@ describe("projectCommunityMessageCreate", () => {
     expect(sparse).not.toHaveProperty("embeds")
   })
   it("preserves canonical identity and presentation fields", () => {
-    const replyTo = { id: "m0", authorName: "A", text: "prior" }
+    const replyTo = { authorId: "peer", id: "m0", authorName: "A", text: "prior" }
     const approval = {
       friendshipId: "f1",
       status: "pending" as const,
@@ -115,7 +115,7 @@ describe("projectCommunityMessageCreate", () => {
 
 describe("projectPostedMessage", () => {
   it.each([0, 46])("rejects raw old POST storage rows at seq %s", (seq) => {
-    const replyTo = { id: "prior", authorName: "Peer", text: "quoted" }
+    const replyTo = { authorId: "peer", id: "prior", authorName: "Peer", text: "quoted" }
     const attachments = [{ id: "file", name: "file.txt", url: "/file", thumbnailUrl: null,
       contentType: "text/plain", sizeBytes: 4, width: null, height: null }]
     const embeds = [{ title: "Card" }]
@@ -178,7 +178,7 @@ describe("projectPostedMessage", () => {
   })
 
   it.each([0, 46])("preserves all current POST rich facts at seq %s", (seq) => {
-    const full = wire({ seq, clientNonce: "nonce", replyToId: "prior", replyTo: { id: "prior", authorName: "Peer", text: "quoted" },
+    const full = wire({ seq, clientNonce: "nonce", replyToId: "prior", replyTo: { id: "prior", authorId: "peer", authorName: "Peer", text: "quoted" },
       attachments: [{ id: "file", name: "file.txt", url: "/file", thumbnailUrl: null, contentType: "text/plain", sizeBytes: 4, width: null, height: null }],
       embeds: [{ title: "Card" }], reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
       thread: { id: "thread", name: "Thread", messageCount: 1, lastReplyAt: null },

@@ -1,3 +1,4 @@
+import { messageProfilesFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { messageResourceFixture, currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { botCreationFixture } from "@/test/bot-creation-fixtures"
@@ -12,7 +13,7 @@ import type {
   CommunityReactionAdd,
 } from "@alook/shared"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { writeCommunityProfilePatches, beginCommunityProfileSeed } from "@/lib/community/profile-seed"
+import { writeCommunityProfilePatches, beginCommunityProfileSeed, communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { getMessageStreamState } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
@@ -64,7 +65,7 @@ function seedParent(serverId: string, parentId: string, type: "forum" | "text") 
 }
 
 describe("useCommunityWs — message.create", () => {
-  it("publishes a confirmed message without inventing its unknown full author profile", async () => {
+  it("publishes the supplied complete author profile before its confirmed message", async () => {
     getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_once" })
     resetHookMemoization()
     await mountHook()
@@ -74,7 +75,7 @@ describe("useCommunityWs — message.create", () => {
     capturedOnMessage!(currentCommunityEventFixture(event))
     expect(beginCommunityProfileSeed(registry).revision).toBe(revision)
     expect(registry.collections.messages.get(event.message.id)).toMatchObject({ content: event.message.content })
-    expect(registry.collections.profiles.get(event.message.authorId)).toBeUndefined()
+    expect(registry.collections.profiles.get(event.message.authorId)).toMatchObject(event.profiles[0])
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_once", serverId: "s1" }).liveIds).toContain(event.message.id)
     expect(canonicalMessage(event.message.id)).toMatchObject({ content: event.message.content })
   })
@@ -729,6 +730,7 @@ describe("useCommunityWs — message.create", () => {
     capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_focused", "m_self")))
     const background = messageCreate("ch_background", "m_background")
     background.message.authorId = "u_other"
+    background.profiles = messageProfilesFixture([background.message])
     capturedOnMessage!(currentCommunityEventFixture(background))
 
     expect(seen).toEqual([])
@@ -977,6 +979,31 @@ describe("useCommunityWs — reactions", () => {
 })
 
 describe("useCommunityWs — message.updated", () => {
+  it.each([1, 3])("keeps real renamed approval identities when an old message.updated arrives with avatar v2 over v%s", async currentVersion => {
+    getCapturedRuntime().ui.actions.subscribe({ dmConversationId: "dm_1" })
+    await mountHook()
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    const identities = [
+      { id: "friend", name: "Old Friend", discriminator: "0001", image: "/api/community/users/friend/avatar", avatarVersion: 1 },
+      { id: "bot", name: "Old Bot", discriminator: "0002", image: "/api/community/bots/bot/avatar", avatarVersion: 1 },
+    ]
+    writeCommunityProfilePatches(identities.map(profile => communityUserProfilePatch(profile.id, profileResourceFixture({ id: profile.id, name: profile.name, discriminator: profile.discriminator, avatar: `/known-${profile.id}.png`, avatarVersion: currentVersion }))), registry, { command: true })
+    const approval = { friendshipId: "friendship", status: "pending" as const, waitingOn: "you" as const, otherProfile: identities[0]!, botProfile: identities[1]!, waitingOnProfile: null }
+    seedCanonicalStream({ kind: "dm", id: "dm_1" }, { type: "wsMessage", message: { id: "delayed-approval", seq: 4, type: "chat", content: "", approval } })
+    const delayed = currentCommunityEventFixture({ type: "community:message.updated", channelId: "dm_1", messageId: "delayed-approval", approval: { ...approval, status: "denied", waitingOn: null,
+      otherProfile: { ...identities[0]!, avatarVersion: 2 }, botProfile: { ...identities[1]!, avatarVersion: 2 } } })
+    for (const [index, profile] of identities.entries()) capturedOnMessage!(currentCommunityEventFixture({ type: "community:profile.update", userId: profile.id,
+      name: `Renamed ${profile.id}`, discriminator: `009${index + 1}`, aboutMe: "Current bio", bannerColor: null, kind: index === 0 ? "human" : "bot", ownerUserId: index === 0 ? null : "owner" }))
+    const revision = beginCommunityProfileSeed(registry).revision
+    capturedOnMessage!(delayed)
+    expect(canonicalMessage("delayed-approval")?.approval).toMatchObject({ status: "denied", waitingOn: null })
+    for (const [index, profile] of identities.entries()) expect(registry.collections.profiles.get(profile.id)).toMatchObject({
+      name: `Renamed ${profile.id}`, discriminator: `009${index + 1}`, aboutMe: "Current bio",
+      avatar: currentVersion === 1 ? `${profile.image}?v=2` : `/known-${profile.id}.png`, avatarVersion: currentVersion === 1 ? 2 : 3,
+    })
+    expect(beginCommunityProfileSeed(registry).revision).toBe(revision)
+  })
+
   it("projects gallery resolution without erasing friendship approval or overwriting a renamed identity", async () => {
     getCapturedRuntime().ui.actions.subscribe({ dmConversationId: "dm_1" })
     await mountHook()
@@ -986,7 +1013,7 @@ describe("useCommunityWs — message.updated", () => {
     capturedQueryClient.setQueryData(communityKeys.bots(), { bots: [] })
     const request = botCreationFixture({ status: "approved" })
     request.bots[0]!.createdBot = { id: "new-bot", name: "Researcher", discriminator: "0042", image: null, avatarVersion: 0 }
-    writeCommunityProfilePatches([{ id: "new-bot", avatar: { avatar: null, avatarVersion: 0 }, identityAbout: { discriminator: "0042", name: "Renamed Bot", discriminator: "0042" } }], getCommunityDbRegistry(capturedQueryClient), { command: true })
+    writeCommunityProfilePatches([{ id: "new-bot", avatar: { avatar: null, avatarVersion: 0 }, identityAbout: { discriminator: "0042", name: "Renamed Bot" } }], getCommunityDbRegistry(capturedQueryClient), { command: true })
     capturedOnMessage!(currentCommunityEventFixture({ type: "community:message.updated", channelId: "dm_1", messageId: "gallery-message", botCreation: request }))
     expect(canonicalMessage("gallery-message")).toMatchObject({ approval, botCreation: request })
     expect(getCommunityDbRegistry(capturedQueryClient)!.collections.profiles.get("new-bot")).toMatchObject({ name: "Renamed Bot", discriminator: "0042" })
@@ -1151,7 +1178,17 @@ describe("useCommunityWs — DM message.create", () => {
       const fetchAttention = vi.spyOn(capturedQueryClient, "query")
       // A DM is a channel now — its message arrives as `message.create` keyed by
       // the DM's channel id (which the subscription tracks in `dmConversationId`).
-      const event: CommunityMessageCreate = {
+      const event: CommunityMessageCreate = { profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
+          id: "dm_m_1",
+          seq: 1,
+          authorId: "u_a",
+          authorName: "a",
+          authorAvatarVersion: 0,
+          content: "hi",
+          type: "chat",
+          seq: 1,
+          createdAt: "2026-07-03T00:00:00.000Z",
+        } })]),
         type: "community:message.create",
         channelId: "dm_1",
         message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
@@ -1197,7 +1234,16 @@ describe("useCommunityWs — DM message.create", () => {
     getCapturedRuntime().ws.actions.markSeenMessage("dm_replay")
     await mountHook()
 
-    capturedOnMessage!(currentCommunityEventFixture({
+    capturedOnMessage!(currentCommunityEventFixture({ profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
+        id: "dm_replay",
+        seq: 12,
+        authorId: "u_a",
+        authorName: "a",
+        authorAvatarVersion: 0,
+        content: "replay",
+        type: "chat",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      } })]),
       type: "community:message.create",
       channelId: "dm_1",
       message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
@@ -1279,7 +1325,14 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
       pageParams: [null],
     })
 
-    const event: CommunityMessageCreate = {
+    const event: CommunityMessageCreate = { profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "ch_focused", ...{
+        id: "m_1",
+        authorId: "u_someone_else",
+        authorName: "them",
+        content: "hi",
+        seq: 1,
+        createdAt: "2026-07-03T00:00:00.000Z",
+      } })]),
       type: "community:message.create",
       channelId: "ch_focused",
       message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "ch_focused", ...{
@@ -1303,7 +1356,14 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
     resetHookMemoization()
     await mountHook({ viewerUserId: "u_me" })
 
-    const event: CommunityMessageCreate = {
+    const event: CommunityMessageCreate = { profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "ch_focused", ...{
+        id: "m_1",
+        authorId: "u_me",
+        authorName: "me",
+        content: "hi",
+        seq: 1,
+        createdAt: "2026-07-03T00:00:00.000Z",
+      } })]),
       type: "community:message.create",
       channelId: "ch_focused",
       message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "ch_focused", ...{
@@ -1327,7 +1387,15 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
     resetHookMemoization()
     await mountHook({ viewerUserId: "u_me" })
 
-    const event: CommunityMessageCreate = {
+    const event: CommunityMessageCreate = { profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
+        id: "dm_m_1",
+        authorId: "u_a",
+        authorName: "a",
+        content: "hi",
+        type: "chat",
+        seq: 1,
+        createdAt: "2026-07-03T00:00:00.000Z",
+      } })]),
       type: "community:message.create",
       channelId: "dm_1",
       message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{

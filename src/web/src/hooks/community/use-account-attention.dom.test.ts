@@ -1,3 +1,4 @@
+import { singleMessageReadFixture, messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { attentionSnapshotScenarioFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -31,8 +32,8 @@ async function mountOwner(value: AccountAttentionSnapshot) {
   const owner = await createCommunityQueryOwner()
   apiFetchMock.mockImplementation(async (path) => {
     if (path === "/api/community/users/me/attention") return value
-    if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message] }
-    if (path === "/api/community/messages/message") return message
+    if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message], profiles: messageProfilesFixture([message]) }
+    if (path === "/api/community/messages/message") return singleMessageReadFixture(message)
     throw new Error(`Unexpected content read ${path}`)
   })
   function Wrapper({ children }: PropsWithChildren) {
@@ -200,7 +201,7 @@ describe("closed-Inbox account attention message hydration", () => {
     let release!: (value: AccountAttentionSnapshot) => void
     apiFetchMock.mockImplementation(async (path) => {
       if (path.endsWith("/attention")) return new Promise((resolve) => { release = resolve })
-      if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message] }
+      if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message], profiles: messageProfilesFixture([message]) }
       throw new Error(`Unexpected content read ${path}`)
     })
     scheduleAccountAttentionReconcile(owner.client, { channelId: "channel" })
@@ -219,8 +220,8 @@ describe("closed-Inbox account attention message hydration", () => {
     const reads: Array<{ signal: AbortSignal; release: (value: AccountAttentionSnapshot) => void }> = []
     apiFetchMock.mockImplementation(async (path, options) => {
       if (path.endsWith("/attention")) return new Promise((resolve) => { reads.push({ signal: options.signal, release: resolve }) })
-      if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message] }
-      if (path === "/api/community/channels/other-channel/messages?limit=1") return { messages: [other] }
+      if (path === "/api/community/channels/channel/messages?limit=1") return { messages: [message], profiles: messageProfilesFixture([message]) }
+      if (path === "/api/community/channels/other-channel/messages?limit=1") return { messages: [other], profiles: messageProfilesFixture([other]) }
       throw new Error(`Unexpected content read ${path}`)
     })
     scheduleAccountAttentionReconcile(owner.client, { channelId: "channel" })

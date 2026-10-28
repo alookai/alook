@@ -18,6 +18,7 @@ vi.mock("@alook/shared", async (original) => ({ ...await original<typeof import(
   communityThread: { listThreadParticipants: mocks.participants, listForumThreadsByCreatedAt: mocks.threads, listParticipantsForChannels: mocks.threadParticipants },
   communityMessage: { getMessagesByIdsInScope: mocks.openers, getFirstMessageResourcesByChannelIds: mocks.first, getMessagesByIdsInChannels: mocks.replies },
   communityMessageTag: { listTagsForMessages: mocks.tags }, communityAttachment: { listByMessageIds: mocks.attachments }, communityReaction: { listReactionsByMessageIds: mocks.reactions },
+  communityUserProfile: { getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "Viewer", discriminator: "0042", avatar: null, avatarVersion: 0 })) },
   user: { getUsersByIds: mocks.users }, communityMember: { getMembersByUserIds: mocks.members },
 } }))
 import { GET as metadata } from "@/app/api/community/channels/[id]/route"
@@ -61,7 +62,7 @@ describe("negotiated complete read route boundaries", () => {
   it.each([false, true])("resolves a current human/bot roster through the complete reader: bot=%s", async (bot) => {
     mocks.access.mockResolvedValue({ ok: true, value: { surface: "channel", channel: child } })
     mocks.participants.mockResolvedValue([{ userId: "viewer", source: "spoke" }])
-    mocks.users.mockResolvedValue([{ id: "viewer", name: "Viewer", image: null, avatarVersion: 0 }])
+    mocks.users.mockResolvedValue([{ id: "viewer", name: "Viewer", discriminator: "0042", image: null, avatarVersion: 0 }])
     const response = await roster(req(`thread/members?relation=notify${bot ? "&ref=%2Fserver%2Fthread" : ""}`, bot), ctx("thread"))
     expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
     expect(await response.json()).toMatchObject({ channelId: "thread", relation: "notify", members: [{ userId: "viewer", source: "spoke" }] })

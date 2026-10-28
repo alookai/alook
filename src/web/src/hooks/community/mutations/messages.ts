@@ -1,6 +1,6 @@
 "use client"
 
-import { CommunityChannelResourceSchema, type CommunityChannelResource } from "@alook/shared"
+import { CommunityChannelResourceSchema, type CommunityChannelResource, type CommunityMessagePosted } from "@alook/shared"
 
 import { captureOnboardingFirstMessage } from "@/lib/product-analytics"
 
@@ -126,7 +126,7 @@ export type SendMessageArgs = {
 // the same nonce — `message` is the canonical (original) row, nothing new was
 // inserted. The caller treats it as success (reconcile the optimistic row,
 // clear the failed pill), never as a failure to resend.
-export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
+export type SendMessageResult = Pick<CommunityMessagePosted, "message" | "profiles"> & { deduped?: boolean }
 
 /**
  * Channel/thread send. The server infers thread-vs-channel routing from the
@@ -185,7 +185,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       await origin.registry!.collections.messages.preload()
       origin.assert(token); (assertCommand ?? assertActive)?.()
       const message = postedMessageForIntent(result.message, nonce ?? "", scope.id)
-      publishCommunityMessages(queryClient, { channelId: scope.id,
+      publishCommunityMessages(queryClient, { channelId: scope.id, profiles: result.profiles,
         messages: [{ ...message, ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
         proof: { token, ...(scope.kind === "channel" && !assertCommand ? { signal: assertActive?.signal } : {}) } })
       return result

@@ -3,7 +3,7 @@ import { BUSINESS_SCHEMA_VERSION } from "./business-schema-version"
 import { CommunityAcceptedFriendsReadSchema, CommunityBlockedFriendsReadSchema, CommunityPendingFriendsReadSchema } from "./community-friends"
 import { CommunityResourceBundleSchema } from "./community-resources"
 
-const resources = () => CommunityResourceBundleSchema.parse({ viewerId: "viewer", servers: [], serverMemberships: [], channels: [], memberships: [], messages: [], profiles: [{ id: "peer", name: "Peer", discriminator: null, avatar: null, avatarVersion: 0 }] })
+const resources = () => CommunityResourceBundleSchema.parse({ viewerId: "viewer", servers: [], serverMemberships: [], channels: [], memberships: [], messages: [], profiles: [{ id: "peer", name: "Peer", discriminator: "0042", avatar: null, avatarVersion: 0 }] })
 const cases = [
   { bucket: "friends", schema: CommunityAcceptedFriendsReadSchema, row: { id: "relation", userId: "peer", sub: "detail" } },
   { bucket: "blocked", schema: CommunityBlockedFriendsReadSchema, row: { id: "block", userId: "peer" } },

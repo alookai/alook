@@ -1,3 +1,4 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { channelResourceFixture, messageResourceFixture, forumFeedScenarioFixture } from "@/test/community-resource-fixtures"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it } from "vitest"
@@ -126,6 +127,7 @@ describe("embedded message surface ownership", () => {
     }), { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
     publishCommunityEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
+      profiles: messageProfilesFixture([transport]),
       proof: {
         token: captureCommunityLiveSnapshotToken(queryClient),
         signal: undefined,
@@ -165,6 +167,7 @@ describe("embedded message surface ownership", () => {
 
     expect(() => publishCommunityEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
+      profiles: messageProfilesFixture([transport]),
       proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined },
     })).toThrow()
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([])

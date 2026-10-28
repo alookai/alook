@@ -47,7 +47,7 @@ describe("community read-state lifecycle reconciliation", () => {
     const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const lease = registerReadSurface(capturedQueryClient, "u_me", { kind: "timeline", channelId: "ch-1" })
     try {
-      await act(async () => { await capturedOnMessage!(currentCommunityEventFixture({ type: "community:message.create", channelId: "ch-1", message: messageResourceFixture({ id: "message-1", channelId: "ch-1", seq: 1, authorId: "author-1", authorName: "Alice", authorAvatarVersion: 0, content: "hello", createdAt: "2026-08-27T00:00:00.000Z" }) })) })
+      await act(async () => { await capturedOnMessage!(currentCommunityEventFixture({ type: "community:message.create", profiles: [{ id: "author-1", name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 }], channelId: "ch-1", message: messageResourceFixture({ id: "message-1", channelId: "ch-1", seq: 1, authorId: "author-1", authorName: "Alice", authorAvatarVersion: 0, content: "hello", createdAt: "2026-08-27T00:00:00.000Z" }) })) })
       expect(canonicalRegistry!.collections.messages.get("message-1")?.createdAt).toBe("2026-08-27T00:00:00.000Z")
       await act(async () => {
         expect(submitReadIntent(lease, { kind: "timeline", channelId: "ch-1", messageId: "message-1", seq: 1 })).toBe(true)

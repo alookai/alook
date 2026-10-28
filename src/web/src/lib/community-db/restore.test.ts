@@ -1,3 +1,4 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { serverDirectoryFixture, messageResourceFixture, serverResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { dehydrate, QueryClient } from "@tanstack/react-query"
@@ -34,7 +35,7 @@ function input(rows: Partial<Record<CommunityCollectionName, object[]>>) {
 
 const message = (id: string, channelId = "c1", content = "Disk") => messageResourceFixture({ id, channelId, authorId: "viewer", content, seq: 1, createdAt: "2026-10-01T00:00:00.000Z" })
 const server = (id: string) => serverResourceFixture({ id, name: id, discriminator: "0001" })
-const profile = (id: string, name: string, avatarVersion = 0) => ({ id, name, discriminator: null, avatar: null, avatarVersion })
+const profile = (id: string, name: string, avatarVersion = 0) => ({ id, name, discriminator: "0042", avatar: null, avatarVersion })
 
 afterEach(async () => {
   for (const { registry, release } of owners.splice(0)) {
@@ -70,7 +71,7 @@ describe("canonical disk input precedence", () => {
 
   it("preserves a WS patch that arrived before its disk row and a current message over old disk", async () => {
     const { client, registry } = owner()
-    publishCommunityMessages(client, { channelId: "c1", messages: [message("current", "c1", "RSC")], proof: { token: captureCommunityLiveSnapshotToken(client) } })
+    publishCommunityMessages(client, { profiles: messageProfilesFixture([message("current", "c1", "RSC")]), channelId: "c1", messages: [message("current", "c1", "RSC")], proof: { token: captureCommunityLiveSnapshotToken(client) } })
     projectCommunityWsEventToDb(client, { type: "community:reaction.add", serverId: "s1", channelId: "c1", messageId: "pending", emoji: "👍", userId: "peer" })
     await restoreCommunityCollections(registry, input({ messages: [message("current"), message("pending"), message("uncovered", "other")] }))
     const rows = client.getQueryData<Array<ReturnType<typeof message>>>(communityKeys.communityDbCollection("viewer", "messages"))!

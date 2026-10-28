@@ -11,7 +11,7 @@ vi.mock("@alook/shared", async () => {
     communityChannel: { ...actual.queries.communityChannel, listReadableMessageChannelsForUser: (...args: unknown[]) => mocks.access(...args), listChannelMembershipsForUserInChannels: (...args: unknown[]) => mocks.memberships(...args) },
     communityServer: { ...actual.queries.communityServer, listUserServers: vi.fn(async () => [{ id: "s1", name: "Server", discriminator: "0001", description: "", ownerId: "viewer", icon: null, official: false, role: "owner", memberId: "member" }]) },
     user: { ...actual.queries.user, getUsersByIds: vi.fn(async () => [{ id: "viewer", name: "Viewer", discriminator: "0001", image: null, avatarVersion: 0 }]) },
-    communityUserProfile: { ...actual.queries.communityUserProfile, getProfilesByUserIds: vi.fn(async () => []) },
+    communityUserProfile: { ...actual.queries.communityUserProfile, getResourceProfiles: vi.fn(async () => [{ id: "viewer", name: "Viewer", discriminator: "0001", avatar: null, avatarVersion: 0 }]), getProfilesByUserIds: vi.fn(async () => []) },
   } }
 })
 import { hydrateAttentionResources, readCommunityResourceBundle } from "./attention-resources.server"

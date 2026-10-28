@@ -119,8 +119,9 @@ describe("canonical full resource admission", () => {
     expect(channelSchema.safeParse({ ...loaded, topic: undefined }).success).toBe(false)
   })
   it("requires profile identity facts and accepts actual nullable fields without markers", () => {
-    const profile = { id: "author", name: "Author", discriminator: null, avatar: null, avatarVersion: 0 }
+    const profile = { id: "author", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }
     expect(profileSchema.parse(profile)).toEqual(profile)
+    expect(profileSchema.safeParse({ ...profile, discriminator: null }).success).toBe(false)
     expect(profileSchema.safeParse({ id: "author", name: "Author" }).success).toBe(false)
     expect(profileSchema.safeParse({ ...profile, identityComplete: true }).success).toBe(false)
     expect(profileSchema.safeParse({ ...profile, avatarVersion: undefined }).success).toBe(false)

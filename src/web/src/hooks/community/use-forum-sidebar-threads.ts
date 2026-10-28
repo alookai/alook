@@ -34,7 +34,7 @@ type CommunityFreshQueryProof,
 type CommunityForumSidebarChannel,
 type CommunityForumSidebarOpener,
 } from "@/lib/community-db/sync"
-import { supportsSidebarThreads, forumSidebarCandidates, viewerNotifyChannelIds, compareForumSidebarThreads as compareThreads,
+import { supportsSidebarThreads, forumSidebarActivityAt, forumSidebarCandidates, viewerNotifyChannelIds, compareForumSidebarThreads as compareThreads,
   FORUM_SIDEBAR_ACTIVITY_WINDOW_MS as SIDEBAR_ACTIVITY_WINDOW_MS, type ForumSidebarThread } from "@/lib/community/forum-sidebar"
 export type { ForumSidebarThread } from "@/lib/community/forum-sidebar"
 
@@ -386,7 +386,7 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
       || baseIds.has(channel.id)
       || !channel.parentChannelId
     ) continue
-    const activityAt = channel.lastMessageAt ?? ""
+    const activityAt = forumSidebarActivityAt(channel)
     const activityMs = Date.parse(activityAt)
     if (
       Number.isFinite(serverNowMs)

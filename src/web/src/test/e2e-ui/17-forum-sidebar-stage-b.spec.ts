@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -9,7 +10,7 @@ import type { CaseActors } from "./_fixtures/case-fixture"
 
 async function prepareCase(_actors: CaseActors) {
   async function participantUserIds(page: Page, channelId: string): Promise<string[]> {
-    const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${channelId}/members`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+    const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${channelId}/members?relation=notify`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(response.status()).toBe(200)
     const payload = await response.json() as {
       members: Array<{
@@ -431,7 +432,7 @@ test.describe("forum sidebar Stage B request shape", () => {
       warmVisibleMs = Date.now() - clickStartedAt
       expect(requests.filter((url) => isConversationEntryRequest(url, threadId))).toHaveLength(1)
       const entryResponse = await firstChildEntry
-      expect(entryResponse.headers()["x-alook-community-contract"]).toBe("3")
+      expect(entryResponse.headers()[COMMUNITY_CONTRACT_HEADER.toLowerCase()]).toBe(String(BUSINESS_SCHEMA_VERSION))
       expect(await entryResponse.json()).toMatchObject({
         channelId: threadId, channel: { id: threadId, serverId, archived: false },
         access: { channelId: threadId, canRead: true },

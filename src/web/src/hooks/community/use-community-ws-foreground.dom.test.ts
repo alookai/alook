@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { messageResourceFixture, currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { getCapturedRuntime } from "./community-ws/test-harness"
 import { act } from "@/test/react-dom-harness"
@@ -29,7 +30,7 @@ const message = (channelId: string, id: string, seq = 1) => messageResourceFixtu
   id, seq, type: "chat" as const, content: id, authorId: "author",
   createdAt: `2026-08-15T00:00:0${seq}.000Z`,
 })
-const page = (channelId: string, id: string) => ({ messages: [message(channelId, id)], latestSeq: 1, hasMore: false })
+const page = (channelId: string, id: string) => (messageReadPageFixture({ messages: [message(channelId, id)], latestSeq: 1, hasMore: false }))
 
 function seed(id: string, kind: "channel" | "dm" = "channel") {
   const key = kind === "channel" ? communityKeys.channelMessages(id) : communityKeys.dmMessages(id)
@@ -98,9 +99,9 @@ describe("community foreground message reconciliation", () => {
         if (release) throw new Error(`unexpected duplicate snapshot: ${JSON.stringify(getCommunityApiFetchMock().mock.calls.map(([url]) => url))}`)
         return new Promise((resolve) => { release = resolve })
       }
-      if (String(path).includes("/messages?since=")) return {
+      if (String(path).includes("/messages?since=")) return messageReadPageFixture({
         messages: [message("focused", "missed", 2), message("focused", "live", 3)], latestSeq: 3, hasMoreNewer: false,
-      }
+      })
       if (path === "/api/community/users/me/read-state") return { revision: 0, readStates: [] }
       throw new Error(`unexpected fetch: ${String(path)}`)
     })

@@ -36,6 +36,7 @@ export const communityWsEventFixtures = {
     type: "community:message.create",
     channelId: "channel-1",
     serverId: "server-1",
+    profiles: [{ id: "user-1", name: "Author", discriminator: "0001", avatar: null, avatarVersion: 0 }],
     message: {
       id: "message-1", channelId: "channel-1", replyToId: null, clientNonce: null,
       seq: 1,

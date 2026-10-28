@@ -21,7 +21,7 @@ export const CURRENT_COMMUNITY_FIXTURE_HEADERS = { [COMMUNITY_CONTRACT_HEADER]: 
 
 export async function confirmCommunityFixtureApiResponse<T extends { ok(): boolean; headers(): Record<string, string> }>(pending: Promise<T>): Promise<T> {
   const response = await pending
-  if (response.ok() && new Headers(response.headers()).get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) throw new Error("Fixture API response did not confirm current business version")
+  if (response.ok() && Object.entries(response.headers()).find(([name]) => name.toLowerCase() === COMMUNITY_CONTRACT_HEADER.toLowerCase())?.[1] !== String(BUSINESS_SCHEMA_VERSION)) throw new Error("Fixture API response did not confirm current business version")
   return response
 }
 

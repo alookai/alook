@@ -4,11 +4,11 @@ import { useConversationActivity } from "@/contexts/community/conversation-activ
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
 import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
-import { useQueryClient } from "@tanstack/react-query"
-import { isForum as isForumType, type CommunityChannelResource } from "@alook/shared"
+import { useQueryClient, type Query, type QueryClient } from "@tanstack/react-query"
+import { CommunityResourceProfileSchema, isForum as isForumType, type CommunityChannelResource } from "@alook/shared"
 import type { Channel } from "@/lib/community/models/navigation"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import { useServer } from "./use-servers"
@@ -20,6 +20,9 @@ import {
   consumeCommunityColdEntryFailure,
 } from "@/lib/community/last-community-route"
 import { communityWsSubscribe, communityWsUnsubscribe } from "./use-community-ws"
+import { messageWindowIdentity, type MessageWindowData } from "@/lib/community/message-window"
+import { getCanonicalCommunityMessageResources } from "@/lib/community-db/sync"
+import { isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useChannelMetadata } from "./use-channel-metadata"
@@ -95,7 +98,31 @@ export function useChannelRouteModel(
   const model = useMemo(() => buildChannelRouteModel(server, renderableChannelMeta, channelId,
     { channelId, settled: metaQuery.canRead }, identity, canonicalParent),
   [server, renderableChannelMeta, channelId, metaQuery.canRead, identity, canonicalParent])
-  const routeLifecycle = metaQuery.canRead && !metadataExit ? "ready" as const
+  const targetScope = JSON.stringify([accountId, serverId, channelId, anchorMessageId ?? null, tag ?? null])
+  const [heldWindow, setHeldWindow] = useState<{ client: QueryClient; target: string; query: Query; proof: NonNullable<typeof metaQuery.data>["identityProof"]; profileIds: string[] } | null>(null)
+  const registry = getCommunityDbRegistry(queryClient)
+  const currentWindow = metaQuery.displayWindow && messageWindowIdentity(metaQuery.displayWindow.key)
+    ? queryClient.getQueryCache().find({ queryKey: metaQuery.displayWindow.key, exact: true }) : undefined
+  if (metaQuery.windowReady && currentWindow && metaQuery.data) {
+    const data = currentWindow.state.data as MessageWindowData
+    const graph = getCanonicalCommunityMessageResources(queryClient, data.pages.flatMap(page => page.messages.map(message => registry?.collections.messages.get(message.id))))
+    const profileIds = graph?.profiles.map(profile => profile.id) ?? []
+    if (!heldWindow || heldWindow.client !== queryClient || heldWindow.target !== targetScope || heldWindow.query !== currentWindow
+      || !isChannelMetadataTokenCurrent(heldWindow.proof) || JSON.stringify(heldWindow.profileIds) !== JSON.stringify(profileIds)) {
+      setHeldWindow({ client: queryClient, target: targetScope, query: currentWindow, proof: metaQuery.data.identityProof, profileIds })
+    }
+  } else if (heldWindow && (heldWindow.client !== queryClient || heldWindow.target !== targetScope || metadataExit)) setHeldWindow(null)
+  const heldData = heldWindow?.query.state.data as MessageWindowData | undefined
+  const heldIds = Array.isArray(heldData?.pages) && heldData.pages.every(page => Array.isArray(page?.messages) && page.messages.every(message => typeof message?.id === "string" && message.id))
+    ? heldData.pages.flatMap(page => page.messages.map(message => message.id)) : undefined
+  const heldBodies = heldIds?.map(id => registry?.collections.messages.get(id))
+  const bodyProjectionPending = !!heldWindow && heldWindow.client === queryClient && heldWindow.target === targetScope
+    && isChannelMetadataTokenCurrent(heldWindow.proof) && queryClient.getQueryCache().get(heldWindow.query.queryHash) === heldWindow.query
+    && !!heldBodies?.some(message => !message)
+    && heldWindow.profileIds.every(id => CommunityResourceProfileSchema.strip().safeParse(registry?.collections.profiles.get(id)).success)
+    && getCanonicalCommunityMessageResources(queryClient, heldBodies.filter(message => message !== undefined)) !== undefined
+  const presentWindow = metaQuery.windowReady || bodyProjectionPending
+  const routeLifecycle = metaQuery.canRead && presentWindow && !metadataExit ? "ready" as const
     : metadataExit || metadataError ? "terminal-error" as const : "pending" as const
   const skeletonSubtype = routeLifecycle === "ready"
     ? model.isChild ? "thread" as const : model.isForum ? "forum" as const : "text" as const
@@ -144,7 +171,7 @@ export function useChannelRouteModel(
 
   return {
     ...model,
-    routeHydrated: model.routeHydrated && metaQuery.canRead && !metadataExit,
+    routeHydrated: model.routeHydrated && metaQuery.canRead && presentWindow && !metadataExit,
     routeLifecycle,
     skeletonSubtype,
     layoutHint,

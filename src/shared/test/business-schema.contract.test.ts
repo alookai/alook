@@ -6,7 +6,7 @@ import { encodeCommunityBrowserEvent, decodeCommunityBrowserEvent } from "../src
 import { computeCommunityDeliveryDigestFromBodies, prepareCommunityDeliveryEvents, encodePreparedCommunityBrowserEventBatch, admitCommunityBrowserEventBatch } from "../src/community-ws-bundle"
 
 const message = () => CommunityMessageResourceSchema.parse({ id: "message", channelId: "channel", seq: 5, authorId: "author", createdAt: "2026-10-28T00:00:00Z", type: "chat", content: "current", replyToId: null, clientNonce: null, attachments: [], authorName: "Author", authorAvatar: null, authorAvatarVersion: 0 })
-const event = () => ({ type: "community:message.create" as const, channelId: "channel", message: message() })
+const event = () => ({ type: "community:message.create" as const, channelId: "channel", message: message(), profiles: [{ id: "author", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }] })
 
 describe("one current business resource protocol", () => {
   it("rejects missing and old request versions while accepting the shared current version", () => {
@@ -21,7 +21,8 @@ describe("one current business resource protocol", () => {
     expect(communityCollectionSchemas.messages.parse(message())).toEqual(message())
     for (const invalid of [{ id: "message", type: "chat" }, { ...message(), resourceComplete: true }]) expect(communityCollectionSchemas.messages.safeParse(invalid).success).toBe(false)
     expect(communityCollectionSchemas.profiles.safeParse({ id: "author", name: "Author", identityComplete: true }).success).toBe(false)
-    expect(communityCollectionSchemas.profiles.parse({ id: "author", name: "Author", discriminator: null, avatar: null, avatarVersion: 0 })).toMatchObject({ avatar: null, discriminator: null })
+    expect(communityCollectionSchemas.profiles.parse({ id: "author", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 })).toMatchObject({ avatar: null, discriminator: "0042" })
+    expect(communityCollectionSchemas.profiles.safeParse({ id: "author", name: "Author", discriminator: null, avatar: null, avatarVersion: 0 }).success).toBe(false)
   })
 
   it("validates full inner resources and requires an explicit current version at the wire boundary", () => {

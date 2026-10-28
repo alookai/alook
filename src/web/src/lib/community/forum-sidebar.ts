@@ -19,6 +19,10 @@ export function viewerNotifyChannelIds(memberships: readonly ChannelMembershipRo
   return new Set(memberships.filter((row) => row.relation === "notify" && row.userId === viewerId).map((row) => row.channelId))
 }
 
+export function forumSidebarActivityAt(channel: Pick<ChannelRow, "lastMessageAt" | "createdAt">) {
+  return channel.lastMessageAt ?? channel.createdAt
+}
+
 export function compareForumSidebarThreads(left: ForumSidebarThread, right: ForumSidebarThread) {
   return compareAsciiSqliteBinary(left.parentChannelId, right.parentChannelId)
     || compareAsciiSqliteBinary(right.activityAt, left.activityAt)
@@ -37,7 +41,7 @@ export function forumSidebarCandidates(
     if (channel.serverId !== serverId || channel.type !== "thread" || channel.archived
       || channel.tags.includes(FORUM_ARCHIVE_TAG) || !participating.has(channel.id)
       || !channel.parentChannelId || !parentIds.has(channel.parentChannelId) || !channel.parentMessageId) return []
-    const activityAt = channel.lastMessageAt ?? "", activityMs = Date.parse(activityAt)
+    const activityAt = forumSidebarActivityAt(channel), activityMs = Date.parse(activityAt)
     const expiresAt = Number.isFinite(activityMs) ? new Date(activityMs + FORUM_SIDEBAR_ACTIVITY_WINDOW_MS).toISOString() : activityAt
     return [{ id: channel.id, parentChannelId: channel.parentChannelId, parentMessageId: channel.parentMessageId,
       title: messageById.get(channel.parentMessageId)?.content ?? channel.name ?? "", activityAt, expiresAt, unread: attention.some((scope) => scope.scopeId === channel.id && (scope.ordinaryUnread || scope.attentionCount > 0)) }]

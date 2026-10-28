@@ -1,3 +1,4 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -32,7 +33,7 @@ function Owner({ children }: PropsWithChildren) { return createElement(QueryClie
 const args = { serverId: "s1", channelId: "ch_1", messageId: "m_1", emoji: "👍", userId: "u_me" }
 const mine = [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }]
 function seed(reactions: Msg["reactions"] = [], channelId = "ch_1", id = "m_1") {
-  publishCommunityMessages(client, { channelId, messages: [messageResourceFixture({ id, channelId, seq: 1, content: "hello", reactions })], proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+  publishCommunityMessages(client, { profiles: messageProfilesFixture([messageResourceFixture({ id, channelId, seq: 1, content: "hello", reactions })]), channelId, messages: [messageResourceFixture({ id, channelId, seq: 1, content: "hello", reactions })], proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
 }
 function rows(id = "m_1") { return registry.collections.messages.get(id)?.reactions }
 function mounted() { return renderHook(() => ({ add: useAddReactionApi(), toggle: useToggleReactionApi(), messages: useCanonicalMessagesById() }), { wrapper: Owner }) }

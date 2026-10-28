@@ -1,3 +1,4 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { currentCommunityEventFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import { getCapturedRuntime } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -209,7 +210,17 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
     // Its reply arrives as message.create on the same DM channel. The scope key
     // must resolve to dm:dm_bot (via the subscription), clearing the pill — not
     // leak into a ch: bucket.
-    capturedOnMessage!(currentCommunityEventFixture({
+    capturedOnMessage!(currentCommunityEventFixture({ profiles: messageProfilesFixture([messageResourceFixture({
+        channelId: "dm_bot",
+        id: "m_bot_reply",
+        authorId: "u_bot",
+        authorName: "bot",
+        authorAvatarVersion: 0,
+        content: "done",
+        type: "chat",
+        seq: 1,
+        createdAt: "2026-07-03T00:00:00.000Z",
+      })]),
       type: "community:message.create",
       channelId: "dm_bot",
       message: messageResourceFixture({

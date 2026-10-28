@@ -4,7 +4,7 @@ import type {
   CommunityProfilePatch,
 } from "@/lib/community/models/people"
 import type { MessageInput } from "@/lib/community/models/message"
-import { type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
+import { canonicalCommunityUserImage, CommunityResourceProfileSchema, type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -25,6 +25,8 @@ type ProfileFieldRevisions = {
 type ProfileRevisionState = {
   revision: number
   fieldsByUserId: Map<string, ProfileFieldRevisions>
+  pendingFieldsByUserId: Map<string, Partial<Omit<CommunityResourceProfile, "id">>>
+  pendingOwner: string
 }
 
 export type CommunityProfileSeedSnapshot = {
@@ -32,7 +34,8 @@ export type CommunityProfileSeedSnapshot = {
   revision: number
 }
 
-const createProfileRevisions = () => createStore<ProfileRevisionState>({ revision: 0, fieldsByUserId: new Map() })
+const createProfileRevisions = () => createStore<ProfileRevisionState>({ revision: 0, fieldsByUserId: new Map(), pendingFieldsByUserId: new Map(), pendingOwner: "" })
+const profileFactsSchema = CommunityResourceProfileSchema.partial()
 const profileRevisionState = new WeakMap<CommunityDbRegistry, ReturnType<typeof createProfileRevisions>>()
 
 function revisionState(registry: CommunityDbRegistry) {
@@ -133,7 +136,7 @@ export function approvalProfilePatches(
       discriminator: profile.discriminator,
     },
     avatar: {
-      avatar: profile.image,
+      avatar: canonicalCommunityUserImage(profile.id, profile.image, profile.avatarVersion),
       avatarVersion: profile.avatarVersion,
     },
   }] : [])
@@ -142,9 +145,9 @@ export function approvalProfilePatches(
 export function writeCommunityProfilePatches(
   patches: readonly CommunityProfilePatch[],
   registry: CommunityDbRegistry | null,
-  options?: { snapshot?: CommunityProfileSeedSnapshot; event?: boolean; command?: boolean },
+  options?: { snapshot?: CommunityProfileSeedSnapshot; event?: boolean; command?: boolean; resourceSeed?: boolean },
 ) {
-  if (!registry || patches.length === 0) return
+  if (!registry || patches.length === 0 || !registry.runtime.lifecycle.get().active) return
   if (options?.snapshot && options.snapshot.registry !== registry) return
   const queryKey = communityKeys.communityDbCollection(registry.scopeId, "profiles")
   const cached = registry.queryClient.getQueryData<ProfileRow[]>(queryKey)
@@ -152,12 +155,19 @@ export function writeCommunityProfilePatches(
   const profiles = new Map(cached.map((profile) => [profile.id, profile]))
   const revisionStore = revisionState(registry)
   const previous = revisionStore.get()
-  const revisions = { ...previous, fieldsByUserId: new Map(previous.fieldsByUserId) }
+  const pendingOwner = JSON.stringify([registry.runtime.ws.get().profileAccountEpoch, registry.runtime.lifecycle.get().generation])
+  const revisions = { ...previous, fieldsByUserId: new Map(previous.fieldsByUserId), pendingFieldsByUserId: previous.pendingOwner === pendingOwner ? new Map(previous.pendingFieldsByUserId) : new Map<string, Partial<Omit<CommunityResourceProfile, "id">>>(), pendingOwner }
   const guardedRevision = options?.snapshot?.revision
-  const writeRevision = guardedRevision === undefined || options?.command ? revisions.revision + 1 : null
+  const writeRevision = options?.resourceSeed ? null : guardedRevision === undefined || options?.command ? revisions.revision + 1 : null
   let advanced = false
   for (const patch of patches) {
     const current = profiles.get(patch.id)
+    const known = { ...current, ...revisions.pendingFieldsByUserId.get(patch.id) }
+    const seedFields = <T extends object>(fields: T | undefined): T | undefined => {
+      if (!fields || !options?.resourceSeed) return fields
+      const selected = Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== undefined && known[key as keyof typeof known] === undefined)) as T
+      return Object.keys(selected).length ? selected : undefined
+    }
     const fieldRevisions = revisions.fieldsByUserId.get(patch.id) ?? {
       identityAbout: 0,
       avatar: 0,
@@ -168,43 +178,29 @@ export function writeCommunityProfilePatches(
       guardedRevision === undefined || fieldRevisions[field] <= guardedRevision
     )
     const identityAbout = patch.identityAbout && accepts("identityAbout")
-      ? patch.identityAbout
+      ? seedFields(patch.identityAbout)
       : undefined
-    const status = patch.status && accepts("status") ? patch.status : undefined
-    const card = patch.card && accepts("card") ? patch.card : undefined
+    const status = patch.status && accepts("status") ? seedFields(patch.status) : undefined
+    const card = patch.card && accepts("card") ? seedFields(patch.card) : undefined
     const incomingAvatar = patch.avatar && accepts("avatar") && (
-      current === undefined
-      || patch.avatar.avatarVersion > (current.avatarVersion ?? -1)
-      || (!options?.event && patch.avatar.avatarVersion === current.avatarVersion)
+      known.avatarVersion === undefined
+      || patch.avatar.avatarVersion > known.avatarVersion
+      || (!options?.event && !options?.resourceSeed && patch.avatar.avatarVersion === known.avatarVersion)
     ) ? patch.avatar : undefined
     const fields = {
-      id: patch.id,
-      name: identityAbout?.name ?? current?.name,
-      discriminator: identityAbout?.discriminator === undefined ? current?.discriminator : identityAbout.discriminator,
-      avatar: incomingAvatar?.avatar === undefined ? current?.avatar : incomingAvatar.avatar,
-      avatarVersion: incomingAvatar?.avatarVersion ?? current?.avatarVersion,
-      aboutMe: identityAbout?.aboutMe ?? current?.aboutMe,
-      bannerColor: identityAbout?.bannerColor === undefined
-        ? current?.bannerColor
-        : identityAbout.bannerColor,
-      kind: identityAbout?.kind ?? current?.kind,
-      ownerUserId: identityAbout?.ownerUserId === undefined
-        ? current?.ownerUserId
-        : identityAbout.ownerUserId,
-      ownerHandle: card?.ownerHandle === undefined ? current?.ownerHandle : card.ownerHandle,
-      mutualServers: card?.mutualServers ?? current?.mutualServers,
-      ownedByViewer: card?.ownedByViewer ?? current?.ownedByViewer,
-      statusEmoji: status?.statusEmoji === undefined
-        ? current?.statusEmoji
-        : status.statusEmoji,
-      statusText: status?.statusText === undefined
-        ? current?.statusText
-        : status.statusText,
+      ...known, id: patch.id,
+      ...Object.fromEntries(Object.entries({ ...identityAbout, ...incomingAvatar, ...status, ...card }).filter(([, value]) => value !== undefined)),
     }
-    const parsed = profileSchema.safeParse(Object.fromEntries(Object.entries(fields).filter(([, field]) => field !== undefined)))
-    if (!parsed.success) continue
-    const next = parsed.data
-    profiles.set(patch.id, next)
+    const facts = profileFactsSchema.safeParse(Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== undefined && !key.startsWith("$"))))
+    if (!facts.success) continue
+    const parsed = profileSchema.safeParse(facts.data)
+    if (parsed.success) {
+      profiles.set(patch.id, parsed.data)
+      revisions.pendingFieldsByUserId.delete(patch.id)
+    } else if (!current && !options?.resourceSeed) {
+      const { id: _id, ...pending } = facts.data
+      revisions.pendingFieldsByUserId.set(patch.id, pending)
+    } else continue
     if (writeRevision !== null) {
       const nextRevisions = { ...fieldRevisions }
       if (identityAbout) nextRevisions.identityAbout = writeRevision
@@ -218,7 +214,7 @@ export function writeCommunityProfilePatches(
     }
   }
   if (advanced && writeRevision !== null) revisions.revision = writeRevision
-  if (advanced) revisionStore.setState(() => revisions)
+  revisionStore.setState(() => revisions)
   const rows = [...profiles.values()]
   writeCommunityCollectionRows(registry, "profiles", rows, (row) => row.id)
 }

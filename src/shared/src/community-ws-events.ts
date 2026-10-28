@@ -5,7 +5,7 @@ import { serverSchema } from "./community-cache"
 import { CommunityMachineSummarySchema, RuntimeModelDiscoveryResultSchema } from "./schemas"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
 import { BotCreationPayloadSchema } from "./community-bot-creation"
-import { CommunityCategoryResourceSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "./community-resources"
+import { CommunityCategoryResourceSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "./community-resources"
 
 export { FriendApprovalPayloadSchema } from "./community-friend-approval"
 export type { FriendApprovalPayload, FriendApprovalProfile } from "./community-friend-approval"
@@ -20,7 +20,11 @@ const communityMessageCreateSchema = z.strictObject({
   serverId: string.optional(),
   parentChannelId: string.optional(),
   message: CommunityMessageResourceSchema.required({ authorName: true, authorAvatarVersion: true }),
-}).refine(event => event.message.channelId === event.channelId)
+  profiles: CommunityMessageResourcesSchema.shape.profiles,
+}).refine(event => event.message.channelId === event.channelId).superRefine((event, ctx) => {
+  const graph = CommunityMessageResourcesSchema.safeParse({ messages: [event.message], profiles: event.profiles })
+  if (!graph.success) for (const issue of graph.error.issues) ctx.addIssue({ code: "custom", path: issue.path, message: issue.message })
+})
 
 const communityMessageUpdatedSchema = z.strictObject({
   type: z.literal("community:message.updated"),

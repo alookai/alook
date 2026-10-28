@@ -184,6 +184,7 @@ describe("WebSocketDurableObject", () => {
     const events = [
       {
         type: "community:message.create",
+        profiles: [{ id: "author", name: "Alice", discriminator: "0001", avatar: null, avatarVersion: 0 }],
         channelId: "ch-1",
         message: {
           id: "m-1", channelId: "ch-1", replyToId: null, clientNonce: null, attachments: [],

@@ -1,5 +1,5 @@
 import {
-  AccountAttentionSnapshotSchema, COMMUNITY_RESOURCE_CONTRACT_VERSION,
+  AccountAttentionSnapshotSchema, communityMessageProfileIds, COMMUNITY_RESOURCE_CONTRACT_VERSION,
   CommunityChannelMembershipResourceSchema, CommunityResourceBundleSchema, CommunityServerResourceSchema, communityChannelResourceFromStorage, isServerOwner, queries,
   withD1Retry, type CommunityResourceBundle, type AccountAttentionProjection, type AccountAttentionSnapshot, type Database,
 } from "@alook/shared"
@@ -35,9 +35,10 @@ export async function readCommunityResourceBundle(db: Database, viewerId: string
     queries.communityChannel.listChannelMembershipsForUserInChannels(db, viewerId, allowedIds),
   ])
   if (input.messageIds?.some(id => !messageRows.some(row => row.id === id))) throw new Error("Requested message resource missing from scope")
-  const profiles = await readCommunityResourceProfiles(db, [viewerId, ...(input.profileIds ?? []), ...messageRows.map(row => row.authorId)])
   const context = await loadApiMessageContext(db, viewerId, messageRows.map(row => row.id), () =>
     queries.communityMessage.getMessagesByIdsInChannels(db, messageRows.flatMap(row => row.replyToId ? [row.replyToId] : []), allowedIds), true)
+  const messages = messageRows.map(row => mapMessageForApi(row, context(row.channelId), COMMUNITY_RESOURCE_CONTRACT_VERSION, row.channelId))
+  const profiles = await readCommunityResourceProfiles(db, [viewerId, ...(input.profileIds ?? []), ...communityMessageProfileIds(messages)])
   const serverIds = new Set([...(input.serverIds ?? []), ...channels.flatMap(row => row.serverId ? [row.serverId] : [])])
   const selectedServers = serverRows.flatMap((row, position) => serverIds.has(row.id) ? [{ row, position }] : [])
   const relations = membershipRows.map(row => CommunityChannelMembershipResourceSchema.parse(row))
@@ -52,6 +53,6 @@ export async function readCommunityResourceBundle(db: Database, viewerId: string
       channels,
       memberships: [...channels.map(row => accessByChannel.get(row.id) ?? { channelId: row.id, userId: viewerId, relation: "access", source: "access-decision" }), ...relations.filter(row => row.relation === "notify")],
       profiles,
-      messages: messageRows.map(row => mapMessageForApi(row, context(row.channelId), COMMUNITY_RESOURCE_CONTRACT_VERSION, row.channelId)),
+      messages,
   })
 }

@@ -3,7 +3,7 @@ import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/share
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
-vi.mock("@/lib/community/attention-resources.server", () => ({ readCommunityResourceBundle: async (_db: unknown, viewerId: string, { profileIds }: { profileIds: string[] }) => resourceBundleFixture({ viewerId, profiles: profileIds.map(id => ({ id, name: id === "u_person" ? "Ada" : "HelperBot", discriminator: null, avatar: null, avatarVersion: 0 })) }) }))
+vi.mock("@/lib/community/attention-resources.server", () => ({ readCommunityResourceBundle: async (_db: unknown, viewerId: string, { profileIds }: { profileIds: string[] }) => resourceBundleFixture({ viewerId, profiles: profileIds.map(id => ({ id, name: id === "u_person" ? "Ada" : "HelperBot", discriminator: "0042", avatar: null, avatarVersion: 0 })) }) }))
 
 const listPending = vi.fn()
 

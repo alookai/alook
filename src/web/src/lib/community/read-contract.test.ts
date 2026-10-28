@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, type CommunityConversationEntryRead } from "@alook/shared"
-import { channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
+import { channelResourceFixture, messageResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { writeCommunityChannelRead, writeCommunityMessagesRead, writeCommunityConversationEntryRead } from "./read-contract"
 import { decodeCommunityReadResponse } from "./read-response"
 import { parseCommunityMessageWindow } from "./messages"
@@ -23,7 +23,7 @@ describe("common reading negotiation", () => {
   })
   it.each(["channel", "forum", "thread", "dm"] as const)("uses the same message resource for %s", async (surfaceKind) => {
     const message = messageResourceFixture({ id: "m1", channelId: "channel", authorId: "user", content: "hello" })
-    const response = writeCommunityMessagesRead(request(String(BUSINESS_SCHEMA_VERSION)), "channel", { messages: [message], latestSeq: 1, hasMore: true, cursor: "cursor", surfaceReceipt: { channelId: "channel", surfaceKind } })
+    const response = writeCommunityMessagesRead(request(String(BUSINESS_SCHEMA_VERSION)), "channel", { messages: [message], profiles: [profileResourceFixture({ id: "user", name: "User" })], latestSeq: 1, hasMore: true, cursor: "cursor", surfaceReceipt: { channelId: "channel", surfaceKind } })
     const body = await response.json()
     expect(body.messages[0]).toMatchObject({ channelId: "channel", clientNonce: null, replyToId: null, attachments: [] })
     expect(body.messages[0]).not.toHaveProperty("resourceComplete")
@@ -53,7 +53,7 @@ describe("current resource ingress", () => {
     const attachments = [{ id: "a2", name: "first", url: "/first", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }, { id: "a1", name: "second", url: "/second", thumbnailUrl: null, contentType: "image/png", sizeBytes: 1024, width: 40, height: 50 }]
     const row = { id: "full", seq: 2, authorId: "peer", authorName: "Peer", authorImage: null, authorAvatarVersion: 4, createdAt: "now", type: "chat", content: "body", clientNonce: "nonce", replyToId: null, mentionType: null, embeds: [null, { unsupported: true }] }
     const full = mapMessageForWs(row, { replyMap: new Map(), attachments: [], resourceAttachments: attachments, clientNonce: "nonce" }, BUSINESS_SCHEMA_VERSION, "channel")
-    const response = writeCommunityMessagesRead(request(String(BUSINESS_SCHEMA_VERSION)), "channel", { messages: [full], latestSeq: 2, surfaceReceipt: { channelId: "channel", surfaceKind } })
+    const response = writeCommunityMessagesRead(request(String(BUSINESS_SCHEMA_VERSION)), "channel", { messages: [full], profiles: [profileResourceFixture({ id: "peer", name: "Peer", avatarVersion: 4 })], latestSeq: 2, surfaceReceipt: { channelId: "channel", surfaceKind } })
     const body = await response.json()
     const http = decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, body, BUSINESS_SCHEMA_VERSION) as { messages: unknown[] }
     const ws = projectCommunityMessageCreate(full, "channel", BUSINESS_SCHEMA_VERSION)
@@ -72,7 +72,7 @@ describe("current conversation entry ingress", () => {
     access: { channelId: "channel", canRead: true, canSend: false, canCreateDiscussion: false },
     readState: { channelId: "channel", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
     readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null },
-    surfaceReceipt: { channelId: "channel", surfaceKind: "dm" }, messages: [],
+    surfaceReceipt: { channelId: "channel", surfaceKind: "dm" }, messages: [], profiles: [],
     page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
   })
 
@@ -100,7 +100,7 @@ describe("current conversation entry ingress", () => {
   it("qualifies complete message rows only after entry scope validation", () => {
     const value = entry()
     const message = { id: "m1", channelId: "channel", seq: 1, authorId: "peer", createdAt: "now", type: "chat", content: "body", clientNonce: null, replyToId: null, attachments: [] }
-    const body = { ...value, messages: [message] }
+    const body = { ...value, messages: [message], profiles: [profileResourceFixture({ id: "peer", name: "Peer" })] }
     const response = new Response(null, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
     expect(decodeCommunityReadResponse("/api/community/channels/channel/messages?entry=1", "GET", response, body, BUSINESS_SCHEMA_VERSION)).toMatchObject({ messages: [{ ...message }] })
     expect(() => decodeCommunityReadResponse("/api/community/channels/channel/messages?entry=1", "GET", response, { ...body, messages: [{ ...message, channelId: "foreign" }] }, BUSINESS_SCHEMA_VERSION)).toThrow("scope mismatch")

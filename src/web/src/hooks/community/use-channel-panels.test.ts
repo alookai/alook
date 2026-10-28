@@ -108,7 +108,7 @@ describe("usePins / pinsQueryFn", () => {
   it("publishes rich pin facts only from the supplied full resource", async () => {
     const rich = messageResourceFixture({ id: "m_1", channelId: "ch_1", replyToId: "reply", type: "system" as const, systemKind: "thread" as const,
       authorId: "u1", content: "full", clientNonce: "known-nonce",
-      replyTo: { id: "reply", authorName: "Peer", text: "Prior" },
+      replyTo: { id: "reply", authorId: "peer", authorName: "Peer", text: "Prior" },
       attachments: [{ id: "file", name: "known.txt", url: "/known", thumbnailUrl: null, contentType: "text/plain", sizeBytes: 1024, width: null, height: null }],
       embeds: [{ title: "Known" }], reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
     })

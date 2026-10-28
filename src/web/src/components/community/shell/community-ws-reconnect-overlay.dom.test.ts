@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -105,7 +106,7 @@ describe("CommunityWsReconnectBoundary", () => {
     expect(screen.queryByTestId(tid.wsReconnectOverlay)).not.toBeInTheDocument()
     expect(renderer.container.querySelector(".contents")).not.toHaveAttribute("inert")
     expect(apiFetchMock).toHaveBeenCalledTimes(3)
-    apiFetchMock.mockResolvedValue({ messages: [messageResourceFixture({ id: "m_1", channelId: "repair-status", content: "recovered" })], latestSeq: 1 })
+    apiFetchMock.mockResolvedValue(messageReadPageFixture({ messages: [messageResourceFixture({ id: "m_1", channelId: "repair-status", content: "recovered" })], latestSeq: 1 }))
     const retry = screen.getByTestId(tid.messageRepairRetry)
     retry.focus()
     await setupUser().keyboard("{Enter}")

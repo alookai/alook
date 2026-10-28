@@ -1,4 +1,4 @@
-import { dmListRowFixture } from "@/test/community-resource-fixtures"
+import { dmListRowFixture, channelResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONVERSATION_ANCHOR_MISSING, type CommunityConversationEntryRead } from "@alook/shared"
@@ -157,7 +157,7 @@ describe("conversation entry canonical publication", () => {
     expect(client.getQueryData(previous.windowKey)).toBe(before)
     const repair = client.getQueryCache().find({ queryKey: repairKey, exact: true })!.promise!.catch(error => error)
     if (fail) reject(new Error("held repair failed"))
-    else resolve({ messages: [{ ...next.messages[0], id: "m2", seq: 2 }], latestSeq: 2, hasMoreNewer: false })
+    else resolve({ profiles: next.profiles, messages: [{ ...next.messages[0], id: "m2", seq: 2 }], latestSeq: 2, hasMoreNewer: false })
     await repair
     expect(client.getQueryState(options.queryKey)?.status).toBe("success")
     expect(client.getQueryState(repairKey)?.status).toBe(fail ? "error" : "success")
@@ -307,7 +307,12 @@ describe("conversation entry canonical publication", () => {
   })
 
   it("keeps the pages and pageParams of an existing matching historical window", async () => {
-    const { client } = await createCommunityQueryOwner()
+    const { client, registry } = await createCommunityQueryOwner()
+    const { ingestMessages } = await import("@/lib/community-db/sync")
+    const { writeCommunityProfilePatches, communityUserProfilePatch } = await import("./profile-seed")
+    const value = entry()
+    writeCommunityProfilePatches(value.profiles.map(profile => communityUserProfilePatch(profile.id, profile)), registry)
+    ingestMessages(registry, "c1", [{ ...value.messages[0], id: "history", seq: 0 }])
     const key = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
     const previous: MessageWindowData = {
       pages: [{ messages: [{ id: "m1", seq: 1 }] }, { messages: [{ id: "history", seq: 0 }] }],
@@ -412,4 +417,36 @@ describe("conversation entry canonical publication", () => {
     expect(findConversationEntryWindow(client, target, resource, value.readState)).toBeUndefined()
   })
 
+})
+
+
+it.each(["main", "opener"] as const)("validates the effective retained %s reply graph before any entry write", async location => {
+  const { communityRegistrySnapshot } = await import("@/test/community-registry-snapshot")
+  const { ingestMessages } = await import("@/lib/community-db/sync")
+  const { communityUserProfilePatch, writeCommunityProfilePatches } = await import("./profile-seed")
+  const { client, registry } = await createCommunityQueryOwner()
+  const value = entry()
+  const original = { ...value.messages[0], ...(location === "opener" ? { id: "opener", channelId: "parent" } : {}) }
+  const retainedReply = { id: "prior", authorId: "prior-author", authorName: "Prior author", text: "Retained reply" }
+  ingestMessages(registry, original.channelId, [{ ...original, replyToId: "prior", replyTo: retainedReply }])
+  const incoming = { ...original, replyToId: "prior" }
+  if (location === "main") value.messages = [incoming]
+  else {
+    value.channel = { ...value.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+    value.parent = channelResourceFixture({ id: "parent", serverId: "s1", type: "text" })
+    value.opener = incoming
+    value.surfaceReceipt = { channelId: "c1", surfaceKind: "thread" }
+  }
+  const before = communityRegistrySnapshot(registry)
+  const queries = client.getQueryCache().getAll().map(query => [query.queryKey, structuredClone(query.state.data)])
+  const access = structuredClone(registry.runtime.ws.get().channelAccessScopes)
+  expect(() => publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })).toThrow("Retained message profile resource missing")
+  expect(communityRegistrySnapshot(registry)).toEqual(before)
+  expect(registry.runtime.ws.get().channelAccessScopes).toEqual(access)
+  expect(client.getQueryCache().getAll().map(query => [query.queryKey, query.state.data])).toEqual(queries)
+  const prior = profileResourceFixture({ id: "prior-author", name: "Prior author" })
+  writeCommunityProfilePatches([communityUserProfilePatch(prior.id, prior)], registry)
+  const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+  expect(registry.collections.messages.get(original.id)?.replyTo).toEqual(retainedReply)
+  expect(findConversationEntryWindow(client, target, resource, value.readState)).toBeDefined()
 })

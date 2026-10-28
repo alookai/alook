@@ -1,4 +1,4 @@
-import { parseCommunityServerMembersRead, CommunityInvitesReadSchema, type CommunityInviteListItem, type CommunityResourceProfile } from "@alook/shared"
+import { parseCommunityServerMembersRead, CommunityResourceProfileSchema, CommunityInvitesReadSchema, type CommunityInviteListItem, type CommunityResourceProfile } from "@alook/shared"
 import { CommunityAcceptedFriendsReadSchema, CommunityBlockedFriendsReadSchema, CommunityPendingFriendsReadSchema, AccountAttentionSnapshotSchema, CommunityThreadsReadSchema, encodeCommunityBrowserEvent, BUSINESS_SCHEMA_VERSION, CommunityMachineSummarySchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityServerResourceSchema, CommunityCategoryResourceSchema, CommunityResourceBundleSchema,
   type CommunityChannelResource, type CommunityMessageResource, type CommunityResourceBundle } from "@alook/shared"
 
@@ -13,12 +13,33 @@ export function messageResourceFixture(fields: Partial<CommunityMessageResource>
     createdAt: "2026-10-01T00:00:01.000Z", content: "Body", replyToId: null, clientNonce: null, attachments: [], ...fields })
 }
 
+export function messageProfilesFixture(messages: readonly CommunityMessageResource[]): CommunityResourceProfile[] {
+  const profiles = new Map<string, CommunityResourceProfile>()
+  for (const message of messages) {
+    profiles.set(message.authorId, profileResourceFixture({ id: message.authorId, name: message.authorName ?? message.authorId, avatar: message.authorAvatar ?? null, avatarVersion: message.authorAvatarVersion ?? 0 }))
+    if (message.replyTo?.authorId && message.replyTo.deleted !== true && !profiles.has(message.replyTo.authorId)) profiles.set(message.replyTo.authorId, profileResourceFixture({ id: message.replyTo.authorId, name: message.replyTo.authorName }))
+  }
+  return [...profiles.values()]
+}
+
+export function messageReadPageFixture<T extends { messages: CommunityMessageResource[] }>(page: T) {
+  return { ...page, profiles: messageProfilesFixture(page.messages) }
+}
+
+export function singleMessageReadFixture(message: CommunityMessageResource) {
+  return { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: message.channelId, message, profiles: messageProfilesFixture([message]) }
+}
+
 export function serverResourceFixture(fields: Partial<ReturnType<typeof CommunityServerResourceSchema.parse>> = {}) {
   return CommunityServerResourceSchema.parse({ id: "s1", position: 0, name: "Server", discriminator: "1234", description: "", ownerId: "viewer", icon: null, official: false, isOwner: true, ...fields })
 }
 
 export function categoryResourceFixture(fields: Partial<ReturnType<typeof CommunityCategoryResourceSchema.parse>> = {}) {
   return CommunityCategoryResourceSchema.parse({ id: "cat1", serverId: "s1", name: "Category", position: 0, private: false, creatorId: "viewer", ...fields })
+}
+
+export function profileResourceFixture(fields: Partial<CommunityResourceProfile> = {}): CommunityResourceProfile {
+  return CommunityResourceProfileSchema.parse({ id: "viewer", name: "Viewer", discriminator: "0042", avatar: null, avatarVersion: 0, ...fields })
 }
 
 export function resourceBundleFixture(fields: Partial<CommunityResourceBundle> = {}): CommunityResourceBundle {
@@ -39,7 +60,7 @@ export function serverDirectoryFixture(scenario: DirectoryScenario) {
   }
 }
 
-export function fullResourceBundleFixture(viewerId: string, servers: CommunityResourceBundle["servers"], channels: CommunityResourceBundle["channels"], messages: CommunityResourceBundle["messages"] = [], profiles: CommunityResourceBundle["profiles"] = []) {
+export function fullResourceBundleFixture(viewerId: string, servers: CommunityResourceBundle["servers"], channels: CommunityResourceBundle["channels"], messages: CommunityResourceBundle["messages"] = [], profiles: CommunityResourceBundle["profiles"] = [profileResourceFixture({ id: viewerId }), ...messageProfilesFixture(messages).filter(profile => profile.id !== viewerId)]) {
   return resourceBundleFixture({ viewerId, servers, channels, messages, profiles,
     serverMemberships: servers.map(server => ({ serverId: server.id, userId: viewerId, memberId: `member-${server.id}`, role: server.ownerId === viewerId ? "owner" : "member" })),
     memberships: channels.flatMap(channel => [{ channelId: channel.id, userId: viewerId, relation: "access" as const, source: "explicit" },
@@ -55,7 +76,7 @@ export function forumSidebarEnvelopeFixture(serverId: string, ids = ["post_1"], 
   const summaries = children.map(channel => ({ id: channel.id, name: channel.name, serverId, parentChannelId: parent.id, parentMessageId: channel.parentMessageId!, activityAt: now, expiresAt: new Date(Date.now() + 72 * 3600_000).toISOString(), unread: false }))
   return { schemaVersion: BUSINESS_SCHEMA_VERSION, serverId, channels: summaries, canonicalChannels: summaries,
     retainedChannel: null, retainedDisposition: null, serverNow: now,
-    resources: fullResourceBundleFixture(viewerId, [server], [parent, ...children], children.map(channel => messageResourceFixture({ id: channel.parentMessageId!, channelId: parent.id, content: content ?? `title-${channel.id}` }))),
+    resources: fullResourceBundleFixture(viewerId, [server], [parent, ...children], children.map(channel => messageResourceFixture({ id: channel.parentMessageId!, channelId: parent.id, content: content ?? `title-${channel.id}` })), [profileResourceFixture()]),
   }
 }
 
@@ -120,9 +141,12 @@ export function forumFeedScenarioFixture(channelId: string, scenario: ForumFeedS
   const openers = (scenario.included.parentMessages ?? []).map(({ authorImage, ...row }) => messageResourceFixture({ channelId, ...row,
     ...(authorImage === undefined ? {} : { authorAvatar: authorImage }) }))
   const first = (scenario.included.firstMessages ?? []).map(row => messageResourceFixture({ id: `first-${row.channelId}`, ...row }))
-  const profiles = new Map<string, { id: string; name: string; discriminator: null; avatar: string | null; avatarVersion: number }>()
-  for (const row of openers) profiles.set(row.authorId, { id: row.authorId, name: row.authorName ?? "Author", discriminator: null, avatar: row.authorAvatar ?? null, avatarVersion: row.authorAvatarVersion ?? 0 })
-  for (const row of scenario.included.participants ?? []) profiles.set(row.userId, { id: row.userId, name: row.userName ?? "Participant", discriminator: null, avatar: row.userImage ?? null, avatarVersion: row.userAvatarVersion ?? 0 })
+  const profiles = new Map<string, CommunityResourceProfile>()
+  for (const row of [...openers, ...first]) {
+    profiles.set(row.authorId, profileResourceFixture({ id: row.authorId, name: row.authorName ?? "Author", avatar: row.authorAvatar ?? null, avatarVersion: row.authorAvatarVersion ?? 0 }))
+    if (row.replyTo?.authorId && row.replyTo.deleted !== true) profiles.set(row.replyTo.authorId, profileResourceFixture({ id: row.replyTo.authorId, name: row.replyTo.authorName }))
+  }
+  for (const row of scenario.included.participants ?? []) profiles.set(row.userId, profileResourceFixture({ id: row.userId, name: row.userName ?? "Participant", avatar: row.userImage ?? null, avatarVersion: row.userAvatarVersion ?? 0 }))
   return CommunityThreadsReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId, channel, threads,
     included: { messages: [...openers, ...first], profiles: [...profiles.values()], tags: scenario.included.tags ?? [],
       members: (scenario.included.participants ?? []).map(row => ({ channelId: row.channelId, userId: row.userId, relation: "notify", source: "spoke", isCreator: false, role: null, memberId: null })),
@@ -140,14 +164,14 @@ export function attentionSnapshotScenarioFixture(scenario: Omit<import("@alook/s
   ]
   const profiles = included.profiles.map(({ userId, ...profile }) => ({ id: userId, ...profile }))
   const messages = included.messages.map(row => messageResourceFixture({ ...row, authorId: row.authorId ?? "viewer" }))
-  const resources = fullResourceBundleFixture(viewerId, servers, channels, messages, profiles)
+  const resources = fullResourceBundleFixture(viewerId, servers, channels, messages, [...new Map([...messageProfilesFixture(messages), ...profiles].map(profile => [profile.id, profile])).values()])
   resources.memberships = resources.memberships.filter(row => row.relation === "access")
   return AccountAttentionSnapshotSchema.parse({ ...scenario, resources })
 }
 
 
-export function friendBucketScenarioFixture<K extends "friends" | "blocked" | "pending", R extends { id: string; userId: string; name: string; avatar: string; avatarVersion: number; discriminator?: string | null; sub?: string; kind?: string; needsOwnerApproval?: string | null }>(bucket: K, rows: R[], viewerId = "viewer") {
-  const resources = resourceBundleFixture({ viewerId, profiles: rows.map(row => ({ id: row.userId, name: row.name, discriminator: row.discriminator ?? null, avatar: row.avatar, avatarVersion: row.avatarVersion })) })
+export function friendBucketScenarioFixture<K extends "friends" | "blocked" | "pending", R extends { id: string; userId: string; name: string; avatar: string; avatarVersion: number; discriminator: string; sub?: string; kind?: string; needsOwnerApproval?: string | null }>(bucket: K, rows: R[], viewerId = "viewer") {
+  const resources = resourceBundleFixture({ viewerId, profiles: rows.map(row => ({ id: row.userId, name: row.name, discriminator: row.discriminator, avatar: row.avatar, avatarVersion: row.avatarVersion })) })
   const descriptors = rows.map(row => ({ id: row.id, userId: row.userId,
     ...(bucket === "friends" && row.sub !== undefined ? { sub: row.sub } : {}),
     ...(bucket === "pending" ? { kind: row.kind, ...(row.needsOwnerApproval === undefined ? {} : { needsOwnerApproval: row.needsOwnerApproval }) } : {}),

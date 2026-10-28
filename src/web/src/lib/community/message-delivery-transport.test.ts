@@ -51,7 +51,7 @@ function batch(overrides: Partial<MessageDeliveryBatch> = {}): MessageDeliveryBa
   return { communityContract: BUSINESS_SCHEMA_VERSION,
     messageId: "message-1",
     messageEvent: {
-      type: "community:message.create",
+      type: "community:message.create", profiles: [{ id: "u1", name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 }],
       channelId: "thread-1",
       serverId: "server-1",
       parentChannelId: "forum-1",

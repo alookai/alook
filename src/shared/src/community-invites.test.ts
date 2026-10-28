@@ -4,7 +4,7 @@ import { CommunityInviteCreateSchema } from "./community-ws-events"
 import { CommunityInvitesReadSchema, CommunityInviteListItemSchema } from "./community-invites"
 
 const invite = { id: "invite", token: "token", maxUses: null, uses: 0, expiresAt: null, createdAt: "now", creatorId: "creator" }
-const profile = { id: "creator", name: "Creator", discriminator: null, avatar: null, avatarVersion: 0 }
+const profile = { id: "creator", name: "Creator", discriminator: "0042", avatar: null, avatarVersion: 0 }
 const value = () => ({ contractVersion: BUSINESS_SCHEMA_VERSION, serverId: "server", invites: [invite], resources: { viewerId: "viewer", servers: [{ id: "server", name: "Server", discriminator: "0042", description: "", ownerId: "owner", icon: null, position: 0, official: false, isOwner: false }], serverMemberships: [{ serverId: "server", userId: "viewer", memberId: "member", role: "member" }], channels: [], memberships: [], messages: [], profiles: [profile] } })
 describe("current named invite reads", () => {
   it("derives invite descriptor fields from the existing unique invite-create declaration", () => {

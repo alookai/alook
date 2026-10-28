@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { currentCommunityFixtureError, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import type { Frame } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -153,7 +154,7 @@ test.describe("direct messages", () => {
       await entrySettled
       const permission = await entryResponse
       expect(permission.status()).toBe(200)
-      expect(permission.headers()["x-alook-community-contract"]).toBe("3")
+      expect(permission.headers()[COMMUNITY_CONTRACT_HEADER.toLowerCase()]).toBe(String(BUSINESS_SCHEMA_VERSION))
       const resource = await permission.json()
       expect(resource.channel.id).toBe(dmId)
       expect(resource.access).toMatchObject({ channelId: dmId, canRead: true, canSend: true })

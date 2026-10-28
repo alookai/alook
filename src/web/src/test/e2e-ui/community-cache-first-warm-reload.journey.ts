@@ -8,7 +8,7 @@ import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 import type { APIResponse, Page, Request, TestInfo } from "@playwright/test"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { expectPublicCommunityDocument, expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
-import { PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
+import { PERSIST_ACCOUNT_PREFIX, PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { expect, test } from "./_fixtures/case-fixture"
 
 import { tid } from "./_fixtures/testids"
@@ -643,7 +643,7 @@ async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: st
       }
       return request
     }
-  }, { key: `${PERSIST_CACHE_PREFIX}:${viewerId}:client`, accountKey: `${PERSIST_CACHE_PREFIX}:${viewerId}:account-epoch`, channelsKey: `${PERSIST_CACHE_PREFIX}:${viewerId}:account-epoch:channels`, oldId, newId })
+  }, { key: `${PERSIST_CACHE_PREFIX}:${viewerId}:client`, accountKey: `${PERSIST_ACCOUNT_PREFIX}:${viewerId}:account-epoch`, channelsKey: `${PERSIST_ACCOUNT_PREFIX}:${viewerId}:account-epoch:channels`, oldId, newId })
 }
 
 async function captureOriginalPersistedReadDiagnostics(page: Page, testInfo: TestInfo, label: string) {
@@ -669,7 +669,7 @@ async function releaseOriginalPersistedRead(page: Page) {
 }
 
 async function retiredAccountDiskState(page: Page, viewerId: string, channelId: string) {
-  return page.evaluate(({ prefix, viewerId, channelId }) => new Promise<{ payloadAbsent: boolean; applicationPayloadAbsent: boolean; accountEpochPresent: boolean; scopeEpochPresent: boolean; channelsReset: boolean; oldChannelFenceAbsent: boolean }>((resolveState, reject) => {
+  return page.evaluate(({ prefix, accountPrefix, viewerId, channelId }) => new Promise<{ payloadAbsent: boolean; applicationPayloadAbsent: boolean; accountEpochPresent: boolean; scopeEpochPresent: boolean; channelsReset: boolean; oldChannelFenceAbsent: boolean }>((resolveState, reject) => {
     const open = indexedDB.open("keyval-store")
     open.onerror = () => reject(open.error ?? new Error("failed to inspect retired account"))
     open.onsuccess = () => {
@@ -679,9 +679,10 @@ async function retiredAccountDiskState(page: Page, viewerId: string, channelId: 
       const namespace = `${prefix}:${viewerId}`
       const payload = store.get(`${namespace}:client`)
       const application = store.get(`${namespace}:application:client`)
-      const account = store.get(`${namespace}:account-epoch`)
+      const accountNamespace = `${accountPrefix}:${viewerId}`
+      const account = store.get(`${accountNamespace}:account-epoch`)
       const scope = store.get(`${namespace}:client:epoch`)
-      const channels = store.get(`${namespace}:account-epoch:channels`)
+      const channels = store.get(`${accountNamespace}:account-epoch:channels`)
       transaction.onabort = transaction.onerror = () => { db.close(); reject(transaction.error ?? new Error("retired account inspection failed")) }
       transaction.oncomplete = () => {
         const fences: unknown = channels.result
@@ -690,7 +691,7 @@ async function retiredAccountDiskState(page: Page, viewerId: string, channelId: 
         resolveState(result)
       }
     }
-  }), { prefix: PERSIST_CACHE_PREFIX, viewerId, channelId })
+  }), { prefix: PERSIST_CACHE_PREFIX, accountPrefix: PERSIST_ACCOUNT_PREFIX, viewerId, channelId })
 }
 
 test("late original IDB cannot revive a DM after a real WS block", async ({ caseActors, caseResources }, testInfo) => {

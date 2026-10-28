@@ -1,4 +1,6 @@
 "use client"
+
+import type { CommunityMessagePosted } from "@alook/shared"
 import type { CommunityChannelResource } from "@alook/shared"
 
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
@@ -25,7 +27,7 @@ import {
   type ForumPostUnitIdentity,
 } from "@/hooks/community/community-ws/channel-scope-projection"
 import { collectChannelScopeIds, beginCommunityCommandRevision, publishCommunityCreatedChannel, publishCommunityForumTags, publishCommunityMessages } from "@/lib/community-db/sync"
-import { projectPostedMessage, type PostedMessage } from "@/lib/community/message-wire"
+import { projectPostedMessage } from "@/lib/community/message-wire"
 import { reconcileForumSidebarArchiveTag } from "../use-forum-sidebar-threads"
 
 export type CreateForumThreadArgs = {
@@ -58,7 +60,7 @@ export function useCreateForumThread() {
       await Promise.all([origin.registry!.collections.channels.preload(), origin.registry!.collections.messages.preload(), origin.registry!.collections.channelMemberships.preload()])
       assert()
       const attachmentIds = attachments?.map((a) => a.id)
-      const structure = await origin.request<CreateForumThreadResult & { message: PostedMessage }>(token,
+      const structure = await origin.request<CreateForumThreadResult & Pick<CommunityMessagePosted, "message" | "profiles">>(token,
         `/api/community/channels/${channelId}/messages`,
         {
           method: "POST", signal: assertActive?.signal, assertActive,
@@ -68,19 +70,19 @@ export function useCreateForumThread() {
       assert()
       const parent = origin.registry!.collections.channels.get(channelId)
       if (parent && structure.message) {
-        publishCommunityMessages(queryClient, { channelId, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
+        publishCommunityMessages(queryClient, { channelId, profiles: structure.profiles, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
         const child = await origin.request<CommunityChannelResource>(token, `/api/community/channels/${structure.threadId}`, { method: "GET", signal: assertActive?.signal, assertActive })
         assert()
         if (child.parentChannelId !== channelId || child.parentMessageId !== structure.message.id || child.serverId !== parent.serverId) throw new Error("Created forum child scope mismatch")
         publishCommunityCreatedChannel(queryClient, child, { token, signal: assertActive?.signal })
       }
       assert()
-      const reply = await origin.request<{ message: PostedMessage }>(token, `/api/community/channels/${structure.threadId}/messages`, {
+      const reply = await origin.request<Pick<CommunityMessagePosted, "message" | "profiles">>(token, `/api/community/channels/${structure.threadId}/messages`, {
         method: "POST", signal: assertActive?.signal, assertActive,
         body: JSON.stringify({ content, attachments: attachmentIds, nonce: `${nonce}:reply` }),
       })
       assert()
-      if (reply.message) publishCommunityMessages(queryClient, { channelId: structure.threadId, messages: [projectPostedMessage(reply.message, `${nonce}:reply`, structure.threadId)], proof: { token, signal: assertActive?.signal } })
+      if (reply.message) publishCommunityMessages(queryClient, { channelId: structure.threadId, profiles: reply.profiles, messages: [projectPostedMessage(reply.message, `${nonce}:reply`, structure.threadId)], proof: { token, signal: assertActive?.signal } })
       for (const query of resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
       return structure
     },

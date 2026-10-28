@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -7,6 +8,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { beginCommunityProfileSeed } from "@/lib/community/profile-seed"
 import type { MessageInput } from "@/lib/community/models/message"
 
+let navigationOwner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   cancel: vi.fn(),
@@ -50,19 +52,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({ ...await importOri
     isLoading: false,
     isError: false,
   }),
-  useQueryClient: () => ({
-    getQueryData: () => ({
-      notFound: false,
-      anchorId: "message_1",
-      messages: [{
-        id: "message_1",
-        seq: 1,
-        type: "chat",
-        reactions: [],
-      }],
-    }),
-    setQueryData: mocks.setQueryData,
-  }),
+  useQueryClient: () => navigationOwner.client,
 }))
 vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({ children }: { children: React.ReactNode }) => children,
@@ -121,7 +111,7 @@ vi.mock("@/lib/community-db/projections", async () => {
   const actual = await vi.importActual<typeof import("@/lib/community-db/projections")>(
     "@/lib/community-db/projections",
   )
-  return { ...actual, useCanonicalMessagesById: mocks.canonicalMessages }
+  return { ...actual, useCanonicalMessagesById: mocks.canonicalMessages, useCanonicalProfilesProjection: () => ({ resourceProfiles: new Map(navigationOwner ? [...navigationOwner.registry.collections.profiles.values()].map(row => [row.id, row]) : []), isReady: true, isError: false }) }
 })
 
 import {
@@ -139,10 +129,10 @@ describe("MessageContextSheet native query publication", () => {
     const writer = await import("@/lib/community-db/write")
     const write = vi.spyOn(writer, "writeCommunityCollectionRows")
     const signal = new AbortController().signal
-    mocks.apiFetch.mockResolvedValueOnce({ id: "anchor" }).mockResolvedValueOnce({ messages: [
+    mocks.apiFetch.mockResolvedValueOnce({ id: "anchor" }).mockResolvedValueOnce(messageReadPageFixture({ messages: [
       messageResourceFixture({ id: "after", channelId: "context_channel", seq: 3, content: "after", authorId: "author", authorName: "Author" }),
       messageResourceFixture({ id: "anchor", channelId: "context_channel", seq: 2, content: "anchor", authorId: "author", authorName: "Author" }),
-    ], hasMore: false })
+    ], hasMore: false }))
     await expect(messageContextQueryFn("channel", "context_channel", 2, owner.client)({ signal })).resolves.toEqual({
       notFound: false, anchorId: "anchor", messages: [{ id: "anchor" }, { id: "after" }],
     })
@@ -151,9 +141,9 @@ describe("MessageContextSheet native query publication", () => {
       "/api/community/channels/context_channel/messages?anchor=anchor&limit=11",
     ])
     expect(mocks.apiFetch.mock.calls.every(([, options]) => options.signal === signal)).toBe(true)
-    expect(write.mock.calls.filter(([, collection]) => collection === "profiles")).toHaveLength(0)
+    expect(write.mock.calls.filter(([, collection]) => collection === "profiles")).toHaveLength(2)
     expect(owner.registry.collections.messages.get("anchor")).toMatchObject({ content: "anchor", channelId: "context_channel", authorId: "author" })
-    expect(owner.registry.collections.profiles.get("author")).toBeUndefined()
+    expect(owner.registry.collections.profiles.get("author")).toMatchObject({ id: "author", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 })
     write.mockRestore()
   })
 
@@ -184,7 +174,10 @@ describe("MessageContextSheet native query publication", () => {
 })
 
 describe("MessageContextSheet thread navigation", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    navigationOwner = await createCommunityQueryOwner("viewer_1")
+    const { publishCommunityMessages, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
+    publishCommunityMessages(navigationOwner.client, { channelId: "parent_1", messages: [messageResourceFixture({ id: "message_1", channelId: "parent_1", authorId: "author_1", authorName: "Author" })], profiles: [{ id: "author_1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }], proof: { token: captureCommunityLiveSnapshotToken(navigationOwner.client) } })
     vi.clearAllMocks()
     mocks.openThread = undefined
     mocks.pin = undefined

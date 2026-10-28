@@ -50,7 +50,7 @@ async function wireOwner() {
     }
     const responseVersion = legacyPages ? "2" : version
     return new Response(JSON.stringify({ contractVersion: Number(responseVersion), channelId: "c1",
-      messages: responseVersion === String(BUSINESS_SCHEMA_VERSION) ? selected : selected.map(message => ({ ...message, authorAvatar: "P" })),
+      profiles: base.profiles, messages: responseVersion === String(BUSINESS_SCHEMA_VERSION) ? selected : selected.map(message => ({ ...message, authorAvatar: "P" })),
       page, surfaceReceipt: base.surfaceReceipt,
     }), { headers: { [COMMUNITY_CONTRACT_HEADER]: responseVersion ?? "", "content-type": "application/json" } })
   }))

@@ -7,7 +7,7 @@ import { emitTelemetry, telemetryGeneration } from "@/lib/observability/telemetr
 import { apiFetchCommunity } from "./account-cache-lifecycle"
 import { captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
-import { messageWindowPage, type MessagesPage as WireMessagesPage, type MessagesWindowPage as MessagesPage, type MessagesPageParam } from "./models/message"
+import { messageWindowPage, type MessagesReadPage as WireMessagesPage, type MessagesWindowPage as MessagesPage, type MessagesPageParam } from "./models/message"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
 
 type MessagesTransportPage = WireMessagesPage & {
@@ -89,6 +89,7 @@ export const channelMessagesQueryFn =
       const result = publishCommunityMessages(originalClient, {
         channelId,
         messages: page.messages,
+        profiles: page.profiles,
         proof: { token: publicationToken, signal },
       })
       if (result === "published" && generation === telemetryGeneration()) emitTelemetry("data.publish", { ...actionAttributes(observation?.action ?? observation?.page), source: "network", cache_stage: "canonical", request_reason: observation?.reason ?? "unknown", eligibility: "eligible", outcome: "success" })

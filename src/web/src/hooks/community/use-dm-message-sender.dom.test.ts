@@ -1,3 +1,4 @@
+import { profileResourceFixture, messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { canonicalMessageReader } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
@@ -26,7 +27,7 @@ beforeEach(() => {
 const scope = { kind: "dm" as const, id: "dm_1" }
 const author = { id: "u_me", name: "Me", avatar: "M" }
 function posted(id = "server_1", seq = 7, content = "hello") {
-  return { message: messageResourceFixture({ id, seq, content, channelId: scope.id, clientNonce: "fresh_nonce", createdAt: "2026-08-07T10:00:00.000Z", authorId: author.id, authorName: author.name, authorAvatar: null, authorAvatarVersion: 0, embeds: [] }) }
+  return { profiles: messageProfilesFixture([messageResourceFixture({ id, seq, content, channelId: scope.id, clientNonce: "fresh_nonce", createdAt: "2026-08-07T10:00:00.000Z", authorId: author.id, authorName: author.name, authorAvatar: null, authorAvatarVersion: 0, embeds: [] })]), message: messageResourceFixture({ id, seq, content, channelId: scope.id, clientNonce: "fresh_nonce", createdAt: "2026-08-07T10:00:00.000Z", authorId: author.id, authorName: author.name, authorAvatar: null, authorAvatarVersion: 0, embeds: [] }) }
 }
 async function setup() {
   const owner = await createCommunityQueryOwner("u_me")
@@ -57,14 +58,14 @@ describe("Native DM sender", () => {
     let resolve!: (value: ReturnType<typeof posted>) => void
     mocks.post.mockReturnValueOnce(new Promise((done) => { resolve = done }))
     const owner = await setup()
-    const receipt = owner.accept({ content: "@Peer\nhello", replyTo: { id: "prior", authorName: "Peer", text: "quoted" } })
-    expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.message).toMatchObject({ authorId: "u_me", authorName: "Me", content: "@Peer\nhello", replyTo: { id: "prior", authorName: "Peer", text: "quoted" } })
+    const receipt = owner.accept({ content: "@Peer\nhello", replyTo: { id: "prior", authorId: "peer", authorName: "Peer", text: "quoted" } })
+    expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.message).toMatchObject({ authorId: "u_me", authorName: "Me", content: "@Peer\nhello", replyTo: { id: "prior", authorId: "peer", authorName: "Peer", text: "quoted" } })
     await waitFor(() => expect(mocks.post).toHaveBeenCalledExactlyOnceWith({ content: "@Peer\nhello", replyToId: "prior", nonce: "fresh_nonce" }))
-    resolve({ message: { ...posted().message, replyToId: "prior" } })
+    resolve({ ...posted(), profiles: [...posted().profiles, profileResourceFixture({ id: "peer", name: "Peer" })], message: { ...posted().message, replyToId: "prior" } })
     expect(await owner.settle(receipt)).toMatchObject({ ok: true, message: { id: "server_1", seq: 7 } })
     const canonical = owner.registry.collections.messages.get("server_1")
     expect(canonical).toMatchObject({ id: "server_1", seq: 7, channelId: scope.id, clientNonce: "fresh_nonce",
-      type: "chat", content: "hello", replyToId: "prior", replyTo: { id: "prior", authorName: "Peer", text: "quoted" } })
+      type: "chat", content: "hello", replyToId: "prior", replyTo: { id: "prior", authorId: "peer", authorName: "Peer", text: "quoted" } })
     expect(canonical).not.toHaveProperty("authorEmail")
     expect(canonical).not.toHaveProperty("storageMetadata")
     const { awaitCommittedInvite } = await import("@/components/community/social/invite-dialog")
@@ -123,7 +124,7 @@ describe("Native DM sender", () => {
   it("bounds the optimistic reply and preserves its exact preview through retry", async () => {
     mocks.post.mockRejectedValueOnce(new Error("offline")).mockRejectedValueOnce(new Error("still offline"))
     const owner = await setup()
-    const receipt = owner.accept({ content: "replying", replyTo: { id: "prior", authorName: "Peer", text: "x".repeat(MESSAGE_PREVIEW_LENGTH + 1) } })
+    const receipt = owner.accept({ content: "replying", replyTo: { id: "prior", authorId: "peer", authorName: "Peer", text: "x".repeat(MESSAGE_PREVIEW_LENGTH + 1) } })
     expect(await owner.settle(receipt)).toEqual({ ok: false, error: expect.any(Error) })
     const expected = `${"x".repeat(MESSAGE_PREVIEW_LENGTH - 1)}…`
     expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.message).toMatchObject({ content: "replying", replyTo: { text: expected } })
@@ -136,7 +137,7 @@ describe("Native DM sender", () => {
     mocks.upload.mockResolvedValueOnce({ id: "att_x", filename: "x.txt", contentType: "text/plain", size: 1 })
     mocks.post.mockResolvedValueOnce(posted("server_file", 9, ""))
     const owner = await setup(), file = new File(["x"], "x.txt", { type: "text/plain" })
-    const receipt = owner.accept({ content: "", replyTo: { id: "prior", authorName: "Peer Name", text: "quoted" }, attachments: [{ file, previewObjectUrl: "blob:x" }] })
+    const receipt = owner.accept({ content: "", replyTo: { id: "prior", authorId: "peer", authorName: "Peer Name", text: "quoted" }, attachments: [{ file, previewObjectUrl: "blob:x" }] })
     expect(await owner.settle(receipt)).toMatchObject({ ok: true, message: { id: "server_file", seq: 9 } })
     expect(materializeMessageStream([], owner.overlay(), canonicalMessageReader(owner.client)).find(({ id }) => id === "server_file")?.content).toBe("")
     expect(mocks.post).toHaveBeenCalledExactlyOnceWith({ content: "", replyToId: "prior", attachments: ["att_x"], nonce: "fresh_nonce" })

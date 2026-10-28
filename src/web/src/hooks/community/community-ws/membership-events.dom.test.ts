@@ -1,3 +1,4 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { channelResourceFixture, messageResourceFixture, currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -780,6 +781,7 @@ describe("membership metadata and access lifetime", () => {
     const currentBody = { ...conversationEntryFixture().messages[0]!, id: "m_current", channelId: "child", seq: 2, content: "Current body" }
     const historyBody = { ...currentBody, id: "m_history", seq: 1, content: "History body", createdAt: "2026-09-30T00:00:01.000Z" }
     payload.messages = [historyBody, currentBody]
+    payload.profiles = messageProfilesFixture(payload.messages)
     payload.page = { olderCursor: `${historyBody.createdAt}|${historyBody.id}`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 2 }
     const api = getCommunityApiFetchMock()
     api.mockResolvedValue(payload)
@@ -1056,7 +1058,9 @@ describe("membership metadata and access lifetime", () => {
     capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: false, type: "community:channel.membership.change", channelId: "parent", serverId: "server", userId: "u_me" }))
     expect(capturedQueryClient.getQueryData(communityKeys.pins("child"))).toBeUndefined()
     expect(getCapturedRuntime().ui.get().currentChannelId).toBeNull()
-    capturedOnMessage!(currentCommunityEventFixture({ type: "community:message.create", channelId: "child", parentChannelId: "parent", serverId: "server", message: messageResourceFixture({ channelId: "child",
+    capturedOnMessage!(currentCommunityEventFixture({ profiles: messageProfilesFixture([messageResourceFixture({ channelId: "child",
+      id: "late", seq: 2, authorId: "author", authorName: "Author", authorAvatarVersion: 0, content: "late", type: "chat", createdAt: "2026-09-06T00:00:00.000Z",
+    })]), type: "community:message.create", channelId: "child", parentChannelId: "parent", serverId: "server", message: messageResourceFixture({ channelId: "child",
       id: "late", seq: 2, authorId: "author", authorName: "Author", authorAvatarVersion: 0, content: "late", type: "chat", createdAt: "2026-09-06T00:00:00.000Z",
     }) }))
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "child", serverId: "server" }).liveIds.length).toBe(0)

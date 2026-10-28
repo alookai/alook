@@ -41,7 +41,7 @@ it.each(["channel", "dm"] as const)("keeps real %s API events and native spans o
     span.end()
     const entry = conversationEntryFromChannel({ id: "channel-a", serverId: kind === "channel" ? "server-a" : null, type: kind === "channel" ? "text" : "dm", name: null, archived: false, createdAt: "2026-10-01T00:00:00Z" })
     return Response.json(new URL(url, "https://example.test").searchParams.has("entry") ? entry : {
-      contractVersion: BUSINESS_SCHEMA_VERSION, channelId: entry.channelId, messages: entry.messages, page: entry.page, surfaceReceipt: entry.surfaceReceipt,
+      contractVersion: BUSINESS_SCHEMA_VERSION, channelId: entry.channelId, profiles: entry.profiles, messages: entry.messages, page: entry.page, surfaceReceipt: entry.surfaceReceipt,
     }, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
 
   }))

@@ -1,3 +1,5 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { conversationEntryFixture, conversationEntryFromChannel, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { createCommunityQueryOwner, seedCommunityMessageWindow } from "@/test/community-query-owner"
@@ -46,6 +48,7 @@ async function renderChannelMessages(
   const queryClient = originalClient ?? (await createCommunityQueryOwner()).client
   if (seedTail) {
     await seedConversationEntry(queryClient, conversationEntryFromChannel({ id: "ch_new", serverId: "s1", type: "text", name: "Channel", archived: false, createdAt: "2026-10-01T00:00:00Z" }))
+    await writeCommunityCollectionRows(getCommunityDbRegistry(queryClient)!, "profiles", conversationEntryFixture().profiles, row => row.id)
     seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_new"), {
       pages: [{
         messages: seedTail.map(row => ({ ...conversationEntryFixture().messages[0], content: row.id, ...getCommunityDbRegistry(queryClient)!.collections.messages.get(row.id), ...row, channelId: "ch_new" })),
@@ -66,6 +69,7 @@ async function renderChannelMessages(
 async function renderDmMessages(seedTail: { id: string; seq: number }[], originalClient?: QueryClient) {
   const queryClient = originalClient ?? (await createCommunityQueryOwner()).client
   await seedConversationEntry(queryClient, conversationEntryFromChannel({ id: "dm_new", serverId: null, type: "dm", name: null, archived: false, createdAt: "2026-10-01T00:00:00Z" }))
+  await writeCommunityCollectionRows(getCommunityDbRegistry(queryClient)!, "profiles", conversationEntryFixture().profiles, row => row.id)
   seedCommunityMessageWindow(queryClient, communityKeys.dmMessages("dm_new"), {
     pages: [{
       messages: seedTail.map(row => ({ ...conversationEntryFixture().messages[0], content: row.id, ...getCommunityDbRegistry(queryClient)!.collections.messages.get(row.id), ...row, channelId: "dm_new" })),
@@ -105,7 +109,7 @@ describe("useMessages — instant channel switch", () => {
     const scope: MessageScope = kind === "channel" ? { kind, id: "ch_new", serverId: "s1" } : { kind, id: "dm_new" }
     const attachments = [{ id: "attachment", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, thumbnailUrl: null, contentType: "text/plain", width: null, height: null }]
     const presentedAttachments = [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, contentType: "text/plain", kind: "file", size: "1.0 KB" }]
-    const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorName: "Peer", text: "reply" }
+    const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorId: "peer", authorName: "Peer", text: "reply" }
     const message: CanonicalMessage = { id: "rich", seq: 3, type: "chat", authorId: "peer", authorName: "Peer", content: "before", clientNonce: "rich-nonce", createdAt: "2026-08-07T10:00:00.000Z" }
     ingestMessages(registry, scope.id, [messageResourceFixture({ ...message, channelId: scope.id, replyToId: "reply", attachments, embeds, replyTo })])
     const rendered = kind === "channel" ? await renderChannelMessages(undefined, [{ id: message.id, seq: message.seq }], client) : await renderDmMessages([{ id: message.id, seq: message.seq }], client)

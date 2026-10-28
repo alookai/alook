@@ -1,9 +1,10 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { describe, expect, it } from "vitest"
 import type { CommunityReactionAdd, CommunityReactionRemove } from "@alook/shared"
 import { applyMessageReaction, type Msg } from "@/lib/community/models/message"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { ingestMessages, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityMessages, ingestMessages, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 import { findCachedMessage } from "../use-message"
 import { removeThreadFromCache, type PageCache } from "./cache"
 
@@ -64,6 +65,8 @@ describe("community WS canonical publication and ID windows", () => {
   it("reads the same canonical entity for every ID window and returns undefined for misses", async () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")
     ingestMessages(registry, "ch_1", [messageResourceFixture({ id: "m_1", channelId: "ch_1" }), messageResourceFixture({ id: "m_2", channelId: "ch_1", seq: 2, content: "target", authorId: "author", createdAt: "2026-08-15T00:00:02.000Z" })])
+    const messages = [...registry.collections.messages.values()].map(row => messageResourceFixture(Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith("$")))))
+    publishCommunityMessages(client, { channelId: "ch_1", messages, profiles: messageProfilesFixture(messages), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     expect(findCachedMessage(client, "m_2")).toMatchObject({ id: "m_2", content: "target" })
     expect(findCachedMessage(client, "missing")).toBeUndefined()
   })

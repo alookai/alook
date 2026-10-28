@@ -12,7 +12,7 @@ const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => load(...args), toastApiError: vi.fn() }))
 beforeEach(() => load.mockReset())
 
-const profile = { id: "peer", name: "Peer", discriminator: null, avatar: null, avatarVersion: 3 }
+const profile = { id: "peer", name: "Peer", discriminator: "0042", avatar: null, avatarVersion: 3 }
 const useChannel = () => useChannelMembers("channel", true, "server", "access")
 const useServer = () => useServerMembers("server")
 const member = { channelId: "channel", userId: "peer", relation: "access" as const, source: "explicit" as const,
@@ -28,7 +28,7 @@ describe("current nullable identity through actual member hooks", () => {
     const hook = renderHook(() => (surface === "channel" ? useChannel : useServer)(), { wrapper })
     await waitFor(() => expect(hook.result.current.loading).toBe(false))
     expect(hook.result.current.failed).toBe(false)
-    expect(hook.result.current.members).toEqual([expect.objectContaining({ userId: "peer", name: "Peer", discriminator: "" })])
+    expect(hook.result.current.members).toEqual([expect.objectContaining({ userId: "peer", name: "Peer", discriminator: "0042" })])
     expect(owner.registry.collections.profiles.get("peer")).toMatchObject(profile)
     hook.unmount()
   })

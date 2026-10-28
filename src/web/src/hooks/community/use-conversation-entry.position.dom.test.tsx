@@ -1,3 +1,4 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
 import { resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { StrictMode, useLayoutEffect } from "react"
@@ -91,6 +92,7 @@ function entry(kind: Kind, channelId = "c1", ownTail = false) {
     id: `${prefix}${index + 1}`, seq: index + 1, authorId: ownTail && index === 41 ? viewer.id : "peer",
     createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
   }))
+  value.profiles = messageProfilesFixture(value.messages)
   value.readState = { channelId, lastReadMessageId: `${prefix}30`, lastReadSeq: 30, lastReadAt: value.messages[29].createdAt }
   value.selection = { reason: "read_pointer", anchorMessageId: `${prefix}30` }
   value.surfaceReceipt = { channelId, surfaceKind: kind === "channel" ? "channel" : "thread" }
@@ -125,10 +127,10 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   load.mockImplementation((url: string) => {
     if (url === "/api/community/channels/c1/messages?entry=1" && options.refresh) return options.refresh
     if (url === "/api/community/channels/c1/messages" && options.refreshWindow) return options.refreshWindow.then(value => ({
-      ...value.page, messages: value.messages,
+      ...value.page, profiles: value.profiles, messages: value.messages,
     }))
     if (url.startsWith("/api/community/channels/c1/messages?since=") && options.refresh) return options.refresh.then(value => ({
-      ...value.page, messages: value.messages.filter(message => message.seq > 1),
+      ...value.page, profiles: value.profiles, messages: value.messages.filter(message => message.seq > 1),
     }))
     if (url.endsWith("/read")) return put
     if (url === "/api/community/users/me/read-state") return canonicalTransport

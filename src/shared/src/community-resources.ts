@@ -1,3 +1,5 @@
+import { CommunityResourceProfileSchema } from "./community-profile-resource"
+export { CommunityResourceProfileSchema } from "./community-profile-resource"
 import { z } from "zod"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "./community-contract"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
@@ -70,22 +72,6 @@ export const CommunityMessageAttachmentSchema = z.strictObject({
   height: z.number().int().nonnegative().nullable(),
 })
 
-export const CommunityResourceProfileSchema = z.strictObject({
-  id,
-  name: z.string(),
-  discriminator: z.string().min(1).nullable(),
-  avatar: z.string().nullable(),
-  avatarVersion: z.number().int().nonnegative(),
-  aboutMe: z.string().optional(),
-  bannerColor: z.string().nullable().optional(),
-  kind: z.enum(["human", "bot"]).optional(),
-  ownerUserId: nullableId.optional(),
-  ownerHandle: z.string().nullable().optional(),
-  mutualServers: z.number().int().nonnegative().optional(),
-  ownedByViewer: z.boolean().optional(),
-  statusEmoji: z.string().nullable().optional(),
-  statusText: z.string().nullable().optional(),
-})
 
 
 export const CommunityMessageThreadParticipantSchema = CommunityResourceProfileSchema.pick({ id: true, name: true, avatar: true, avatarVersion: true })
@@ -121,7 +107,7 @@ export const CommunityMessageResourceSchema = z.strictObject({
     authorName: z.string(),
     text: z.string(),
     deleted: z.boolean().optional(),
-  }).optional(),
+  }).refine(reply => reply.deleted === true || reply.authorId !== undefined, { message: "Live reply author identity missing" }).optional(),
   embeds: z.array(z.unknown()).optional(),
   reactions: z.array(z.strictObject({
     emoji: z.string(),
@@ -132,6 +118,20 @@ export const CommunityMessageResourceSchema = z.strictObject({
   thread: messageThreadSchema.optional(),
   approval: FriendApprovalPayloadSchema.optional(),
   botCreation: BotCreationPayloadSchema.optional(),
+})
+
+export function communityMessageProfileIds(messages: readonly Pick<CommunityMessageResource, "authorId" | "replyTo">[]) {
+  return [...new Set(messages.flatMap(message => [message.authorId, ...(message.replyTo?.authorId && message.replyTo.deleted !== true ? [message.replyTo.authorId] : [])]))]
+}
+
+export const CommunityMessageResourcesSchema = z.strictObject({
+  messages: z.array(CommunityMessageResourceSchema),
+  profiles: z.array(CommunityResourceProfileSchema),
+}).superRefine((resources, ctx) => {
+  const ids = new Set(resources.profiles.map(profile => profile.id))
+  if (ids.size !== resources.profiles.length || communityMessageProfileIds(resources.messages).some(id => !ids.has(id))) {
+    ctx.addIssue({ code: "custom", path: ["profiles"], message: "Message profile missing or duplicated in resource graph" })
+  }
 })
 
 export const CommunityReadStateResourceSchema = z.strictObject({
@@ -168,11 +168,10 @@ export const CommunityPageSchema = z.strictObject({
 })
 
 const envelope = { contractVersion: z.literal(COMMUNITY_RESOURCE_CONTRACT_VERSION), channelId: id }
-export const CommunityResourceBundleSchema = z.strictObject({
+export const CommunityResourceBundleSchema = CommunityMessageResourcesSchema.safeExtend({
   viewerId: id,
   servers: z.array(CommunityServerResourceSchema), serverMemberships: z.array(CommunityServerMembershipResourceSchema),
   channels: z.array(CommunityChannelResourceSchema), memberships: z.array(CommunityChannelMembershipResourceSchema),
-  profiles: z.array(CommunityResourceProfileSchema), messages: z.array(CommunityMessageResourceSchema),
 }).superRefine((bundle, ctx) => {
   const channels = new Set(bundle.channels.map(row => row.id))
   const servers = new Set(bundle.servers.map(row => row.id))
@@ -191,9 +190,9 @@ export const CommunityResourceBundleSchema = z.strictObject({
 export type CommunityResourceBundle = z.infer<typeof CommunityResourceBundleSchema>
 
 export const CommunityChannelReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema, access: CommunityAccessDecisionSchema })
-export const CommunityMessagesReadSchema = z.strictObject({ ...envelope, messages: z.array(CommunityMessageResourceSchema), page: CommunityPageSchema,
+export const CommunityMessagesReadSchema = CommunityMessageResourcesSchema.safeExtend({ ...envelope, page: CommunityPageSchema,
   surfaceReceipt: z.strictObject({ channelId: id, surfaceKind: z.enum(["channel", "forum", "thread", "dm"]) }) })
-export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.extend({
+export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.safeExtend({
   viewerId: id,
   peer: CommunityResourceProfileSchema.nullable(),
   channel: CommunityChannelResourceSchema,
@@ -208,6 +207,10 @@ export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.
     anchorMessageId: nullableId,
   }),
 }).superRefine((entry, ctx) => {
+  if (entry.opener) {
+    const graph = CommunityMessageResourcesSchema.safeParse({ messages: [...entry.messages, entry.opener], profiles: entry.profiles })
+    if (!graph.success) for (const issue of graph.error.issues) ctx.addIssue({ code: "custom", path: issue.path, message: issue.message })
+  }
   for (const [path, channelId] of [
     [["channel", "id"], entry.channel.id],
     [["access", "channelId"], entry.access.channelId],
@@ -237,14 +240,17 @@ export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.
   if (entry.selection.reason === "read_pointer" && entry.selection.anchorMessageId !== entry.readState.lastReadMessageId) ctx.addIssue({ code: "custom", path: ["selection", "anchorMessageId"], message: "Conversation entry read pointer mismatch" })
   if (entry.selection.reason === "read_pointer_missing" && entry.readState.lastReadMessageId === null) ctx.addIssue({ code: "custom", path: ["selection", "reason"], message: "Conversation entry missing read pointer" })
 })
-export const CommunityMessagePostedSchema = CommunityMessagesReadSchema.pick({ contractVersion: true, channelId: true }).extend({
-  message: CommunityMessageResourceSchema, deduped: z.boolean(), threadId: id.optional(),
+export const CommunityMessageReadSchema = z.strictObject({ ...envelope,
+  message: CommunityMessageResourceSchema, profiles: CommunityMessageResourcesSchema.shape.profiles,
+}).superRefine((read, ctx) => {
+  const graph = CommunityMessageResourcesSchema.safeParse({ messages: [read.message], profiles: read.profiles })
+  if (!graph.success) for (const issue of graph.error.issues) ctx.addIssue({ code: "custom", path: issue.path, message: issue.message })
 })
-export const CommunityMessageReadSchema = CommunityMessagePostedSchema.omit({ deduped: true, threadId: true })
+export const CommunityMessagePostedSchema = CommunityMessageReadSchema.safeExtend({ deduped: z.boolean(), threadId: id.optional() })
 export const CommunityMembersReadSchema = z.strictObject({ ...envelope, relation: z.enum(["access", "notify"]), members: z.array(CommunityMemberRelationSchema), profiles: z.array(CommunityResourceProfileSchema) })
 export const CommunityThreadsReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema,
   threads: z.array(CommunityChannelResourceSchema),
-  included: z.strictObject({ messages: z.array(CommunityMessageResourceSchema), members: z.array(CommunityMemberRelationSchema), profiles: z.array(CommunityResourceProfileSchema),
+  included: CommunityMessageResourcesSchema.safeExtend({ members: z.array(CommunityMemberRelationSchema),
     tags: z.array(z.strictObject({ messageId: id, tag: z.string() })),
     participantCounts: z.array(z.strictObject({ channelId: id, count: z.number().int().nonnegative() })) }),
   page: z.strictObject({ nextCursor: z.string().nullable(), hasMore: z.boolean() }) })
@@ -275,6 +281,9 @@ export type CommunityReadStateResource = z.infer<typeof CommunityReadStateResour
 export type CommunityAccessDecision = z.infer<typeof CommunityAccessDecisionSchema>
 export type CommunityResourceProfile = z.infer<typeof CommunityResourceProfileSchema>
 export type CommunityMessageAttachment = z.infer<typeof CommunityMessageAttachmentSchema>
+export type CommunityMessageRead = z.infer<typeof CommunityMessageReadSchema>
+export type CommunityMessagePosted = z.infer<typeof CommunityMessagePostedSchema>
+export type CommunityMessageResources = z.infer<typeof CommunityMessageResourcesSchema>
 export type CommunityMessagesRead = z.infer<typeof CommunityMessagesReadSchema>
 export type CommunityConversationEntryRead = z.infer<typeof CommunityConversationEntryReadSchema>
 export type CommunityThreadsRead = z.infer<typeof CommunityThreadsReadSchema>
@@ -283,4 +292,22 @@ export type CommunityMessageSurfaceReceipt = CommunityMessagesRead["surfaceRecei
 
 export function communityChannelResourceFromStorage(value: unknown): CommunityChannelResource {
   return CommunityChannelResourceSchema.strip().extend({ archived: storedArchivedSchema }).parse(value)
+}
+
+
+export function communityUserAvatarUrl(userId: string, avatarVersion?: number): string {
+  const base = `/api/community/users/${userId}/avatar`
+  return avatarVersion && avatarVersion > 0 ? `${base}?v=${avatarVersion}` : base
+}
+
+export function communityBotAvatarUrl(botId: string, avatarVersion?: number): string {
+  const base = `/api/community/bots/${botId}/avatar`
+  return avatarVersion && avatarVersion > 0 ? `${base}?v=${avatarVersion}` : base
+}
+
+export function canonicalCommunityUserImage(userId: string, image: string | null, avatarVersion: number): string | null {
+  if (!image) return null
+  if (image === communityUserAvatarUrl(userId)) return communityUserAvatarUrl(userId, avatarVersion)
+  if (image === communityBotAvatarUrl(userId)) return communityBotAvatarUrl(userId, avatarVersion)
+  return image
 }

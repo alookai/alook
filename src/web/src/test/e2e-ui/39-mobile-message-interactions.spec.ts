@@ -383,7 +383,7 @@ async function typeReplyAfterAuthorMention(
 async function latestSeq(page: Page, channelId: string): Promise<number> {
   const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${channelId}/messages`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(response.ok()).toBe(true)
-  return ((await response.json()) as { latestSeq: number }).latestSeq
+  return ((await response.json()) as { page: { latestSeq: number } }).page.latestSeq
 }
 
 type ReadState = {

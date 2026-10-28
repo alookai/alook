@@ -17,6 +17,7 @@ import {
 
 const messageEvent = {
   type: "community:message.create" as const,
+  profiles: [{ id: "author", name: "Alice", discriminator: "0001", avatar: null, avatarVersion: 0 }],
   channelId: "thread-1",
   serverId: "server-1",
   parentChannelId: "forum-1",

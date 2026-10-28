@@ -1,5 +1,5 @@
 import { messageSeedFixture, serverRailResponseFixture } from "@/test/community-resource-fixtures"
-import { channelResourceFixture, messageResourceFixture, serverDirectoryFixture, forumSidebarEnvelopeFixture } from "@/test/community-resource-fixtures"
+import { profileResourceFixture, channelResourceFixture, messageResourceFixture, serverDirectoryFixture, forumSidebarEnvelopeFixture } from "@/test/community-resource-fixtures"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createElement, type ReactNode } from "react"
 import { act, renderHook, type RenderHookResult } from "@/test/react-dom-harness"
@@ -244,6 +244,7 @@ export function messageCreate(channelId: string, msgId = "m_1"): CommunityMessag
   return {
     type: "community:message.create",
     channelId,
+    profiles: [profileResourceFixture({ id: "u_author", name: "author" })],
     message: {
       ...messageResourceFixture({ id: msgId, channelId }),
       type: "chat",

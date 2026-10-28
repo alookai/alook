@@ -23,7 +23,7 @@ export async function readCommunityMembers(db: Database, channelId: string, user
       ? queries.communityMember.getMembersByUserIds(db, channel.serverId, ids) : Promise.resolve([]),
   ])
   const memberByUser = new Map(serverMembers.map((row) => [row.userId, row]))
-  const profiles = users.map((row) => resourceProfile({ id: row.id, name: CommunityResourceProfileSchema.shape.name.parse(row.name), discriminator: row.discriminator ?? null,
+  const profiles = users.map((row) => resourceProfile({ id: row.id, name: CommunityResourceProfileSchema.shape.name.parse(row.name), discriminator: row.discriminator,
     avatar: canonicalUserImage(row.id, row.image, row.avatarVersion), avatarVersion: row.avatarVersion,
     ...(memberByUser.has(row.id) ? {
       statusEmoji: memberByUser.get(row.id)!.statusEmoji, statusText: memberByUser.get(row.id)!.statusText,

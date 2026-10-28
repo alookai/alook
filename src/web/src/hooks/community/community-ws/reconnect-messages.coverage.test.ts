@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryObserver } from "@tanstack/react-query"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -21,7 +22,7 @@ function row(seq: number) {
   }
 }
 function page(messages: ReturnType<typeof row>[], latestSeq: number): MessagesPage {
-  return { messages, latestSeq, hasMoreOlder: true, hasMoreNewer: false, olderCursor: "older" }
+  return messageReadPageFixture({ messages, latestSeq, hasMoreOlder: true, hasMoreNewer: false, olderCursor: "older" })
 }
 function suffix(cursor: number) { return `since=${encodeURIComponent(`${row(cursor).createdAt}|m${cursor}`)}` }
 
@@ -70,7 +71,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
 
   it.each(["exact-ID", "latest"] as const)("reuses a real %s prefetch without giving prefetch a window writer", async hint => {
     const h = await setup()
-    load.mockResolvedValueOnce(hint === "exact-ID" ? row(101) : page([row(101)], 101))
+    load.mockResolvedValueOnce(hint === "exact-ID" ? { message: row(101), profiles: fixture().profiles } : page([row(101)], 101))
     if (hint === "exact-ID") await prefetchCommunityMessage(h.client, "m101", { channelId: "c1", serverId: "s1" })
     else await prefetchCommunityLatestMessage(h.client, "c1")
     expect(h.registry.collections.messages.get("m101")).toMatchObject(row(101))
@@ -109,7 +110,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
 
   it("retains current-window correction of a deleted reply target even when creations are cached", async () => {
     const h = await setup()
-    ingestMessages(h.registry, "c1", [{ ...row(100), replyTo: { id: "gone", authorName: "Peer", text: "old reply" } }, row(101)])
+    ingestMessages(h.registry, "c1", [{ ...row(100), replyTo: { id: "gone", authorId: "peer", authorName: "Peer", text: "old reply" } }, row(101)])
     load.mockResolvedValueOnce(page([{ ...row(100), replyTo: { id: "gone", authorName: "Deleted user", text: "", deleted: true } }], 101))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")

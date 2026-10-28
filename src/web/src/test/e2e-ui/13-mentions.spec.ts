@@ -76,7 +76,7 @@ test.describe("mentions — mandatory discriminator", () => {
     const sent: Array<{ id: string; content: string; mentionType?: string }> = []
 
     async function participants(): Promise<string[]> {
-      const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${threadId}/members`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+      const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${threadId}/members?relation=notify`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
       expect(response.status()).toBe(200)
       const payload = await response.json() as { members: Array<{ userId: string }> }
       return payload.members.map((member) => member.userId).sort()

@@ -269,6 +269,26 @@ describe("ws-do router", () => {
       await expect(internal.json()).resolves.toEqual(communityPresenceEvent)
     })
 
+    it("rejects a producer's business-only event and forwards only its current envelope", async () => {
+      const event = communityWsEventFixtures["community:channel.delete"]
+      const encoded = encodeCommunityBrowserEvent(event)
+      if (!encoded.ok) throw new Error("Current fixture event did not encode")
+      const request = (message: unknown) => new Request("http://localhost/broadcast/community/users", {
+        method: "POST", headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
+        body: JSON.stringify({ userIds: ["viewer"], message }),
+      })
+      const refused = await handler.fetch(request(encoded.event), env as any)
+      expect(refused.status).toBe(400)
+      expect(doMock.idFromName).not.toHaveBeenCalled()
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+      doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1 }))
+      const accepted = await handler.fetch(request(encoded.envelope), env as any)
+      expect(accepted.status).toBe(200)
+      expect(doMock.idFromName).toHaveBeenCalledWith("user:viewer")
+      expect(doMock.stubFetch).toHaveBeenCalledTimes(1)
+      await expect((doMock.stubFetch.mock.calls[0][0] as Request).json()).resolves.toEqual(encoded.envelope)
+    })
+
     it("accepts the exact worst-case 837,347-byte strict bulk body", async () => {
       doMock.stubFetch.mockImplementation(async () => Response.json({ sent: 1 }))
       const body = JSON.stringify({

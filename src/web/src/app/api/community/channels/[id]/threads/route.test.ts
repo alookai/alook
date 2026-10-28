@@ -29,6 +29,7 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
+      communityUserProfile: { getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: "User", discriminator: "0042", avatar: null, avatarVersion: 0 })) },
       communityChannel: {
         getChannelForMember: async () => {
           const scope = await mockResolveChannelAccessContext()
@@ -99,7 +100,7 @@ function messageRow(fields: Record<string, unknown>) {
     content: "Body", type: "default", mentionType: null, replyToId: null, clientNonce: null, embeds: null, createdAt: "2026-10-01T00:00:00.000Z", ...fields }
 }
 function participantRow(fields: Record<string, unknown>) {
-  return { userName: "User", discriminator: null, userImage: null, userAvatarVersion: 0, ...fields }
+  return { userName: "User", discriminator: "0042", userImage: null, userAvatarVersion: 0, ...fields }
 }
 
 const ctx = { params: { id: "c1" } } as any

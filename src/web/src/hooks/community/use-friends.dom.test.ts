@@ -43,8 +43,8 @@ describe("useFriends / friendsQueryFn", () => {
       },
       "/api/community/friends/blocked": {
         blocked: [
-          { id: "b_1", userId: "blocked_1", name: "b", avatar: "b", avatarVersion: 2 },
-          { id: "b_legacy", userId: "other_blocked_peer", name: "legacy", avatar: "l", avatarVersion: 0 },
+          { id: "b_1", userId: "blocked_1", name: "b", discriminator: "0042", avatar: "b", avatarVersion: 2 },
+          { id: "b_legacy", userId: "other_blocked_peer", name: "legacy", discriminator: "0043", avatar: "l", avatarVersion: 0 },
         ],
       },
       "/api/community/friends/pending": {
@@ -52,6 +52,7 @@ describe("useFriends / friendsQueryFn", () => {
           id: "p_1",
           userId: "pending_1",
           name: "p",
+          discriminator: "0044",
           avatar: "p",
           avatarVersion: 3,
           kind: "incoming",
@@ -60,7 +61,7 @@ describe("useFriends / friendsQueryFn", () => {
     }
     apiFetchMock.mockImplementation(async (url: string) => {
       if (!(url in byUrl)) throw new Error(`unexpected url ${url}`)
-      const data = byUrl[url] as { friends?: Array<{ userId: string; name: string; avatar: string; avatarVersion: number }>; pending?: Array<{ userId: string; name: string; avatar: string; avatarVersion: number }>; blocked?: Array<{ userId: string; name: string; avatar: string; avatarVersion: number }> }
+      const data = byUrl[url] as { friends?: Array<{ userId: string; name: string; discriminator: string; avatar: string; avatarVersion: number }>; pending?: Array<{ userId: string; name: string; discriminator: string; avatar: string; avatarVersion: number }>; blocked?: Array<{ userId: string; name: string; discriminator: string; avatar: string; avatarVersion: number }> }
       const bucket = url.endsWith("/accepted") ? "friends" : url.endsWith("/blocked") ? "blocked" : "pending"
       return friendBucketScenarioFixture(bucket, data[bucket]!)
     })
@@ -140,7 +141,7 @@ describe("useFriends / friendsQueryFn", () => {
       ...raw.blocked.map((blocked) => ({ id: "blocked:" + (blocked.userId), userId: blocked.userId, kind: "blocked" }))]) await act(async () => { registry.collections.friendships.utils.writeUpsert(friendshipSchema.parse(row)) });
     for (const row of [...raw.friends, ...raw.pending, ...raw.blocked]) {
       const userId = row.userId
-      await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ id: userId, name: row.name, discriminator: "discriminator" in row ? row.discriminator : null, avatar: row.avatar, avatarVersion: row.avatarVersion, kind: "human" })) });
+      await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ id: userId, name: row.name, discriminator: "discriminator" in row ? row.discriminator : "0042", avatar: row.avatar, avatarVersion: row.avatarVersion, kind: "human" })) });
     }
     const window = { ids: [...registry.collections.friendships.values()].map((row) => row.id) }
     queryClient.setQueryData(communityKeys.friends(), window)

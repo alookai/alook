@@ -1,21 +1,22 @@
 "use client"
 
-import { parseCommunitySelfProfileRead } from "@alook/shared"
+import { CommunitySelfProfileReadSchema, parseCommunitySelfProfileRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { useCanonicalProfilesProjection } from "@/lib/community-db/projections"
+import { Button } from "@/components/ui/button"
 
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useLayoutEffect, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, type ReactNode } from "react"
 import { usePathname } from "next/navigation"
 import { loadAndSeedProfiles } from "@/lib/community/profile-seed"
 import { QueryProvider } from "./QueryProvider"
 import {
   CurrentUserProvider,
-  useCurrentUser,
   type CurrentUser,
 } from "@/contexts/community/current-user"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
@@ -30,6 +31,8 @@ import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-
 import { CommunityRestoreBoundary } from "@/components/community/shell/community-restore-bootstrap"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 
+const canonicalSelfProfileSchema = CommunitySelfProfileReadSchema.strip()
+
 export function CommunityShell({
   currentUser,
   children,
@@ -42,7 +45,7 @@ export function CommunityShell({
       <CommunityRestoreBoundary>
         <ProfileAccountBoundary viewerId={currentUser.id}>
           <CurrentUserProvider initialUser={currentUser}>
-            <CommunityBootstrap>{children}</CommunityBootstrap>
+            <CommunityBootstrap viewerId={currentUser.id}>{children}</CommunityBootstrap>
           </CurrentUserProvider>
         </ProfileAccountBoundary>
       </CommunityRestoreBoundary>
@@ -70,35 +73,26 @@ function ProfileAccountBoundary({
     : <CommunitySessionPendingFrame pathname={pathname} />
 }
 
-/**
- * Mounted once beneath the QueryClient + CurrentUser providers. Owns:
- * - The community WebSocket handler (`useCommunityWs`) — the module-scoped
- *   Zustand stores assume a single instance for the whole session, so it lives
- *   here at the tree root.
- * - The `aboutMe` hydration that used to live in the God-context's mount
- *   effect — needed so the "Edit profile" dialog opens with the current value.
- */
-function CommunityBootstrap({ children }: { children: ReactNode }) {
+function CommunityBootstrap({ children, viewerId }: { children: ReactNode; viewerId: string }) {
   const profileQueryClient = useQueryClient()
-  const currentUser = useCurrentUser()
+  const pathname = usePathname()
 
   useNotificationSettings()
   useAccountAttention()
   useAccountReadState()
-  // Wire the WS handler once for the whole community subtree. `viewerUserId`
-  // powers the `me` flag on incoming reactions — passing null would leave that
-  // flag stuck at false for the viewer's own reactions.
-  useCommunityWs({ viewerUserId: currentUser.id })
+  useCommunityWs({ viewerUserId: viewerId })
 
-  // Hydrate the live public profile. The auth session can retain a stale image
-  // after an avatar upload, while this self endpoint reads the canonical user
-  // row alongside the community profile fields.
   const registry = getCommunityDbRegistry(profileQueryClient)
-  useQuery({
+  const projection = useCanonicalProfilesProjection([viewerId])
+  const projectedSelf = canonicalSelfProfileSchema.safeParse(projection.resourceProfiles.get(viewerId))
+  const selfReady = projection.isReady && !projection.isError && projectedSelf.success && projectedSelf.data.id === viewerId
+  const canonicalSelf = canonicalSelfProfileSchema.safeParse(registry?.collections.profiles.get(viewerId))
+  const hasCanonicalSelf = canonicalSelf.success && canonicalSelf.data.id === viewerId
+  const { isSuccess, isFetching, isError, refetch } = useQuery({
     queryKey: communityKeys.selfProfile(),
     queryFn: async ({ signal }) => {
       const profile = await loadAndSeedProfiles(
-      async origin => parseCommunitySelfProfileRead(await apiFetch<unknown>("/api/community/users/me/profile", { ...origin, signal }), currentUser.id),
+      async origin => parseCommunitySelfProfileRead(await apiFetch<unknown>("/api/community/users/me/profile", { ...origin, signal }), viewerId),
       (profile) => [{
         id: profile.id,
         identityAbout: {
@@ -117,11 +111,33 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
         },
       }], registry, signal,
       )
+      const published = canonicalSelfProfileSchema.parse(registry?.collections.profiles.get(viewerId))
+      if (published.id !== viewerId) throw new Error("Self profile publication mismatch")
       return { id: profile.id }
     },
-    enabled: registry?.accountId === currentUser.id,
-    staleTime: 5 * 60_000,
+    enabled: registry?.accountId === viewerId,
+    staleTime: hasCanonicalSelf ? 5 * 60_000 : 0,
   })
+
+  useEffect(() => {
+    if (projection.isReady && !projection.isError && !hasCanonicalSelf && isSuccess && !isFetching) {
+      void refetch()
+    }
+  }, [projection.isReady, projection.isError, hasCanonicalSelf, isSuccess, isFetching, refetch])
+
+  if (!selfReady) {
+    const failed = projection.isError || isError
+    return (
+      <CommunitySessionPendingFrame pathname={pathname}>
+        {failed ? <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8" role="alert">
+          <p>Could not load your profile.</p>
+          {projection.isError
+            ? <Button className="h-11 sm:h-9" onClick={() => window.location.reload()}>Reload</Button>
+            : <Button className="h-11 sm:h-9" disabled={isFetching} onClick={() => { void refetch() }}>Try again</Button>}
+        </div> : undefined}
+      </CommunitySessionPendingFrame>
+    )
+  }
 
   return (
     <>

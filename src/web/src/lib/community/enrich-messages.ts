@@ -1,6 +1,6 @@
-import { queries, withD1Retry, CommunityChannelResourceSchema, CommunityMessageThreadParticipantSchema, type CommunityMessageResource, type CommunityContract } from "@alook/shared"
+import { queries, withD1Retry, CommunityChannelResourceSchema, CommunityMessageThreadParticipantSchema, type CommunityMessageResource, type CommunityResourceProfile, type CommunityContract } from "@alook/shared"
 import type { getDb } from "@/lib/db"
-import { loadApiMessageContext, mapMessageForApi } from "@/lib/community/message-payload"
+import { loadApiMessageContext, mapMessageForApi, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { canonicalUserImage } from "@/lib/community/storage"
 
 // Message enrichment shared by the channel messages route, the channel
@@ -22,7 +22,7 @@ export async function enrichMessages(
   userId: string,
   scope: MessageScope,
   items: Array<Parameters<typeof mapMessageForApi>[0] & { channelId: string }>,
-): Promise<{ messages: unknown[]; latestSeq: number }> {
+): Promise<{ messages: CommunityMessageResource[]; profiles: CommunityResourceProfile[]; latestSeq: number }> {
   const isDm = scope.isDm === true
   const messageIds = items.map((m) => m.id)
   const creationMessageIds = items.filter((message) => message.type === "bot_creation_request").map((message) => message.id)
@@ -113,5 +113,5 @@ export async function enrichMessages(
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
     }, scope.contract, scope.channelId),
   )
-  return { messages, latestSeq }
+  return { messages, profiles: await readCommunityMessageProfiles(db, messages), latestSeq }
 }

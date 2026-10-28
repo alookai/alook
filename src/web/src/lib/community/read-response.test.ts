@@ -5,7 +5,7 @@ import { communityReadTarget, decodeCommunityReadResponse } from "./read-respons
 
 const parent = channelResourceFixture({ id: "forum", type: "forum", serverId: "server", name: "Forum", archived: false, createdAt: "2026-10-07T12:00:00Z" })
 const child = channelResourceFixture({ ...parent, id: "thread", type: "thread", parentChannelId: "forum", parentMessageId: "opener", creatorId: "viewer", lastMessageAt: "2026-10-07T13:00:00Z" })
-const profile = { id: "viewer", name: "Viewer", discriminator: null, avatar: null, avatarVersion: 0, statusEmoji: null, statusText: "" }
+const profile = { id: "viewer", name: "Viewer", discriminator: "0042", avatar: null, avatarVersion: 0, statusEmoji: null, statusText: "" }
 const member = { channelId: "thread", userId: "viewer", relation: "notify" as const, source: "spoke", isCreator: true, role: null, memberId: null }
 const message = (id: string, channelId: string) => messageResourceFixture({ id, channelId, authorAvatar: "avatar", content: id })
 const confirmed = () => new Response(null, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
@@ -113,12 +113,12 @@ describe("current HTTP confirmation", () => {
     { id: "a1", name: "photo", url: "/a1", thumbnailUrl: null, contentType: "image/png", sizeBytes: 12, width: 1, height: 1 },
   ], embeds: [null, { raw: "unknown" }] }
   const response = (version: string | null) => new Response(null, { headers: version === null ? {} : { [COMMUNITY_CONTRACT_HEADER]: version } })
-  const body = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "thread", message: full, deduped: false }
+  const body = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "thread", message: full, profiles: [profile], deduped: false }
   it("retains full POST and single-read resources with exact current claims", () => {
     expect(communityReadTarget("/api/community/channels/thread/messages", "POST")).toEqual({ channelId: "thread", resource: "posted" })
-    expect(decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(String(BUSINESS_SCHEMA_VERSION)), body, BUSINESS_SCHEMA_VERSION)).toEqual({ message: { ...full }, deduped: false })
+    expect(decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(String(BUSINESS_SCHEMA_VERSION)), body, BUSINESS_SCHEMA_VERSION)).toEqual({ message: { ...full }, profiles: [profile], deduped: false })
     const { deduped: _deduped, ...read } = body
-    expect(decodeCommunityReadResponse("/api/community/messages/message", "GET", response(String(BUSINESS_SCHEMA_VERSION)), read, BUSINESS_SCHEMA_VERSION)).toEqual({ ...full })
+    expect(decodeCommunityReadResponse("/api/community/messages/message", "GET", response(String(BUSINESS_SCHEMA_VERSION)), read, BUSINESS_SCHEMA_VERSION)).toEqual(read)
     expect(() => decodeCommunityReadResponse("/api/community/messages/other", "GET", response(String(BUSINESS_SCHEMA_VERSION)), read, BUSINESS_SCHEMA_VERSION)).toThrow("scope mismatch")
     expect(() => decodeCommunityReadResponse("/api/community/channels/other/messages", "POST", response(String(BUSINESS_SCHEMA_VERSION)), body, BUSINESS_SCHEMA_VERSION)).toThrow("scope mismatch")
     expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(String(BUSINESS_SCHEMA_VERSION)), { ...body, message: { ...full, attachments: undefined } }, BUSINESS_SCHEMA_VERSION)).toThrow()

@@ -16,7 +16,12 @@ vi.mock("@alook/shared", async original => {
     communityMessage: { ...actual.queries.communityMessage, getMessagesByIdsInChannels: vi.fn(async () => []) },
     communityChannel: { ...actual.queries.communityChannel, listChannelMembershipsForUserInChannels: vi.fn(async () => []) },
     user: { ...actual.queries.user, getUsersByIds: (...args: unknown[]) => mocks.users(...args) },
-    communityUserProfile: { ...actual.queries.communityUserProfile, getProfilesByUserIds: (...args: unknown[]) => mocks.profiles(...args) },
+    communityUserProfile: { ...actual.queries.communityUserProfile, getProfilesByUserIds: (...args: unknown[]) => mocks.profiles(...args), getResourceProfiles: async (db: unknown, ids: string[]) => {
+      const users = await mocks.users(db, ids)
+      const rows = new Map((await mocks.profiles(db, users.map((row: { id: string }) => row.id))).map((row: { userId: string }) => [row.userId, row]))
+      return users.map((row: { id: string; name: string; discriminator: string; image: string | null; avatarVersion: number }) => actual.CommunityResourceProfileSchema.parse({ id: row.id, name: row.name, discriminator: row.discriminator, avatar: actual.canonicalCommunityUserImage(row.id, row.image, row.avatarVersion), avatarVersion: row.avatarVersion,
+        ...(rows.has(row.id) ? Object.fromEntries(Object.entries(rows.get(row.id) as object).filter(([key]) => key !== "userId")) : {}) }))
+    } },
   } }
 })
 import { GET as accepted } from "@/app/api/community/friends/accepted/route"

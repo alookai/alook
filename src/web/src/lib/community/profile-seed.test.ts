@@ -213,7 +213,7 @@ describe("profile seeding boundaries", () => {
   })
 
   it("returns the raw API object while updating its canonical profile projection", async () => {
-    const raw = { member: { id: "u2", name: "API Alice", discriminator: null, avatar: null, avatarVersion: 0 } }
+    const raw = { member: { id: "u2", name: "API Alice", discriminator: "0042", avatar: null, avatarVersion: 0 } }
     apiFetch.mockResolvedValueOnce(raw)
 
     const result = await apiFetchProfiles(

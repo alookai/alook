@@ -565,7 +565,7 @@ describe("useUserWs", () => {
   })
 
   const resourceMessage = {
-    type: "community:message.create", channelId: "channel-1", serverId: "server-1",
+    type: "community:message.create", profiles: [{ id: "user-1", name: "User", discriminator: "0042", avatar: null, avatarVersion: 4 }], channelId: "channel-1", serverId: "server-1",
     message: {
       id: "resource-message", channelId: "channel-1", seq: 1, type: "chat", authorId: "user-1", authorName: "User", authorAvatarVersion: 4,
       createdAt: "2026-10-11T00:00:00Z", content: "actual body", replyToId: null, clientNonce: null,

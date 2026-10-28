@@ -259,6 +259,62 @@ function ProjectedSidebar() {
 }
 
 describe("forum sidebar canonical projection", () => {
+  it("renders a new zero-reply thread above five older replies without replacing its null activity", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-28T00:00:00.000Z"))
+    const { queryClient, registry, wrapper } = await setup()
+    const previous = envelopeFor(["older-1", "older-2", "older-3", "older-4", "older-5"])
+    previous.channels.forEach((_, index) => setActivity(previous, index, new Date(Date.now() - (index + 2) * 60_000).toISOString()))
+    publishResourceSet(queryClient, previous.resources)
+    const response = envelopeFor(["new", "older-1", "older-2", "older-3", "older-4"])
+    response.channels.forEach((_, index) => setActivity(response, index, new Date(Date.now() - (index + 1) * 60_000).toISOString()))
+    const zeroReply = response.resources.channels.find(row => row.id === "new")!
+    zeroReply.createdAt = response.channels[0]!.activityAt
+    zeroReply.lastMessageAt = null
+    zeroReply.messageCount = 0
+    apiFetchMock.mockResolvedValue(response)
+    const view = render(createElement(ProjectedSidebar), { wrapper })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    const rows = () => Array.from(view.container.querySelectorAll(`[data-testid^="${tid.forumSidebarThread("")}"]`)).map(row => row.getAttribute("data-testid"))
+    expect(rows()).toEqual(["new", "older-1", "older-2", "older-3", "older-4"].map(tid.forumSidebarThread))
+    expect(registry.collections.channels.get("new")?.lastMessageAt).toBeNull()
+    const project = (retainId: string | null, now: number) => projectForumSidebar(
+      getCanonicalCommunityChannels(queryClient), getCanonicalCommunityChannelMemberships(queryClient),
+      getCanonicalCommunityMessages(queryClient), "viewer", "server-1", retainId, now,
+    ).threads
+    const expiry = Date.parse(zeroReply.createdAt) + 72 * 3600_000
+    expect(project(null, expiry - 1)[0]).toMatchObject({ id: "new", activityAt: zeroReply.createdAt, expiresAt: new Date(expiry).toISOString() })
+    expect(project(null, expiry).some(row => row.id === "new")).toBe(false)
+    expect(project("new", expiry).map(row => row.id)).toEqual(["new"])
+    apiFetchMock.mockReturnValue(new Promise(() => {}))
+    await act(async () => { await vi.advanceTimersByTimeAsync(expiry - Date.now() + 50) })
+    expect(rows()).toEqual([])
+    expect(registry.collections.channels.get("new")?.lastMessageAt).toBeNull()
+    view.unmount()
+    queryClient.clear()
+  })
+
+  it("uses creation activity to reconcile a zero-reply miss above a fresh bounded cutoff", async () => {
+    const { queryClient, registry } = await setup()
+    const stale = envelopeFor(["new-miss", "old-miss"])
+    for (const [index, age] of [30_000, 180_000].entries()) {
+      setActivity(stale, index, new Date(Date.now() - age).toISOString())
+      const row = stale.resources.channels.find(row => row.id === stale.channels[index]!.id)!
+      row.createdAt = stale.channels[index]!.activityAt
+      row.lastMessageAt = null
+    }
+    publishResourceSet(queryClient, stale.resources)
+    const fresh = envelopeFor(["a", "b", "c", "d", "e"])
+    fresh.channels.forEach((_, index) => setActivity(fresh, index, new Date(Date.now() - 120_000).toISOString()))
+    apiFetchMock.mockResolvedValue(fresh)
+    const result = await reconcileForumSidebarNotifyMemberships(queryClient, "server-1")
+    expect(result.removedIds).toEqual(["new-miss"])
+    expect(registry.collections.channelMemberships.get("new-miss:viewer:notify")).toBeUndefined()
+    expect(registry.collections.channelMemberships.get("old-miss:viewer:notify")).toBeDefined()
+    expect(registry.collections.channelMemberships.get("new-miss:viewer:access")).toBeDefined()
+    expect(registry.collections.channels.get("new-miss")?.lastMessageAt).toBeNull()
+  })
+
   it("admits repeated full current Sidebar resource bundles from live collection rows", async () => {
     const { queryClient, registry } = await setup()
     publish(queryClient, envelopeFor(["post-1", "post-2"]), true)

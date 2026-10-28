@@ -174,7 +174,7 @@ async function serveOutdatedMachine(page: Page) {
     await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(optional ? { quotas: [{ machineId: outdatedMachine.id, quota: [] }] } : { machines: [outdatedMachine], complete: true }),
+      body: JSON.stringify(optional ? { quotas: [{ machineId: outdatedMachine.id, quota: [] }] } : { machines: [(({ quota: _quota, ...identity }) => identity)(outdatedMachine)], complete: true }),
     })
   })
 }

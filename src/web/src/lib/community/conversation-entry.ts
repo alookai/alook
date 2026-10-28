@@ -15,7 +15,7 @@ import { ApiError } from "@/lib/errors"
 import {
   assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken,
   publishCommunityChannelMetadata, publishCommunityChannelMembersSnapshot, publishCommunityConversationReadState, confirmCommunityConversationPresence,
-  publishCommunityMessages, retireCommunityChannelReading, type CommunityFreshQueryProof,
+  publishCommunityMessages, getCanonicalCommunityMessageResources, validateCommunityMessagePublication, retireCommunityChannelReading, type CommunityFreshQueryProof,
   publishCommunityForumFeed, getCanonicalCommunityAttentionScopes,
 } from "@/lib/community-db/sync"
 import { messageWindowPage, type MessagesPageParam } from "./models/message"
@@ -90,6 +90,9 @@ export function publishConversationEntry(
   const registry = proof.token.registry!
   const parent = channel.parentChannelId
   if (parent && (registry.runtime.ws.get().channelAccessScopes.get(parent)?.generation ?? 0) !== (proof.token.channelScopes.get(parent)?.generation ?? 0)) throw new DOMException("Retired conversation parent", "AbortError")
+  validateCommunityMessagePublication(registry, entry.messages, entry.profiles)
+  if (entry.opener) validateCommunityMessagePublication(registry, [entry.opener], entry.profiles)
+  if (entry.forumFeed) validateCommunityMessagePublication(registry, entry.forumFeed.included.messages, entry.forumFeed.included.profiles)
   const initialWindow: InitialMessageWindow = entry.selection.anchorMessageId ? { mode: "anchor", anchor: entry.selection.anchorMessageId } : { mode: "newest" }
   const windowKey = entry.forumFeed ? communityKeys.forumFeed(target.channelId, target.tag ?? null) : communityKeys.channelMessagesWindow(target.channelId, initialWindow, target.tag)
   const qualified = { ...proof.token, channelLineage: { parentChannelId: parent } }
@@ -101,9 +104,9 @@ export function publishConversationEntry(
     if (entry.peer) publishCommunityChannelMembersSnapshot(client, null, channel.id, "access", [entry.viewerId, entry.peer.id].map((userId) => ({
       channelId: channel.id, userId, relation: "access", source: "added", isCreator: channel.creatorId === userId, role: null, memberId: null,
     })), proof, [entry.peer])
-    publishCommunityMessages(client, { channelId: channel.id, messages: entry.messages, profiles: entry.peer ? [entry.peer] : [], proof })
+    publishCommunityMessages(client, { channelId: channel.id, messages: entry.messages, profiles: entry.profiles, proof })
     if (entry.opener) {
-      publishCommunityMessages(client, { channelId: entry.opener.channelId, messages: [entry.opener], profiles: entry.peer ? [entry.peer] : [], proof })
+      publishCommunityMessages(client, { channelId: entry.opener.channelId, messages: [entry.opener], profiles: entry.profiles, proof })
       client.setQueryData(communityKeys.message(entry.opener.id), entry.opener.id)
     }
     publishCommunityConversationReadState(client, entry.readState, entry.readStateRevision, proof)
@@ -111,13 +114,11 @@ export function publishConversationEntry(
     if (entry.forumFeed) {
       const page = normalizeThreadResources(channel.id, entry.forumFeed)
       publishCommunityForumFeed(client, channel.id, page, proof)
-      const cached = client.getQueryData<{ pages: ForumFeedPage[]; pageParams: Array<string | null> }>(windowKey)
-      if (!Array.isArray(cached?.pages) || !cached.pages.length || !Array.isArray(cached.pageParams) || cached.pages.length !== cached.pageParams.length || cached.pages.some(page => !Array.isArray(page.threads))) client.setQueryData(windowKey, { pages: [forumFeedWindow(page)], pageParams: [null] })
+      if (!conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) client.setQueryData(windowKey, { pages: [forumFeedWindow(page)], pageParams: [null] })
     }
     else {
-      const cached = client.getQueryData<MessageWindowData>(windowKey)
-      if (Array.isArray(cached?.pages) && cached.pages.length && Array.isArray(cached.pageParams) && cached.pages.length === cached.pageParams.length && cached.pages.every(page => Array.isArray(page.messages))) return
-      const page = messageWindowPage({ ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages })
+      if (conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) return
+      const page = messageWindowPage({ ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, profiles: entry.profiles })
       client.setQueryData<MessageWindowData>(windowKey, { pages: [page], pageParams: [initialWindow as MessagesPageParam] })
     }
   })
@@ -149,14 +150,20 @@ function conversationDisplayWindows(client: QueryClient, target: ConversationEnt
   if (channel.type === "forum" && !target.anchorMessageId) {
     const key = communityKeys.forumFeed(channel.id, target.tag ?? null)
     const feed = client.getQueryData<{ pages: ForumFeedPage[]; pageParams: Array<string | null> }>(key)
-    if (!feed?.pages.length || !Array.isArray(feed.pageParams) || feed.pages.length !== feed.pageParams.length) return
+    if (!Array.isArray(feed?.pages) || !feed.pages.length || !Array.isArray(feed.pageParams) || feed.pages.length !== feed.pageParams.length) return
     const byId = registry.collections.channels
-    if (feed.pages.some(page => !Array.isArray(page.threads) || page.threads.some(thread => {
+    if (feed.pages.some(page => !Array.isArray(page?.threads) || page.threads.some(thread => {
+      if (!thread || typeof thread.id !== "string" || !thread.id) return true
       const child = byId.get(thread.id)
       const opener = thread.openerMessageId ? messages.get(thread.openerMessageId) : undefined
       return !child || child.type !== "thread" || child.serverId !== channel.serverId || child.parentChannelId !== channel.id
         || !!thread.openerMessageId && (!opener || opener.channelId !== channel.id)
     }))) return
+    const retained = feed.pages.flatMap(page => page.threads.flatMap(thread => {
+      const child = byId.get(thread.id)
+      return [thread.openerMessageId ? messages.get(thread.openerMessageId) : undefined, child?.firstMessageId ? messages.get(child.firstMessageId) : undefined].filter(message => message !== undefined)
+    }))
+    if (!getCanonicalCommunityMessageResources(client, retained)) return
     return [{ key, initial: { mode: "newest" as const }, tag: target.tag ?? null }]
   }
   const windows = client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages(target.channelId) })
@@ -165,9 +172,10 @@ function conversationDisplayWindows(client: QueryClient, target: ConversationEnt
     const identity = messageWindowIdentity(window.queryKey)
     if (!identity || identity.tag !== (target.tag ?? null) || identity.initial.mode === "since") return []
     const data = window.state.data as MessageWindowData | undefined
-    if (!Array.isArray(data?.pages) || !Array.isArray(data.pageParams) || !data.pages.length || data.pageParams.length !== data.pages.length || data.pages.some((page) => !Array.isArray(page.messages))) return []
+    if (!Array.isArray(data?.pages) || !Array.isArray(data.pageParams) || !data.pages.length || data.pageParams.length !== data.pages.length || data.pages.some((page) => !Array.isArray(page?.messages) || page.messages.some(message => typeof message?.id !== "string" || !message.id))) return []
     const ids = data.pages.flatMap((page) => page.messages.map((message) => message.id))
     if (ids.some(id => messages.get(id)?.channelId !== target.channelId)) return []
+    if (!getCanonicalCommunityMessageResources(client, ids.map(id => messages.get(id)))) return []
     return [{ key: window.queryKey, initial: identity.initial, tag: identity.tag }]
   })
 }
@@ -247,7 +255,7 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
           void reconcileConversationLanding(client, {
             kind: target.serverId === null ? "dm" : "channel", scopeId: target.channelId,
             serverId: target.serverId ?? undefined,
-          }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages }, initial,
+          }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, profiles: entry.profiles }, initial,
           { query: original!, signal, lifetime: "query", observation: captured }).catch(() => undefined)
         }
         record("delivered")

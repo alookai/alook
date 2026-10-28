@@ -4,6 +4,7 @@ import { parseMessageDeliveryBatch } from "../src/community-message-delivery";
 
 const messageEvent = {
   type: "community:message.create" as const,
+  profiles: [{ id: "u1", name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 0 }],
   channelId: "thread-1",
   serverId: "server-1",
   parentChannelId: "forum-1",

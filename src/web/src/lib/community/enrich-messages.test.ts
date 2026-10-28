@@ -22,6 +22,7 @@ vi.mock("@alook/shared", async () => {
     withD1Retry: (operation: () => unknown) => operation(),
     queries: {
       ...actual.queries,
+      communityUserProfile: { ...actual.queries.communityUserProfile, getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: id, discriminator: "0042", avatar: null, avatarVersion: 0 })) },
       communityAttachment: {
         ...actual.queries.communityAttachment,
         listByMessageIds: (...args: unknown[]) => mocks.listAttachments(...args),
@@ -77,7 +78,7 @@ describe("enrichMessages attachment projection", () => {
 
   it("skips empty DM attachment, reaction, reply and approval hydration while reading latest sequence", async () => {
     const db = {} as never
-    expect(await enrichMessages(db, "u1", { channelId: "dm1", isDm: true }, [])).toEqual({ messages: [], latestSeq: 9 })
+    expect(await enrichMessages(db, "u1", { channelId: "dm1", isDm: true }, [])).toEqual({ messages: [], profiles: [], latestSeq: 9 })
     expect(mocks.listAttachments).not.toHaveBeenCalled()
     expect(mocks.listReactions).not.toHaveBeenCalled()
     expect(mocks.getReplies).not.toHaveBeenCalled()
@@ -125,6 +126,7 @@ describe("enrichMessages attachment projection", () => {
     }])
     mocks.getReplies.mockResolvedValue([{
       id: "reply_1",
+      authorId: "bob",
       authorName: "Bob",
       content: "original",
       channelId: "c1",
@@ -152,7 +154,7 @@ describe("enrichMessages attachment projection", () => {
 
     expect(result.messages).toEqual([
       expect.objectContaining({
-        replyTo: { id: "reply_1", authorName: "Bob", text: "original" },
+        replyTo: { id: "reply_1", authorId: "bob", authorName: "Bob", text: "original" },
         attachments: [{
           id: "att_1",
           name: "photo.png",

@@ -1,20 +1,12 @@
+import type { z } from "zod"
+import { CommunityServerMemberReadSchema, CommunityServerMembersReadSchema, CommunityServerMemberSearchReadSchema } from "@alook/shared"
 import { currentCommunityFixtureError, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
 
 import { tid } from "./_fixtures/testids"
 
-type Candidate = {
-  id: string
-  userId: string
-  name: string
-  discriminator: string
-  avatar: string
-  avatarVersion: number
-  status: "offline"
-  sub: string
-  role: "member"
-}
+type Candidate = z.infer<typeof CommunityServerMemberReadSchema>
 
 function candidate(prefix: string, index: number): Candidate {
   const tag = String(index).padStart(4, "0")
@@ -23,8 +15,10 @@ function candidate(prefix: string, index: number): Candidate {
     userId: `${prefix}-user-${tag}`,
     name: `${prefix}${tag}`,
     discriminator: tag,
-    avatar: prefix[0] ?? "M",
+    avatar: null,
     avatarVersion: 0,
+    statusEmoji: null,
+    statusText: null,
     status: "offline",
     sub: "",
     role: "member",
@@ -33,7 +27,7 @@ function candidate(prefix: string, index: number): Candidate {
 
 test("@ candidates page to completion and shared popups stay anchored through viewport resize signals", async ({ caseActors, caseResources }) => {
   const actors = await caseActors(["alice"])
-  const { asUser } = actors
+  const { asUser, userId } = actors
   const { seedChannel, seedServer } = actors.seed
 
   const serverId = await seedServer("alice", `Mention pages ${Date.now()}`)
@@ -69,6 +63,7 @@ test("@ candidates page to completion and shared popups stay anchored through vi
     })
   })
 
+  const pageScope = { viewerId: userId("alice"), serverId }
   const browse = Array.from({ length: 12 }, (_, index) => candidate("Browse", index + 1))
   const matches = Array.from({ length: 205 }, (_, index) => candidate("CapMatch", index + 1))
   const browseCursors: Array<string | null> = []
@@ -97,25 +92,26 @@ test("@ candidates page to completion and shared popups stay anchored through vi
         return
       }
       if (query === "NoMatch") {
-        await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, json: { members: [], limit: 200, hasMore: false } })
+        await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, json: CommunityServerMemberSearchReadSchema.parse({ ...pageScope, members: [], limit: 200, hasMore: false }) })
         return
       }
       if (query === "CapMatch" && cursor) {
         markSearchTailRequested()
         await searchTailReleased
         await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
-          json: { members: matches.slice(200), limit: 200, hasMore: false },
+          json: CommunityServerMemberSearchReadSchema.parse({ ...pageScope, members: matches.slice(200), limit: 200, hasMore: false }),
         })
         return
       }
       if (query === "CapMatch") {
         await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
-          json: {
+          json: CommunityServerMemberSearchReadSchema.parse({
+            ...pageScope,
             members: matches.slice(0, 200),
             limit: 200,
             hasMore: true,
             cursor: "search-page-2",
-          },
+          }),
         })
         return
       }
@@ -124,15 +120,16 @@ test("@ candidates page to completion and shared popups stay anchored through vi
     const cursor = url.searchParams.get("cursor")
     browseCursors.push(cursor)
     await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
-      json: cursor
-        ? { members: browse.slice(8), limit: 8, total: 12, hasMore: false }
+      json: CommunityServerMembersReadSchema.parse(cursor
+        ? { ...pageScope, members: browse.slice(8), limit: 8, total: 12, hasMore: false }
         : {
+            ...pageScope,
             members: browse.slice(0, 8),
             limit: 8,
             total: 12,
             hasMore: true,
             cursor: "browse-page-2",
-          },
+          }),
     })
   })
 
