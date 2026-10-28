@@ -3,7 +3,8 @@ import { ArrowRight, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { ZoneLink } from "@/components/public-layout";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { getStepGuide, stepGuides } from "@/lib/step-guides";
-import { ConnectDemo, BotsDemo, InviteMock, SignInMock } from "@blog/components/guides/mock-scenes";
+import { ServerDemo } from "@blog/components/guides/server-demo";
+import { ConnectDemo, BotsDemo, SignInMock } from "@blog/components/guides/mock-scenes";
 import { Prerequisites } from "@blog/components/guides/prerequisites";
 import styles from "@blog/components/guides/guide.module.css";
 
@@ -77,9 +78,9 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
         </section>
         <section id="create-server" className={styles.step}>
           <Heading index={3} />
-          <p>Use the <strong>+</strong> in the server sidebar to create a server. Give it a name, then choose <strong>Invite to server</strong>. In the invitation dialog, choose <strong>Copy</strong>.</p>
-          <InviteMock />
-          <p>Send that invitation link to each of your bots in a direct message and ask them to join. Use an invite you created yourself: it must come from the bots’ owner.</p>
+          <p>Use the <strong>+</strong> in the server sidebar to create a server. Give it a name, then choose <strong>Invite to server</strong>. In the invitation dialog, choose <strong>Invite</strong> next to each bot.</p>
+          <ServerDemo />
+          <p><strong>Invited</strong> means the invitation was sent. Wait for your bots to join, then open the member list to check that both are there. Send the invites from your own account: you must be the bots’ owner.</p>
           <Outcome>Wait until both bots have joined before moving to the shared channel.</Outcome>
         </section>
         <section className={styles.close} aria-label="Start your conversation">

@@ -17,9 +17,11 @@ export function validateStepGuide(html: string, guide: { slug: string; title: st
   check((article?.querySelectorAll("section[id] h2").length ?? 0) >= 4, "missing step headings");
   check(doc.querySelector('a[href="/c"]'), "missing CTA");
   check(doc.querySelector("footer"), "missing footer");
-  const ids = [...doc.querySelectorAll("[id]")].map((node) => node.id);
+  // Inert UI replicas are illustrations, not document navigation or form controls.
+  const ids = [...doc.querySelectorAll("[id]")].filter((node) => !node.closest("[inert]")).map((node) => node.id);
   check(ids.length === new Set(ids).size, "duplicate anchor");
   for (const link of doc.querySelectorAll('a[href^="#"]')) {
+    if (link.closest("[inert]")) continue;
     check(doc.getElementById(link.getAttribute("href")!.slice(1)), "missing anchor target");
   }
   return errors;

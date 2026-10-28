@@ -1,116 +1,106 @@
-import { Bot, Check, ChevronDown, Circle, Dices, Laptop, MousePointer2, Plus, Settings, Shield, Terminal, Users } from "lucide-react";
-import Image from "next/image";
-import type { ReactNode } from "react";
-import { Shell } from "@/components/community/shell/shell";
-import { AppRail } from "@/components/ui/app-surface";
-import { ProviderLogo } from "@/components/provider-logo";
+"use client";
+
+import { MousePointer2, Terminal } from "lucide-react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { LandingShellMotion, PrototypeSheet, BotCard } from "@/components/home/landing-shell-motion";
+import { CommunityPreviewNavigation } from "@/components/community/shell/community-preview-navigation";
+import { PairMachineSteps } from "@/components/community/machines/pair-machine-sheet";
+import { MachineCard } from "@/components/community/machines/machine-card";
+import { BotFormFields } from "@/components/community/bots/bot-form-fields";
+import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields";
+import { BotMachineField } from "@/components/community/bots/bot-machine-field";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SheetHeader, SheetBody, SheetFooter } from "@/components/ui/sheet";
+import type { CommunityMachineSummary } from "@alook/shared";
 import { DeferredDemo } from "./deferred-demo";
 import styles from "./guide.module.css";
 
 export const pairingCommand = "npx --yes @alook/daemon@latest daemon start --machine-key <YOUR_MACHINE_KEY>";
-
-function Online() {
-  return <span className={styles.online}><Circle size={7} fill="currentColor" />Online</span>;
-}
+const ignore = () => {};
+const machine: CommunityMachineSummary = {
+  id: "tutorial-machine", hostname: "studio-mac", displayName: "Studio Mac", platform: "darwin", arch: "arm64", osRelease: "15.6", daemonVersion: "0.1.60",
+  status: "online", lastSeenAt: "2026-10-27T12:00:00Z", createdAt: "2026-10-27T12:00:00Z", updatedAt: "2026-10-27T12:00:00Z",
+  availableRuntimes: [{ id: "codex", status: "healthy" }, { id: "claude", status: "healthy" }],
+};
 
 export function SignInMock() {
-  return <figure className={styles.staticDemo}>
-    <div className={styles.mock} aria-hidden="true">
-      <div className={styles.mockTitle}>Sign in</div>
-      <div className={styles.mockSub}>or create an account to get started</div>
-      <div className={styles.mockInput}>you@example.com</div>
-      <div className={styles.mockOutline}>Send Code</div>
-    </div>
-  </figure>;
+  return <figure className={styles.staticDemo}><div className={styles.mock} aria-hidden="true">
+    <div className={styles.mockTitle}>Sign in</div><div className={styles.mockSub}>or create an account to get started</div>
+    <Input value="you@example.com" readOnly tabIndex={-1} /><Button className="mt-4 w-full" tabIndex={-1}>Send Code</Button>
+  </div></figure>;
 }
 
 function Pointer() {
-  return <MousePointer2 className={styles.pointer} data-demo-pointer size={26} fill="var(--background)" />;
+  return <MousePointer2 className={styles.pointer} data-demo-pointer size={30} fill="var(--background)" />;
 }
 
 function HomeScreen({ page, children }: { page: "Machines" | "My Bots"; children: ReactNode }) {
-  return <Shell className={styles.homeScreen} style={{ position: "relative", inset: "auto" }}>
-    <AppRail className={styles.homeRail}><Image src="/alook.svg" alt="" width={28} height={28} /><span className={styles.railServer}>S</span><Plus size={18} /></AppRail>
-    <div className={styles.homeSurface}>
-      <aside className={styles.homeNav}>
-        <span><Users size={16} />Friends</span>
-        <span data-active={page === "Machines"}><Laptop size={16} />Machines</span>
-        <span data-active={page === "My Bots"}><Bot size={16} />My Bots</span>
-        <span><Shield size={16} />Privacy</span>
-        <div className={styles.dmHeading}>Direct Messages</div>
-        <span className={styles.dmEmpty}>Your direct messages will appear here.</span>
-        <div className={styles.homeUser}><span className={styles.railServer}>S</span>Sam<Settings size={14} /></div>
-      </aside>
-      <div className={styles.homePanel}><div className={styles.mockTitle}>{page}</div>{children}</div>
-    </div>
-  </Shell>;
+  return <CommunityPreviewNavigation value={true}><LandingShellMotion userAvatar="avatar:beam:tutorial-gus" scene={page === "Machines" ? "machine" : "provider"} beat={0}>{children}</LandingShellMotion></CommunityPreviewNavigation>;
+}
+
+function MachineList() {
+  return <div className="flex flex-1 flex-col gap-6 p-6"><header className="flex items-center justify-between"><div className="text-xl font-medium">Machines</div><Button data-connect-entry>Connect a machine</Button></header></div>;
+}
+
+function ConnectSheet() {
+  const root = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { root.current?.querySelector('[aria-label="Copy command"]')?.setAttribute("data-copy", ""); }, []);
+  return <HomeScreen page="Machines"><MachineList /><PrototypeSheet label="Connect a machine">
+    <SheetHeader><div className="text-lg font-semibold">Connect a machine</div></SheetHeader>
+    <SheetBody><div ref={root}><PairMachineSteps command={pairingCommand} generating={false} onCopy={ignore} connectedHostname={null} headingAs="div" /></div></SheetBody>
+    <SheetFooter><Button variant="secondary">Done</Button></SheetFooter>
+  </PrototypeSheet></HomeScreen>;
 }
 
 export function ConnectDemo() {
   return <DeferredDemo scene="connect" label="Connect your computer">
-    <div data-demo-frame><HomeScreen page="Machines"><span className={styles.mockButton} data-connect-entry>Connect a machine</span></HomeScreen></div>
-    <div data-demo-frame>
-      <div className={styles.mock}>
-        <div className={styles.mockTitle}><Laptop size={20} />Connect a machine</div>
-        <div className={styles.mockSub}>Run this on your machine</div>
-        <div className={styles.inviteUrl}>{pairingCommand}</div>
-        <div className={styles.mockFooter}><span className={styles.mockButton} data-copy><span data-copy-label>Copy</span><span data-copied style={{ display: "none" }}>Copied</span></span></div>
-      </div>
-    </div>
-    <div data-demo-frame>
-      <div className={styles.terminal}>
-        <div className={styles.terminalHeader}><Terminal size={14} />Terminal · your computer<span className={styles.keycap} data-paste-key>⌘ V</span><span className={styles.keycap} data-enter-key>Enter ↵</span></div>
-        <pre className={styles.command} data-command><span className={styles.prompt}>$ </span><span data-command-text>{pairingCommand}</span><span className={styles.textCaret} data-terminal-caret /></pre>
-      </div>
-    </div>
-    <div data-demo-frame><HomeScreen page="Machines"><div className={styles.botRow}><Laptop size={24} /><div><strong>Studio Mac</strong></div><span className="ml-auto"><Online /></span></div></HomeScreen></div>
+    <div data-demo-frame><HomeScreen page="Machines"><MachineList /></HomeScreen></div>
+    <div data-demo-frame><ConnectSheet /></div>
+    <div data-demo-frame><div className={styles.terminal}>
+      <div className={styles.terminalHeader} data-terminal-header><Terminal size={14} />Terminal · your computer<span className={styles.keycapSlot}><span className={styles.keycap} data-paste-key>⌘ V</span><span className={styles.keycap} data-enter-key>Enter ↵</span></span></div>
+      <pre className={styles.command} data-command><span className={styles.prompt}>$ </span><span data-command-text>{pairingCommand}</span><span data-terminal-newline>{"\n"}</span><span className={styles.textCaret} data-terminal-caret /></pre>
+    </div></div>
+    <div data-demo-frame><HomeScreen page="Machines"><div className="flex flex-1 flex-col gap-6 p-6"><div className="text-xl font-medium">Machines</div><MachineCard machine={machine} onDelete={ignore} onReconnect={ignore} /></div></HomeScreen></div>
     <Pointer />
   </DeferredDemo>;
 }
 
-function BotForm({ runtime, name }: { runtime: "codex" | "claude"; name: string }) {
-  return <div className={styles.mock}>
-    <div className={styles.mockTitle}>Create a bot</div>
-    <div className={styles.botIdentity}><span className={styles.botIcon}><Bot size={20} /></span><div className={styles.botName} data-name-field><span className={styles.nameValue}><span data-name>{name}</span><span className={styles.namePlaceholder} data-name-placeholder>Name</span></span><Dices size={16} /></div><div className={styles.mockSub}>What is this bot for?</div></div>
-    <div className={styles.formGroup}><span>Machine</span><div className={styles.radioOption} data-machine data-selected="true"><span className={styles.radioDot} />Studio Mac<span className="ml-auto"><Online /></span></div></div>
-    <div className={styles.formGroup} data-runtime><span>Runtime</span>{(["codex", "claude"] as const).map((option) => <div key={option} className={styles.radioOption} data-option={option} data-selected={option === runtime}>
-      <span className={styles.radioDot} /><ProviderLogo provider={option} className="size-4" />{option}
-    </div>)}</div>
-    <div className={styles.formGroup}><span>Model</span><div className={styles.modelOption}>Default ({runtime}&apos;s own default)<ChevronDown size={12} /></div></div>
-    <div className={styles.formGroup}><span>Reasoning effort</span><div className={styles.modelOption}>Default<ChevronDown size={12} /></div></div>
-    <div className={styles.mockFooter}><span>Cancel</span><span className={styles.mockButton} data-create-submit>Create bot</span></div>
-  </div>;
+function BotForm({ runtime, count }: { runtime: "codex" | "claude"; count: number }) {
+  const root = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState({ name: "", runtime: "codex" });
+  useLayoutEffect(() => {
+    const element = root.current!;
+    const update = (event: Event) => setState((current) => ({ ...current, ...(event as CustomEvent).detail }));
+    element.addEventListener("tutorial-form", update);
+    element.querySelector('input[placeholder="Name your bot"]')?.setAttribute("data-name-field", "");
+    element.querySelector('[data-testid="bot-machine-picker"] label')?.setAttribute("data-machine", "");
+    return () => element.removeEventListener("tutorial-form", update);
+  }, []);
+  return <HomeScreen page="My Bots"><BotListContent count={count} /><PrototypeSheet label="Create a bot">
+    <SheetHeader><div className="text-lg font-semibold">Create a bot</div></SheetHeader>
+    <SheetBody><div ref={root} data-bot-form className="flex flex-col gap-6">
+      <BotFormFields avatarDraft={{ kind: "procedural", image: `avatar:beam:${runtime}` }} onAvatarChange={ignore} name={state.name} setName={ignore} onShuffle={ignore} description="" setDescription={ignore} />
+      <BotMachineField machines={[machine]} machineId={machine.id} onChange={ignore} radioName={`tutorial-machine-${runtime}`} />
+      <BotRuntimeFields options={machine.availableRuntimes.map(({ id }) => ({ id, unhealthy: false }))} runtime={state.runtime} model={null} onRuntimeChange={ignore} onModelChange={ignore} radioName={`tutorial-runtime-${runtime}`} motionTargetPrefix="tutorial-runtime" />
+    </div></SheetBody>
+    <SheetFooter><Button variant="outline">Cancel</Button><Button data-create-submit>Create bot</Button></SheetFooter>
+  </PrototypeSheet></HomeScreen>;
 }
 
-function BotList({ count }: { count: number }) {
-  return <HomeScreen page="My Bots"><span className={styles.mockButton} data-bot-entry>Create a bot</span>
-    {count > 0 && <BotRow name="Milo" detail="codex" />}{count > 1 && <BotRow name="Nova" detail="claude" />}
-  </HomeScreen>;
+export function BotListContent({ count }: { count: number }) {
+  return <div className="flex flex-1 flex-col gap-6 p-6"><header className="flex items-center justify-between"><div className="text-xl font-medium">My Bots</div><Button data-bot-entry>Create a bot</Button></header>
+    {count > 0 && <BotCard name="Milo" runtime="codex" model={null} status="Online" />}{count > 1 && <BotCard name="Nova" runtime="claude" model={null} status="Online" />}
+  </div>;
 }
 
 export function BotsDemo() {
   return <DeferredDemo scene="bots" label="Create your two bots">
-    <div data-demo-frame><BotList count={0} /></div>
-    <div data-demo-frame><BotForm runtime="codex" name="Milo" /></div>
-    <div data-demo-frame><BotList count={1} /></div>
-    <div data-demo-frame><BotForm runtime="claude" name="Nova" /></div>
-    <div data-demo-frame><BotList count={2} /></div>
+    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={0} /></HomeScreen></div>
+    <div data-demo-frame><BotForm runtime="codex" count={0} /></div>
+    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={1} /></HomeScreen></div>
+    <div data-demo-frame><BotForm runtime="claude" count={1} /></div>
+    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={2} /></HomeScreen></div>
     <Pointer />
   </DeferredDemo>;
-}
-
-function BotRow({ name, detail }: { name: string; detail: string }) {
-  return <div className={styles.botRow}><span className={styles.botIcon}><Bot size={18} /></span><div><strong>{name}</strong><small>{detail}</small></div><Check className="ml-auto" size={16} /></div>;
-}
-
-export function InviteMock() {
-  return <figure className={styles.staticDemo}>
-    <div className={styles.mock} aria-hidden="true">
-      <div className={styles.mockTitle}>Invite friends to Studio</div>
-      <div className={styles.invite}>
-        <div className={styles.inviteUrl}>https://alook.ai/c/invite/EXAMPLE</div>
-        <div className={styles.mockFooter}><span className={styles.mockButton}>Copy</span></div>
-      </div>
-    </div>
-  </figure>;
 }

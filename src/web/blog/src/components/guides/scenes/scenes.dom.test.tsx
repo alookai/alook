@@ -1,52 +1,81 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@/test/react-dom-harness";
+import { act, render, screen } from "@/test/react-dom-harness";
 import { ConnectDemo, BotsDemo } from "../mock-scenes";
 import { createScene as connectScene } from "./connect";
+import { ServerDemo } from "../server-demo";
+import { createScene as serverScene } from "./server";
 import { createScene as botScene } from "./bots";
 vi.mock("../deferred-demo", () => ({ DeferredDemo: ({ children }: { children: React.ReactNode }) => <div data-testid="scene">{children}</div> }));
+vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
 
 describe("tutorial action sequences", () => {
-  it("opens the connection dialog, copies, pastes, presses Enter and returns to Online; replay resets", () => {
+  it("uses the landing shell and real pairing controls before pasting and returning online", () => {
     render(<ConnectDemo />);
     const root = screen.getByTestId("scene");
+    expect(root.querySelectorAll('[data-testid="landing-motion-stage"]')).toHaveLength(3);
+    expect(root.querySelector('[data-copy]')).toHaveAttribute("aria-label", "Copy command");
     const timeline = connectScene(root, vi.fn());
     try {
-      timeline.time(3.9, false);
+      act(() => { timeline.time(6.6, false); });
       expect(root.dataset.demoAction).toBe("copy-command");
-      expect(root.querySelector("[data-copied]")).toBeVisible();
-      expect(root.querySelector("[data-copy-label]")).not.toBeVisible();
-      timeline.time(6, false);
+      act(() => { timeline.time(9, false); });
       expect(root.dataset.demoAction).toBe("paste-command");
-      expect(root.querySelector<HTMLElement>("[data-command-text]")!.style.visibility).toBe("inherit");
-      timeline.time(7.5, false);
-      expect(root.dataset.demoAction).toBe("press-enter");
-      timeline.time(10, false);
+      expect(root.querySelector<HTMLElement>("[data-command-text]")!.style.display).toBe("inline");
+      act(() => { timeline.time(10.8, false); });
+      expect(root.querySelector<HTMLElement>("[data-terminal-newline]")!.style.display).toBe("inline");
+      act(() => { timeline.time(13, false); });
       expect(root.dataset.demoAction).toBe("machine-online");
-      timeline.restart().pause().time(0.1, false);
+      act(() => { timeline.restart().pause().time(0.1, false); });
       expect(root.dataset.demoAction).toBe("open-connect");
-      expect(root.querySelector("[data-copy-label]")).not.toHaveAttribute("hidden");
-      expect(root.querySelector<HTMLElement>("[data-copy-label]")!.style.display).toBe("inline");
-      expect(root.querySelector("[data-copied]")).not.toBeVisible();
+      expect(root.querySelector<HTMLElement>("[data-command-text]")!.style.display).toBe("none");
+      expect(root.querySelector<HTMLElement>("[data-terminal-newline]")!.style.display).toBe("none");
+      expect(root.querySelector<HTMLElement>("[data-demo-pointer]")!.style.visibility).not.toBe("hidden");
     } finally { timeline.kill(); }
   });
-  it("fills and submits Codex before starting Claude, then shows both bots", () => {
+  it("types into shared form fields, selects Claude and resets the actual form on replay", () => {
     render(<BotsDemo />);
     const root = screen.getByTestId("scene");
+    const forms = root.querySelectorAll('[data-bot-form]');
     const timeline = botScene(root, vi.fn());
     try {
-      timeline.time(6.6, false);
-      expect(root.dataset.demoAction).toBe("runtime-codex");
-      expect(root.querySelectorAll('[data-option="codex"][data-selected="true"]')).toHaveLength(1);
-      timeline.time(9, false);
+      act(() => { timeline.time(14, false); });
       expect(root.dataset.demoAction).toBe("codex-created");
-      timeline.time(16.2, false);
-      expect(root.dataset.demoAction).toBe("runtime-claude");
-      expect(root.querySelectorAll('[data-option="claude"][data-selected="true"]')).toHaveLength(1);
-      timeline.time(19, false);
+      expect(forms[0].querySelector('input[placeholder="Name your bot"]')).toHaveValue("Milo");
+      act(() => { timeline.time(26, false); });
+      expect(forms[1].querySelector('input[value="claude"]')).toBeChecked();
+      expect(forms[1].querySelector('input[placeholder="Name your bot"]')).toHaveValue("Nova");
+      act(() => { timeline.time(30, false); });
       expect(root.dataset.demoAction).toBe("both-created");
-      timeline.restart().pause().time(0.1, false);
-      expect(root.dataset.demoAction).toBe("open-create-codex");
-      expect(root.querySelectorAll('[data-option][data-selected="true"]')).toHaveLength(0);
+      act(() => { timeline.restart().pause().time(0.1, false); });
+      expect(forms[0].querySelector('input[placeholder="Name your bot"]')).toHaveValue("");
+      expect(forms[1].querySelector('input[value="codex"]')).toBeChecked();
+    } finally { timeline.kill(); }
+  });
+});
+
+
+describe("server invitation walkthrough", () => {
+  it("creates Studio, directly invites both bots, waits for membership and resets", () => {
+    render(<ServerDemo />);
+    const root = screen.getByTestId("scene");
+    const timeline = serverScene(root, vi.fn());
+    try {
+      act(() => { timeline.time(7.4, false); });
+      expect(root.querySelector<HTMLInputElement>('[data-testid="community-create-server-name"]')!.value).toBe("Studio");
+      act(() => { timeline.time(14.5, false); });
+      expect(root.querySelector('[data-invite-recipient="milo"] button')!.textContent).toBe("Invited");
+      expect(root.querySelector('[data-invite-recipient="nova"] button')!.textContent).toBe("Invite");
+      act(() => { timeline.time(17, false); });
+      expect(root.querySelector('[data-invite-recipient="nova"] button')!.textContent).toBe("Invited");
+      expect(root.dataset.demoAction).toBe("invitations-sent");
+      act(() => { timeline.time(24, false); });
+      expect(root.dataset.demoAction).toBe("both-joined");
+      expect(root.querySelector('[data-members-result]')!.textContent).toContain("Milo");
+      expect(root.querySelector('[data-members-result]')!.textContent).toContain("Nova");
+      act(() => { timeline.restart().pause().time(0.1, false); });
+      expect(root.querySelector<HTMLInputElement>('[data-testid="community-create-server-name"]')!.value).toBe("");
+      expect(root.querySelector('[data-invite-recipient="milo"] button')!.textContent).toBe("Invite");
+      expect(root.querySelector('[data-invite-recipient="nova"] button')!.textContent).toBe("Invite");
     } finally { timeline.kill(); }
   });
 });

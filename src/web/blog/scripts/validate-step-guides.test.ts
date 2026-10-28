@@ -8,6 +8,12 @@ describe("step guide rendered contract", () => {
   it("accepts complete server-rendered content without scripts", () => {
     expect(validateStepGuide(html, guide)).toEqual([]);
   });
+  it("ignores inert UI replicas while keeping article anchor checks", () => {
+    const replica = '<div inert><input id="bot-name"><input id="bot-name"><a href="#">Demo</a></div>';
+    expect(validateStepGuide(html + replica, guide)).toEqual([]);
+    expect(validateStepGuide(html + replica + '<a href="#missing">Broken</a>', guide).join()).toContain("anchor target");
+    expect(validateStepGuide(html + '<div id="one"></div>', guide).join()).toContain("duplicate anchor");
+  });
   it.each([
     ['<h1>Two agents</h1>', '', 'matching H1'],
     ['https://alook.ai/tutorials/two-agents', 'https://alook.ai/blog/two-agents', 'canonical'],

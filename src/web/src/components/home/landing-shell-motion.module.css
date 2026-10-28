@@ -146,7 +146,7 @@
   right: 8px;
   bottom: 8px;
   display: flex;
-  width: 448px;
+  width: var(--motion-sheet-width, 448px);
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -181,7 +181,7 @@
   top: 50%;
   left: 50%;
   display: flex;
-  width: 448px;
+  width: var(--motion-sheet-width, 448px);
   max-height: 520px;
   flex-direction: column;
   overflow: hidden;
