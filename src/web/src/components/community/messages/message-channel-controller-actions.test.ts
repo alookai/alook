@@ -212,6 +212,17 @@ describe("createMessageActions", () => {
 
   })
 
+  it("copies the selected text exactly and retains the full-message fallback", async () => {
+    const harness = setup()
+    await harness.actions.onCopy("m1", " ell\n")
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(" ell\n")
+    await harness.actions.onCopy("m1")
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith("hello")
+    const count = vi.mocked(navigator.clipboard.writeText).mock.calls.length
+    await harness.actions.onCopy("missing", "selection")
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(count)
+  })
+
   it("reports clipboard denial once with the original view qualification", async () => {
     const harness = setup()
     const failure = new DOMException("Clipboard access denied", "NotAllowedError")

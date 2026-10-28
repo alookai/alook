@@ -276,9 +276,9 @@ export function MessageContextSheet({
     runReactionIntent(addReactionApi, messageId, emoji)
   }, [addReactionApi, runReactionIntent])
 
-  const onCopyId = useCallback((id: string) => {
+  const onCopyId = useCallback((id: string, selectedText?: string) => {
     const m = findMessage(id)
-    const content = m ? (m.content ?? "") : ""
+    const content = m ? (selectedText ?? m.content ?? "") : ""
     if (content) {
       navigator.clipboard?.writeText(content)
       toast("Copied to clipboard")
@@ -488,7 +488,7 @@ function ContextRows({
   onToggleReaction: (id: string, emoji: string) => void
   onReact: (id: string, emoji: string) => void
   onReply?: (id: string) => void
-  onCopy: (id: string) => void
+  onCopy: (id: string, selectedText?: string) => void
   onPin?: (id: string) => void
   onMark?: (id: string) => void
   onCreateThread?: (id: string) => void

@@ -31,7 +31,7 @@ export interface MessageRowProps {
   onPinId?: (id: string) => void
   onMarkId?: (id: string) => void
   onCreateThreadId?: (id: string) => void
-  onCopyId?: (id: string) => void
+  onCopyId?: (id: string, selectedText?: string) => void
   onRetryId?: (id: string) => void
   onDismissId?: (id: string) => void
   onJumpToId?: (id: string) => void
@@ -77,7 +77,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const onPin = useCallback(() => onPinId?.(id), [onPinId, id])
   const onMark = useCallback(() => onMarkId?.(id), [onMarkId, id])
   const onCreateThread = useCallback(() => onCreateThreadId?.(id), [onCreateThreadId, id])
-  const onCopy = useCallback(() => onCopyId?.(id), [onCopyId, id])
+  const onCopy = useCallback((selectedText?: string) => onCopyId?.(id, selectedText), [onCopyId, id])
   const onRetry = useCallback(() => onRetryId?.(id), [onRetryId, id])
   const onDismiss = useCallback(() => onDismissId?.(id), [onDismissId, id])
   const onJumpReply = useCallback(() => { if (replyToId) onJumpToId?.(replyToId) }, [onJumpToId, replyToId])
