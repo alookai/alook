@@ -27,6 +27,8 @@ export const pageRoutes = [
   "/templates",
   "/templates/[id]",
   "/terms",
+  "/tutorials",
+  "/tutorials/[slug]",
 ] as const
 
 export const apiRoutes = [

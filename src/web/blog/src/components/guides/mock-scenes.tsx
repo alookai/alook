@@ -17,7 +17,7 @@ import { defaultTutorialPair, tutorialAgents, type TutorialPair, type TutorialRu
 import { DeferredDemo } from "./deferred-demo";
 import styles from "./guide.module.css";
 
-export const pairingCommand = "npx --yes @alook/daemon@latest daemon start --machine-key <YOUR_MACHINE_KEY>";
+const pairingCommand = "npx --yes @alook/daemon@latest daemon start --machine-key <YOUR_MACHINE_KEY>";
 export const tutorialModel = "provider/model-id";
 const ignore = () => {};
 const machine: CommunityMachineSummary = {

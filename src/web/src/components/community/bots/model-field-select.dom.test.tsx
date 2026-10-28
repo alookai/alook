@@ -19,7 +19,7 @@ describe("ModelField with the real Select", () => {
   it("keeps a controlled preview menu inside its inert container without autofocusing the filter", async () => {
     const host = document.createElement("div");
     host.setAttribute("inert", "");
-    document.body.append(host);
+    document.body.appendChild(host);
     const onChange = vi.fn();
     try {
       const view = render(<ModelField runtime={{ ...runtime, id: "opencode" }} value={null} onChange={onChange} menu={{ open: true, container: host }} />);

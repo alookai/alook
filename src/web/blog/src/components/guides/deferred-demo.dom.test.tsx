@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@/test/react-dom-harness";
-import userEvent from "@testing-library/user-event";
+import { act, render, screen, waitFor, setupUser } from "@/test/react-dom-harness";
 import { DeferredDemo } from "./deferred-demo";
 
 const scene = vi.hoisted(() => ({
@@ -34,7 +33,7 @@ beforeEach(() => {
 
 describe("deferred guide demos", () => {
   it("keeps static content until visible, then supports play, offscreen pause, replay and cleanup", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const view = render(<DeferredDemo scene="connect" label="Connection"><p>Static command</p></DeferredDemo>);
     expect(screen.getByText("Static command")).toBeVisible();
     expect(screen.queryByText(/Illustrative demo/)).not.toBeInTheDocument();
@@ -93,7 +92,7 @@ describe("deferred guide demos", () => {
 
   it("retains the static scene if animation setup fails and permits retry", async () => {
     scene.create.mockImplementationOnce(() => { throw new Error("chunk failed"); });
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<DeferredDemo scene="connect" label="Connection"><p>Static command</p></DeferredDemo>);
     await act(async () => intersect([{ isIntersecting: true, intersectionRatio: 1 }]));
     await user.click(await screen.findByRole("button", { name: "Retry animation" }));
