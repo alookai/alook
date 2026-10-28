@@ -85,6 +85,29 @@ function baseProps(
 }
 
 describe("ComposerView", () => {
+  it("replaces only editor content for a preview and restores the native editor by default", () => {
+    const onSend = vi.fn()
+    const props = baseProps({ showSend: true, sendDisabled: false, onSend })
+    const view = render(createElement(ComposerView, props))
+    expect(view.container.querySelector("[data-editor-content]")).not.toBeNull()
+    const input = view.getByTestId(tid.composerInput)
+    const send = view.getByTestId(tid.composerSend)
+    view.rerender(createElement(ComposerView, {
+      ...props,
+      editorContent: createElement("p", { "data-preview-draft": "" }, "@Milo Review this plan"),
+    }))
+    expect(view.container.querySelector("[data-editor-content]")).toBeNull()
+    expect(view.getByTestId(tid.composerInput)).toBe(input)
+    expect(input.textContent).toBe("@Milo Review this plan")
+    expect(view.getByTestId(tid.composerSend)).toBe(send)
+    expect(view.getByTestId(tid.composerAttach)).not.toBeNull()
+    fireEvent.click(send)
+    expect(onSend).toHaveBeenCalledOnce()
+    view.rerender(createElement(ComposerView, props))
+    expect(view.container.querySelector("[data-preview-draft]")).toBeNull()
+    expect(input.querySelector("[data-editor-content]")).not.toBeNull()
+  })
+
   it.each([
     { name: "native iPhone", native: true, ua: "iPhone", compact: true },
     { name: "native Android", native: true, ua: "Android", compact: true },

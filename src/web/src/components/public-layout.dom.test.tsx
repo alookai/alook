@@ -17,6 +17,8 @@ describe("PublicLayout zone navigation", () => {
   it("classifies only document transitions across Worker ownership", () => {
     expect(isCrossZoneNavigation("/guides#coding-agents", "main")).toBe(true)
     expect(isCrossZoneNavigation("/guides/", "blog")).toBe(false)
+    expect(isCrossZoneNavigation("/tutorials", "main")).toBe(true)
+    expect(isCrossZoneNavigation("/tutorials/codex-and-claude-code", "blog")).toBe(false)
     expect(isCrossZoneNavigation("/guides-other", "main")).toBe(true)
     expect(isCrossZoneNavigation("/blog", "main")).toBe(true)
     expect(isCrossZoneNavigation("/blogger", "main")).toBe(true)

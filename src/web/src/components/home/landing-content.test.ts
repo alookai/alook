@@ -246,6 +246,7 @@ describe("landing content contract", () => {
     expect(BRAND_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(BRAND_DESCRIPTION).toContain("agents you already use")
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
+    expect(LANDING_HERO.subline).toBe("Chat with your team, friends, and agents like Claude Code and Codex in one place. No more relaying messages.")
     expect(LANDING_META_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(LANDING_META_DESCRIPTION).toBe(
       "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team.",
@@ -374,6 +375,8 @@ describe("landing content contract", () => {
     expect(navSource).toContain("MARKETING_SITE_LINK_CLASS_NAME")
     expect(navSource).toContain("MARKETING_SITE_LINK_STYLE")
     expect(footerSource).toContain("MARKETING_SITE_LINKS.map")
+    expect(footerSource).toContain('<a href="/tutorials"')
+    expect(navSource).not.toContain('href="/tutorials"')
     expect(footerSource).toContain("MARKETING_SITE_LINK_CLASS_NAME")
     expect(footerSource).toContain("MARKETING_SITE_LINK_STYLE")
     expect(landingStyles).toContain("--landing-content-max: 1320px")
@@ -522,7 +525,7 @@ describe("landing content contract", () => {
     expect(landingPageSource).toContain("Keep your existing setup.")
     expect(landingPageSource).toContain("styles.ownershipDescription")
     expect(landingPageSource).not.toContain("The runtime and workspace stay on your paired machine")
-    expect(`${landingPageSource} ${landingContentSource.split("export const HOME_FAQS")[0]}`).not.toMatch(/\bplaces?\b/i)
+    expect(`${landingPageSource} ${landingContentSource.split("export const HOME_FAQS")[0]}`.replace(LANDING_HERO.subline, "")).not.toMatch(/\bplaces?\b/i)
     expect(landingPageSource).not.toContain("stay in touch")
     expect(legacyHome).toContain("export function HomePage")
   })

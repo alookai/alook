@@ -8,6 +8,9 @@ import { blogTopics } from "../src/lib/blog/topics";
 import { parseBlogDiscoveryManifest } from "../../src/lib/blog-discovery-manifest";
 import { isDraftBlogPost, readBlogMetadata, type BlogMetadata } from "../src/lib/blog/validate-assets";
 
+import { stepGuides } from "../../src/lib/step-guides";
+import { validateStepGuide } from "./validate-step-guides";
+
 const origin = "https://alook.ai";
 export type RenderedPost = { metadata: BlogMetadata; html: string };
 
@@ -113,6 +116,14 @@ export function validateBlogBuild(blogRoot: string): void {
   const guidesIndex = readFileSync(resolve(serverRoot, "guides.html"), "utf8");
   samePosts("Blog index", articleLinks(mainIndex), mainSlugs);
   samePosts("Guides index", articleLinks(guidesIndex), guideSlugs);
+  const guideDocument = new JSDOM(readFileSync(resolve(serverRoot, "tutorials.html"), "utf8")).window.document;
+  const stepLinks = [...new Set([...guideDocument.querySelectorAll('a[href^="/tutorials/"]')].map((link) => link.getAttribute("href")!.slice(11)))];
+  samePosts("Step guides index", stepLinks, stepGuides.map((guide) => guide.slug));
+  for (const guide of stepGuides) {
+    const html = readFileSync(resolve(serverRoot, `tutorials/${guide.slug}.html`), "utf8");
+    const failures = validateStepGuide(html, guide);
+    if (failures.length) throw new Error(failures.join("\n"));
+  }
   for (const html of [mainIndex, ...posts.map((post) => post.html)]) {
     const doc = new JSDOM(html).window.document;
     for (const link of doc.querySelectorAll<HTMLAnchorElement>('footer a[href], [data-blog-recommendations] a[href]')) {

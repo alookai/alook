@@ -57,6 +57,7 @@ export function LandingFooter() {
             ) : (
               <Link key={link.href} href={link.href} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</Link>
             ))}
+            <a href="/tutorials" className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>Tutorials</a>
           </nav>
         </div>
       </footer>
