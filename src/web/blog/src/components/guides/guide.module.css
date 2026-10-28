@@ -113,6 +113,6 @@
 .mentionMenu { position: absolute; z-index: 5; bottom: 100%; left: 48px; width: 256px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--popover); color: var(--popover-foreground); box-shadow: var(--e2); }
 .messageResult { width: var(--motion-sheet-width, 640px); max-width: 100%; margin-bottom: 16px; }
 
-.titleProduct { display: inline-flex; align-items: center; gap: 0.2em; white-space: nowrap; vertical-align: baseline; }
+.titleProduct { display: inline-flex; align-items: center; gap: 0.1em; margin-inline: 0.12em; white-space: nowrap; vertical-align: baseline; }
 .titleIcon { display: inline-block; width: 0.78em; height: 0.78em; vertical-align: -0.05em; flex-shrink: 0; }
 .titleBrand { font-family: var(--font-brand); font-weight: 900; font-size: 1.1em; line-height: 1; }
