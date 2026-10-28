@@ -16,6 +16,24 @@ const runtime = {
 }
 
 describe("ModelField with the real Select", () => {
+  it("keeps a controlled preview menu inside its inert container without autofocusing the filter", async () => {
+    const host = document.createElement("div");
+    host.setAttribute("inert", "");
+    document.body.append(host);
+    const onChange = vi.fn();
+    try {
+      const view = render(<ModelField runtime={{ ...runtime, id: "opencode" }} value={null} onChange={onChange} menu={{ open: true, container: host }} />);
+      await act(async () => {});
+      expect(host.querySelectorAll('[role="option"]')).toHaveLength(3);
+      expect(host.querySelector('[data-testid="bot-model-filter-input"]')).not.toBe(document.activeElement);
+      expect(onChange).not.toHaveBeenCalled();
+      view.rerender(<ModelField runtime={{ ...runtime, id: "opencode" }} value="gemini-3.1-pro-high" onChange={onChange} menu={{ open: false, container: host }} />);
+      await act(async () => {});
+      expect(screen.getByTestId("bot-model-select")).toHaveTextContent("gemini-3.1-pro-high");
+      expect(onChange).not.toHaveBeenCalled();
+      view.unmount();
+    } finally { host.remove(); }
+  });
   it("notifies discovery only when the actual model popup opens", async () => {
     const onOpenChange = vi.fn()
     render(<ModelField runtime={runtime} value={null} onChange={vi.fn()}

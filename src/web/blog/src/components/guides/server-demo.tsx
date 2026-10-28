@@ -11,6 +11,7 @@ import { MemberIdentityRow } from "@/components/community/members/member-identit
 import { InviteFriendRow } from "@/components/community/social/invite-dialog";
 import type { Server } from "@/lib/community/models/navigation";
 import type { DM } from "@/lib/community/models/people";
+import { defaultTutorialPair, type TutorialPair } from "@/lib/step-guides";
 import { BotListContent } from "./mock-scenes";
 import { DeferredDemo } from "./deferred-demo";
 import styles from "./guide.module.css";
@@ -34,9 +35,9 @@ function useSceneState<T extends object>(initial: T) {
   }, []);
   return { ref, state };
 }
-function CreateServer() {
+function CreateServer({ agents }: { agents: TutorialPair }) {
   const { ref, state } = useSceneState({ name: "" });
-  return <TutorialServerShell><BotListContent count={2} /><div ref={ref} data-server-form><CreateServerDialog onClose={ignore} previewName={state.name} /></div></TutorialServerShell>;
+  return <TutorialServerShell><BotListContent count={2} agents={agents} /><div ref={ref} data-server-form><CreateServerDialog onClose={ignore} previewName={state.name} /></div></TutorialServerShell>;
 }
 function ServerContent({ joined = false }: { joined?: boolean }) {
   return <><ChannelHeader channel="general" kind="text" rightPanel={joined ? "members" : null} onToggle={ignore} />
@@ -49,10 +50,10 @@ function Invite() {
   const { ref, state } = useSceneState({ milo: false, nova: false });
   return <TutorialServerShell server><ServerContent /><div ref={ref} data-invite-form><PrototypeInviteSurface snapshot={{ ...base, inviteOpen: true }} serverName="Studio" inviteLink={inviteLink}>{dms.map((dm, index) => <div key={dm.id} data-invite-recipient={index === 0 ? "milo" : "nova"}><InviteFriendRow friend={{ ...dm, sub: "Your bot" }} tokenReady inviting={false} invited={index === 0 ? state.milo : state.nova} onInvite={ignore} /></div>)}</PrototypeInviteSurface></div></TutorialServerShell>;
 }
-export function ServerDemo() {
+export function ServerDemo({ agents = defaultTutorialPair }: { agents?: TutorialPair }) {
   return <DeferredDemo scene="server" label="Bring them into a server">
-    <div data-demo-frame><TutorialServerShell><BotListContent count={2} /></TutorialServerShell></div>
-    <div data-demo-frame><CreateServer /></div>
+    <div data-demo-frame><TutorialServerShell><BotListContent count={2} agents={agents} /></TutorialServerShell></div>
+    <div data-demo-frame><CreateServer agents={agents} /></div>
     <div data-demo-frame><TutorialServerShell server><ServerContent /></TutorialServerShell></div>
     <div data-demo-frame><Invite /></div>
     <div data-demo-frame><TutorialServerShell server><ServerContent /></TutorialServerShell></div>

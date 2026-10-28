@@ -11,11 +11,14 @@ import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields
 import { BotMachineField } from "@/components/community/bots/bot-machine-field";
 import { Button } from "@/components/ui/button";
 import { SheetHeader, SheetBody, SheetFooter } from "@/components/ui/sheet";
+import { requiresExplicitModel } from "@alook/shared";
 import type { CommunityMachineSummary } from "@alook/shared";
+import { defaultTutorialPair, tutorialAgents, type TutorialPair, type TutorialRuntime } from "@/lib/step-guides";
 import { DeferredDemo } from "./deferred-demo";
 import styles from "./guide.module.css";
 
 export const pairingCommand = "npx --yes @alook/daemon@latest daemon start --machine-key <YOUR_MACHINE_KEY>";
+export const tutorialModel = "provider/model-id";
 const ignore = () => {};
 const machine: CommunityMachineSummary = {
   id: "tutorial-machine", hostname: "studio-mac", displayName: "Studio Mac", platform: "darwin", arch: "arm64", osRelease: "15.6", daemonVersion: "0.1.60",
@@ -45,7 +48,7 @@ function ConnectSheet() {
   </PrototypeSheet></HomeScreen>;
 }
 
-export function ConnectDemo() {
+export function ConnectDemo({ agents = defaultTutorialPair }: { agents?: TutorialPair }) {
   return <DeferredDemo scene="connect" label="Connect your computer">
     <div data-demo-frame><HomeScreen page="Machines"><MachineList /></HomeScreen></div>
     <div data-demo-frame><ConnectSheet /></div>
@@ -53,14 +56,15 @@ export function ConnectDemo() {
       <div className={styles.terminalHeader} data-terminal-header><Terminal size={14} />Terminal · your computer<span className={styles.keycapSlot}><span className={styles.keycap} data-paste-key>⌘ V</span><span className={styles.keycap} data-enter-key>Enter ↵</span></span></div>
       <pre className={styles.command} data-command><span className={styles.prompt}>$ </span><span data-command-text>{pairingCommand}</span><span data-terminal-newline>{"\n"}</span><span className={styles.textCaret} data-terminal-caret /></pre>
     </div></div>
-    <div data-demo-frame><HomeScreen page="Machines"><div className="flex flex-1 flex-col gap-6 p-6"><div className="text-xl font-medium">Machines</div><MachineCard machine={machine} onDelete={ignore} onReconnect={ignore} /></div></HomeScreen></div>
+    <div data-demo-frame><HomeScreen page="Machines"><div className="flex flex-1 flex-col gap-6 p-6"><div className="text-xl font-medium">Machines</div><MachineCard machine={{ ...machine, availableRuntimes: agents.map(id => ({ id, status: "healthy" })) }} onDelete={ignore} onReconnect={ignore} /></div></HomeScreen></div>
     <Pointer />
   </DeferredDemo>;
 }
 
-function BotForm({ runtime, count }: { runtime: "codex" | "claude"; count: number }) {
+function BotForm({ runtime, count, agents }: { runtime: TutorialRuntime; count: number; agents: TutorialPair }) {
   const root = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState({ name: "", runtime: "codex" });
+  const [state, setState] = useState<{ name: string; runtime: TutorialRuntime; model: string | null; modelOpen: boolean }>({ name: "", runtime: agents[0], model: null, modelOpen: false });
+  const [menuContainer, setMenuContainer] = useState<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const element = root.current!;
     const update = (event: Event) => setState((current) => ({ ...current, ...(event as CustomEvent).detail }));
@@ -69,29 +73,30 @@ function BotForm({ runtime, count }: { runtime: "codex" | "claude"; count: numbe
     element.querySelector('[data-testid="bot-machine-picker"] label')?.setAttribute("data-machine", "");
     return () => element.removeEventListener("tutorial-form", update);
   }, []);
-  return <HomeScreen page="My Bots"><BotListContent count={count} /><PrototypeSheet label="Create a bot">
+  return <HomeScreen page="My Bots"><BotListContent count={count} agents={agents} /><PrototypeSheet label="Create a bot">
     <SheetHeader><div className="text-lg font-semibold">Create a bot</div></SheetHeader>
     <SheetBody><div ref={root} data-bot-form className="flex flex-col gap-6">
       <BotFormFields avatarDraft={{ kind: "procedural", image: `avatar:beam:${runtime}` }} onAvatarChange={ignore} name={state.name} setName={ignore} onShuffle={ignore} description="" setDescription={ignore} />
-      <BotMachineField machines={[machine]} machineId={machine.id} onChange={ignore} radioName={`tutorial-machine-${runtime}`} />
-      <BotRuntimeFields options={machine.availableRuntimes.map(({ id }) => ({ id, unhealthy: false }))} runtime={state.runtime} model={null} onRuntimeChange={ignore} onModelChange={ignore} radioName={`tutorial-runtime-${runtime}`} motionTargetPrefix="tutorial-runtime" />
+      <BotMachineField machines={[{ ...machine, availableRuntimes: agents.map(id => ({ id, status: "healthy" })) }]} machineId={machine.id} onChange={ignore} radioName={`tutorial-machine-${runtime}`} />
+      <BotRuntimeFields options={agents.map(id => ({ id, unhealthy: false, ...(requiresExplicitModel(id) ? { reasoning: { updateMode: "live_next_turn" as const, models: [{ id: tutorialModel, displayName: "Example model", supportedReasoningEfforts: [] }] } } : {}) }))} runtime={state.runtime} model={state.model} modelMenu={{ open: state.modelOpen, container: menuContainer }} onRuntimeChange={ignore} onModelChange={ignore} radioName={`tutorial-runtime-${runtime}`} motionTargetPrefix="tutorial-runtime" />
+      <div ref={setMenuContainer} data-model-menu />
     </div></SheetBody>
-    <SheetFooter><Button variant="outline">Cancel</Button><Button data-create-submit>Create bot</Button></SheetFooter>
+    <SheetFooter><Button variant="outline">Cancel</Button><Button data-create-submit disabled={!state.name || (requiresExplicitModel(state.runtime) && !state.model)}>Create bot</Button></SheetFooter>
   </PrototypeSheet></HomeScreen>;
 }
 
-export function BotListContent({ count }: { count: number }) {
+export function BotListContent({ count, agents = defaultTutorialPair }: { count: number; agents?: TutorialPair }) {
   return <div className="flex flex-1 flex-col gap-6 p-6"><header className="flex items-center justify-between"><div className="text-xl font-medium">My Bots</div><Button data-bot-entry>Create a bot</Button></header>
-    {count > 0 && <BotCard name="Milo" runtime="codex" model={null} status="Online" />}{count > 1 && <BotCard name="Nova" runtime="claude" model={null} status="Online" />}
+    {count > 0 && <BotCard name="Milo" runtime={agents[0]} model={requiresExplicitModel(agents[0]) ? tutorialModel : null} status="Online" />}{count > 1 && <BotCard name="Nova" runtime={agents[1]} model={requiresExplicitModel(agents[1]) ? tutorialModel : null} status="Online" />}
   </div>;
 }
 
-export function BotsDemo({ runtime }: { runtime: "codex" | "claude" }) {
-  const count = runtime === "codex" ? 0 : 1;
-  return <DeferredDemo scene="bots" label={runtime === "codex" ? "Create your Codex bot" : "Create your Claude Code bot"}>
-    <div data-demo-frame data-bot-runtime={runtime}><HomeScreen page="My Bots"><BotListContent count={count} /></HomeScreen></div>
-    <div data-demo-frame><BotForm runtime={runtime} count={count} /></div>
-    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={count + 1} /></HomeScreen></div>
+export function BotsDemo({ runtime, agents = defaultTutorialPair }: { runtime: TutorialRuntime; agents?: TutorialPair }) {
+  const count = runtime === agents[0] ? 0 : 1;
+  return <DeferredDemo scene="bots" label={`Create your ${tutorialAgents[runtime].name} bot`}>
+    <div data-demo-frame data-bot-runtime={runtime} data-bot-name={count === 0 ? "Milo" : "Nova"} data-initial-runtime={agents[0]}><HomeScreen page="My Bots"><BotListContent count={count} agents={agents} /></HomeScreen></div>
+    <div data-demo-frame data-motion-center-y={requiresExplicitModel(runtime) ? "" : undefined}><BotForm runtime={runtime} count={count} agents={agents} /></div>
+    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={count + 1} agents={agents} /></HomeScreen></div>
     <Pointer />
   </DeferredDemo>;
 }

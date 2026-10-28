@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@/test/react-dom-harness";
+import { stepGuides } from "@/lib/step-guides";
 import { ConnectDemo, BotsDemo } from "../mock-scenes";
 import { createScene as connectScene } from "./connect";
 import { ServerDemo } from "../server-demo";
@@ -32,22 +33,42 @@ describe("tutorial action sequences", () => {
       expect(root.querySelector<HTMLElement>("[data-demo-pointer]")!.style.visibility).not.toBe("hidden");
     } finally { timeline.kill(); }
   });
-  it.each([ ["codex", "Milo"], ["claude", "Nova"] ] as const)("independently creates %s and resets its form on replay", (runtime, name) => {
-    render(<BotsDemo runtime={runtime} />);
+  it.each(stepGuides.flatMap(guide => guide.agents.map((runtime, index) => ({ slug: guide.slug, agents: guide.agents, runtime, name: index === 0 ? "Milo" : "Nova", index }))))("$slug creates $name with $runtime and resets on replay", async ({ agents, runtime, name, index }) => {
+    render(<BotsDemo runtime={runtime} agents={agents} />);
     const root = screen.getByTestId("scene");
     const forms = root.querySelectorAll('[data-bot-form]');
     expect(forms).toHaveLength(1);
+    expect(Array.from(forms[0].querySelectorAll('[data-testid="bot-provider-picker"] input')).map(node => (node as HTMLInputElement).value)).toEqual(agents);
+    const result = root.querySelectorAll("[data-demo-frame]")[2];
+    expect(result.textContent).toContain("Milo");
+    expect(result.textContent).toContain(agents[0]);
+    if (index === 1) {
+      expect(result.textContent).toContain("Nova");
+      expect(result.textContent).toContain(agents[1]);
+    }
     expect(root.querySelectorAll('[data-demo-frame]')).toHaveLength(3);
     const timeline = botScene(root, vi.fn());
     try {
-      act(() => { timeline.time(14, false); });
+      if (runtime === "opencode") {
+        await act(async () => { timeline.time(12.9, false); });
+        expect(forms[0].querySelector('[data-create-submit]')).toBeNull();
+        expect(root.querySelector('[data-create-submit]')).toBeDisabled();
+        await act(async () => { timeline.time(13.1, false); });
+        expect(forms[0].querySelector('[data-model-menu] [role="option"]')).not.toBeNull();
+        await act(async () => { timeline.time(16.1, false); });
+        expect(forms[0].querySelector('[data-testid="bot-model-select"]')).toHaveTextContent("provider/model-id");
+        expect(root.querySelector('[data-create-submit]')).toBeEnabled();
+      }
+      await act(async () => { timeline.time(runtime === "opencode" ? 21 : 14, false); });
       expect(root.dataset.demoAction).toBe(`${runtime}-created`);
       expect(forms[0].querySelector('input[placeholder="Name your bot"]')).toHaveValue(name);
       expect(forms[0].querySelector(`input[value="${runtime}"]`)).toBeChecked();
       act(() => { timeline.restart().pause().time(0.1, false); });
       expect(root.dataset.demoAction).toBe(`open-create-${runtime}`);
       expect(forms[0].querySelector('input[placeholder="Name your bot"]')).toHaveValue("");
-      expect(forms[0].querySelector('input[value="codex"]')).toBeChecked();
+      expect(forms[0].querySelector(`input[value="${agents[0]}"]`)).toBeChecked();
+      expect(root.querySelector('[data-create-submit]')).toBeDisabled();
+      expect(forms[0].querySelector('[data-model-menu] [role="option"]')).toBeNull();
     } finally { timeline.kill(); }
   });
 });
