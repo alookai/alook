@@ -308,6 +308,7 @@ export function ForumView({
                   key={p.id}
                   role="button"
                   tabIndex={0}
+                  data-page-swipe-navigation-row=""
                   data-msg-id={p.openerMessageId || undefined}
                   data-testid={tid.forumThreadCard(p.id)}
                   onClick={() => onOpenPost(p.id)}

@@ -54,6 +54,7 @@ export const apiRoutes = [
   "/api/community/bots/creation-requests",
   "/api/community/bots/creation-requests/[id]",
   "/api/community/bots/me/nap",
+  "/api/community/channel-ref",
   "/api/community/channels",
   "/api/community/channels/[id]",
   "/api/community/channels/[id]/attachments",

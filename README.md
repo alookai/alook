@@ -86,6 +86,8 @@ Alook connects to the coding agents already on your machine. It does not supply 
 | [Cursor](https://cursor.com/cli) | Supported |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Supported |
 | [Pi](https://pi.dev/) | Supported |
+| [Grok](https://x.ai/build) | Supported |
+| [Antigravity](https://antigravity.google/product/antigravity-cli) | Supported |
 
 
 

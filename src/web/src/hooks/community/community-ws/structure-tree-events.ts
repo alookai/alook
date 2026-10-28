@@ -14,6 +14,7 @@ import type {
   CommunityServerDelete,
   CommunityServerUpdate,
 } from "@alook/shared"
+import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -35,6 +36,7 @@ import {
   invalidateChannelMessages,
   invalidateForumSidebar,
   invalidateChannelRefDirectory,
+  invalidateChannelRefTargets,
   invalidateInvites,
   invalidateServerDetail,
   invalidateServersList,
@@ -42,7 +44,8 @@ import {
 } from "./invalidation-projections"
 
 export function handleChildChannelCreate(event: CommunityChildChannelCreate, { queryClient, projection }: StructureTreeEventContext) {
-  const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")
+  invalidateChannelRefTargets(projection)
+  const parent = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && supportsSidebarThreads(row.type))
   if (parent?.serverId) invalidateForumSidebar(projection, parent.serverId)
   projection.fence("threads", { queryKey: communityKeys.threads(event.parentChannelId) })
   if (event.parentMessageId) invalidateChannelMessages(projection, event.parentChannelId)
@@ -54,16 +57,17 @@ export function handleChildChannelUpdate(
 ) {
   invalidateThreads(projection, event.parentChannelId)
   const changes = event.changes
+  if (changes.name !== undefined || changes.archived !== undefined || changes.tags !== undefined) invalidateChannelRefTargets(projection)
   if (changes.tags !== undefined) {
     projection.fence("threads", {
       queryKey: communityKeys.threads(event.parentChannelId),
     })
     invalidateChannelMessages(projection, event.parentChannelId)
-    projection.invalidate("forum-post-tags", {
+    projection.fence("forum-post-tags", {
       queryKey: communityKeys.forumTags(event.parentChannelId),
     })
   }
-  const sidebarServerId = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && row.type === "forum")?.serverId
+  const sidebarServerId = getCanonicalCommunityChannels(queryClient).find(row => row.id === event.parentChannelId && supportsSidebarThreads(row.type))?.serverId
   if (
     sidebarServerId &&
     isForumSidebarParent(queryClient, sidebarServerId, event.parentChannelId)

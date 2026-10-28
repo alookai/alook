@@ -8,7 +8,7 @@ import { DbProvider, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type 
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { serverRailTopOrder, sortServerRailRows, notifLevelDisplay } from "@alook/shared"
-import { projectForumSidebar } from "@/lib/community/forum-sidebar"
+import { projectForumSidebar, supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { avatarInitial } from "@/lib/community/avatar"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import type { DM } from "@/lib/community/models/people"
@@ -513,7 +513,7 @@ export function useServerSidebarProjection(
     if (serverNowMs === null || !ready || !registry || !servers || !channels || !channelMemberships || !messages) {
       return { server, projection: undefined, status: failed ? "error" as const : "pending" as const, needsRead: false }
     }
-    const complete = !!server && (!channels.some(row => row.type === "forum")
+    const complete = !!server && (!channels.some(row => supportsSidebarThreads(row.type))
       || !!window && forumSidebarWindowComplete(window, { servers, channels, channelMemberships, messages }, registry.accountId, serverId, retainId, serverNowMs))
     const projection = projectForumSidebar(channels, channelMemberships, messages, registry.accountId, serverId, retainId, serverNowMs, attention)
     return { server, projection, status: complete ? "ready" as const : failed ? "error" as const : "pending" as const,

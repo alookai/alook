@@ -145,12 +145,12 @@ export function createMessageActions({
         toastApiError(error, "Failed to create thread", original)
       }
     },
-    onCopy: async (id) => {
+    onCopy: async (id, selectedText) => {
       const original = captureView()
       original()
       const message = getMessage(id)
       if (!message) return
-      const content = message.content ?? ""
+      const content = selectedText ?? message.content ?? ""
       if (!content) return
       if (!navigator.clipboard) return
       try { await navigator.clipboard.writeText(content); original(); toast("Copied to clipboard") }

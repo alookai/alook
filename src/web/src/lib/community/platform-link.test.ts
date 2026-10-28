@@ -3,6 +3,9 @@ import { matchPlatformLink } from "./platform-link"
 
 describe("matchPlatformLink", () => {
   it.each([
+    ["mailto:hello@example.com", "email", "Email"],
+    ["MAILTO:hello+team@example.com?subject=Hello&body=Hi%20there", "email", "Email"],
+    ["mailto:?subject=Hello", "email", "Email"],
     ["https://alook.ai/c/invite/abcdef", "alook", "Alook"],
     ["https://www.alook.ai/c/invite/abcdef", "alook", "Alook"],
     ["http://localhost:3000/c/me", "local", "Local"],
@@ -59,6 +62,8 @@ describe("matchPlatformLink", () => {
     "https://127.0.0.1.evil.example/c/me",
     "https://notlinear.app/alook/issue/ALO-123",
     "https://example.com/story",
+    "https://example.com/hello@example.com",
+    "tel:+15555550100",
     "ftp://github.com/alookai/alook",
     "/c/invite/abcdef",
     "not a URL",

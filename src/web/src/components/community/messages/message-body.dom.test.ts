@@ -16,6 +16,26 @@ function MessageBody(props: Omit<React.ComponentProps<typeof MessageBodyView>, "
 const componentDirectory = dirname(fileURLToPath(import.meta.url))
 
 describe("MessageBody — plain URL rendering", () => {
+  it.each([
+    ["Contact hello@example.com", "hello@example.com", "mailto:hello@example.com"],
+    ["<hello@example.com>", "hello@example.com", "mailto:hello@example.com"],
+    ["[Email the team](mailto:hello+team@example.com?subject=Hello&body=Hi%20there)", "Email the team", "mailto:hello+team@example.com?subject=Hello&body=Hi%20there"],
+  ])("renders an email badge without rewriting the link: %s", (text, label, href) => {
+    const renderer = render(React.createElement(MessageBody, { text }))
+    const link = renderer.getByRole("link", { name: `Email: ${href}` })
+    expect(link).toHaveAttribute("href", href)
+    expect(link).toHaveAttribute("data-platform-link", "email")
+    expect(link).toHaveClass("platform-link-badge")
+    expect(link).toHaveTextContent(label)
+    expect(link.querySelector("svg.lucide-mail")).toHaveAttribute("aria-hidden", "true")
+  })
+
+  it("leaves email addresses inside inline code as code", () => {
+    const renderer = render(React.createElement(MessageBody, { text: "`hello@example.com`" }))
+    expect(renderer.container.querySelector("a")).toBeNull()
+    expect(renderer.container.querySelector("code")).toHaveTextContent("hello@example.com")
+  })
+
   it("renders an unsupported HTTPS URL as a generic clickable link badge", () => {
     let renderer: ReturnType<typeof render>
     act(() => {

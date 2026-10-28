@@ -35,7 +35,7 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   mocks.load.mockClear()
   publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: { ...server, categories: [{ id: "category", name: grouped ? "Group" : "", private: 0, channels: [{ id: "channel", name: "Target channel", active: false, unread: true, muted: false, type: "text" }] }] } }, proof })
   client.setQueryData(communityKeys.server(server.id), server.id)
-  client.setQueryData(communityKeys.forumSidebarThreads(server.id), { threads: [], verifiedEpoch: 0, serverNow: new Date().toISOString(), serverClockOffsetMs: 0 })
+  client.setQueryData(communityKeys.forumSidebarThreads(server.id), { threads: [], verifiedEpoch: 0, serverNow: new Date().toISOString(), serverClockOffsetMs: 0, window: { version: 1, accountId: registry.accountId, serverId: server.id, parents: ["channel"], base: [], retained: null } })
   const token = createOwnerServerDeleteRouteToken(client)
   function Harness({ frame }: { frame: CommunityCommittedFrame }) {
     const navigation = useCommunityNavigationController(frame)

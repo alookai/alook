@@ -8,6 +8,11 @@ export function invalidateChannelRefDirectory(
     queryKey: communityKeys.channelRefDirectory(),
     exact: true,
   })
+  invalidateChannelRefTargets(projection)
+}
+
+export function invalidateChannelRefTargets(projection: CommunityWsProjectionTransaction) {
+  projection.fence("channel-ref-targets", { queryKey: communityKeys.channelRefTargets() })
 }
 
 export function invalidateServerDetail(

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { projectForumSidebar } from "./forum-sidebar"
+import { projectForumSidebar, supportsSidebarThreads } from "./forum-sidebar"
 import type { CommunityCollectionRows } from "@/lib/community-db/schema"
 
 const referenceSchema = z.object({ id: z.string().min(1), parentChannelId: z.string().min(1), parentMessageId: z.string().min(1) })
@@ -41,8 +41,8 @@ export function forumSidebarWindowComplete(
 ) {
   if (window.accountId !== accountId || window.serverId !== serverId
     || !rows.servers.some(row => row.id === serverId && row.detailComplete)) return false
-  const parents = rows.channels.filter(row => row.serverId === serverId && row.type === "forum")
-  if (window.parents.some(id => !parents.some(row => row.id === id))) return false
+  const parents = rows.channels.filter(row => row.serverId === serverId && supportsSidebarThreads(row.type))
+  if (window.parents.some(id => !parents.some(row => row.id === id)) || parents.some(row => !window.parents.includes(row.id))) return false
   const visible = projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages, accountId, serverId,
     retainId ?? (window.retained?.disposition === "eligible" ? window.retained.id : null), serverNowMs).threads
   const references = [...window.base, ...(window.retained?.disposition === "eligible" ? [window.retained.reference] : []), ...visible]
