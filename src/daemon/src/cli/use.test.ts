@@ -75,6 +75,29 @@ describe("use automation CLI", () => {
 })
 
 describe("Automation CLI input and response recovery", () => {
+  it("keeps parent and child help and argument errors silent for the outer JSON handler", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      for (const [args, code] of [
+        [["use", "--help"], "commander.helpDisplayed"],
+        [["use", "--unknown"], "commander.unknownOption"],
+        [["use", "machine", "--help"], "commander.helpDisplayed"],
+        [["use", "machine", "--unknown"], "commander.unknownOption"],
+      ] as const) {
+        const { run, output } = program()
+        await expect(run([...args])).rejects.toMatchObject({ code })
+        expect(output).not.toHaveBeenCalled()
+      }
+      expect(stdout).not.toHaveBeenCalled()
+      expect(stderr).not.toHaveBeenCalled()
+      expect(fetch).not.toHaveBeenCalled()
+    } finally {
+      stdout.mockRestore()
+      stderr.mockRestore()
+    }
+  })
+
   it("reads a private code file before the environment and rejects oversized files", async () => {
     const dir = await mkdtemp(join(tmpdir(), "alook-use-"))
     const file = join(dir, "code")
