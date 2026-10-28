@@ -47,9 +47,10 @@ describe("landing identity profile preview", () => {
       'data-testid="landing-footer-navigation"',
     ])
     expect(footer).toContain('aria-label="Footer navigation"')
-    expect(footer?.match(/href="\/(?:pricing|blog)"/g)).toEqual([
+    expect(footer?.match(/href="\/(?:pricing|blog|tutorials)"/g)).toEqual([
       'href="/pricing"',
       'href="/blog"',
+      'href="/tutorials"',
     ])
     expect(footer).toContain('href="https://github.com/alookai/alook"')
     expect(footer).toContain('href="https://discord.com/invite/24PHyEHU3M"')

@@ -136,3 +136,14 @@ export async function resolveBotActor(
     },
   }
 }
+
+export async function resolveOwnedBotActor(db: Database, botId: string, ownerId: string, options: ResolveBotActorOptions = {}) {
+  const lookup = await lookupOr503("getBotOwnedBy", () => queries.communityBot.getBotOwnedBy(db, botId, ownerId))
+  if (!lookup.ok) return { kind: "error" as const, response: lookup.response }
+  const bot = lookup.value
+  if (!bot) return { kind: "error" as const, response: NextResponse.json({ error: "bot not found" }, { status: 404 }) }
+  if (!bot.machineId || !bot.isActive && !options.allowInactive) {
+    return { kind: "error" as const, response: NextResponse.json({ error: "bot is inactive or has no machine binding" }, { status: 403 }) }
+  }
+  return { kind: "bot" as const, actor: { botUserId: bot.id, ownerUserId: ownerId, machineId: bot.machineId, isActive: bot.isActive } }
+}

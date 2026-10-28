@@ -1,3 +1,4 @@
+export const COMMUNITY_BOT_ACTOR_HEADER = "X-Alook-Bot-Id"
 export const COMMUNITY_CONTRACT_HEADER = "X-Alook-Community-Contract"
 export const COMMUNITY_CONTRACT_VERSION = 2 as const
 export const COMMUNITY_RESOURCE_CONTRACT_VERSION = 3 as const

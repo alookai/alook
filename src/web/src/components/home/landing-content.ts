@@ -23,7 +23,7 @@ export const LANDING_HERO = {
   headlineLead: "Multi-Agent Collaboration",
   headlineTail: "for Team and Friends",
   subline:
-    "Bring Claude Code and Codex agents into shared chats. Work with your team without relaying every message.",
+    "Chat with your team, friends, and agents like Claude Code and Codex in one place. No more relaying messages.",
   loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
   secondaryCta: "View on GitHub",

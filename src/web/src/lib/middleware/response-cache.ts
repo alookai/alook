@@ -1,4 +1,4 @@
-import { COMMUNITY_CONTRACT_HEADER, requestedCommunityContract, communityReadSchemas, requestsCommunityContract } from "@alook/shared"
+import { COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, requestedCommunityContract, communityReadSchemas, requestsCommunityContract } from "@alook/shared"
 
 export function rejectUnknownCommunityContract(request: Request): Response | null {
   const version = request.headers.get(COMMUNITY_CONTRACT_HEADER)
@@ -35,7 +35,7 @@ export async function protectCommunityJsonResponse(request: Request, response: R
   const vary = result.headers.get("Vary")?.split(",").map((field) => field.trim()).filter(Boolean) ?? []
   const fields = new Set(vary.map((field) => field.toLowerCase()))
   if (!fields.has("*")) {
-    const missing = [COMMUNITY_CONTRACT_HEADER, "Cookie", "Authorization"].filter((field) => !fields.has(field.toLowerCase()))
+    const missing = [COMMUNITY_CONTRACT_HEADER, "Cookie", "Authorization", COMMUNITY_BOT_ACTOR_HEADER].filter((field) => !fields.has(field.toLowerCase()))
     result.headers.set("Vary", [...vary, ...missing].join(", "))
   }
   return result
@@ -47,7 +47,7 @@ export function varyPrivateResponseByCredentials(response: Response): Response {
   const vary = response.headers.get("Vary")?.split(",").map((field) => field.trim()).filter(Boolean) ?? []
   const fields = new Set(vary.map((field) => field.toLowerCase()))
   if (fields.has("*")) return response
-  const missing = ["Cookie", "Authorization"].filter((field) => !fields.has(field.toLowerCase()))
+  const missing = ["Cookie", "Authorization", COMMUNITY_BOT_ACTOR_HEADER].filter((field) => !fields.has(field.toLowerCase()))
   if (missing.length === 0) return response
   const result = new Response(response.body, response)
   result.headers.set("Vary", [...vary, ...missing].join(", "))

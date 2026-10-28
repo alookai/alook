@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { NotFoundContent } from "@/components/not-found-content";
+import { DeferredBlogNotFound } from "@blog/components/deferred-blog-failure";
 
 export const metadata: Metadata = {
 	title: "Page Not Found",
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function BlogNotFound() {
-	return <NotFoundContent hardHomeNavigation />;
+	return <DeferredBlogNotFound />;
 }

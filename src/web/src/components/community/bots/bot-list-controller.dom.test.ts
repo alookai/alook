@@ -314,6 +314,32 @@ describe("useBotListController", () => {
     }
   })
 
+  it("opens fresh membership views and resolves the selected bot from current data", () => {
+    mocks.target = null
+    const first = bot("b1", "mac1")
+    const second = bot("b2", "mac2")
+    mocks.bots = [first, second]
+    const renderer = render()
+    expect(latest.membershipsOpen).toBe(false)
+    expect(latest.membershipBot).toBeNull()
+    const generation = latest.membershipsGeneration
+    act(() => latest.openMemberships(first))
+    expect(latest.membershipsOpen).toBe(true)
+    expect(latest.membershipBot?.id).toBe(first.id)
+    expect(latest.membershipsGeneration).toBe(generation + 1)
+    act(() => latest.setMembershipsOpen(false))
+    expect(latest.membershipsOpen).toBe(false)
+    act(() => latest.openMemberships(second))
+    expect(latest.membershipBot?.id).toBe(second.id)
+    expect(latest.membershipsGeneration).toBe(generation + 2)
+    mocks.bots = [first, { ...second, name: "Renamed bot" }]
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.membershipBot?.name).toBe("Renamed bot")
+    mocks.bots = [first]
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.membershipBot).toBeNull()
+  })
+
   it("retains non-URL state and both ref-backed lifecycles across loading/data rerenders", () => {
     mocks.target = null
     const renderer = render()
@@ -1032,7 +1058,7 @@ describe("useBotListController", () => {
     select()
     await act(async () => { await latest.resetConfirmedBot() })
     expect(mocks.resetBot).toHaveBeenCalledWith({ id: "reset-me", assertActive: expect.any(Function) })
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("Session reset.")
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Restart requested.")
     expect(latest.confirmReset).toBeNull()
 
     for (const error of [
@@ -1044,7 +1070,7 @@ describe("useBotListController", () => {
       mocks.resetBot.mockRejectedValueOnce(error)
       select()
       await act(async () => { await latest.resetConfirmedBot() })
-      expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Couldn't reset the bot's session")
+      expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Couldn't restart the bot")
       expect(mocks.toastError).not.toHaveBeenCalled()
       expect(latest.confirmReset).toBeNull()
     }
@@ -1054,7 +1080,7 @@ describe("useBotListController", () => {
     select()
     await act(async () => { await latest.resetConfirmedBot() })
     expect(mocks.toastError).toHaveBeenCalledWith(
-      "Bot is offline — bring it online before resetting.",
+      "Bot is offline — bring it online before restarting.",
     )
     expect(mocks.toastApiError).not.toHaveBeenCalled()
     expect(latest.confirmReset).toBeNull()
@@ -1069,14 +1095,14 @@ describe("useBotListController", () => {
     select()
     await act(async () => { await latest.resetConfirmedMachine() })
     expect(mocks.resetMachine).toHaveBeenCalledWith({ id: "mac1", assertActive: expect.any(Function) })
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched reset to 1 agent on One.")
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched restart to 1 agent on One.")
     expect(latest.confirmResetMachine).toBeNull()
 
     vi.clearAllMocks()
     mocks.resetMachine.mockResolvedValueOnce({ dispatched: 3 })
     select()
     await act(async () => { await latest.resetConfirmedMachine() })
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched reset to 3 agents on One.")
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched restart to 3 agents on One.")
     expect(latest.confirmResetMachine).toBeNull()
 
     for (const generic of [
@@ -1089,7 +1115,7 @@ describe("useBotListController", () => {
       await act(async () => { await latest.resetConfirmedMachine() })
       expect(mocks.toastApiError).toHaveBeenCalledWith(
         generic,
-        "Couldn't reset the machine's agents",
+        "Couldn't restart the machine's agents",
       )
       expect(mocks.toastError).not.toHaveBeenCalled()
       expect(latest.confirmResetMachine).toBeNull()
@@ -1100,7 +1126,7 @@ describe("useBotListController", () => {
     select()
     await act(async () => { await latest.resetConfirmedMachine() })
     expect(mocks.toastError).toHaveBeenCalledWith(
-      "One is offline — bring it online before resetting.",
+      "One is offline — bring it online before restarting.",
     )
     expect(mocks.toastApiError).not.toHaveBeenCalled()
     expect(latest.confirmResetMachine).toBeNull()

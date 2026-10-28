@@ -25,6 +25,7 @@ export function BlogFooter() {
           <ZoneLink href="/templates" zone="blog">Templates</ZoneLink>
           <ZoneLink href="/blog" zone="blog">Blog</ZoneLink>
           <ZoneLink href="/guides" zone="blog">Guides</ZoneLink>
+          <ZoneLink href="/tutorials" zone="blog">Tutorials</ZoneLink>
           <ZoneLink href="/llms.txt" zone="blog">llms.txt</ZoneLink>
           <ZoneLink href="/privacy" zone="blog">Privacy</ZoneLink>
         </nav>

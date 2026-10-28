@@ -44,6 +44,7 @@ it("keeps existing mutation owners inventoried and semantic variants on the whit
 
 const mutationCoverage = [
   { file: "src/web/src/hooks/community/use-automation.ts", owner: "useAutomation", action: "automation.access_code.command" },
+  { "file": "src/web/src/hooks/community/use-bot-memberships.ts", "owner": "useBotMemberships", "action": "community.command" },
   { "file": "src/web/src/hooks/community/mutations/bot-creation.ts", "owner": "useBotCreationDecision", "action": "bot.creation.decision" },
   {
     "file": "src/web/src/app/(public-community)/c/invite/[token]/invite-accept-client.tsx",

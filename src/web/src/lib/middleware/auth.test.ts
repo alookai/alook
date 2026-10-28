@@ -178,7 +178,7 @@ describe("withAuth middleware", () => {
       ...(vary ? { Vary: vary } : {}),
     } });
     const res = await withAuth(async () => original)(new NextRequest("http://localhost/media", { headers: { Cookie: "viewer=A" } }));
-    expect(res.headers.get("Vary")).toBe(expected);
+    expect(res.headers.get("Vary")).toBe(expected === "*" ? expected : `${expected}, X-Alook-Bot-Id`);
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
     expect(res.headers.get("ETag")).toBe('"media-v1"');
     expect(res.headers.get("Set-Cookie")).toContain("viewer=refreshed");
@@ -192,7 +192,7 @@ describe("withAuth middleware", () => {
       status, headers: { "Cache-Control": "private, max-age=31536000, immutable", Vary: "Accept-Encoding" },
     }))(new NextRequest("http://localhost/media", { headers: { Authorization: "Bearer al_test" } }));
     expect(res.status).toBe(status);
-    expect(res.headers.get("Vary")).toBe("Accept-Encoding, Cookie, Authorization");
+    expect(res.headers.get("Vary")).toBe("Accept-Encoding, Cookie, Authorization, X-Alook-Bot-Id");
   });
 
   it("preserves asynchronous machine handler error propagation", async () => {
@@ -837,3 +837,13 @@ describe("warmMachineTokenCache", () => {
     await expect(warmMachineTokenCache(null, "al_x", row)).resolves.toBeUndefined();
   });
 });
+
+
+describe("human-only bot-selection rejection", () => {
+  it.each([withAuth, withCookieHumanAuth, withOptionalAuth])("rejects bot selection before a human-only handler can mutate the owner (%#)", async (wrap) => {
+    const handler = vi.fn(async () => NextResponse.json({ ok: true }))
+    const response = await wrap(handler)(new NextRequest("http://localhost/api/community/bots", { headers: { "X-Alook-Bot-Id": "bot_1" }, method: "POST" }))
+    expect(response.status).toBe(403)
+    expect(handler).not.toHaveBeenCalled()
+  })
+})

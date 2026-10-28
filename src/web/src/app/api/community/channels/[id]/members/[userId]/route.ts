@@ -92,4 +92,4 @@ export const DELETE = withCommunityActor(async (req: NextRequest, ctx) => {
 
 
   return new Response(null, { status: 204 })
-})
+}, { allowInactiveBot: true })

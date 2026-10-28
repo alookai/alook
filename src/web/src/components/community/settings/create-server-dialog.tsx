@@ -59,11 +59,14 @@ function playNameImpact(
 
 // The rail's plus button is an explicit create action. Invite links already
 // own the join journey, so this dialog stays single-purpose and name-first.
-export function CreateServerDialog({ onClose, onCreateServer }: {
+export function CreateServerDialog({ onClose, onCreateServer, previewName }: {
   onClose: () => void
+  /** Controlled, inert walkthrough state; no portal or focus capture. */
+  previewName?: string
   onCreateServer?: (name: string, icon?: File) => void
 }) {
-  const [name, setName] = useAtom(useCreateAtom(""))
+  const [draftName, setName] = useAtom(useCreateAtom(""))
+  const name = previewName ?? draftName
   const [iconFile, setIconFile] = useAtom(useCreateAtom<File | null>(null))
   const [iconPreview, setIconPreview] = useAtom(useCreateAtom<string | null>(null))
   const [pendingCropSrc, setPendingCropSrc] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
@@ -109,6 +112,7 @@ export function CreateServerDialog({ onClose, onCreateServer }: {
   return (
     <>
       <CreateDialogShell
+        preview={previewName !== undefined}
         onClose={onClose}
         title="Create a server"
         footer={(
@@ -165,7 +169,7 @@ export function CreateServerDialog({ onClose, onCreateServer }: {
                   if (e.key === "Enter" && !e.nativeEvent.isComposing) submit()
                 }}
                 placeholder="My community"
-                autoFocus
+                autoFocus={previewName === undefined}
                 aria-label="Server name"
                 data-testid={tid.createServerName}
                 className="w-full border-0 bg-transparent p-0 text-[26px] font-medium leading-tight tracking-tight shadow-none outline-none placeholder:font-normal placeholder:text-muted-foreground/35 focus-visible:ring-0"

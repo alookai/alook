@@ -261,7 +261,7 @@ function ChannelRefRow({
   )
 }
 
-function MentionRow({
+export function MentionRow({
   item,
   selected,
   showMembersHeader,
