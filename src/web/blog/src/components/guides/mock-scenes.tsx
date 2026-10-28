@@ -10,7 +10,6 @@ import { BotFormFields } from "@/components/community/bots/bot-form-fields";
 import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields";
 import { BotMachineField } from "@/components/community/bots/bot-machine-field";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { SheetHeader, SheetBody, SheetFooter } from "@/components/ui/sheet";
 import type { CommunityMachineSummary } from "@alook/shared";
 import { DeferredDemo } from "./deferred-demo";
@@ -23,13 +22,6 @@ const machine: CommunityMachineSummary = {
   status: "online", lastSeenAt: "2026-10-27T12:00:00Z", createdAt: "2026-10-27T12:00:00Z", updatedAt: "2026-10-27T12:00:00Z",
   availableRuntimes: [{ id: "codex", status: "healthy" }, { id: "claude", status: "healthy" }],
 };
-
-export function SignInMock() {
-  return <figure className={styles.staticDemo}><div className={styles.mock} aria-hidden="true">
-    <div className={styles.mockTitle}>Sign in</div><div className={styles.mockSub}>or create an account to get started</div>
-    <Input value="you@example.com" readOnly tabIndex={-1} /><Button className="mt-4 w-full" tabIndex={-1}>Send Code</Button>
-  </div></figure>;
-}
 
 function Pointer() {
   return <MousePointer2 className={styles.pointer} data-demo-pointer size={30} fill="var(--background)" />;
@@ -94,13 +86,12 @@ export function BotListContent({ count }: { count: number }) {
   </div>;
 }
 
-export function BotsDemo() {
-  return <DeferredDemo scene="bots" label="Create your two bots">
-    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={0} /></HomeScreen></div>
-    <div data-demo-frame><BotForm runtime="codex" count={0} /></div>
-    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={1} /></HomeScreen></div>
-    <div data-demo-frame><BotForm runtime="claude" count={1} /></div>
-    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={2} /></HomeScreen></div>
+export function BotsDemo({ runtime }: { runtime: "codex" | "claude" }) {
+  const count = runtime === "codex" ? 0 : 1;
+  return <DeferredDemo scene="bots" label={runtime === "codex" ? "Create your Codex bot" : "Create your Claude Code bot"}>
+    <div data-demo-frame data-bot-runtime={runtime}><HomeScreen page="My Bots"><BotListContent count={count} /></HomeScreen></div>
+    <div data-demo-frame><BotForm runtime={runtime} count={count} /></div>
+    <div data-demo-frame><HomeScreen page="My Bots"><BotListContent count={count + 1} /></HomeScreen></div>
     <Pointer />
   </DeferredDemo>;
 }

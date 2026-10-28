@@ -8,10 +8,12 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 
 export function SignInEmailField({
   email,
+  autoFocus = true,
   error,
   onChange,
 }: {
   email: string
+  autoFocus?: boolean
   error?: string
   onChange: React.ChangeEventHandler<HTMLInputElement>
 }) {
@@ -27,7 +29,7 @@ export function SignInEmailField({
         aria-invalid={!!error}
         aria-describedby={error ? "sign-in-email-error" : undefined}
         required
-        autoFocus
+        autoFocus={autoFocus}
       />
       {error && <FieldError id="sign-in-email-error">{error}</FieldError>}
     </Field>

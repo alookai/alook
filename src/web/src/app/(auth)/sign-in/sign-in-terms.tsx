@@ -5,15 +5,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { handleMessageExternalLinkClick } from "@/components/community/messages/message-external-link"
+import { PolicyLinks, SignInTermsControl } from "./sign-in-terms-control"
 
-function PolicyLinks() {
-  const linkClass = "underline underline-offset-3 hover:text-foreground"
-  return <>
-    I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className={linkClass} onClick={event => { void handleMessageExternalLinkClick(event, event.currentTarget.href) }}>Terms of Service</a>.
-    {" "}See our <a href="/privacy" target="_blank" rel="noopener noreferrer" className={linkClass} onClick={event => { void handleMessageExternalLinkClick(event, event.currentTarget.href) }}>Privacy Policy</a>.
-  </>
-}
 
 export function useSignInTerms() {
   const [accepted, setAccepted] = useAtom(useCreateAtom(false))
@@ -77,17 +70,8 @@ export function useSignInTerms() {
   return {
     requestConsent,
     control: <>
-      <div ref={area} className="space-y-2" data-testid="sign-in-terms">
-        <div className="flex items-start gap-2 text-sm text-muted-foreground">
-          <label className="-mx-3.5 grid size-11 shrink-0 cursor-pointer place-items-center" htmlFor="sign-in-terms-checkbox">
-          <input id="sign-in-terms-checkbox" ref={checkbox} type="checkbox" className="size-4 accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            checked={accepted} onChange={event => { pending.current = null; setAccepted(event.target.checked); setReminder(false); shake.current?.cancel(); shake.current = null }}
-            aria-label="I agree to the Terms of Service" aria-invalid={reminder || undefined}
-            aria-describedby={reminder ? "sign-in-terms-copy" : undefined} />
-          </label>
-          <span id="sign-in-terms-copy" role={reminder ? "alert" : undefined} className={`py-2${reminder ? " text-destructive" : ""}`}><PolicyLinks /></span>
-        </div>
-      </div>
+      <SignInTermsControl areaRef={area} checkboxRef={checkbox} accepted={accepted} reminder={reminder}
+        onChange={event => { pending.current = null; setAccepted(event.target.checked); setReminder(false); shake.current?.cancel(); shake.current = null }} />
       <Dialog open={open} onOpenChange={changeOpen} onOpenChangeComplete={next => setDialogClosed(!next)}>
         <DialogContent showCloseButton={false} finalFocus={!accepted} className="w-[calc(100%-2rem)] max-w-sm">
           <DialogHeader>

@@ -1,5 +1,7 @@
 "use client"
 
+import { SignInLayout, SignInGallery, SignInHeading, galleryScenes } from "./sign-in-presentation"
+
 import { captureProductAnalytics } from "@/lib/product-analytics"
 import { startAction, finishAction } from "@/lib/observability/context"
 import { ObservedStaticContent } from "@/lib/observability/regions"
@@ -10,7 +12,6 @@ import { signIn, signUp, authClient } from "@/lib/auth-client"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
 import { tid } from "@/lib/community/testids"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import {
   Field,
   FieldGroup,
@@ -19,14 +20,9 @@ import {
 import { SignInEmailField, SignInOtpField } from "./sign-in-fields"
 import { SocialSignIn } from "./social-sign-in"
 import { useSignInTerms } from "./sign-in-terms"
-import { GradientBackground } from "@/components/gradient-background"
-import { Logo } from "@/components/logo"
-import { LandingShellMotion } from "@/components/home/landing-shell-motion"
 import {
   sceneDurationMs,
-  type LandingScene,
 } from "@/components/home/landing-shell-motion-timeline"
-import galleryStyles from "@/components/home/landing-shell-motion.module.css"
 import { DEV_PASSWORD } from "@alook/shared"
 import { CircleCheck } from "lucide-react"
 import { safeRedirectPath } from "@/lib/safe-redirect"
@@ -221,13 +217,7 @@ function SignInForm({
           </div>
         </div>
       ) : null}
-      <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl font-bold">Sign in</h1>
-        <p className="text-sm text-muted-foreground">or create an account to get started</p>
-        {subtitle && (
-          <p className="text-balance text-muted-foreground">{subtitle}</p>
-        )}
-      </div>
+      <SignInHeading subtitle={subtitle} />
 
       {isProd ? (
         step === "email" ? (
@@ -314,29 +304,6 @@ function SignInForm({
   )
 }
 
-const galleryScenes: { scene: LandingScene; label: string; description: string }[] = [
-  {
-    scene: "server",
-    label: "The best room for agents and humans",
-    description: "Bring your people and agents together in one shared home.",
-  },
-  {
-    scene: "spaces",
-    label: "A room for every part of life",
-    description: "Keep work, life, and play separate—invite the friends and bots who belong.",
-  },
-  {
-    scene: "machine",
-    label: "Bring your own agents",
-    description: "Use your own computer and existing agent subscriptions.",
-  },
-  {
-    scene: "provider",
-    label: "Persistent identity and memory",
-    description: "Your agents stay themselves, independent of provider.",
-  },
-]
-
 function ProductGallery() {
   const [active, setActive] = useAtom(useCreateAtom(0))
   const [enabled, setEnabled] = useAtom(useCreateAtom(false))
@@ -369,55 +336,7 @@ function ProductGallery() {
 
   if (!enabled) return null
 
-  return (
-    <div className={`${galleryStyles.galleryContainer} flex h-full min-h-0 flex-col items-center justify-center p-5 lg:p-7`}>
-      <div
-        className={`${galleryStyles.galleryFrame} w-full bg-background ring-1 ring-border/60 shadow-lg`}
-        role="img"
-        aria-label={activeScene.label}
-      >
-        <LandingShellMotion
-          key={activeScene.scene}
-          scene={activeScene.scene}
-        />
-      </div>
-      <div className={`${galleryStyles.galleryFooter} mt-4`}>
-        <div aria-live="polite">
-          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            {String(active + 1).padStart(2, "0")} / {String(galleryScenes.length).padStart(2, "0")}
-          </p>
-          <p className="mt-1 text-sm font-medium text-foreground">
-            {activeScene.label}
-          </p>
-          <p className="mt-0.5 max-w-lg text-xs leading-relaxed text-muted-foreground">
-            {activeScene.description}
-          </p>
-        </div>
-        <div className={galleryStyles.gallerySwitcher} aria-label="Product stories">
-          {galleryScenes.map((item, i) => (
-            <button
-              key={item.scene}
-              onClick={() => setActive(i)}
-              className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={`Show ${item.label}`}
-              aria-pressed={i === active}
-            >
-              <span
-                className="h-1.5 rounded-full transition-all duration-300"
-                style={{
-                  width: i === active ? 16 : 6,
-                  backgroundColor: i === active
-                    ? "var(--foreground)"
-                    : "var(--muted-foreground)",
-                  opacity: i === active ? 1 : 0.3,
-                }}
-              />
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
+  return <SignInGallery active={active} onSelect={setActive} />
 }
 
 export default function SignInPageClient({
@@ -432,17 +351,7 @@ export default function SignInPageClient({
   const accountDeleted = searchParams.get("account_deleted") === "1"
   const accountDeletionPending = searchParams.get("account_deleted") === "pending"
 
-  return (
-    <div className="relative flex min-h-svh flex-col items-center justify-center p-6 sm:p-10">
-      <GradientBackground />
-      <div className="w-full max-w-sm sm:max-w-6xl">
-        <div className="flex flex-col gap-6">
-          <div className="flex justify-center mb-2">
-            <Logo size="lg" />
-          </div>
-          <Card className="overflow-hidden p-0">
-            <CardContent className="grid p-0 sm:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.35fr)]">
-              <div className="flex flex-col justify-center p-6 sm:min-h-120 sm:p-8">
+  return <SignInLayout gallery={<ProductGallery />}>
                 <SignInForm
                   postLoginUrl={postLoginUrl}
                   isProd={isProd}
@@ -450,14 +359,5 @@ export default function SignInPageClient({
                   accountDeletionPending={accountDeletionPending}
                   appleEnabled={appleEnabled}
                 />
-              </div>
-              <div className="relative hidden min-h-120 overflow-hidden bg-muted sm:block">
-                <ProductGallery />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    </div>
-  )
+  </SignInLayout>
 }

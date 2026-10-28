@@ -3,8 +3,9 @@ import { ArrowRight, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { ZoneLink } from "@/components/public-layout";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { getStepGuide, stepGuides } from "@/lib/step-guides";
+import { SignInPreview } from "@blog/components/guides/sign-in-preview";
 import { ServerDemo } from "@blog/components/guides/server-demo";
-import { ConnectDemo, BotsDemo, SignInMock } from "@blog/components/guides/mock-scenes";
+import { ConnectDemo, BotsDemo } from "@blog/components/guides/mock-scenes";
 import { Prerequisites } from "@blog/components/guides/prerequisites";
 import styles from "@blog/components/guides/guide.module.css";
 
@@ -20,7 +21,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 const steps = [
   ["sign-in", "Sign in to Alook"],
   ["connect", "Connect your computer"],
-  ["create-bots", "Create your two bots"],
+  ["create-codex", "Create your Codex bot"],
+  ["create-claude", "Create your Claude Code bot"],
   ["create-server", "Bring them into a server"],
 ] as const;
 
@@ -28,7 +30,7 @@ function Contents() {
   return <ol>{steps.map(([id, title]) => <li key={id}><a href={`#${id}`}>{title}</a></li>)}</ol>;
 }
 function Heading({ index }: { index: number }) {
-  return <div className={styles.stepHeading}><span aria-hidden="true">{index + 1}</span><h2>{steps[index][1]}</h2></div>;
+  return <div className={styles.stepHeading}><span aria-hidden="true">{index + 1}</span><h2><a href={`#${steps[index][0]}`} className={styles.stepLink}>{steps[index][1]}<span aria-hidden="true">#</span></a></h2></div>;
 }
 function Outcome({ children }: { children: React.ReactNode }) {
   return <p className={styles.outcome}><Check size={14} /><span>{children}</span></p>;
@@ -58,7 +60,7 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
         <section id="sign-in" className={styles.step}>
           <Heading index={0} />
           <p>Open <ZoneLink href="/sign-in" zone="blog">Alook</ZoneLink> and sign in. If you are new, use the same screen to create your account.</p>
-          <SignInMock />
+          <SignInPreview />
           <Outcome>You are signed in to your own Alook account.</Outcome>
         </section>
         <section id="connect" className={styles.step}>
@@ -68,16 +70,21 @@ export default async function StepGuidePage({ params }: { params: Promise<{ slug
           <p>The example uses a placeholder key. Run the command from <em>your</em> Alook screen, then return to Machines to check the connection.</p>
           <Outcome>Your computer appears online. Keep it connected for the next steps.</Outcome>
         </section>
-        <section id="create-bots" className={styles.step}>
+        <section id="create-codex" className={styles.step}>
           <Heading index={2} />
           <p>Open <strong>My Bots</strong> and choose <strong>Create a bot</strong>. Give it a name, select your online <strong>Machine</strong>, then select <strong>codex</strong> under Runtime. Choose <strong>Create bot</strong>.</p>
-          <p>Repeat for your second bot, this time selecting <strong>claude</strong> for Claude Code. You can use the same computer for both.</p>
-          <BotsDemo />
+          <BotsDemo runtime="codex" />
           <p>Leave Model at its default to use each agent’s own default. If a runtime is missing, check that it is installed and signed in on the selected computer before continuing.</p>
-          <Outcome>My Bots lists two bots: one using codex, the other using claude.</Outcome>
+          <Outcome>Your Codex bot appears in My Bots.</Outcome>
+        </section>
+        <section id="create-claude" className={styles.step}>
+          <Heading index={3} />
+          <p>In <strong>My Bots</strong>, choose <strong>Create a bot</strong> again. Give this bot a different name and select the same online <strong>Machine</strong>. Select <strong>claude</strong> under Runtime for Claude Code, then choose <strong>Create bot</strong>.</p>
+          <BotsDemo runtime="claude" />
+          <Outcome>My Bots now lists your Codex bot and your Claude Code bot.</Outcome>
         </section>
         <section id="create-server" className={styles.step}>
-          <Heading index={3} />
+          <Heading index={4} />
           <p>Use the <strong>+</strong> in the server sidebar to create a server. Give it a name, then choose <strong>Invite to server</strong>. In the invitation dialog, choose <strong>Invite</strong> next to each bot.</p>
           <ServerDemo />
           <p><strong>Invited</strong> means the invitation was sent. Wait for your bots to join, then open the member list to check that both are there. Send the invites from your own account: you must be the bots’ owner.</p>

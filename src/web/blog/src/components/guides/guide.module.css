@@ -17,6 +17,10 @@
 .step { margin-top: 80px; padding-left: 48px; scroll-margin-top: 96px; }
 .stepHeading { position: relative; margin-bottom: 24px; }
 .stepHeading > span { position: absolute; left: -48px; top: 50%; transform: translateY(-50%); width: 24px; text-align: center; color: var(--muted-foreground); font-size: 16px; font-variant-numeric: tabular-nums; }
+.stepLink { color: inherit; text-decoration: none; }
+.stepLink > span { margin-left: 0.4em; color: var(--muted-foreground); opacity: 0; font-weight: 400; }
+.stepLink:hover > span, .stepLink:focus-visible > span { opacity: 1; }
+.stepLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 2px; }
 .step h2 { font-size: 26px; font-weight: 600; line-height: 1.3; letter-spacing: -0.015em; text-wrap: balance; }
 .step > p, .close p { font-size: 16px; line-height: 1.75; text-wrap: pretty; max-width: 68ch; }
 .step > p + p { margin-top: 16px; }

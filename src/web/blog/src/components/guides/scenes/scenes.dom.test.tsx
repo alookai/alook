@@ -32,23 +32,22 @@ describe("tutorial action sequences", () => {
       expect(root.querySelector<HTMLElement>("[data-demo-pointer]")!.style.visibility).not.toBe("hidden");
     } finally { timeline.kill(); }
   });
-  it("types into shared form fields, selects Claude and resets the actual form on replay", () => {
-    render(<BotsDemo />);
+  it.each([ ["codex", "Milo"], ["claude", "Nova"] ] as const)("independently creates %s and resets its form on replay", (runtime, name) => {
+    render(<BotsDemo runtime={runtime} />);
     const root = screen.getByTestId("scene");
     const forms = root.querySelectorAll('[data-bot-form]');
+    expect(forms).toHaveLength(1);
+    expect(root.querySelectorAll('[data-demo-frame]')).toHaveLength(3);
     const timeline = botScene(root, vi.fn());
     try {
       act(() => { timeline.time(14, false); });
-      expect(root.dataset.demoAction).toBe("codex-created");
-      expect(forms[0].querySelector('input[placeholder="Name your bot"]')).toHaveValue("Milo");
-      act(() => { timeline.time(26, false); });
-      expect(forms[1].querySelector('input[value="claude"]')).toBeChecked();
-      expect(forms[1].querySelector('input[placeholder="Name your bot"]')).toHaveValue("Nova");
-      act(() => { timeline.time(30, false); });
-      expect(root.dataset.demoAction).toBe("both-created");
+      expect(root.dataset.demoAction).toBe(`${runtime}-created`);
+      expect(forms[0].querySelector('input[placeholder="Name your bot"]')).toHaveValue(name);
+      expect(forms[0].querySelector(`input[value="${runtime}"]`)).toBeChecked();
       act(() => { timeline.restart().pause().time(0.1, false); });
+      expect(root.dataset.demoAction).toBe(`open-create-${runtime}`);
       expect(forms[0].querySelector('input[placeholder="Name your bot"]')).toHaveValue("");
-      expect(forms[1].querySelector('input[value="codex"]')).toBeChecked();
+      expect(forms[0].querySelector('input[value="codex"]')).toBeChecked();
     } finally { timeline.kill(); }
   });
 });

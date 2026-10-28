@@ -3,7 +3,9 @@ import { demoMotion } from "./motion";
 export function createScene(root: HTMLElement, complete: () => void) {
   const { timeline, frames, click, move, frame, action, zoom } = demoMotion(root, complete);
   const update = (index: number, detail: object) => frames[index].querySelector("[data-bot-form]")!.dispatchEvent(new CustomEvent("tutorial-form", { detail }));
-  timeline.call(() => { update(1, { name: "", runtime: "codex" }); update(3, { name: "", runtime: "codex" }); }, [], 0);
+  const runtime = root.querySelector<HTMLElement>("[data-bot-runtime]")!.dataset.botRuntime!;
+  const name = runtime === "codex" ? "Milo" : "Nova";
+  timeline.call(() => update(1, { name: "", runtime: "codex" }), [], 0);
   const fill = (index: number, runtime: string, name: string, start: number) => {
     const form = frames[index];
     const nameField = form.querySelector("[data-name-field]")!;
@@ -22,22 +24,14 @@ export function createScene(root: HTMLElement, complete: () => void) {
     click(submit, start + 7.6);
   };
   const entry = frames[0].querySelector("[data-bot-entry]")!;
-  action("open-create-codex", 0);
+  action(`open-create-${runtime}`, 0);
   move(entry, 0.4);
   zoom(0, 1.5, entry);
   click(entry, 2.4);
   frame(0, 1, 3.8);
-  fill(1, "codex", "Milo", 4.3);
+  fill(1, runtime, name, 4.3);
   frame(1, 2, 13.6);
-  action("codex-created", 13.6);
-  const nextEntry = frames[2].querySelector("[data-bot-entry]")!;
-  move(nextEntry, 15);
-  zoom(2, 16.2, nextEntry);
-  click(nextEntry, 17.2);
-  frame(2, 3, 18.6);
-  fill(3, "claude", "Nova", 19.1);
-  frame(3, 4, 28.5);
-  action("both-created", 28.5);
-  timeline.to({}, { duration: 3 }, 28.8);
+  action(`${runtime}-created`, 13.6);
+  timeline.to({}, { duration: 3 }, 13.8);
   return timeline;
 }
