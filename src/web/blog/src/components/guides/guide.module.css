@@ -25,8 +25,6 @@
 .step > p, .close p { font-size: 16px; line-height: 1.75; text-wrap: pretty; max-width: 68ch; }
 .step > p + p { margin-top: 16px; }
 .step strong { font-weight: 600; }
-.outcome { color: var(--muted-foreground); margin-top: 16px; font-size: 14px !important; display: flex; align-items: baseline; gap: 8px; }
-.outcome svg { flex: 0 0 auto; align-self: center; }
 .demo { container-type: inline-size; position: relative; margin: 64px 0 0; }
 .stage { position: relative; height: 58.93cqw; background: var(--background); border-radius: var(--radius-lg); overflow: hidden; }
 .stage [data-demo-frame] { position: absolute; inset: 0; padding: 0; visibility: hidden; opacity: 0; display: flex; flex-direction: column; justify-content: center; }
@@ -104,3 +102,8 @@
   .stage [data-demo-frame] { position: relative; inset: auto; visibility: visible; opacity: 1; }
   .demoCaption { display: none; }
 }
+
+.completionCriteria { display: flex; gap: 12px; margin-top: 24px; padding: 16px; border-radius: var(--radius-md); background: var(--muted); color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
+.completionCriteria > svg { flex-shrink: 0; margin-top: 3px; }
+.completionCriteria strong { color: var(--foreground); font-weight: 500; }
+.completionCriteria p { margin-top: 4px; }
