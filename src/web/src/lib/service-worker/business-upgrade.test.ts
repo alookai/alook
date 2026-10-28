@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
-import { businessUpdateUrl, probeBusinessVersion, upgradeBusinessWindow } from "./business-upgrade"
+import { businessDocumentVersionBootstrapScript, businessUpdateUrl, probeBusinessVersion, upgradeBusinessWindow } from "./business-upgrade"
 
 afterEach(() => vi.useRealTimers())
 
@@ -15,6 +15,35 @@ function client(version?: number, url = "https://alook.test/c/me") {
 }
 
 describe("business document replacement", () => {
+  it.each(["before-probe", "queued-before-bootstrap"])("keeps the current document with its actual bootstrap %s", async timing => {
+    const container = new EventTarget()
+    const pending: MessageEvent[] = []
+    let started = false
+    const startMessages = vi.fn(() => {
+      started = true
+      for (const event of pending.splice(0)) container.dispatchEvent(event)
+    })
+    const navigator = { serviceWorker: Object.assign(container, { startMessages }) }
+    const install = () => new Function("navigator", businessDocumentVersionBootstrapScript)(navigator)
+    const target = {
+      url: "https://alook.test/c/me", navigate: vi.fn().mockResolvedValue({}),
+      postMessage: (data: unknown, ports: MessagePort[]) => {
+        const event = new MessageEvent("message", { data, ports })
+        if (started) container.dispatchEvent(event)
+        else pending.push(event)
+      },
+    } as unknown as WindowClient
+    if (timing === "before-probe") install()
+    const upgrading = upgradeBusinessWindow(target, "https://alook.test")
+    if (timing === "queued-before-bootstrap") {
+      expect(pending).toHaveLength(1)
+      install()
+    }
+    expect(await upgrading).toBe(false)
+    expect(startMessages).toHaveBeenCalledOnce()
+    expect(target.navigate).not.toHaveBeenCalled()
+  })
+
   it("keeps a document that actually confirms the current compiled version", async () => {
     const current = client(BUSINESS_SCHEMA_VERSION)
     expect(await upgradeBusinessWindow(current, "https://alook.test")).toBe(false)

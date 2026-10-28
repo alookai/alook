@@ -280,7 +280,10 @@ export function useMessageChannelController({
     threadActions: { ...messageActions, onCreateThread: undefined },
     acceptMessage,
     localSubmitVersion,
-    handleTyping: () => communityWsSendTyping(communityRuntime, { channelId }),
+    handleTyping: () => {
+      if (committedFeed.current.navigationBlocked) return
+      communityWsSendTyping(communityRuntime, { channelId })
+    },
     typingUsers: typingUserIds.map((id) => typingNames[id] ?? resolveUserName(id)),
   }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, onSheetReply, jumpToSeq, messageActions, acceptMessage, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
 }

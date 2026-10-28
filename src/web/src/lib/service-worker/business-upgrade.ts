@@ -7,6 +7,20 @@ export const DOCUMENT_VERSION_PROBE = "alook:document-version"
 export const WORKER_VERSION_PROBE = "alook:worker-version"
 export const CURRENT_DOCUMENT_REQUEST = "alook:current-document"
 
+export const businessDocumentVersionBootstrapScript = `
+try {
+  if ("serviceWorker" in navigator) {
+    const container = navigator.serviceWorker;
+    container.addEventListener("message", (event) => {
+      if (event.data?.type === ${JSON.stringify(DOCUMENT_VERSION_PROBE)}) {
+        event.ports[0]?.postMessage({ schemaVersion: ${BUSINESS_SCHEMA_VERSION} });
+      }
+    });
+    container.startMessages();
+  }
+} catch {}
+`
+
 type MessageTarget = { postMessage(message: unknown, transfer: Transferable[]): void }
 
 export function probeBusinessVersion(target: MessageTarget, type: string, timeout = 1500): Promise<number | null> {

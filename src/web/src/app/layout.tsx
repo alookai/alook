@@ -11,6 +11,7 @@ import { ThemeColorSync } from "@/components/theme-color-sync";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 import { siteMetadata, siteStructuredData, siteViewport } from "@/lib/seo/site-metadata";
 import { communityShellLayoutBootstrapScript } from "@/components/community/shell/shell-frame-geometry";
+import { businessDocumentVersionBootstrapScript } from "@/lib/service-worker/business-upgrade";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
 import "./globals.css";
 
@@ -29,6 +30,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        <script dangerouslySetInnerHTML={{ __html: businessDocumentVersionBootstrapScript }} />
         <script dangerouslySetInnerHTML={{ __html: communityShellLayoutBootstrapScript }} />
         <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />

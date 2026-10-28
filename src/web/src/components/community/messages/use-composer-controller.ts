@@ -8,7 +8,6 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useRef,
-  type DragEvent,
   type ForwardedRef,
 } from "react"
 import { useEditor, type Editor, type JSONContent } from "@tiptap/react"
@@ -27,6 +26,7 @@ import { detectMentionType } from "@/lib/community/mention-extension"
 import { buildPasteDom } from "@/lib/community/paste-plain-text"
 import {
   clipboardFiles,
+  createComposerAttachmentInputHandlers,
   createLongPasteAttachment,
   pendingFilesToSendAttachments,
 } from "./composer-file-utils"
@@ -88,13 +88,7 @@ export function useComposerController(
     awaitPendingFiles,
     addPendingFiles,
     fileInputRef,
-    handleFileSelect,
-    removePendingFile,
     dragging,
-    handleDragEnter,
-    handleDragLeave,
-    handleDragOver,
-    handleDrop: handleDropRaw,
   } = attachments
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
   const sendRef = useRef<() => void>(() => {})
@@ -168,6 +162,7 @@ export function useComposerController(
           undoInputRule: () => editorRef.current?.commands.undoInputRule() ?? false,
         }),
       handlePaste: (view, event, slice) => {
+        if (!protocol.get().active) { event.preventDefault(); return true }
         const files = clipboardFiles(event.clipboardData?.items)
         if (files.length > 0) {
           event.preventDefault()
@@ -357,40 +352,34 @@ export function useComposerController(
 
   useComposerReplyMention({ editor, channelType, isForumThreadBody, replyingTo, members, suppressSuggestions })
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    handleDropRaw(event)
-    suppressSuggestions(() => editor?.commands.focus())
-  }
+  const attachmentInputHandlers = createComposerAttachmentInputHandlers(
+    () => protocol.get().active,
+    attachments,
+    () => suppressSuggestions(() => editor?.commands.focus()),
+  )
 
   return {
+    ...attachmentInputHandlers,
     isForumThreadBody,
-    dragging,
-    onDragEnter: handleDragEnter,
-    onDragLeave: handleDragLeave,
-    onDragOver: handleDragOver,
-    onDrop: handleDrop,
+    dragging: active && dragging,
     mentionPopup: suggestions.mentionPopup,
     mentionPresentation: suggestions.mentionPresentation,
     mentionPagination: suggestions.mentionPagination,
     channelRefPopup: suggestions.channelRefPopup,
     channelRefPresentation: suggestions.channelRefPresentation,
     replyingTo,
-    onCancelReply,
+    onCancelReply: onCancelReply ? () => { if (protocol.get().active) onCancelReply() } : undefined,
     pendingFiles,
-    removePendingFile,
     fileInputRef,
-    onFileSelect: handleFileSelect,
     editor,
     hideAttach,
     hideEmoji,
     showSend: !isForumThreadBody && !hoverCapable,
     sendDisabled:
-      sendInFlight || (!editorHasContent && pendingFiles.length === 0),
+      !active || sendInFlight || (!editorHasContent && pendingFiles.length === 0),
     onSend: send,
-    onUploadFile: () => {
-      fileInputRef.current?.click()
-    },
     onEmojiPick: (emoji) => {
+      if (!protocol.get().active) return
       editor?.chain().focus().insertContent(emoji).run()
     },
   }

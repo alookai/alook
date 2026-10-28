@@ -27,6 +27,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { tid } from "@/lib/community/testids"
+import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
 import {
   useClaimThreadOpenerReadHandoff,
   type ThreadOpenerReadHandoff,
@@ -127,6 +128,8 @@ export function ThreadChannelSurface({
     threadsEnabled: rightPanel === "threads",
   })
   const displayName = localName ?? channelName
+  const routeActive = useConversationActivity()
+  const inputActive = routeActive && feed.navigationBlocked === false
   const Body = embedded ? "div" : "main"
   const compactActions = !!splitActions && !layoutPending
 
@@ -272,22 +275,25 @@ export function ThreadChannelSurface({
                 <ConversationFooterShell
                   data-onboarding-target="channel-composer"
                   data-testid={tid.channelComposerShell}
+                  inert={!inputActive}
                 >
-                  <Composer
-                    ref={mentionInsertion.composerRef}
-                    channel={displayName}
-                    context="thread"
-                    members={composerMembers}
-                    mentionCandidates={composerMentionCandidates}
-                    channelRefCandidates={channelRefCandidates}
-                    sendContract="accepted"
-                    onAcceptSend={controller.acceptMessage}
-                    onTyping={controller.handleTyping}
-                    replyingTo={controller.replyTo ?? undefined}
-                    onCancelReply={() => controller.setReplyTo(null)}
-                    autoFocus={breakpoint === "desktop"}
-                    draftKey={`${serverId}/${channelId}`}
-                  />
+                  <ConversationActivityContext value={inputActive}>
+                    <Composer
+                      ref={mentionInsertion.composerRef}
+                      channel={displayName}
+                      context="thread"
+                      members={composerMembers}
+                      mentionCandidates={composerMentionCandidates}
+                      channelRefCandidates={channelRefCandidates}
+                      sendContract="accepted"
+                      onAcceptSend={controller.acceptMessage}
+                      onTyping={controller.handleTyping}
+                      replyingTo={controller.replyTo ?? undefined}
+                      onCancelReply={() => controller.setReplyTo(null)}
+                      autoFocus={breakpoint === "desktop"}
+                      draftKey={`${serverId}/${channelId}`}
+                    />
+                  </ConversationActivityContext>
                 </ConversationFooterShell>
               </ConversationFooterSlotProvider>
             </Body>

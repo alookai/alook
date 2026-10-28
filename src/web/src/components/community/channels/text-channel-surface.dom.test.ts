@@ -1,4 +1,5 @@
 import React from "react"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -46,7 +47,10 @@ vi.mock("@/components/community/channels/channel-shell", () => ({
   }) => React.createElement(React.Fragment, null, header, body, panels, dialogs),
 }))
 vi.mock("@/components/community/messages/composer", () => ({
-  Composer: vi.fn(() => null),
+  Composer: vi.fn(function ComposerProbe() {
+    const active = React.useContext(ConversationActivityContext)
+    return React.createElement("div", { "data-testid": "community-composer-input", "data-composer-active": String(active) })
+  }),
 }))
 vi.mock("@/components/community/messages/conversation-footer-shell", () => ({
   ConversationFooterSlotProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -110,6 +114,7 @@ vi.mock("@/hooks/community/use-community-ws", () => ({
 
 function feed(overrides: Record<string, unknown> = {}) {
   return {
+    navigationBlocked: false,
     messages: [],
     isLoading: false,
     isError: false,
@@ -513,4 +518,27 @@ it.each([false, true])("projects current pending on the existing text surface an
     expect(mockedConversationFooterShell).toHaveBeenCalled()
   }
   renderer!.unmount()
+})
+
+it.each([false, true])("retains the text composer shell while qualifying its inherited input activity (embedded=%s)", async embedded => {
+  const props = { channelId: "channel_1", serverId: "server_1", serverParam: "server_1", channelName: "general",
+    viewer: { id: "viewer_1", name: "Viewer", avatar: "V" }, canManagePins: false, anchorMessageId: null,
+    notificationLevel: "default" as const, onSetNotificationLevel: vi.fn(), composerMembers: [], channelRefCandidates: [],
+    memberPanelProps: { members: [] }, manageMembersDialog: null, uiHandlers: {}, onOpenThread: vi.fn(),
+    onOpenProfile: vi.fn(), resolveUserName: (id: string) => id, embedded }
+  let view: ReturnType<typeof render> | undefined
+  let original: Element | null = null
+  for (const [routeActive, navigationBlocked] of [[true, true], [true, false], [false, false], [true, true], [true, false]]) {
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ navigationBlocked }))
+    const node = React.createElement(ConversationActivityContext.Provider, { value: routeActive }, React.createElement(TextChannelSurface, props))
+    await act(async () => { if (view) view.rerender(node); else view = render(node) })
+    const shell = view!.getByTestId("community-composer-shell")
+    const input = view!.getByTestId("community-composer-input")
+    if (original) expect(input).toBe(original)
+    original = input
+    expect(input).toBeVisible()
+    expect(input).toHaveAttribute("data-composer-active", String(routeActive && !navigationBlocked))
+    expect(shell.hasAttribute("inert")).toBe(!routeActive || navigationBlocked)
+  }
+  view!.unmount()
 })

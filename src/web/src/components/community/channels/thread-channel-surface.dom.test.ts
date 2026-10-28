@@ -1,4 +1,5 @@
 import React from "react"
+import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThreadChannelSurface } from "./thread-channel-surface"
@@ -61,7 +62,10 @@ vi.mock("@/components/community/shell/community-panel", () => ({
   CommunityPanel: vi.fn(() => null),
 }))
 vi.mock("@/components/community/messages/composer", () => ({
-  Composer: vi.fn(() => null),
+  Composer: vi.fn(function ComposerProbe() {
+    const active = React.useContext(ConversationActivityContext)
+    return React.createElement("div", { "data-testid": "community-composer-input", "data-composer-active": String(active) })
+  }),
   ComposerSkeleton: vi.fn(() => null),
 }))
 vi.mock("@/components/community/messages/conversation-footer-shell", () => ({
@@ -140,6 +144,7 @@ const mockedUseClaimThreadOpenerReadHandoff = vi.mocked(useClaimThreadOpenerRead
 
 function feed(overrides: Record<string, unknown> = {}) {
   return {
+    navigationBlocked: false,
     messages: [{ id: "message_1", type: "chat" }],
     isLoading: false,
     isError: false,
@@ -519,4 +524,22 @@ it.each([false, true])("projects current pending on the existing thread surface 
     expect(mockedConversationFooterShell).toHaveBeenCalled()
   }
   renderer!.unmount()
+})
+
+it.each([false, true])("retains the held child composer shell while qualifying input activity (embedded=%s)", async embedded => {
+  let view: ReturnType<typeof render> | undefined
+  let original: Element | null = null
+  for (const [routeActive, navigationBlocked] of [[true, true], [true, false], [false, false], [true, true], [true, false]]) {
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ navigationBlocked }))
+    const node = React.createElement(ConversationActivityContext.Provider, { value: routeActive }, renderSurface({ embedded }))
+    await act(async () => { if (view) view.rerender(node); else view = render(node) })
+    const shell = view!.getByTestId("community-composer-shell")
+    const input = view!.getByTestId("community-composer-input")
+    if (original) expect(input).toBe(original)
+    original = input
+    expect(input).toBeVisible()
+    expect(input).toHaveAttribute("data-composer-active", String(routeActive && !navigationBlocked))
+    expect(shell.hasAttribute("inert")).toBe(!routeActive || navigationBlocked)
+  }
+  view!.unmount()
 })

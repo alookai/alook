@@ -600,4 +600,20 @@ describe("useMessageChannelController", () => {
     expect(Object.keys(latest.threadActions)).toEqual(actionKeys)
     expect(latest.threadActions.onCreateThread).toBeUndefined()
   })
+
+  it("rejects direct and retained typing admission after the committed window blocks", () => {
+    const value = props()
+    const view = rtlRender(React.createElement(Probe, { value }))
+    const earlier = latest.handleTyping
+    act(() => earlier())
+    expect(mocks.sendTyping).toHaveBeenCalledOnce()
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...feed, navigationBlocked: true } } }))
+    mocks.sendTyping.mockClear()
+    act(() => { earlier(); latest.handleTyping() })
+    expect(mocks.sendTyping).not.toHaveBeenCalled()
+    view.rerender(React.createElement(Probe, { value }))
+    act(() => latest.handleTyping())
+    expect(mocks.sendTyping).toHaveBeenCalledOnce()
+  })
+
 })

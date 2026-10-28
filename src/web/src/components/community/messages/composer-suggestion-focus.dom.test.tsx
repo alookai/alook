@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { USE_SERVER_DEFAULT } from "@alook/shared"
 import { act, fireEvent, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { conversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { readComposerDraft, writeComposerDraft } from "@/lib/community/composer-draft"
 import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import type { Member } from "@/lib/community/models/people"
@@ -11,6 +14,7 @@ import { CommunityMentionList, ChannelRefList } from "./composer-suggestion-popu
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { useComposerController } from "./use-composer-controller"
 import { TextChannelSurface } from "../channels/text-channel-surface"
+import { ThreadChannelSurface } from "../channels/thread-channel-surface"
 import { NATIVE_MOBILE_BACK_EVENT, useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
 import type { MessageChannelControllerValue } from "./message-channel-controller"
 
@@ -26,17 +30,22 @@ vi.mock("@/hooks/use-hover-capable", () => ({ useHoverCapable: () => true }))
 
 const surfaces = vi.hoisted(() => ({
   breakpoint: "desktop" as "unknown" | "mobile" | "desktop",
+  navigationBlocked: false,
   probes: new Map<string, { current: ReturnType<typeof useComposerController> | null }>(),
 }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => surfaces.breakpoint }))
 vi.mock("@/hooks/community/use-channel-message-feed", () => ({
-  useChannelMessageFeed: () => ({ messages: [], isLoading: false, readSnapshotFetching: false, anchorInCache: true }),
+  useChannelMessageFeed: () => ({ messages: [], isLoading: false, readSnapshotFetching: false, anchorInCache: true, navigationBlocked: surfaces.navigationBlocked }),
 }))
 vi.mock("@/components/community/channels/channel-header", () => ({ ChannelHeader: () => null }))
 vi.mock("@/components/community/channels/channel-shell", () => ({ ChannelShell: ({ body }: { body: ReactNode }) => body }))
 vi.mock("@/components/community/shell/community-panel", () => ({ CommunityPanel: () => null }))
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
+vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({ useClaimThreadOpenerReadHandoff: () => {} }))
+vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
+vi.mock("@/contexts/community/module-route", () => ({ useCommunityRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }))
+vi.mock("@/hooks/community/mutations", () => ({ useToggleReactionApi: () => vi.fn() }))
 vi.mock("@/components/community/messages/composer", async () => {
   const { forwardRef } = await import("react")
   return {
@@ -48,8 +57,8 @@ vi.mock("@/components/community/messages/composer", async () => {
   }
 })
 vi.mock("@/components/community/messages/message-channel-controller", () => ({
-  MessageChannelController: ({ children }: { children: (value: MessageChannelControllerValue) => ReactNode }) => children({
-    feed: {} as MessageChannelControllerValue["feed"],
+  MessageChannelController: ({ children, feed }: { children: (value: MessageChannelControllerValue) => ReactNode; feed: MessageChannelControllerValue["feed"] }) => children({
+    feed,
     pinnedIds: new Set(), replyTo: null, setReplyTo: vi.fn(),
     scrollTargetId: null, setScrollTargetId: vi.fn(), consumeScrollTarget: vi.fn(),
     contextTarget: null, setContextTarget: vi.fn(), openContextSeq: vi.fn(),
@@ -115,6 +124,96 @@ function BackListener({ replacePath }: { replacePath: (path: string) => void }) 
 }
 
 describe("composer suggestion focus with installed TipTap", () => {
+  it.each([
+    ["text", false], ["text", true], ["thread", false], ["thread", true],
+  ] as const)("keeps a %s editor and draft through window qualification with embedded=%s", async (kind, embedded) => {
+    const channelId = kind === "text" ? "parent" : "child"
+    const key = `server-one/${channelId}`
+    const draft = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Keep this draft" }] }] }
+    writeComposerDraft(`viewer:${key}`, draft)
+    const node = (routeActive = true) => <ConversationActivityContext value={routeActive}>
+      {kind === "text" ? <TextChannelSurface {...textSurfaceProps} embedded={embedded} /> : <ThreadChannelSurface
+        {...textSurfaceProps} channelId="child" channelName="child" parentChannelId="parent" parentMessageId="opener"
+        parentIsForum={false} canRenameThread={false} onNavigateParent={vi.fn()} onOpenChild={vi.fn()} embedded={embedded}
+      />}
+    </ConversationActivityContext>
+    surfaces.navigationBlocked = true
+    const view = render(node())
+    const probe = surfaces.probes.get(key)!
+    const editor = await editorOf(probe)
+    const input = editor.view.dom
+    const footer = screen.getByTestId("community-composer-shell")
+    await waitFor(() => expect(editor.getJSON()).toEqual(draft))
+    expect(input.getAttribute("contenteditable")).toBe("false")
+    expect(footer).toBeVisible()
+    expect(footer.hasAttribute("inert")).toBe(true)
+    expect(document.activeElement).not.toBe(input)
+    expect(view.container.querySelectorAll('[contenteditable="true"]')).toHaveLength(0)
+
+    surfaces.navigationBlocked = false
+    view.rerender(node())
+    expect(editor.isEditable).toBe(true)
+    expect(footer.hasAttribute("inert")).toBe(false)
+    await type(editor, " + edit")
+    const edited = editor.getJSON()
+    const retainedEmoji = probe.current!.onEmojiPick
+    for (const [routeActive, blocked] of [[true, true], [false, false], [true, true], [true, false]] as const) {
+      surfaces.navigationBlocked = blocked
+      view.rerender(node(routeActive))
+      const active = routeActive && !blocked
+      expect(probe.current!.editor).toBe(editor)
+      expect(editor.view.dom).toBe(input)
+      expect(screen.getByTestId("community-composer-shell")).toBe(footer)
+      expect(footer).toBeVisible()
+      expect(editor.isEditable).toBe(active)
+      expect(input.getAttribute("contenteditable")).toBe(String(active))
+      expect(footer.hasAttribute("inert")).toBe(!active)
+      if (!active) {
+        await act(async () => { retainedEmoji("🙂") })
+        await waitFor(() => expect(editor.isFocused).toBe(false))
+        expect(view.container.querySelectorAll('[contenteditable="true"]')).toHaveLength(0)
+      }
+      expect(editor.getJSON()).toEqual(edited)
+      expect(readComposerDraft(`viewer:${key}`)).toEqual(edited)
+    }
+    await act(async () => { probe.current!.onEmojiPick("🙂") })
+    expect(editor.getText()).toContain("🙂")
+  })
+
+  it("defers a canonical reply mention until active and applies it once to the retained editor", async () => {
+    const owner = await createCommunityQueryOwner()
+    await seedConversationEntry(owner.client, conversationEntryFixture())
+    const probeRef: Probe = { current: null }
+    const reply = { id: "m1", authorId: "peer", authorName: "Peer", text: "Body" }
+    const node = (active: boolean) => <CommunityTestProvider client={owner.client} registry={owner.registry}>
+      <ConversationActivityContext value={active}>
+        <Harness {...props} probeRef={probeRef} draftKey="deferred-reply" replyingTo={reply} />
+      </ConversationActivityContext>
+    </CommunityTestProvider>
+    const view = render(node(false))
+    const editor = await editorOf(probeRef)
+    const original = editor.getJSON()
+    const mentions = () => {
+      const ids: string[] = []
+      editor.state.doc.descendants((node) => { if (node.type.name === "mention") ids.push(node.attrs.id) })
+      return ids
+    }
+    expect(mentions()).toEqual([])
+    expect(editor.isFocused).toBe(false)
+    view.rerender(node(false))
+    expect(editor.getJSON()).toEqual(original)
+    view.rerender(node(true))
+    await waitFor(() => expect(mentions()).toEqual(["peer"]))
+    await waitFor(() => expect(editor.isFocused).toBe(true))
+    const replied = editor.getJSON()
+    for (const active of [true, false, true]) {
+      view.rerender(node(active))
+      expect(probeRef.current!.editor).toBe(editor)
+      expect(mentions()).toEqual(["peer"])
+      expect(editor.getJSON()).toEqual(replied)
+    }
+  })
+
   it("retains the editor and draft while background focus and submission are disabled", async () => {
     const probeRef: Probe = { current: null }, handle = createRef<ComposerHandle>()
     const accept = vi.fn(() => true)
@@ -143,6 +242,7 @@ describe("composer suggestion focus with installed TipTap", () => {
   beforeEach(() => {
     localStorage.clear()
     surfaces.breakpoint = "desktop"
+    surfaces.navigationBlocked = false
     surfaces.probes.clear()
     const rect = new DOMRect(10, 20, 1, 18)
     Object.defineProperty(Range.prototype, "getBoundingClientRect", { configurable: true, value: () => rect })
