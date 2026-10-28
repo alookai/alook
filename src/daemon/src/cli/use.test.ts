@@ -85,8 +85,10 @@ describe("Automation CLI input and response recovery", () => {
         [["use", "machine", "--help"], "commander.helpDisplayed"],
         [["use", "machine", "--unknown"], "commander.unknownOption"],
       ] as const) {
-        const { run, output } = program()
-        await expect(run([...args])).rejects.toMatchObject({ code })
+        const root = new Command().exitOverride()
+        const output = vi.fn()
+        registerUseCommands(root, output)
+        await expect(root.parseAsync([...args], { from: "user" })).rejects.toMatchObject({ code })
         expect(output).not.toHaveBeenCalled()
       }
       expect(stdout).not.toHaveBeenCalled()
