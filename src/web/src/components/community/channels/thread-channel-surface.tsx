@@ -218,6 +218,10 @@ export function ThreadChannelSurface({
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
+              data-testid={!embedded && controller.feed.positionDataState === "pending" ? tid.conversationResolutionPending : undefined}
+              aria-busy={!embedded && controller.feed.positionDataState === "pending" ? true : undefined}
+              aria-label={!embedded && controller.feed.positionDataState === "pending" ? "Loading thread" : undefined}
+              data-community-conversation-subtype="thread"
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               <ConversationFooterSlotProvider>

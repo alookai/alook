@@ -127,6 +127,10 @@ export function TextChannelSurface({
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
+              data-testid={!embedded && feed.positionDataState === "pending" ? tid.conversationResolutionPending : undefined}
+              aria-busy={!embedded && feed.positionDataState === "pending" ? true : undefined}
+              aria-label={!embedded && feed.positionDataState === "pending" ? "Loading conversation" : undefined}
+              data-community-conversation-subtype="text"
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               <ConversationFooterSlotProvider>

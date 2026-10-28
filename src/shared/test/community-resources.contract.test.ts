@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { BUSINESS_SCHEMA_VERSION, communityChannelResourceFromStorage, CommunityMessageAttachmentSchema, CommunityResourceProfileSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema } from "../src"
 import { communityResourceChannelFixture, communityResourceMessageFixture } from "./community-ws-events.fixtures"
 import { COMMUNITY_CONTRACT_HEADER, requestsCommunityContract } from "../src/community-contract"
-import { CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityConversationEntryReadSchema, communityReadSchemas, type CommunityChannelResource } from "../src/community-resources"
+import { CommunityMessageResourcesSchema, CommunityMessageReadSchema, CommunityMessagePostedSchema, communityMessageProfileIds, CommunityConversationEntryReadSchema, communityReadSchemas, type CommunityChannelResource } from "../src/community-resources"
 
 describe("current community resources", () => {
   it("accepts only the exact current read contract", () => {
@@ -201,5 +201,31 @@ describe("complete message author dependency graphs", () => {
     const sentinel = { ...message, replyTo: { id: "prior", authorName: "Deleted user", text: "", deleted: true } }
     expect(CommunityMessageResourcesSchema.parse({ messages: [sentinel], profiles: [author] }).messages[0].replyTo).toEqual(sentinel.replyTo)
     expect(communityMessageProfileIds([sentinel])).toEqual([author.id])
+  })
+
+  it.each([CommunityMessageReadSchema, CommunityMessagePostedSchema])("validates the complete current single-message envelope and its graph issues", schema => {
+    const value = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: message.channelId, message, profiles: [author, replyAuthor],
+      ...(schema === CommunityMessagePostedSchema ? { deduped: false } : {}) }
+    expect(schema.parse(value)).toEqual(value)
+    for (const profiles of [[author], [replyAuthor], []]) {
+      const result = schema.safeParse({ ...value, profiles })
+      expect(result.success).toBe(false)
+      if (!result.success) expect(result.error.issues.some(issue => issue.code === "custom")).toBe(true)
+    }
+  })
+
+  it("requires the explicit thread opener author in the current entry graph", () => {
+    const parent = { ...communityResourceChannelFixture, id: "parent", type: "text" as const }
+    const channel = { ...parent, id: "thread", type: "thread" as const, parentChannelId: parent.id, parentMessageId: "opener" }
+    const opener = { ...communityResourceMessageFixture.message, id: "opener", channelId: parent.id, authorId: author.id }
+    const value = { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: channel.id, viewerId: "viewer", peer: null, channel, parent, opener,
+      access: { channelId: channel.id, canRead: true, canSend: true, canCreateDiscussion: false },
+      readState: { channelId: channel.id, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
+      messages: [], profiles: [author], page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
+      surfaceReceipt: { channelId: channel.id, surfaceKind: "thread" }, readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null } }
+    expect(CommunityConversationEntryReadSchema.parse(value)).toEqual(value)
+    const result = CommunityConversationEntryReadSchema.safeParse({ ...value, profiles: [] })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues).toContainEqual(expect.objectContaining({ code: "custom", path: ["profiles"], message: "Message profile missing or duplicated in resource graph" }))
   })
 })

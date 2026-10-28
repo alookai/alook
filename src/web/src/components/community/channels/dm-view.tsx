@@ -111,6 +111,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   }, [dms, dmId, peerId, peerProfile])
   const displayName = dm?.name ?? "Direct message"
   const dmBlocked = !!peerId && blocked.some((b) => (b.userId ?? b.id) === peerId)
+  const readDenied = metadata.denied || metadata.denialCode === "blocked"
   const historyAllowed = !dmBlocked && metadata.canRead
   const profilesByUserId = useCanonicalProfilesByUserId()
   // Enrich with presence — the Composer @-picker uses `f.status` to render
@@ -419,13 +420,15 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     return <DmLoadingFrame reserveBackSlot />
   }
 
-  if (!historyAllowed && loadingOwnership.fullFramePending) {
-    return <DmLoadingFrame reserveBackSlot />
-  }
+  if (!readDenied) {
+    if (!historyAllowed && loadingOwnership.fullFramePending) {
+      return <DmLoadingFrame reserveBackSlot />
+    }
 
-  if (!historyAllowed && (loadingOwnership.missingPeer || !dm)) {
-    return <DmRouteErrorFrame onRetry={() => { void dmsQuery.refetch({ cancelRefetch: false }) }}
-      retrying={dmsQuery.isFetching} reserveBackSlot />
+    if (!historyAllowed && (loadingOwnership.missingPeer || !dm)) {
+      return <DmRouteErrorFrame onRetry={() => { void dmsQuery.refetch({ cancelRefetch: false }) }}
+        retrying={dmsQuery.isFetching} reserveBackSlot />
+    }
   }
 
   return (
@@ -446,7 +449,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
         className="flex min-h-0 flex-1 flex-col"
       >
         <ConversationFooterSlotProvider>
-          {dmBlocked ? null : metadata.denied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
+          {dmBlocked ? null : readDenied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
             key={dmId}
             variant="dm"
             channel={displayName}
@@ -517,7 +520,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
               >
                 You have blocked this user. Unblock to send messages.
               </div>
-            ) : metadata.denied ? null : !sendAllowed ? <ComposerSkeleton /> : (
+            ) : readDenied ? null : !sendAllowed ? <ComposerSkeleton /> : (
               <Composer
                 sendContract="accepted"
                 channel={displayName}

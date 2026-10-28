@@ -157,7 +157,7 @@ async function holdCommunityReads(page: Page, caseResources: CaseResources) {
   caseResources.own(release, async (captured) => { captured() })
   let hits = 0
   await page.route("**/api/community/**", async (route) => {
-    if (route.request().method() !== "GET") {
+    if (route.request().method() !== "GET" || new URL(route.request().url()).pathname === "/api/community/users/me/profile") {
       await route.continue()
       return
     }

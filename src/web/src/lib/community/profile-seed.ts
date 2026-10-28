@@ -200,7 +200,7 @@ export function writeCommunityProfilePatches(
     } else if (!current && !options?.resourceSeed) {
       const { id: _id, ...pending } = facts.data
       revisions.pendingFieldsByUserId.set(patch.id, pending)
-    } else continue
+    }
     if (writeRevision !== null) {
       const nextRevisions = { ...fieldRevisions }
       if (identityAbout) nextRevisions.identityAbout = writeRevision

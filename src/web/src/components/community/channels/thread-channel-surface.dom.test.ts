@@ -490,3 +490,33 @@ describe("ThreadChannelSurface ownership", () => {
 
   })
 })
+
+it.each([false, true])("projects current pending on the existing thread surface and keeps embedded=%s ownership", async embedded => {
+  let renderer: ReturnType<typeof render> | undefined
+  let original: Element | null = null
+  for (const state of ["pending", "ready", "empty", "error"] as const) {
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ positionDataState: state, targetPositionDataState: state, isLoading: state === "pending" }))
+    await act(async () => {
+      if (renderer) renderer.rerender(renderSurface({ embedded }))
+      else renderer = render(renderSurface({ embedded }))
+    })
+    const body = renderer!.container.querySelector('[data-slot="community-conversation-surface"]')!
+    if (original) expect(body).toBe(original)
+    original = body
+    expect(body.tagName).toBe(embedded ? "DIV" : "MAIN")
+    expect(body).toHaveAttribute("data-channel-id", "thread_1")
+    expect(body).toHaveAttribute("data-community-conversation-subtype", "thread")
+    if (!embedded && state === "pending") {
+      expect(body).toHaveAttribute("aria-busy", "true")
+      expect(body).toHaveAttribute("aria-label", "Loading thread")
+      if (!embedded) expect(body).toHaveAttribute("data-testid", "community-conversation-resolution-pending")
+    } else {
+      expect(body).not.toHaveAttribute("aria-busy")
+      expect(body).not.toHaveAttribute("aria-label")
+    }
+    if (embedded || state !== "pending") expect(body).not.toHaveAttribute("data-testid")
+    expect(mockedChannelHeader.mock.calls.at(-1)?.[0]).toMatchObject({ kind: "thread" })
+    expect(mockedConversationFooterShell).toHaveBeenCalled()
+  }
+  renderer!.unmount()
+})

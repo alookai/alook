@@ -38,7 +38,7 @@ export function ForumPostList(props: Props) {
 function ForumPostListEntry(props: Props) {
   const [admitted, setAdmitted] = useState(false)
   if (!props.loading && !admitted || props.posts.length > 0 && !admitted) setAdmitted(true)
-  if (!admitted && props.loading && !props.posts.length) return <div data-testid={tid.forumPostList} className="flex-1 overflow-y-auto thin-scrollbar px-0 py-2 sm:px-4">{props.loadingContent}</div>
+  if (!admitted && props.loading && !props.posts.length) return <div data-testid={tid.forumPostList} aria-label="Loading forum" aria-busy="true" data-community-conversation-subtype="forum" className="flex-1 overflow-y-auto thin-scrollbar px-0 py-2 sm:px-4">{props.loadingContent}</div>
   return <ForumPostListOwner {...props} />
 }
 

@@ -1,6 +1,8 @@
 "use client"
 
 import { useMemo } from "react"
+import { useSelector } from "@tanstack/react-store"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { useQueryClient } from "@tanstack/react-query"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { forumTagFromUrl } from "@/lib/community/forum-tag-selection"
@@ -18,6 +20,11 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
   const tag = selectedTag === "All" ? null : selectedTag
   const entry = useConversationResource(channelId ? { channelId, serverId, ...intent, tag } : null, null, false, "metadata", selectedTag !== null)
   const { query, canonical, scope, canRead, windowReady, revoked, denied } = entry
+  const runtime = useCommunityRuntime()
+  const denialCode = useSelector(runtime.ws, state => {
+    const current = channelId ? state.channelAccessScopes.get(channelId) : undefined
+    return revoked && current?.revoked && current.serverId === serverId ? current.denialCode : undefined
+  })
   const identityKnown = canRead && !!scope && !!canonical && canonical.id === channelId && canonical.serverId === serverId && !canonical.pending
   const error = entry.verificationError
   const status: ChannelReadingStatus = !channelId ? "no-target" : denied ? "denied" : windowReady ? "readable"
@@ -31,7 +38,7 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
     creatorId: canonical.creatorId ?? null, lastMessageAt: canonical.lastMessageAt ?? null,
   } }, [canonical, identityKnown, scope, serverId])
   return { ...query, error, data, status, identityKnown, canRead, windowReady, displayWindow: entry.displayWindow, isVerified: canRead,
-    isArchived: !!canonical?.archived, denied, revoked, canonical,
+    isArchived: !!canonical?.archived, denied, revoked, denialCode, canonical,
     retry: entry.retryVerification, retrying: entry.verificationFetching,
   }
 }

@@ -72,3 +72,19 @@ describe("Forum native list identity and ordinary reconstruction", () => {
     expect(view.getByTestId("community-forum-post-list").scrollTop).toBe(0)
   })
 })
+
+it("exposes only an unadmitted forum's initial loading and keeps an admitted empty list on refetch", () => {
+  const props = { posts: [], renderPost, loadingContent: <span>Loading actual forum</span> }
+  const view = render(<ForumPostList {...props} loading />)
+  expect(view.getByLabelText("Loading forum")).toHaveAttribute("aria-busy", "true")
+  expect(view.getByLabelText("Loading forum")).toHaveAttribute("data-community-conversation-subtype", "forum")
+  expect(view.getByText("Loading actual forum")).toBeVisible()
+  view.rerender(<ForumPostList {...props} />)
+  const admitted = view.getByTestId("community-forum-post-list")
+  expect(admitted).not.toHaveAttribute("aria-busy")
+  expect(view.queryByLabelText("Loading forum")).toBeNull()
+  view.rerender(<ForumPostList {...props} loading isFetching />)
+  expect(view.getByTestId("community-forum-post-list")).toBe(admitted)
+  expect(view.queryByText("Loading actual forum")).toBeNull()
+  expect(view.queryByLabelText("Loading forum")).toBeNull()
+})

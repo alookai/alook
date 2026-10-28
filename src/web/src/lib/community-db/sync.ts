@@ -1,3 +1,4 @@
+import type { CommunityApiError } from "@/lib/errors"
 import { readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
 import { ZodError } from "zod"
 import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
@@ -627,7 +628,7 @@ function clearChannelTransientState(
     if (remembered && channelIds.has(remembered)) clearLastChannel(serverId)
   } else {
     const remembered = getLastMeLeaf()
-    if (remembered && channelIds.has(remembered)) clearLastMeLocation()
+    if (remembered && channelIds.has(remembered) && registry.runtime.ws.get().channelAccessScopes.get(remembered)?.denialCode !== "blocked") clearLastMeLocation()
   }
   let viewCurrent = true
   try { options?.assertView?.() } catch { viewCurrent = false }
@@ -2048,7 +2049,7 @@ export function applyCommunityDmBlockAccess(registry: CommunityDbRegistry, peerU
     .map((row) => row.id))
   withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => notifyManager.batch(() => {
     for (const id of ids) {
-      if (blocked) retireCommunityChannelReading(registry, id, { reason: "read-denied", serverId: null })
+      if (blocked) retireCommunityChannelReading(registry, id, { reason: "read-denied", serverId: null, denialCode: "blocked" })
       else registry.runtime.ws.actions.beginChannelMembershipChange(null, id)
     }
   }))
@@ -2303,13 +2304,16 @@ export function collectChannelScopeIds(
 export function retireCommunityChannelReading(
   registry: CommunityDbRegistry,
   channelId: string,
-  options: { reason: "read-denied" | "resource-deleted"; serverId?: string | null; preserveQuery?: Query; queries?: ReadonlySet<Query>; assertView?: () => void; clearTransient?: boolean },
+  options: { reason: "read-denied" | "resource-deleted"; denialCode?: CommunityApiError["code"]; serverId?: string | null; preserveQuery?: Query; queries?: ReadonlySet<Query>; assertView?: () => void; clearTransient?: boolean },
 ) {
   const root = registry.collections.channels.get(channelId)
   const serverId = options.serverId === undefined ? root?.serverId ?? null : options.serverId
   const removed = collectChannelScopeIds(registry.queryClient, serverId, channelId)
-  for (const id of registry.runtime.ws.actions.revokeChannelAccess(serverId, channelId)) removed.add(id)
-  for (const id of removed) if (!registry.runtime.ws.actions.isChannelAccessRevoked(id, serverId)) registry.runtime.ws.actions.revokeChannelAccess(serverId, id)
+  const revoke = (id: string) => options.denialCode === undefined
+    ? registry.runtime.ws.actions.revokeChannelAccess(serverId, id)
+    : registry.runtime.ws.actions.revokeChannelAccess(serverId, id, options.denialCode)
+  for (const id of revoke(channelId)) removed.add(id)
+  for (const id of removed) if (!registry.runtime.ws.actions.isChannelAccessRevoked(id, serverId)) revoke(id)
   void registry.retireReadingDisk(removed, options.reason === "resource-deleted")
     .catch((error: unknown) => console.error("Channel cache retirement failed", error))
   if (options.clearTransient !== false) clearChannelTransientState(registry, removed, serverId, options.preserveQuery, options)

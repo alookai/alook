@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { COMMUNITY_CONVERSATION_ANCHOR_MISSING } from "@alook/shared"
+import { COMMUNITY_CONVERSATION_ANCHOR_MISSING, BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, CommunityReadErrorSchema } from "@alook/shared"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { conversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
+import { conversationEntryFixture, dmConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { protectCommunityJsonResponse } from "@/lib/middleware/response-cache"
 import { apiFetch } from "@/lib/api/client"
-import { ApiError } from "@/lib/errors"
+import { ApiError, CommunityApiError } from "@/lib/errors"
 import { conversationEntryOptions } from "./conversation-entry"
 import { isConversationAnchorMissingError } from "./conversation-read"
 
@@ -40,4 +40,22 @@ describe("current error semantics through middleware, API client and entry", () 
     expect(failure.details).toEqual(["name: Too long"])
     expect(failure.message).toBe("Name Too long")
   })
+})
+
+it.each([["blocked",403],["not_allowed",403],["not_found",404]] as const)("hands the actual %s error to the current scope before query generation retirement",async(code,status)=>{
+  const {client,registry}=await createCommunityQueryOwner()
+  const value=code==="blocked" ? dmConversationEntryFixture() : conversationEntryFixture()
+  await seedConversationEntry(client,value)
+  const {captureCommunityLiveSnapshotToken,publishCommunityMessages}=await import("@/lib/community-db/sync")
+  const obsolete=captureCommunityLiveSnapshotToken(client,value.channelId)
+  const payload=CommunityReadErrorSchema.parse({contractVersion:BUSINESS_SCHEMA_VERSION,error:{code,message:code,retryable:false}})
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify(payload),{status,headers:{"content-type":"application/json",[COMMUNITY_CONTRACT_HEADER]:String(BUSINESS_SCHEMA_VERSION)}})))
+  const failure=await client.query({...conversationEntryOptions(client,{channelId:value.channelId,serverId:value.channel.serverId}),retry:false,staleTime:0,select:undefined}).catch(error=>error)
+  expect(failure).toBeInstanceOf(CommunityApiError)
+  expect(failure.code).toBe(code)
+  const scope=registry.runtime.ws.get().channelAccessScopes.get(value.channelId)!
+  expect(scope).toMatchObject({revoked:true,denialCode:code})
+  expect(scope.generation).toBeGreaterThan(obsolete.channelScopes.get(value.channelId)?.generation ?? 0)
+  expect(registry.collections.messages.has("m1")).toBe(false)
+  expect(()=>publishCommunityMessages(client,{channelId:value.channelId,messages:value.messages,profiles:value.profiles,proof:{token:obsolete}})).toThrow()
 })

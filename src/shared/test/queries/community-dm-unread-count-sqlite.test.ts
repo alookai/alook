@@ -3,6 +3,8 @@ import { communityWriteDb } from "../helpers/community-write-db"
 import { createMessage } from "../../src/db/queries/community/message"
 import { listEligibleUnreadDms } from "../../src/db/queries/community/inbox"
 import { markReadToMessageBuilder } from "../../src/db/queries/community/read-state"
+import { listReadableMessageChannelsForUser } from "../../src/db/queries/community/channel"
+import { block } from "../../src/db/queries/community/friendship"
 
 describe("DM unread counts against real SQLite", () => {
   let fixture: ReturnType<typeof communityWriteDb>
@@ -14,6 +16,11 @@ describe("DM unread counts against real SQLite", () => {
       ALTER TABLE user ADD COLUMN image TEXT;
       ALTER TABLE user ADD COLUMN avatarVersion INTEGER NOT NULL DEFAULT 0;
       CREATE TABLE community_notification_setting (user_id TEXT, server_id TEXT, channel_id TEXT, level TEXT);
+      ALTER TABLE community_friendship ADD COLUMN needs_owner_approval TEXT;
+      ALTER TABLE community_friendship ADD COLUMN blocker_id TEXT;
+      ALTER TABLE community_friendship ADD COLUMN created_at TEXT;
+      ALTER TABLE community_friendship ADD COLUMN updated_at TEXT;
+      ALTER TABLE community_friendship ADD COLUMN resolved_at TEXT;
       UPDATE community_channel SET type = 'dm' WHERE id = 'channel';
       INSERT INTO community_channel_member VALUES
         ('viewer', 'channel', 'author', 'access', 'added', NULL, 'now'),
@@ -38,5 +45,36 @@ describe("DM unread counts against real SQLite", () => {
     ;(markReadToMessageBuilder(fixture.db, { userId: "author", channelId: "channel", message: sent[2]! }) as any).run()
     await expect(listEligibleUnreadDms(fixture.db, "author")).resolves.toEqual([])
     await expect(listEligibleUnreadDms(fixture.db, "outsider")).resolves.toEqual([])
+  })
+
+  it.each(["author", "peer"])("excludes the already-existing %s block using the complete read predicate", async blockerId => {
+    fixture.sqlite.exec(`
+      INSERT INTO user (id) VALUES ('allowed-peer');
+      INSERT INTO community_channel (id, type, created_at) VALUES ('allowed', 'dm', 'now');
+      INSERT INTO community_channel_member VALUES
+        ('allowed-viewer', 'allowed', 'author', 'access', 'added', NULL, 'now'),
+        ('allowed-peer', 'allowed', 'allowed-peer', 'access', 'added', NULL, 'now');
+    `)
+    await createMessage(fixture.db, { channelId: "channel", authorId: "peer", authorKind: "human", content: "Blocked unread" })
+    await createMessage(fixture.db, { channelId: "allowed", authorId: "allowed-peer", authorKind: "human", content: "Allowed unread" })
+    const result = await block(fixture.db, { blockerId, targetId: blockerId === "author" ? "peer" : "author" })
+    expect(result.row).toMatchObject({ status: "blocked", blockerId })
+    expect(result.row.createdAt).toEqual(expect.any(String))
+    expect(result.row.updatedAt).toEqual(expect.any(String))
+    expect((await listEligibleUnreadDms(fixture.db, "author")).map(row => row.channelId)).toEqual(["allowed"])
+    expect((await listReadableMessageChannelsForUser(fixture.db, "author", ["channel", "allowed"])).map(row => row.id)).toEqual(["allowed"])
+  })
+
+  it("scopes complete readable IDs before selecting and deduplicates the requested collection", async () => {
+    expect(await listReadableMessageChannelsForUser(fixture.db, "author", [])).toEqual([])
+    expect((await listReadableMessageChannelsForUser(fixture.db, "author", ["channel", "channel", "missing"])).map(row => row.id)).toEqual(["channel"])
+    expect(await listReadableMessageChannelsForUser(fixture.db, "outsider", ["channel"])).toEqual([])
+  })
+
+  it("requires a current peer for both eligible projection and full message read", async () => {
+    await createMessage(fixture.db, { channelId: "channel", authorId: "peer", authorKind: "human", content: "Unread" })
+    fixture.sqlite.prepare("DELETE FROM community_channel_member WHERE id = 'peer'").run()
+    expect(await listEligibleUnreadDms(fixture.db, "author")).toEqual([])
+    expect(await listReadableMessageChannelsForUser(fixture.db, "author", ["channel"])).toEqual([])
   })
 })

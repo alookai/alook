@@ -271,3 +271,28 @@ describe("partial identity facts", () => {
       .toEqual([{ id: "peer", avatar: { avatar: null, avatarVersion: 4 } }])
   })
 })
+
+describe("actual card facts through canonical mapper ownership",()=>{
+  it.each(["human","other-bot","owned-bot"] as const)("keeps actual %s null/zero/false and single-field card facts",async kind=>{
+    const {CommunityUserCardReadSchema}=await import("@alook/shared")
+    const {userProfileQueryFn}=await import("@/hooks/community/use-user-profile")
+    const profile=CommunityUserCardReadSchema.parse({id:"card-peer",name:"Peer",discriminator:"0042",image:null,avatarVersion:0,aboutMe:"",bannerColor:null,statusEmoji:null,statusText:null,mutualServers:0,
+      ...(kind==="human"?{kind:"human"}:{kind:"bot",ownerProfile:{id:kind==="owned-bot"?"viewer":"other",handle:"Owner#0043"},ownedByViewer:kind==="owned-bot"})})
+    apiFetch.mockResolvedValueOnce(profile)
+    expect(await registry.queryClient.query({queryKey:communityKeys.profile(profile.id),queryFn:userProfileQueryFn(profile.id)})).toEqual({id:profile.id})
+    const canonical=registry.collections.profiles.get(profile.id)!
+    const card={ownerHandle:kind==="human"?null:"Owner#0043",mutualServers:0,ownedByViewer:kind==="owned-bot"}
+    expect(canonical).toMatchObject(card)
+    expect(communityUserProfilePatch(profile.id,canonical).card).toEqual(card)
+    for(const fields of [{ownerHandle:canonical.ownerHandle},{mutualServers:canonical.mutualServers},{ownedByViewer:canonical.ownedByViewer}]) {
+      const patch=communityUserProfilePatch(profile.id,fields)
+      expect(patch.card).toEqual(fields)
+      writeCommunityProfilePatches([patch],registry)
+      expect(registry.collections.profiles.get(profile.id)).toMatchObject(card)
+    }
+    const ordinary=communityUserProfilePatch(profile.id,{name:"New resource name",discriminator:"0042",avatar:null,avatarVersion:0})
+    expect(ordinary).not.toHaveProperty("card")
+    writeCommunityProfilePatches([ordinary],registry)
+    expect(registry.collections.profiles.get(profile.id)).toMatchObject({...card,name:"New resource name"})
+  })
+})

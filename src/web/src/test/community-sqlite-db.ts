@@ -32,6 +32,8 @@ export function createCommunitySqliteDb() {
     }
   }
   sqlite.exec("CREATE UNIQUE INDEX idx_read_state_user_channel ON community_read_state(user_id, channel_id)")
+  sqlite.exec("CREATE UNIQUE INDEX idx_notification_setting_user_server ON community_notification_setting(user_id, server_id) WHERE server_id IS NOT NULL;")
+  sqlite.exec("CREATE UNIQUE INDEX idx_notification_setting_user_channel ON community_notification_setting(user_id, channel_id) WHERE channel_id IS NOT NULL;")
   const record = { invocations: 0, batches: [] as number[], statements: [] as Array<{ sql: string; bindings: SQLInputValue[] }> }
   const binding = {
     prepare(sql: string) {

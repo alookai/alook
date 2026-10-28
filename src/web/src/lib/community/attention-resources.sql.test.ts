@@ -1,6 +1,18 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { NextRequest } from "next/server"
+import { queries, BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, AccountAttentionSnapshotSchema } from "@alook/shared"
+import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 import { createCommunitySqliteDb } from "@/test/community-sqlite-db"
-import { readCommunityResourceBundle } from "./attention-resources.server"
+import { hydrateAttentionResources, readCommunityResourceBundle } from "./attention-resources.server"
+
+const attentionHttp = vi.hoisted(() => ({ db: null as unknown }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: () => attentionHttp.db, getDb: () => attentionHttp.db }))
+vi.mock("@/lib/middleware/auth", async () => {
+  const { protectCommunityJsonResponse } = await import("@/lib/middleware/response-cache")
+  return { withAuth: (handler: AuthenticatedHandler) => async (request: NextRequest) => protectCommunityJsonResponse(request,
+    await handler(request, { env: { DB: {} } as Env, userId: "viewer", email: "viewer@example.test" })) }
+})
+import { GET } from "@/app/api/community/users/me/attention/route"
 
 const fixtures: ReturnType<typeof createCommunitySqliteDb>[] = []
 const stamp = "2026-10-28T00:00:00.000Z"
@@ -16,6 +28,54 @@ function fixture(count: number) {
   return { ...result, ids }
 }
 afterEach(() => { for (const item of fixtures) item.sqlite.close(); fixtures.length = 0 })
+
+async function blockDm(store: ReturnType<typeof createCommunitySqliteDb>, by: "viewer" | "peer") {
+  const blockerId = by === "viewer" ? "viewer" : "peer", targetId = by === "viewer" ? "peer" : "viewer"
+  const result = await queries.communityFriendship.block(store.db, { blockerId, targetId })
+  expect(result.row).toMatchObject({ requesterId: blockerId, addresseeId: targetId, status: "blocked", blockerId })
+  expect(result.row.createdAt).toEqual(expect.any(String))
+  expect(result.row.updatedAt).toEqual(expect.any(String))
+}
+
+async function dmFixture(block: "none" | "viewer" | "peer") {
+  const store = createCommunitySqliteDb(); fixtures.push(store); attentionHttp.db = store.db
+  for (const id of ["viewer", "peer", "other"]) store.sqlite.prepare('INSERT INTO user (id,email,name,discriminator,image,"avatarVersion","createdAt","updatedAt") VALUES (?,?,?,?,null,0,?,?)').run(id, `${id}@example.test`, id, "0042", stamp, stamp)
+  for (const [id, peer] of [["blocked-dm", "peer"], ["allowed-dm", "other"]]) {
+    store.sqlite.prepare("INSERT INTO community_channel (id,server_id,name,type,topic,position,archived,message_count,created_at,last_message_at) VALUES (?,null,null,'dm','',0,0,1,?,?)").run(id, stamp, stamp)
+    for (const user of ["viewer", peer]) store.sqlite.prepare("INSERT INTO community_channel_member (id,channel_id,user_id,relation,source,added_by,added_at) VALUES (?,?,?,'access','added','viewer',?)").run(`${id}:${user}`, id, user, stamp)
+    store.sqlite.prepare("INSERT INTO community_message (id,author_id,content,type,channel_id,seq,created_at) VALUES (?,?,?,'default',?,1,?)").run(`${id}:message`, peer, `${id} body`, id, stamp)
+  }
+  if (block !== "none") await blockDm(store, block)
+  return store
+}
+
+it.each(["none", "viewer", "peer"] as const)("keeps an already-existing %s block consistent between eligible and complete read SQL", async block => {
+  const { db } = await dmFixture(block)
+  const expected = new Set(block === "none" ? ["blocked-dm", "allowed-dm"] : ["allowed-dm"])
+  const readable = await queries.communityChannel.listReadableMessageChannelsForUser(db, "viewer", ["blocked-dm", "allowed-dm"])
+  expect(new Set(readable.map(row => row.id))).toEqual(expected)
+  const eligible = await queries.communityInbox.listEligibleUnreadDms(db, "viewer")
+  expect(new Set(eligible.map(row => row.channelId))).toEqual(expected)
+})
+
+it.each(["none", "viewer", "peer"] as const)("returns the complete current attention HTTP resource for an already-existing %s block", async block => {
+  await dmFixture(block)
+  const response = await GET(new NextRequest("http://localhost/api/community/users/me/attention", { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }), {} as never)
+  expect(response.status).toBe(200)
+  expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+  const snapshot = AccountAttentionSnapshotSchema.parse(await response.json())
+  const expected = new Set(block === "none" ? ["blocked-dm", "allowed-dm"] : ["allowed-dm"])
+  expect(new Set(snapshot.scopes.map(row => row.channelId))).toEqual(expected)
+  expect(new Set(snapshot.resources.channels.map(row => row.id))).toEqual(expected)
+})
+
+it("still rejects hydration when a real block happens after the earlier projection", async () => {
+  const store = await dmFixture("none")
+  const projection = await queries.communityAttention.getAccountAttentionProjection(store.db, "viewer")
+  expect(projection.included.dms.some(row => row.id === "blocked-dm")).toBe(true)
+  await blockDm(store, "peer")
+  await expect(hydrateAttentionResources(store.db, "viewer", projection)).rejects.toThrow("Attention access changed")
+})
 
 describe("full resource hydrator with actual scoped SQL", () => {
   it.each([250, 500])("hydrates all %i public channels within the existing D1 invocation limit", async count => {

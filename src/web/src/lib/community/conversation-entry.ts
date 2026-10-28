@@ -11,7 +11,7 @@ import { communityRequestOptions } from "./account-cache-lifecycle"
 import { isChannelMetadataTokenCurrent } from "./conversation-qualification"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { channelMembershipKey, type ReadStateRow } from "@/lib/community-db/schema"
-import { ApiError } from "@/lib/errors"
+import { ApiError, CommunityApiError } from "@/lib/errors"
 import {
   assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken,
   publishCommunityChannelMetadata, publishCommunityChannelMembersSnapshot, publishCommunityConversationReadState, confirmCommunityConversationPresence,
@@ -265,7 +265,8 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
           && !!original && client.getQueryCache().get(original.queryHash) === original
         record(!current || error instanceof Error && error.name === "AbortError" ? "cancelled" : "error")
         assert()
-        if (error instanceof ApiError && (error.status === 403 || error.status === 404) && !isConversationAnchorMissingError(error)) retireCommunityChannelReading(token.registry!, target.channelId, { reason: "read-denied", serverId: target.serverId, preserveQuery: original })
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404) && !isConversationAnchorMissingError(error)) retireCommunityChannelReading(token.registry!, target.channelId, { reason: "read-denied", serverId: target.serverId, preserveQuery: original,
+          ...(error instanceof CommunityApiError ? { denialCode: error.code } : {}) })
         throw error
       }
     },

@@ -28,7 +28,8 @@ describe("accepted IO survives real view retirement", () => {
       const scope = kind === "dm" ? { kind, id: "scope" } : { kind, id: "scope", serverId: "server" }
       const gate = deferred<Response>(), decode = deferred<void>()
       const response = postedResponse()
-      const json = vi.spyOn(response, "json").mockImplementation(async () => { await decode.promise; return posted })
+      const readText = response.text.bind(response)
+      const body = vi.spyOn(response, "text").mockImplementation(async () => { await decode.promise; return readText() })
       const fetchMock = vi.fn(async (path: string) => {
         if (path.endsWith("/attachments")) return gate.promise
         if (phase === "post") return gate.promise
@@ -53,7 +54,7 @@ describe("accepted IO survives real view retirement", () => {
         }
         if (phase === "preparation") view.unmount()
       })
-      if (phase === "decode") await waitFor(() => expect(json).toHaveBeenCalledOnce())
+      if (phase === "decode") await waitFor(() => expect(body).toHaveBeenCalledOnce())
       else if (phase !== "preparation") await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
       if (phase !== "preparation") view.unmount()
       owner.runtime.ws.actions.beginChannelMembershipChange("other-server", "other-channel")
