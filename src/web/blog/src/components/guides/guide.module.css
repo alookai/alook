@@ -104,6 +104,7 @@
 }
 
 .completionCriteria { display: flex; gap: 12px; margin-top: 24px; padding: 16px; border-radius: var(--radius-md); background: var(--muted); color: var(--muted-foreground); font-size: 14px; line-height: 1.6; }
-.completionCriteria > svg { flex-shrink: 0; margin-top: 3px; }
-.completionCriteria strong { color: var(--foreground); font-weight: 500; }
-.completionCriteria p { margin-top: 4px; }
+.completionCriteria > span { flex-shrink: 0; }
+.completionCriteria p { margin: 0; }
+
+.completionCriteria a { text-decoration: underline; text-underline-offset: 3px; }
