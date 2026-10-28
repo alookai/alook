@@ -627,7 +627,7 @@ function MessageImpl({
     >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
       {interactive && activated && !selectMode && (
-        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-1" : "-top-2"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "top-0 -translate-y-full" : "-top-2"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
             <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
               <span className="opacity-60">#</span>{m.seq}
