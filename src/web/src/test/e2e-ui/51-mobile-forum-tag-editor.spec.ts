@@ -75,6 +75,32 @@ async function gateNextForumFeedResponse(page: Page, caseResources: CaseResource
   return { release, captured, delivered }
 }
 
+async function gateInitialForumTags(page: Page, forumId: string, caseResources: CaseResources) {
+  let release!: () => void
+  let sawResponse!: () => void
+  let finished!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const captured = new Promise<void>((resolve) => { sawResponse = resolve })
+  const delivered = new Promise<void>((resolve) => { finished = resolve })
+  caseResources.own(release, async (captured) => { captured() })
+  caseResources.own(sawResponse, async (captured) => { captured() })
+  caseResources.own(finished, async (captured) => { captured() })
+  await page.route(`**/api/community/channels/${forumId}/messages/tags`, async (routeRequest) => {
+    const response = await routeRequest.fetch()
+    const body = await response.json() as { tags: string[] }
+    if (body.tags.length > 0) {
+      await routeRequest.fulfill({ response })
+      return
+    }
+    expect(body).toEqual({ tags: [] })
+    sawResponse()
+    await gate
+    await routeRequest.fulfill({ response }).catch(() => undefined)
+    finished()
+  })
+  return { release, captured, delivered }
+}
+
 async function openEditor(page: Page, threadId: string) {
   await page.getByTestId(tid.forumThreadCard(threadId)).hover()
   const trigger = page.getByTestId(tid.forumThreadTagBtn(threadId))
@@ -242,7 +268,7 @@ test.describe("forum tag editor", () => {
     await expect(card).toHaveCount(0)
   })
 
-  test("converges Archive and Unarchive across two tabs", async ({ caseActors }) => {
+  test("converges Archive and Unarchive across two tabs", async ({ caseActors, caseResources }) => {
     const actors = await caseActors(["alice"])
     const { asUser } = actors
     const { seedForum } = await prepareCase1(actors)
@@ -250,10 +276,12 @@ test.describe("forum tag editor", () => {
     const { route, forumId, threadId } = await seedForum("Archive cross tab")
     const tabA = await asUser("alice")
     const tabB = await asUser("alice")
+    const staleTags = await gateInitialForumTags(tabB.page, forumId, caseResources)
     await Promise.all([
       gotoAfterUserWsAuth(tabA.page, route),
       gotoAfterUserWsAuth(tabB.page, route),
     ])
+    await staleTags.captured
     const cardA = tabA.page.getByTestId(tid.forumThreadCard(threadId))
     const cardB = tabB.page.getByTestId(tid.forumThreadCard(threadId))
     await expect(cardA).toBeVisible()
@@ -267,6 +295,8 @@ test.describe("forum tag editor", () => {
     await tabA.page.getByTestId(tid.forumThreadArchiveBtn(threadId)).click()
     expect((await archived).status()).toBe(200)
     await expect(cardB).toHaveCount(0)
+    staleTags.release()
+    await staleTags.delivered
 
     await expect(tabA.page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()
     await expect(tabB.page.getByTestId(tid.forumTagChip("archived"))).toBeVisible()

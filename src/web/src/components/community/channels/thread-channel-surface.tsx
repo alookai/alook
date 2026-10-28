@@ -182,7 +182,7 @@ export function ThreadChannelSurface({
       serverId={serverId}
       serverParam={serverParam}
       channelName={displayName}
-      forumParentChannelId={parentIsForum ? parentChannelId ?? undefined : undefined}
+      forumParentChannelId={parentChannelId ?? undefined}
       viewer={viewer}
       anchorMessageId={anchorMessageId}
       feed={feed}

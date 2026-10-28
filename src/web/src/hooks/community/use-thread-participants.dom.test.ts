@@ -27,8 +27,8 @@ afterEach(async () => {
 function Owner({ children }: PropsWithChildren) {
   return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children))
 }
-function seedSidebar() {
-  ingestServerDetail(registry, { id: "server_1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer_1", categories: [{ id: "category", name: "Channels", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
+function seedSidebar(parentType: "forum" | "text" = "forum") {
+  ingestServerDetail(registry, { id: "server_1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer_1", categories: [{ id: "category", name: "Channels", channels: [{ id: "forum_1", name: "Forum", type: parentType, active: false, unread: false }] }] })
   const key = communityKeys.forumSidebarThreads("server_1")
   client.setQueryData(key, { ids: ["post_1"], serverNow: "2026-08-08T00:00:00.000Z", serverClockOffsetMs: 0 })
   publishCommunityForumSidebar(client, {
@@ -45,8 +45,8 @@ async function command<T>(run: () => Promise<T>) {
   return value
 }
 describe("useRemoveThreadParticipant", () => {
-  it("removes the child from every sidebar view when the viewer leaves", async () => {
-    seedSidebar()
+  it.each(["forum", "text"] as const)("removes the %s child from every sidebar view when the viewer leaves", async (parentType) => {
+    seedSidebar(parentType)
     const metaKey = communityKeys.channelMeta("server_1", "post_1")
     client.setQueryData(metaKey, { id: "post_1", parentChannelId: "forum_1" })
 

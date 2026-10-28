@@ -518,11 +518,12 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     expect(hasCanonicalChannel("ch_1")).toBe(false)
   })
 
-  it("adds/removes the viewer's participating child in the forum sidebar", async () => {
+  it.each(["forum", "text"] as const)("adds/removes the viewer's participating child below a %s parent", async (parentType) => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("srv_1")
     await act(async () => { seedCanonicalForumSidebar("srv_1", ["post_1", "post_2"]) })
+    await act(async () => { patchCanonicalCommunityChannel(capturedQueryClient, "forum_1", row => ({ ...row, type: parentType })) })
     await act(async () => { patchCanonicalCommunityChannel(capturedQueryClient, "post_1", (row) => ({
       ...row,
       unread: true,

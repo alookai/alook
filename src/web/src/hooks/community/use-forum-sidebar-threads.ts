@@ -31,7 +31,7 @@ type CommunityFreshQueryProof,
 type CommunityForumSidebarChannel,
 type CommunityForumSidebarOpener,
 } from "@/lib/community-db/sync"
-import { forumSidebarCandidates, viewerNotifyChannelIds, compareForumSidebarThreads as compareThreads,
+import { supportsSidebarThreads, forumSidebarCandidates, viewerNotifyChannelIds, compareForumSidebarThreads as compareThreads,
   FORUM_SIDEBAR_ACTIVITY_WINDOW_MS as SIDEBAR_ACTIVITY_WINDOW_MS, type ForumSidebarThread } from "@/lib/community/forum-sidebar"
 export type { ForumSidebarThread } from "@/lib/community/forum-sidebar"
 
@@ -74,9 +74,9 @@ export type NormalizedForumSidebarEnvelope = {
 export function resolveForumSidebarRouteCandidate(
   channelId: string | null,
   topLevelChannelIds: Iterable<string> | null,
-  parentIsForum: boolean | null | undefined,
+  parentSupportsThreads: boolean | null | undefined,
 ) {
-  if (!channelId || !topLevelChannelIds || !parentIsForum) return null
+  if (!channelId || !topLevelChannelIds || !parentSupportsThreads) return null
   return new Set(topLevelChannelIds).has(channelId) ? null : channelId
 }
 
@@ -160,7 +160,7 @@ export function normalizeForumSidebarEnvelope(
 function sidebarUrl(serverId: string, retainId: string | null) {
   const params = new URLSearchParams({
     type: "thread",
-    parentType: "forum",
+    parentType: "forum,text",
     participating: "true",
     activeWithin: "72h",
     limitPerParent: "5",
@@ -216,7 +216,7 @@ function publishNormalizedForumSidebar(
     ...normalized.base, threads: [], verifiedEpoch: token.accessEpoch,
     window: {
       version: 1 as const, accountId: token.viewerId!, serverId,
-      parents: [...new Set([...getCanonicalCommunityChannels(queryClient).filter(row => row.serverId === serverId && row.type === "forum").map(row => row.id), ...normalized.channels.flatMap(row => row.parentChannelId ? [row.parentChannelId] : [])])],
+      parents: [...new Set([...getCanonicalCommunityChannels(queryClient).filter(row => row.serverId === serverId && supportsSidebarThreads(row.type)).map(row => row.id), ...normalized.channels.flatMap(row => row.parentChannelId ? [row.parentChannelId] : [])])],
       base: normalized.base.threads.map(reference),
       retained: retainId ? normalized.retainedDisposition === "eligible" && normalized.retained
         ? { id: retainId, disposition: "eligible" as const, reference: reference(normalized.retained) }
@@ -256,9 +256,9 @@ export function isKnownNonForumSidebarChannel(
   const channel = channels.find((candidate) => candidate.id === channelId)
   if (!channel) return false
   if (channel.serverId !== serverId) return true
-  if (channel.type !== "thread") return channel.type !== "forum"
+  if (channel.type !== "thread") return !supportsSidebarThreads(channel.type)
   const parent = channels.find((candidate) => candidate.id === channel.parentChannelId)
-  return !!parent && parent.type !== "forum"
+  return !!parent && !supportsSidebarThreads(parent.type)
 }
 
 export function isForumSidebarParent(
@@ -269,7 +269,7 @@ export function isForumSidebarParent(
   return getCanonicalCommunityChannels(queryClient).some((channel) => (
     channel.id === parentChannelId
     && channel.serverId === serverId
-    && channel.type === "forum"
+    && supportsSidebarThreads(channel.type)
   ))
 }
 
@@ -401,7 +401,7 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
     && channel.type === "thread"
     && notifyIds.has(channel.id)
     && !!channel.parentChannelId
-    && channelById.get(channel.parentChannelId)?.type === "forum"
+    && supportsSidebarThreads(channelById.get(channel.parentChannelId)?.type)
   ))
 
   const baseIds = new Set(base.threads.map((thread) => thread.id))

@@ -9,6 +9,10 @@ export type ForumSidebarThread = Pick<ChannelRow, "id"> & { unread: boolean } & 
   expiresAt: string
 }
 
+export function supportsSidebarThreads(type: string | null | undefined) {
+  return type === "forum" || type === "text"
+}
+
 export const FORUM_SIDEBAR_ACTIVITY_WINDOW_MS = 72 * 60 * 60 * 1000
 
 export function viewerNotifyChannelIds(memberships: readonly ChannelMembershipRow[], viewerId: string | null) {
@@ -27,7 +31,7 @@ export function forumSidebarCandidates(
 ) {
   const participating = viewerNotifyChannelIds(memberships, viewerId)
   const messageById = new Map(messages.map((message) => [message.id, message]))
-  const parents = channels.filter((channel) => channel.serverId === serverId && channel.type === "forum")
+  const parents = channels.filter((channel) => channel.serverId === serverId && supportsSidebarThreads(channel.type))
   const parentIds = new Set(parents.map((channel) => channel.id))
   return channels.flatMap((channel) => {
     if (channel.serverId !== serverId || channel.type !== "thread" || channel.archived

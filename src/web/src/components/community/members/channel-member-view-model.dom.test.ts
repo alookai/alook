@@ -234,7 +234,7 @@ describe("useChannelMemberViewModel", () => {
     mocks.kickMember.mockResolvedValue({})
   })
 
-  it("scopes forum sidebar participant mutations only to children of a forum", () => {
+  it("scopes sidebar participant mutations to children of text and forum channels", () => {
     const child = (parentType: string) => props({
       channelId: "thread_1",
       currentServer: {
@@ -252,8 +252,8 @@ describe("useChannelMemberViewModel", () => {
     act(() => {
       renderer = rtlRender(renderHarness(child("text")))
     })
-    expect(mocks.addThreadHookArgs.at(-1)).toEqual(["thread_1", undefined, "viewer_1"])
-    expect(mocks.removeThreadHookArgs.at(-1)).toEqual(["thread_1", "server_1", "viewer_1", false])
+    expect(mocks.addThreadHookArgs.at(-1)).toEqual(["thread_1", "server_1", "viewer_1"])
+    expect(mocks.removeThreadHookArgs.at(-1)).toEqual(["thread_1", "server_1", "viewer_1", true])
 
     act(() => {
       renderer!.rerender(renderHarness(child("forum")))

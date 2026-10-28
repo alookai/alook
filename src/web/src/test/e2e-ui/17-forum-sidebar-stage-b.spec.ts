@@ -318,7 +318,7 @@ test.describe("forum sidebar Stage B request shape", () => {
     expect(await participantUserIds(page, threadId)).not.toContain(userId("carol"))
   })
 
-  test("a grouped ordinary thread never asks the forum sidebar to retain it", async ({ caseActors }) => {
+  test("an ordinary thread checks sidebar retention without enrolling a nonparticipant", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser, userId } = actors
     const { participantUserIds, serverId, ordinaryThreadId } = await prepareCase1(actors)
@@ -344,10 +344,11 @@ test.describe("forum sidebar Stage B request shape", () => {
 
     expect(successfulResponses.filter((url) => isConversationEntryRequest(url, ordinaryThreadId)))
       .toHaveLength(1)
-    expect(requests.filter((url) =>
+    await expect.poll(() => requests.filter((url) =>
       isSidebarRequest(url, serverId)
       && new URL(url).searchParams.get("retainId") === ordinaryThreadId
-    )).toHaveLength(0)
+    ).length).toBe(1)
+    await expect(page.getByTestId(tid.forumSidebarThread(ordinaryThreadId))).toHaveCount(0)
     expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
     expect(await participantUserIds(page, ordinaryThreadId)).not.toContain(userId("bob"))
   })
