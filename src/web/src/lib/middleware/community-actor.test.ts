@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 
 // The unified actor is a thin router over two collaborators:
 //   - resolveBotActor (crk_ → bot identity) — the bot path;
@@ -14,8 +15,10 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
+const mockResolveOwnedBotActor = vi.fn()
 const mockResolveBotActor = vi.fn()
 vi.mock("./community-agent-runner-auth", () => ({
+  resolveOwnedBotActor: (...a: unknown[]) => mockResolveOwnedBotActor(...a),
   resolveBotActor: (...a: unknown[]) => mockResolveBotActor(...a),
 }))
 
@@ -110,7 +113,7 @@ describe("withCommunityActor", () => {
     const mediaHandler = vi.fn(async (_request: NextRequest, _ctx: { actor: CommunityActor }) => original)
     const res = await withCommunityActor(mediaHandler)(bearer("Bearer crk_abc"))
     expect(res.status).toBe(status)
-    expect(res.headers.get("Vary")).toBe("Accept-Encoding, Cookie, Authorization")
+    expect(res.headers.get("Vary")).toBe("Accept-Encoding, Cookie, Authorization, X-Alook-Bot-Id")
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
     expect(res.body).toBe(original.body)
     expect(mediaHandler.mock.calls[0]?.[1].actor.kind).toBe("bot")
@@ -134,5 +137,46 @@ describe("rejectBot / requireBot guards", () => {
     const botGate = requireBot(bot)
     expect(botGate.ok).toBe(true)
     if (botGate.ok) expect(botGate.bot).toEqual({ kind: "bot", userId: "b", ownerUserId: "o", machineId: "m", isActive: true })
+  })
+})
+
+
+describe("owner selected bot", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockHumanCtx = { env: { DB: {} }, userId: "human_1", email: "h@t.com" }
+    mockResolveOwnedBotActor.mockResolvedValue({ kind: "bot", actor: { botUserId: "bot_1", ownerUserId: "human_1", machineId: "offline_machine", isActive: true } })
+  })
+  const request = () => new NextRequest("http://localhost/api/community/servers/channels", { headers: { "X-Alook-Bot-Id": "bot_1", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
+  it("authenticates the owner then delegates only the selected bot identity, with a private varied response", async () => {
+    const response = await withCommunityActor(handler)(request())
+    expect(mockResolveOwnedBotActor).toHaveBeenCalledWith({}, "bot_1", "human_1", { allowInactive: undefined })
+    expect(await response.json()).toMatchObject({ actor: { kind: "bot", userId: "bot_1", ownerUserId: "human_1", machineId: "offline_machine", delegatedByUserId: "human_1" } })
+    expect(response.headers.get("Cache-Control")).toContain("no-store")
+    expect(response.headers.get("Vary")).toContain("X-Alook-Bot-Id")
+    expect(mockResolveBotActor).not.toHaveBeenCalled()
+  })
+  it("does not resolve a selected bot before human authentication", async () => {
+    mockHumanCtx = null
+    expect((await withCommunityActor(handler)(request())).status).toBe(401)
+    expect(mockResolveOwnedBotActor).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+  it("preserves owned bot lookup rejection without calling the route", async () => {
+    mockResolveOwnedBotActor.mockResolvedValue({ kind: "error", response: NextResponse.json({ error: "bot not found" }, { status: 404 }) })
+    expect((await withCommunityActor(handler)(request())).status).toBe(404)
+    expect(handler).not.toHaveBeenCalled()
+  })
+  it("rejects runner-key identity selection without falling through to human authentication", async () => {
+    const req = request()
+    req.headers.set("Authorization", "Bearer crk_a")
+    expect((await withCommunityActor(handler)(req)).status).toBe(403)
+    expect(mockResolveOwnedBotActor).not.toHaveBeenCalled()
+    expect(mockResolveBotActor).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+  it("passes the route's explicit inactive policy to owner delegation", async () => {
+    await withCommunityActor(handler, { allowInactiveBot: true })(request())
+    expect(mockResolveOwnedBotActor).toHaveBeenCalledWith({}, "bot_1", "human_1", { allowInactive: true })
   })
 })

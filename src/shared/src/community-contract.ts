@@ -1,5 +1,7 @@
 import { BUSINESS_SCHEMA_VERSION } from "./business-schema-version"
 
+export const COMMUNITY_BOT_ACTOR_HEADER = "X-Alook-Bot-Id"
+
 export const COMMUNITY_CONTRACT_HEADER = "X-Alook-Community-Contract"
 export const COMMUNITY_CONTRACT_VERSION = BUSINESS_SCHEMA_VERSION
 export const COMMUNITY_RESOURCE_CONTRACT_VERSION = BUSINESS_SCHEMA_VERSION

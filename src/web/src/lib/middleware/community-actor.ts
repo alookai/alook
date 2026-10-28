@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getDb } from "@/lib/db"
 import { withAuth, type AuthContext } from "./auth"
-import { resolveBotActor } from "./community-agent-runner-auth"
+import { COMMUNITY_BOT_ACTOR_HEADER } from "@alook/shared"
+import { resolveBotActor, resolveOwnedBotActor } from "./community-agent-runner-auth"
 import { protectCommunityJsonResponse, rejectUnknownCommunityContract, varyPrivateResponseByCredentials } from "./response-cache"
 
 /**
@@ -46,6 +47,7 @@ export type CommunityActor =
       machineId: string
       /** Server-internal binding state resolved by runner auth. */
       isActive: boolean
+      delegatedByUserId?: string
     }
 
 interface CommunityActorContext {
@@ -104,6 +106,9 @@ function createCommunityActorHandler(
     // returns `not_bot` for any other header (including an `al_` machine token
     // or a session cookie), which we route to the human `withAuth` path below.
     if (authHeader?.startsWith("Bearer ") && authHeader.slice(7).trim().startsWith("crk_")) {
+      if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)) {
+        return NextResponse.json({ error: "runner keys cannot select another bot" }, { status: 403 })
+      }
       const { env } = await getCloudflareContext({ async: true })
       const cloudflareEnv = env as Env
       const db = getDb(cloudflareEnv.DB)
@@ -138,6 +143,16 @@ function createCommunityActorHandler(
     // the unified actor. withAuth owns all human auth behavior (KV cache,
     // session guard, Set-Cookie refresh); we do not reimplement any of it.
     const delegated = withAuth(async (r, humanCtx: AuthContext & { params?: Record<string, string> }) => {
+      const selectedBotId = r.headers.get(COMMUNITY_BOT_ACTOR_HEADER)
+      if (selectedBotId !== null) {
+        const resolved = await resolveOwnedBotActor(getDb(humanCtx.env.DB), selectedBotId, humanCtx.userId, { allowInactive: options.allowInactiveBot })
+        if (resolved.kind === "error") return resolved.response
+        return handler(r, {
+          env: humanCtx.env,
+          params: humanCtx.params,
+          actor: { kind: "bot", userId: resolved.actor.botUserId, ownerUserId: resolved.actor.ownerUserId, machineId: resolved.actor.machineId, isActive: resolved.actor.isActive, delegatedByUserId: humanCtx.userId },
+        })
+      }
       return handler(r, {
         env: humanCtx.env,
         actor: {
@@ -149,7 +164,7 @@ function createCommunityActorHandler(
         },
         params: humanCtx.params,
       })
-    })
+    }, { allowBotSelection: true })
     return delegated(req, context)
   }
 }

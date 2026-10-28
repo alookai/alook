@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, requestedCommunityContract } from "../src/index"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, requestedCommunityContract } from "../src/index"
 import { CommunityMessageResourceSchema } from "../src/community-resources"
 import { communityCollectionSchemas } from "../src/community-cache"
 import { encodeCommunityBrowserEvent, decodeCommunityBrowserEvent } from "../src/community-ws-events"
@@ -58,4 +58,15 @@ describe("one current business resource protocol", () => {
     expect((await admitCommunityBrowserEventBatch(frame)).ok).toBe(false)
   })
 
+})
+
+it("keeps bot selection independent from current business version admission", () => {
+  const headers = new Headers({ [COMMUNITY_BOT_ACTOR_HEADER]: "selected-bot" })
+  expect(requestedCommunityContract(headers)).toBeNull()
+  for (const version of ["2", "3"]) {
+    headers.set(COMMUNITY_CONTRACT_HEADER, version)
+    expect(requestedCommunityContract(headers)).toBeNull()
+  }
+  headers.set(COMMUNITY_CONTRACT_HEADER, String(BUSINESS_SCHEMA_VERSION))
+  expect(requestedCommunityContract(headers)).toBe(BUSINESS_SCHEMA_VERSION)
 })

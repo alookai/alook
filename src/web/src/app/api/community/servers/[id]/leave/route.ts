@@ -77,4 +77,4 @@ export const POST = withCommunityActor(async (req, ctx) => {
   ])
 
   return new Response(null, { status: 204 })
-})
+}, { allowInactiveBot: true })

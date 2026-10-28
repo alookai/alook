@@ -17,6 +17,7 @@ vi.mock("lucide-react", () => ({
   ChevronDown: "chevron-icon",
   Monitor: "monitor-icon",
   MoreVertical: "more-icon",
+  Network: "network-icon",
   RotateCcw: "reset-icon",
 }))
 vi.mock("@/components/avatar", () => ({
@@ -89,6 +90,7 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     collapsedMachines: new Set(),
     setCollapsedMachines: noop,
     setConfirmResetMachine: noop,
+    openMemberships: noop,
     openActivity: noop,
     onActivityOpenChange: noop,
     setEditingBot: noop,
@@ -167,7 +169,7 @@ describe("renderBotMachineGroup", () => {
     expect(bringMachineOnline).toHaveBeenCalledWith("mac1")
   })
 
-  it("keeps machine presence independent from bot presence and projects Reset all", () => {
+  it("keeps machine presence independent from bot presence and projects Restart all", () => {
     const setConfirmResetMachine = vi.fn()
     const renderer = render(renderBotMachineGroup(
       group({ machine: { id: "mac1", displayName: "My Mac", status: "online" } as BotMachineGroup["machine"] }),
@@ -177,7 +179,7 @@ describe("renderBotMachineGroup", () => {
       "inline-block size-1.5 shrink-0 rounded-full bg-status-online"))
       .toHaveLength(1)
     expect(renderer.getByText("Offline")).toBeInTheDocument()
-    fireEvent.click(renderer.getByRole("button", { name: "Reset all" }))
+    fireEvent.click(renderer.getByRole("button", { name: "Restart all" }))
     expect(setConfirmResetMachine).toHaveBeenCalledWith("mac1")
 
     renderer.rerender(renderBotMachineGroup(
@@ -387,6 +389,7 @@ describe("renderBotMachineGroup", () => {
   })
 
   it("keeps menu order, testids, and selected-bot action projections", () => {
+    const openMemberships = vi.fn()
     const openActivity = vi.fn()
     const setEditingBot = vi.fn()
     const setEditOpen = vi.fn()
@@ -397,6 +400,7 @@ describe("renderBotMachineGroup", () => {
     const chatWithBot = vi.fn()
     const item = bot()
     const renderer = render(renderBotMachineGroup(group({ bots: [item] }), controller({
+      openMemberships,
       openActivity,
       setEditingBot,
       setEditOpen,
@@ -411,25 +415,27 @@ describe("renderBotMachineGroup", () => {
     ))
     expect(items.map(text)).toEqual([
       " Chat",
+      " Servers & channels",
       " View activity",
       " Edit",
-      " Reset",
+      " Restart",
       " Report a problem",
       " Deactivate",
       " Delete",
     ])
-    expect(items[3]).toHaveAttribute("data-testid", "bot-reset-session-item")
-    expect(items[4]).toHaveAttribute("data-testid", "bot-report-problem-item")
+    expect(items[4]).toHaveAttribute("data-testid", "bot-reset-session-item")
+    expect(items[5]).toHaveAttribute("data-testid", "bot-report-problem-item")
     expect(items[0]!.firstElementChild).toHaveClass("size-4")
-    expect(items[2]!.firstElementChild).toHaveClass("size-4")
-    expect(items[4]!.firstElementChild).toHaveClass("size-4")
-    expect([0, 2, 4, 5].map((index) => items[index]!.firstElementChild?.localName))
+    expect(items[3]!.firstElementChild).toHaveClass("size-4")
+    expect(items[5]!.firstElementChild).toHaveClass("size-4")
+    expect([0, 3, 5, 6].map((index) => items[index]!.firstElementChild?.localName))
       .toEqual(["span", "span", "span", "span"])
-    expect(items[1]!.querySelectorAll("activity-icon")).toHaveLength(1)
-    expect(items[3]!.querySelectorAll("reset-icon")).toHaveLength(1)
-    expect(items[6]).toHaveAttribute("data-variant", "destructive")
+    expect(items[2]!.querySelectorAll("activity-icon")).toHaveLength(1)
+    expect(items[4]!.querySelectorAll("reset-icon")).toHaveLength(1)
+    expect(items[7]).toHaveAttribute("data-variant", "destructive")
     for (const item of items) fireEvent.click(item)
     expect(chatWithBot).toHaveBeenCalledWith(item)
+    expect(openMemberships).toHaveBeenCalledWith(item)
     expect(openActivity).toHaveBeenCalledWith(item)
     expect(setEditingBot).toHaveBeenCalledWith(item)
     expect(setEditOpen).toHaveBeenCalledWith(true)

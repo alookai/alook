@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, formatHandle, isServerOwner } from "@alook/shared"
 import type { CommunityCliChannelGroup as ChannelGroup } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { serverIconUrl } from "@/lib/community/storage"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
 
 /**
@@ -37,5 +38,5 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
   )
 
   const groups: ChannelGroup[] = perServer.flat()
-  return NextResponse.json({ groups })
-})
+  return NextResponse.json({ groups, servers: servers.map((server) => ({ id: server.id, name: server.name, handle: formatHandle(server.name, server.discriminator), icon: serverIconUrl(server), canLeave: !isServerOwner(server.role) })) })
+}, { allowInactiveBot: true })
