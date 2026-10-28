@@ -118,7 +118,7 @@ describe("real authentication wrappers inside media policy", () => {
       mocks.getSession.mockResolvedValueOnce(session(viewer))
       const result = await route(request({ Cookie: `viewer=${viewer}; _ga=${ga}; better-auth.session_data=${sessionData}` }), params)
       expect(result.status).toBe(status)
-      expect(result.headers.get("Vary")).toBe("Accept-Encoding, Authorization")
+      expect(result.headers.get("Vary")).toBe("Accept-Encoding, Authorization, X-Alook-Bot-Id")
       expect(result.headers.get("Cache-Control")).toBe(IMMUTABLE)
       expect(result.headers.get("Set-Cookie")).toContain("better-auth.session_data=fixture-refresh")
       expect(handler.mock.lastCall?.[1]).toMatchObject({ userId: viewer, params: { id: "fixed" } })
@@ -147,7 +147,7 @@ describe("real authentication wrappers inside media policy", () => {
     const handler = vi.fn<AuthenticatedHandler>(async () => media(status))
     const result = await withPrivateMediaCache(withAuth(handler))(request({ Authorization: "Bearer al_fixture" }))
     expect(result.status).toBe(status)
-    expect(result.headers.get("Vary")).toBe("Authorization")
+    expect(result.headers.get("Vary")).toBe("Authorization, X-Alook-Bot-Id")
     expect(mocks.getSession).not.toHaveBeenCalled()
     expect(handler.mock.lastCall?.[1]).toMatchObject({ userId: "A", workspaceId: "ws1" })
   })
@@ -166,7 +166,7 @@ describe("real authentication wrappers inside media policy", () => {
     const handler = vi.fn<CommunityActorHandler>(async () => media())
     const headers: Record<string, string> = kind === "bot" ? { Authorization: "Bearer crk_fixture" } : { Cookie: "viewer=A; _ga=changed" }
     const result = await withPrivateMediaCache(withCommunityActor(handler))(request(headers))
-    expect(result.headers.get("Vary")).toBe("Authorization")
+    expect(result.headers.get("Vary")).toBe("Authorization, X-Alook-Bot-Id")
     expect(handler.mock.lastCall?.[1].actor.kind).toBe(kind)
     expect(mocks.getSession).toHaveBeenCalledTimes(kind === "human" ? 1 : 0)
   })
@@ -193,6 +193,6 @@ describe("real authentication wrappers inside media policy", () => {
 
   it("keeps default private account responses credential-specific outside the selected media wrapper", async () => {
     const result = await withAuth(async () => media())(request())
-    expect(result.headers.get("Vary")).toBe("Cookie, Authorization")
+    expect(result.headers.get("Vary")).toBe("Cookie, Authorization, X-Alook-Bot-Id")
   })
 })
