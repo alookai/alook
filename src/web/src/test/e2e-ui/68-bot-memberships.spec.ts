@@ -67,7 +67,14 @@ async function openMemberships(page: Page, bot: Bot) {
   await trigger.click()
   await page.getByTestId(tid.botMembershipsMenu(bot.id)).click()
   await expect(page.getByTestId(tid.botMembershipsSheet)).toBeVisible()
-  await expect(page.getByRole("menu")).toHaveCount(0)
+  const description = page.getByTestId(tid.botMembershipsSheet).locator('[data-slot="sheet-description"]')
+  await expect(description).toContainText(bot.name)
+  const avatar = description.locator("svg")
+  await expect(avatar).toHaveCount(1)
+  expect(await avatar.innerHTML()).toBe(await card.locator("svg").first().innerHTML())
+  expect((await avatar.boundingBox())!.width).toBe(24)
+  expect((await avatar.boundingBox())!.height).toBe(24)
+  await expect(page.getByRole("menu",{includeHidden:true})).toHaveCount(0)
   return trigger
 }
 

@@ -2,6 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { Loader2, Lock, LogOut } from "lucide-react"
+import { AgentAvatar } from "@/components/avatar"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
@@ -13,7 +14,7 @@ import { tid } from "@/lib/community/testids"
 import { useBotMemberships, type BotMembershipTarget } from "@/hooks/community/use-bot-memberships"
 
 export function BotMembershipsSheet({ bot, open, onOpenChange }: {
-  bot: { id: string; name: string }
+  bot: { id: string; name: string; image?: string | null }
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -32,7 +33,7 @@ export function BotMembershipsSheet({ bot, open, onOpenChange }: {
     }
   }
   return <>
-    <CommunitySheet open={open} onOpenChange={(next) => { if (!next) setTarget(null); onOpenChange(next) }} title="Servers & channels" description={<span className="block truncate" title={bot.name}>{bot.name}</span>} contentTestId={tid.botMembershipsSheet}>
+    <CommunitySheet open={open} onOpenChange={(next) => { if (!next) setTarget(null); onOpenChange(next) }} title="Servers & channels" description={<span className="flex min-w-0 items-center gap-2"><AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={24} /><span className="min-w-0 truncate" title={bot.name}>{bot.name}</span></span>} contentTestId={tid.botMembershipsSheet}>
       {memberships.isPending ? <div className="space-y-6" aria-label="Loading servers and channels" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="space-y-3"><Skeleton className="h-4 w-36" /><Skeleton className="ml-6 h-9 w-3/4" /><Skeleton className="ml-6 h-9 w-2/3" /></div>)}</div>
         : memberships.isError ? <div className="space-y-3 py-6"><p role="alert" className="text-sm text-muted-foreground">Could not load servers and channels.</p><Button variant="outline" disabled={memberships.isFetching} onClick={() => void memberships.refetch()}>Try again</Button></div>
         : memberships.data?.servers.length === 0 ? <div className="py-8"><p className="font-medium">No servers yet</p><p className="mt-1 text-sm text-muted-foreground">{bot.name} hasn&apos;t joined any servers.</p></div>

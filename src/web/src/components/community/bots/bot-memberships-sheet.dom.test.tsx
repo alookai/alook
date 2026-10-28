@@ -16,7 +16,10 @@ vi.mock("@/hooks/community/use-bot-memberships", () => ({
   }),
 }))
 vi.mock("../shell/community-sheet", () => ({
-  CommunitySheet: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  CommunitySheet: ({ children, description }: React.PropsWithChildren<{ description: React.ReactNode }>) => <div>{description}{children}</div>,
+}))
+vi.mock("@/components/avatar", () => ({
+  AgentAvatar: ({ name, avatarUrl, seed, size }: { name: string; avatarUrl: string; seed: string; size: number }) => <span data-avatar-name={name} data-avatar-url={avatarUrl} data-avatar-seed={seed} data-avatar-size={size} />,
 }))
 vi.mock("../server-icon", () => ({ ServerIcon: () => <span /> }))
 vi.mock("../entity-icon", () => ({ EntityIcon: () => <span /> }))
@@ -25,7 +28,12 @@ import { BotMembershipsSheet } from "./bot-memberships-sheet"
 
 describe("bot membership owner restrictions", () => {
   it("disables server and public exit while preserving private channel exit", () => {
-    const result = render(<BotMembershipsSheet bot={{ id: "bot", name: "Bot" }} open onOpenChange={() => {}} />)
+    const result = render(<BotMembershipsSheet bot={{ id: "bot", name: "Bot", image: "/bot.png" }} open onOpenChange={() => {}} />)
+    const avatar = result.container.querySelector("[data-avatar-seed]")
+    expect(avatar?.getAttribute("data-avatar-seed")).toBe("bot")
+    expect(avatar?.getAttribute("data-avatar-url")).toBe("/bot.png")
+    expect(avatar?.getAttribute("data-avatar-name")).toBe("Bot")
+    expect(avatar?.getAttribute("data-avatar-size")).toBe("24")
     for (const id of ["owned", "/Owned#1234/public"]) {
       const button = result.getByTestId(tid.botMembershipsLeave(id)) as HTMLButtonElement
       expect(button.disabled).toBe(true)
