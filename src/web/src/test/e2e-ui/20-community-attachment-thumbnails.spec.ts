@@ -888,7 +888,7 @@ test("HTML attachment markers render once with interactive isolated content acro
   const serverId = await actors.seed.seedServer("alice", `HTML preview ${Date.now()}`)
   const channelId = await actors.seed.seedChannel("alice", serverId, "html-preview")
   await actors.seed.seedJoinServer("alice", "bob", serverId)
-  const { page } = await actors.asUser("alice")
+  const { page } = await actors.asUser("alice", { colorScheme: null })
   const channelPath = `/c/channels/${serverId}/${channelId}`
   await page.goto(channelPath)
   const html = '<!doctype html><html><head><style>body{padding:16px;background:var(--background);color:var(--foreground)}button{background:var(--primary);color:var(--primary-foreground)}.row{height:64px}</style></head><body><h2>Interactive HTML</h2><button onclick="document.getElementById(\'rows\').insertAdjacentHTML(\'beforeend\',\'<div class=row>Added row</div>\');document.getElementById(\'count\').textContent=Number(document.getElementById(\'count\').textContent)+1">Add row</button><output id="count">0</output><div id="rows"></div><p id="isolation"></p><script>try{parent.document.body;document.getElementById("isolation").textContent="parent accessible"}catch(e){document.getElementById("isolation").textContent="parent isolated"}</script></body></html>'
@@ -1040,6 +1040,7 @@ test("HTML attachment markers render once with interactive isolated content acro
     return { canvas, authored }
   }
   const canvasSamples = []
+  const transparentActions = transparentPreview.getByRole("group", { name: "HTML preview actions" })
   for (const mode of ["Light", "Dark"] as const) {
     await appearance(mode)
     await expect(transparentFrame).toHaveCSS("color-scheme", mode.toLowerCase())
@@ -1048,6 +1049,9 @@ test("HTML attachment markers render once with interactive isolated content acro
     for (const selector of ["html", "body"]) await expect(transparentContent.locator(selector)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
     await expect(transparentContent.locator("#authored")).toHaveCSS("color", "rgb(17, 34, 51)")
     const inline = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-inline.png`)
+    await transparentPreview.hover()
+    await expect(transparentActions).toHaveCSS("opacity", "1")
+    await expect(transparentActions).toHaveCSS("pointer-events", "auto")
     await transparentPreview.getByTestId(tid.htmlPreviewExpand(transparentId)).click()
     await expect(transparentPreview).toHaveAttribute("aria-modal", "true")
     const fullscreen = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-fullscreen.png`)
