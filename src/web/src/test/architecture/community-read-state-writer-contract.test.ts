@@ -142,8 +142,11 @@ describe("human account read-state writer contract", () => {
 
   it("makes every production message door state the author kind explicitly", () => {
     const route = source("src/web/src/app/api/community/channels/[id]/messages/route.ts")
-    expect(route.match(/authorKind: "human"/g)).toHaveLength(2)
-    expect(route.match(/authorKind: "bot"/g)).toHaveLength(2)
+    expect(route).toContain("return handleBotSend(db, ctx.actor.userId, ctx.env, raw)")
+    expect(route).toContain("return handleHumanSend(db, ctx.actor.userId, ctx.env, { id: pathId }, raw,")
+    const sender = source("src/web/src/lib/community/message-send.server.ts")
+    expect(sender.match(/authorKind: "human"/g)).toHaveLength(2)
+    expect(sender.match(/authorKind: "bot"/g)).toHaveLength(2)
 
     const friendship = source("src/shared/src/db/queries/community/friendship.ts")
     expect(friendship.match(/authorKind: "bot"/g)).toHaveLength(2)

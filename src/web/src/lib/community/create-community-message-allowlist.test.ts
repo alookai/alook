@@ -16,9 +16,8 @@ import { join, relative, sep } from "path"
  * excluded — it DEFINES createCommunityMessage, it doesn't call it.
  */
 const ALLOWLIST = [
-  // The canonical id-in-path message door (human + bot, folds flat `send` and
-  // the former dm/[id]/messages route — DM now flows through this one tree).
-  "src/app/api/community/channels/[id]/messages/route.ts",
+  // Shared canonical sender used by the normal and Automation message doors.
+  "src/lib/community/message-send.server.ts",
   // First-run onboarding placeholder. Role events start the bots first, then
   // this invokes the deferred canonical dispatcher so normal mention, wake,
   // broadcast, and typing behavior all remain intact.
