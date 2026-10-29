@@ -93,8 +93,8 @@ vi.mock("@/components/ui/context-menu", async (importOriginal) => {
       style: { ...props.style, ...render.props.style },
       "data-slot": "context-menu-trigger",
     } as React.HTMLAttributes<HTMLElement>),
-    ContextMenuContent: ({ children }: { children: React.ReactNode }) =>
-      ReactModule.createElement("mock-context-menu-content", null, children),
+    ContextMenuContent: ({ children, ...props }: { children: React.ReactNode; finalFocus?: unknown }) =>
+      ReactModule.createElement("mock-context-menu-content", props, children),
     ContextMenuItem: ({
       children,
       ...props
@@ -2162,5 +2162,39 @@ describe("Message lazy overlays", () => {
     expect(expectedCallback(onRetry, onDismiss)).toHaveBeenCalledOnce()
     const otherCallback = label === "Dismiss" ? onRetry : onDismiss
     expect(otherCallback).not.toHaveBeenCalled()
+  })
+})
+
+
+describe("Message selected-text menu focus", () => {
+  it("retains keyboard focus policy through close and leaves pointer focus alone", () => {
+    const view = rtlRender(makeTree({ m: baseMsg({ content: "selected message" }), hoverCapable: true, onCopy: vi.fn() }))
+    const row = view.container.querySelector('[data-slot="context-menu-trigger"]') as HTMLElement
+    fireEvent.pointerEnter(row, { pointerType: "mouse" })
+    const popup = () => view.container.querySelector("mock-context-menu-content")!
+    expect(hostProps(popup()).finalFocus).toBeUndefined()
+    const body = row.querySelector("[data-community-message-body]")!
+    const range = document.createRange()
+    range.selectNodeContents(body)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    fireEvent.contextMenu(body)
+    const menu = view.container.querySelector("mock-context-menu")!
+    act(() => (hostProps(menu).onOpenChange as (open: boolean) => void)(false))
+    const finalFocus = hostProps(popup()).finalFocus as (type: string) => boolean
+    expect(finalFocus).toBeTypeOf("function")
+    const focus = vi.spyOn(row, "focus")
+    expect(finalFocus("mouse")).toBe(false)
+    expect(focus).not.toHaveBeenCalled()
+    expect(finalFocus("keyboard")).toBe(false)
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    expect(row).toHaveFocus()
+    // jsdom collapses selection on every focus(); real preservation is covered by browser test23.
+    selection.removeAllRanges()
+    fireEvent.contextMenu(body)
+    expect(hostProps(popup()).finalFocus).toBeUndefined()
+    view.unmount()
+    expect(finalFocus("keyboard")).toBe(false)
   })
 })
