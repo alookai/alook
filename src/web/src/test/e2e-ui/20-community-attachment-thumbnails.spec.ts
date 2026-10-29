@@ -4,6 +4,7 @@ import sharp from "sharp"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer } from "./_fixtures/actions"
+import { holdRoute } from "./_fixtures/held-route"
 import { solidPngFixture } from "../fixtures/media"
 
 const LANDSCAPE_FIXTURE = solidPngFixture(800, 450, [91, 110, 225])
@@ -881,7 +882,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   })
 })
 
-test("HTML attachment markers render once with interactive isolated content across readers", async ({ caseActors }, testInfo) => {
+test("HTML attachment markers render once with interactive isolated content across readers", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(120_000)
   const actors = await caseActors(["alice", "bob", "carol"])
   const serverId = await actors.seed.seedServer("alice", `HTML preview ${Date.now()}`)
@@ -1004,10 +1005,8 @@ test("HTML attachment markers render once with interactive isolated content acro
   const transparentHtml = '<!doctype html><html><head><style>:root{color-scheme:light dark}html,body{margin:0;background:transparent}body{min-height:112px;color:var(--foreground)}#authored{position:absolute;left:0;top:48px;width:160px;height:48px;background:#73a3b2;color:#112233}input{position:absolute;left:180px;top:48px}</style></head><body><div id="authored"></div><input id="state" value="original"></body></html>'
   const transparentId = await upload("transparent.html", "text/html", transparentHtml)
   await appearance("Dark")
-  let releasePreview!: () => void
-  const previewGate = new Promise<void>((resolve) => { releasePreview = resolve })
   const transparentPreviewUrl = new URL(`/api/community/channels/${channelId}/attachments/${transparentId}?preview=html`, page.url()).href
-  await page.route(transparentPreviewUrl, async (route) => { await previewGate; await route.continue() })
+  const heldPreview = await holdRoute(page, transparentPreviewUrl, caseResources)
   let transparentPreview: Locator, transparentFrame: Locator
   let loadingCanvas: number[]
   try {
@@ -1020,12 +1019,13 @@ test("HTML attachment markers render once with interactive isolated content acro
     transparentPreview = page.getByTestId(tid.message(transparentMessageId)).getByTestId(tid.htmlPreview(transparentId))
     transparentFrame = transparentPreview.getByTestId(tid.htmlPreviewFrame(transparentId))
     await transparentPreview.scrollIntoViewIfNeeded()
+    await expect.poll(heldPreview.held).toBeGreaterThan(0)
     await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "loading")
     await expect(transparentFrame).toHaveCSS("color-scheme", "light")
     const screenshot = await transparentFrame.screenshot({ scale: "css" })
     await testInfo.attach("transparent-canvas-dark-host-loading.png", { body: screenshot, contentType: "image/png" })
     loadingCanvas = [...await sharp(screenshot).extract({ left: 2, top: 2, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
-  } finally { releasePreview(); await page.unroute(transparentPreviewUrl) }
+  } finally { await heldPreview.release() }
   await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "ready")
   await expect(transparentFrame).toHaveCSS("color-scheme", "dark")
   const transparentContent = transparentFrame.contentFrame()
