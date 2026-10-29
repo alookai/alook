@@ -12,6 +12,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, isSecondaryContext
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
+import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
 import { MessageAuthorLine } from "./message-author-line"
 import {
   copyMessageExternalLink,
@@ -238,6 +239,7 @@ function MessageImpl({
     ? (replyAuthorProfile?.name ?? "Deleted user")
     : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = m.content ?? ""
+  const htmlPreviews = selectHtmlPreviews(m.approval || m.botCreation ? "" : visibleContent, m.attachments)
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const pageSwipe = usePageSwipeStart()
   const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
@@ -738,6 +740,7 @@ function MessageImpl({
               <MessageBody
                 key={m.id}
                 text={visibleContent}
+                attachments={m.attachments}
                 onOpenProfile={onOpenProfile}
                 perspective={
                   viewerUserId
@@ -751,6 +754,7 @@ function MessageImpl({
           {m.attachments && m.attachments.length > 0 && (
             <div className="flex flex-col gap-2">
               {m.attachments.map((a, i) => {
+                if (a.id && htmlPreviews.has(a.id)) return null
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (

@@ -3,6 +3,7 @@
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
+import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
 import { MessageAuthorLine } from "./message-author-line"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
@@ -105,6 +106,7 @@ export function ThreadOpener({
     ? (authorProfile?.avatar ?? avatarInitial(authorName))
     : (msg.authorAvatar ?? avatarInitial(authorName))
   const visibleContent = msg.content ?? ""
+  const htmlPreviews = selectHtmlPreviews(visibleContent, msg.attachments)
 
   return (
     <div data-thread-opener className="group relative flex flex-col gap-2">
@@ -148,6 +150,7 @@ export function ThreadOpener({
             <MessageBody
               key={msg.id}
               text={visibleContent}
+              attachments={msg.attachments}
               onOpenProfile={onOpenProfile}
               perspective={msg.authorId === viewerUserId ? "sender" : "recipient"}
             />
@@ -156,6 +159,7 @@ export function ThreadOpener({
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="flex flex-col gap-2">
               {msg.attachments.map((a, i) => {
+                if (a.id && htmlPreviews.has(a.id)) return null
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (

@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Locator, Page, TestInfo } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
@@ -875,6 +876,79 @@ test("image previews keep one frame through loading, decode, failure, retry, and
       mobileExtremeLandscapeFailed,
       mobileExtremePortraitFailed,
     }, null, 2)),
+    contentType: "application/json",
+  })
+})
+
+test("HTML attachment markers render once with interactive isolated content across readers", async ({ caseActors }, testInfo) => {
+  test.setTimeout(120_000)
+  const actors = await caseActors(["alice", "bob", "carol"])
+  const serverId = await actors.seed.seedServer("alice", `HTML preview ${Date.now()}`)
+  const channelId = await actors.seed.seedChannel("alice", serverId, "html-preview")
+  await actors.seed.seedJoinServer("alice", "bob", serverId)
+  const { page } = await actors.asUser("alice")
+  const channelPath = `/c/channels/${serverId}/${channelId}`
+  await page.goto(channelPath)
+  const html = '<!doctype html><html><head><style>body{padding:16px}.row{height:64px}</style></head><body><h2>Interactive HTML</h2><button onclick="document.getElementById(\'rows\').insertAdjacentHTML(\'beforeend\',\'<div class=row>Added row</div>\');document.getElementById(\'count\').textContent=Number(document.getElementById(\'count\').textContent)+1">Add row</button><output id="count">0</output><div id="rows"></div><p id="isolation"></p><script>try{parent.document.body;document.getElementById("isolation").textContent="parent accessible"}catch(e){document.getElementById("isolation").textContent="parent isolated"}</script></body></html>'
+  async function upload(name: string, mimeType: string, content: string) {
+    const response = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      multipart: { file: { name, mimeType, buffer: Buffer.from(content) } },
+    }))
+    expect(response.status()).toBe(200)
+    return (await response.json() as { id: string }).id
+  }
+  const attachmentId = await upload("interactive.html", "text/html", html)
+  const textId = await upload("ordinary.txt", "text/plain", "ordinary bytes")
+  const marker = `[alook-html-preview](${attachmentId})`
+  const response = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
+    headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+    data: { content: `Before preview ${marker} After preview\n\n${marker}\n\n[alook-html-preview](${textId})\n\n\`${marker}\`\n\n\\${marker}`, attachments: [attachmentId, textId] },
+  }))
+  expect(response.status()).toBe(201)
+  const messageId = (await response.json() as { message: { id: string } }).message.id
+  const message = page.getByTestId(tid.message(messageId))
+  const preview = message.getByTestId(tid.htmlPreview(attachmentId))
+  await expect(preview).toHaveAttribute("data-html-preview-status", "ready")
+  await expect(message.getByTestId(tid.htmlPreview(attachmentId))).toHaveCount(1)
+  await expect(message.getByTestId(tid.attachmentCard("interactive.html"))).toHaveCount(0)
+  await expect(message.getByTestId(tid.attachmentCard("ordinary.txt"))).toHaveCount(1)
+  await expect(message).toContainText("Before preview")
+  await expect(message).toContainText("After preview")
+  const iframe = message.getByTestId(tid.htmlPreviewFrame(attachmentId))
+  expect(await iframe.getAttribute("sandbox")).not.toContain("allow-same-origin")
+  const content = iframe.contentFrame()
+  await expect(content.locator("#isolation")).toHaveText("parent isolated")
+  const beforeHeight = await iframe.evaluate((element) => element.getBoundingClientRect().height)
+  await content.getByRole("button", { name: "Add row" }).click()
+  await expect(content.locator("#count")).toHaveText("1")
+  await expect.poll(() => iframe.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(beforeHeight)
+  await message.getByTestId(tid.htmlPreviewExpand(attachmentId)).click()
+  await expect(preview).toHaveAttribute("aria-modal", "true")
+  await expect(content.locator("#count")).toHaveText("1")
+  await message.getByTestId(tid.htmlPreviewClose(attachmentId)).click()
+  await expect(preview).not.toHaveAttribute("aria-modal", "true")
+  await expect(content.locator("#count")).toHaveText("1")
+
+  const previewUrl = `/api/community/channels/${channelId}/attachments/${attachmentId}?preview=html`
+  const direct = await page.request.get(previewUrl)
+  expect(direct.status()).toBe(200)
+  expect(direct.headers()["content-security-policy"]).toContain("sandbox allow-scripts")
+  expect(direct.headers()["cache-control"]).toBe("private, no-store")
+  const original = await page.request.get(`/api/community/channels/${channelId}/attachments/${attachmentId}`)
+  expect(original.headers()["content-disposition"]).toContain("attachment")
+  expect(await original.text()).toBe(html)
+
+  const { page: reader } = await actors.asUser("bob", { viewport: { width: 390, height: 844 } })
+  await reader.goto(channelPath)
+  const readerPreview = reader.getByTestId(tid.message(messageId)).getByTestId(tid.htmlPreview(attachmentId))
+  await expect(readerPreview).toHaveAttribute("data-html-preview-status", "ready")
+  await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().getByRole("button", { name: "Add row" })).toBeVisible()
+  const { page: outsider } = await actors.asUser("carol")
+  const denied = await outsider.request.get(previewUrl)
+  expect(denied.status()).toBe(404)
+  await testInfo.attach("html-preview-headers.json", {
+    body: JSON.stringify({ serverId, channelId, messageId, attachmentId, preview: Object.fromEntries(Object.entries(direct.headers()).filter(([name]) => ["content-type", "content-disposition", "content-security-policy", "cache-control", "referrer-policy", "x-content-type-options"].includes(name))), download: Object.fromEntries(Object.entries(original.headers()).filter(([name]) => ["content-type", "content-disposition", "cache-control"].includes(name))), outsiderStatus: denied.status() }, null, 2),
     contentType: "application/json",
   })
 })

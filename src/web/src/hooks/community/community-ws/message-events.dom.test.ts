@@ -1308,7 +1308,7 @@ describe("canonical message refresh ownership", () => {
     await act(async () => { capturedOnMessage!({ ...event, schemaVersion: BUSINESS_SCHEMA_VERSION, message: incomplete }) })
     expect(getCommunityDbRegistry(capturedQueryClient)!.collections.messages.get(event.message.id)?.attachments).toEqual(attachments)
     expect(getMessageStreamState(capturedQueryClient, scope).liveIds).not.toContain(event.message.id)
-    expect(canonicalMessage(event.message.id)?.attachments).toEqual([{ name: "settled.txt", url: "/media/settled", contentType: "text/plain", sizeBytes: 1024, kind: "file", size: "1.0 KB" }])
+    expect(canonicalMessage(event.message.id)?.attachments).toEqual([{ id: "settled", name: "settled.txt", url: "/media/settled", contentType: "text/plain", sizeBytes: 1024, kind: "file", size: "1.0 KB" }])
   })
 })
 

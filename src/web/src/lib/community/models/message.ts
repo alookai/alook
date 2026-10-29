@@ -5,6 +5,7 @@ import type { CommunityChannelResource, CommunityMessageResource, CommunityMessa
 export type AttachmentPreview = Pick<CommunityMessageAttachment, "name" | "url"> & Partial<Omit<CommunityMessageAttachment, "name" | "url">>
 
 type AttachmentMetadata = Pick<CommunityMessageAttachment, "name" | "url"> & {
+  id?: CommunityMessageAttachment["id"]
   contentType?: NonNullable<CommunityMessageAttachment["contentType"]>
   sizeBytes?: NonNullable<CommunityMessageAttachment["sizeBytes"]>
 }

@@ -520,7 +520,7 @@ describe("attachment ownership effects", () => {
     expect(converged.liveIds).toContain("mf")
     expect(canonicalRows().get("mf")?.attachments).toEqual(settledResourceAttachments)
     expect(materializeMessageStream([currentBase], converged)[0]?.attachments).toEqual(
-      settledAttachments,
+      settledAttachments.map((attachment) => ({ ...attachment, id: "photo" })),
     )
   })
 
@@ -543,6 +543,7 @@ describe("attachment ownership effects", () => {
 
   it("lets explicit canonical attachments replace prior attachments", () => {
     const replacement: NonNullable<Msg["attachments"]> = [{
+      id: "replacement",
       kind: "file",
       name: "canonical.txt",
       url: "/media/canonical",
@@ -577,7 +578,7 @@ describe("attachment ownership effects", () => {
     state = apply(state, { type: "baseChanged", messages: [completeBase] }).state
 
     expect(materializeMessageStream([completeBase], state)).toEqual([
-      expect.objectContaining({ id: "base-id", attachments: settledAttachments }),
+      expect.objectContaining({ id: "base-id", attachments: settledAttachments.map((attachment) => ({ ...attachment, id: "photo" })) }),
     ])
   })
 

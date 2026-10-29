@@ -8,6 +8,8 @@ import { authorizeAttachment } from "@/lib/community/attachment-authorization"
 import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE } from "@/lib/community/storage"
 import { resolveAttachmentPresentation, resolveMediaContentType } from "@/lib/community/attachment-presentation"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
+import { isHtmlPreviewFile, MAX_HTML_PREVIEW_BYTES } from "@/lib/community/html-preview-policy"
+import { HTML_PREVIEW_CSP, HtmlPreviewValidationError, prepareHtmlPreview, readHtmlPreview } from "@/lib/community/html-attachment-preview"
 
 const log = createLogger({ service: "community-attachments-download" })
 
@@ -67,6 +69,33 @@ export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequ
       return NextResponse.json({ error: "attachment not found" }, { status: 404 })
     }
     const row = authz.row
+
+    if (ctx.actor.kind === "human" && req.nextUrl.searchParams.get("preview") === "html") {
+      if (!isHtmlPreviewFile(row.filename, row.contentType)) {
+        return NextResponse.json({ error: "HTML preview unavailable" }, { status: 415 })
+      }
+      if (row.size !== null && row.size > MAX_HTML_PREVIEW_BYTES) {
+        return NextResponse.json({ error: "HTML exceeds the preview limit" }, { status: 422 })
+      }
+      const object = await ctx.env.COMMUNITY_MEDIA.get(row.r2Key)
+      if (!object) return NextResponse.json({ error: "attachment storage unavailable" }, { status: 502 })
+      try {
+        const html = prepareHtmlPreview(await readHtmlPreview(object.body, req.signal))
+        return new Response(html, { headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Disposition": contentDisposition("inline", row.filename),
+          "Content-Security-Policy": HTML_PREVIEW_CSP,
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer",
+        } })
+      } catch (error) {
+        if (error instanceof HtmlPreviewValidationError) {
+          return NextResponse.json({ error: error.message }, { status: 422 })
+        }
+        throw error
+      }
+    }
 
     const storedPresentation = resolveAttachmentPresentation(row.filename, row.contentType)
     const isStoredMedia = storedPresentation.category === "audio" || storedPresentation.category === "video"

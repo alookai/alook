@@ -198,7 +198,7 @@ describe("useSendMessage — happy path", () => {
     runtime.ui.actions.subscribe({ channelId: scope.id })
     const replyTo = { id: "reply_1", authorId: "reply-author", authorName: "Reply Author", text: "preview" }
     const attachment = { id: "file_1", filename: "notes.txt", contentType: "text/plain", size: 1024 }
-    const remoteAttachment = { kind: "file" as const, name: attachment.filename,
+    const remoteAttachment = { id: attachment.id, kind: "file" as const, name: attachment.filename,
       url: "/api/community/channels/ch_1/attachments/file_1", contentType: attachment.contentType,
       sizeBytes: attachment.size, size: "1.0 KB" }
     const wireAttachment = { id: attachment.id, name: remoteAttachment.name, url: remoteAttachment.url, contentType: remoteAttachment.contentType, sizeBytes: remoteAttachment.sizeBytes, thumbnailUrl: null, width: null, height: null }
