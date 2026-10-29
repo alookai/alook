@@ -336,7 +336,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
             </div>
           </SettingsShellPanel>
           <SettingsShellPanel value="automation">
-            {tab === "automation" && userId ? <AutomationSettings key={userId} userId={userId} onOpenChat={onClose} /> : null}
+            {tab === "automation" && userId ? <AutomationSettings key={userId} userId={userId} /> : null}
           </SettingsShellPanel>
           <SettingsShellPanel value="appearance">
             <AppearanceSettings />

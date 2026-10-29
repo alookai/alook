@@ -16,7 +16,7 @@ import { getErrorMessage } from "@/lib/api/client"
 import { isAbortError } from "@/lib/errors"
 import { tid } from "@/lib/community/testids"
 import { tagColorClassName } from "@/lib/community/tag-color"
-import { AutomationChatAction } from "./automation-chat-action"
+import { AutomationSetupPrompt } from "./automation-setup-prompt"
 
 const expiryOptions = [
   ["1h", "1 hour"], ["24h", "24 hours"], ["7d", "7 days"], ["30d", "30 days"], ["forever", "Never expires"],
@@ -164,7 +164,7 @@ function CreatedCode({ result, onDone }: { result: AutomationAccessCodeCreateRes
   </section>
 }
 
-export function AutomationSettings({ userId, onOpenChat }: { userId: string; onOpenChat?: () => void }) {
+export function AutomationSettings({ userId }: { userId: string }) {
   const { list, execute, pending } = useAutomation(userId)
   const [editing, setEditing] = useAtom(useCreateAtom<AutomationAccessCode | "new" | null>(null))
   const [created, setCreated] = useAtom(useCreateAtom<AutomationAccessCodeCreateResponse | null>(null))
@@ -181,7 +181,6 @@ export function AutomationSettings({ userId, onOpenChat }: { userId: string; onO
       <div className="space-y-4">
         <div className="space-y-2">
           <p className="max-w-prose text-sm leading-6 text-muted-foreground">Access codes let scripts read your lists, create bots and servers, or invite friends. You choose the permissions and limits.</p>
-          <AutomationChatAction onAccepted={onOpenChat} />
         </div>
         <Button className={control} data-testid={tid.automationCreate} onClick={() => { setError(null); setEditing("new") }}>Create access code</Button>
       </div>
@@ -200,6 +199,7 @@ export function AutomationSettings({ userId, onOpenChat }: { userId: string; onO
           <div className="flex flex-wrap gap-2">{(["Read", "Write"] as const).flatMap((group) => permissionOptions.filter((option) => option.group === group && code.permissions.some((policy) => policy.permission === option.permission)).map(({ permission, label }) => <Badge key={permission} variant="secondary" className={group === "Write" ? "automation-write-color" : tagColorClassName} style={permissionColors[group]} aria-label={`${group}: ${label}`} title={group}>{label}</Badge>))}</div>
         </li>)}</ul>}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      <AutomationSetupPrompt />
     </>}
     <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open && !pending) setDeleting(null) }} title={`Delete “${deleting?.name ?? "access code"}”?`} description="Scripts using this code will lose access. This cannot be undone." confirmLabel="Delete code" loadingLabel="Deleting…" loading={pending} onConfirm={async () => {
       if (!deleting || pending) return

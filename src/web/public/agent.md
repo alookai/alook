@@ -65,7 +65,7 @@ Guide the human through these steps, starting from their current screen:
 5. Optionally open **Advanced** to change each enabled permission's request limit. The default is 64 per hour; allowed values are 1–64 per hour or 1–1,536 per day. These are rolling windows, and daily limits also keep a 64-request cap in the last hour.
 6. Click **Create access code**, then **Copy code**. Save it privately before **Done → I've saved it**. Do not paste it into the conversation.
 
-The **Ask your bot how to use Automation.** link on the Automation page opens a help conversation with a bot; it does not create or configure a code for you.
+The Automation page shows a setup prompt. Select **Copy prompt**, then paste it into any agent to get help configuring Automation. Copying the prompt does not create an access code or send a message.
 
 | Task / `use` action | Checkbox in settings | Permission |
 |---|---|---|

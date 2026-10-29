@@ -4,7 +4,7 @@ import { render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import type { AutomationAccessCode } from "@alook/shared"
 import { AutomationCodeForm, AutomationSettings } from "./automation-settings"
 
-vi.mock("./automation-chat-action", () => ({ AutomationChatAction: () => null }))
+vi.mock("./automation-setup-prompt", () => ({ AutomationSetupPrompt: () => null }))
 
 const fixture: AutomationAccessCode = { id: "code-1", name: "Build script", createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z", permissions: [{ permission: "bot.create", limit: 12, period: "day" }] }
 const state = vi.hoisted(() => ({ execute: vi.fn(), refetch: vi.fn(), data: { accessCodes: [] as AutomationAccessCode[] }, isError: false, isPending: false }))
