@@ -11,7 +11,7 @@ import { wsDoFetch } from "@/lib/broadcast"
 async function discoverModels(req: NextRequest, ctx: { env: Env; userId: string; params?: Record<string, string>; kind: "human" | "bot" | "automation"; beforeCreate?: () => Promise<Response | null> }) {
   const id = ctx.params?.id as string
   const query = new URL(req.url).searchParams
-  const wait = ctx.kind === "automation" || (ctx.kind === "bot" && query.get("wait") === "1")
+  const wait = ctx.kind === "automation" || query.get("wait") === "1"
   const failure = (message: string, status: number) => {
     if (ctx.kind === "human") return writeError(message, status)
     const code = message === "MACHINE_OFFLINE" || message === "UPGRADE_REQUIRED" ? message
@@ -51,6 +51,7 @@ async function discoverModels(req: NextRequest, ctx: { env: Env; userId: string;
       if (!result.success || (receipt.cached === true && result.data.status !== "complete")) return failure("model discovery unavailable", 503)
       if (result.data.status === "error") return writeJSON({ error: result.data.message, code: result.data.code, machineId: id, backendId: payload.data.runtimeId, requestId: payload.data.requestId }, 502)
       if (typeof receipt.observedAt !== "string" || !Number.isFinite(Date.parse(receipt.observedAt))) return failure("model discovery unavailable", 503)
+      if (ctx.kind === "human") return writeJSON({ machineId: id, backendId: payload.data.runtimeId, requestId: payload.data.requestId, source: receipt.cached === true ? "cached_report" : "fresh_discovery", observedAt: receipt.observedAt, result: result.data })
       return writeJSON({ ...projectModelOptions(id, { id: payload.data.runtimeId, ...(result.data.catalog ? { reasoning: result.data.catalog } : {}) }, ctx.kind === "bot" ? query.get("model") : null, { includeCatalogMetadata: ctx.kind !== "automation" }), source: receipt.cached === true ? "cached_report" : "fresh_discovery", observedAt: receipt.observedAt, requestId: payload.data.requestId })
     }
     return failure(typeof receipt.unsupported === "number" && receipt.unsupported > 0 ? "UPGRADE_REQUIRED" : "MACHINE_OFFLINE", 409)

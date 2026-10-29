@@ -113,10 +113,10 @@ export async function handleMachineRemoved(
   )
 }
 
-export async function handleRuntimeModels(event: Extract<CommunityWsEvent, { type: "community:runtime.models" }>, { queryClient }: PresenceMachineEventContext) {
+export async function handleRuntimeModels(event: Extract<CommunityWsEvent, { type: "community:runtime.models" }>, { queryClient }: PresenceMachineEventContext, transport: "ws" | "http" = "ws") {
   const key = communityKeys.runtimeModels(event.machineId, event.runtimeId)
   const pending = queryClient.getQueryData<RuntimeModelsState>(key)
-  if (pending?.status !== "pending" || pending.requestId !== event.requestId) return
+  if (pending?.status !== "pending" || pending.requestId !== event.requestId || (pending.transport === "http" && transport !== "http")) return
   queryClient.setQueryData<RuntimeModelsState>(key, { requestId: event.requestId, ...event.result })
   if (event.result.status !== "complete") return
   const catalog = event.result.catalog
