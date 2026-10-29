@@ -936,7 +936,7 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect.poll(async () => {
       const host = await iframe.evaluate((element, tokens) => {
         const root = getComputedStyle(document.documentElement), painted = getComputedStyle(element)
-        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: painted.backgroundColor }
+        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: root.backgroundColor }
       }, names)
       const embedded = await content.locator("html").evaluate((element, tokens) => {
         const root = getComputedStyle(element), painted = getComputedStyle(document.body)
@@ -945,6 +945,7 @@ test("HTML attachment markers render once with interactive isolated content acro
       return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, background: embedded.background === host.background }
     }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, background: true })
     await expect(iframe).toHaveCount(1)
+    await expect(iframe).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   }
   await appearance("Light")
   await expectCommittedTheme(false)
@@ -1008,7 +1009,7 @@ test("HTML attachment markers render once with interactive isolated content acro
   const transparentPreviewUrl = new URL(`/api/community/channels/${channelId}/attachments/${transparentId}?preview=html`, page.url()).href
   const heldPreview = await holdRoute(page, transparentPreviewUrl, caseResources)
   let transparentPreview: Locator, transparentFrame: Locator
-  let loadingCanvas: number[]
+  let loading: Awaited<ReturnType<typeof captureCanvas>>
   try {
     const transparentResponse = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
       headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
@@ -1022,22 +1023,46 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect.poll(heldPreview.held).toBeGreaterThan(0)
     await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "loading")
     await expect(transparentFrame).toHaveCSS("color-scheme", "light")
-    const screenshot = await transparentFrame.screenshot({ scale: "css" })
-    await testInfo.attach("transparent-canvas-dark-host-loading.png", { body: screenshot, contentType: "image/png" })
-    loadingCanvas = [...await sharp(screenshot).extract({ left: 2, top: 2, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
+    loading = await captureCanvas("transparent-canvas-dark-host-loading.png")
   } finally { await heldPreview.release() }
   await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "ready")
   await expect(transparentFrame).toHaveCSS("color-scheme", "dark")
   const transparentContent = transparentFrame.contentFrame()
   const originalTransparentFrame = await transparentFrame.elementHandle()
   await transparentContent.locator("#state").fill("retained edit")
-  async function transparentPixels(name: string) {
+  async function captureCanvas(name: string) {
+    await transparentFrame.scrollIntoViewIfNeeded()
+    await expect(transparentFrame).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    const carrier = await transparentFrame.evaluate(async (element) => {
+      const ancestors: Element[] = []
+      for (let node = element.parentElement; node; node = node.parentElement) ancestors.push(node)
+      await Promise.all(ancestors.flatMap((node) => node.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished)))
+      const canvas = document.createElement("canvas")
+      canvas.width = canvas.height = 1
+      const context = canvas.getContext("2d")
+      if (!context) throw new Error("Canvas2D is unavailable")
+      const layers = ancestors.reverse().map((node) => {
+        const style = getComputedStyle(node)
+        if (style.backgroundImage !== "none" || style.opacity !== "1") throw new Error("Preview carrier has a background image or element opacity")
+        context.fillStyle = style.backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        return { tag: node.tagName, testId: node.getAttribute("data-testid"), background: style.backgroundColor }
+      })
+      const rgba = [...context.getImageData(0, 0, 1, 1).data]
+      if (rgba[3] !== 255) throw new Error("Preview carrier has no opaque backing")
+      return { rgb: rgba.slice(0, 3), layers }
+    })
     const screenshot = await transparentFrame.screenshot({ scale: "css" })
     await testInfo.attach(name, { body: screenshot, contentType: "image/png" })
     const canvas = [...await sharp(screenshot).extract({ left: 2, top: 2, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
+    expect(canvas).toEqual(carrier.rgb)
+    return { screenshot, canvas, carrier }
+  }
+  async function transparentPixels(name: string) {
+    const { screenshot, canvas, carrier } = await captureCanvas(name)
     const authored = [...await sharp(screenshot).extract({ left: 2, top: 52, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
     expect(authored).toEqual([115, 163, 178])
-    return { canvas, authored }
+    return { canvas, authored, carrier }
   }
   const canvasSamples = []
   const transparentActions = transparentPreview.getByRole("group", { name: "HTML preview actions" })
@@ -1063,12 +1088,12 @@ test("HTML attachment markers render once with interactive isolated content acro
   for (const phase of ["inline", "fullscreen"] as const) {
     expect(canvasSamples[1]![phase].canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]![phase].canvas.reduce((sum, value) => sum + value, 0))
   }
-  expect(loadingCanvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]!.inline.canvas.reduce((sum, value) => sum + value, 0))
+  expect(loading.canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]!.inline.canvas.reduce((sum, value) => sum + value, 0))
   await appearance("Light")
   await expect(transparentContent.locator("html")).toHaveCSS("color-scheme", "light dark")
   await expect.poll(() => transparentContent.locator("html").evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(false)
   await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
   expect(await transparentFrame.evaluate((element, original) => element === original, originalTransparentFrame)).toBe(true)
   await originalTransparentFrame?.dispose()
-  await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas, themes: canvasSamples }, null, 2), contentType: "application/json" })
+  await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas: loading.canvas, loadingCarrier: loading.carrier, themes: canvasSamples }, null, 2), contentType: "application/json" })
 })

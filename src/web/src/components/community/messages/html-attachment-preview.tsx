@@ -171,7 +171,7 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
             referrerPolicy="no-referrer"
             allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
             onLoad={() => setLoaded(true)}
-            className={cn("block w-full border-0 bg-background scheme-light", expanded && "min-h-0 flex-1")}
+            className={cn("block w-full border-0 bg-transparent scheme-light", expanded && "min-h-0 flex-1")}
             style={{ height: expanded ? undefined : height, colorScheme: loaded ? resolvedTheme === "dark" ? "dark" : "light" : undefined }}
           />}
         </>
