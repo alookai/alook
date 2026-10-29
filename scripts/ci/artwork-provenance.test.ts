@@ -12,6 +12,18 @@ const root = resolve(import.meta.dirname, "../..")
 const lockText = readFileSync(join(root, "pnpm-lock.yaml"), "utf8")
 const roots = [{ importer: "src/web", name: "sharp" }]
 
+function recordStages(contract: string) {
+  const started = performance.now()
+  let previous = started
+  return (name: string, facts = {}) => {
+    const now = performance.now()
+    process.stdout.write(`ARTWORK_PROVENANCE_TIMING ${JSON.stringify({ contract, stage: name, elapsedMs: now - previous, totalMs: now - started,
+      node: process.version, platform: process.platform, arch: process.arch, availableParallelism: availableParallelism(),
+      worker: process.env.VITEST_WORKER_ID ?? null, githubSha: process.env.GITHUB_SHA ?? null, ...facts })}\n`)
+    previous = performance.now()
+  }
+}
+
 describe("renderer-scoped artwork provenance", () => {
   it("retains selected transitive integrity, peers and patches without unrelated lock entries", () => {
     const lock = parsePnpmLock(lockText)
@@ -60,21 +72,17 @@ describe("renderer-scoped artwork provenance", () => {
     } finally { rmSync(directory, { recursive: true, force: true }) }
   })
 
-  it("follows real local component imports and binds both producers without global package hashes", async () => {
-    const started = performance.now()
-    let previous = started
-    const stage = (name: string, facts = {}) => {
-      const now = performance.now()
-      process.stdout.write(`ARTWORK_PROVENANCE_TIMING ${JSON.stringify({ stage: name, elapsedMs: now - previous, totalMs: now - started,
-        node: process.version, platform: process.platform, arch: process.arch, availableParallelism: availableParallelism(),
-        worker: process.env.VITEST_WORKER_ID ?? null, githubSha: process.env.GITHUB_SHA ?? null, ...facts })}\n`)
-      previous = performance.now()
-    }
+  it("follows real local component imports and their locked dependency roots", () => {
+    const stage = recordStages("source-inputs")
     stage("sourceInputs:start")
     const inputs = sourceInputs([join(root, "src/web/app-store-capture/captures/surface.tsx")])
     stage("sourceInputs:done", { files: inputs.files.length, roots: inputs.roots.length })
     expect(inputs.files).toContain(join(root, "src/web/src/components/community/messages/message.tsx"))
     expect(inputs.roots).toContainEqual({ importer: "src/web", name: "react" })
+  })
+
+  it("binds both producers without global package hashes", async () => {
+    const stage = recordStages("producer-hashes")
     stage("captureInputHashes:start")
     const capture = await captureInputHashes()
     stage("captureInputHashes:done", { keys: Object.keys(capture).length })
