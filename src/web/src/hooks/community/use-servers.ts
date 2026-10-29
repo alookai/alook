@@ -1,4 +1,6 @@
 "use client"
+import { ServerDirectorySnapshotSchema, getServerDirectoryWindow, type ServerDirectorySnapshot, type ServerDirectoryWindow } from "@/lib/community/server-directory-window"
+import { CommunityChannelResourceSchema, CommunityCategoryResourceSchema, serverSchema, type CommunityCategoryResource } from "@alook/shared"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { useSelector } from "@tanstack/react-store"
@@ -19,7 +21,7 @@ import type { ServerRow } from "@/lib/community-db/schema"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
-import { isServerOwner,UNCATEGORIZED_CATEGORY_ID, type CommunityRole } from "@alook/shared"
+import { isServerOwner, type CommunityRole } from "@alook/shared"
 import type { Server,Category,Channel } from "@/lib/community/models/navigation"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -75,12 +77,8 @@ export const serversQueryFn = async (
   if (!context?.client) throw new DOMException("Missing server query owner", "AbortError")
   const token = captureCommunityLiveSnapshotToken(context.client)
   const data = await apiFetch<{ servers: RawServerRow[] }>("/api/community/servers", communityRequestOptions(context.client, token, context.signal))
-  const servers: Server[] = data.servers.map((s) => ({
-    id: s.id,
-    name: s.name,
-    discriminator: s.discriminator,
-    description: s.description ?? "",
-    ownerId: s.ownerId,
+  const servers: Server[] = data.servers.map((s, position) => ({
+    ...serverSchema.parse({ id: s.id, position, name: s.name, discriminator: s.discriminator, description: s.description, ownerId: s.ownerId, icon: s.icon, official: s.official, isOwner: isServerOwner(s.role) }),
     initial: avatarInitial(s.name),
     active: false,
     unread: false,
@@ -88,8 +86,8 @@ export const serversQueryFn = async (
     isOwner: isServerOwner(s.role),
     ...(["owner", "admin", "member"].includes(s.role ?? "") ? { role: s.role as CommunityRole } : {}),
     ...(s.memberId ? { memberId: s.memberId } : {}),
-    icon: s.icon ?? null,
-    official: s.official === true,
+    icon: s.icon,
+    official: s.official,
   }))
   return { servers }
 }
@@ -237,40 +235,21 @@ const serverQueryFn = (
   queryClient: QueryClient,
   serverId: string,
   signal?: AbortSignal,
-) => async (): Promise<ServerDetail> => {
+) => async (): Promise<ServerDirectorySnapshot> => {
   const token = captureCommunityLiveSnapshotToken(queryClient)
   const options = communityRequestOptions(queryClient, token, signal)
   const fetchResource = <T,>(path: string) => apiFetch<T>(path, options)
   const [server, categoryData, channelData] = await Promise.all([
     resolveServerIdentity(queryClient, serverId, signal),
-    fetchResource<{ categories: Array<Omit<Category, "channels"> & { serverId?: string }> }>(`/api/community/servers/${serverId}/categories`),
+    fetchResource<{ categories: CommunityCategoryResource[] }>(`/api/community/servers/${serverId}/categories`),
     fetchResource<{ channels: RawChannel[] }>(`/api/community/servers/${serverId}/channels`),
   ])
   if (!server) throw new Error("server not found")
-  const channels = channelData.channels.map((channel) => ({
-    ...channel,
-    active: false,
-    // Visible unread state is projected exclusively from account attention.
-    unread: false,
-  }))
-  const categories: Category[] = categoryData.categories.map((category) => ({
-    ...category,
-    channels: channels.filter((channel) => channel.categoryId === category.id),
-  }))
-  const uncategorized = channels.filter((channel) => !channel.categoryId)
-  if (uncategorized.length > 0) {
-    categories.push({ id: UNCATEGORIZED_CATEGORY_ID, name: "", private: 0, channels: uncategorized })
-  }
-  return {
-    id: server.id,
-    name: server.name,
-    discriminator: server.discriminator ?? "",
-    description: server.description ?? "",
-    icon: server.icon ?? null,
-    official: server.official === true,
-    ownerId: server.ownerId ?? "",
-    categories,
-  }
+  return ServerDirectorySnapshotSchema.parse({
+    server,
+    categories: categoryData.categories.map(category => CommunityCategoryResourceSchema.parse(category)),
+    channels: channelData.channels.map(row => CommunityChannelResourceSchema.parse(row)),
+  })
 }
 
 function serverDetailReadSuperseded(queryClient: QueryClient, serverId: string, token: CommunityLiveSnapshotToken, signal?: AbortSignal) {
@@ -311,7 +290,9 @@ export const serverProjectedQueryFn = (
         snapshot: { kind: "server-detail", data },
         proof: { kind: "structural", token: structuralToken, signal: readSignal },
       })
-      return data.id
+      const window = getServerDirectoryWindow(structuralToken.registry, serverId)
+      if (!window) throw new Error("Directory resource closure mismatch")
+      return window
     })
   } catch (error) {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
@@ -331,7 +312,7 @@ export const serverProjectedQueryFn = (
  */
 export function useServer(
   serverId: string | null,
-): UseQueryResult<string> & { server: ServerDetail | null } {
+): UseQueryResult<ServerDirectoryWindow> & { server: ServerDetail | null } {
   const dbServer = useServerTreeProjection(serverId)
   const queryClient = useQueryClient()
   const enabled = !!serverId

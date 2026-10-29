@@ -21,7 +21,7 @@ import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { ForumPostList } from "./forum-post-list"
-import type { VirtualListPositionScope } from "@/lib/community/virtual-list-position"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
@@ -100,7 +100,7 @@ const ForumPostTitle = memo(function ForumPostTitle({ name, postId, seq }: { nam
       data-testid={tid.forumThreadTitle(postId)}
       aria-label={`${name}${seq === undefined ? "" : ` #${seq}`}`}
       title={name}
-      className="w-full min-w-0 max-w-full text-[15px] font-semibold leading-tight"
+      className="w-full min-w-0 max-w-full self-start text-[15px] font-semibold leading-tight"
     >
       <LineClamp
         text={name}
@@ -130,7 +130,7 @@ export function ForumView({
   onScrollRoot, positionScope,
 }: {
   forumChannelId: string
-  positionScope?: VirtualListPositionScope
+  positionScope?: ConversationListScope
   members: Member[]
   mentionCandidates?: ComposerProps["mentionCandidates"]
   observation?: import("@/lib/observability/regions").ResourceObservation
@@ -322,76 +322,71 @@ export function ForumView({
                     index === posts.length - 1 && "border-b-0",
                   )}
                 >
-                  {(canEdit || canDelete) && (
-                    <div
-                      className="absolute right-3 top-3 z-10 flex items-center gap-1"
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => event.stopPropagation()}
-                    >
-                      {canEdit && (
-                        <PostTagDialog
-                          trigger={(
-                            <button
-                              type="button"
-                              data-testid={tid.forumThreadTagBtn(p.id)}
-                              onClick={(event) => event.stopPropagation()}
-                              className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-foreground")}
-                              aria-label="Edit tags"
-                            >
-                              <Tag className="size-4" />
-                            </button>
-                          )}
-                          postName={p.name}
-                          current={p.tags}
-                          allTags={availableTags}
-                          saving={savingTagsFor === p.id}
-                          onSave={(tags) => onEditPostTags?.(p.id, tags)}
-                        />
-                      )}
-                      {canEdit && (
-                        <button
-                          type="button"
-                          data-testid={tid.forumThreadArchiveBtn(p.id)}
-                          disabled={savingTags}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            void Promise.resolve(
-                              onEditPostTags?.(p.id, toggleForumArchivedStatus(p.tags)),
-                            ).catch(() => undefined)
-                          }}
-                          className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-foreground")}
-                          aria-label={archived ? "Unarchive post" : "Archive post"}
-                          aria-pressed={archived}
-                        >
-                          {archived
-                            ? <ArchiveRestore aria-hidden="true" className="size-4" />
-                            : <Archive aria-hidden="true" className="size-4" />}
-                        </button>
-                      )}
-                      {canDelete && (
-                      <button
-                        type="button"
-                        data-testid={tid.forumThreadDeleteBtn(p.id)}
-                        disabled={deletingPost === p.id}
-                        onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
-                        className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-destructive")}
-                        aria-label="Delete post"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                      )}
-                    </div>
-                  )}
-
-                  <div className={cn(
-                    actionCount === 3 && "min-h-8 pr-28",
-                    actionCount === 2 && "min-h-8 pr-20",
-                    actionCount === 1 && "min-h-8 pr-12",
-                    actionCount === 0 && "pr-0",
-                  )}>
+                  <div className={cn("grid grid-rows-[max-content_auto] gap-x-2", actionCount > 0 ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
                     <ForumPostTitle name={p.name} postId={p.id} seq={p.parentSeq} />
+                    {(canEdit || canDelete) && (
+                      <div
+                        className="col-start-2 row-span-2 row-start-1 z-10 flex items-start gap-1"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        {canEdit && (
+                          <PostTagDialog
+                            trigger={(
+                              <button
+                                type="button"
+                                data-testid={tid.forumThreadTagBtn(p.id)}
+                                onClick={(event) => event.stopPropagation()}
+                                className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-foreground")}
+                                aria-label="Edit tags"
+                              >
+                                <Tag className="size-4" />
+                              </button>
+                            )}
+                            postName={p.name}
+                            current={p.tags}
+                            allTags={availableTags}
+                            saving={savingTagsFor === p.id}
+                            onSave={(tags) => onEditPostTags?.(p.id, tags)}
+                          />
+                        )}
+                        {canEdit && (
+                          <button
+                            type="button"
+                            data-testid={tid.forumThreadArchiveBtn(p.id)}
+                            disabled={savingTags}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void Promise.resolve(
+                                onEditPostTags?.(p.id, toggleForumArchivedStatus(p.tags)),
+                              ).catch(() => undefined)
+                            }}
+                            className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-foreground")}
+                            aria-label={archived ? "Unarchive post" : "Archive post"}
+                            aria-pressed={archived}
+                          >
+                            {archived
+                              ? <ArchiveRestore aria-hidden="true" className="size-4" />
+                              : <Archive aria-hidden="true" className="size-4" />}
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            data-testid={tid.forumThreadDeleteBtn(p.id)}
+                            disabled={deletingPost === p.id}
+                            onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
+                            className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-destructive")}
+                            aria-label="Delete post"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <p data-slot="community-forum-post-preview" className="mb-2.25 mt-0.75 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
                   </div>
-                  <p className="mb-2.25 mt-0.75 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
                   <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
                     <Avatar label={author.avatar} seed={p.authorId} size={20} />
                     <span className="shrink-0 font-medium text-foreground" suppressHydrationWarning>{author.name}</span>

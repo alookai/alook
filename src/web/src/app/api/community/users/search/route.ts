@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
-  queries,
+  queries, CommunityUserSearchReadSchema,
   MIN_SEARCH_LENGTH,
   MAX_SEARCH_LENGTH,
   DEFAULT_USER_SEARCH_LIMIT,
@@ -39,7 +39,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
         limit: DEFAULT_USER_SEARCH_LIMIT,
       })
 
-  return writeJSON({
+  return writeJSON(CommunityUserSearchReadSchema.parse({
     users: users.map((u) => ({
       id: u.id,
       name: u.name,
@@ -47,5 +47,5 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       avatarVersion: u.avatarVersion,
       discriminator: u.discriminator,
     })),
-  })
+  }))
 })

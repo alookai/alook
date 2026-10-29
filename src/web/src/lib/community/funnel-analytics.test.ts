@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -15,7 +16,7 @@ vi.mock("@/lib/analytics", () => ({
   trackInvitedHumanJoined: mocks.joined,
 }))
 
-vi.mock("@alook/shared", () => ({ isTauri: () => mocks.native }))
+vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(), isTauri: () => mocks.native }))
 vi.mock("@/lib/analytics-consent", () => ({ readAnalyticsConsent: () => mocks.consent }))
 vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.product }))
 import { createStore } from "@tanstack/store"
@@ -28,7 +29,7 @@ import {
 } from "./funnel-analytics"
 
 function response(payload: unknown, ok = true) {
-  return { ok, json: vi.fn().mockResolvedValue(payload) } as unknown as Response
+  return Response.json(payload, { status: ok ? 200 : 500, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
 }
 
 describe("Community funnel analytics drain", () => {
@@ -74,6 +75,7 @@ describe("Community funnel analytics drain", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/community/analytics/funnel-events", {
       method: "POST",
+      headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
       cache: "no-store",
       credentials: "same-origin",
     })
@@ -184,4 +186,23 @@ it("does not claim a browser event without a browser", async () => {
     await drainInvitedHumanJoined(lifecycle)
     expect(fetchMock).not.toHaveBeenCalled()
   } finally { vi.unstubAllGlobals() }
+})
+
+
+describe("current funnel response qualification", () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it.each([null, BUSINESS_SCHEMA_VERSION - 1, BUSINESS_SCHEMA_VERSION + 1])("drops unconfirmed optional receipts (%s) without global upgrade", async version => {
+    vi.clearAllMocks(); _resetCommunityFunnelAnalyticsForTesting()
+    mocks.native = false; mocks.consent = null; vi.stubGlobal("window", {})
+    const create = () => Response.json({ events: [{ event: "invited_human_joined", surface: "community" }, { event: "runtime_connected", surface: "community", connection_type: "local_daemon" }] }, { headers: version === null ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(version) } })
+    const fetchMock = vi.fn(async () => create()); vi.stubGlobal("fetch", fetchMock)
+    const { businessSchemaLifecycle } = await import("@/lib/business-schema-lifecycle")
+    businessSchemaLifecycle.setState(() => ({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION }))
+    await drainCommunityFunnelEvents()
+    await drainInvitedHumanJoined(createStore({ active: true, generation: 1 }))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    for (const [, options] of fetchMock.mock.calls as unknown as Array<[string, RequestInit]>) expect(new Headers(options.headers).get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    expect(mocks.product).not.toHaveBeenCalled(); expect(mocks.runtime).not.toHaveBeenCalled()
+    expect(businessSchemaLifecycle.get().phase).toBe("current")
+  })
 })

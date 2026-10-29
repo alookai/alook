@@ -1,3 +1,4 @@
+import { channelResourceFixture, messageResourceFixture, serverResourceFixture, fullResourceBundleFixture } from "@/test/community-resource-fixtures";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
@@ -5,6 +6,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
 
+const mockReadBundle = vi.fn();
+vi.mock("@/lib/community/attention-resources.server", () => ({ readCommunityResourceBundle: (...args: unknown[]) => mockReadBundle(...args) }));
 const mockGetChannel = vi.fn();
 const mockGetChannelForMember = vi.fn();
 const mockGetMember = vi.fn();
@@ -189,7 +192,8 @@ describe("POST /api/community/channels/[id]/pins", () => {
 describe("GET /api/community/channels/[id]/pins", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" });
+    mockGetChannelForMember.mockResolvedValue(channelResourceFixture({ id: "c1", serverId: "s1" }));
+    mockReadBundle.mockResolvedValue(fullResourceBundleFixture("u1", [serverResourceFixture({ id: "s1", ownerId: "u1", isOwner: true })], [channelResourceFixture({ id: "c1", serverId: "s1" })], [messageResourceFixture({ id: "m1", channelId: "c1", seq: 42, content: "hi", authorId: "u42", authorName: "Ada" })], [{ id: "u42", name: "Ada", discriminator: "0042", avatar: null, avatarVersion: 0 }]));
   });
 
   it("returns each pin's authorId so the client can derive a beam avatar", async () => {
@@ -207,14 +211,16 @@ describe("GET /api/community/channels/[id]/pins", () => {
     const res = await GET(getReq(), ctx);
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { pins: Array<{ id: string; seq: number; authorId: string; authorName: string }> };
+    const body = (await res.json()) as { pins: Array<{ id: string }>; resources: { messages: Array<{ id: string; seq: number; authorId: string; authorName: string }> } };
     expect(body.pins).toHaveLength(1);
-    expect(body.pins[0].authorId).toBe("u42");
+    expect(body.resources.messages[0].authorId).toBe("u42");
     expect(body.pins[0].id).toBe("m1");
-    expect(body.pins[0].authorName).toBe("Ada");
+    expect(body.resources.messages[0].authorName).toBe("Ada");
     // seq lets the client jumpToSeq to the pinned message (scroll+highlight, or
     // open the context sheet if it's outside the loaded window).
-    expect(body.pins[0].seq).toBe(42);
+    expect(body.resources.messages[0].seq).toBe(42);
+    expect(body.pins).toEqual([{ id: "m1" }]);
+    expect(mockReadBundle).toHaveBeenCalledExactlyOnceWith(expect.anything(), "u1", { channelIds: ["c1"], messageIds: ["m1"] });
   });
 
   it("returns 403 when the caller can't see the channel", async () => {

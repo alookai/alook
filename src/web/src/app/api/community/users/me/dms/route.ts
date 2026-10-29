@@ -2,23 +2,9 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
-import { avatarInitial } from "@/lib/community/avatar"
+import { queries, parseCommunityDmsRead, CommunityResourceProfileSchema, CommunityMemberRelationSchema, communityChannelResourceFromStorage } from "@alook/shared"
 import { canonicalUserImage } from "@/lib/community/storage"
 
-/**
- * GET /api/community/users/me/dms — the DM sidebar list, relocated from the
- * flat `GET /api/community/dm` (route/disc 接口树统一, Blondie #615/#432 terminal
- * table: RELOCATE into the users/me/* family, same class as inbox/marks/
- * server-folders — "my own" aggregate read, self-scope, no target-user param).
- * Byte-identical body to the former GET /dm handler; only the URL moved.
- *
- * DM channels carry server_id = NULL (no server to hang a `servers/{id}/…`
- * listing off), so this doesn't fit the channels/servers resource tree — it's
- * "the DM channels I'm a participant in", which is exactly the users/me/*
- * shape. POST (DM creation) already lives in the create-door (POST /channels
- * type: dm via createDmForUser) and needs no change here.
- */
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const [rows, unreadRows] = await Promise.all([
@@ -30,13 +16,13 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   )
   const conversations = rows.map((r) => ({
     id: r.id,
+    channel: communityChannelResourceFromStorage(r.channel),
+    profile: CommunityResourceProfileSchema.parse({ id: r.otherUserId, name: r.otherUserName, discriminator: r.otherUserDiscriminator, avatar: canonicalUserImage(r.otherUserId, r.otherUserImage, r.otherUserAvatarVersion), avatarVersion: r.otherUserAvatarVersion }),
+    memberships: [
+      CommunityMemberRelationSchema.parse({ channelId: r.id, userId: ctx.userId, relation: "access", source: r.selfSource, isCreator: r.channel?.creatorId === ctx.userId, role: null, memberId: null }),
+      CommunityMemberRelationSchema.parse({ channelId: r.id, userId: r.otherUserId, relation: "access", source: r.peerSource, isCreator: r.channel?.creatorId === r.otherUserId, role: null, memberId: null }),
+    ],
     userId: r.otherUserId,
-    name: r.otherUserName,
-    discriminator: r.otherUserDiscriminator,
-    avatar: canonicalUserImage(r.otherUserId, r.otherUserImage, r.otherUserAvatarVersion)
-      ?? avatarInitial(r.otherUserName),
-    avatarVersion: r.otherUserAvatarVersion,
-    status: "offline" as const,
     preview: "",
     activityAt: r.lastMessageAt ?? r.createdAt,
     unread: unreadByChannelId.has(r.id),
@@ -44,5 +30,5 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
       ? { lastUnreadSeq: unreadByChannelId.get(r.id) }
       : {}),
   }))
-  return writeJSON({ conversations })
+  return writeJSON(parseCommunityDmsRead({ conversations }, ctx.userId))
 })

@@ -1,17 +1,19 @@
+import { resourceBundleFixture, fullResourceBundleFixture, serverResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClientProvider } from "@tanstack/react-query"
+import { QueryClientProvider, QueryObserver } from "@tanstack/react-query"
 import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture as fixture, dmConversationEntryFixture, forumConversationEntryFixture, conversationEntryTarget as target } from "@/test/conversation-entry-fixtures"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { registerCommunityDbRegistry } from "@/lib/community-db/collections"
-import { captureCommunityLiveSnapshotToken, ingestMessages, ingestReadStateSnapshot, publishAccountAttentionSnapshot } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityResourceBundle, publishCommunityMessages, ingestMessages, ingestReadStateSnapshot, publishAccountAttentionSnapshot } from "@/lib/community-db/sync"
 import { conversationEntryOptions, currentConversationReadState, publishConversationEntry } from "@/lib/community/conversation-entry"
 import { communityKeys } from "@/lib/query-keys"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
+import { reconcileWindow } from "./community-ws/reconnect-messages"
 import { useConversationEntry } from "./use-conversation-entry"
 import { useChannelMetadata } from "./use-channel-metadata"
 import { useDmMessages, useMessages } from "./use-messages"
@@ -49,6 +51,149 @@ async function setup() {
 }
 
 describe("conversation entry selection", () => {
+  it("ignores actual reconnect helper cache keys when the original entry hook consumes a complete warm window", async () => {
+    const { client, wrapper, publish } = await setup()
+    const value = fixture()
+    const resource = publish(value)
+    const observer = new QueryObserver(client, { queryKey: resource.windowKey, queryFn: async () => client.getQueryData(resource.windowKey), staleTime: Infinity })
+    const stop = observer.subscribe(() => undefined)
+    const repairPage = { profiles: value.profiles, messages: value.messages, ...value.page }
+    const held = deferred<typeof repairPage>()
+    load.mockReturnValue(held.promise)
+    const repair = reconcileWindow(client, { kind: "channel", scopeId: "c1", serverId: "s1" }, resource.windowKey, 1)
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    expect(client.getQueryData([...resource.windowKey, "reconcile-target"])).toBe(1)
+    const reads = load.mock.calls.length
+    const hook = renderHook(() => ({ entry: useConversationEntry(target), surface: useMessages("c1", { serverId: "s1" }) }), { wrapper })
+    await waitFor(() => expect(hook.result.current.surface.messages.map(message => message.id)).toEqual(["m1"]))
+    expect(hook.result.current.surface.navigationBlocked).toBe(false)
+    expect(hook.result.current.entry.window).not.toBeNull()
+    expect(load).toHaveBeenCalledTimes(reads)
+    await act(async () => { held.resolve(repairPage); await repair })
+    expect(client.getQueryData([...resource.windowKey, "reconcile"])).toEqual({ latestSeq: 1 })
+    expect(hook.result.current.surface.navigationBlocked).toBe(false)
+    expect(load).toHaveBeenCalledTimes(reads)
+    hook.unmount()
+    stop()
+  })
+
+  it("keeps a complete current window usable when an unselected old anchor has no author", async () => {
+    const { client, wrapper, registry, publish } = await setup()
+    const value = fixture()
+    value.selection = { reason: "tail", anchorMessageId: null }
+    const current = publish(value)
+    const old = { ...value.messages[0], id: "old-message", authorId: "old-author", seq: 0 }
+    publishCommunityMessages(client, { channelId: "c1", messages: [old], profiles: [profileResourceFixture({ id: "old-author", name: "Old Author" })], proof: { token: captureCommunityLiveSnapshotToken(client, "c1") } })
+    const oldKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: old.id })
+    const oldWindow = { pages: [{ ...value.page, messages: [{ id: old.id, seq: old.seq }] }], pageParams: [{ mode: "anchor", anchor: old.id }] }
+    client.setQueryData(oldKey, oldWindow)
+    registry.collections.profiles.utils.writeDelete("old-author")
+    load.mockReturnValue(new Promise(() => {}))
+    const hook = renderHook(() => ({ metadata: useChannelMetadata("s1", "c1"), surface: useMessages("c1", { serverId: "s1" }) }), { wrapper })
+    await waitFor(() => expect(hook.result.current.metadata.windowReady).toBe(true))
+    expect(hook.result.current.surface.navigationBlocked).toBe(false)
+    expect(hook.result.current.surface.messages.map(message => message.id)).toEqual(["m1"])
+    expect(client.getQueryData(oldKey)).toBe(oldWindow)
+    expect(client.getQueryData(current.windowKey)).toBeDefined()
+    expect(registry.collections.messages.get(old.id)).toMatchObject({ authorId: "old-author" })
+    expect(registry.collections.profiles.has("old-author")).toBe(false)
+    expect(load).not.toHaveBeenCalled()
+    hook.unmount()
+  })
+
+  it("repairs the current missing author even when an unselected old anchor has no body", async () => {
+    const { client, wrapper, registry, publish } = await setup()
+    const value = fixture()
+    value.selection = { reason: "tail", anchorMessageId: null }
+    publish(value)
+    const oldKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "missing-old-body" })
+    const oldWindow = { pages: [{ ...value.page, messages: [{ id: "missing-old-body", seq: 0 }] }], pageParams: [{ mode: "anchor", anchor: "missing-old-body" }] }
+    client.setQueryData(oldKey, oldWindow)
+    const held = deferred<typeof value>()
+    load.mockReturnValue(held.promise)
+    const hook = renderHook(() => ({ metadata: useChannelMetadata("s1", "c1"), surface: useMessages("c1", { serverId: "s1" }) }), { wrapper })
+    await waitFor(() => expect(hook.result.current.metadata.windowReady).toBe(true))
+    expect(load).not.toHaveBeenCalled()
+    await act(async () => { registry.collections.profiles.utils.writeDelete("peer") })
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    expect(hook.result.current.metadata.windowReady).toBe(false)
+    expect(hook.result.current.surface.navigationBlocked).toBe(true)
+    await act(async () => held.resolve(value))
+    await waitFor(() => expect(hook.result.current.metadata.windowReady).toBe(true))
+    expect(hook.result.current.surface.navigationBlocked).toBe(false)
+    expect(client.getQueryData(oldKey)).toBe(oldWindow)
+    expect(load).toHaveBeenCalledOnce()
+    hook.unmount()
+  })
+
+  it.each(["messages-shape", "missing-author", "forum-shape"])("rereads an incomplete cached dependency through ordinary entry ($0)", async defect => {
+    const { client, wrapper, registry, publish } = await setup()
+    const value = defect === "forum-shape" ? forumConversationEntryFixture() : fixture()
+    const destination = { channelId: "c1", serverId: value.channel.serverId }
+    const resource = defect === "forum-shape" ? publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") }) : publish(value)
+    client.setQueryData(conversationEntryOptions(client, destination).queryKey, resource)
+    if (defect === "messages-shape") client.setQueryData(resource.windowKey, { pages: [{ messages: 42 }], pageParams: [{ mode: "newest" }] })
+    if (defect === "forum-shape") client.setQueryData(communityKeys.forumFeed("c1", null), { pages: [{ threads: 42 }], pageParams: [null] })
+    if (defect === "missing-author") registry.collections.profiles.utils.writeDelete(value.messages[0].authorId)
+    const held = deferred<typeof value>()
+    load.mockReturnValue(held.promise)
+    const hook = renderHook(() => useChannelMetadata(destination.serverId, "c1"), { wrapper })
+    await waitFor(() => expect(load).toHaveBeenCalledOnce())
+    expect(hook.result.current.canRead).toBe(true)
+    expect(hook.result.current.windowReady).toBe(false)
+    await act(async () => held.resolve(value))
+    await waitFor(() => expect(hook.result.current.windowReady).toBe(true))
+    expect(load).toHaveBeenCalledOnce()
+    hook.unmount()
+  })
+
+  it.each([
+    { kind: "text", useSurface: function useText() { return useMessages("c1", { serverId: "s1" }) } },
+    { kind: "dm", useSurface: function useDm() { return useDmMessages("c1") } },
+  ])("keeps current $kind permission separate from a missing owned entry window", async ({ kind, useSurface }) => {
+    const { client, wrapper } = await setup()
+    const value = kind === "dm" ? dmConversationEntryFixture() : fixture()
+    publishCommunityResourceBundle(client, fullResourceBundleFixture(value.viewerId,
+      value.channel.serverId ? [serverResourceFixture({ id: value.channel.serverId, ownerId: value.viewerId })] : [],
+      [value.channel], [], value.peer ? [value.peer] : []), { token: captureCommunityLiveSnapshotToken(client) })
+    const held = deferred<typeof value>()
+    load.mockReturnValue(held.promise)
+    const hook = renderHook(() => ({ metadata: useChannelMetadata(value.channel.serverId, "c1"),
+      messages: useSurface() }), { wrapper })
+    await waitFor(() => expect(hook.result.current.metadata.canRead).toBe(true))
+    expect(hook.result.current.metadata.data?.id).toBe("c1")
+    expect(hook.result.current.metadata.windowReady).toBe(false)
+    expect(hook.result.current.messages.navigationBlocked).toBe(true)
+    expect(hook.result.current.messages.messages).toEqual([])
+    expect(load).toHaveBeenCalledOnce()
+    await act(async () => held.resolve(value))
+    await waitFor(() => expect(hook.result.current.metadata.windowReady).toBe(true))
+    await waitFor(() => expect(hook.result.current.messages.navigationBlocked).toBe(false))
+    await waitFor(() => expect(hook.result.current.messages.messages[0]?.id).toBe("m1"))
+    expect(load).toHaveBeenCalledOnce()
+    hook.unmount()
+  })
+
+  it("offers the existing retry after a scope-only entry window fails, while retaining identity", async () => {
+    const { client, wrapper } = await setup()
+    const value = dmConversationEntryFixture()
+    publishCommunityResourceBundle(client, fullResourceBundleFixture(value.viewerId, [], [value.channel], [], [value.peer!]),
+      { token: captureCommunityLiveSnapshotToken(client) })
+    load.mockRejectedValue(new ConversationReadTimeoutError())
+    const hook = renderHook(() => ({ metadata: useChannelMetadata(null, "c1"), messages: useDmMessages("c1") }), { wrapper })
+    await waitFor(() => expect(hook.result.current.metadata.status).toBe("retryable-error"))
+    expect(hook.result.current.metadata.canRead).toBe(true)
+    expect(hook.result.current.metadata.data?.id).toBe("c1")
+    expect(hook.result.current.metadata.windowReady).toBe(false)
+    expect(hook.result.current.messages.navigationBlocked).toBe(true)
+    load.mockResolvedValue(value)
+    await act(async () => { await hook.result.current.metadata.retry() })
+    await waitFor(() => expect(hook.result.current.metadata.windowReady).toBe(true))
+    expect(hook.result.current.metadata.status).toBe("readable")
+    expect(load).toHaveBeenCalledTimes(2)
+    hook.unmount()
+  })
+
   it.each([
     { kind: "text", useSurface: function useText() { return useMessages("c1", { serverId: "s1" }) } },
     { kind: "dm", useSurface: function useDm() { return useDmMessages("c1") } },
@@ -75,6 +220,7 @@ describe("conversation entry selection", () => {
     }, { wrapper })
     await waitFor(() => expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1")).toBe(true))
     expect(hook.result.current.metadata.canRead).toBe(true)
+    expect(hook.result.current.metadata.windowReady).toBe(true)
     expect(hook.result.current.metadata.data?.id).toBe("c1")
     expect(hook.result.current.metadata.isFetching).toBe(true)
     if ("messages" in hook.result.current.surface) {
@@ -101,6 +247,7 @@ describe("conversation entry selection", () => {
     expect(hook.result.current.messages).toEqual([])
     expect(hook.result.current.initialPositionKnown).toBe(true)
     expect(hook.result.current.positionDataState).toBe("empty")
+    expect(hook.result.current.navigationBlocked).toBe(false)
     expect(hook.result.current.isFetching).toBe(true)
     hook.unmount()
   })
@@ -461,7 +608,7 @@ describe("conversation entry return during accepted reading", () => {
     await act(async () => {
       ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [readState] })
       publishAccountAttentionSnapshot(owner.client, {
-        snapshot: { scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1",
+        snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1",
           ordinaryUnread: true, lastUnreadSeq: 45, lastAttentionSeq: null, attentionCount: 0 }], items: [], limit: 100, truncated: false,
           included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
         proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined },
@@ -887,7 +1034,7 @@ describe("conversation entry return during accepted reading", () => {
     fresh.page = { olderCursor: "older", newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 }
     await act(async () => {
       ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [read60] })
-      ingestMessages(owner.registry, "c1", [{ ...fresh.messages.at(-1)!, resourceComplete: true }])
+      ingestMessages(owner.registry, "c1", [fresh.messages.at(-1)!])
       owner.runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, {
         type: "wsMessage", message: fresh.messages.at(-1)!,
       })
@@ -937,7 +1084,7 @@ describe("native entry freshness with authoritative newer attention", () => {
     expect(client.getQueryCache().find({ queryKey: original.windowKey, exact: true })?.isActive()).toBe(false)
     load.mockClear()
     publishAccountAttentionSnapshot(client, {
-      snapshot: { scopes: [{ scopeId: packet.channelId, channelId: packet.channelId, serverId: packet.channel.serverId,
+      snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: packet.channelId, channelId: packet.channelId, serverId: packet.channel.serverId,
         ordinaryUnread: newer, lastUnreadSeq: newer ? 2 : 1, lastAttentionSeq: null, attentionCount: 0 }], items: [], limit: 100, truncated: false,
         included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
       proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },

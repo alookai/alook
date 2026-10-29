@@ -43,7 +43,7 @@ vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({
   ACCOUNT_DELETED_SIGN_IN_PATH: "/sign-in?account_deleted=1",
   toastApiError: mocks.toastApiError,
-  apiFetch: (path: string, options: { method?: string; body?: string }) => Promise.resolve(options?.method === "PATCH" ? mocks.updateProfile(JSON.parse(options.body!)) : mocks.query(path, options)).then((data) => path.startsWith("/api/community/users/search?") ? { users: [], ...data } : ({ id: path.split("/").at(-2), name: "Remote", discriminator: "0001", image: null, avatarVersion: 0, bannerColor: null, aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null, kind: "human", ...data })),
+  apiFetch: (path: string, options: { method?: string; body?: string }) => Promise.resolve(options?.method === "PATCH" ? mocks.updateProfile(JSON.parse(options.body!)) : mocks.query(path, options)).then((data) => options?.method === "PATCH" ? data : path.startsWith("/api/community/users/search?") ? { users: [], ...data } : ({ id: path.split("/").at(-2), name: "Remote", discriminator: "0001", image: null, avatarVersion: 0, bannerColor: null, aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null, kind: "human", ...data })),
 }))
 vi.mock("@/lib/community/image-crop", () => ({ validateIconSourceFile: mocks.validate }))
 vi.mock("@/contexts/community/current-user", () => ({
@@ -181,6 +181,21 @@ describe("useShellProfileController", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it.each(["cold", "warm", "newer"])("keeps a null handle lookup avatar canonical with mode=%s", async mode => {
+    const { writeCommunityProfilePatches } = await import("@/lib/community/profile-seed")
+    const request = deferred<{ users: Array<{ id: string; name: string; discriminator: string; image: null; avatarVersion: number }> }>()
+    mocks.query.mockImplementation((path: string) => path.startsWith("/api/community/users/search?") ? request.promise : new Promise(() => {}))
+    const hook = await renderController()
+    if (mode !== "cold") writeCommunityProfilePatches([{ id: "lookup", identityAbout: { name: "Alice", discriminator: "0042", aboutMe: "Keep complete", bannerColor: "#123456" }, avatar: { avatar: "old-image", avatarVersion: 2 }, status: { statusText: "Keep status", statusEmoji: "🙂" } }], hook.registry)
+    await act(async () => hook.current.openProfile("Alice", { clientX: 4, clientY: 5 } as never, "0042"))
+    await waitFor(() => expect(mocks.query.mock.calls.some(([path]) => path.startsWith("/api/community/users/search?"))).toBe(true))
+    if (mode === "newer") writeCommunityProfilePatches([{ id: "lookup", identityAbout: { name: "Newer Alice" }, avatar: { avatar: "newer-image", avatarVersion: 3 }, status: { statusText: "Newer status" } }], hook.registry, { command: true })
+    await act(async () => request.resolve({ users: [{ id: "lookup", name: "Alice", discriminator: "0042", image: null, avatarVersion: 2 }] }))
+    await waitFor(() => expect(hook.queryClient.getQueryData(["community", "user-search", "Alice#0042"])).toEqual(["lookup"]))
+    expect(hook.registry.collections.profiles.get("lookup")).toMatchObject({ avatar: mode === "newer" ? "newer-image" : null, avatarVersion: mode === "newer" ? 3 : 2, name: mode === "newer" ? "Newer Alice" : "Alice", discriminator: "0042", ...(mode !== "cold" ? { aboutMe: "Keep complete", bannerColor: "#123456", statusText: mode === "newer" ? "Newer status" : "Keep status" } : {}) })
+    hook.renderer.unmount()
   })
 
   it.each(["settings=billing", "billing=checkout", "billing=cancel", "billing=portal"])("opens billing settings from %s and clears only billing navigation on close", async (marker) => {
@@ -436,7 +451,7 @@ describe("useShellProfileController", () => {
       statusText: "",
       kind: "bot",
       ownerProfile: { id: "owner", handle: "Owner#0042" },
-      ownedByViewer: true,
+      ownedByViewer: false,
     }).mockResolvedValueOnce({
       id: "owner",
       aboutMe: "owner",
@@ -458,7 +473,7 @@ describe("useShellProfileController", () => {
     expect(hook.current.profile?.data.identity).toEqual({
       kind: "bot",
       ownerProfile: { id: "owner", handle: "Owner#0042" },
-      ownedByViewer: true,
+      ownedByViewer: false,
     })
 
     await act(async () => hook.current.openOwnerProfile({ id: "owner", handle: "Owner#0042" }))
@@ -525,6 +540,7 @@ describe("useShellProfileController", () => {
 
   it("seeds canonical mutation responses through the captured request snapshot", async () => {
     const hook = await renderController()
+    hook.registry.collections.profiles.utils.writeUpsert({ id: "self", name: "Self", discriminator: "0001", avatar: null, avatarVersion: 0 })
 
     await act(async () => hook.current.updateOwnStatus("🌱", "Growing"))
     expect(mocks.updateProfile).toHaveBeenLastCalledWith({

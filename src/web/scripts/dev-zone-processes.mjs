@@ -228,11 +228,27 @@ export function builtPrecacheEntries(source) {
   const parent = consumer.parent
   if (!(ts.isVariableDeclaration(parent) && parent.initializer === consumer) && !(ts.isExpressionStatement(parent) && parent.expression === consumer)) return fail()
   if (!linearScope(statement(consumer)?.parent)) return fail()
+  const unwrap = node => ts.isParenthesizedExpression(node) ? unwrap(node.expression) : node
+  const guards = new Set()
+  const guardBinding = node => {
+    if (!ts.isIfStatement(node) || node.elseStatement) return undefined
+    const condition = unwrap(node.expression)
+    if (!ts.isBinaryExpression(condition) || ![ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(condition.operatorToken.kind)) return undefined
+    const operands = [unwrap(condition.left), unwrap(condition.right)]
+    const length = operands.find(value => ts.isPropertyAccessExpression(value) && value.name.text === "length" && ts.isIdentifier(value.expression))
+    if (!length || !operands.some(value => ts.isNumericLiteral(value) && value.text === "1")) return undefined
+    const body = ts.isBlock(node.thenStatement) && node.thenStatement.statements.length === 1 ? node.thenStatement.statements[0] : node.thenStatement
+    if (!ts.isThrowStatement(body) || !body.expression) return undefined
+    const error = unwrap(body.expression)
+    if (!ts.isNewExpression(error) || !ts.isIdentifier(error.expression) || error.expression.text !== "Error"
+      || checker.getSymbolAtLocation(error.expression)?.declarations?.length || error.arguments?.length !== 1 || !ts.isStringLiteral(error.arguments[0])) return undefined
+    return length.expression
+  }
   const linearBefore = node => {
     const current = statement(node), scope = current?.parent
     if (!scope || (!ts.isSourceFile(scope) && !ts.isBlock(scope))) return false
     const index = scope.statements.indexOf(current)
-    return index >= 0 && scope.statements.slice(0, index).every(value => ts.isVariableStatement(value) || ts.isExpressionStatement(value) || ts.isClassDeclaration(value) || ts.isFunctionDeclaration(value) || ts.isEmptyStatement(value))
+    return index >= 0 && scope.statements.slice(0, index).every(value => ts.isVariableStatement(value) || ts.isExpressionStatement(value) || ts.isClassDeclaration(value) || ts.isFunctionDeclaration(value) || ts.isEmptyStatement(value) || (guardBinding(value) && (guards.add(value), true)))
   }
   if (!linearBefore(consumer)) return fail()
   if (nodes.some(node => ts.isWithStatement(node) || (ts.isIdentifier(node) && node.text === "eval"))) return fail()
@@ -273,12 +289,43 @@ export function builtPrecacheEntries(source) {
     if (!calls.length || !calls.every(node => ts.isCallExpression(node.parent) && node.parent.expression === node && !node.parent.arguments.length)) return false
     return calls.some(node => node.pos > initialized.end && node.pos < use.pos && directAssignment(node.parent) && statement(node)?.parent === scope && linearBefore(node))
   }
+  const catalogueSymbols = new Set()
+  const pureUrlMap = call => {
+    if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== "map" || call.arguments.length !== 1) return false
+    const callback = unwrap(call.arguments[0])
+    if (!ts.isArrowFunction(callback) || callback.modifiers?.length || callback.parameters.length !== 1) return false
+    const parameter = callback.parameters[0]
+    if (!ts.isIdentifier(parameter.name) || parameter.initializer || parameter.dotDotDotToken || ts.isBlock(callback.body)) return false
+    const symbol = symbolFor(parameter.name)
+    const isParameter = node => ts.isIdentifier(unwrap(node)) && symbolFor(unwrap(node)) === symbol
+    const isUrl = node => ts.isPropertyAccessExpression(unwrap(node)) && unwrap(node).name.text === "url" && isParameter(unwrap(node).expression)
+    const body = unwrap(callback.body)
+    if (isUrl(body)) return true
+    if (!ts.isConditionalExpression(body)) return false
+    const condition = unwrap(body.condition)
+    if (!ts.isBinaryExpression(condition)) return false
+    const equals = [ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken].includes(condition.operatorToken.kind)
+    const differs = [ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(condition.operatorToken.kind)
+    if (!equals && !differs) return false
+    const values = [unwrap(condition.left), unwrap(condition.right)]
+    if (!values.some(node => ts.isTypeOfExpression(node) && isParameter(node.expression)) || !values.some(node => ts.isStringLiteral(node) && node.text === "string")) return false
+    return equals ? isParameter(body.whenTrue) && isUrl(body.whenFalse) : isUrl(body.whenTrue) && isParameter(body.whenFalse)
+  }
+  const mapRead = node => ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node && pureUrlMap(node.parent.parent)
+  const readOnly = node => {
+    const parent = node.parent
+    return !(ts.isBinaryExpression(parent) && parent.left === node && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment)
+      && !ts.isPrefixUnaryExpression(parent) && !ts.isPostfixUnaryExpression(parent) && !ts.isDeleteExpression(parent)
+  }
   const arrayFor = (input, seen = new Set()) => {
     if (ts.isParenthesizedExpression(input)) return arrayFor(input.expression, seen)
     if (ts.isArrayLiteralExpression(input)) return input
+    if (ts.isBinaryExpression(input) && input.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+      && ts.isArrayLiteralExpression(unwrap(input.right)) && !unwrap(input.right).elements.length) return arrayFor(input.left, seen)
     if (!ts.isIdentifier(input)) return fail()
     const symbol = symbolFor(input)
     if (!symbol || seen.has(symbol) || symbol.declarations?.length !== 1) return fail()
+    catalogueSymbols.add(symbol)
     const declaration = symbol.declarations[0]
     if (!ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name)) return fail()
     const scope = statement(declaration)?.parent
@@ -289,12 +336,30 @@ export function builtPrecacheEntries(source) {
       const parent = node.parent
       if (ts.isBinaryExpression(parent) && parent.left === node && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && directAssignment(parent)
         && (statement(parent)?.parent === scope || emittedInitialization(parent, scope, input))) writes.push({ value: parent.right, position: parent.pos })
-      else return fail()
+      else if (!mapRead(node)) return fail()
     }
     if (writes.length !== 1 || writes[0].position >= input.pos) return fail()
     return arrayFor(writes[0].value, new Set([...seen, symbol]))
   }
   const array = arrayFor(candidate.initializer)
+  for (const guard of guards) {
+    const symbol = symbolFor(guardBinding(guard))
+    const declaration = symbol?.declarations?.length === 1 ? symbol.declarations[0] : undefined
+    if (!declaration || !ts.isVariableDeclaration(declaration) || statement(declaration)?.parent !== statement(guard)?.parent || declaration.end >= guard.pos || !declaration.initializer) return fail()
+    const filter = unwrap(declaration.initializer)
+    if (!ts.isCallExpression(filter) || !ts.isPropertyAccessExpression(filter.expression) || filter.expression.name.text !== "filter" || filter.arguments.length !== 1) return fail()
+    const map = unwrap(filter.expression.expression)
+    if (!pureUrlMap(map)) return fail()
+    const receiver = unwrap(map.expression.expression)
+    if (!ts.isIdentifier(receiver) || !catalogueSymbols.has(symbolFor(receiver))) return fail()
+    for (const reference of references(symbol)) {
+      if (reference === declaration.name) continue
+      const access = reference.parent
+      if (!(ts.isPropertyAccessExpression(access) && access.expression === reference && access.name.text === "length" && readOnly(access))
+        && !(ts.isElementAccessExpression(access) && access.expression === reference && ts.isNumericLiteral(access.argumentExpression) && access.argumentExpression.text === "0" && readOnly(access))) return fail()
+    }
+  }
+  if (nodes.some(node => ts.isPropertyAccessExpression(node) && node.name.text === "prototype" && ts.isIdentifier(node.expression) && node.expression.text === "Array")) return fail()
   const entries = array.elements.map(element => {
     if (!ts.isObjectLiteralExpression(element)) return fail()
     const fields = new Map()

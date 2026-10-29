@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 import {
   COMMUNITY_BULK_BODY_MAX_BYTES,
@@ -295,8 +296,8 @@ export async function handleCommunityUsersBroadcast({ request, env, url, traceId
     return invalidCommunityBrowserEventResponse(failure)
   }
   const version = request.headers.get(COMMUNITY_CONTRACT_HEADER)
-  if (version !== null && version !== "1" && version !== "2" && version !== "3") return invalidCommunityBrowserEventResponse(strictFailure("invalid-payload", parsed.byteCount))
-  const event = normalizeCommunityBrowserEvent(body.message, undefined, version === "3" ? 3 : version === "1" ? 1 : 2)
+  if (version !== String(BUSINESS_SCHEMA_VERSION)) return invalidCommunityBrowserEventResponse(strictFailure("invalid-payload", parsed.byteCount))
+  const event = normalizeCommunityBrowserEvent(body.message, undefined, BUSINESS_SCHEMA_VERSION)
   if (!event.ok) {
     logCommunityBrowserEventRejected(log, "strict-bulk", event, body.userIds.length)
     return invalidCommunityBrowserEventResponse(event)

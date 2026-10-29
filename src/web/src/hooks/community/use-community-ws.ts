@@ -1,4 +1,5 @@
 "use client"
+import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { bindCommunityTransport, useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime"
 
@@ -26,6 +27,7 @@ import type {
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
 import {
+  COMMUNITY_CONTRACT_VERSION,
   decodeCommunityBrowserEvent,
   communityBrowserEventBatchType,
   admitCommunityBrowserEventBatch,
@@ -185,7 +187,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   }, [runtime.ws.actions, viewerUserId])
 
   const handleMessage = useCallback(
-    async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void, contract: CommunityContract = 2) => {
+    async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void, contract: CommunityContract = COMMUNITY_CONTRACT_VERSION) => {
       if (!msg.type.startsWith("community:")) return
       if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
       const communityStore = runtime.ui
@@ -230,8 +232,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       }
 
       if (isCommunityBrowserEventBatchCandidate(msg)) {
-        if (msg.type !== communityBrowserEventBatchType(contract)
-          && !(contract === 2 && msg.type === communityBrowserEventBatchType(1))) {
+        if (msg.type !== communityBrowserEventBatchType(contract)) {
           trackCommunityWsFrameDropped({ reason: "invalid-payload", type: msg.type })
           return
         }
@@ -241,6 +242,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         try { assertAdmissionCurrent?.(); assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined) } catch { return }
         if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
         if (!decoded.ok) {
+          requestBusinessSchemaUpdate()
           const reason = decoded.reason === "oversized" ? "oversized" : "invalid-payload"
           const metadata = {
             reason,
@@ -307,6 +309,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
 
       const decoded = decodeCommunityBrowserEvent(msg, contract)
       if (!decoded.ok) {
+        requestBusinessSchemaUpdate()
         const metadata = {
           reason: decoded.reason,
           type: isCommunityEventType(msg.type) ? msg.type : "unknown",

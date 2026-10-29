@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   acknowledgeMobileSystemNotificationRegistration,
@@ -253,7 +254,7 @@ describe("mobile notification native adapter", () => {
     expect(nativeMocks.invoke).toHaveBeenCalledWith("mobile_system_notification_snapshot")
     expect(fetchImpl).toHaveBeenCalledWith(
       `/api/community/notifications/devices/${installationId}`,
-      { method: "DELETE", credentials: "same-origin" },
+      { method: "DELETE", credentials: "same-origin", signal: undefined, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } },
     )
   })
 })
@@ -294,7 +295,7 @@ describe("mobile notification HTTP adapter", () => {
     expect(init).toMatchObject({
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
     })
     expect(JSON.parse(String(init?.body))).toEqual({
       installationId,
@@ -311,7 +312,7 @@ describe("mobile notification HTTP adapter", () => {
     await deleteMobileSystemNotificationRegistration(installationId, fetchImpl)
     expect(fetchImpl).toHaveBeenCalledWith(
       `/api/community/notifications/devices/${installationId}`,
-      { method: "DELETE", credentials: "same-origin" },
+      { method: "DELETE", credentials: "same-origin", signal: undefined, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } },
     )
 
     await expect(postMobileSystemNotificationRegistration(

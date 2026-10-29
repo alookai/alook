@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, createLogger } from "@alook/shared"
+import { currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest"
 
 const mockInfo = vi.fn()
@@ -25,6 +27,8 @@ vi.mock("@alook/shared", async () => {
 })
 
 import { wsDoFetch, broadcastToUser, broadcastToUsers } from "./broadcast"
+import { handleCommunityUsersBroadcast } from "../../../ws-do/src/routes/broadcast"
+import { communityWsEventFixtures } from "../../../shared/test/community-ws-events.fixtures"
 
 const communityEvent = {
   type: "community:presence.update",
@@ -267,17 +271,17 @@ describe("broadcastToUser", () => {
     expect(String(bindingFetch.mock.calls[0]?.[0])).toBe(
       `http://internal/broadcast/community/user/u:${encodeURIComponent(target)}`,
     )
-    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(communityEvent)
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(currentCommunityEventFixture(communityEvent))
     },
   )
 
-  it.each([undefined, "1", "2"])("projects committed membership for producer contract %s before transport", async contract => {
+  it("emits the sole current membership envelope before transport", async () => {
     const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
-    mockGetCloudflareContext.mockReturnValue({ env: { ...makeEnv(bindingFetch), COMMUNITY_EVENT_CONTRACT: contract }, ctx: { waitUntil: mockCtxWaitUntil } })
+    mockGetCloudflareContext.mockReturnValue({ env: makeEnv(bindingFetch), ctx: { waitUntil: mockCtxWaitUntil } })
     const event = { type: "community:channel.membership.change", channelId: "thread", serverId: "server", userId: "viewer", relation: "notify", present: true } as const
     await broadcastToUser("viewer", event)
-    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(contract === "2" ? event
-      : { type: "community:channel.member_add", channelId: "thread", serverId: "server", userId: "viewer" })
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(currentCommunityEventFixture(event))
+    expect(bindingFetch.mock.calls[0]?.[1]?.headers).toEqual({ "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) })
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).not.toHaveBeenCalled()
   })
@@ -370,6 +374,30 @@ describe("broadcastToUsers", () => {
     return { promise, resolve, reject }
   }
 
+  it.each([
+    "community:channel.delete", "community:channel.child_update", "community:identity.update", "community:reaction.remove",
+  ] as const)("passes actual %s bulk producer bytes through strict receiver admission", async type => {
+    const forwarded: Request[] = []
+    const stubFetch = vi.fn(async (request: Request) => { forwarded.push(request); return Response.json({ sent: 1 }) })
+    const receiverEnv = { WS_DO: { idFromName: vi.fn((name: string) => name), get: vi.fn(() => ({ fetch: stubFetch })) } }
+    const logger = { ...createLogger({ service: "bulk-contract-test" }), child: () => logger }
+    const bindingFetch = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const request = new Request(String(input), init)
+      const response = await handleCommunityUsersBroadcast({ request, url: new URL(request.url), traceId: undefined,
+        env: receiverEnv as unknown as Parameters<typeof handleCommunityUsersBroadcast>[0]["env"], log: logger })
+      if (!response) throw new Error("strict receiver route did not match")
+      expect(response.status).toBe(200)
+      return response
+    })
+    setBinding(bindingFetch)
+    const event = communityWsEventFixtures[type]
+    await broadcastToUsers(["bob", "alice", "bob", "excluded"], event, "excluded")
+    expect(receiverEnv.WS_DO.idFromName.mock.calls.map(([name]) => name)).toEqual(["user:bob", "user:alice"])
+    expect(forwarded).toHaveLength(2)
+    for (const request of forwarded) expect(await request.json()).toEqual(currentCommunityEventFixture(event))
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
   it("keeps non-community bulk events on the generic bulk route unchanged", async () => {
     const bindingFetch = vi.fn(async () => Response.json({ sent: 2 }))
     setBinding(bindingFetch)
@@ -434,7 +462,7 @@ describe("broadcastToUsers", () => {
     expect(bindingFetch.mock.calls.every((call) => (
       String(call[0]) === "http://internal/broadcast/community/users"
       && call[1]?.method === "POST"
-      && JSON.stringify(call[1]?.headers) === JSON.stringify({ "Content-Type": "application/json" })
+      && JSON.stringify(call[1]?.headers) === JSON.stringify({ "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) })
     ))).toBe(true)
     expect(mockInfo).toHaveBeenCalledWith(
       "broadcast_users_complete",

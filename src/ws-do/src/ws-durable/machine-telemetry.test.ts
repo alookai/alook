@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { calendarDayKeyDaysAgo, dayKeyInTimeZone } from "@alook/shared"
 import { createMockWebSocket } from "../__mocks__/cf"
@@ -105,7 +106,7 @@ describe("WebSocketDurableObject", () => {
           statusEmoji: string
           statusText: string
         }
-        expect(body).toEqual({
+        expect(body).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
           type: "community:status.update",
           userId: "bot_1",
           statusEmoji: "⚡",
@@ -738,7 +739,7 @@ describe("WebSocketDurableObject", () => {
         }
         // Bot path carries name/discriminator from the binding (getBotBindingWithOwner's
         // existing join) so the client renders the bot's name without a roster lookup.
-        expect(body).toEqual({
+        expect(body).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
           type: "community:typing.start",
           userId: "bot_1",
           channelId: "dm_1",
@@ -890,7 +891,7 @@ describe("WebSocketDurableObject", () => {
           userId: string
           channelId: string
         }
-        expect(body).toEqual({
+        expect(body).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
           type: "community:typing.stop",
           userId: "bot_1",
           channelId: "dm_1",
@@ -928,7 +929,7 @@ describe("WebSocketDurableObject", () => {
         expect(env.WS_DO.idFromName).toHaveBeenCalledExactlyOnceWith("user:owner_1")
         const notified = mockStubFetch.mock.calls.map((call: any[]) => call[0] as Request).filter((request) => request.url.endsWith("/community-broadcast"))
         expect(notified).toHaveLength(1)
-        expect(await notified[0]!.clone().json()).toMatchObject({ type: "community:bot.audit_event", botId: "bot_1", kind: "text", payload })
+        expect(await notified[0]!.clone().json()).toMatchObject({ schemaVersion: BUSINESS_SCHEMA_VERSION, type: "community:bot.audit_event", botId: "bot_1", kind: "text", payload })
       })
 
       it("persists a daemon-accepted turn interrupt", async () => {
@@ -1037,7 +1038,7 @@ describe("WebSocketDurableObject", () => {
           (c[0] as Request).url.endsWith("/community-broadcast"),
         )
         expect(call).toBeDefined()
-        expect(JSON.parse(await (call![0] as Request).clone().text())).toMatchObject({
+        expect(JSON.parse(await (call![0] as Request).clone().text())).toMatchObject({ schemaVersion: BUSINESS_SCHEMA_VERSION,
           type: "community:bot.audit_event",
           botId: "bot_1",
           id: "bae_idle_reset",
@@ -1141,7 +1142,7 @@ describe("WebSocketDurableObject", () => {
           payload: unknown
           createdAt: string
         }
-        expect(body).toEqual({
+        expect(body).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
           type: "community:bot.audit_event",
           botId: "bot_1",
           id: "bae_abc",

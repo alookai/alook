@@ -1,3 +1,4 @@
+import { communityChannelResourceFromStorage } from "@alook/shared"
 import { NextRequest } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -113,7 +114,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
         name: body.name,
       })
       if (!result.ok) return writeError(result.error, result.status)
-      return writeJSON(result.value, 201)
+      return writeJSON(communityChannelResourceFromStorage(result.value), 201)
     }
     default:
       return writeError("type must be one of 'text', 'forum', 'dm', 'thread'", 400)

@@ -1,3 +1,4 @@
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import faroPackage from "@grafana/faro-web-sdk/package.json"
 import { afterEach, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
@@ -24,7 +25,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
     const url = String(_url instanceof Request ? _url.url : _url)
     if (url === "https://collector.example/collect/public" && options?.body) sent.push(JSON.parse(String(options.body)))
     if (url === "https://collector.example/collect/public") return new Response(null, { status: collectorStatus })
-    return url.endsWith("/api/community/channels/private/messages") ? new Response("{}", { status: 201 }) : new Response(null, { status: 204 })
+    return url.endsWith("/api/community/channels/private/messages") ? new Response("{}", { status: 201, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }) : new Response(null, { status: 204, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
   }))
   const { bootstrapObservability, setTelemetryUser } = await import("./client")
   const { emitTelemetry, telemetryGeneration, isTelemetryEligible } = await import("./telemetry")

@@ -1,12 +1,8 @@
 import { z } from "zod"
+import { CommunityResourceProfileSchema } from "./community-profile-resource"
 
-const profile = z.strictObject({
-  id: z.string(),
-  name: z.string(),
-  discriminator: z.string(),
-  image: z.string().nullable(),
-  avatarVersion: z.number().int().nonnegative(),
-})
+const identity = CommunityResourceProfileSchema.pick({ id: true, name: true, discriminator: true, avatarVersion: true })
+const profile = identity.extend({ image: CommunityResourceProfileSchema.shape.avatar })
 
 export const FriendApprovalPayloadSchema = z.strictObject({
   friendshipId: z.string(),

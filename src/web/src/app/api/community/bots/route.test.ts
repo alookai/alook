@@ -76,6 +76,10 @@ function getReq() {
   return new NextRequest("http://localhost/api/community/bots", { method: "GET" })
 }
 
+function catalogBot(id: string, runtime = "claude") {
+  return { id, name: id, discriminator: "0042", ownerUserId: "u1", image: null, avatarVersion: 0, description: "", presence: "offline", machineId: "m1", runtime, modelName: null }
+}
+
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/bots", {
     method: "POST",
@@ -375,8 +379,8 @@ describe("GET /api/community/bots — heatmap activity", () => {
   })
   it("attaches each bot's 30-day dailyActivity from the batched owner read", async () => {
     mockListBotsForOwner.mockResolvedValue([
-      { id: "bot_1", name: "A", machineId: "m1", runtime: "claude", modelName: null },
-      { id: "bot_2", name: "B", machineId: "m1", runtime: "claude", modelName: null },
+      { ...catalogBot("bot_1"), name: "A" },
+      { ...catalogBot("bot_2"), name: "B" },
     ])
     const byBot = new Map<string, unknown[]>([
       ["bot_1", [{ day: "2026-07-31", handledCount: 3, sentCount: 1 }]],
@@ -417,15 +421,15 @@ describe("GET /api/community/bots — heatmap activity", () => {
   it("returns 30 oldest-to-newest usage days with nullable metrics and capability", async () => {
     const today = new Date().toISOString().slice(0, 10)
     mockListBotsForOwner.mockResolvedValue([
-      { id: "bot_claude", runtime: "claude" },
-      { id: "bot_codex", runtime: "codex" },
-      { id: "bot_cursor", runtime: "cursor" },
-      { id: "bot_antigravity", runtime: "antigravity" },
-      { id: "bot_agy", runtime: "agy" },
-      { id: "bot_grok", runtime: "grok" },
-      { id: "bot_opencode", runtime: "opencode" },
-      { id: "bot_pi", runtime: "pi" },
-      { id: "bot_unknown", runtime: "custom" },
+      catalogBot("bot_claude", "claude"),
+      catalogBot("bot_codex", "codex"),
+      catalogBot("bot_cursor", "cursor"),
+      catalogBot("bot_antigravity", "antigravity"),
+      catalogBot("bot_agy", "agy"),
+      catalogBot("bot_grok", "grok"),
+      catalogBot("bot_opencode", "opencode"),
+      catalogBot("bot_pi", "pi"),
+      catalogBot("bot_unknown", "custom"),
     ])
     mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
     mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map([
@@ -493,8 +497,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
     vi.setSystemTime(new Date("2026-08-29T16:00:01Z"))
     try {
       mockListBotsForOwner.mockResolvedValue([{
-        id: "bot_1",
-        runtime: "codex",
+        ...catalogBot("bot_1", "codex"),
         tokenUsageTimeZone: "Asia/Shanghai",
       }])
       mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())

@@ -6,7 +6,7 @@ import { useCommunityRouteFrame } from "../shell/community-route-context"
 import { CommunityPendingFrame } from "../shell/community-pending-frame"
 import { Button } from "@/components/ui/button"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
-import type { OpenerPayload } from "@/hooks/community/use-message"
+import type { CommunityMessageRead } from "@alook/shared"
 import type { ChannelMetadata } from "@/hooks/community/channel-metadata"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
@@ -42,9 +42,10 @@ export function MessageRoute({ messageId }: { messageId: string }) {
       }
       return withConversationReadDeadline(AbortSignal.any([signal, original.signal]), async (readSignal) => {
         assertCurrent()
-        const message = await apiFetchCommunity<OpenerPayload>(`/api/community/messages/${encodeURIComponent(messageId)}`,
+        const read = await apiFetchCommunity<CommunityMessageRead>(`/api/community/messages/${encodeURIComponent(messageId)}`,
           { signal: readSignal, assertActive: assertCurrent }, account)
         assertCurrent()
+        const message = read.message
         if (message.id !== messageId || !message.channelId || !SAFE_ID.test(message.channelId)) throw new ApiError("Conversation unavailable", 404)
         const channel = captureCommunityLiveSnapshotToken(client, message.channelId)
         const assertChannel = () => { assertCurrent(); assertCommunityLiveSnapshotTokenCurrent(client, channel, readSignal) }

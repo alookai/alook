@@ -1,4 +1,5 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query"
+import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -6,7 +7,7 @@ import {
   captureCommunityLiveSnapshotToken,
   communityRequestOptions,
 } from "@/lib/community-db/sync"
-import type { CommunityMachineSummary, MachineCapacitySummary, ProviderQuotaObservation, QuotaLimit } from "@alook/shared"
+import { CommunityMachineListReadSchema, type CommunityMachineIdentityCache, type CommunityMachineSummary, type MachineCapacitySummary, type ProviderQuotaObservation, type QuotaLimit } from "@alook/shared"
 
 type MachineQuotaSnapshot =
   | { status: "pending" }
@@ -32,21 +33,22 @@ export type MachineBackendQuota = {
   snapshot: MachineQuotaSnapshot
 }
 
-export type MachineSummary = Omit<CommunityMachineSummary, "status" | "lastSeenAt" | "availableRuntimes" | "lastRuntimeError"> & Partial<Pick<CommunityMachineSummary, "status" | "lastSeenAt" | "availableRuntimes" | "lastRuntimeError">> & {
+export type MachineSummary = CommunityMachineIdentityCache & Partial<Pick<CommunityMachineSummary, "status" | "lastSeenAt" | "availableRuntimes" | "lastRuntimeError">> & {
   quota?: MachineBackendQuota[]
 }
 
 export type MachineObservations = { machineCapacity?: MachineCapacitySummary; quotas: Array<{ machineId: string; quota: MachineBackendQuota[] }> }
 
-export type MachinesResponse = { machines: MachineSummary[]; machineCapacity?: MachineCapacitySummary; complete?: boolean; observed?: boolean; source?: "network" | "rsc" | "restored_idb" }
+export type MachinesResponse = { machines: MachineSummary[]; machineCapacity?: MachineCapacitySummary; complete: boolean; observed?: boolean; source?: "network" | "rsc" | "restored_idb" }
 
 export const machinesOptions = () => queryOptions<MachinesResponse>({
   queryKey: communityKeys.machines(),
-  queryFn: async ({ client, signal }) => ({ ...await apiFetch<MachinesResponse>(
-    "/api/community/machines?view=list",
-    communityRequestOptions(client, signal),
-  ), source: "network" as const }),
-  staleTime: (query) => query.state.data?.complete === false || query.state.data?.observed === false ? 0 : 5_000,
+  queryFn: async ({ client, signal }) => {
+    const parsed = CommunityMachineListReadSchema.safeParse(await apiFetch<unknown>("/api/community/machines?view=list", communityRequestOptions(client, signal)))
+    if (!parsed.success) throw requestBusinessSchemaUpdate()
+    return { ...parsed.data, observed: true, source: "network" as const }
+  },
+  staleTime: (query) => query.state.data?.complete !== true || query.state.data?.observed !== true ? 0 : 5_000,
 })
 
 export function captureMachinesPublication(client: QueryClient) {

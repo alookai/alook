@@ -1,5 +1,10 @@
+import { z } from "zod";
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { cached, invalidate, invalidateMany, bindCacheKV, cacheKeys, getKV, throttled } from "./cache";
+import { businessCacheKey, cached, invalidate, invalidateMany, bindCacheKV, cacheKeys, getKV, throttled } from "./cache";
+
+const dataSchema = z.strictObject({ data: z.string() });
+const envelope = (cacheKey: string, value: unknown) => JSON.stringify({ schemaVersion: BUSINESS_SCHEMA_VERSION, cacheKey, value });
 
 function createMockKV() {
   const store = new Map<string, { value: string; expiration?: number }>();
@@ -22,11 +27,29 @@ describe("cache", () => {
   });
 
   describe("cached()", () => {
+    it.each([
+      { schemaVersion: BUSINESS_SCHEMA_VERSION - 1, cacheKey: "scoped", value: { data: "old" } },
+      { schemaVersion: BUSINESS_SCHEMA_VERSION, cacheKey: "other", value: { data: "wrong scope" } },
+      { schemaVersion: BUSINESS_SCHEMA_VERSION, cacheKey: "scoped", value: {} },
+      { data: "unversioned" },
+    ])("rejects an invalid cache envelope and writes only the checked D1 value", async bad => {
+      mockKV._store.set(businessCacheKey("scoped"), { value: JSON.stringify(bad) });
+      const load = vi.fn(async () => ({ data: "D1" }));
+      expect(await cached("scoped", 300, load, dataSchema)).toEqual({ data: "D1" });
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(mockKV._store.get(businessCacheKey("scoped"))?.value).toBe(envelope("scoped", { data: "D1" }));
+    });
+
+    it("does not publish a malformed D1 result", async () => {
+      await expect(cached("invalid-db", 300, async () => ({}), dataSchema)).rejects.toThrow();
+      expect(mockKV.put).not.toHaveBeenCalled();
+    });
+
     it("returns cached value on KV hit", async () => {
-      mockKV._store.set("test-key", { value: JSON.stringify({ data: "from-kv" }) });
+      mockKV._store.set(businessCacheKey("test-key"), { value: envelope("test-key", { data: "from-kv" }) });
       const fn = vi.fn(async () => ({ data: "from-db" }));
 
-      const result = await cached("test-key", 300, fn);
+      const result = await cached("test-key", 300, fn, dataSchema);
 
       expect(result).toEqual({ data: "from-kv" });
       expect(fn).not.toHaveBeenCalled();
@@ -35,13 +58,13 @@ describe("cache", () => {
     it("calls fn and stores to KV on cache miss", async () => {
       const fn = vi.fn(async () => ({ data: "from-db" }));
 
-      const result = await cached("miss-key", 600, fn);
+      const result = await cached("miss-key", 600, fn, dataSchema);
 
       expect(result).toEqual({ data: "from-db" });
       expect(fn).toHaveBeenCalledOnce();
       expect(mockKV.put).toHaveBeenCalledWith(
-        "miss-key",
-        JSON.stringify({ data: "from-db" }),
+        businessCacheKey("miss-key"),
+        envelope("miss-key", { data: "from-db" }),
         { expirationTtl: 600 },
       );
     });
@@ -51,7 +74,7 @@ describe("cache", () => {
       const fn = vi.fn(async () => ({ data: "fallback" }));
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-      const result = await cached("error-key", 300, fn);
+      const result = await cached("error-key", 300, fn, dataSchema);
 
       expect(result).toEqual({ data: "fallback" });
       expect(fn).toHaveBeenCalledOnce();
@@ -66,7 +89,7 @@ describe("cache", () => {
       const fn = vi.fn(async () => ({ data: "ok" }));
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-      const result = await cached("write-fail-key", 300, fn);
+      const result = await cached("write-fail-key", 300, fn, dataSchema);
 
       expect(result).toEqual({ data: "ok" });
       await new Promise((r) => setTimeout(r, 10));
@@ -79,11 +102,11 @@ describe("cache", () => {
     it("clamps TTL to minimum 60s for KV write", async () => {
       const fn = vi.fn(async () => "val");
 
-      await cached("ttl-key", 5, fn);
+      await cached("ttl-key", 5, fn, z.string());
 
       expect(mockKV.put).toHaveBeenCalledWith(
-        "ttl-key",
-        JSON.stringify("val"),
+        businessCacheKey("ttl-key"),
+        envelope("ttl-key", "val"),
         { expirationTtl: 60 },
       );
     });
@@ -91,7 +114,7 @@ describe("cache", () => {
     it("does not store null values to KV", async () => {
       const fn = vi.fn(async () => null);
 
-      const result = await cached("null-key", 300, fn as () => Promise<unknown>);
+      const result = await cached("null-key", 300, fn, z.null());
 
       expect(result).toBeNull();
       expect(mockKV.put).not.toHaveBeenCalled();
@@ -101,7 +124,7 @@ describe("cache", () => {
       bindCacheKV(null);
       const fn = vi.fn(async () => ({ data: "no-kv" }));
 
-      const result = await cached("no-kv-key", 300, fn);
+      const result = await cached("no-kv-key", 300, fn, dataSchema);
 
       expect(result).toEqual({ data: "no-kv" });
       expect(fn).toHaveBeenCalledOnce();
@@ -112,7 +135,7 @@ describe("cache", () => {
     it("deletes key from KV", async () => {
       mockKV._store.set("del-key", { value: "x" });
       await invalidate("del-key");
-      expect(mockKV.delete).toHaveBeenCalledWith("del-key");
+      expect(mockKV.delete).toHaveBeenCalledWith(businessCacheKey("del-key"));
     });
 
     it("logs warning on KV delete failure", async () => {
@@ -139,9 +162,9 @@ describe("cache", () => {
     it("deletes all specified keys", async () => {
       await invalidateMany(["k1", "k2", "k3"]);
       expect(mockKV.delete).toHaveBeenCalledTimes(3);
-      expect(mockKV.delete).toHaveBeenCalledWith("k1");
-      expect(mockKV.delete).toHaveBeenCalledWith("k2");
-      expect(mockKV.delete).toHaveBeenCalledWith("k3");
+      expect(mockKV.delete).toHaveBeenCalledWith(businessCacheKey("k1"));
+      expect(mockKV.delete).toHaveBeenCalledWith(businessCacheKey("k2"));
+      expect(mockKV.delete).toHaveBeenCalledWith(businessCacheKey("k3"));
     });
 
     it("does not throw when some deletes fail", async () => {
@@ -165,9 +188,9 @@ describe("cache", () => {
 
   describe("cacheKeys", () => {
     it("generates correct key formats", () => {
-      expect(cacheKeys.member("ws1", "usr1")).toBe("mem:ws1:usr1");
-      expect(cacheKeys.user("usr1")).toBe("usr:usr1");
-      expect(cacheKeys.allEmailAccounts("ws1")).toBe("ea:ws1");
+      expect(cacheKeys.member("ws1", "usr1")).toBe("task-payload:member-instruction:ws1:usr1");
+      expect(cacheKeys.user("usr1")).toBe("task-payload:user-identity:usr1");
+      expect(cacheKeys.allEmailAccounts("ws1")).toBe("task-payload:email-addresses:ws1");
       expect(cacheKeys.allHandles("ws1")).toBe("handles:ws1");
       expect(cacheKeys.machineToken("al_1234567890abcdefghij_rest")).toBe("mt:al_1234567890abcdefg");
       expect(cacheKeys.runtimeIds("ws1", "d1")).toBe("rt:ws1:d1");
@@ -263,7 +286,7 @@ describe("cache", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       // cached() should fall through to fn
-      const result = await cached("key", 300, async () => "db-value");
+      const result = await cached("key", 300, async () => "db-value", z.string());
       expect(result).toBe("db-value");
 
       // invalidate() should not throw

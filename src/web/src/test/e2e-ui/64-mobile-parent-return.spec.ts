@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Page, Request, Route } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import type { CaseResources } from "./_fixtures/case-fixture"
@@ -64,15 +65,15 @@ for (const parentType of ["forum", "text"] as const) {
       const back = foreground.getByRole("banner").getByRole("button", { name: "Back", exact: true })
       await expect(back).toBeVisible()
       const [childResponse, parentResponse] = await Promise.all([
-        page.request.get(new URL(`/api/community/channels/${childId}`, page.url()).href),
-        page.request.get(new URL(`/api/community/channels/${parentId}`, page.url()).href),
+        confirmCommunityFixtureApiResponse(page.request.get(new URL(`/api/community/channels/${childId}`, page.url()).href, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })),
+        confirmCommunityFixtureApiResponse(page.request.get(new URL(`/api/community/channels/${parentId}`, page.url()).href, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })),
       ])
       expect(childResponse.status()).toBe(200)
       expect(parentResponse.status()).toBe(200)
-      const channel = await childResponse.json() as {
+      const { channel } = await childResponse.json() as { channel: {
         id: string; serverId: string; parentChannelId: string
-      }
-      const parent = await parentResponse.json() as { id: string; type: string }
+      } }
+      const { channel: parent } = await parentResponse.json() as { channel: { id: string; type: string } }
       expect(channel).toMatchObject({ id: childId, serverId, parentChannelId: parentId })
       expect(parent).toMatchObject({ id: parentId, type: parentType })
 

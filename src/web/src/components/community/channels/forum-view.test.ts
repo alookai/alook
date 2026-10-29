@@ -297,8 +297,10 @@ describe("ForumView responsive post actions", () => {
     expect(archiveButton).toContain('aria-pressed="false"')
     expect(archiveButton).toContain("disabled:opacity-50")
     expect(deleteButton).toContain("disabled:opacity-50")
-    expect(html).toContain("min-h-8 pr-28")
-    expect(html).toContain("w-full min-w-0 max-w-full text-[15px] font-semibold leading-tight")
+    expect(html).toContain("grid-cols-[minmax(0,1fr)_auto]")
+    expect(html).toContain("row-span-2")
+    expect(html).not.toContain("min-h-8")
+    expect(html).toContain("w-full min-w-0 max-w-full self-start text-[15px] font-semibold leading-tight")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
     expect(html).toContain(tid.forumThreadSeq("p1"))
@@ -330,7 +332,8 @@ describe("ForumView responsive post actions", () => {
     expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
     expect(html).not.toContain(tid.forumThreadDeleteBtn("p1"))
     expect(html).not.toContain("min-h-8")
-    expect(html).toContain("pr-0")
+    expect(html).toContain("grid-cols-1")
+    expect(html).not.toContain("grid-cols-[minmax(0,1fr)_auto]")
   })
 
   it("does not expose the archive action when the user may only delete", () => {
@@ -339,7 +342,8 @@ describe("ForumView responsive post actions", () => {
     expect(html).not.toContain(tid.forumThreadTagBtn("p1"))
     expect(html).not.toContain(tid.forumThreadArchiveBtn("p1"))
     expect(html).toContain(tid.forumThreadDeleteBtn("p1"))
-    expect(html).toContain("min-h-8 pr-12")
+    expect(html).toContain("grid-cols-[minmax(0,1fr)_auto]")
+    expect(html).not.toContain("min-h-8")
   })
 })
 

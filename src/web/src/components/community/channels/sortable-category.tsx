@@ -3,7 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
-import { ChevronDown, Plus, Settings, Folder, Lock, Trash2 } from "lucide-react"
+import { ChevronDown, Plus, Settings, MessagesSquare, MessageSquareLock, Trash2 } from "lucide-react"
 import { useChannelDndItem } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, isKeyboardContextMenu } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -54,7 +54,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   }
   const headerInner = (
     <>
-      {isPrivate ? <Lock className="pointer-events-none size-3 shrink-0" aria-hidden="true" /> : <Folder className="pointer-events-none size-3 shrink-0" aria-hidden="true" />}
+      {isPrivate ? <MessageSquareLock className="pointer-events-none size-3 shrink-0" aria-hidden="true" /> : <MessagesSquare className="pointer-events-none size-3 shrink-0" aria-hidden="true" />}
       <span className="pointer-events-none flex-1 truncate text-left">{name}</span>
       {onSettings && (
       <button
@@ -65,7 +65,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
         className="grid size-4 place-items-center rounded opacity-0 hover:bg-accent group-hover:opacity-100"
         aria-label={`Category settings for ${name}`}
       >
-        <Settings className="size-3.5" />
+        <Settings className="size-3" />
       </button>
       )}
       {onAddChannel && (
@@ -77,7 +77,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
         className="grid size-4 place-items-center rounded opacity-0 hover:bg-accent group-hover:opacity-100"
         aria-label={`Create channel in ${name}`}
       >
-        <Plus className="size-3.5" />
+        <Plus className="size-3" />
       </button>
       )}
       {hasChannels && <ChevronDown className={`pointer-events-none size-3 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />}

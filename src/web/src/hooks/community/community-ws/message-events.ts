@@ -172,7 +172,7 @@ export function handleMessageUpdated(
   event: CommunityMessageUpdated,
   context: CommunityWsHandlerContext,
 ) {
-  writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true })
+  writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true, resourceSeed: true })
   if (event.botCreation?.status === "approved") invalidateBotSurfaces(context.queryClient)
   // When a card resolves (accepted/denied/superseded), the friend graph
   // changed — invalidate friends + pending so the owner's lists reflect

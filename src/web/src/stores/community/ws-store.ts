@@ -1,5 +1,6 @@
 import type { Presence as CommunityPresence } from "@/lib/community/models/people"
 import { createStore } from "@tanstack/store"
+import type { CommunityApiError } from "@/lib/errors"
 
 // Cap the seen-message set to bound memory. Mirrors the current dedup logic
 // in `hooks/community/use-community-ws.ts` (grow to 500, trim to the newest
@@ -29,6 +30,7 @@ type ChannelAccessScope = {
   parentChannelId?: string | null
   generation: number
   revoked: boolean
+  denialCode?: CommunityApiError["code"]
 }
 
 type CommunityWsStoreState = {
@@ -38,7 +40,7 @@ type CommunityWsStoreState = {
   beginChannelMembershipChange: (serverId: string | null, channelId: string, options?: { preserveRevocation: boolean }) => number
   observeChannelScope: (serverId: string, channelId: string, parentChannelId?: string | null) => void
   rememberChannelAccess: (serverId: string | null, channelId: string, parentChannelId?: string | null) => void
-  revokeChannelAccess: (serverId: string | null, channelId: string) => string[]
+  revokeChannelAccess: (serverId: string | null, channelId: string, denialCode?: CommunityApiError["code"]) => string[]
   revokeServerAccess: (serverId: string) => void
   grantServerAccess: (serverId: string) => void
   isChannelAccessRevoked: (channelId: string, serverId?: string | null, parentChannelId?: string) => boolean
@@ -231,7 +233,9 @@ export function createCommunityWsStore(viewerId: string | null) {
     const scopes = new Map(get().channelAccessScopes)
     const previous = scopes.get(channelId)
     const generation = (previous?.generation ?? 0) + 1
-    scopes.set(channelId, { ...previous, serverId, revoked: !!options?.preserveRevocation && !!previous?.revoked, generation })
+    const { denialCode, ...prior } = previous ?? {}
+    scopes.set(channelId, { ...prior, serverId, revoked: !!options?.preserveRevocation && !!previous?.revoked, generation,
+      ...(options?.preserveRevocation && previous?.revoked && denialCode ? { denialCode } : {}) })
     setState((state) => ({ ...state, ...{ channelAccessScopes: scopes } }))
     return generation
   },
@@ -250,12 +254,12 @@ export function createCommunityWsStore(viewerId: string | null) {
     scopes.set(channelId, { serverId, parentChannelId, generation: previous?.generation ?? 0, revoked: false })
     if (parentChannelId && scopes.get(parentChannelId)?.revoked) {
       const parent = scopes.get(parentChannelId)!
-      scopes.set(parentChannelId, { ...parent, revoked: false })
+      scopes.set(parentChannelId, { serverId: parent.serverId, parentChannelId: parent.parentChannelId, generation: parent.generation, revoked: false })
     }
     setState((state) => ({ ...state, ...{ channelAccessScopes: scopes } }))
   },
 
-  revokeChannelAccess: (serverId, channelId) => {
+  revokeChannelAccess: (serverId, channelId, denialCode) => {
     const scopes = new Map(get().channelAccessScopes)
     const affected = new Set([channelId])
     for (const [id, scope] of scopes) {
@@ -263,7 +267,8 @@ export function createCommunityWsStore(viewerId: string | null) {
     }
     for (const id of affected) {
       const previous = scopes.get(id)
-      scopes.set(id, { serverId, ...previous, generation: (previous?.generation ?? 0) + (previous?.revoked ? 0 : 1), revoked: true })
+      scopes.set(id, { serverId, ...previous, generation: (previous?.generation ?? 0) + (previous?.revoked ? 0 : 1), revoked: true,
+        ...(denialCode ? { denialCode } : {}) })
     }
     setState((state) => ({ ...state, ...{ channelAccessScopes: scopes } }))
     return [...affected]

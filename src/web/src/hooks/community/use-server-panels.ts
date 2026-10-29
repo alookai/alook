@@ -1,12 +1,13 @@
 "use client"
+import { CommunityInvitesReadSchema } from "@alook/shared"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
 import { useQuery,useQueryClient,useMutationState,keepPreviousData,type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { loadAndSeedProfiles,beginCommunityProfileSeed,writeCommunityProfilePatches } from "@/lib/community/profile-seed"
+import { communityUserProfilePatch, loadAndSeedProfiles } from "@/lib/community/profile-seed"
 import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { communityKeys } from "@/lib/query-keys"
 import type { InviteRow } from "@/lib/community/models/people"
@@ -19,22 +20,6 @@ function throwIfStale<T extends { stale?: boolean }>(v: T): T {
   return v
 }
 
-/**
- * Fetches the invite list surfaced in the settings tab. The API returns raw
- * rows; we transform to the display shape here so consumers get render-ready
- * cache entries (matching the old context's `InviteRow` mapping).
- */
-type RawInvite = {
-  id: string
-  token: string
-  maxUses: number | null
-  uses: number
-  expiresAt: string | null
-  createdAt: string
-  creatorId: string | null
-  creatorName: string | null
-}
-
 type InviteResourceRow = Omit<InviteRow, "by">
 export type InvitesResponse = { invites: InviteResourceRow[] }
 
@@ -44,15 +29,15 @@ const EMPTY_INVITES: readonly InviteRow[] = Object.freeze([])
 export const invitesQueryFn = (serverId: string) => async (context: QueryFunctionContext): Promise<InvitesResponse> => {
   const original = captureCommunityLiveSnapshotToken(context.client)
   const assert = () => assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
-  const snapshot = beginCommunityProfileSeed(original.registry)
   await original.registry?.ready
   assert()
-  const data = await apiFetch<{ invites: RawInvite[] }>(
-    `/api/community/servers/${serverId}/invites`,
-    communityRequestOptions(context.client, original, context.signal, assert),
+  const data = await loadAndSeedProfiles(
+    origin => apiFetch<unknown>(`/api/community/servers/${serverId}/invites`, { ...origin, signal: context.signal }).then(value => CommunityInvitesReadSchema.parse(value)),
+    value => {
+      if (value.serverId !== serverId || value.resources.viewerId !== original.registry!.accountId) throw new Error("Invite resource scope mismatch")
+      return value.resources.profiles.map(profile => communityUserProfilePatch(profile.id, profile))
+    }, original.registry, context.signal, original,
   )
-  assert()
-  writeCommunityProfilePatches(data.invites.flatMap((i) => i.creatorId && i.creatorName !== null ? [{ id: i.creatorId, identityAbout: { name: i.creatorName } }] : []), original.registry, { snapshot })
   const invites: InviteResourceRow[] = data.invites.map((i) => ({
     code: i.token,
     uses: i.uses,

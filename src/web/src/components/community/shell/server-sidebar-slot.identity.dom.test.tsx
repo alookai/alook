@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { serverRailResponseFixture, serverDirectoryFixture, resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { IsRestoringProvider } from "@tanstack/react-query"
 import { useLayoutEffect } from "react"
 import { beforeEach, expect, it, vi } from "vitest"
@@ -30,12 +32,13 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   const { client, registry } = await createCommunityQueryOwner()
   const server = { id: "target", name: "Target server", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
   const proof = { kind: "structural" as const, token: captureCommunityLiveSnapshotToken(client), signal: undefined }
-  mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role: "owner", memberId: "membership" }] })
+  mocks.load.mockResolvedValueOnce(serverRailResponseFixture({ servers: [{ ...server, role: "owner", isOwner: true, memberId: "membership" }] }))
   await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client) })
   mocks.load.mockClear()
-  publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: { ...server, categories: [{ id: "category", name: grouped ? "Group" : "", private: 0, channels: [{ id: "channel", name: "Target channel", active: false, unread: true, muted: false, type: "text" }] }] } }, proof })
-  client.setQueryData(communityKeys.server(server.id), server.id)
-  client.setQueryData(communityKeys.forumSidebarThreads(server.id), { threads: [], verifiedEpoch: 0, serverNow: new Date().toISOString(), serverClockOffsetMs: 0, window: { version: 1, accountId: registry.accountId, serverId: server.id, parents: ["channel"], base: [], retained: null } })
+  publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [{ id: "category", name: grouped ? "Group" : "", private: false, channels: [{ id: "channel", name: "Target channel", active: false, unread: true, muted: false, type: "text" }] }] }) }, proof })
+  client.setQueryData(communityKeys.forumSidebarThreads(server.id), { threads: [], verifiedEpoch: 0, serverNow: new Date().toISOString(), serverClockOffsetMs: 0, window: { version: BUSINESS_SCHEMA_VERSION, accountId: registry.accountId, serverId: server.id, parents: ["channel"], base: [], retained: null } })
+  registry.collections.channelMemberships.utils.writeUpsert({ id: "channel:viewer:access", channelId: "channel", userId: "viewer", relation: "access", source: "explicit" })
+  registry.runtime.ws.actions.rememberChannelAccess(server.id, "channel")
   const token = createOwnerServerDeleteRouteToken(client)
   function Harness({ frame }: { frame: CommunityCommittedFrame }) {
     const navigation = useCommunityNavigationController(frame)
@@ -61,7 +64,7 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   const indicator = () => row.querySelector('[data-slot="community-channel-unread-indicator"]')
   expect(indicator()).toHaveClass("h-0")
   const attention = (seq: number) => publishAccountAttentionSnapshot(client, {
-    snapshot: { scopes: [{ scopeId: "channel", channelId: "channel", serverId: server.id, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: seq, attentionCount: 0, lastAttentionSeq: null }], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
+    snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: "channel", channelId: "channel", serverId: server.id, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: seq, attentionCount: 0, lastAttentionSeq: null }], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
     proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
   })
   await act(async () => { attention(4) })
@@ -76,7 +79,7 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   await waitFor(() => expect(indicator()).toHaveClass("h-2.5"))
   await act(async () => {
     restoreAttentionScopeOptimisticSnapshot(registry, optimistic)
-    publishAccountAttentionSnapshot(client, { snapshot: { scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }, proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    publishAccountAttentionSnapshot(client, { snapshot: { resources: resourceBundleFixture(), scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }, proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
   })
   await waitFor(() => expect(indicator()).toHaveClass("h-0"))
   const title = view.getByRole("button", { name: "Target server" })

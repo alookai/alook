@@ -1,7 +1,10 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Locator, Page, TestInfo } from "@playwright/test"
+import sharp from "sharp"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer } from "./_fixtures/actions"
+import { holdRoute } from "./_fixtures/held-route"
 import { solidPngFixture } from "../fixtures/media"
 
 const LANDSCAPE_FIXTURE = solidPngFixture(800, 450, [91, 110, 225])
@@ -877,4 +880,220 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     }, null, 2)),
     contentType: "application/json",
   })
+})
+
+test("HTML attachment markers render once with interactive isolated content across readers", async ({ caseActors, caseResources }, testInfo) => {
+  test.setTimeout(120_000)
+  const actors = await caseActors(["alice", "bob", "carol"])
+  const serverId = await actors.seed.seedServer("alice", `HTML preview ${Date.now()}`)
+  const channelId = await actors.seed.seedChannel("alice", serverId, "html-preview")
+  await actors.seed.seedJoinServer("alice", "bob", serverId)
+  const { page } = await actors.asUser("alice", { colorScheme: null })
+  const channelPath = `/c/channels/${serverId}/${channelId}`
+  await page.goto(channelPath)
+  const html = '<!doctype html><html><head><style>body{padding:16px;background:var(--background);color:var(--foreground)}button{background:var(--primary);color:var(--primary-foreground)}.row{height:64px}</style></head><body><h2>Interactive HTML</h2><button onclick="document.getElementById(\'rows\').insertAdjacentHTML(\'beforeend\',\'<div class=row>Added row</div>\');document.getElementById(\'count\').textContent=Number(document.getElementById(\'count\').textContent)+1">Add row</button><output id="count">0</output><div id="rows"></div><p id="isolation"></p><script>try{parent.document.body;document.getElementById("isolation").textContent="parent accessible"}catch(e){document.getElementById("isolation").textContent="parent isolated"}</script></body></html>'
+  async function upload(name: string, mimeType: string, content: string) {
+    const response = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      multipart: { file: { name, mimeType, buffer: Buffer.from(content) } },
+    }))
+    expect(response.status()).toBe(200)
+    return (await response.json() as { id: string }).id
+  }
+  const attachmentId = await upload("interactive.html", "text/html", html)
+  const textId = await upload("ordinary.txt", "text/plain", "ordinary bytes")
+  const marker = `[alook-html-preview](${attachmentId})`
+  const response = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
+    headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+    data: { content: `Before preview ${marker} After preview\n\n${marker}\n\n[alook-html-preview](${textId})\n\n\`${marker}\`\n\n\\${marker}`, attachments: [attachmentId, textId] },
+  }))
+  expect(response.status()).toBe(201)
+  const messageId = (await response.json() as { message: { id: string } }).message.id
+  const message = page.getByTestId(tid.message(messageId))
+  const preview = message.getByTestId(tid.htmlPreview(attachmentId))
+  await expect(preview).toHaveAttribute("data-html-preview-status", "ready")
+  await expect(message.getByTestId(tid.htmlPreview(attachmentId))).toHaveCount(1)
+  await expect(message.getByTestId(tid.attachmentCard("interactive.html"))).toHaveCount(0)
+  await expect(message.getByTestId(tid.attachmentCard("ordinary.txt"))).toHaveCount(1)
+  await expect(message).toContainText("Before preview")
+  await expect(message).toContainText("After preview")
+  const iframe = message.getByTestId(tid.htmlPreviewFrame(attachmentId))
+  expect(await iframe.getAttribute("sandbox")).not.toContain("allow-same-origin")
+  const content = iframe.contentFrame()
+  await expect(content.locator("#isolation")).toHaveText("parent isolated")
+  const actions = preview.getByRole("group", { name: "HTML preview actions" })
+  await expect(preview).toHaveCSS("border-top-width", "0px")
+  await expect(preview.getByText("interactive.html", { exact: true })).toHaveCount(0)
+  await expect(actions).toHaveCSS("position", "absolute")
+  async function appearance(mode: "Light" | "Dark") {
+    await page.getByTestId(tid.userSettingsOpen).click()
+    await page.getByTestId(tid.settingsTab("appearance")).click()
+    await page.getByRole("button", { name: mode, exact: true }).click()
+    await page.getByTestId(tid.settingsClose).click()
+  }
+  async function expectCommittedTheme(dark: boolean) {
+    const names = ["background", "foreground", "card", "secondary", "primary", "primary-foreground", "border"]
+    await expect.poll(async () => {
+      const host = await iframe.evaluate((element, tokens) => {
+        const root = getComputedStyle(document.documentElement), painted = getComputedStyle(element)
+        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: root.backgroundColor }
+      }, names)
+      const embedded = await content.locator("html").evaluate((element, tokens) => {
+        const root = getComputedStyle(element), painted = getComputedStyle(document.body)
+        return { dark: element.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: painted.backgroundColor }
+      }, names)
+      return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, background: embedded.background === host.background }
+    }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, background: true })
+    await expect(iframe).toHaveCount(1)
+    await expect(iframe).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+  }
+  await appearance("Light")
+  await expectCommittedTheme(false)
+  const initialFrame = await iframe.elementHandle()
+  await appearance("Dark")
+  await expectCommittedTheme(true)
+  await appearance("Light")
+  await expectCommittedTheme(false)
+  expect(await iframe.evaluate((element, original) => element === original, initialFrame)).toBe(true)
+  await initialFrame?.dispose()
+  await page.mouse.move(0, 0)
+  await expect(actions).toHaveCSS("opacity", "0")
+  await preview.hover()
+  await expect(actions).toHaveCSS("opacity", "1")
+  await page.mouse.move(0, 0)
+  await message.getByTestId(tid.htmlPreviewDownload(attachmentId)).focus()
+  await expect(actions).toHaveCSS("opacity", "1")
+  const beforeHeight = await iframe.evaluate((element) => element.getBoundingClientRect().height)
+  await content.getByRole("button", { name: "Add row" }).click()
+  await expect(content.locator("#count")).toHaveText("1")
+  await expect.poll(() => iframe.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(beforeHeight)
+  await message.getByTestId(tid.htmlPreviewExpand(attachmentId)).click()
+  await expect(preview).toHaveAttribute("aria-modal", "true")
+  await expect(content.locator("#count")).toHaveText("1")
+  await message.getByTestId(tid.htmlPreviewClose(attachmentId)).click()
+  await expect(preview).not.toHaveAttribute("aria-modal", "true")
+  await expect(content.locator("#count")).toHaveText("1")
+
+  const previewUrl = `/api/community/channels/${channelId}/attachments/${attachmentId}?preview=html`
+  const direct = await page.request.get(previewUrl)
+  expect(direct.status()).toBe(200)
+  expect(direct.headers()["content-security-policy"]).toContain("sandbox allow-scripts")
+  expect(direct.headers()["cache-control"]).toBe("private, no-store")
+  const original = await page.request.get(`/api/community/channels/${channelId}/attachments/${attachmentId}`)
+  expect(original.headers()["content-disposition"]).toContain("attachment")
+  expect(await original.text()).toBe(html)
+
+  const { page: reader } = await actors.asUser("bob", { viewport: { width: 390, height: 844 }, hasTouch: true })
+  await reader.goto(channelPath)
+  const readerPreview = reader.getByTestId(tid.message(messageId)).getByTestId(tid.htmlPreview(attachmentId))
+  await expect(readerPreview).toHaveAttribute("data-html-preview-status", "ready")
+  await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().getByRole("button", { name: "Add row" })).toBeVisible()
+  await expect(readerPreview.getByRole("group", { name: "HTML preview actions" })).toHaveCSS("opacity", "1")
+  await expect(readerPreview.getByTestId(tid.htmlPreviewExpand(attachmentId))).toHaveCSS("width", "44px")
+  await readerPreview.getByTestId(tid.htmlPreviewExpand(attachmentId)).tap()
+  await expect(readerPreview).toHaveAttribute("aria-modal", "true")
+  await readerPreview.getByTestId(tid.htmlPreviewClose(attachmentId)).tap()
+  await expect(readerPreview).not.toHaveAttribute("aria-modal", "true")
+  await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().locator("#count")).toHaveText("0")
+  const { page: outsider } = await actors.asUser("carol")
+  const denied = await outsider.request.get(previewUrl)
+  expect(denied.status()).toBe(404)
+  await testInfo.attach("html-preview-headers.json", {
+    body: JSON.stringify({ serverId, channelId, messageId, attachmentId, preview: Object.fromEntries(Object.entries(direct.headers()).filter(([name]) => ["content-type", "content-disposition", "content-security-policy", "cache-control", "referrer-policy", "x-content-type-options"].includes(name))), download: Object.fromEntries(Object.entries(original.headers()).filter(([name]) => ["content-type", "content-disposition", "cache-control"].includes(name))), outsiderStatus: denied.status() }, null, 2),
+    contentType: "application/json",
+  })
+
+  const transparentHtml = '<!doctype html><html><head><style>:root{color-scheme:light dark}html,body{margin:0;background:transparent}body{min-height:112px;color:var(--foreground)}#authored{position:absolute;left:0;top:48px;width:160px;height:48px;background:#73a3b2;color:#112233}input{position:absolute;left:180px;top:48px}</style></head><body><div id="authored"></div><input id="state" value="original"></body></html>'
+  const transparentId = await upload("transparent.html", "text/html", transparentHtml)
+  await appearance("Dark")
+  const transparentPreviewUrl = new URL(`/api/community/channels/${channelId}/attachments/${transparentId}?preview=html`, page.url()).href
+  const heldPreview = await holdRoute(page, transparentPreviewUrl, caseResources)
+  let transparentPreview: Locator, transparentFrame: Locator
+  let loading: Awaited<ReturnType<typeof captureCanvas>>
+  try {
+    const transparentResponse = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      data: { content: `[alook-html-preview](${transparentId})`, attachments: [transparentId] },
+    }))
+    expect(transparentResponse.status()).toBe(201)
+    const transparentMessageId = (await transparentResponse.json() as { message: { id: string } }).message.id
+    transparentPreview = page.getByTestId(tid.message(transparentMessageId)).getByTestId(tid.htmlPreview(transparentId))
+    transparentFrame = transparentPreview.getByTestId(tid.htmlPreviewFrame(transparentId))
+    await transparentPreview.scrollIntoViewIfNeeded()
+    await expect.poll(heldPreview.held).toBeGreaterThan(0)
+    await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "loading")
+    await expect(transparentFrame).toHaveCSS("color-scheme", "light")
+    loading = await captureCanvas("transparent-canvas-dark-host-loading.png")
+  } finally { await heldPreview.release() }
+  await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "ready")
+  await expect(transparentFrame).toHaveCSS("color-scheme", "dark")
+  const transparentContent = transparentFrame.contentFrame()
+  const originalTransparentFrame = await transparentFrame.elementHandle()
+  await transparentContent.locator("#state").fill("retained edit")
+  async function captureCanvas(name: string) {
+    await transparentFrame.scrollIntoViewIfNeeded()
+    await expect(transparentFrame).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    const carrier = await transparentFrame.evaluate(async (element) => {
+      const ancestors: Element[] = []
+      for (let node = element.parentElement; node; node = node.parentElement) ancestors.push(node)
+      await Promise.all(ancestors.flatMap((node) => node.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished)))
+      const canvas = document.createElement("canvas")
+      canvas.width = canvas.height = 1
+      const context = canvas.getContext("2d")
+      if (!context) throw new Error("Canvas2D is unavailable")
+      const layers = ancestors.reverse().map((node) => {
+        const style = getComputedStyle(node)
+        if (style.backgroundImage !== "none" || style.opacity !== "1") throw new Error("Preview carrier has a background image or element opacity")
+        context.fillStyle = style.backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        return { tag: node.tagName, testId: node.getAttribute("data-testid"), background: style.backgroundColor }
+      })
+      const rgba = [...context.getImageData(0, 0, 1, 1).data]
+      if (rgba[3] !== 255) throw new Error("Preview carrier has no opaque backing")
+      return { rgb: rgba.slice(0, 3), layers }
+    })
+    const screenshot = await transparentFrame.screenshot({ scale: "css" })
+    await testInfo.attach(name, { body: screenshot, contentType: "image/png" })
+    const canvas = [...await sharp(screenshot).extract({ left: 2, top: 2, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
+    expect(canvas).toEqual(carrier.rgb)
+    return { screenshot, canvas, carrier }
+  }
+  async function transparentPixels(name: string) {
+    const { screenshot, canvas, carrier } = await captureCanvas(name)
+    const authored = [...await sharp(screenshot).extract({ left: 2, top: 52, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
+    expect(authored).toEqual([115, 163, 178])
+    return { canvas, authored, carrier }
+  }
+  const canvasSamples = []
+  const transparentActions = transparentPreview.getByRole("group", { name: "HTML preview actions" })
+  for (const mode of ["Light", "Dark"] as const) {
+    await appearance(mode)
+    await expect(transparentFrame).toHaveCSS("color-scheme", mode.toLowerCase())
+    await expect(transparentContent.locator("html")).toHaveCSS("color-scheme", "light dark")
+    await expect.poll(() => transparentContent.locator("html").evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(mode === "Dark")
+    for (const selector of ["html", "body"]) await expect(transparentContent.locator(selector)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expect(transparentContent.locator("#authored")).toHaveCSS("color", "rgb(17, 34, 51)")
+    const inline = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-inline.png`)
+    await transparentPreview.hover()
+    await expect(transparentActions).toHaveCSS("opacity", "1")
+    await expect(transparentActions).toHaveCSS("pointer-events", "auto")
+    await transparentPreview.getByTestId(tid.htmlPreviewExpand(transparentId)).click()
+    await expect(transparentPreview).toHaveAttribute("aria-modal", "true")
+    const fullscreen = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-fullscreen.png`)
+    await transparentPreview.getByTestId(tid.htmlPreviewClose(transparentId)).click()
+    await expect(transparentPreview).not.toHaveAttribute("aria-modal", "true")
+    await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
+    canvasSamples.push({ mode, inline, fullscreen })
+  }
+  for (const phase of ["inline", "fullscreen"] as const) {
+    expect(canvasSamples[1]![phase].canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]![phase].canvas.reduce((sum, value) => sum + value, 0))
+  }
+  expect(loading.canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]!.inline.canvas.reduce((sum, value) => sum + value, 0))
+  await appearance("Light")
+  await expect(transparentContent.locator("html")).toHaveCSS("color-scheme", "light dark")
+  await expect.poll(() => transparentContent.locator("html").evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(false)
+  await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
+  expect(await transparentFrame.evaluate((element, original) => element === original, originalTransparentFrame)).toBe(true)
+  await originalTransparentFrame?.dispose()
+  await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas: loading.canvas, loadingCarrier: loading.carrier, themes: canvasSamples }, null, 2), contentType: "application/json" })
 })

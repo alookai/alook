@@ -1,3 +1,6 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
+import type { CommunityResourceBundle } from "../../../../shared/src/community-resources"
+import { WEB_URL } from "./_setup/paths"
 import type { Page } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
@@ -14,8 +17,9 @@ function deferred() {
   return { promise, resolve }
 }
 
-function directoryEnvelope(serverId: string, channelId: string) {
+function directoryEnvelope(serverId: string, channelId: string, resources: CommunityResourceBundle) {
   return {
+    resources: { ...resources, servers: resources.servers.map(server => server.id === serverId ? { ...server, name: "Channel reference states", discriminator: "0042" } : server) },
     directory: [{
       id: serverId,
       name: "Channel reference states",
@@ -70,7 +74,10 @@ async function seedDirectoryCase(actors: CaseActors) {
   const channelId = await seedChannel("alice", serverId, "general")
   const firstDmId = await seedDm("alice", userId("bob"))
   const secondDmId = await seedDm("alice", userId("carol"))
-  return { serverId, channelId, firstDmId, secondDmId }
+  const response = await communityFixtureFetch(`${WEB_URL}${DIRECTORY_PATH}`, { headers: { Cookie: actors.sessionCookie("alice") } })
+  if (!response.ok) throw new Error(`Directory resource preparation failed (${response.status})`)
+  const { resources } = await response.json() as { resources: CommunityResourceBundle }
+  return { serverId, channelId, firstDmId, secondDmId, resources }
 }
 
 test.describe("DM channel-reference directory states", () => {
@@ -79,7 +86,7 @@ test.describe("DM channel-reference directory states", () => {
   test("cold pending stays anchored through query updates and resolves without false-empty", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, channelId, firstDmId } = await seedDirectoryCase(actors)
+    const { serverId, channelId, firstDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     const gate = deferred()
@@ -88,7 +95,7 @@ test.describe("DM channel-reference directory states", () => {
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
       await gate.promise
-      await route.fulfill({ status: 200, json: directoryEnvelope(serverId, channelId) })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, json: directoryEnvelope(serverId, channelId, resources) })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -117,13 +124,13 @@ test.describe("DM channel-reference directory states", () => {
   test("resolved empty stays anchored with explicit copy", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { firstDmId } = await seedDirectoryCase(actors)
+    const { firstDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
-      await route.fulfill({ status: 200, json: { directory: [] } })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, json: { directory: [], resources: { ...resources, servers: [], serverMemberships: [], channels: [], memberships: [], profiles: [], messages: [] } } })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -141,7 +148,7 @@ test.describe("DM channel-reference directory states", () => {
   test("cold 500 is one attempt, same-popup input is inert, and a new session retries once", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, channelId, firstDmId } = await seedDirectoryCase(actors)
+    const { serverId, channelId, firstDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     const statuses: number[] = []
@@ -149,10 +156,10 @@ test.describe("DM channel-reference directory states", () => {
       const status = statuses.length === 0 ? 500 : 200
       statuses.push(status)
       if (status === 500) {
-        await route.fulfill({ status, json: { error: "forced failure" } })
+        await route.fulfill(currentCommunityFixtureError("forced failure", status))
         return
       }
-      await route.fulfill({ status, json: directoryEnvelope(serverId, channelId) })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status, json: directoryEnvelope(serverId, channelId, resources) })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -178,13 +185,13 @@ test.describe("DM channel-reference directory states", () => {
   test("warm cache crosses DM routes without a duplicate request or status flash", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, channelId, firstDmId, secondDmId } = await seedDirectoryCase(actors)
+    const { serverId, channelId, firstDmId, secondDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
-      await route.fulfill({ status: 200, json: directoryEnvelope(serverId, channelId) })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, json: directoryEnvelope(serverId, channelId, resources) })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -214,7 +221,7 @@ test.describe("DM channel-reference directory states", () => {
   test("late completion after exit and SPA route switch only warms the new DM", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const { asUser } = actors
-    const { serverId, channelId, firstDmId, secondDmId } = await seedDirectoryCase(actors)
+    const { serverId, channelId, firstDmId, secondDmId, resources } = await seedDirectoryCase(actors)
 
     const { page } = await asUser("alice")
     const gate = deferred()
@@ -223,7 +230,7 @@ test.describe("DM channel-reference directory states", () => {
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
       await gate.promise
-      await route.fulfill({ status: 200, json: directoryEnvelope(serverId, channelId) })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, json: directoryEnvelope(serverId, channelId, resources) })
     })
 
     await page.goto(`/c/me/${firstDmId}`)
@@ -279,7 +286,7 @@ test.describe("DM channel-reference directory states", () => {
 })
 
 async function serverHandle(page: Page, serverId: string) {
-  const response = await page.request.get("/api/community/users/me/channel-directory")
+  const response = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/channel-directory", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(response.status()).toBe(200)
   const data = await response.json() as { directory: Array<{ id: string; name: string; discriminator: string }> }
   const server = data.directory.find(row => row.id === serverId)
@@ -316,9 +323,9 @@ test.describe("channel ref page navigation", () => {
     await page.getByTestId(tid.forumThreadArchiveBtn(archivedId)).click()
     expect((await archived).status()).toBe(200)
     await expect(card).toHaveCount(0)
-    const before = await page.request.get(`/api/community/channels/${archivedId}`)
+    const before = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${archivedId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(before.status()).toBe(200)
-    const beforeMetadata = await before.json() as { archived: boolean }
+    const { channel: beforeMetadata } = await before.json() as { channel: { archived: boolean } }
 
     const resolvedRefs: string[] = []
     page.on("request", request => {
@@ -347,15 +354,15 @@ test.describe("channel ref page navigation", () => {
     await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/${archivedId}$`))
     expect(resolvedRefs).toContain(`/${handle.toLowerCase()}/ref-forum/#1`)
     expect(resolvedRefs.every(ref => !ref.endsWith("#18") && !ref.endsWith("#11") && !ref.endsWith("#27"))).toBe(true)
-    const metadata = await page.request.get(`/api/community/channels/${archivedId}`)
+    const metadata = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${archivedId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(metadata.status()).toBe(200)
-    expect((await metadata.json() as { archived: boolean }).archived).toBe(beforeMetadata.archived)
-    const feed = await page.request.get(`/api/community/channels/${forumId}/threads?archived=false`)
+    expect((await metadata.json() as { channel: { archived: boolean } }).channel.archived).toBe(beforeMetadata.archived)
+    const feed = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${forumId}/threads?archived=false`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(feed.status()).toBe(200)
     const rows = await feed.json() as { threads: Array<{ id: string }> }
     expect(rows.threads.map(row => row.id)).not.toContain(archivedId)
     expect(rows.threads.map(row => row.id)).toContain(activeId)
-    const archivedFeed = await page.request.get(`/api/community/channels/${forumId}/threads?tag=archived`)
+    const archivedFeed = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${forumId}/threads?tag=archived`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(archivedFeed.status()).toBe(200)
     const archivedRows = await archivedFeed.json() as { threads: Array<{ id: string }> }
     expect(archivedRows.threads.map(row => row.id)).toContain(archivedId)
@@ -378,7 +385,7 @@ test.describe("channel ref page navigation", () => {
     await page.goto(`/c/me/${dmId}`)
     const denied = await response
     expect(denied.status()).toBe(403)
-    expect(await denied.json()).toEqual({ error: "forbidden" })
+    expect(await denied.json()).toMatchObject({ error: { code: "not_allowed", message: "forbidden" } })
     const pill = page.locator('[data-ref-state="forbidden"]').filter({ hasText: ref })
     await expect(pill).toBeVisible()
     await expect(page.getByTestId(tid.channelRefPill(postId))).toHaveCount(0)

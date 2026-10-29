@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Page, Request } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -99,7 +100,7 @@ async function expectNoUnreadDot(row: ReturnType<Page["getByTestId"]>) {
 }
 
 async function readSeq(page: Page, channelId: string): Promise<number> {
-  const response = await page.request.get("/api/community/users/me/read-state")
+  const response = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(response.ok()).toBe(true)
   const snapshot = await response.json() as {
     readStates: Array<{ channelId: string; lastReadSeq: number }>
@@ -239,7 +240,7 @@ test.setTimeout(180_000)
       "/api/community/users/me/inbox/unreads/read-all",
       "/api/community/users/me/inbox/dms/read-all",
     ]) {
-      expect((await bob.page.request.post(path)).ok()).toBe(true)
+      expect((await confirmCommunityFixtureApiResponse(bob.page.request.post(path, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))).ok()).toBe(true)
     }
     const observerGate = await installReadObserverGate(bob.page)
     const proxy = await proxyCommunityWebSockets(bob.context)
@@ -341,9 +342,9 @@ test.setTimeout(180_000)
     const proxy = await proxyCommunityWebSockets(context)
     await gotoAfterUserWsAuth(page, `/c/channels/${foregroundServer}/${foregroundChannel}`)
     await expect(page.getByTestId(tid.serverIcon(backgroundServer))).toBeVisible({ timeout: 30_000 })
-    const beforeSnapshot = await (await page.request.get(
-      "/api/community/users/me/read-state",
-    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const beforeSnapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+      "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+    ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     const beforeCursor = (channelId: string) => beforeSnapshot.readStates
       .find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
 
@@ -431,9 +432,9 @@ test.setTimeout(180_000)
       fullPage: true,
     })
 
-    const snapshot = await (await page.request.get(
-      "/api/community/users/me/read-state",
-    )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+    const snapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+      "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+    ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     const cursor = (channelId: string) => snapshot.readStates
       .find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
     expect(cursor(unreadChannel)).toBeGreaterThan(beforeCursor(unreadChannel))
@@ -525,9 +526,9 @@ test.setTimeout(180_000)
       triggerUnread: () => seedMessage("alice", channelId, channelText),
       triggerReadback: async () => {
         const messageId = await sendRailMention(`channel readback ${stamp}`)
-        expect((await page.request.put(`/api/community/channels/${railTriggerChannel}/read`, {
+        expect((await confirmCommunityFixtureApiResponse(page.request.put(`/api/community/channels/${railTriggerChannel}/read`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
           data: { lastReadMessageId: messageId },
-        })).status()).toBe(200)
+        }))).status()).toBe(200)
       },
     }, caseResources)
 
@@ -542,9 +543,9 @@ test.setTimeout(180_000)
       triggerUnread: () => seedMessage("alice", childId, childText),
       triggerReadback: async () => {
         const messageId = await sendRailMention(`child readback ${stamp}`)
-        expect((await childPage.request.put(`/api/community/channels/${railTriggerChannel}/read`, {
+        expect((await confirmCommunityFixtureApiResponse(childPage.request.put(`/api/community/channels/${railTriggerChannel}/read`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
           data: { lastReadMessageId: messageId },
-        })).status()).toBe(200)
+        }))).status()).toBe(200)
       },
     }, caseResources)
     await childPage.close()
@@ -575,11 +576,7 @@ test.setTimeout(180_000)
       if (request.method() === "POST" && path.endsWith("/read-all")) paths.push(path)
     })
     await page.route("**/api/community/users/me/inbox/dms/read-all", async (route) => {
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: '{"error":"dm read-all unavailable"}',
-      })
+      await route.fulfill(currentCommunityFixtureError("dm read-all unavailable", 503))
     })
     await page.getByRole("button", { name: "Mark all read" }).click()
     await expect.poll(() => paths.length, { timeout: 20_000 }).toBe(3)

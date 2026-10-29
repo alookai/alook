@@ -1,4 +1,5 @@
 import { queryOptions } from "@tanstack/react-query"
+import { parseCommunityBotsProfileRead, CommunityBotProfileSummarySchema, type CommunityBotsProfileRead } from "@alook/shared"
 import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
 import type { BotActivityDay, CommunityProfilePatch } from "./models/people"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -60,18 +61,23 @@ export type BotPlanSummary = {
 type BotResource = Omit<BotSummary, "name" | "description" | "image" | "avatarVersion" | "presence">
 export type BotsResourceResponse = Partial<BotPlanSummary> & { bots: BotResource[]; observed?: boolean; source?: "network" | "rsc" | "restored_idb" }
 
-export type BotsResponse = BotPlanSummary & { bots: BotSummary[] }
+export type BotsResponse = BotPlanSummary & { bots: Array<BotSummary & CommunityBotsProfileRead["bots"][number]> }
 
 export function botProfilePatch(bot: Pick<BotSummary, "id" | "name" | "image" | "avatarVersion"> & { description?: string }): CommunityProfilePatch {
-  return { id: bot.id, identityAbout: { name: bot.name, kind: "bot", ...("discriminator" in bot && typeof bot.discriminator === "string" ? { discriminator: bot.discriminator } : {}), ...(bot.description === undefined ? {} : { aboutMe: bot.description }) }, avatar: { avatar: bot.image, avatarVersion: bot.avatarVersion } }
+  const identity = CommunityBotProfileSummarySchema.parse(bot)
+  return { id: identity.id, identityAbout: { name: identity.name, kind: "bot", ...(identity.discriminator === undefined ? {} : { discriminator: identity.discriminator }), ...(identity.description === undefined ? {} : { aboutMe: identity.description }) }, avatar: { avatar: identity.image, avatarVersion: identity.avatarVersion }, ...(identity.presence === undefined ? {} : { presence: identity.presence }) }
 }
 
 function botsResource(data: BotsResponse): BotsResourceResponse {
-  return { ...data, bots: data.bots.map(({ name: _name, description: _description, image: _image, avatarVersion: _avatarVersion, presence: _presence, ...resource }) => resource) }
+  return { ...data, bots: data.bots.map(({ name: _name, description: _description, image: _image, avatarVersion: _avatarVersion, presence: _presence, discriminator: _discriminator, ownerUserId: _ownerUserId, ...resource }) => resource) }
 }
 
 export const botsOptions = () => queryOptions({
   queryKey: communityKeys.bots(),
-  queryFn: async ({ client, signal }): Promise<BotsResourceResponse> => ({ ...botsResource(await apiFetchProfiles<BotsResponse>("/api/community/bots", data => data.bots.map(bot => ({ ...botProfilePatch(bot), presence: bot.presence })), { signal }, getCommunityDbRegistry(client))), source: "network" }),
+  queryFn: async ({ client, signal }): Promise<BotsResourceResponse> => {
+    const registry = getCommunityDbRegistry(client)
+    const data = await apiFetchProfiles<BotsResponse>("/api/community/bots", data => parseCommunityBotsProfileRead(data, registry!.accountId!).bots.map(bot => { const patch = botProfilePatch(bot); return { ...patch, identityAbout: { ...patch.identityAbout, ownerUserId: bot.ownerUserId } } }), { signal }, registry)
+    return { ...botsResource(data), source: "network" }
+  },
   staleTime: query => query.state.data?.observed === false ? 0 : 5_000,
 })

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 
 // The unified actor is a thin router over two collaborators:
 //   - resolveBotActor (crk_ → bot identity) — the bot path;
@@ -146,7 +147,7 @@ describe("owner selected bot", () => {
     mockHumanCtx = { env: { DB: {} }, userId: "human_1", email: "h@t.com" }
     mockResolveOwnedBotActor.mockResolvedValue({ kind: "bot", actor: { botUserId: "bot_1", ownerUserId: "human_1", machineId: "offline_machine", isActive: true } })
   })
-  const request = () => new NextRequest("http://localhost/api/community/servers/channels", { headers: { "X-Alook-Bot-Id": "bot_1" } })
+  const request = () => new NextRequest("http://localhost/api/community/servers/channels", { headers: { "X-Alook-Bot-Id": "bot_1", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
   it("authenticates the owner then delegates only the selected bot identity, with a private varied response", async () => {
     const response = await withCommunityActor(handler)(request())
     expect(mockResolveOwnedBotActor).toHaveBeenCalledWith({}, "bot_1", "human_1", { allowInactive: undefined })

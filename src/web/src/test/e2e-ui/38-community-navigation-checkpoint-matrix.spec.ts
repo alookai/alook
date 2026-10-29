@@ -148,10 +148,12 @@ test("community checkpoint shows target pending for detail and keeps list surfac
     has: page.locator('[data-slot="skeleton"]'),
   })
   const targetReady = page.locator(
-    `[data-slot="community-conversation-surface"][data-channel-id="${channelB}"]`,
+    `[data-community-target-href="/c/channels/${serverId}/${channelB}"]`,
   ).filter({
     has: page.getByRole("heading", { name: channelBName, exact: true }),
-  }).filter({ has: page.getByTestId(tid.composerInput) })
+  }).filter({ has: page.locator(
+    `[data-slot="community-conversation-surface"][data-channel-id="${channelB}"]`,
+  ).filter({ has: page.getByTestId(tid.composerInput) }) })
   const oldMain = page.locator(
     `[data-slot="community-conversation-surface"][data-channel-id="${channelA}"]`,
   )
@@ -271,10 +273,12 @@ test("mobile route commits stay stationary while sidebar identity survives same-
     has: page.locator('[data-slot="skeleton"]'),
   })
   const targetReady = page.locator(
-    `[data-slot="community-conversation-surface"][data-channel-id="${pendingChannel}"]`,
+    `[data-community-target-href="${pendingPath}"]`,
   ).filter({
     has: page.getByRole("heading", { name: pendingName, exact: true }),
-  }).filter({ has: page.getByTestId(tid.composerInput) })
+  }).filter({ has: page.locator(
+    `[data-slot="community-conversation-surface"][data-channel-id="${pendingChannel}"]`,
+  ).filter({ has: page.getByTestId(tid.composerInput) }) })
   await expect(pendingMain.or(targetReady).first()).toBeVisible()
   await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await expect(channelHeader(page, fastName)).toHaveCount(0)

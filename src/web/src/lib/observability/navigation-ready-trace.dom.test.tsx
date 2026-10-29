@@ -1,3 +1,4 @@
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { useLayoutEffect } from "react"
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query"
 import { afterEach, expect, it, vi } from "vitest"
@@ -31,7 +32,7 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   vi.stubGlobal("fetch", vi.fn(async (url: unknown, options?: RequestInit) => {
     if (String(url) === "https://collector.example/collect/public" && options?.body) sent.push(JSON.parse(String(options.body)))
     else { now = 1012; vi.setSystemTime(Date.now() - 120_000) }
-    return new Response(null, { status: 204 })
+    return new Response(null, { status: 204, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
   }))
   document.cookie = "alook_analytics_consent=v1.granted; path=/"
   window.history.replaceState(null, "", "/c/channels/server-a/channel-a")

@@ -4,27 +4,12 @@ import {
   MAX_INBOX_PAGE_SIZE,
   queries,
   readOrStale,
-  requestedCommunityContract,
 } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { avatarInitial } from "@/lib/community/avatar"
+import { hydrateAttentionResources } from "@/lib/community/attention-resources.server"
 import { parseBoundedInt } from "@/lib/community/messages"
-import { canonicalUserImage } from "@/lib/community/storage"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
-
-function canonicalizeIncludedAvatar<T extends {
-  userId: string
-  name: string
-  avatar: string
-  avatarVersion: number
-}>(row: T): T {
-  return {
-    ...row,
-    avatar: canonicalUserImage(row.userId, row.avatar, row.avatarVersion)
-      ?? avatarInitial(row.name),
-  }
-}
 
 export const GET = withAuth(async (request, ctx) => {
   const db = getPrimaryDb(ctx.env.DB)
@@ -35,8 +20,9 @@ export const GET = withAuth(async (request, ctx) => {
     MAX_INBOX_PAGE_SIZE,
   )
   const { value, stale } = await readOrStale(
-    () => queries.communityAttention.getAccountAttentionSnapshot(db, ctx.userId, limit),
+    async () => hydrateAttentionResources(db, ctx.userId, await queries.communityAttention.getAccountAttentionProjection(db, ctx.userId, limit)),
     {
+      resources: { viewerId: ctx.userId, servers: [], serverMemberships: [], channels: [], memberships: [], profiles: [], messages: [] },
       scopes: [],
       items: [],
       limit,
@@ -51,17 +37,6 @@ export const GET = withAuth(async (request, ctx) => {
     },
     { route: "community/attention" },
   )
-  const normalized = {
-    ...value,
-    scopes: requestedCommunityContract(request.headers) === 3
-      ? value.scopes
-      : value.scopes.map(({ unreadCount: _unreadCount, ...scope }) => scope),
-    included: {
-      ...value.included,
-      dms: value.included.dms.map(canonicalizeIncludedAvatar),
-      profiles: value.included.profiles.map(canonicalizeIncludedAvatar),
-    },
-  }
-  if (stale) return writeJSON({ ...normalized, stale: true })
-  return writeJSON(AccountAttentionSnapshotSchema.parse(normalized))
+  if (stale) return writeJSON({ ...value, stale: true })
+  return writeJSON(AccountAttentionSnapshotSchema.parse(value))
 })

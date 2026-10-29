@@ -1,5 +1,5 @@
 import type { Database, ClaimedTaskRow } from "@alook/shared";
-import { queries, TASK_TYPES, toAlookAddress } from "@alook/shared";
+import { queries, TASK_TYPES, toAlookAddress, TaskEmailAddressCacheSchema, TaskMemberInstructionCacheSchema, TaskUserIdentityCacheSchema } from "@alook/shared";
 import { taskToResponse } from "@/lib/api/responses";
 import { cached, cacheKeys } from "@/lib/cache";
 
@@ -13,7 +13,7 @@ export class TaskPayloadBuilder {
     const [allAgents, allEmailAccounts, allColleagues] = agentIds.length > 0
       ? await Promise.all([
           queries.agent.getAllAgentsForWorkspace(this.db, workspaceId),
-          cached(cacheKeys.allEmailAccounts(workspaceId), 600, () => queries.emailAccount.getAllEmailAccountsForWorkspace(this.db, workspaceId)),
+          cached(cacheKeys.allEmailAccounts(workspaceId), 600, async () => (await queries.emailAccount.getAllEmailAccountsForWorkspace(this.db, workspaceId)).map(({ workspaceId, agentId, emailAddress }) => ({ workspaceId, agentId, emailAddress })), TaskEmailAddressCacheSchema.refine(rows => rows.every(row => row.workspaceId === workspaceId))),
           queries.agentLink.getAllColleaguesForWorkspace(this.db, workspaceId).catch(() => [] as Awaited<ReturnType<typeof queries.agentLink.getAllColleaguesForWorkspace>>),
         ]).then(([agents, emails, colleagues]) => {
           const agentIdSet = new Set(agentIds);
@@ -69,7 +69,11 @@ export class TaskPayloadBuilder {
           const m = await cached(
             cacheKeys.member(workspaceId, agent.ownerId),
             600,
-            () => queries.member.getMemberByUserAndWorkspace(this.db, agent.ownerId!, workspaceId),
+            async () => {
+              const row = await queries.member.getMemberByUserAndWorkspace(this.db, agent.ownerId!, workspaceId);
+              return row ? { workspaceId: row.workspaceId, userId: row.userId, globalInstruction: row.globalInstruction } : null;
+            },
+            TaskMemberInstructionCacheSchema.refine(row => row === null || row.workspaceId === workspaceId && row.userId === agent.ownerId),
           );
           memberCache.set(agent.ownerId, m ? { globalInstruction: m.globalInstruction } : null);
         }
@@ -85,7 +89,11 @@ export class TaskPayloadBuilder {
           const u = await cached(
             cacheKeys.user(agent.ownerId),
             1800,
-            () => queries.user.getUserSelf(this.db, agent.ownerId!),
+            async () => {
+              const row = await queries.user.getUserSelf(this.db, agent.ownerId!);
+              return row ? { id: row.id, name: row.name, email: row.email } : null;
+            },
+            TaskUserIdentityCacheSchema.refine(row => row === null || row.id === agent.ownerId),
           );
           userCache.set(agent.ownerId, u ? { name: u.name, email: u.email } : null);
         }
@@ -101,7 +109,11 @@ export class TaskPayloadBuilder {
           const u = await cached(
             cacheKeys.user(convo.userId),
             1800,
-            () => queries.user.getUserSelf(this.db, convo!.userId!),
+            async () => {
+              const row = await queries.user.getUserSelf(this.db, convo!.userId!);
+              return row ? { id: row.id, name: row.name, email: row.email } : null;
+            },
+            TaskUserIdentityCacheSchema.refine(row => row === null || row.id === convo!.userId),
           );
           userCache.set(convo.userId, u ? { name: u.name, email: u.email } : null);
         }

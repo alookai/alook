@@ -27,7 +27,7 @@ function deferred<T>() {
 
 it.each([false, true])("keeps the real empty target unknown until its list is available (restoring=%s)", async restoring => {
   const { client } = await createCommunityQueryOwner()
-  const primary = deferred<{ machines: [] }>()
+  const primary = deferred<{ machines: []; complete: true }>()
   const observations = deferred<{ quotas: []; machineCapacity: { plan: { id: string; displayName: string }; isFounder: boolean; limit: number; ownedCount: number; onlineCount: number } }>()
   load.mockImplementation((url: string) => url.endsWith("view=list") ? primary.promise : observations.promise)
   const node = (restore: boolean) => <CommunityTestProvider client={client}>
@@ -43,7 +43,7 @@ it.each([false, true])("keeps the real empty target unknown until its list is av
   await waitFor(() => expect(load).toHaveBeenCalledWith("/api/community/machines?view=list", expect.anything()))
   expect(client.getQueryState(communityKeys.machines())).toMatchObject({ status: "pending", fetchStatus: "fetching", data: undefined })
   expect(view.queryByText("No machines yet")).toBeNull()
-  await act(async () => { primary.resolve({ machines: [] }) })
+  await act(async () => { primary.resolve({ machines: [], complete: true }) })
   expect(await view.findByText("No machines yet")).toBeVisible()
   expect(view.getByRole("button", { name: "Connect a machine" })).toBeDisabled()
   await act(async () => { observations.resolve({ quotas: [], machineCapacity: { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 } }) })
@@ -52,7 +52,7 @@ it.each([false, true])("keeps the real empty target unknown until its list is av
 
 it.each([false, true])("shows a complete cached empty list while its capacity remains unknown (restoring=%s)", async restoring => {
   const { client } = await createCommunityQueryOwner()
-  const primary = deferred<{ machines: [] }>()
+  const primary = deferred<{ machines: []; complete: true }>()
   const observations = deferred<{ quotas: [] }>()
   client.setQueryData(communityKeys.machines(), { machines: [], complete: true, observed: false, source: "restored_idb" })
   load.mockImplementation((url: string) => url.endsWith("view=list") ? primary.promise : observations.promise)
@@ -69,6 +69,6 @@ it.each([false, true])("shows a complete cached empty list while its capacity re
   view.rerender(node(false))
   await waitFor(() => expect(load).toHaveBeenCalledWith("/api/community/machines?view=list", expect.anything()))
   expect(view.getByText("No machines yet")).toBe(empty)
-  await act(async () => { primary.resolve({ machines: [] }); observations.resolve({ quotas: [] }) })
+  await act(async () => { primary.resolve({ machines: [], complete: true }); observations.resolve({ quotas: [] }) })
   expect(view.getByText("No machines yet")).toBe(empty)
 })

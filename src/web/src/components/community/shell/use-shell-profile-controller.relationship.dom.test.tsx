@@ -1,3 +1,4 @@
+import { friendBucketScenarioFixture, staleFriendBucketFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import React from "react"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
@@ -39,11 +40,12 @@ vi.mock("@/hooks/community/use-server-members", () => ({
 const peer = { id: "relationship-peer", userId: "peer", name: "Peer", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline", sub: "" }
 const empty = { friends: [], pending: [], blocked: [] }
 type Buckets = { friends: unknown[]; pending: unknown[]; blocked: unknown[] }
-function response(path: string, buckets: Buckets = { ...empty, friends: [peer] }) {
-  if (path.endsWith("/accepted")) return { friends: buckets.friends }
-  if (path.endsWith("/pending")) return { pending: buckets.pending }
-  if (path.endsWith("/blocked")) return { blocked: buckets.blocked }
-  if (path.endsWith("/profile")) return { id: path.split("/").at(-2), name: "Peer", discriminator: "0001", image: null, avatarVersion: 0, kind: "human", aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null }
+function response(path: string, buckets: Buckets = { ...empty, friends: [peer] }, viewerId = mocks.viewer) {
+  const data = (bucket: "friends" | "pending" | "blocked") => friendBucketScenarioFixture(bucket, buckets[bucket] as Array<typeof peer>, viewerId)
+  if (path.endsWith("/accepted")) return data("friends")
+  if (path.endsWith("/pending")) return data("pending")
+  if (path.endsWith("/blocked")) return data("blocked")
+  if (path.endsWith("/profile")) return { id: path.split("/").at(-2), name: "Peer", discriminator: "0001", image: null, avatarVersion: 0, kind: "human", aboutMe: "", bannerColor: null, mutualServers: 0, statusEmoji: null, statusText: null }
   throw new Error("Unexpected relationship fixture request: " + path)
 }
 type Held = { viewer: string; path: string; signal: AbortSignal; resolve: (value: unknown) => void }
@@ -122,7 +124,7 @@ describe("profile message visibility from the existing relationship owner", () =
     await act(async () => getCommunityDbRegistry(hook.client)!.collections.friendships.utils.writeUpsert({ id: peer.id, userId: peer.userId, kind: "accepted" }))
     hook.open("peer")
     expect(hook.current.canMessage).toBe(false)
-    await act(async () => { for (const request of held) request.resolve(response(request.path, empty)) })
+    await act(async () => { for (const request of held) request.resolve(response(request.path, empty, request.viewer)) })
     await waitFor(() => expect(hook.client.getQueryData(communityKeys.friends())).toBeDefined())
     expect(hook.current.canMessage).toBe(false)
     hook.view.unmount()
@@ -151,7 +153,7 @@ describe("profile message visibility from the existing relationship owner", () =
     await waitFor(() => expect(hook.client.getQueryData(communityKeys.friends())).toBeDefined())
     hook.open("peer")
     await waitFor(() => expect(hook.current.canMessage).toBe(true))
-    mocks.api.mockImplementation((path: string) => !path.includes("/friends/") ? Promise.resolve(response(path)) : mode === "error" ? Promise.reject(new Error("refresh failed")) : Promise.resolve({ ...response(path), stale: true }))
+    mocks.api.mockImplementation((path: string) => !path.includes("/friends/") ? Promise.resolve(response(path)) : mode === "error" ? Promise.reject(new Error("refresh failed")) : Promise.resolve(staleFriendBucketFixture(path.endsWith("/accepted") ? "friends" : path.endsWith("/pending") ? "pending" : "blocked")))
     await act(async () => { await hook.client.refetchQueries({ queryKey: communityKeys.friends(), exact: true }) })
     expect(hook.client.getQueryState(communityKeys.friends())?.status).toBe("error")
     expect(hook.client.getQueryData(communityKeys.friends())).toBeDefined()
@@ -169,7 +171,7 @@ describe("profile message visibility from the existing relationship owner", () =
     await waitFor(() => expect(held).toHaveLength(3))
     act(() => projectCommunityWsEventToDb(hook.client, { type: "community:friend.block", userId: "peer", blockedByViewer: true }))
     await waitFor(() => expect(hook.current.canMessage).toBe(false))
-    await act(async () => { for (const request of held) request.resolve(response(request.path)); await refresh })
+    await act(async () => { for (const request of held) request.resolve(response(request.path, undefined, request.viewer)); await refresh })
     expect(hook.current.canMessage).toBe(false)
     expect(getCommunityDbRegistry(hook.client)!.collections.friendships.get("blocked:peer")?.kind).toBe("blocked")
   })
@@ -189,9 +191,9 @@ describe("profile message visibility from the existing relationship owner", () =
     expect(hook.current.canMessage).toBe(false)
     const fromA = held.filter((request) => request.viewer === "A")
     await waitFor(() => expect(fromA.every((request) => request.signal.aborted)).toBe(true))
-    await act(async () => { for (const request of fromA) request.resolve(response(request.path)) })
+    await act(async () => { for (const request of fromA) request.resolve(response(request.path, undefined, request.viewer)) })
     expect(hook.current.canMessage).toBe(false)
-    await act(async () => { for (const request of held.filter((request) => request.viewer === "B")) request.resolve(response(request.path, empty)) })
+    await act(async () => { for (const request of held.filter((request) => request.viewer === "B")) request.resolve(response(request.path, empty, request.viewer)) })
     await waitFor(() => expect(hook.client.getQueryData(communityKeys.friends())).toBeDefined())
     expect(hook.current.canMessage).toBe(false)
     expect([...getCommunityDbRegistry(hook.client)!.collections.friendships.values()]).toHaveLength(0)

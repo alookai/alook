@@ -4,7 +4,7 @@ import type {
   CommunityProfilePatch,
 } from "@/lib/community/models/people"
 import type { MessageInput } from "@/lib/community/models/message"
-import { CommunityResourceProfileSchema, type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
+import { canonicalCommunityUserImage, CommunityResourceProfileSchema, type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -13,7 +13,7 @@ import {
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
-import { avatarInitial } from "@/lib/community/avatar"
+
 
 type ProfileFieldRevisions = {
   identityAbout: number
@@ -25,6 +25,8 @@ type ProfileFieldRevisions = {
 type ProfileRevisionState = {
   revision: number
   fieldsByUserId: Map<string, ProfileFieldRevisions>
+  pendingFieldsByUserId: Map<string, Partial<Omit<CommunityResourceProfile, "id">>>
+  pendingOwner: string
 }
 
 export type CommunityProfileSeedSnapshot = {
@@ -32,9 +34,8 @@ export type CommunityProfileSeedSnapshot = {
   revision: number
 }
 
-const profileIdentitySchema = CommunityResourceProfileSchema.pick({ id: true, name: true, discriminator: true, avatar: true, avatarVersion: true }).extend({ discriminator: CommunityResourceProfileSchema.shape.discriminator.unwrap() })
-
-const createProfileRevisions = () => createStore<ProfileRevisionState>({ revision: 0, fieldsByUserId: new Map() })
+const createProfileRevisions = () => createStore<ProfileRevisionState>({ revision: 0, fieldsByUserId: new Map(), pendingFieldsByUserId: new Map(), pendingOwner: "" })
+const profileFactsSchema = CommunityResourceProfileSchema.partial()
 const profileRevisionState = new WeakMap<CommunityDbRegistry, ReturnType<typeof createProfileRevisions>>()
 
 function revisionState(registry: CommunityDbRegistry) {
@@ -52,21 +53,29 @@ export function beginCommunityProfileSeed(
   return { registry, revision: registry ? revisionState(registry).get().revision : 0 }
 }
 
-type CommunityUserProfileSeed = Partial<Pick<CommunityResourceProfile, "name" | "discriminator" | "avatarVersion" | "statusEmoji" | "statusText" | "avatar">>
+type CommunityUserProfileSeed = Partial<Omit<CommunityResourceProfile, "id">>
 
 export function communityUserProfilePatch(
   userId: string,
   row: CommunityUserProfileSeed,
-  options?: { legacyPresentation?: boolean },
 ): CommunityProfilePatch {
-  const statusText = options?.legacyPresentation && row.statusText === "" ? undefined : row.statusText
+  const statusText = row.statusText
   return {
     id: userId,
     identityAbout: {
       ...(row.name !== undefined ? { name: row.name } : {}),
-      ...(row.discriminator ? { discriminator: row.discriminator } : {}),
+      ...(row.discriminator === undefined ? {} : { discriminator: row.discriminator }),
+      ...(row.aboutMe === undefined ? {} : { aboutMe: row.aboutMe }),
+      ...(row.bannerColor === undefined ? {} : { bannerColor: row.bannerColor }),
+      ...(row.kind === undefined ? {} : { kind: row.kind }),
+      ...(row.ownerUserId === undefined ? {} : { ownerUserId: row.ownerUserId }),
     },
-    ...(row.avatarVersion === undefined ? {} : { avatar: { avatarVersion: row.avatarVersion, ...(row.avatar === undefined || options?.legacyPresentation && row.avatar === avatarInitial(row.name ?? "") ? {} : { avatar: row.avatar }) } }),
+    ...(row.avatarVersion === undefined ? {} : { avatar: { avatarVersion: row.avatarVersion, ...(row.avatar === undefined ? {} : { avatar: row.avatar }) } }),
+    ...(row.ownerHandle === undefined && row.mutualServers === undefined && row.ownedByViewer === undefined ? {} : { card: {
+      ...(row.ownerHandle === undefined ? {} : { ownerHandle: row.ownerHandle }),
+      ...(row.mutualServers === undefined ? {} : { mutualServers: row.mutualServers }),
+      ...(row.ownedByViewer === undefined ? {} : { ownedByViewer: row.ownedByViewer }),
+    } }),
     ...(row.statusEmoji === undefined && statusText === undefined
       ? {}
       : { status: {
@@ -127,7 +136,7 @@ export function approvalProfilePatches(
       discriminator: profile.discriminator,
     },
     avatar: {
-      avatar: profile.image,
+      avatar: canonicalCommunityUserImage(profile.id, profile.image, profile.avatarVersion),
       avatarVersion: profile.avatarVersion,
     },
   }] : [])
@@ -136,9 +145,9 @@ export function approvalProfilePatches(
 export function writeCommunityProfilePatches(
   patches: readonly CommunityProfilePatch[],
   registry: CommunityDbRegistry | null,
-  options?: { snapshot?: CommunityProfileSeedSnapshot; event?: boolean; command?: boolean },
+  options?: { snapshot?: CommunityProfileSeedSnapshot; event?: boolean; command?: boolean; resourceSeed?: boolean },
 ) {
-  if (!registry || patches.length === 0) return
+  if (!registry || patches.length === 0 || !registry.runtime.lifecycle.get().active) return
   if (options?.snapshot && options.snapshot.registry !== registry) return
   const queryKey = communityKeys.communityDbCollection(registry.scopeId, "profiles")
   const cached = registry.queryClient.getQueryData<ProfileRow[]>(queryKey)
@@ -146,12 +155,19 @@ export function writeCommunityProfilePatches(
   const profiles = new Map(cached.map((profile) => [profile.id, profile]))
   const revisionStore = revisionState(registry)
   const previous = revisionStore.get()
-  const revisions = { ...previous, fieldsByUserId: new Map(previous.fieldsByUserId) }
+  const pendingOwner = JSON.stringify([registry.runtime.ws.get().profileAccountEpoch, registry.runtime.lifecycle.get().generation])
+  const revisions = { ...previous, fieldsByUserId: new Map(previous.fieldsByUserId), pendingFieldsByUserId: previous.pendingOwner === pendingOwner ? new Map(previous.pendingFieldsByUserId) : new Map<string, Partial<Omit<CommunityResourceProfile, "id">>>(), pendingOwner }
   const guardedRevision = options?.snapshot?.revision
-  const writeRevision = guardedRevision === undefined || options?.command ? revisions.revision + 1 : null
+  const writeRevision = options?.resourceSeed ? null : guardedRevision === undefined || options?.command ? revisions.revision + 1 : null
   let advanced = false
   for (const patch of patches) {
     const current = profiles.get(patch.id)
+    const known = { ...current, ...revisions.pendingFieldsByUserId.get(patch.id) }
+    const seedFields = <T extends object>(fields: T | undefined): T | undefined => {
+      if (!fields || !options?.resourceSeed) return fields
+      const selected = Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== undefined && known[key as keyof typeof known] === undefined)) as T
+      return Object.keys(selected).length ? selected : undefined
+    }
     const fieldRevisions = revisions.fieldsByUserId.get(patch.id) ?? {
       identityAbout: 0,
       avatar: 0,
@@ -162,48 +178,29 @@ export function writeCommunityProfilePatches(
       guardedRevision === undefined || fieldRevisions[field] <= guardedRevision
     )
     const identityAbout = patch.identityAbout && accepts("identityAbout")
-      ? patch.identityAbout
+      ? seedFields(patch.identityAbout)
       : undefined
-    const status = patch.status && accepts("status") ? patch.status : undefined
-    const card = patch.card && accepts("card") ? patch.card : undefined
+    const status = patch.status && accepts("status") ? seedFields(patch.status) : undefined
+    const card = patch.card && accepts("card") ? seedFields(patch.card) : undefined
     const incomingAvatar = patch.avatar && accepts("avatar") && (
-      current === undefined
-      || patch.avatar.avatarVersion > (current.avatarVersion ?? -1)
-      || (!options?.event && patch.avatar.avatarVersion === current.avatarVersion)
+      known.avatarVersion === undefined
+      || patch.avatar.avatarVersion > known.avatarVersion
+      || (!options?.event && !options?.resourceSeed && patch.avatar.avatarVersion === known.avatarVersion)
     ) ? patch.avatar : undefined
     const fields = {
-      id: patch.id,
-      name: identityAbout?.name ?? current?.name,
-      discriminator: identityAbout?.discriminator || current?.discriminator,
-      avatar: incomingAvatar?.avatar === undefined ? current?.avatar : incomingAvatar.avatar,
-      avatarVersion: incomingAvatar?.avatarVersion ?? current?.avatarVersion,
-      aboutMe: identityAbout?.aboutMe ?? current?.aboutMe,
-      bannerColor: identityAbout?.bannerColor === undefined
-        ? current?.bannerColor
-        : identityAbout.bannerColor,
-      kind: identityAbout?.kind ?? current?.kind,
-      ownerUserId: identityAbout?.ownerUserId === undefined
-        ? current?.ownerUserId
-        : identityAbout.ownerUserId,
-      ownerHandle: card?.ownerHandle === undefined ? current?.ownerHandle : card.ownerHandle,
-      mutualServers: card?.mutualServers ?? current?.mutualServers,
-      ownedByViewer: card?.ownedByViewer ?? current?.ownedByViewer,
-      statusEmoji: status?.statusEmoji === undefined
-        ? current?.statusEmoji
-        : status.statusEmoji,
-      statusText: status?.statusText === undefined
-        ? current?.statusText
-        : status.statusText,
+      ...known, id: patch.id,
+      ...Object.fromEntries(Object.entries({ ...identityAbout, ...incomingAvatar, ...status, ...card }).filter(([, value]) => value !== undefined)),
     }
-    const identity = profileIdentitySchema.safeParse({
-      id: fields.id,
-      name: fields.name,
-      discriminator: fields.discriminator,
-      avatar: fields.avatar,
-      avatarVersion: fields.avatarVersion,
-    })
-    const next = profileSchema.parse({ ...Object.fromEntries(Object.entries(fields).filter(([, field]) => field !== undefined)), identityComplete: current?.identityComplete === true || identity.success })
-    profiles.set(patch.id, next)
+    const facts = profileFactsSchema.safeParse(Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== undefined && !key.startsWith("$"))))
+    if (!facts.success) continue
+    const parsed = profileSchema.safeParse(facts.data)
+    if (parsed.success) {
+      profiles.set(patch.id, parsed.data)
+      revisions.pendingFieldsByUserId.delete(patch.id)
+    } else if (!current && !options?.resourceSeed) {
+      const { id: _id, ...pending } = facts.data
+      revisions.pendingFieldsByUserId.set(patch.id, pending)
+    }
     if (writeRevision !== null) {
       const nextRevisions = { ...fieldRevisions }
       if (identityAbout) nextRevisions.identityAbout = writeRevision
@@ -217,7 +214,7 @@ export function writeCommunityProfilePatches(
     }
   }
   if (advanced && writeRevision !== null) revisions.revision = writeRevision
-  if (advanced) revisionStore.setState(() => revisions)
+  revisionStore.setState(() => revisions)
   const rows = [...profiles.values()]
   writeCommunityCollectionRows(registry, "profiles", rows, (row) => row.id)
 }

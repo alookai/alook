@@ -1,3 +1,4 @@
+import { channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import { del, get, set } from "idb-keyval"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -8,12 +9,12 @@ import { communityKeys } from "./query-keys"
 import * as persistence from "./query-persister"
 
 const key = (user: string) => `${persistence.PERSIST_CACHE_PREFIX}:${user}:client`
-const accountKey = (user: string) => `${persistence.PERSIST_CACHE_PREFIX}:${user}:account-epoch`
+const accountKey = (user: string) => `${persistence.PERSIST_ACCOUNT_PREFIX}:${user}:account-epoch`
 
 function snapshot(user: string, content = "Cached"): PersistedClient {
   const client = new QueryClient()
-  client.setQueryData(communityKeys.communityDbCollection(user, "channels"), ["a", "b"].map(id => canonicalChannelRow({ id, type: "dm", name: id, preview: content })))
-  client.setQueryData(communityKeys.communityDbCollection(user, "messages"), ["a", "b"].map(channelId => ({ id: `m-${channelId}`, channelId, type: "chat", resourceComplete: false, authorId: user, authorName: "Viewer", authorAvatar: "V", authorAvatarVersion: 0, seq: 1, content })))
+  client.setQueryData(communityKeys.communityDbCollection(user, "channels"), ["a", "b"].map(id => canonicalChannelRow({ ...channelResourceFixture({ id, type: "dm", serverId: null, name: id }), preview: content })))
+  client.setQueryData(communityKeys.communityDbCollection(user, "messages"), ["a", "b"].map(channelId => messageResourceFixture({ id: `m-${channelId}`, channelId, authorId: user, authorName: "Viewer", authorAvatar: "V", authorAvatarVersion: 0, seq: 1, content })))
   const result = { timestamp: Date.now(), buster: persistence.PERSIST_BUSTER, clientState: dehydrate(client) }
   client.clear()
   return result
@@ -45,7 +46,7 @@ describe("cold IDB snapshot processing", () => {
     await writer.persistClient(snapshot(user, "Old"))
     const reader = persistence.createIdbPersister(user)
     expect(await reader.isCurrent()).toBe(true)
-    await set(key(user), JSON.stringify({ ...snapshot(user, "New"), version: persistence.PERSIST_VERSION, channelFences: [] }))
+    await set(key(user), JSON.stringify({ ...JSON.parse((await get<string>(key(user)))!), ...snapshot(user, "New"), version: persistence.PERSIST_VERSION, channelFences: [] }))
     expect(messages(await reader.restoreClient())).toEqual(expect.arrayContaining([expect.objectContaining({ content: "New" })]))
   })
 
@@ -56,7 +57,7 @@ describe("cold IDB snapshot processing", () => {
     await reader.isCurrent()
     if (kind === "removed") await del(key(user))
     else if (kind === "corrupt") await set(key(user), "{")
-    else await set(key(user), JSON.stringify({ ...snapshot(user), version: kind === "version" ? 5 : persistence.PERSIST_VERSION, buster: kind === "buster" ? "old" : persistence.PERSIST_BUSTER, channelFences: [] }))
+    else await set(key(user), JSON.stringify({ ...JSON.parse((await get<string>(key(user)))!), ...snapshot(user), version: kind === "version" ? 5 : persistence.PERSIST_VERSION, buster: kind === "buster" ? "old" : persistence.PERSIST_BUSTER, channelFences: [] }))
     expect(await reader.restoreClient()).toBeUndefined()
     expect(await get(key(user))).toBeUndefined()
   })

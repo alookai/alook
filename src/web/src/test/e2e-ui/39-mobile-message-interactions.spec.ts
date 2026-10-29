@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import type { ElementHandle, Locator, Page, Request, Route } from "@playwright/test"
 import type { TiptapEditorHTMLElement } from "@tiptap/react"
@@ -180,22 +181,15 @@ async function expectReadingRootRetained(previous: ReadingRoot, scroller: Locato
   await previous.dispose()
 }
 
-async function expectReadingPositionRestored(scroller: Locator, before: ReadingPosition, fixture: { id: string; paragraphs: readonly string[] }): Promise<void> {
+async function expectOrdinaryReentry(scroller: Locator, before: ReadingPosition, fixture: { id: string; paragraphs: readonly string[] }, tailId: string): Promise<void> {
+  const body = before.rows.find(row => row.id === fixture.id)
+  expect(body, `visible departure fixture ${fixture.id}`).toBeDefined()
+  expect(body?.paragraphs).toEqual(fixture.paragraphs)
+  await expectCanonicalTail(scroller, tailId)
   const after = await settledReadingPosition(scroller)
-  expect(after.anchor?.id).toBe(before.anchor?.id)
-  expect(after.anchor?.key).toBe(before.anchor?.key)
-  expect(Math.abs(after.anchor!.offset - before.anchor!.offset), "restored message offset within its viewport").toBeLessThanOrEqual(1)
-  for (const key of ["clientWidth", "clientHeight", "scrollHeight", "scrollTop"] as const) {
-    expect(Math.abs(after[key] - before[key]), `qualified snapshot ${key}`).toBeLessThanOrEqual(1)
-  }
-  expect(after.rows.map(({ key, id, text }) => ({ key, id, text }))).toEqual(before.rows.map(({ key, id, text }) => ({ key, id, text })))
-  for (const position of [before, after]) {
-    const body = position.rows.find(row => row.id === fixture.id)
-    expect(body, `visible fixture message ${fixture.id}`).toBeDefined()
-    expect(body?.paragraphs).toEqual(fixture.paragraphs)
-  }
-  for (let index = 0; index < before.rows.length; index += 1) {
-    expect(Math.abs(after.rows[index].height - before.rows[index].height), `restored row ${before.rows[index].key}`).toBeLessThanOrEqual(1)
+  expect(Math.abs(after.scrollTop - before.scrollTop), "fresh entry leaves the previous pixel position").toBeGreaterThan(1)
+  for (const key of ["clientWidth", "clientHeight"] as const) {
+    expect(Math.abs(after[key] - before[key]), `unchanged viewport ${key}`).toBeLessThanOrEqual(1)
   }
 }
 
@@ -387,9 +381,9 @@ async function typeReplyAfterAuthorMention(
 }
 
 async function latestSeq(page: Page, channelId: string): Promise<number> {
-  const response = await page.request.get(`/api/community/channels/${channelId}/messages`)
+  const response = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${channelId}/messages`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(response.ok()).toBe(true)
-  return ((await response.json()) as { latestSeq: number }).latestSeq
+  return ((await response.json()) as { page: { latestSeq: number } }).page.latestSeq
 }
 
 type ReadState = {
@@ -400,7 +394,7 @@ type ReadState = {
 async function settledReadState(page: Page, channelId: string): Promise<ReadState> {
   let previous: ReadState | null = null
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const response = await page.request.get("/api/community/users/me/read-state")
+    const response = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(response.ok()).toBe(true)
     const snapshot = await response.json() as { readStates: Array<ReadState & { channelId: string }> }
     const current = snapshot.readStates.find((row) => row.channelId === channelId)
@@ -1118,7 +1112,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expectReadingRootDetached(departedDmRoot)
   await alice.page.getByTestId(tid.dmRow(dmId)).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
-  await expectReadingPositionRestored(dmScroller, dmReadingPosition, { id: dmScrollMessageId, paragraphs: dmScrollLines })
+  await expectOrdinaryReentry(dmScroller, dmReadingPosition, { id: dmScrollMessageId, paragraphs: dmScrollLines }, dmReplyPayload.message.id)
   await expectReadingRootRecreated(departedDmRoot, dmScroller)
   await expectReturnReadsAndGets(alice.page, dmId, dmReadState, dmReturnGets)
   dmReturnGets.stop()
@@ -1204,14 +1198,14 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(navigationDraft)
-  await expectReadingPositionRestored(scroller, channelReadingPosition, { id: channelScrollMessageId, paragraphs: channelScrollLines })
+  await expectOrdinaryReentry(scroller, channelReadingPosition, { id: channelScrollMessageId, paragraphs: channelScrollLines }, typingWsReadyId)
   await expectReadingRootRecreated(departedChannelRoot, scroller)
   await expectReturnReadsAndGets(alice.page, channelId, channelReadState, channelReturnGets)
   channelReturnGets.stop()
   expect(await latestSeq(alice.page, channelId)).toBe(channelSequence)
 })
 
-test("mobile thread return recreates its list and restores the qualified reading anchor", async ({ caseActors }) => {
+test("mobile thread return recreates its list at the ordinary tail and retains its parent", async ({ caseActors }) => {
   const actors = await caseActors(["alice"])
   const { asUser } = actors
   const { seedChannel, seedMessage, seedServer, seedThread } = actors.seed
@@ -1293,13 +1287,13 @@ test("mobile thread return recreates its list and restores the qualified reading
   await expectReadingRootRetained(parentRoot, scroller)
   await alice.page.goForward({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
-  await expectReadingPositionRestored(threadScroller, threadReadingPosition, { id: threadScrollMessageId, paragraphs: threadScrollLines })
+  await expectOrdinaryReentry(threadScroller, threadReadingPosition, { id: threadScrollMessageId, paragraphs: threadScrollLines }, threadReplyId)
   await expectReadingRootRecreated(departedThreadRoot, threadScroller)
   await expectReturnReadsAndGets(alice.page, threadId, threadReadState, threadReturnGets)
   threadReturnGets.stop()
 })
 
-test("mobile width change invalidates a previously qualified snapshot and falls back to its canonical tail", async ({ caseActors }) => {
+test("mobile fresh entry uses the canonical tail at unchanged and changed widths", async ({ caseActors }) => {
   test.setTimeout(120_000)
   const actors = await caseActors(["alice"])
   const { seedChannel, seedMessage, seedServer } = actors.seed
@@ -1332,7 +1326,7 @@ test("mobile width change invalidates a previously qualified snapshot and falls 
   expect(departure.scrollTop).toBe(1200)
   expect(departure.scrollHeight - departure.clientHeight - departure.scrollTop).toBeGreaterThan(1)
 
-  await test.step("the unchanged viewport recreates the node and restores its qualified anchor", async () => {
+  await test.step("the unchanged viewport recreates the node at the canonical tail", async () => {
     const original = await readingRoot(scroller)
     const gets = trackSurfaceGets(alice.page, channelId)
     await alice.page.getByRole("banner").getByRole("button", { name: "Back" }).click()
@@ -1340,14 +1334,19 @@ test("mobile width change invalidates a previously qualified snapshot and falls 
     await expectReadingRootDetached(original)
     await clickAuthoritativeOwnerChannelRow(alice.page, channelId)
     await expect.poll(() => new URL(alice.page.url()).pathname).toBe(href)
-    await expectReadingPositionRestored(scroller, departure, { id: widthScrollMessageId, paragraphs: widthScrollLines })
+    await expectOrdinaryReentry(scroller, departure, { id: widthScrollMessageId, paragraphs: widthScrollLines }, tailId)
     await expectReadingRootRecreated(original, scroller)
     await expectReturnReadsAndGets(alice.page, channelId, read, gets)
     gets.stop()
   })
 
-  await test.step("a changed viewport rejects that snapshot and lands on the confirmed read tail", async () => {
+  await test.step("a changed viewport also enters at the confirmed read tail", async () => {
+    await scroller.evaluate(element => {
+      element.scrollTop = 1200
+      element.dispatchEvent(new Event("scroll"))
+    })
     const qualified = await settledReadingPosition(scroller)
+    expect(qualified.scrollTop).toBe(1200)
     expect(qualified.clientWidth).toBe(departure.clientWidth)
     const original = await readingRoot(scroller)
     const gets = trackSurfaceGets(alice.page, channelId)

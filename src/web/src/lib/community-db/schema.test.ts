@@ -1,3 +1,4 @@
+import { channelResourceFixture, serverResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import { describe, expect, it } from "vitest"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
@@ -99,46 +100,33 @@ describe("community DB schemas", () => {
     )
   })
 
-  it("treats restored server identities without a detail marker as incomplete", () => {
-    const parsed = serverSchema.parse({
-      id: "s1",
-      name: "Server",
-      discriminator: "0001",
-      description: "",
-      ownerId: "owner",
-      icon: null,
-      official: false,
-      isOwner: false,
-      unread: false,
-      mentions: 0,
-    })
-    expect(parsed.detailComplete).toBe(false)
-    expect(parsed).not.toHaveProperty("position")
+  it("requires actual full server position without accepting a detail marker", () => {
+    const server = serverResourceFixture()
+    expect(serverSchema.parse(server)).toEqual(server)
+    const { position: _position, ...missing } = server
+    expect(serverSchema.safeParse(missing).success).toBe(false)
+    expect(serverSchema.safeParse({ ...server, detailComplete: true }).success).toBe(false)
   })
 })
 
 
-describe("canonical completeness", () => {
-  const full = { id: "channel", type: "text" as const, serverId: "server", categoryId: null, name: "Channel", topic: "Preserve topic", parentChannelId: null, parentMessageId: null, creatorId: "author", position: 3, archived: false, createdAt: "created", lastMessageAt: null, messageCount: 0, resourceComplete: true as const }
-  it("keeps full fields through sparse deltas and rejects an invalid full claim before merging", () => {
+describe("canonical full resource admission", () => {
+  it("keeps actual full fields through a valid current field patch", () => {
+    const full = channelResourceFixture({ topic: "Preserve topic" })
     const loaded = canonicalChannelRow(full)
     expect(canonicalChannelRow({ id: full.id, type: full.type, name: "Renamed", topic: undefined }, loaded)).toEqual({ ...loaded, name: "Renamed" })
-    const stub = canonicalChannelRow({ id: "stub", type: "thread", name: "Preview" })
-    expect(stub.resourceComplete).toBe(false)
-    expect(stub).not.toHaveProperty("topic")
-    expect(canonicalChannelRow({ ...full, id: "stub" }, stub).resourceComplete).toBe(true)
-    const { topic: _topic, ...incomplete } = full
-    expect(() => canonicalChannelRow(incomplete, loaded)).toThrow()
+    expect(() => canonicalChannelRow({ id: "stub", type: "thread", name: "Preview" })).toThrow()
     expect(channelSchema.safeParse({ ...loaded, topic: undefined }).success).toBe(false)
   })
-  it("uses profile id without relationship aliases and distinguishes incomplete identity", () => {
-    const profile = { id: "author", name: "Author", discriminator: "12345", avatar: null, avatarVersion: 0, identityComplete: true }
+  it("requires profile identity facts and accepts actual nullable fields without markers", () => {
+    const profile = { id: "author", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }
     expect(profileSchema.parse(profile)).toEqual(profile)
-    expect(profileSchema.parse({ id: "author", name: "Author", identityComplete: false })).toEqual({ id: "author", name: "Author", identityComplete: false })
     expect(profileSchema.safeParse({ ...profile, discriminator: null }).success).toBe(false)
+    expect(profileSchema.safeParse({ id: "author", name: "Author" }).success).toBe(false)
+    expect(profileSchema.safeParse({ ...profile, identityComplete: true }).success).toBe(false)
     expect(profileSchema.safeParse({ ...profile, avatarVersion: undefined }).success).toBe(false)
-    const preview = { id: "message", channelId: "channel", type: "chat", resourceComplete: false }
-    expect(messageSchema.parse(preview)).toEqual(preview)
-    expect(messageSchema.safeParse({ ...preview, resourceComplete: true }).success).toBe(false)
+    expect(messageSchema.parse(messageResourceFixture())).toEqual(messageResourceFixture())
+    expect(messageSchema.safeParse({ id: "message", channelId: "channel", type: "chat" }).success).toBe(false)
+    expect(messageSchema.safeParse({ ...messageResourceFixture(), resourceComplete: true }).success).toBe(false)
   })
 })

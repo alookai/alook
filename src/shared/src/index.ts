@@ -559,7 +559,6 @@ export {
 export type {
   MessageDeliveryBatch,
   MessageDeliveryBatchParseResult,
-  MessageDeliveryMemberAdded,
   MessageDeliveryPartial,
 } from "./community-message-delivery";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";
@@ -610,8 +609,6 @@ export type {
   CommunityChannelUpdate,
   CommunityChannelDelete,
   CommunityChannelReorder,
-  CommunityChannelMemberAdd,
-  CommunityChannelMemberRemove,
   CommunityChannelMembershipChange,
   CommunityCategoryCreate,
   CommunityCategoryUpdate,
@@ -642,17 +639,16 @@ export type {
   CommunityMachineRemoved,
   CommunityBotAuditEvent,
   CommunityWsEvent,
-  CommunityLegacyWsEvent,
   CommunityResourceWsEvent,
-  CommunityLegacyMessageCreate,
+  CommunityBrowserEventEnvelope,
   CommunityBrowserEventFailureReason,
   CommunityBrowserEventDecodeResult,
   CommunityBrowserEventEncodeResult,
 } from "./community-ws-events";
 export {
+  CommunityInviteCreateSchema,
   CommunityWsEventSchema,
   CommunityResourceWsEventSchema,
-  CommunityLegacyMessageCreateSchema,
   communityWsEventSchemaForContract,
   FriendApprovalPayloadSchema,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
@@ -665,6 +661,7 @@ export {
   isValidCommunityUserTarget,
   encodeCommunityUserTargetPathSegment,
   utf8ByteLength,
+  validateCommunityWsEvent,
   decodeCommunityBrowserEvent,
   encodeCommunityBrowserEvent,
   WS_EVENTS,
@@ -842,3 +839,19 @@ export { channelReorderRequestSchema, type ChannelReorderRequest, type ChannelCa
 export type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 
 export * from "./pii-contract";
+
+export * from "./business-schema-version";
+export * from "./task-payload-cache";
+export * from "./community-cache";
+
+export * from "./community-forum-sidebar";
+
+export * from "./community-machine-resources"
+
+export * from "./community-friends";
+
+export { CommunityInviteListItemSchema, CommunityInvitesReadSchema, type CommunityInviteListItem, type CommunityInvitesRead } from "./community-invites";
+
+export { CommunityDmReadItemSchema, CommunityDmsReadSchema, parseCommunityDmsRead, type CommunityDmsRead } from "./community-dms";
+
+export * from "./community-profile-reads"

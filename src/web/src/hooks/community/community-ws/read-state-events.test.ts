@@ -1,3 +1,4 @@
+import { resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { currentConversationReadState } from "@/lib/community/conversation-entry"
@@ -11,7 +12,7 @@ import { disposeAccountReadStateReconciliation } from "./read-state-reconciliati
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
-const emptyAttention = { scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
+const emptyAttention = { resources: resourceBundleFixture({ viewerId: "u1" }), scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
 function context(): CommunityWsDispatchContext { return { deliveryMode: "single", queryClient: owner.client, communityStore: owner.runtime.ui, wsStore: owner.runtime.ws, sub: {}, viewerUserIdRef: { current: "u1" }, matchesFocus: () => false } }
 beforeEach(async () => { owner = await createCommunityQueryOwner("u1"); apiFetch.mockReset() })
 afterEach(async () => { disposeAccountReadStateReconciliation(owner.client); await owner.registry.cleanup(); owner.client.clear() })

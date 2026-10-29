@@ -1,3 +1,4 @@
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -46,7 +47,7 @@ async function mount(rail = false) {
     if (options.method === "PATCH") return response
     const key = `${options.authenticationAccount}:${path}`
     if (seen.has(key)) return new Promise((_, fail) => options.signal?.addEventListener("abort", () => fail(new DOMException("Retired refresh", "AbortError")), { once: true }))
-    seen.add(key); return Promise.resolve(path.endsWith("/server-folders") ? { folders } : { servers })
+    seen.add(key); return Promise.resolve(path.endsWith("/server-folders") ? { folders } : serverRailResponseFixture({ servers: servers.map(server => ({ ...server, isOwner: false })) }, options.authenticationAccount ?? "A"))
   })
   const view = render(<Root rail={rail} />)
   await waitFor(() => { expect(screen.getByTestId("order").textContent).toBe("a,b,c"); expect(screen.getByTestId("groups").textContent).toBe("one:c") })

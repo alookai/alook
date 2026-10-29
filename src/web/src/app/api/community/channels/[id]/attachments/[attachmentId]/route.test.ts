@@ -362,3 +362,75 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(await res.json()).toEqual({ error: "internal error", code: "internal" })
   })
 })
+
+describe("HTML attachment preview mode", () => {
+  const previewReq = (headers: Record<string, string> = {}) => new NextRequest("http://localhost/api/community/channels/c1/attachments/att_1?preview=html", { headers })
+  const htmlRow = (over: Record<string, unknown> = {}) => persistedRow({ filename: "page.html", contentType: "text/html", size: 40, ...over })
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it("checks readability before type validation or reading the object", async () => {
+    mockGetReadableAttachmentById.mockResolvedValue(null)
+    const response = await GET(previewReq(), ctx())
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "attachment not found" })
+    expect(mockR2Get).not.toHaveBeenCalled()
+  })
+  it("returns inline executable HTML with opaque-origin CSP, no storage cache and an early bootstrap", async () => {
+    allowPersistedHuman(htmlRow())
+    mockR2Get.mockResolvedValue(r2Object({}, new TextEncoder().encode('<!doctype html><html><body><button onclick="this.textContent=2">1</button></body></html>')))
+    const response = await GET(previewReq({ Range: "bytes=0-5" }), ctx())
+    expect(response.status).toBe(200)
+    expect(mockGetReadableAttachmentById).toHaveBeenCalledWith(expect.anything(), "att_1", "u1")
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8")
+    expect(response.headers.get("content-disposition")).toContain("inline")
+    expect(response.headers.get("content-security-policy")).toContain("sandbox allow-scripts")
+    expect(response.headers.get("content-security-policy")).not.toContain("allow-same-origin")
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer")
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+    expect(response.headers.get("content-length")).toBeNull()
+    expect(await response.text()).toContain("alook-html-ready")
+    expect(mockR2Get).toHaveBeenCalledExactlyOnceWith("channel/c_row/uuid/a.png")
+  })
+  it("preserves ordinary HTML download and the bot download contract", async () => {
+    for (const request of [req(), previewReq({ Authorization: "Bearer crk_abc" })]) {
+      allowPersistedHuman(htmlRow())
+      mockR2Get.mockResolvedValue(r2Object({}, new TextEncoder().encode("<p>original</p>")))
+      const response = await GET(request, ctx())
+      expect(await response.text()).toBe("<p>original</p>")
+      expect(response.headers.get("content-security-policy")).toContain("default-src 'none'")
+      expect(response.headers.get("content-security-policy")).not.toContain("allow-scripts")
+      if (request.headers.has("authorization")) expect(response.headers.get("x-alook-filename")).toBe("page.html")
+      else expect(response.headers.get("content-disposition")).toContain("attachment")
+    }
+  })
+  it("rejects incompatible type and declared oversize without an object read", async () => {
+    for (const [row, status] of [[htmlRow({ contentType: "image/png" }), 415], [htmlRow({ size: 2 * 1024 * 1024 + 1 }), 422]] as const) {
+      allowPersistedHuman(row)
+      expect((await GET(previewReq(), ctx())).status).toBe(status)
+    }
+    expect(mockR2Get).not.toHaveBeenCalled()
+  })
+  it.each(["", "<style>body{height:100vh}</style>"])("fails invalid HTML in this one response", async (html) => {
+    allowPersistedHuman(htmlRow())
+    mockR2Get.mockResolvedValue(r2Object({}, new TextEncoder().encode(html)))
+    const response = await GET(previewReq(), ctx())
+    expect(response.status).toBe(422)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+  it("rejects actual overflow even when the stored size is small", async () => {
+    allowPersistedHuman(htmlRow({ size: 1 }))
+    const cancel = vi.fn()
+    mockR2Get.mockResolvedValue(r2Object({ body: new ReadableStream({ start(c) { c.enqueue(new Uint8Array(2 * 1024 * 1024 + 1)) }, cancel }) }))
+    const response = await GET(previewReq(), ctx())
+    expect(response.status).toBe(422)
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+  it("separates missing storage from a failed object stream", async () => {
+    allowPersistedHuman(htmlRow())
+    mockR2Get.mockResolvedValue(null)
+    expect((await GET(previewReq(), ctx())).status).toBe(502)
+    mockR2Get.mockResolvedValue(r2Object({ body: new ReadableStream({ start(c) { c.error(new Error("read failure")) } }) }))
+    expect((await GET(previewReq(), ctx())).status).toBe(500)
+  })
+})

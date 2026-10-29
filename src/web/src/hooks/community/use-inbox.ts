@@ -13,7 +13,7 @@ import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
-import { communityMessagePreviewFromLegacy } from "@alook/shared"
+import type { CommunityResourceBundle } from "@alook/shared"
 import type {
 InboxFriendRequest,
 Marked,
@@ -35,7 +35,7 @@ useDmProjection,
 } from "@/lib/community-db/projections"
 import {
 captureCommunityLiveSnapshotToken,
-publishCommunityEmbeddedMessages,
+publishCommunityResourceBundle,
 } from "@/lib/community-db/sync"
 import { useAccountAttentionProjection } from "./use-account-attention"
 
@@ -280,7 +280,7 @@ export function useInboxUnreads() {
   return useInboxAttention()
 }
 
-type MarkedResponse = { marked: Marked[] }
+type MarkedResponse = MarkedWindowResponse & { resources: CommunityResourceBundle }
 type MarkedWindowResponse = { marked: Array<Omit<Marked, "m"> & { m: Pick<Marked["m"], "id"> }> }
 
 const inboxMarkedQueryFn = (queryClient: QueryClient) =>
@@ -290,15 +290,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
       "/api/community/users/me/marks",
       signal ? { signal } : undefined, publicationToken,
     ))
-    {
-      publishCommunityEmbeddedMessages(queryClient, {
-        entries: data.marked.map((marked) => ({
-          channelId: marked.channelId,
-          message: { ...communityMessagePreviewFromLegacy(marked.m, marked.channelId), resourceComplete: false },
-        })),
-        proof: { token: publicationToken, signal },
-      })
-    }
+    publishCommunityResourceBundle(queryClient, data.resources, { token: publicationToken, signal }, data.marked.map(row => ({ id: row.m.id, channelId: row.channelId })))
     return { marked: data.marked.map((row) => ({ ...row, m: { id: row.m.id } })) }
   }
 

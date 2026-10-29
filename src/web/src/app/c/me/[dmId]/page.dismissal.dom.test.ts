@@ -1,8 +1,10 @@
 import React from "react"
-import { setupUser } from "@/test/react-dom-harness"
+import { setupUser, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DmView } from "@/components/community/channels/dm-view"
+import { DmRoute } from "@/components/community/channels/dm-route"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 
 const {
   mockDismissConversation,
@@ -16,7 +18,7 @@ const {
 } = vi.hoisted(() => ({
   mockDismissConversation: vi.fn(),
   mockCommitRoute: vi.fn(),
-  mockHistory: { allowed: true, denied: false, error: null as Error | null, retry: vi.fn(),
+  mockHistory: { real: false, allowed: true, denied: false, error: null as Error | null, retry: vi.fn(),
     status: "readable", revoked: false, retryingMetadata: false, retryMetadata: vi.fn() },
   mockBlocked: [] as Array<{ userId: string }>,
   mockNavigationGate: { allowed: true, failed: false, retry: vi.fn() },
@@ -59,11 +61,12 @@ vi.mock("@/components/community/channels/dm-route-error-frame", () => ({
 vi.mock("@/components/community/channels/conversation-resolution-error-frame", () => ({
   ConversationResolutionErrorFrame: ({ onRetry }: { onRetry: () => void }) => React.createElement("button", { onClick: onRetry, "data-testid": "history-error" }, "Retry"),
 }))
-vi.mock("@/hooks/community/use-channel-metadata", () => ({
-  useChannelMetadata: () => ({ canRead: mockHistory.allowed, denied: mockHistory.denied,
+vi.mock("@/hooks/community/use-channel-metadata", async importOriginal => {
+  const actual=await importOriginal<typeof import("@/hooks/community/use-channel-metadata")>()
+  return {...actual,useChannelMetadata:(...args:Parameters<typeof actual.useChannelMetadata>)=>mockHistory.real ? actual.useChannelMetadata(...args) : ({ canRead: mockHistory.allowed, denied: mockHistory.denied,
     status: mockHistory.status, revoked: mockHistory.revoked, retry: mockHistory.retryMetadata, retrying: mockHistory.retryingMetadata,
-    data: { readProof: mockHistory.allowed ? {} : undefined } }),
-}))
+    data: { readProof: mockHistory.allowed ? {} : undefined } })}
+})
 vi.mock("@/hooks/community/channel-metadata", () => ({ isChannelMetadataTokenCurrent: () => true }))
 vi.mock("@/lib/community/last-community-route", () => ({ commitCommunityChannelRoute: mockCommitRoute }))
 vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
@@ -161,7 +164,7 @@ vi.mock("@alook/shared", async (importOriginal) => ({
 vi.mock("@/hooks/community/use-notification-settings", () => ({
   useNotificationSettings: () => ({ channel: {} }),
 }))
-vi.mock("@/lib/api/client", () => ({ toastApiError: vi.fn() }))
+vi.mock("@/lib/api/client", async importOriginal => ({...await importOriginal<typeof import("@/lib/api/client")>(), toastApiError:vi.fn()}))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => new Map(),
 }))
@@ -170,8 +173,10 @@ vi.mock("@/hooks/community/use-native-system-notifications", () => ({
     mockDismissConversation(...args),
 }))
 
+afterEach(()=>vi.unstubAllGlobals())
 describe("DM notification dismissal readiness", () => {
   beforeEach(() => {
+    mockHistory.real=false
     mockDismissConversation.mockClear()
     mockCommitRoute.mockClear()
     mockDmMessages.navigationBlocked = false
@@ -320,4 +325,27 @@ describe("DM notification dismissal readiness", () => {
     expect(mockCommitRoute).not.toHaveBeenCalled()
     expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith("viewer_1", { kind: "dm", channelId: "dm_1" }, false)
   })
+})
+
+it.each([false,true])("presents current peerless denial before directory loading=%s without read or composer readiness",loading=>{
+  mockHistory.real=false;mockHistory.allowed=false;mockHistory.denied=true;mockHistory.revoked=true;mockHistory.status="denied";mockHistory.error=null
+  mockDmMessages.navigationBlocked=true;mockDms.dms=[];mockDms.isLoading=loading;mockBlocked.length=0
+  const view=render(React.createElement(DmView,{dmId:"dm_1"}))
+  expect(view.container.querySelector('[role="alert"]')?.textContent).toBe("You can no longer read this conversation.")
+  for(const id of ["dm-loading","dm-error","history-body","composer","composer-pending"]) expect(view.container.querySelector(`[data-testid="${id}"]`)).toBeNull()
+})
+it("reaches the actual peerless denial through real HTTP metadata and DmRoute without read PUT or notification readiness",async()=>{
+  mockHistory.real=true;mockDms.dms=[];mockDms.isLoading=false;mockBlocked.length=0;mockDmMessages.navigationBlocked=true
+  mockDismissConversation.mockClear();mockCommitRoute.mockClear()
+  const fetch=vi.fn(async()=>new Response(JSON.stringify({contractVersion:BUSINESS_SCHEMA_VERSION,error:{code:"blocked",message:"blocked",retryable:false}}),{status:403,headers:{"content-type":"application/json",[COMMUNITY_CONTRACT_HEADER]:String(BUSINESS_SCHEMA_VERSION)}}))
+  vi.stubGlobal("fetch",fetch)
+  const view=render(React.createElement(DmRoute,{dmId:"dm_1"}))
+  try {
+    await waitFor(()=>expect(view.container.querySelector('[role="alert"]')?.textContent).toBe("You can no longer read this conversation."))
+    for(const id of ["dm-loading","dm-error","history-body","composer","composer-pending"]) expect(view.container.querySelector(`[data-testid="${id}"]`)).toBeNull()
+    expect(mockCommitRoute).not.toHaveBeenCalled()
+    expect(mockDismissConversation.mock.calls.some(([, ,ready])=>ready===true)).toBe(false)
+    expect(fetch.mock.calls.length).toBeGreaterThan(0)
+    expect(fetch.mock.calls.every(([,options])=>!options?.method || options.method==="GET")).toBe(true)
+  } finally {view.unmount();mockHistory.real=false}
 })

@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
-import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
-import { virtualListPositionKey, type VirtualListPositionScope, type VirtualListPositionSnapshot } from "@/lib/community/virtual-list-position"
-import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
@@ -87,25 +84,16 @@ describe("current ready-window target retirement through the native position own
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
 
-  it("cancels a restored anchor removed from a ready window before its command is issued", async () => {
-    const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
+  it("cancels an ordinary read target removed before its command is issued", () => {
     const items = Array.from({ length: 40 }, (_, index) => message(`m${index}`))
-    const first = mount({ positionScope, items })
-    first.move(800)
-    resize()
-    const snapshot = client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))!
-    first.view.unmount()
     const settled = vi.fn()
-    const restored = mount({ positionScope, items, onInitialPositionSettled: settled }, false, undefined, undefined, 0)
-    const native = scrollFixture.latest.virtualizer
-    expect(native.options.initialMeasurementsCache.length).toBeGreaterThan(0)
-    const index = vi.spyOn(native, "scrollToIndex")
-    restored.update({ positionDataState: "ready", items: items.filter(item => item.key !== snapshot.anchorKey) })
+    const h = mount({ items, initialPositionMessageId: "m5", onInitialPositionSettled: settled }, false, undefined, undefined, 0)
+    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    h.update({ positionDataState: "ready", items: items.filter(item => item.key !== "msg:m5") })
     expect(index).not.toHaveBeenCalled()
     expect(settled).toHaveBeenCalledExactlyOnceWith("cancelled")
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    restored.update({ items })
+    h.update({ items })
     expect(index).not.toHaveBeenCalled()
     expect(settled).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(false)

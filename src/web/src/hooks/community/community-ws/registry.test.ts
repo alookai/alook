@@ -91,7 +91,9 @@ describe("community WebSocket registry", () => {
   it("has exactly one entry for each runtime event type", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(48)
+    expect(eventTypes).toHaveLength(46)
+    expect(eventTypes).not.toContain("community:channel.member_add")
+    expect(eventTypes).not.toContain("community:channel.member_remove")
     expect(registryTypes).toEqual(eventTypes)
   })
 
@@ -111,7 +113,7 @@ describe("community WebSocket registry", () => {
     "community:server.update",
     "community:category.update",
     "community:channel.update",
-    "community:channel.member_add",
+    "community:channel.membership.change",
     "community:member.update",
     "community:unread.bump",
     "community:presence.update",

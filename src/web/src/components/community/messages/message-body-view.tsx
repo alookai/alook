@@ -1,4 +1,7 @@
-import { useMemo, type ComponentProps } from "react"
+import { createContext, useContext, useMemo, type ComponentProps } from "react"
+import { HtmlAttachmentPreview } from "./html-attachment-preview"
+import type { Attachment, FileAttachment } from "@/lib/community/models/message"
+import { htmlPreviewPlugin, selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
 import { Streamdown } from "streamdown"
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from "rehype-sanitize"
 import { harden } from "rehype-harden"
@@ -15,6 +18,15 @@ import { redactedContentPlugin } from "./redacted-content"
 import { CommunityInviteCard } from "../social/community-invite-card"
 import type { MessagePerspective } from "@/components/community/messages/message-presentation-types"
 import type { OpenProfile } from "@/components/community/social/profile-types"
+
+const HtmlPreviewAttachments = createContext<ReadonlyMap<string, FileAttachment>>(new Map())
+
+function HtmlPreviewMarkdown(props: Record<string, unknown>) {
+  const selected = useContext(HtmlPreviewAttachments)
+  const id = props["data-attachment-id"]
+  const attachment = typeof id === "string" ? selected.get(id) : undefined
+  return attachment && typeof id === "string" ? <HtmlAttachmentPreview attachment={{ ...attachment, id }} /> : null
+}
 
 // The sanitize schema Streamdown builds internally when `allowedTags` is
 // left at its default merge path (verified against Streamdown 2.5.0's
@@ -94,50 +106,58 @@ const REHYPE_PLUGINS: PluggableList = [
 // the raw link even when the card is present.
 export function MessageBodyView({
   text,
+  attachments,
   plugins,
   onOpenProfile,
   perspective = "neutral",
 }: {
   text: string
+  attachments?: readonly Attachment[]
   plugins: ComponentProps<typeof Streamdown>["plugins"]
   onOpenProfile?: OpenProfile
   perspective?: MessagePerspective
 }) {
   const inviteTokens = useMemo(() => extractInviteTokens(text), [text])
-  const components = useMemo(
-    () => buildMdComponents(onOpenProfile),
-    [onOpenProfile],
-  )
+  const selected = useMemo(() => selectHtmlPreviews(text, attachments), [text, attachments])
+  const remarkPlugins = useMemo<PluggableList>(() => selected.size
+    ? [...CHAT_REMARK_PLUGINS, [htmlPreviewPlugin, { text, attachments }]]
+    : CHAT_REMARK_PLUGINS, [text, attachments, selected])
+  const components = useMemo(() => ({
+    ...buildMdComponents(onOpenProfile),
+    htmlpreview: HtmlPreviewMarkdown,
+  }), [onOpenProfile])
   return (
     <div
       data-community-message-body
       className="markdown markdown-chat flex flex-col gap-2 wrap-anywhere select-text text-[15px] leading-snug text-foreground"
     >
-      <Streamdown
-        className="message-markdown-blocks flex flex-col gap-2 space-y-0"
-        mode="static"
-        parseIncompleteMarkdown={false}
-        plugins={plugins}
-        remarkPlugins={CHAT_REMARK_PLUGINS}
-        remarkRehypeOptions={{ handlers: chatSyntaxHandlers }}
-        rehypePlugins={REHYPE_PLUGINS}
-        // Deliberately skips the AI-content confirm-before-navigating modal
-        // — that feature exists for LLM-generated content where a model
-        // could be prompt-injected into emitting a malicious-looking link;
-        // community chat links are typed by the human sender, so a plain
-        // hyperlink click is the expected behavior. Protocol/XSS filtering
-        // is unconditional via `rehype-harden` above, unaffected by this
-        // flag either way.
-        linkSafety={{ enabled: false }}
-        controls={{
-          code: { copy: true, download: false },
-          table: { copy: true, download: false, fullscreen: true },
-        }}
-        literalTagContent={MD_LITERAL_TAGS}
-        components={components}
-      >
-        {text}
-      </Streamdown>
+      <HtmlPreviewAttachments.Provider value={selected}>
+        <Streamdown
+          className="message-markdown-blocks flex flex-col gap-2 space-y-0"
+          mode="static"
+          parseIncompleteMarkdown={false}
+          plugins={plugins}
+          remarkPlugins={remarkPlugins}
+          remarkRehypeOptions={{ handlers: chatSyntaxHandlers }}
+          rehypePlugins={REHYPE_PLUGINS}
+          // Deliberately skips the AI-content confirm-before-navigating modal
+          // — that feature exists for LLM-generated content where a model
+          // could be prompt-injected into emitting a malicious-looking link;
+          // community chat links are typed by the human sender, so a plain
+          // hyperlink click is the expected behavior. Protocol/XSS filtering
+          // is unconditional via `rehype-harden` above, unaffected by this
+          // flag either way.
+          linkSafety={{ enabled: false }}
+          controls={{
+            code: { copy: true, download: false },
+            table: { copy: true, download: false, fullscreen: true },
+          }}
+          literalTagContent={MD_LITERAL_TAGS}
+          components={components}
+        >
+          {text}
+        </Streamdown>
+      </HtmlPreviewAttachments.Provider>
       {inviteTokens.length > 0 && (
         <div className="flex flex-col gap-2">
           {inviteTokens.map((token) => (

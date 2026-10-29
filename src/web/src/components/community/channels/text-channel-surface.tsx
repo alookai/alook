@@ -23,6 +23,7 @@ import type { FileAttachment, ImagePreview } from "@/lib/community/models/messag
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import { tid } from "@/lib/community/testids"
+import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
 
 export function TextChannelSurface({
   channelId,
@@ -72,6 +73,7 @@ export function TextChannelSurface({
   embedded?: boolean
 }) {
   const breakpoint = useBreakpoint()
+  const routeActive = useConversationActivity()
   const [rightPanel, setRightPanel] = useAtom(useCreateAtom<RightPanel>(null))
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
@@ -95,6 +97,7 @@ export function TextChannelSurface({
     setRightPanel((current) => current === panel ? null : panel)
   }
   const Body = embedded ? "div" : "main"
+  const inputActive = routeActive && feed.navigationBlocked === false
 
   return (
     <MessageChannelController
@@ -127,6 +130,10 @@ export function TextChannelSurface({
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
+              data-testid={!embedded && feed.positionDataState === "pending" ? tid.conversationResolutionPending : undefined}
+              aria-busy={!embedded && feed.positionDataState === "pending" ? true : undefined}
+              aria-label={!embedded && feed.positionDataState === "pending" ? "Loading conversation" : undefined}
+              data-community-conversation-subtype="text"
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               <ConversationFooterSlotProvider>
@@ -176,22 +183,25 @@ export function TextChannelSurface({
                 <ConversationFooterShell
                   data-onboarding-target="channel-composer"
                   data-testid={tid.channelComposerShell}
+                  inert={!inputActive}
                 >
-                  <Composer
-                    ref={mentionInsertion.composerRef}
-                    channel={channelName}
-                    context="channel"
-                    members={composerMembers}
-                    mentionCandidates={composerMentionCandidates}
-                    channelRefCandidates={channelRefCandidates}
-                    sendContract="accepted"
-                    onAcceptSend={controller.acceptMessage}
-                    onTyping={controller.handleTyping}
-                    replyingTo={controller.replyTo ?? undefined}
-                    onCancelReply={() => controller.setReplyTo(null)}
-                    autoFocus={breakpoint === "desktop" && !embedded}
-                    draftKey={`${serverId}/${channelId}`}
-                  />
+                  <ConversationActivityContext value={inputActive}>
+                    <Composer
+                      ref={mentionInsertion.composerRef}
+                      channel={channelName}
+                      context="channel"
+                      members={composerMembers}
+                      mentionCandidates={composerMentionCandidates}
+                      channelRefCandidates={channelRefCandidates}
+                      sendContract="accepted"
+                      onAcceptSend={controller.acceptMessage}
+                      onTyping={controller.handleTyping}
+                      replyingTo={controller.replyTo ?? undefined}
+                      onCancelReply={() => controller.setReplyTo(null)}
+                      autoFocus={breakpoint === "desktop" && !embedded}
+                      draftKey={`${serverId}/${channelId}`}
+                    />
+                  </ConversationActivityContext>
                 </ConversationFooterShell>
               </ConversationFooterSlotProvider>
             </Body>

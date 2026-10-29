@@ -1,3 +1,5 @@
+import { CommunityChannelResourceSchema, AttentionIncludedChannelSchema } from "@alook/shared"
+import { serverRailResponseFixture, serverResourceFixture, categoryResourceFixture, channelResourceFixture, fullResourceBundleFixture, serverDirectoryFixture, resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider, CancelledError } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -27,22 +29,23 @@ beforeEach(async () => {
 })
 function Owner({ children }: PropsWithChildren) { return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children)) }
 const identity = { id: "srv_1", name: "Alook", discriminator: "0001", description: "Build together", icon: null, ownerId: "viewer" }
-const canonical = (id = "srv_1") => ({ ...identity, id, initial: "A", active: false, unread: false, mentions: 0, isOwner: false })
+const canonical = (id = "srv_1") => serverRailResponseFixture({ servers: [{ ...identity, id, role: "member", isOwner: false }] }, "viewer").servers[0]!
 function publish(snapshot: Parameters<typeof publishCommunityLiveSnapshot>[1]["snapshot"]) {
   return publishCommunityLiveSnapshot(client, { snapshot, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
 }
 function seedList(servers: ServersResponse["servers"] = [canonical()]) {
-  publish({ kind: "servers", data: { servers } })
+  publish({ kind: "servers", data: serverRailResponseFixture({ servers }, "viewer") })
   client.setQueryData(communityKeys.servers(), servers.map((server) => server.id))
 }
 function seedDetail(channels: ServerDetail["categories"][number]["channels"] = []) {
   seedList()
-  publish({ kind: "server-detail", data: { ...identity, categories: [{ id: "cat_1", name: "Main", private: 0, channels }] } })
-  client.setQueryData(communityKeys.server(identity.id), identity.id)
+  publish({ kind: "server-detail", data: serverDirectoryFixture({ ...identity, categories: [{ id: "cat_1", name: "Main", private: false, channels }] }) })
 }
 function attention(channelId: string, count = 1, parentChannelId: string | null = null) {
   publishAccountAttentionSnapshot(client, {
-    snapshot: { scopes: [{ scopeId: channelId, channelId, serverId: identity.id, parentChannelId, ordinaryUnread: true, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: count }], items: [], limit: 100, truncated: false },
+    snapshot: { included: { servers: [], channels: [], dms: [], profiles: [], messages: [] }, resources: fullResourceBundleFixture("viewer", [serverResourceFixture(identity)], parentChannelId
+      ? [channelResourceFixture({ id: parentChannelId, serverId: identity.id, type: "forum" }), channelResourceFixture({ id: channelId, serverId: identity.id, type: "thread", parentChannelId, parentMessageId: `opener-${channelId}` })]
+      : [(registry.collections.channels.get(channelId) ? CommunityChannelResourceSchema.strip().parse(registry.collections.channels.get(channelId)) : channelResourceFixture({ id: channelId, serverId: identity.id }))]), scopes: [{ scopeId: channelId, channelId, serverId: identity.id, parentChannelId, ordinaryUnread: true, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: count }], items: [], limit: 100, truncated: false },
     proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
   })
 }
@@ -53,8 +56,8 @@ function fetchDetail() {
   return client.query({ queryKey: communityKeys.server(identity.id), queryFn: ({ signal }) => serverProjectedQueryFn(client, identity.id, signal)(), staleTime: 0 })
 }
 function detailApi(url: string) {
-  if (url === "/api/community/servers") return { servers: [identity] }
-  if (url.endsWith("/categories")) return { categories: [{ id: "cat_1", name: "Main", private: 0 }] }
+  if (url === "/api/community/servers") return serverRailResponseFixture({ servers: [identity] }, "viewer")
+  if (url.endsWith("/categories")) return { categories: [categoryResourceFixture({ id: "cat_1", serverId: identity.id, name: "Main" })] }
   if (url.endsWith("/channels")) return { channels: [] }
   throw new Error("unexpected " + url)
 }
@@ -69,7 +72,7 @@ async function rawList() {
 
 describe("useServers / serversQueryFn", () => {
   it("materialises raw server rows into render-ready Server shape", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [{ ...identity, official: true, role: "owner", mentions: 3, unread: true }, { ...identity, id: "srv_2", name: "Beta", discriminator: "12345", role: "member", description: undefined }] })
+    apiFetchMock.mockResolvedValueOnce(serverRailResponseFixture({ servers: [{ ...identity, official: true, role: "owner", mentions: 3, unread: true }, { ...identity, id: "srv_2", name: "Beta", discriminator: "12345", role: "member", description: "", official: false }] }, "viewer"))
     const data = await rawList()
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
     expect(data.servers[0]).toMatchObject({ ...identity, official: true, initial: "A", isOwner: true, mentions: 0, active: false, unread: false })
@@ -78,19 +81,19 @@ describe("useServers / serversQueryFn", () => {
   })
 
   it("preserves mentions when provided; defaults to 0 when omitted", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [{ ...identity, mentions: 7 }, { ...identity, id: "srv_2" }] })
+    apiFetchMock.mockResolvedValueOnce(serverRailResponseFixture({ servers: [{ ...identity, mentions: 7 }, { ...identity, id: "srv_2" }] }, "viewer"))
     expect((await rawList()).servers.map((server) => server.mentions)).toEqual([0, 0])
   })
 
   it("passes TanStack's abort signal to the canonical request", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    apiFetchMock.mockResolvedValueOnce(serverRailResponseFixture({ servers: [] }, "viewer"))
     let signal!: AbortSignal
     await client.query({ queryKey: communityKeys.servers(), queryFn: async (context) => { signal = context.signal; return (await serversQueryFn(context)).servers.map((server) => server.id) } })
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.objectContaining({ signal, assertActive: expect.any(Function) }))
   })
 
   it("populates queryClient at communityKeys.servers() with transport IDs only", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [identity] })
+    apiFetchMock.mockResolvedValueOnce(serverRailResponseFixture({ servers: [identity] }, "viewer"))
     await fetchList()
     expect(client.getQueryData(communityKeys.servers())).toEqual([identity.id])
     expect(registry.collections.servers.get(identity.id)).toMatchObject(identity)
@@ -103,13 +106,13 @@ describe("useServers / serversQueryFn", () => {
     const result = pending.catch((error) => error)
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     registry.runtime.ws.actions.activateProfileAccount("replacement")
-    release({ servers: [identity] })
+    release(serverRailResponseFixture({ servers: [identity] }, "viewer"))
     expect(await result).toMatchObject({ name: "AbortError" })
     expect(registry.collections.servers.size).toBe(0)
   })
 
   it("confirms live list authority only for the current QueryClient and auth generation", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    apiFetchMock.mockResolvedValueOnce(serverRailResponseFixture({ servers: [] }, "viewer"))
     const rendered = renderHook(() => useServers(), { wrapper: Owner })
     expect(rendered.result.current.isLiveAuthoritative).toBe(false)
     await waitFor(() => expect(rendered.result.current.isLiveAuthoritative).toBe(true))
@@ -127,7 +130,7 @@ describe("useServers / serversQueryFn", () => {
   })
 
   it("invalidates live list authority when the access epoch changes", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    apiFetchMock.mockResolvedValueOnce(serverRailResponseFixture({ servers: [] }, "viewer"))
     const rendered = renderHook(() => useServers(), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.isLiveAuthoritative).toBe(true))
     act(() => registry.runtime.ws.actions.revokeServerAccess("s1"))
@@ -136,19 +139,19 @@ describe("useServers / serversQueryFn", () => {
 
   it("binds live authority to the projected unordered server membership", async () => {
     const servers = Array.from({ length: 7 }, (_, index) => ({ ...canonical("s" + (index + 1)), name: "Server " + (index + 1) }))
-    apiFetchMock.mockResolvedValueOnce({ servers })
+    apiFetchMock.mockResolvedValueOnce(serverRailResponseFixture({ servers }, "viewer"))
     const rendered = renderHook(() => useServers(), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.isLiveAuthoritative).toBe(true))
     expect(rendered.result.current.servers.map((server) => server.id)).toEqual(servers.map((server) => server.id))
     act(() => client.setQueryData(communityKeys.servers(), [...servers.map((server) => server.id)].reverse()))
     expect(rendered.result.current.isLiveAuthoritative).toBe(true)
-    act(() => publish({ kind: "servers", data: { servers: servers.slice(0, 6) } }))
+    act(() => publish({ kind: "servers", data: serverRailResponseFixture({ servers: servers.slice(0, 6) }, "viewer") }))
     await waitFor(() => expect(rendered.result.current.servers).toHaveLength(6))
     expect(rendered.result.current.isLiveAuthoritative).toBe(false)
-    apiFetchMock.mockResolvedValueOnce({ servers })
+    apiFetchMock.mockResolvedValueOnce(serverRailResponseFixture({ servers }, "viewer"))
     await act(async () => { await rendered.result.current.refetch() })
     await waitFor(() => expect(rendered.result.current.isLiveAuthoritative).toBe(true))
-    act(() => publish({ kind: "servers", data: { servers: [...servers, canonical("s8")] } }))
+    act(() => publish({ kind: "servers", data: serverRailResponseFixture({ servers: [...servers, canonical("s8")] }, "viewer") }))
     await waitFor(() => expect(rendered.result.current.servers).toHaveLength(8))
     expect(rendered.result.current.isLiveAuthoritative).toBe(false)
   })
@@ -194,7 +197,7 @@ describe("useServers / serversQueryFn", () => {
     seedList([{ ...canonical(), unread: true }])
     const rendered = renderHook(() => useServers(), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.servers[0]?.unread).toBe(false))
-    act(() => publish({ kind: "servers", data: { servers: [{ ...canonical(), unread: true, unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }] }] } }))
+    act(() => publish({ kind: "servers", data: serverRailResponseFixture({ servers: [{ ...canonical(), unread: true, unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }] }] }, "viewer") }))
     await waitFor(() => expect(rendered.result.current.servers[0]?.unread).toBe(false))
     act(() => publish({ kind: "read-state", data: { revision: 1, readStates: [{ channelId: "c1", lastReadMessageId: "m4", lastReadAt: null, lastReadSeq: 4 }] } }))
     expect(rendered.result.current.servers[0]?.unread).toBe(false)
@@ -220,7 +223,7 @@ describe("useServer / projected canonical detail", () => {
       await waitFor(() => expect(retirement === "owner" ? !registry.runtime.lifecycle.get().active : registry.runtime.ws.get().profileViewerId === "replacement").toBe(true))
       await waitFor(() => expect(view.result.current.fetchStatus).toBe("idle"))
       expect(view.result.current.server).toBeNull()
-      expect(registry.collections.servers.get(identity.id)?.detailComplete).toBe(false)
+      expect(client.getQueryData(communityKeys.server(identity.id))).toBeUndefined()
       expect(apiFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/categories"))).toHaveLength(1)
     } finally {
       unsubscribe()
@@ -310,14 +313,15 @@ describe("useServer / projected canonical detail", () => {
     seedList(); apiFetchMock.mockImplementation(detailApi)
     const rendered = renderHook(() => useServer(identity.id), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.server).toMatchObject({ ...identity, categories: [{ id: "cat_1", channels: [] }] }))
-    expect(client.getQueryData(communityKeys.server(identity.id))).toBe(identity.id)
+    expect(client.getQueryData(communityKeys.server(identity.id))).toMatchObject({ serverId: identity.id })
   })
 
   it.each([["offline", new Error("offline")], ["5xx", new ApiError("unavailable", 503)]])("keeps the cached server list on a transient %s failure", async (_label, error) => {
     seedDetail(); apiFetchMock.mockRejectedValue(error)
     await expect(fetchDetail()).rejects.toBe(error)
     expect(client.getQueryData(communityKeys.servers())).toEqual([identity.id])
-    expect(registry.collections.servers.get(identity.id)).toMatchObject({ ...identity, detailComplete: true })
+    expect(registry.collections.servers.get(identity.id)).toMatchObject(identity)
+    expect(client.getQueryData(communityKeys.server(identity.id))).toMatchObject({ serverId: identity.id, categoryIds: ["cat_1"] })
   })
 
   it.each([403, 404])("evicts live and persisted server state on definitive %s", async (status) => {
@@ -333,13 +337,13 @@ describe("useServer / projected canonical detail", () => {
 
   it("does not merge stale positives from the retired server unread endpoint", async () => {
     seedList(); apiFetchMock.mockImplementation((url: string) => url.endsWith("/unreads") ? { channelIds: ["c1"], sources: [{ channelId: "c1", lastUnreadSeq: 3 }], stale: true } : detailApi(url))
-    await expect(fetchDetail()).resolves.toBe(identity.id)
+    await expect(fetchDetail()).resolves.toMatchObject({ serverId: identity.id })
     expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 
   it("projects child scope metadata and confirms every loaded channel", async () => {
     seedList()
-    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [{ id: "forum_1", name: "Forum", type: "forum", categoryId: "cat_1" }] } : detailApi(url))
+    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [{ id: "forum_1", name: "Forum", type: "forum", categoryId: "cat_1" }].map(row => channelResourceFixture({ ...row, serverId: identity.id })) } : detailApi(url))
     await fetchDetail()
     expect(registry.collections.channels.get("forum_1")).toMatchObject({ serverId: identity.id, type: "forum" })
   })
@@ -348,8 +352,13 @@ describe("useServer / projected canonical detail", () => {
     seedDetail([{ id: "c1", name: "One", active: false, unread: false }, { id: "c2", name: "Two", active: false, unread: true }]); attention("c1")
     const rendered = renderHook(() => useServer(identity.id), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.server?.categories[0]?.channels.map((channel) => channel.unread)).toEqual([true, false]))
+    const currentWindow = client.getQueryData(communityKeys.server(identity.id))
     act(() => client.setQueryData(communityKeys.server(identity.id), { id: identity.id, categories: [{ channels: [{ id: "raw", unread: true }] }] }))
-    expect(rendered.result.current.server?.categories[0]?.channels.map((channel) => channel.id)).toEqual(["c1", "c2"])
+    expect(registry.collections.channels.has("raw")).toBe(false)
+    expect(registry.collections.channels.has("c1")).toBe(true)
+    expect(registry.collections.channels.has("c2")).toBe(true)
+    act(() => client.setQueryData(communityKeys.server(identity.id), currentWindow))
+    await waitFor(() => expect(rendered.result.current.server?.categories[0]?.channels.map(channel => channel.id)).toEqual(["c1", "c2"]))
   })
 
   it("does not retain rolling-deploy server-detail unread without canonical attention", async () => {
@@ -362,15 +371,15 @@ describe("useServer / projected canonical detail", () => {
 
   it("composes a single server detail from canonical resources", async () => {
     const legacyChannel = { id: "ch_1", name: "general", type: "text", serverId: identity.id, categoryId: "cat_1", topic: "Legacy topic", parentChannelId: null,
-      parentMessageId: null, creatorId: "viewer", position: 2, archived: 0, createdAt: "created", lastMessageAt: null, messageCount: 3 }
-    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [legacyChannel, { ...legacyChannel, id: "ch_2", name: "loose", categoryId: null, archived: 1 }] } : detailApi(url))
+      parentMessageId: null, creatorId: "viewer", position: 2, archived: false, createdAt: "created", lastMessageAt: null, messageCount: 3 }
+    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [legacyChannel, { ...legacyChannel, id: "ch_2", name: "loose", categoryId: null, archived: true }] } : detailApi(url))
     await fetchDetail()
     const rendered = renderHook(() => useServer(identity.id), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.server).toMatchObject({ ...identity, categories: [{ id: "cat_1", channels: [{ id: "ch_1", unread: false }] }, { id: "__uncategorized__", channels: [{ id: "ch_2", unread: false }] }] }))
-    expect(client.getQueryData(communityKeys.server(identity.id))).toBe(identity.id)
+    expect(client.getQueryData(communityKeys.server(identity.id))).toMatchObject({ serverId: identity.id })
     expect(client.getQueryData(communityKeys.servers())).toEqual([identity.id])
-    expect(registry.collections.channels.get("ch_1")).toMatchObject({ topic: "Legacy topic", createdAt: "created", messageCount: 3, archived: false, resourceComplete: false })
-    expect(registry.collections.channels.get("ch_2")).toMatchObject({ archived: true, resourceComplete: false })
+    expect(registry.collections.channels.get("ch_1")).toMatchObject({ topic: "Legacy topic", createdAt: "created", messageCount: 3, archived: false })
+    expect(registry.collections.channels.get("ch_2")).toMatchObject({ archived: true })
   })
 
   it("passes the navigation AbortSignal to every server-detail resource", async () => {
@@ -396,10 +405,10 @@ describe("useServer / projected canonical detail", () => {
     const rail = fetchList()
     await waitFor(() => expect(release).toBeTypeOf("function"))
     try {
-      await expect(fetchDetail()).resolves.toBe(identity.id)
+      await expect(fetchDetail()).resolves.toMatchObject({ serverId: identity.id })
       expect(client.getQueryState(communityKeys.servers())?.fetchStatus).toBe("fetching")
       expect(registry.collections.servers.get(identity.id)).toMatchObject(identity)
-    } finally { release({ servers: [identity] }); await rail }
+    } finally { release(serverRailResponseFixture({ servers: [identity] }, "viewer")); await rail }
   })
 
   it("joins a native in-flight rail read for a cold canonical identity without duplicate IO", async () => {
@@ -410,20 +419,20 @@ describe("useServer / projected canonical detail", () => {
     const detail = fetchDetail()
     await waitFor(() => expect(apiFetchMock.mock.calls.filter(([url]) => String(url).endsWith("/channels"))).toHaveLength(1))
     expect(client.getQueryState(communityKeys.server(identity.id))?.fetchStatus).toBe("fetching")
-    release({ servers: [identity] })
-    await expect(rail).resolves.toEqual([identity.id]); await expect(detail).resolves.toBe(identity.id)
+    release(serverRailResponseFixture({ servers: [identity] }, "viewer"))
+    await expect(rail).resolves.toEqual([identity.id]); await expect(detail).resolves.toMatchObject({ serverId: identity.id })
     expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(1)
   })
 
   it("reads warm server identity without issuing another list request", async () => {
     seedList(); apiFetchMock.mockImplementation(detailApi)
-    await expect(fetchDetail()).resolves.toBe(identity.id)
+    await expect(fetchDetail()).resolves.toMatchObject({ serverId: identity.id })
     expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(0)
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
   })
 
   it("does not cold-boot forum unread from the retired server unread endpoint", async () => {
-    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [{ id: "forum_1", name: "Forum", type: "forum", categoryId: "cat_1" }] } : detailApi(url))
+    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [channelResourceFixture({ id: "forum_1", name: "Forum", type: "forum", serverId: identity.id, categoryId: "cat_1" })] } : detailApi(url))
     const rendered = renderHook(() => useServer(identity.id), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.server?.categories[0]?.channels[0]?.unread).toBe(false))
     expect(rendered.result.current.server?.forumUnreadState).toBeUndefined()
@@ -443,7 +452,7 @@ describe("useServer / projected canonical detail", () => {
 
   it("does not issue a raw server unread read", async () => {
     apiFetchMock.mockImplementation(detailApi)
-    await expect(fetchDetail()).resolves.toBe(identity.id)
+    await expect(fetchDetail()).resolves.toMatchObject({ serverId: identity.id })
     expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
   })
 })
@@ -459,9 +468,9 @@ describe("qualified viewer server role", () => {
   it.each([false, true])("admits an authoritative owner role with newer forum-presence confirmation=%s", async confirmed => {
     const entry = forumConversationEntryFixture("forum", identity.id)
     publishAccountAttentionSnapshot(client, {
-      snapshot: { scopes: [], items: [], limit: 100, truncated: false, included: {
+      snapshot: { resources: fullResourceBundleFixture("viewer", [serverResourceFixture(identity)], [entry.channel]), scopes: [], items: [], limit: 100, truncated: false, included: {
         servers: [{ id: identity.id, name: identity.name, discriminator: identity.discriminator }],
-        channels: [entry.channel], dms: [], profiles: [], messages: [],
+        channels: [AttentionIncludedChannelSchema.strip().parse(entry.channel)], dms: [], profiles: [], messages: [],
       } },
       proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
     })
@@ -471,7 +480,7 @@ describe("qualified viewer server role", () => {
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.anything()))
     expect(view.result.current).toBeUndefined()
     if (confirmed) await act(async () => { await seedConversationEntry(client, entry) })
-    await act(async () => { held.resolve({ servers: [{ ...identity, role: "owner", memberId: "own-member" }] }) })
+    await act(async () => { held.resolve(serverRailResponseFixture({ servers: [{ ...identity, role: "owner", memberId: "own-member" }] }, "viewer")) })
     await waitFor(() => expect(view.result.current).toBe("owner"))
     view.unmount()
   })
@@ -487,7 +496,7 @@ describe("qualified viewer server role", () => {
       type: "community:member.update", serverId: identity.id, memberId: "own-member", userId: "viewer", changes: { role: "member" },
     }))
     await act(async () => {
-      held.resolve({ servers: [{ ...identity, role: "owner", memberId: "own-member" }] })
+      held.resolve(serverRailResponseFixture({ servers: [{ ...identity, role: "owner", memberId: "own-member" }] }, "viewer"))
       await request
     })
     const view = renderHook(() => useViewerServerRole(identity.id, "viewer"), { wrapper: Owner })
@@ -498,9 +507,9 @@ describe("qualified viewer server role", () => {
   it("keeps confirmed membership when an older server list omits it", async () => {
     const entry = forumConversationEntryFixture("forum", identity.id)
     publishAccountAttentionSnapshot(client, {
-      snapshot: { scopes: [], items: [], limit: 100, truncated: false, included: {
+      snapshot: { resources: fullResourceBundleFixture("viewer", [serverResourceFixture(identity)], [entry.channel]), scopes: [], items: [], limit: 100, truncated: false, included: {
         servers: [{ id: identity.id, name: identity.name, discriminator: identity.discriminator }],
-        channels: [entry.channel], dms: [], profiles: [], messages: [],
+        channels: [AttentionIncludedChannelSchema.strip().parse(entry.channel)], dms: [], profiles: [], messages: [],
       } },
       proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
     })
@@ -509,18 +518,18 @@ describe("qualified viewer server role", () => {
     const request = fetchList()
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.anything()))
     await act(async () => { await seedConversationEntry(client, entry) })
-    await act(async () => { held.resolve({ servers: [] }); await request })
+    await act(async () => { held.resolve(serverRailResponseFixture({ servers: [] }, "viewer")); await request })
     expect(registry.collections.servers.get(identity.id)).toBeDefined()
     expect(registry.collections.serverMemberships.get("srv_1:viewer")).toMatchObject({ userId: "viewer", viewer: true })
   })
 
   it("uses the live own membership before roster pagination and follows member-id-only demotion", async () => {
-    apiFetchMock.mockResolvedValue({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] })
+    apiFetchMock.mockResolvedValue(serverRailResponseFixture({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] }, "viewer"))
     await fetchList()
     const view = renderHook(() => useViewerServerRole(identity.id, "viewer"), { wrapper: Owner })
     await waitFor(() => expect(view.result.current).toBe("admin"))
     expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/community/servers"])
-    act(() => publishCommunityChannelDirectory(client, { directory: [{ id: identity.id, name: identity.name, discriminator: identity.discriminator, channels: [] }], proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } }))
+    act(() => publishCommunityChannelDirectory(client, { resources: resourceBundleFixture({ viewerId: "viewer", servers: [serverResourceFixture(identity)], serverMemberships: [{ serverId: identity.id, userId: "viewer", memberId: "own-member", role: "admin" }] }), directory: [{ id: identity.id, name: identity.name, discriminator: identity.discriminator, channels: [] }], proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } }))
     expect(registry.collections.serverMemberships.get("srv_1:viewer")).toMatchObject({ role: "admin", memberId: "own-member" })
     act(() => projectCommunityWsEventToDb(client, { type: "community:member.update", serverId: identity.id, memberId: "own-member", changes: { role: "member" } }))
     await waitFor(() => expect(view.result.current).toBe("member"))
@@ -528,7 +537,7 @@ describe("qualified viewer server role", () => {
   })
 
   it("retains a current own role when access to an unrelated channel is revoked", async () => {
-    apiFetchMock.mockResolvedValue({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] })
+    apiFetchMock.mockResolvedValue(serverRailResponseFixture({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] }, "viewer"))
     await fetchList()
     const view = renderHook(() => useViewerServerRole(identity.id, "viewer"), { wrapper: Owner })
     await waitFor(() => expect(view.result.current).toBe("admin"))
@@ -539,12 +548,14 @@ describe("qualified viewer server role", () => {
 
   it("does not authorize a restored role, a revoked server or another viewer", async () => {
     seedList()
-    registry.collections.serverMemberships.utils.writeUpsert([{ ...registry.collections.serverMemberships.get("srv_1:viewer")!, role: "admin" }])
+    const restoredMembership = registry.collections.serverMemberships.get("srv_1:viewer")!
+    await registry.collections.serverMemberships.utils.writeUpsert([{ id: restoredMembership.id, serverId: restoredMembership.serverId,
+      userId: restoredMembership.userId, memberId: restoredMembership.memberId, role: "admin", viewer: true }])
     const held = deferred<{ servers: Array<typeof identity & { role: string; memberId: string }> }>()
     apiFetchMock.mockReturnValue(held.promise)
     const view = renderHook(({ viewerId }) => useViewerServerRole(identity.id, viewerId), { wrapper: Owner, initialProps: { viewerId: "viewer" } })
     expect(view.result.current).toBeUndefined()
-    await act(async () => { const request = fetchList(); held.resolve({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] }); await request })
+    await act(async () => { const request = fetchList(); held.resolve(serverRailResponseFixture({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] }, "viewer")); await request })
     await waitFor(() => expect(view.result.current).toBe("admin"))
     view.rerender({ viewerId: "other-account" })
     expect(view.result.current).toBeUndefined()

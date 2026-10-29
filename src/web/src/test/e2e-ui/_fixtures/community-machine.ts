@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./business-contract"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 import { expect } from "@playwright/test"
@@ -42,7 +43,7 @@ export function connectMachine(credential: string, resources: CaseResources, sco
     socket.once("close", () => reject(new Error("Machine socket closed before ready")))
   })
   const readMachine = async () => {
-    const response = await fetch(`${WEB_URL}/api/community/machines`, { headers: scope.headers })
+    const response = await communityFixtureFetch(`${WEB_URL}/api/community/machines`, { headers: scope.headers })
     expect(response.status).toBe(200)
     const body = await response.json() as { machines: CommunityMachineSummary[] }
     return body.machines.find(machine => machine.id === scope.machineId)

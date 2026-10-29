@@ -1,3 +1,4 @@
+import { currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 import { decodeCommunityBrowserEvent } from "@alook/shared"
@@ -95,7 +96,7 @@ describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
     expect(res.status).toBe(204)
     for (const [, event] of mockBroadcastToUserSafe.mock.calls) {
       expect(Object.keys(event).sort()).toEqual(["channelId", "present", "relation", "serverId", "type", "userId"])
-      expect(decodeCommunityBrowserEvent(event).ok).toBe(true)
+      expect(decodeCommunityBrowserEvent(currentCommunityEventFixture(event)).ok).toBe(true)
     }
     expect(mockDeleteThreadParticipantWithCreatorHandoff).toHaveBeenCalledWith(
       expect.anything(),

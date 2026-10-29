@@ -1,3 +1,6 @@
+import { messageProfilesFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { messageResourceFixture, currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { botCreationFixture } from "@/test/bot-creation-fixtures"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { seedCanonicalFocusedChannel } from "./test-harness"
@@ -10,7 +13,7 @@ import type {
   CommunityReactionAdd,
 } from "@alook/shared"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { writeCommunityProfilePatches, beginCommunityProfileSeed } from "@/lib/community/profile-seed"
+import { writeCommunityProfilePatches, beginCommunityProfileSeed, communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { getMessageStreamState } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
@@ -62,17 +65,17 @@ function seedParent(serverId: string, parentId: string, type: "forum" | "text") 
 }
 
 describe("useCommunityWs — message.create", () => {
-  it("publishes confirmed message and author once before the ID view consumes it", async () => {
+  it("publishes the supplied complete author profile before its confirmed message", async () => {
     getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_once" })
     resetHookMemoization()
     await mountHook()
     const registry = getCommunityDbRegistry(capturedQueryClient)!
     const revision = beginCommunityProfileSeed(registry).revision
     const event = messageCreate("ch_once")
-    capturedOnMessage!(event)
-    expect(beginCommunityProfileSeed(registry).revision).toBe(revision + 1)
+    capturedOnMessage!(currentCommunityEventFixture(event))
+    expect(beginCommunityProfileSeed(registry).revision).toBe(revision)
     expect(registry.collections.messages.get(event.message.id)).toMatchObject({ content: event.message.content })
-    expect(registry.collections.profiles.get(event.message.authorId)).toMatchObject({ name: event.message.authorName })
+    expect(registry.collections.profiles.get(event.message.authorId)).toMatchObject(event.profiles[0])
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_once", serverId: "s1" }).liveIds).toContain(event.message.id)
     expect(canonicalMessage(event.message.id)).toMatchObject({ content: event.message.content })
   })
@@ -89,7 +92,7 @@ describe("useCommunityWs — message.create", () => {
     const event = messageCreate("ch_gap")
     event.message.seq = 5
 
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(scheduleGapRepairMock).toHaveBeenCalledWith(
       capturedQueryClient,
@@ -106,8 +109,8 @@ describe("useCommunityWs — message.create", () => {
     const event = messageCreate("dm_gap")
     event.message.seq = 8
 
-    capturedOnMessage!(event)
-    capturedOnMessage!(messageCreate("other"))
+    capturedOnMessage!(currentCommunityEventFixture(event))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("other")))
 
     expect(scheduleGapRepairMock).toHaveBeenCalledTimes(1)
     expect(scheduleGapRepairMock).toHaveBeenCalledWith(
@@ -128,7 +131,7 @@ describe("useCommunityWs — message.create", () => {
       parentChannelId: "forum_1",
     } satisfies CommunityMessageCreate
 
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     const data = canonicalForumSidebar("srv_1")
     expect(data?.threads[0]).toMatchObject({
@@ -145,11 +148,11 @@ describe("useCommunityWs — message.create", () => {
     const key = communityKeys.forumSidebarThreads("srv_1")
     capturedQueryClient.setQueryData(key, forumSidebarFixture([]))
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       ...messageCreate("post_missing"),
       serverId: "srv_1",
       parentChannelId: "forum_1",
-    } satisfies CommunityMessageCreate)
+    } satisfies CommunityMessageCreate))
 
     await vi.waitFor(() => {
       expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(false)
@@ -181,11 +184,11 @@ describe("useCommunityWs — message.create", () => {
       throw new Error(`unexpected API fetch: ${url}`)
     })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       ...messageCreate("post_live"),
       serverId: "srv_1",
       parentChannelId: "forum_1",
-    } satisfies CommunityMessageCreate)
+    } satisfies CommunityMessageCreate))
 
     await vi.waitFor(() => expect(hasCanonicalChannel("post_live")).toBe(true))
     expect(getCanonicalCommunityChannels(capturedQueryClient)
@@ -197,11 +200,11 @@ describe("useCommunityWs — message.create", () => {
     )
 
     getCommunityApiFetchMock().mockRejectedValueOnce(new Error("metadata unavailable"))
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       ...messageCreate("post_unavailable"),
       serverId: "srv_1",
       parentChannelId: "forum_1",
-    } satisfies CommunityMessageCreate)
+    } satisfies CommunityMessageCreate))
     await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
       "/api/community/channels/post_unavailable/messages?entry=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function), authenticationAccount: "u_me" }),
@@ -220,11 +223,11 @@ describe("useCommunityWs — message.create", () => {
       seedCanonicalForumSidebar("srv_1", ["post_retained"])
       const key = communityKeys.forumSidebarThreads("srv_1")
 
-      capturedOnMessage!({
+      capturedOnMessage!(currentCommunityEventFixture({
         ...messageCreate("post_retained"),
         serverId: "srv_1",
         parentChannelId: "forum_1",
-      } satisfies CommunityMessageCreate)
+      } satisfies CommunityMessageCreate))
 
       expect(canonicalForumSidebar("srv_1").threads[0]).toMatchObject({
         activityAt: "2026-07-03T00:00:00.000Z",
@@ -260,11 +263,11 @@ describe("useCommunityWs — message.create", () => {
       capturedQueryClient.getQueryData(hintKey),
     ]
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       ...messageCreate("text_thread"),
       serverId: "s1",
       parentChannelId: "text_parent",
-    } satisfies CommunityMessageCreate)
+    } satisfies CommunityMessageCreate))
 
 
     expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
@@ -291,7 +294,7 @@ describe("useCommunityWs — message.create", () => {
       pageParams: [null],
     })
 
-    capturedOnMessage!(messageCreate("ch_1"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1")))
 
     const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string; seq?: number }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
@@ -309,8 +312,8 @@ describe("useCommunityWs — message.create", () => {
     resetHookMemoization()
     await mountHook()
 
-    capturedOnMessage!(messageCreate("parent_1", "parent_message"))
-    capturedOnMessage!(messageCreate("thread_1", "thread_message"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("parent_1", "parent_message")))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("thread_1", "thread_message")))
 
     expect([
       ...getMessageStreamState(capturedQueryClient, { kind: "channel", id: "parent_1", serverId: "s1" }).liveIds,
@@ -330,8 +333,8 @@ describe("useCommunityWs — message.create", () => {
     await mountHook()
 
     getCapturedRuntime().ui.actions.releaseSecondaryChannel(owner)
-    capturedOnMessage!(messageCreate("parent_hidden", "hidden_parent_message"))
-    capturedOnMessage!(messageCreate("thread_1", "visible_thread_message"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("parent_hidden", "hidden_parent_message")))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("thread_1", "visible_thread_message")))
 
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "parent_hidden", serverId: "s1" }).liveIds)
       .toHaveLength(0)
@@ -349,11 +352,11 @@ describe("useCommunityWs — message.create", () => {
     await mountHook()
 
     const event = messageCreate("ch_1")
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds).toHaveLength(0)
 
     getCapturedRuntime().ui.actions.setCurrentServerId("s1")
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds).toHaveLength(1)
   })
 
@@ -369,7 +372,7 @@ describe("useCommunityWs — message.create", () => {
     capturedQueryClient.setQueryData(allKey, empty)
     capturedQueryClient.setQueryData(bugKey, empty)
 
-    capturedOnMessage!(messageCreate("forum_1"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("forum_1")))
 
     expect(capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(allKey)?.pages[0].messages).toHaveLength(0)
     expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
@@ -382,7 +385,7 @@ describe("useCommunityWs — message.create", () => {
       pages: [{ messages: [], hasMore: false }],
       pageParams: [null],
     })
-    capturedOnMessage!(messageCreate("ch_other"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_other")))
     const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
       communityKeys.channelMessages("ch_other"),
     )
@@ -400,7 +403,7 @@ describe("useCommunityWs — message.create", () => {
     await mountHook()
 
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    capturedOnMessage!(messageCreate("ch_1"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1")))
 
     expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_1") })
     expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
@@ -416,7 +419,7 @@ describe("useCommunityWs — message.create", () => {
     await mountHook()
 
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    capturedOnMessage!(messageCreate("ch_1"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1")))
 
     expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_1") })
     expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
@@ -433,7 +436,7 @@ describe("useCommunityWs — message.create", () => {
     await mountHook()
 
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    capturedOnMessage!(messageCreate("ch_other"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_other")))
 
     expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_other") })
     expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_other") })
@@ -450,9 +453,9 @@ describe("useCommunityWs — message.create", () => {
       pages: [{ messages: [], hasMore: false }],
       pageParams: [null],
     })
-    capturedOnMessage!(messageCreate("ch_1"))
-    capturedOnMessage!(messageCreate("ch_1"))
-    capturedOnMessage!(messageCreate("ch_1"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1")))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1")))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1")))
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds.length).toBe(1)
   })
 
@@ -474,7 +477,7 @@ describe("useCommunityWs — message.create", () => {
       pageParams: [null],
     })
 
-    capturedOnMessage!(messageCreate("ch_1", "new_message"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1", "new_message")))
 
     const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
@@ -505,7 +508,7 @@ describe("useCommunityWs — message.create", () => {
       pageParams: [null],
     })
 
-    capturedOnMessage!(messageCreate("ch_1", "new_message"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1", "new_message")))
 
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string }[]; hasMore?: boolean; hasMoreOlder?: boolean }[]
@@ -536,7 +539,7 @@ describe("useCommunityWs — message.create", () => {
       pageParams: [{ mode: "anchor", anchor: "seed_0" }],
     })
 
-    capturedOnMessage!(messageCreate("ch_1", "new_message"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1", "new_message")))
 
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string }[]; hasMore?: boolean; hasMoreOlder?: boolean; hasMoreNewer?: boolean }[]
@@ -567,7 +570,7 @@ describe("useCommunityWs — message.create", () => {
       ],
       pageParams: [null],
     })
-    capturedOnMessage!(messageCreate("ch_1", "m_new"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1", "m_new")))
     const cache = capturedQueryClient.getQueryData<{
       pages: { hasMoreOlder?: boolean; hasMoreNewer?: boolean }[]
     }>(communityKeys.channelMessages("ch_1"))
@@ -586,7 +589,7 @@ describe("useCommunityWs — message.create", () => {
       pages: [{ messages: [{ id: "seed_0", content: "x", createdAt: "t" }], hasMore: false }],
       pageParams: [null],
     })
-    capturedOnMessage!(messageCreate("ch_1", "m_new"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1", "m_new")))
     const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
@@ -599,7 +602,7 @@ describe("useCommunityWs — message.create", () => {
     try {
       await mountHook({ viewerUserId: "u_author" })
       const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-      capturedOnMessage!(messageCreate("ch_random"))
+      capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_random")))
       vi.advanceTimersByTime(1_000)
       expect(invalidateSpy).not.toHaveBeenCalled()
     } finally {
@@ -613,11 +616,11 @@ describe("useCommunityWs — message.create", () => {
       await mountHook({ viewerUserId: "u_me" })
       const fetchAttention = vi.spyOn(capturedQueryClient, "query")
       for (let i = 0; i < 10; i++) {
-        capturedOnMessage!(messageCreate("ch_x", `m_${i}`))
-        capturedOnMessage!({
+        capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_x", `m_${i}`)))
+        capturedOnMessage!(currentCommunityEventFixture({
           type: "community:unread.bump", userId: "u_me", channelId: "ch_x",
           serverId: "s1", isMention: false,
-        })
+        }))
       }
       expect(fetchAttention).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(500)
@@ -653,12 +656,12 @@ describe("useCommunityWs — message.create", () => {
       )
       const event = messageCreate("ch_focused", "m_focused")
 
-      capturedOnMessage!(event)
-      capturedOnMessage!({
+      capturedOnMessage!(currentCommunityEventFixture(event))
+      capturedOnMessage!(currentCommunityEventFixture({
         type: "community:unread.bump", userId: "u_me", channelId: event.channelId,
         serverId: "s1", isMention: false,
-      })
-      capturedOnMessage!(event)
+      }))
+      capturedOnMessage!(currentCommunityEventFixture(event))
       expect(order).toEqual(["candidate"])
 
       await vi.advanceTimersByTimeAsync(500)
@@ -684,7 +687,7 @@ describe("useCommunityWs — message.create", () => {
     )
     const event = messageCreate("ch_focused", "m_committed")
 
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     expect(promoteInboxReadReservation(lease, 20)).toBe(true)
     await settleInboxReadReservationGeneration(
       capturedQueryClient,
@@ -694,7 +697,7 @@ describe("useCommunityWs — message.create", () => {
     )
     seen.mockClear()
 
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(seen).not.toHaveBeenCalled()
     await expect(reserveInboxUnreadsResponse(capturedQueryClient, {
@@ -724,10 +727,11 @@ describe("useCommunityWs — message.create", () => {
       },
     )
 
-    capturedOnMessage!(messageCreate("ch_focused", "m_self"))
+    capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_focused", "m_self")))
     const background = messageCreate("ch_background", "m_background")
     background.message.authorId = "u_other"
-    capturedOnMessage!(background)
+    background.profiles = messageProfilesFixture([background.message])
+    capturedOnMessage!(currentCommunityEventFixture(background))
 
     expect(seen).toEqual([])
     releaseInboxReadReservationSurface(lease)
@@ -776,11 +780,11 @@ describe("useCommunityWs — message.create", () => {
       )
       const event = messageCreate("ch_focused", "m_visible")
 
-      capturedOnMessage!(event)
-      capturedOnMessage!({
+      capturedOnMessage!(currentCommunityEventFixture(event))
+      capturedOnMessage!(currentCommunityEventFixture({
         type: "community:unread.bump", userId: "u_me", channelId: event.channelId,
         serverId: "s1", isMention: false,
-      })
+      }))
       expect(submitReadIntent(lease, {
         kind: "timeline",
         channelId: "ch_focused",
@@ -818,8 +822,8 @@ describe("useCommunityWs — reactions", () => {
       emoji: "👍",
     }
 
-    capturedOnMessage!(event)
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(canonicalMessage("m_opener")?.reactions).toEqual([
       { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
@@ -847,7 +851,7 @@ describe("useCommunityWs — reactions", () => {
       userId: "u_other",
       emoji: "👍",
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string; reactions: { emoji: string; count: number; me: boolean }[] }[] }[]
     }>(communityKeys.channelMessages("ch_1"))
@@ -862,13 +866,13 @@ describe("useCommunityWs — reactions", () => {
     getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_empty" })
     await mountHook({ viewerUserId: "u_me" })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:reaction.add",
       channelId: "ch_empty",
       messageId: "m_missing",
       userId: "u_other",
       emoji: "👍",
-    })
+    }))
 
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_empty", serverId: "s1" }).liveIds.length)
       .toBe(0)
@@ -890,13 +894,13 @@ describe("useCommunityWs — reactions", () => {
       communityKeys.messageContext("dm", "ch_1", 8),
       unresolvedContext,
     )
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:reaction.add",
       channelId: "ch_1",
       messageId: "m_1",
       userId: "u_other",
       emoji: "🔥",
-    })
+    }))
     expect(canonicalMessage("m_1")?.reactions).toEqual([
       { emoji: "🔥", count: 1, me: false, userIds: ["u_other"] },
     ])
@@ -927,13 +931,13 @@ describe("useCommunityWs — reactions", () => {
       },
     )
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:reaction.add",
       channelId: "dm_1",
       messageId: "m_dm",
       userId: "u_me",
       emoji: "👍",
-    })
+    }))
 
     expect(getMessageStreamState(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveIds).toContain("m_dm")
     expect(canonicalMessage("m_dm")?.reactions).toEqual([
@@ -959,13 +963,13 @@ describe("useCommunityWs — reactions", () => {
       },
     })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:reaction.add",
       channelId: "ch_1",
       messageId: "m_channel",
       userId: "u_me",
       emoji: "👍",
-    })
+    }))
 
     expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain("m_channel")
     expect(canonicalMessage("m_channel")?.reactions).toEqual([
@@ -975,6 +979,31 @@ describe("useCommunityWs — reactions", () => {
 })
 
 describe("useCommunityWs — message.updated", () => {
+  it.each([1, 3])("keeps real renamed approval identities when an old message.updated arrives with avatar v2 over v%s", async currentVersion => {
+    getCapturedRuntime().ui.actions.subscribe({ dmConversationId: "dm_1" })
+    await mountHook()
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    const identities = [
+      { id: "friend", name: "Old Friend", discriminator: "0001", image: "/api/community/users/friend/avatar", avatarVersion: 1 },
+      { id: "bot", name: "Old Bot", discriminator: "0002", image: "/api/community/bots/bot/avatar", avatarVersion: 1 },
+    ]
+    writeCommunityProfilePatches(identities.map(profile => communityUserProfilePatch(profile.id, profileResourceFixture({ id: profile.id, name: profile.name, discriminator: profile.discriminator, avatar: `/known-${profile.id}.png`, avatarVersion: currentVersion }))), registry, { command: true })
+    const approval = { friendshipId: "friendship", status: "pending" as const, waitingOn: "you" as const, otherProfile: identities[0]!, botProfile: identities[1]!, waitingOnProfile: null }
+    seedCanonicalStream({ kind: "dm", id: "dm_1" }, { type: "wsMessage", message: { id: "delayed-approval", seq: 4, type: "chat", content: "", approval } })
+    const delayed = currentCommunityEventFixture({ type: "community:message.updated", channelId: "dm_1", messageId: "delayed-approval", approval: { ...approval, status: "denied", waitingOn: null,
+      otherProfile: { ...identities[0]!, avatarVersion: 2 }, botProfile: { ...identities[1]!, avatarVersion: 2 } } })
+    for (const [index, profile] of identities.entries()) capturedOnMessage!(currentCommunityEventFixture({ type: "community:profile.update", userId: profile.id,
+      name: `Renamed ${profile.id}`, discriminator: `009${index + 1}`, aboutMe: "Current bio", bannerColor: null, kind: index === 0 ? "human" : "bot", ownerUserId: index === 0 ? null : "owner" }))
+    const revision = beginCommunityProfileSeed(registry).revision
+    capturedOnMessage!(delayed)
+    expect(canonicalMessage("delayed-approval")?.approval).toMatchObject({ status: "denied", waitingOn: null })
+    for (const [index, profile] of identities.entries()) expect(registry.collections.profiles.get(profile.id)).toMatchObject({
+      name: `Renamed ${profile.id}`, discriminator: `009${index + 1}`, aboutMe: "Current bio",
+      avatar: currentVersion === 1 ? `${profile.image}?v=2` : `/known-${profile.id}.png`, avatarVersion: currentVersion === 1 ? 2 : 3,
+    })
+    expect(beginCommunityProfileSeed(registry).revision).toBe(revision)
+  })
+
   it("projects gallery resolution without erasing friendship approval or overwriting a renamed identity", async () => {
     getCapturedRuntime().ui.actions.subscribe({ dmConversationId: "dm_1" })
     await mountHook()
@@ -984,12 +1013,12 @@ describe("useCommunityWs — message.updated", () => {
     capturedQueryClient.setQueryData(communityKeys.bots(), { bots: [] })
     const request = botCreationFixture({ status: "approved" })
     request.bots[0]!.createdBot = { id: "new-bot", name: "Researcher", discriminator: "0042", image: null, avatarVersion: 0 }
-    writeCommunityProfilePatches([{ id: "new-bot", identityAbout: { name: "Renamed Bot", discriminator: "0042" } }], getCommunityDbRegistry(capturedQueryClient), { command: true })
-    capturedOnMessage!({ type: "community:message.updated", channelId: "dm_1", messageId: "gallery-message", botCreation: request })
+    writeCommunityProfilePatches([{ id: "new-bot", avatar: { avatar: null, avatarVersion: 0 }, identityAbout: { discriminator: "0042", name: "Renamed Bot" } }], getCommunityDbRegistry(capturedQueryClient), { command: true })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:message.updated", channelId: "dm_1", messageId: "gallery-message", botCreation: request }))
     expect(canonicalMessage("gallery-message")).toMatchObject({ approval, botCreation: request })
     expect(getCommunityDbRegistry(capturedQueryClient)!.collections.profiles.get("new-bot")).toMatchObject({ name: "Renamed Bot", discriminator: "0042" })
     expect(capturedQueryClient.getQueryState(communityKeys.bots())?.isInvalidated).toBe(true)
-    capturedOnMessage!({ type: "community:message.updated", channelId: "dm_1", messageId: "gallery-message", approval: { ...approval, status: "denied", waitingOn: null } })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:message.updated", channelId: "dm_1", messageId: "gallery-message", approval: { ...approval, status: "denied", waitingOn: null } }))
     expect(canonicalMessage("gallery-message")?.botCreation).toEqual(request)
   })
 
@@ -1027,12 +1056,12 @@ describe("useCommunityWs — message.updated", () => {
       waitingOnProfile: { ...profile, id: "waiting_1", name: "Waiting" },
     }
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:message.updated",
       channelId: "dm_1",
       messageId: "m_dm",
       approval,
-    })
+    }))
 
     expect(getMessageStreamState(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveIds).toContain("m_dm")
     expect(canonicalMessage("m_dm")?.approval).toEqual(approval)
@@ -1066,12 +1095,12 @@ describe("useCommunityWs — message.updated", () => {
       botProfile: { ...profile, id: "bot_1", name: "Bot" },
     }
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:message.updated",
       channelId: "ch_1",
       messageId: "m_channel",
       approval,
-    })
+    }))
 
     expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain("m_channel")
     expect(canonicalMessage("m_channel")?.approval).toEqual(approval)
@@ -1095,12 +1124,12 @@ describe("useCommunityWs — message.updated", () => {
       botProfile: { ...profile, id: "bot_1", name: "Bot" },
     }
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:message.updated",
       channelId: "ch_parent",
       messageId: "m_parent",
       approval,
-    })
+    }))
 
     expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain("m_parent")
     expect(canonicalMessage("m_parent")?.approval).toEqual(approval)
@@ -1116,7 +1145,7 @@ describe("useCommunityWs — pin.add", () => {
       channelId: "ch_1",
       messageId: "m_1",
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     const pinsCalls = spy.mock.calls.filter((c) =>
       JSON.stringify(c[0]?.queryKey ?? []).includes(`"pins"`) ||
       // pins() nests under channel + channelId + pins
@@ -1149,10 +1178,7 @@ describe("useCommunityWs — DM message.create", () => {
       const fetchAttention = vi.spyOn(capturedQueryClient, "query")
       // A DM is a channel now — its message arrives as `message.create` keyed by
       // the DM's channel id (which the subscription tracks in `dmConversationId`).
-      const event: CommunityMessageCreate = {
-        type: "community:message.create",
-        channelId: "dm_1",
-        message: {
+      const event: CommunityMessageCreate = { profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
           id: "dm_m_1",
           seq: 1,
           authorId: "u_a",
@@ -1162,13 +1188,26 @@ describe("useCommunityWs — DM message.create", () => {
           type: "chat",
           seq: 1,
           createdAt: "2026-07-03T00:00:00.000Z",
-        },
+        } })]),
+        type: "community:message.create",
+        channelId: "dm_1",
+        message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
+          id: "dm_m_1",
+          seq: 1,
+          authorId: "u_a",
+          authorName: "a",
+          authorAvatarVersion: 0,
+          content: "hi",
+          type: "chat",
+          seq: 1,
+          createdAt: "2026-07-03T00:00:00.000Z",
+        } }),
       }
-      capturedOnMessage!(event)
-      capturedOnMessage!({
+      capturedOnMessage!(currentCommunityEventFixture(event))
+      capturedOnMessage!(currentCommunityEventFixture({
         type: "community:unread.bump", userId: "u_me", channelId: event.channelId,
         isMention: false,
-      })
+      }))
       const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string; seq?: number }[] }[] }>(
         communityKeys.dmMessages("dm_1"),
       )
@@ -1195,10 +1234,7 @@ describe("useCommunityWs — DM message.create", () => {
     getCapturedRuntime().ws.actions.markSeenMessage("dm_replay")
     await mountHook()
 
-    capturedOnMessage!({
-      type: "community:message.create",
-      channelId: "dm_1",
-      message: {
+    capturedOnMessage!(currentCommunityEventFixture({ profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
         id: "dm_replay",
         seq: 12,
         authorId: "u_a",
@@ -1207,8 +1243,20 @@ describe("useCommunityWs — DM message.create", () => {
         content: "replay",
         type: "chat",
         createdAt: "2026-07-03T00:00:00.000Z",
-      },
-    })
+      } })]),
+      type: "community:message.create",
+      channelId: "dm_1",
+      message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
+        id: "dm_replay",
+        seq: 12,
+        authorId: "u_a",
+        authorName: "a",
+        authorAvatarVersion: 0,
+        content: "replay",
+        type: "chat",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      } }),
+    }))
 
     expect(getMessageStreamState(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveIds.includes("dm_replay")).toBe(true)
   })
@@ -1223,7 +1271,7 @@ describe("canonical message refresh ownership", () => {
     await act(async () => {
       for (let seq = 1; seq <= 502; seq++) {
         const event = messageCreate(scope.id, `tail_${seq}`)
-        capturedOnMessage!({ ...event, message: { ...event.message, seq } })
+        capturedOnMessage!(currentCommunityEventFixture({ ...event, message: { ...event.message, seq } }))
       }
     })
     const live = getMessageStreamState(capturedQueryClient, scope).liveIds
@@ -1240,26 +1288,27 @@ describe("canonical message refresh ownership", () => {
     await mountHook()
     const event = messageCreate(scope.id)
     seedCanonicalMessages(scope.id, [{ ...event.message,
-      attachments: [{ name: "settled.txt", url: "/media/settled", sizeBytes: 1024 }],
+      attachments: [{ id: "settled", name: "settled.txt", url: "/media/settled", thumbnailUrl: null, contentType: "text/plain", sizeBytes: 1024, width: null, height: null }],
       embeds: [{ title: "Prior" }],
     }])
-    await act(async () => { capturedOnMessage!({ ...event, message: { ...event.message, attachments: [], embeds: [] } }) })
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture({ ...event, message: { ...event.message, attachments: [], embeds: [] } })) })
     expect(getCommunityDbRegistry(capturedQueryClient)!.collections.messages.get(event.message.id)).toMatchObject({ attachments: [], embeds: [] })
     expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain(event.message.id)
     expect(canonicalMessage(event.message.id)).toMatchObject({ attachments: [], embeds: [] })
   })
-  it("preserves canonical attachments when a duplicate WS row omits them", async () => {
+  it("rejects a duplicate WS row missing required attachments without changing canonical bytes", async () => {
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
     getCapturedRuntime().ui.actions.setCurrentServerId(scope.serverId)
     getCapturedRuntime().ui.actions.subscribe({ channelId: scope.id })
     await mountHook()
-    const attachments = [{ name: "settled.txt", url: "/media/settled", sizeBytes: 1024 }]
+    const attachments = [{ id: "settled", name: "settled.txt", url: "/media/settled", thumbnailUrl: null, contentType: "text/plain", sizeBytes: 1024, width: null, height: null }]
     const event = messageCreate(scope.id)
     seedCanonicalMessages(scope.id, [{ ...event.message, attachments }])
-    await act(async () => { capturedOnMessage!(event) })
+    const { attachments: _attachments, ...incomplete } = event.message
+    await act(async () => { capturedOnMessage!({ ...event, schemaVersion: BUSINESS_SCHEMA_VERSION, message: incomplete }) })
     expect(getCommunityDbRegistry(capturedQueryClient)!.collections.messages.get(event.message.id)?.attachments).toEqual(attachments)
-    expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain(event.message.id)
-    expect(canonicalMessage(event.message.id)?.attachments).toEqual([{ ...attachments[0], kind: "file", size: "1.0 KB" }])
+    expect(getMessageStreamState(capturedQueryClient, scope).liveIds).not.toContain(event.message.id)
+    expect(canonicalMessage(event.message.id)?.attachments).toEqual([{ id: "settled", name: "settled.txt", url: "/media/settled", contentType: "text/plain", sizeBytes: 1024, kind: "file", size: "1.0 KB" }])
   })
 })
 
@@ -1276,19 +1325,26 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
       pageParams: [null],
     })
 
-    const event: CommunityMessageCreate = {
-      type: "community:message.create",
-      channelId: "ch_focused",
-      message: {
+    const event: CommunityMessageCreate = { profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "ch_focused", ...{
         id: "m_1",
         authorId: "u_someone_else",
         authorName: "them",
         content: "hi",
         seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
-      },
+      } })]),
+      type: "community:message.create",
+      channelId: "ch_focused",
+      message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "ch_focused", ...{
+        id: "m_1",
+        authorId: "u_someone_else",
+        authorName: "them",
+        content: "hi",
+        seq: 1,
+        createdAt: "2026-07-03T00:00:00.000Z",
+      } }),
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(markReadMutate).not.toHaveBeenCalled()
   })
@@ -1300,19 +1356,26 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
     resetHookMemoization()
     await mountHook({ viewerUserId: "u_me" })
 
-    const event: CommunityMessageCreate = {
-      type: "community:message.create",
-      channelId: "ch_focused",
-      message: {
+    const event: CommunityMessageCreate = { profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "ch_focused", ...{
         id: "m_1",
         authorId: "u_me",
         authorName: "me",
         content: "hi",
         seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
-      },
+      } })]),
+      type: "community:message.create",
+      channelId: "ch_focused",
+      message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "ch_focused", ...{
+        id: "m_1",
+        authorId: "u_me",
+        authorName: "me",
+        content: "hi",
+        seq: 1,
+        createdAt: "2026-07-03T00:00:00.000Z",
+      } }),
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(markReadMutate).not.toHaveBeenCalled()
   })
@@ -1324,10 +1387,7 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
     resetHookMemoization()
     await mountHook({ viewerUserId: "u_me" })
 
-    const event: CommunityMessageCreate = {
-      type: "community:message.create",
-      channelId: "dm_1",
-      message: {
+    const event: CommunityMessageCreate = { profiles: messageProfilesFixture([messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
         id: "dm_m_1",
         authorId: "u_a",
         authorName: "a",
@@ -1335,9 +1395,20 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
         type: "chat",
         seq: 1,
         createdAt: "2026-07-03T00:00:00.000Z",
-      },
+      } })]),
+      type: "community:message.create",
+      channelId: "dm_1",
+      message: messageResourceFixture({ authorAvatarVersion: 0, channelId: "dm_1", ...{
+        id: "dm_m_1",
+        authorId: "u_a",
+        authorName: "a",
+        content: "hi",
+        type: "chat",
+        seq: 1,
+        createdAt: "2026-07-03T00:00:00.000Z",
+      } }),
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(markReadMutate).not.toHaveBeenCalled()
   })

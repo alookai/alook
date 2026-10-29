@@ -342,10 +342,16 @@
     "key": "src/shared/src/db/queries/community/channel.ts:getServerRootChannelsByIds:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/channel.ts:listChannelMembershipsForUserInChannels:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/channel.ts:listChildChannelsByParentMessageIds:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/channel.ts:listReadableChannelsForUser:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:listReadableMessageChannelsForUser:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/channel.ts:listServerChannelDirectoryForAdmin:inArray:1"
@@ -541,6 +547,9 @@
   },
   {
     "key": "src/shared/src/db/queries/community/thread.ts:removeParticipantFromChildChannels:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/user-profile.ts:getProfilesByUserIds:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/conversation.ts:getConversationsByIds:inArray:1"

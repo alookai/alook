@@ -1,5 +1,7 @@
 "use client"
 
+import { CommunityChannelResourceSchema, type CommunityChannelResource, type CommunityMessagePosted } from "@alook/shared"
+
 import { captureOnboardingFirstMessage } from "@/lib/product-analytics"
 
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
@@ -124,7 +126,7 @@ export type SendMessageArgs = {
 // the same nonce — `message` is the canonical (original) row, nothing new was
 // inserted. The caller treats it as success (reconcile the optimistic row,
 // clear the failed pill), never as a failure to resend.
-export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
+export type SendMessageResult = Pick<CommunityMessagePosted, "message" | "profiles"> & { deduped?: boolean }
 
 /**
  * Channel/thread send. The server infers thread-vs-channel routing from the
@@ -159,16 +161,8 @@ export function getConfirmedSentMessage(
   }
 }
 
-function postedMessageForIntent(message: PostedMessage, nonce: string, channelId: string, attachments?: readonly UploadFileResult[]) {
-  const canonical = projectPostedMessage(message, nonce, channelId)
-  if (canonical.resourceComplete || canonical.attachments !== undefined || !attachments?.length) return canonical
-  return { ...canonical, attachments: attachments.map((attachment) => ({
-    id: attachment.id, name: attachment.filename, url: attachmentUrl(channelId, attachment.id),
-    contentType: attachment.contentType, sizeBytes: attachment.size,
-    ...(attachment.hasThumbnail === undefined ? {} : { thumbnailUrl: attachment.hasThumbnail ? attachmentThumbnailUrl(channelId, attachment.id) : null }),
-    ...(attachment.width === undefined ? {} : { width: attachment.width }),
-    ...(attachment.height === undefined ? {} : { height: attachment.height }),
-  })) }
+function postedMessageForIntent(message: PostedMessage, nonce: string, channelId: string) {
+  return projectPostedMessage(message, nonce, channelId)
 }
 
 function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(kind: MessageScope["kind"]) {
@@ -190,8 +184,8 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       })
       await origin.registry!.collections.messages.preload()
       origin.assert(token); (assertCommand ?? assertActive)?.()
-      const message = postedMessageForIntent(result.message, nonce ?? "", scope.id, attachments)
-      publishCommunityMessages(queryClient, { channelId: scope.id,
+      const message = postedMessageForIntent(result.message, nonce ?? "", scope.id)
+      publishCommunityMessages(queryClient, { channelId: scope.id, profiles: result.profiles,
         messages: [{ ...message, ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
         proof: { token, ...(scope.kind === "channel" && !assertCommand ? { signal: assertActive?.signal } : {}) } })
       return result
@@ -243,7 +237,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       const scope = sendMessageScope(args)
       const nonce = args.nonce ?? ""
       if (scope.kind === "dm" || args.nonce) getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {
-        type: "postAck", nonce, message: postedMessageForIntent(data.message, nonce, scope.id, args.attachments),
+        type: "postAck", nonce, message: postedMessageForIntent(data.message, nonce, scope.id),
       })
     },
   })
@@ -280,7 +274,7 @@ export type CreateThreadArgs = {
   name: string
 }
 
-export type CreateThreadResult = { id: string }
+export type CreateThreadResult = CommunityChannelResource
 
 export function useCreateThread() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
@@ -294,7 +288,10 @@ export function useCreateThread() {
       await Promise.all([origin.registry!.collections.channels.preload(), origin.registry!.collections.messages.preload()])
       origin.assert(token); args.assertActive?.()
       const data = await origin.request<CreateThreadResult>(token, "/api/community/channels", { method: "POST", signal: args.assertActive?.signal, assertActive: args.assertActive, body: JSON.stringify({ type: "thread", messageId: args.messageId, name: args.name }) })
-      publishCommunityCreatedChannel(queryClient, { id: data.id, serverId: args.serverId, categoryId: null, name: args.name, type: "thread", parentChannelId: args.channelId, parentMessageId: args.messageId, creatorId: origin.registry!.accountId, position: 0, archived: false, muted: false, tags: [], pending: false, messageCount: 0 }, { token, signal: args.assertActive?.signal })
+      origin.assert(token); args.assertActive?.()
+      const channel = CommunityChannelResourceSchema.parse(data)
+      if (channel.type !== "thread" || channel.serverId !== args.serverId || channel.parentChannelId !== args.channelId || channel.parentMessageId !== args.messageId) throw new Error("Created thread scope mismatch")
+      publishCommunityCreatedChannel(queryClient, { ...channel, pending: false }, { token, signal: args.assertActive?.signal })
       if (args.resource && queryClient.getQueryCache().find({ queryKey: communityKeys.threads(args.channelId), exact: true }) === args.resource) void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId), exact: true }, { cancelRefetch: false }).catch(() => undefined)
       return data
     },

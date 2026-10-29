@@ -6,7 +6,7 @@ import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
-import { virtualListPositionKey, type VirtualListPositionScope, type VirtualListPositionSnapshot } from "@/lib/community/virtual-list-position"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { tid } from "@/lib/community/testids"
 
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
@@ -62,9 +62,9 @@ describe("MessageList loading-to-loaded mount identity", () => {
     expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
   })
 
-  it("initializes from the qualified snapshot after loading and then retains the mounted list", async () => {
+  it("uses ordinary entry after loading and then retains the mounted list", async () => {
     const { client } = await createCommunityQueryOwner()
-    const positionScope: VirtualListPositionScope = { proof: captureChannelMetadataToken(client, "A"), kind: "messages", tag: null }
+    const positionScope: ConversationListScope = { proof: captureChannelMetadataToken(client, "A"), tag: null }
     const messages = Array.from({ length: 40 }, (_, index) => ({ id: `m${index}`, type: "chat" as const,
       authorId: "peer", authorName: "Alice", content: "Message", createdAt: new Date(index * 1000).toISOString() }))
     const props = { channel: "A", onOpenThread: () => {}, positionScope }
@@ -76,18 +76,18 @@ describe("MessageList loading-to-loaded mount identity", () => {
     runFrames()
     resize()
     const before = root.scrollTop
-    expect(client.getQueryData<VirtualListPositionSnapshot>(virtualListPositionKey(positionScope))?.offset).toBe(before)
     first.unmount()
     const second = render(React.createElement(MessageList, { ...props, messages: [], loading: true, initialScrollReady: false }))
     resize()
-    second.rerender(React.createElement(MessageList, { ...props, messages, initialScrollReady: true }))
+    second.rerender(React.createElement(MessageList, { ...props, messages, initialScrollReady: true, initialPositionMessageId: "m25" }))
     resize()
     const restored = second.getByTestId(tid.messageScroller)
-    expect(restored.scrollTop).toBeCloseTo(before, 0)
+    expect(restored.scrollTop).not.toBe(before)
+    const entered = restored.scrollTop
     expect(restored.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
-    second.rerender(React.createElement(MessageList, { ...props, messages, initialScrollReady: true, isFetching: true }))
+    second.rerender(React.createElement(MessageList, { ...props, positionScope: { ...positionScope, proof: captureChannelMetadataToken(client, "A") }, messages, initialScrollReady: true, initialPositionMessageId: "m25", isFetching: true }))
     resize()
     expect(second.getByTestId(tid.messageScroller)).toBe(restored)
-    expect(restored.scrollTop).toBeCloseTo(before, 0)
+    expect(restored.scrollTop).toBeCloseTo(entered, 0)
   })
 })

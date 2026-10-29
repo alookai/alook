@@ -1,3 +1,4 @@
+import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -9,9 +10,9 @@ import {
   withD1Retry,
 } from "@alook/shared"
 import { parseBoundedInt } from "@/lib/community/messages"
-import { avatarInitial } from "@/lib/community/avatar"
-import { canonicalUserImage } from "@/lib/community/storage"
-import { projectMessageWireType } from "@/lib/community/message-wire-type"
+
+
+
 
 // Cross-channel Marked tab: every message the current user has marked, newest
 // first. Scoped to the viewer's visible channels in-query (same guard as the
@@ -115,30 +116,14 @@ export const GET = withCommunityActor(async (req, ctx) => {
     return {
       id: row.mark.id,
       server: srv ? srv.name : "Server unavailable",
-      serverId: ch?.serverId,
-      channel: ch ? ch.name : "Conversation unavailable",
+      serverId: ch?.serverId ?? null,
+      channel: ch?.name ?? "Conversation",
       channelId: row.mark.channelId,
       parentChannelId: ch?.parentChannelId ?? null,
-      m: {
-        id: row.message.id,
-        ...projectMessageWireType(row.message.type),
-        authorId: row.author.id,
-        authorName: row.author.name,
-        authorAvatar: canonicalUserImage(
-          row.author.id,
-          row.author.image,
-          row.author.avatarVersion,
-        ) ?? avatarInitial(row.author.name),
-        authorAvatarVersion: row.author.avatarVersion,
-        content: row.message.content,
-        // seq is the jump key (Msg.seq) — a marked message is usually outside
-        // the loaded window, so a seq-less scroll silently no-ops. Lives inside
-        // `m` to match the frontend `Marked` type (m: Msg).
-        seq: row.message.seq,
-        createdAt: row.message.createdAt,
-      },
+      m: { id: row.message.id },
     }
   })
 
-  return writeJSON({ marked, limit })
+  const resources = await readCommunityResourceBundle(db, userId, { channelIds: [...new Set(rows.map(row => row.mark.channelId))], messageIds: rows.map(row => row.message.id) })
+  return writeJSON({ marked, limit, resources })
 })

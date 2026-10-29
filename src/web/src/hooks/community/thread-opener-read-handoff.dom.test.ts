@@ -1,4 +1,5 @@
 import React from "react"
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { ConversationActivityContext } from "@/contexts/community/conversation-activity"
 import type { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -162,7 +163,7 @@ function DirectChildHarness({
 }) {
   const [scrollRootEl, setScrollRootEl] = React.useState<HTMLElement | null>(null)
   React.useLayoutEffect(() => {
-    if (lifecycle === "ready") ingestMessages(getCommunityDbRegistry(state.queryClient!)!, "child-1", messages.map((message) => ({ ...message, type: "chat" })))
+    if (lifecycle === "ready") ingestMessages(getCommunityDbRegistry(state.queryClient!)!, "child-1", messages.map((message) => messageResourceFixture({ ...message, channelId: "child-1", content: `Child message ${message.seq}` })))
   }, [lifecycle, messages])
   useTimelineReadObserver({
     channelId: "child-1",

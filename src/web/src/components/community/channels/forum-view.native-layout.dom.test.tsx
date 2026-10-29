@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { act, mockElementGeometry, render } from "@/test/react-dom-harness"
+import { act, fireEvent, mockElementGeometry, render } from "@/test/react-dom-harness"
 import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { ForumView } from "./forum-view"
@@ -40,6 +40,43 @@ beforeEach(() => {
 })
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it.each([{ kind: "short", name: "Short title" }, { kind: "long", name: "Long title ".repeat(40).trim() }])("preserves $kind title and action ownership while capabilities change", ({ name }) => {
+  const open = vi.fn()
+  const edit = vi.fn()
+  const remove = vi.fn()
+  const post = { ...posts[0], name, parentSeq: 42 }
+  const props = {
+    forumChannelId: "forum-actions", members: [], posts: [post], tag: "All",
+    onTagChange: () => {}, onOpenPost: open, onEditPostTags: edit, onDeletePost: remove,
+    onScrollRoot: (node: HTMLDivElement | null) => {
+      if (node) mockElementGeometry(node, { clientHeight: 751, clientWidth: 390 })
+    },
+  }
+  const view = render(createElement(ForumView, { ...props, canEditPostTags: () => false, canDeletePost: () => false }))
+  const card = view.getByTestId(tid.forumThreadCard(post.id))
+  const title = view.getByTestId(tid.forumThreadTitle(post.id))
+  const text = view.getByTestId(tid.forumThreadTitleText(post.id))
+  for (const actions of [1, 2, 3, 0]) {
+    view.rerender(createElement(ForumView, {
+      ...props, canEditPostTags: () => actions >= 2, canDeletePost: () => actions === 1 || actions === 3,
+    }))
+    expect(view.getByTestId(tid.forumThreadCard(post.id))).toBe(card)
+    expect(view.getByTestId(tid.forumThreadTitle(post.id))).toBe(title)
+    expect(view.getByTestId(tid.forumThreadTitleText(post.id))).toBe(text)
+    expect(title).toHaveAccessibleName(`${name} #42`)
+    expect(card.querySelectorAll("button")).toHaveLength(actions)
+    if (actions >= 2) {
+      fireEvent.click(view.getByTestId(tid.forumThreadArchiveBtn(post.id)))
+      expect(edit).toHaveBeenLastCalledWith(post.id, ["archived"])
+      expect(open).not.toHaveBeenCalled()
+    }
+  }
+  fireEvent.click(text)
+  fireEvent.keyDown(card, { key: "Enter" })
+  expect(open.mock.calls).toEqual([[post.id], [post.id]])
+  expect(remove).not.toHaveBeenCalled()
+})
 
 it("keeps native forum rows positioned without individual transforms across scrolling and append", () => {
   const onLoadMore = vi.fn()

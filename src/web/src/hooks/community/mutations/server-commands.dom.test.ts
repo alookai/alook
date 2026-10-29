@@ -1,3 +1,5 @@
+import { channelResourceFixture, messageResourceFixture, serverRailResponseFixture } from "@/test/community-resource-fixtures"
+import { serverDirectoryFixture } from "@/test/community-resource-fixtures"
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -26,10 +28,9 @@ async function setup() {
     { id: "srv_1", name: "old", description: "d", initial: "O", active: false, unread: false, mentions: 0, ownerId: "viewer", isOwner: true },
     { id: "srv_2", name: "untouched", description: "unchanged description", initial: "U", active: false, unread: false, mentions: 4, ownerId: "viewer", isOwner: true },
   ]
-  ingestServers(owner.registry, { servers })
-  ingestServerDetail(owner.registry, { id: "srv_1", name: "old", discriminator: "", description: "d", icon: null, ownerId: "viewer", categories: [] })
+  ingestServers(owner.registry, serverRailResponseFixture({ servers }, (owner.registry)!.accountId))
+  ingestServerDetail(owner.registry, serverDirectoryFixture({ id: "srv_1", name: "old", discriminator: "", description: "d", icon: null, ownerId: "viewer", categories: [] }))
   owner.client.setQueryData(communityKeys.servers(), ["srv_1", "srv_2"])
-  owner.client.setQueryData(communityKeys.server("srv_1"), "srv_1")
   owner.client.setQueryData(communityKeys.channelRefDirectory(), { servers: [] })
   const held = deferred(), routeToken = createOwnerServerDeleteRouteToken(owner.client), onSuccess = vi.fn(), onError = vi.fn()
   let remote: Array<typeof servers[number] & { icon?: string | null }> = servers
@@ -42,7 +43,7 @@ async function setup() {
     })
     if (path.endsWith("/categories")) return Promise.resolve({ categories: [] })
     if (path.endsWith("/channels")) return Promise.resolve({ channels: [] })
-    return Promise.resolve({ servers: remote.map((server) => ({ ...server, role: "owner", discriminator: "", icon: server.icon ?? null })) })
+    return Promise.resolve(serverRailResponseFixture({ servers: remote.map(server => ({ ...server, role: "owner", discriminator: "", icon: server.icon ?? null })) }, "viewer"))
   })
   const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
   const view = renderHook(({ detailActive }) => ({ leave: useLeaveServer(), remove: useDeleteServer({ routeToken, onSuccess, onError }), update: useUpdateServer(), create: useCreateServer(), icon: useUploadServerIcon(), rail: useServers(), detail: useServer(detailActive ? "srv_1" : null) }), { wrapper, initialProps: { detailActive: true } })
@@ -57,10 +58,10 @@ async function begin(view: View, operation: "leave" | "remove") {
   return { request }
 }
 function seedPrivateScope(view: View) {
-  for (const channel of [{ id: "private_parent", name: "Private parent", type: "text" as const, parentChannelId: null, parentMessageId: null }, { id: "private_child", name: "Private title", type: "thread" as const, parentChannelId: "private_parent", parentMessageId: "private_opener" }]) publishCommunityCreatedChannel(view.client, { ...channel, serverId: "srv_1", categoryId: null, creatorId: "viewer", position: 0, archived: false, muted: false, unread: false, tags: [], pending: false }, { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined })
+  for (const channel of [{ id: "private_parent", name: "Private parent", type: "text" as const, parentChannelId: null, parentMessageId: null }, { id: "private_child", name: "Private title", type: "thread" as const, parentChannelId: "private_parent", parentMessageId: "private_opener" }]) publishCommunityCreatedChannel(view.client, channelResourceFixture({ ...channel, serverId: "srv_1" }), { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined })
   view.runtime.ui.actions.setCurrentServerId("srv_1")
   view.runtime.ui.actions.setCurrentChannelId("private_child")
-  view.runtime.messageStream.actions.dispatch({ kind: "channel", id: "private_child", serverId: "srv_1" }, { type: "wsMessage", message: { id: "message_1", type: "chat", authorId: "user_1", authorName: "User", content: "Private content" } })
+  view.runtime.messageStream.actions.dispatch({ kind: "channel", id: "private_child", serverId: "srv_1" }, { type: "wsMessage", message: messageResourceFixture({ id: "message_1", channelId: "private_child", authorId: "user_1", authorName: "User", content: "Private content" }) })
 }
 
 describe("Native server membership commands", () => {

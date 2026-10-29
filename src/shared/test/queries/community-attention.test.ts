@@ -34,8 +34,8 @@ vi.mock("../../src/db/queries/community/server", () => ({
   getServersByIds: (...args: unknown[]) => mocks.serverOwners(...args),
 }))
 
-import { getAccountAttentionSnapshot } from "../../src/db/queries/community/attention"
-import { AccountAttentionSnapshotSchema } from "../../src/community-attention"
+import { getAccountAttentionProjection } from "../../src/db/queries/community/attention"
+import { AccountAttentionProjectionSchema } from "../../src/community-attention"
 
 describe("account attention snapshot", () => {
   beforeEach(() => {
@@ -105,7 +105,7 @@ describe("account attention snapshot", () => {
   })
 
   it("caps only mention rows while keeping exact scope counts and every friend request", async () => {
-    const snapshot = await getAccountAttentionSnapshot({} as never, "viewer", 2)
+    const snapshot = await getAccountAttentionProjection({} as never, "viewer", 2)
 
     expect(snapshot.truncated).toBe(true)
     expect(snapshot.scopes[0]?.attentionCount).toBe(9)
@@ -160,7 +160,7 @@ describe("account attention snapshot", () => {
       openerSeq: 1,
       openerUnread: false,
     }])
-    const snapshot = await getAccountAttentionSnapshot({} as never, "viewer", 2)
+    const snapshot = await getAccountAttentionProjection({} as never, "viewer", 2)
 
     expect(snapshot.scopes).toEqual([{
       scopeId: "c1",
@@ -183,12 +183,12 @@ describe("account attention snapshot", () => {
     mocks.channels.mockResolvedValue([])
     mocks.mentionScopes.mockResolvedValue([])
 
-    const snapshot = await getAccountAttentionSnapshot({} as never, "viewer", 2)
+    const snapshot = await getAccountAttentionProjection({} as never, "viewer", 2)
 
     expect(snapshot.scopes).toEqual([])
     expect(snapshot.items.filter((item) => item.kind !== "friend_request")).toEqual([])
     expect(snapshot.truncated).toBe(false)
-    expect(() => AccountAttentionSnapshotSchema.parse(snapshot)).not.toThrow()
+    expect(() => AccountAttentionProjectionSchema.parse(snapshot)).not.toThrow()
   })
 
   it("keeps a raced aggregate scope without requiring a bounded item row", async () => {
@@ -202,7 +202,7 @@ describe("account attention snapshot", () => {
     }])
     mocks.mentions.mockResolvedValue([])
 
-    const snapshot = await getAccountAttentionSnapshot({} as never, "viewer", 2)
+    const snapshot = await getAccountAttentionProjection({} as never, "viewer", 2)
 
     expect(snapshot.scopes).toEqual([expect.objectContaining({
       scopeId: "c1",
@@ -211,7 +211,7 @@ describe("account attention snapshot", () => {
     })])
     expect(snapshot.items.filter((item) => item.kind !== "friend_request")).toEqual([])
     expect(snapshot.truncated).toBe(true)
-    expect(() => AccountAttentionSnapshotSchema.parse(snapshot)).not.toThrow()
+    expect(() => AccountAttentionProjectionSchema.parse(snapshot)).not.toThrow()
   })
 
   it("emits one explicit presentation unit for each unread forum opener", async () => {
@@ -260,7 +260,7 @@ describe("account attention snapshot", () => {
       lastMessageAt: `2026-09-27T00:00:0${seq}.000Z`,
     }))])
 
-    const snapshot = await getAccountAttentionSnapshot({} as never, "viewer", 100)
+    const snapshot = await getAccountAttentionProjection({} as never, "viewer", 100)
     const posts = snapshot.items.filter((entry) => entry.kind === "forum_post")
 
     expect(posts).toEqual([
@@ -268,6 +268,6 @@ describe("account attention snapshot", () => {
       expect.objectContaining({ sourceId: "post1", openerSeq: 1 }),
     ])
     expect(snapshot.items.filter((entry) => entry.kind === "mention")).toEqual([])
-    expect(() => AccountAttentionSnapshotSchema.parse(snapshot)).not.toThrow()
+    expect(() => AccountAttentionProjectionSchema.parse(snapshot)).not.toThrow()
   })
 })

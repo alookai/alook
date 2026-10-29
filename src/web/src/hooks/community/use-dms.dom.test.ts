@@ -1,3 +1,4 @@
+import { dmListRowFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
@@ -7,6 +8,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { dmsProjectedQueryFn } from "./use-dms"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import type { CommunityDmsRead } from "@alook/shared"
 import type { DM } from "@/lib/community/models/people"
 import { inboxDmRowTarget } from "./inbox-read-reservation"
 import {
@@ -16,8 +18,9 @@ import {
 } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { ingestDms } from "@/lib/community-db/sync"
+import { beginCommunityProfileSeed } from "@/lib/community/profile-seed"
 
-function seedDms(client: QueryClient, data: { conversations: DM[] }) {
+function seedDms(client: QueryClient, data: CommunityDmsRead) {
   ingestDms(getCommunityDbRegistry(client)!, data)
   client.setQueryData(communityKeys.dms(), { ids: data.conversations.map((dm) => dm.id) })
 }
@@ -33,16 +36,12 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function dm(id: string): DM {
-  return {
-    id,
-    userId: `${id}-peer`,
-    name: id,
-    discriminator: "0001",
-    avatar: id,
-    status: "offline",
-    preview: "",
-  }
+function dmFacts(fields: { id: string; userId: string; [field: string]: unknown }) {
+  const full = dmListRowFixture(fields as DM, "viewer")
+  return { ...full, profile: { ...full.profile, avatar: typeof fields.avatar === "string" ? fields.avatar : null } }
+}
+function dm(id: string) {
+  return dmFacts({ id, userId: id + "-peer", name: id, discriminator: "0001", avatar: id, status: "offline", preview: "" })
 }
 
 beforeEach(() => {
@@ -53,9 +52,9 @@ beforeEach(() => {
 
 describe("useDms / dmsQueryFn", () => {
   it("returns the DM conversations from GET /api/community/users/me/dms", async () => {
-    const conversations = [
+    const conversations = ([
       { id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0000", avatar: "A", status: "offline", preview: "" },
-    ]
+    ]).map(dmFacts)
     apiFetchMock.mockResolvedValueOnce({ conversations })
     const { client: qc, registry } = await createCommunityQueryOwner()
     const data = await qc.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(qc) })
@@ -128,7 +127,7 @@ describe("useDms / dmsQueryFn", () => {
   })
 
   it("reuses a projected DM across layout mounts without refetching the canonical list", async () => {
-    const conversations = [{
+    const conversations = ([{
       id: "dm_projected",
       userId: "u_1",
       name: "Alice",
@@ -136,7 +135,7 @@ describe("useDms / dmsQueryFn", () => {
       avatar: "a",
       status: "offline",
       preview: "projected from inbox",
-    }]
+    }]).map(dmFacts)
     apiFetchMock.mockResolvedValue({ conversations })
     const { useDms } = await import("./use-dms")
     const { client: qc } = await createCommunityQueryOwner()
@@ -158,7 +157,7 @@ describe("useDms / dmsQueryFn", () => {
   })
 
   it("ignores legacy transport conversations without a canonical provider", async () => {
-    const conversations = [dm("dm-providerless")]
+    const conversations = ([dm("dm-providerless")]).map(dmFacts)
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
     qc.setQueryData(communityKeys.dms(), { conversations })
@@ -218,7 +217,7 @@ describe("useDms / dmsQueryFn", () => {
         preview: "hello",
       }],
     }
-    seedDms(qc, raw)
+    seedDms(qc, { conversations: raw.conversations.map(dmFacts) })
     createCommunityDbRegistry(qc, "viewer").runtime.ws.actions.setPresence("u_1", "online")
     let projected!: ReturnType<typeof useDms>
     function Probe() {
@@ -256,7 +255,7 @@ describe("useDms / dmsQueryFn", () => {
         avatarVersion: 7,
         status: "online",
         preview: "cached preview",
-      }],
+      }].map(dmFacts),
     })
     let projected!: ReturnType<typeof useDms>
     function Probe() {
@@ -281,7 +280,7 @@ describe("useDms / dmsQueryFn", () => {
   })
 
   it("keeps legacy unread flags subordinate to canonical attention", async () => {
-    const conversations = [
+    const conversations = ([
       {
         id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0001",
         avatar: "a", avatarVersion: 1, status: "offline", preview: "one", unread: false,
@@ -293,9 +292,9 @@ describe("useDms / dmsQueryFn", () => {
       },
       {
         id: "dm_legacy", userId: "u_3", name: "Carol", discriminator: "0003",
-        avatar: "c", avatarVersion: 1, status: "offline", preview: "three", unread: true,
+        avatar: "c", avatarVersion: 1, status: "offline", preview: "three", unread: true, lastUnreadSeq: 7,
       },
-    ] as DM[]
+    ]).map(dmFacts)
     apiFetchMock.mockResolvedValue({ conversations })
     const { useDms } = await import("./use-dms")
     const { client: qc } = await createCommunityQueryOwner()
@@ -320,7 +319,7 @@ describe("useDms / dmsQueryFn", () => {
   })
 
   it("does not let a legacy Inbox reservation mutate canonical DM attention", async () => {
-    const conversations = [
+    const conversations = ([
       {
         id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0001",
         avatar: "a", avatarVersion: 1, status: "offline", preview: "one",
@@ -331,7 +330,7 @@ describe("useDms / dmsQueryFn", () => {
         avatar: "b", avatarVersion: 1, status: "offline", preview: "two",
         unread: true, lastUnreadSeq: 3,
       },
-    ] as DM[]
+    ]).map(dmFacts)
     const inboxDm = {
       channelId: "dm_1",
       otherUserId: "u_1",
@@ -402,3 +401,36 @@ describe("useDms / dmsQueryFn", () => {
     await act(async () => renderer.unmount())
   })
 })
+
+
+describe("complete DM read prepublication refusal", () => {
+  it.each(["missing-core", "wrong-peer", "wrong-channel", "wrong-viewer", "duplicate-identity", "missing-unread-seq", "foreign-parent", "foreign-category", "foreign-opener"])("keeps every canonical collection unchanged for a later %s row", async defect => {
+    const { client, registry } = await createCommunityQueryOwner("viewer");
+    const initial = [dm("first"), dm("second")];
+    await act(async () => { ingestDms(registry, { conversations: initial }); });
+    const snapshot = () => Object.fromEntries(Object.entries(registry.collections).map(([name, collection]) => [name, JSON.parse(JSON.stringify([...collection.base.values()]))]));
+    const before = snapshot();
+    const beforeRevision = beginCommunityProfileSeed(registry).revision;
+    const first = structuredClone(initial[0]!);
+    const second = structuredClone(initial[1]!);
+    first.profile.name = "Must not publish first";
+    second.profile.name = "Must not publish second";
+    if (defect === "missing-core") delete (second.profile as Partial<typeof second.profile>).avatarVersion;
+    if (defect === "wrong-peer") second.profile.id = first.profile.id;
+    if (defect === "wrong-channel") second.channel.id = "foreign-channel";
+    if (defect === "wrong-viewer") second.memberships[0]!.userId = "foreign-viewer";
+    if (defect === "duplicate-identity") Object.assign(second, { name: "Second identity source" });
+    if (defect === "foreign-parent") second.channel.parentChannelId = "foreign"
+    if (defect === "foreign-category") second.channel.categoryId = "foreign"
+    if (defect === "foreign-opener") second.channel.parentMessageId = "foreign"
+    if (defect === "missing-unread-seq") Object.assign(second, { unread: true, lastUnreadSeq: undefined });
+    apiFetchMock.mockResolvedValueOnce({ conversations: [first, second] });
+
+    await expect(client.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(client) })).rejects.toThrow();
+
+    expect(snapshot()).toEqual(before);
+    expect(beginCommunityProfileSeed(registry).revision).toBe(beforeRevision);
+    expect(registry.collections.profiles.get(first.profile.id)?.name).not.toBe("Must not publish first");
+    expect(registry.collections.profiles.get(initial[1]!.profile.id)?.name).not.toBe("Must not publish second");
+  });
+});

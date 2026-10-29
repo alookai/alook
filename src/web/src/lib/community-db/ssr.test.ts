@@ -19,7 +19,7 @@ describe("native DB server snapshot handoff", () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const serverClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
     const key = communityKeys.communityDbCollection("viewer", "profiles")
-    const rows = [{ id: "viewer", name: "Viewer", discriminator: "0042", avatar: null, avatarVersion: 1, identityComplete: true }]
+    const rows = [{ id: "viewer", name: "Viewer", discriminator: "0042", avatar: null, avatarVersion: 1 }]
     serverClient.setQueryData(key, rows)
     const server = createCommunityDbRegistry(serverClient, "viewer")
     await server.collections.profiles.preload()

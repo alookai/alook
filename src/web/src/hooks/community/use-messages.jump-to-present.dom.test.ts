@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren, Suspense, useLayoutEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -25,7 +26,7 @@ function packet(kind: "channel" | "dm", anchor = "m1", channelId = "c1") {
     messages: [{ ...value.messages[0], id: anchor, channelId, content: anchor }], page: { ...value.page, hasMoreNewer: true } }
 }
 function page(id: string) {
-  return { messages: [{ ...conversationEntryFixture().messages[0], id, content: id, seq: 8 }], latestSeq: 8, hasMoreOlder: false, hasMoreNewer: false }
+  return messageReadPageFixture({ messages: [{ ...conversationEntryFixture().messages[0], id, content: id, seq: 8 }], latestSeq: 8, hasMoreOlder: false, hasMoreNewer: false })
 }
 async function setup(kind: "channel" | "dm", anchor = "m1", channelId = "c1") {
   const owner = await createCommunityQueryOwner()

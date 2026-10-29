@@ -11,6 +11,9 @@ import { channelMetadataOptions } from "./channel-metadata"
 import { startChannelRouteVerification } from "./channel-route-verification"
 import { useChannelMetadata } from "./use-channel-metadata"
 
+import { CommunityApiError } from "@/lib/errors"
+import { CommunityReadErrorSchema, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 
@@ -146,4 +149,45 @@ describe("DM route uses the shared Channel metadata owner", () => {
     expect(client.getQueryData(channelMetadataOptions(client, null, dm.id).queryKey)).toBeUndefined()
     client.clear()
   })
+})
+
+it.each(["blocked","not_allowed","not_found"] as const)("projects the current %s cause after the original query error disappears",async code=>{
+  const {client,registry,wrapper}=await fixture()
+  apiFetch.mockRejectedValue(new CommunityApiError(CommunityReadErrorSchema.parse({contractVersion:BUSINESS_SCHEMA_VERSION,error:{code,message:code,retryable:false}}).error,code==="not_found"?404:403))
+  const route=renderHook(()=>useChannelMetadata(null,dm.id),{wrapper})
+  try {
+    await waitFor(()=>expect(route.result.current.status).toBe("denied"))
+    expect(route.result.current).toMatchObject({denialCode:code,revoked:true,canRead:false,identityKnown:false})
+    expect(route.result.current.error).toBeNull()
+    expect(registry.collections.messages.size).toBe(0)
+    apiFetch.mockResolvedValue(metadata)
+    await act(async()=>{await route.result.current.retry()})
+    await waitFor(()=>expect(route.result.current.status).toBe("readable"))
+    expect(route.result.current.denialCode).toBeUndefined()
+    expect(registry.runtime.ws.get().channelAccessScopes.get(dm.id)).not.toHaveProperty("denialCode")
+  } finally {route.unmount();client.clear()}
+})
+
+it("keeps the actual WS block cause through directory eviction and rejects the older held HTTP entry",async()=>{
+  const {client,registry,wrapper}=await fixture()
+  const {ingestDms,applyCommunityDmBlockAccess}=await import("@/lib/community-db/sync")
+  const {dmListRowFixture}=await import("@/test/community-resource-fixtures")
+  ingestDms(registry,{conversations:[dmListRowFixture({id:dm.id,userId:"peer",name:"Peer",discriminator:"0042",avatar:null,avatarVersion:0,status:"offline",preview:"private"})]})
+  const pending=deferred<typeof metadata>()
+  apiFetch.mockReturnValue(pending.promise)
+  const route=renderHook(()=>useChannelMetadata(null,dm.id),{wrapper})
+  try {
+    await waitFor(()=>expect(apiFetch).toHaveBeenCalledOnce())
+    await act(async()=>{applyCommunityDmBlockAccess(registry,"peer",true)})
+    await waitFor(()=>expect(route.result.current).toMatchObject({status:"denied",denialCode:"blocked",canRead:false}))
+    const generation=registry.runtime.ws.get().channelAccessScopes.get(dm.id)!.generation
+    await act(async()=>{ingestDms(registry,{conversations:[]})})
+    expect(registry.collections.channels.has(dm.id)).toBe(false)
+    expect(registry.runtime.ws.get().channelAccessScopes.get(dm.id)).toMatchObject({generation,revoked:true,denialCode:"blocked"})
+    await act(async()=>{pending.resolve(metadata)})
+    expect(route.result.current).toMatchObject({status:"denied",denialCode:"blocked",canRead:false})
+    expect(registry.collections.channels.has(dm.id)).toBe(false)
+    expect(registry.collections.messages.size).toBe(0)
+    expect(client.getQueryData(channelMetadataOptions(client,null,dm.id).queryKey)).toBeUndefined()
+  } finally {route.unmount();await client.cancelQueries();client.clear()}
 })

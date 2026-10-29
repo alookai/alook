@@ -1,5 +1,6 @@
 import { and, eq, exists, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { CommunityResourceProfileSchema } from "../../../community-profile-resource";
 import {
   communityServerInvite,
   communityServerMember,
@@ -113,6 +114,22 @@ export async function useInvite(
     return null;
   }
 
+  const userRows = await db
+    .select({
+      name: user.name,
+      image: user.image,
+      avatarVersion: user.avatarVersion,
+      discriminator: user.discriminator,
+    })
+    .from(user)
+    .where(eq(user.id, userId));
+  const userRow = userRows[0];
+
+  if (!userRow) return null;
+  CommunityResourceProfileSchema.pick({ name: true, discriminator: true, avatarVersion: true }).parse({
+    name: userRow.name, discriminator: userRow.discriminator, avatarVersion: userRow.avatarVersion,
+  });
+
   // Consume capacity and create membership in one D1 batch. The INSERT itself
   // re-checks expiry/quota inside the write transaction, so two users racing
   // for the last use cannot both join. The UPDATE is gated on this request's
@@ -180,27 +197,15 @@ export async function useInvite(
   const insertedMember = (batchResults[0] as Array<typeof communityServerMember.$inferSelect>)[0];
   if (!insertedMember) return null;
 
-  // Join the joined-user row so WS listeners can render name/avatar without
-  // waiting for the next /members refetch.
-  const userRows = await db
-    .select({
-      name: user.name,
-      image: user.image,
-      avatarVersion: user.avatarVersion,
-      discriminator: user.discriminator,
-    })
-    .from(user)
-    .where(eq(user.id, userId));
-  const userRow = userRows[0];
 
   return {
     invite,
     member: {
       ...insertedMember,
-      userName: userRow?.name ?? "",
-      userImage: userRow?.image ?? null,
-      userAvatarVersion: userRow?.avatarVersion ?? 0,
-      discriminator: userRow?.discriminator ?? null,
+      userName: userRow.name,
+      userImage: userRow.image,
+      userAvatarVersion: userRow.avatarVersion,
+      discriminator: userRow.discriminator,
     },
   };
 }

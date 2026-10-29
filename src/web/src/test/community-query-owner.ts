@@ -1,3 +1,4 @@
+import { messageSeedFixture, resourceBundleFixture } from "./community-resource-fixtures"
 import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
 import { beforeEach } from "vitest"
 import { act } from "react"
@@ -31,7 +32,7 @@ export async function createCommunityQueryOwner(accountId = "viewer", config?: Q
 export function seedCommunityMessageWindow(client: QueryClient, key: QueryKey, window: InfiniteData<MessagesPage>, options?: SetDataOptions) {
   const registry = getCommunityDbRegistry(client)
   if (!registry || key.at(-1) !== "messages") throw new Error("Message fixture requires its original owner and window key")
-  ingestMessages(registry, String(key.at(-2)), window.pages.flatMap((page) => page.messages))
+  ingestMessages(registry, String(key.at(-2)), messageSeedFixture(String(key.at(-2)), window.pages.flatMap((page) => page.messages)))
   return client.setQueryData(key, {
     ...window,
     pages: window.pages.map((page) => ({ ...page, hasMoreNewer: page.hasMoreNewer ?? false, messages: page.messages.map(({ id }) => ({ id })) })),
@@ -57,5 +58,5 @@ beforeEach(() => async () => {
 export function seedCommunityAttentionScope(client: QueryClient, input: { channelId: string; serverId?: string | null; parentChannelId?: string | null; seq?: number; ordinaryUnread?: boolean; attentionCount?: number }) {
   const registry = getCommunityDbRegistry(client)!
   const scope = { scopeId: input.channelId, channelId: input.channelId, serverId: input.serverId ?? null, parentChannelId: input.parentChannelId ?? null, lastUnreadSeq: input.seq ?? 1, ordinaryUnread: input.ordinaryUnread ?? true, attentionCount: input.attentionCount ?? 0, lastAttentionSeq: input.attentionCount ? input.seq ?? 1 : null }
-  ingestAttentionSnapshot(registry, { scopes: [...[...registry.collections.attentionScopes.values()].filter(row => row.channelId !== input.channelId).map(row => AttentionScopeSchema.strip().parse(row)), scope], items: [...registry.collections.attentionItems.values()].map(row => AttentionItemSchema.strip().parse(row)), limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } })
+  ingestAttentionSnapshot(registry, { resources: resourceBundleFixture({ viewerId: registry.accountId! }), scopes: [...[...registry.collections.attentionScopes.values()].filter(row => row.channelId !== input.channelId).map(row => AttentionScopeSchema.strip().parse(row)), scope], items: [...registry.collections.attentionItems.values()].map(row => AttentionItemSchema.strip().parse(row)), limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } })
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { DEV_WS_DO_URL } from "@alook/shared"
+import { COMMUNITY_CONTRACT_VERSION, DEV_WS_DO_URL } from "@alook/shared"
 import { signUp, signIn, sessionRequest, sqlRun } from "@alook/test-utils"
 
 const WS_DO_WS = DEV_WS_DO_URL.replace(/^http/, "ws")
@@ -97,7 +97,7 @@ describe("ws (dev direct to ws-do)", () => {
     if (!available) return
 
     const ws = await openWs(userId)
-    ws.send(JSON.stringify({ type: "auth", token }))
+    ws.send(JSON.stringify({ type: "auth", token, communityContract: COMMUNITY_CONTRACT_VERSION }))
 
     const ack = await waitForMessage<{ type: string }>(ws, (m) => m.type === "auth.ok")
     expect(ack.type).toBe("auth.ok")
@@ -121,7 +121,7 @@ describe("ws (dev direct to ws-do)", () => {
     if (!available) return
 
     const ws = await openWs(userId)
-    ws.send(JSON.stringify({ type: "auth", token }))
+    ws.send(JSON.stringify({ type: "auth", token, communityContract: COMMUNITY_CONTRACT_VERSION }))
     await waitForMessage<{ type: string }>(ws, (message) => message.type === "auth.ok")
 
     const nonce = randomUUID()
@@ -139,7 +139,7 @@ describe("ws (dev direct to ws-do)", () => {
     if (!available) return
 
     const ws = await openWs(userId)
-    ws.send(JSON.stringify({ type: "auth", token: "not-a-real-token" }))
+    ws.send(JSON.stringify({ type: "auth", token: "not-a-real-token", communityContract: COMMUNITY_CONTRACT_VERSION }))
 
     const closeEvent = await waitForClose(ws)
     expect(closeEvent.code).toBe(1008)

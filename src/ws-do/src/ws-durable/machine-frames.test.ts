@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
 import {
@@ -650,8 +651,8 @@ describe("WebSocketDurableObject", () => {
         const parsed = bodies.map((b) => JSON.parse(b)).filter((b) => b.type === "community:status.update")
         expect(parsed).toEqual(
           expect.arrayContaining([
-            { type: "community:status.update", userId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
-            { type: "community:status.update", userId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
+            { schemaVersion: BUSINESS_SCHEMA_VERSION, type: "community:status.update", userId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
+            { schemaVersion: BUSINESS_SCHEMA_VERSION, type: "community:status.update", userId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
           ])
         )
       })

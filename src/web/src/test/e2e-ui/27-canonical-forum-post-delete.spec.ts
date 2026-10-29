@@ -1,3 +1,5 @@
+import { decodeCommunityBrowserEvent, type CommunityWsEvent } from "@alook/shared"
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, communityFixtureFetch } from "./_fixtures/business-contract"
 import type { Page, WebSocket } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -9,7 +11,7 @@ import type { CaseActors } from "./_fixtures/case-fixture"
 async function prepareCase(actors: CaseActors) {
   const { sessionCookie } = actors
   async function resolveOpener(forumId: string, childId: string): Promise<string> {
-    const response = await fetch(`${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } })
+    const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } })
     expect(response.status).toBe(200)
     const body = await response.json() as {
       threads: Array<{
@@ -24,13 +26,7 @@ async function prepareCase(actors: CaseActors) {
   return { resolveOpener }
 }
 
-type ChannelDeleteFrame = {
-  type: "community:channel.delete"
-  serverId: string
-  channelId: string
-  parentChannelId?: string
-  parentMessageId?: string
-}
+type ChannelDeleteFrame = Extract<CommunityWsEvent, { type: "community:channel.delete" }>
 
 function captureChannelDeletes(page: Page) {
   const frames: ChannelDeleteFrame[] = []
@@ -39,8 +35,8 @@ function captureChannelDeletes(page: Page) {
     sockets.add(socket)
     socket.on("framereceived", ({ payload }) => {
       try {
-        const frame = JSON.parse(payload.toString()) as ChannelDeleteFrame
-        if (frame.type === "community:channel.delete") frames.push(frame)
+        const admitted = decodeCommunityBrowserEvent(JSON.parse(payload.toString()))
+        if (admitted.ok && admitted.event.type === "community:channel.delete") frames.push(admitted.event)
       } catch {}
     })
   })
@@ -97,16 +93,16 @@ test("canonical forum-post delete converges author, manager, private WS, and act
   await gotoAfterUserWsAuth(carol.page, "/c")
   await expect(bob.page.getByTestId(tid.forumThreadCard(authorChildId))).toBeVisible({ timeout: 20_000 })
 
-  const unauthorizedStatus = await carol.page.evaluate(async (openerId) => {
-    const response = await fetch(`/api/community/messages/${openerId}`, { method: "DELETE" })
+  const unauthorizedStatus = await carol.page.evaluate(async ({ value: openerId, businessHeaders }) => {
+    const response = await fetch(`/api/community/messages/${openerId}`, { headers: businessHeaders, method: "DELETE" }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return response.status
-  }, authorOpenerId)
+  }, { value: authorOpenerId, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(unauthorizedStatus).toBe(403)
 
-  const legacyStatus = await bob.page.evaluate(async (childId) => {
-    const response = await fetch(`/api/community/channels/${childId}`, { method: "DELETE" })
+  const legacyStatus = await bob.page.evaluate(async ({ value: childId, businessHeaders }) => {
+    const response = await fetch(`/api/community/channels/${childId}`, { headers: businessHeaders, method: "DELETE" }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return response.status
-  }, authorChildId)
+  }, { value: authorChildId, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(legacyStatus).toBe(409)
   await expect(bob.page.getByTestId(tid.forumThreadCard(authorChildId))).toBeVisible()
 
@@ -129,10 +125,10 @@ test("canonical forum-post delete converges author, manager, private WS, and act
 
   await bob.page.reload()
   await expect(bob.page.getByTestId(tid.forumThreadCard(authorChildId))).toHaveCount(0)
-  const deletedChildStatus = await bob.page.evaluate(async (childId) => {
-    const response = await fetch(`/api/community/channels/${childId}`)
+  const deletedChildStatus = await bob.page.evaluate(async ({ value: childId, businessHeaders }) => {
+    const response = await fetch(`/api/community/channels/${childId}`, { headers: businessHeaders }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
     return response.status
-  }, authorChildId)
+  }, { value: authorChildId, businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
   expect(deletedChildStatus).toBe(404)
 
   await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${managerChildId}`)

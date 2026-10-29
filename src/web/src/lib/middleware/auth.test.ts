@@ -22,6 +22,9 @@ vi.mock("@alook/shared", async (importOriginal) => ({
     user: {
       getUserInternal: vi.fn(),
     },
+    communityBot: {
+      getBotOwnedBy: vi.fn(),
+    },
   },
 }));
 
@@ -34,7 +37,8 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { withAuth, withCookieHumanAuth, withOptionalAuth, warmMachineTokenCache } from "./auth";
-import { queries } from "@alook/shared";
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, queries } from "@alook/shared";
+import { withCommunityActor, type CommunityActor } from "./community-actor";
 
 const mockGetMachineTokenByHash = queries.machineToken
   .getMachineTokenByToken as ReturnType<typeof vi.fn>;
@@ -842,8 +846,85 @@ describe("warmMachineTokenCache", () => {
 describe("human-only bot-selection rejection", () => {
   it.each([withAuth, withCookieHumanAuth, withOptionalAuth])("rejects bot selection before a human-only handler can mutate the owner (%#)", async (wrap) => {
     const handler = vi.fn(async () => NextResponse.json({ ok: true }))
-    const response = await wrap(handler)(new NextRequest("http://localhost/api/community/bots", { headers: { "X-Alook-Bot-Id": "bot_1" }, method: "POST" }))
+    const response = await wrap(handler)(new NextRequest("http://localhost/api/community/bots", { headers: { "X-Alook-Bot-Id": "bot_1", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST" }))
     expect(response.status).toBe(403)
     expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+describe("current contract with actual owner-delegated actor authentication", () => {
+  const ownedBot = queries.communityBot.getBotOwnedBy as ReturnType<typeof vi.fn>
+  const route = vi.fn(async (_request: NextRequest, context: { actor: CommunityActor }) => NextResponse.json({ actor: context.actor }))
+  const request = (version: string | null = String(BUSINESS_SCHEMA_VERSION)) => {
+    const headers = new Headers({ Cookie: "owner-session", [COMMUNITY_BOT_ACTOR_HEADER]: "selected-bot" })
+    if (version !== null) headers.set(COMMUNITY_CONTRACT_HEADER, version)
+    return new NextRequest("http://localhost/api/community/servers/channels", { headers })
+  }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} }, ctx: { waitUntil: vi.fn() } })
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: { user: { id: "owner", email: "owner@example.test", isBot: false, deletedAt: null } } })
+    mockGetMachineTokenByHash.mockResolvedValue(null)
+    ownedBot.mockResolvedValue({ id: "selected-bot", machineId: "machine", isActive: true })
+  })
+  it("admits the current owner session only after real auth and scoped bot resolution", async () => {
+    const response = await withCommunityActor(route)(request())
+    expect(response.status).toBe(200)
+    expect(ownedBot).toHaveBeenCalledWith({}, "selected-bot", "owner")
+    expect(await response.json()).toEqual({ actor: { kind: "bot", userId: "selected-bot", ownerUserId: "owner", machineId: "machine", isActive: true, delegatedByUserId: "owner" } })
+    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+    for (const field of ["Cookie", "Authorization", COMMUNITY_CONTRACT_HEADER, COMMUNITY_BOT_ACTOR_HEADER]) expect(response.headers.get("Vary")).toContain(field)
+  })
+  it.each([null, "2", "3", String(BUSINESS_SCHEMA_VERSION + 1)])("does not exempt a cookie request with bot selection and contract %s", async version => {
+    const response = await withCommunityActor(route)(request(version))
+    expect(response.status).toBe(400)
+    expect(mockGetSession).not.toHaveBeenCalled()
+    expect(ownedBot).not.toHaveBeenCalled()
+    expect(route).not.toHaveBeenCalled()
+  })
+  it("does not resolve or impersonate a selected bot without an authenticated owner", async () => {
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: null })
+    const response = await withCommunityActor(route)(request())
+    expect(response.status).toBe(401)
+    expect(ownedBot).not.toHaveBeenCalled()
+    expect(route).not.toHaveBeenCalled()
+  })
+  it("keeps foreign or missing bot refusal after the owner is authenticated", async () => {
+    ownedBot.mockResolvedValue(null)
+    const response = await withCommunityActor(route)(request())
+    expect(response.status).toBe(404)
+    expect(ownedBot).toHaveBeenCalledWith({}, "selected-bot", "owner")
+    expect(route).not.toHaveBeenCalled()
+  })
+  it("validates an invalid machine token before refusing missing-contract delegation", async () => {
+    const req = request(null)
+    req.headers.set("Authorization", "Bearer al_invalid-composition-control")
+    const response = await withCommunityActor(route)(req)
+    expect(response.status).toBe(401)
+    expect(mockGetMachineTokenByHash).toHaveBeenCalledWith({}, "al_invalid-composition-control")
+    expect(ownedBot).not.toHaveBeenCalled()
+    expect(route).not.toHaveBeenCalled()
+  })
+  it("allows the missing version only after a valid independent machine credential", async () => {
+    mockGetMachineTokenByHash.mockResolvedValue({ id: "machine-token", userId: "owner", userEmail: "owner@example.test" })
+    const req = request(null)
+    req.headers.set("Authorization", "Bearer al_valid-composition-control")
+    const response = await withCommunityActor(route)(req)
+    expect(response.status).toBe(200)
+    expect(mockGetMachineTokenByHash).toHaveBeenCalledWith({}, "al_valid-composition-control")
+    expect(mockGetSession).not.toHaveBeenCalled()
+    expect(ownedBot).toHaveBeenCalledWith({}, "selected-bot", "owner")
+    expect(route).toHaveBeenCalledOnce()
+  })
+  it.each(["2", "3"])("refuses explicit old contract %s even after valid machine authentication", async version => {
+    mockGetMachineTokenByHash.mockResolvedValue({ id: "machine-token", userId: "owner", userEmail: "owner@example.test" })
+    const req = request(version)
+    req.headers.set("Authorization", "Bearer al_valid-composition-control")
+    const response = await withCommunityActor(route)(req)
+    expect(response.status).toBe(400)
+    expect(mockGetMachineTokenByHash).toHaveBeenCalledWith({}, "al_valid-composition-control")
+    expect(ownedBot).not.toHaveBeenCalled()
+    expect(route).not.toHaveBeenCalled()
   })
 })

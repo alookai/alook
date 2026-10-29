@@ -1,3 +1,6 @@
+import { communityChannelResourceFromStorage } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, CommunityForumSidebarChannelSummarySchema, CommunityForumSidebarEnvelopeSchema } from "@alook/shared"
+import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { NextResponse, NextRequest } from "next/server"
 import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { getDb } from "@/lib/db"
@@ -34,7 +37,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     const search = req.nextUrl.searchParams
     const sidebarKeys = ["type", "parentType", "participating", "activeWithin", "limitPerParent", "retainId", "include"]
     const wantsSidebarThreads = sidebarKeys.some((key) => search.has(key))
-    if (!wantsSidebarThreads) return NextResponse.json({ channels: visibleChannels })
+    if (!wantsSidebarThreads) return NextResponse.json({ channels: visibleChannels.map(communityChannelResourceFromStorage) })
 
     if (
       search.get("type") !== "thread" ||
@@ -77,12 +80,12 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     const parentMessageIds = rows
       .map((channel) => channel.parentMessageId)
       .filter((id): id is string => !!id)
-    const [parentMessages, unreadRows] = await Promise.all([
-      queries.communityMessage.getMessagesByIdsInChannels(db, parentMessageIds, parentIds),
+    const [resources, unreadRows] = await Promise.all([
+      readCommunityResourceBundle(db, ctx.actor.userId, { channelIds: [...parentIds, ...rows.map(row => row.id)], messageIds: parentMessageIds, serverIds: [serverId] }),
       queries.communityInbox.listEligibleUnreadChannels(db, ctx.actor.userId, rows.map((channel) => channel.id)),
     ])
     const unreadIds = new Set(unreadRows.map((row) => row.channelId))
-    const projectChannel = (channel: (typeof rows)[number]) => ({
+    const projectChannel = (channel: (typeof rows)[number]) => CommunityForumSidebarChannelSummarySchema.strip().parse({
       ...channel,
       expiresAt: new Date(Date.parse(channel.activityAt) + windowMs).toISOString(),
       unread: unreadIds.has(channel.id),
@@ -107,14 +110,14 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
         compareAsciiSqliteBinary(b.id, a.id)
       )
     }
-    return NextResponse.json({
+    return NextResponse.json(CommunityForumSidebarEnvelopeSchema.parse({
+      schemaVersion: BUSINESS_SCHEMA_VERSION, serverId, resources,
       channels,
       canonicalChannels,
       retainedChannel,
       retainedDisposition: projection.retainedDisposition,
-      included: { parentMessages },
       serverNow,
-    })
+    }))
   }
 
   const botUserId = ctx.actor.userId

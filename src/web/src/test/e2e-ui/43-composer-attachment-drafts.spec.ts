@@ -1,3 +1,4 @@
+import { currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, installInputCapability } from "./_fixtures/actions"
@@ -187,11 +188,7 @@ test.describe("same-tab Community attachment drafts", () => {
       if (route.request().method() !== "POST") return route.continue()
       uploadAttempts++
       if (uploadAttempts === 1) {
-        await route.fulfill({
-          status: 500,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "forced upload failure" }),
-        })
+        await route.fulfill(currentCommunityFixtureError("forced upload failure", 500))
         return
       }
       await route.continue()

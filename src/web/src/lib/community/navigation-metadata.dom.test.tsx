@@ -1,3 +1,4 @@
+import { dmListRowFixture } from "@/test/community-resource-fixtures"
 import { writeForumTagSelection } from "./forum-tag-selection"
 import React, { useEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -83,7 +84,7 @@ describe("native navigation warming and DM consumer mounting", () => {
       entry.selection = { reason: "read_pointer", anchorMessageId: "m28" }
       entry.page.latestSeq = 28
     } else {
-      publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [{ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" }] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
+      publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
     }
     const pending = deferred<typeof entry>()
     load.mockReturnValue(pending.promise)
@@ -110,7 +111,7 @@ describe("native navigation warming and DM consumer mounting", () => {
   it.each(["account", "channel"] as const)("still cancels warming and rejects late data after %s retirement", async kind => {
     const owner = await createCommunityQueryOwner()
     const entry = dmConversationEntryFixture()
-    publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [{ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" }] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
+    publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
     const pending = deferred<typeof entry>()
     load.mockReturnValue(pending.promise)
     const warming = prepareNavigationMetadata(owner.client, "/c/me/c1", "foreground")
@@ -125,7 +126,7 @@ describe("native navigation warming and DM consumer mounting", () => {
     expect(original.getObserversCount()).toBe(0)
     expect(signal.aborted).toBe(true)
     await act(async () => { pending.resolve(entry); await Promise.resolve() })
-    expect(owner.registry.collections.channels.get("c1")?.resourceComplete).not.toBe(true)
+    expect(owner.registry.collections.channels.get("c1")?.id).toBe("c1")
     expect(owner.client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries("c1") }).reduce((n, q) => n + q.getObserversCount(), 0)).toBe(0)
     expect(load).toHaveBeenCalledOnce()
   })

@@ -12,7 +12,7 @@ describe("public worker activation", () => {
     const listeners = vi.spyOn(Serwist.prototype, "addEventListeners")
     const location = new URL("https://example.test/sw.js")
     vi.stubGlobal("location", location)
-    vi.stubGlobal("self", { location, __SW_MANIFEST: [{ url: shellUrl, revision: "fixture-shell" }, { url: "/icon-192.png", revision: "fixture" }, { url: "/favicon.ico", revision: "fixture-favicon" }, { url: "/_next/static/chunks/example.js", revision: "fixture-code" }], registration: { scope: `${location.origin}/` }, addEventListener: vi.fn() })
+    vi.stubGlobal("self", { skipWaiting: vi.fn(async () => undefined), location, __SW_MANIFEST: [{ url: shellUrl, revision: "fixture-shell" }, { url: "/icon-192.png", revision: "fixture" }, { url: "/favicon.ico", revision: "fixture-favicon" }, { url: "/_next/static/chunks/example.js", revision: "fixture-code" }], registration: { scope: `${location.origin}/` }, addEventListener: vi.fn() })
     await import("./sw")
     const serwist = listeners.mock.contexts[0]
     if (!(serwist instanceof Serwist)) throw new Error("Missing actual Serwist instance")
@@ -83,7 +83,7 @@ describe("public worker activation", () => {
     vi.stubGlobal("FetchEvent", WorkerFetchEvent)
     vi.stubGlobal("location", location)
     vi.stubGlobal("caches", storage)
-    vi.stubGlobal("self", { location, caches: storage, registration: { scope: `${location.origin}/` }, addEventListener: vi.fn(),
+    vi.stubGlobal("self", { skipWaiting: vi.fn(async () => undefined), location, caches: storage, registration: { scope: `${location.origin}/` }, addEventListener: vi.fn(),
       __SW_MANIFEST: [{ url: path, revision: null }, { url: "/icon-192.png", revision: "fixture" }] })
     const network = vi.fn<typeof fetch>(async input => {
       const shell = new URL(urlOf(input)).pathname === path
@@ -122,25 +122,70 @@ describe("public worker activation", () => {
       expect(input).toMatchObject({ credentials: "omit", redirect: "error" })
     }
   })
-  it("runs actual Serwist activation and deletes old custom cache names without changing the current cache", async () => {
+  it.each([true, false])("runs actual Serwist activation and claims only with the current cached shell: %s", async available => {
+    const html = '<main data-community-shell="public">Application</main>'
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(html))
+    const path = `/community-shell/${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
+    const stored = new Map<string, Response>()
     const names = new Set(["alook-public-precache-v0", "alook-public-precache-v1", "alook-public-v99-runtime", "unrelated-cache"])
     const storage = { keys: vi.fn(async () => [...names]), delete: vi.fn(async (name: string) => names.delete(name)),
-      open: vi.fn(async (name: string) => { names.add(name); return { keys: async () => [] as Request[] } }) }
+      open: vi.fn(async (name: string) => { names.add(name); return { keys: async () => [] as Request[], match: async (key: string) => stored.get(key)?.clone() } }) }
+    const added = vi.spyOn(Serwist.prototype, "addEventListeners")
     const listeners = new Map<string, Array<(event: { waitUntil: (promise: Promise<unknown>) => void }) => unknown>>()
     const location = new URL("https://example.test/sw.js")
-    const worker = { __SW_MANIFEST: [{ url: shellUrl, revision: "fixture-shell" }], location, caches: storage, registration: { scope: "https://example.test/" }, clients: { claim: vi.fn(async () => undefined) },
+    const worker = { skipWaiting: vi.fn(async () => undefined), __SW_MANIFEST: [{ url: path, revision: null }], location, caches: storage, registration: { scope: "https://example.test/" }, clients: { claim: vi.fn(async () => undefined), matchAll: vi.fn(async () => []) },
       addEventListener: (type: string, listener: (event: { waitUntil: (promise: Promise<unknown>) => void }) => unknown) => listeners.set(type, [...listeners.get(type) ?? [], listener]) }
     vi.stubGlobal("self", worker)
     vi.stubGlobal("location", location)
     vi.stubGlobal("caches", storage)
     await import("./sw")
+    const serwist = added.mock.contexts[0]
+    if (!(serwist instanceof Serwist)) throw new Error("Missing actual Serwist instance")
+    if (available) stored.set(serwist.getPrecacheKeyForUrl(path)!, new Response(html, { headers: { "Content-Type": "text/html" } }))
     const pending: Promise<unknown>[] = []
     for (const listener of listeners.get("activate") ?? []) listener({ waitUntil: promise => { pending.push(promise) } })
-    await Promise.all(pending)
-    expect(worker.clients.claim).toHaveBeenCalledOnce()
+    if (available) await Promise.all(pending)
+    else await expect(Promise.all(pending)).rejects.toThrow("Current community shell unavailable")
+    expect(worker.clients.claim).toHaveBeenCalledTimes(available ? 1 : 0)
     expect(names).toEqual(new Set(["alook-public-precache-v1", "unrelated-cache"]))
     expect(storage.delete.mock.calls.map(([name]) => name)).toEqual(["alook-public-precache-v0", "alook-public-v99-runtime"])
     expect(storage.open).toHaveBeenCalledWith("alook-public-precache-v1")
     expect(listeners.has("fetch")).toBe(true)
   })
+})
+
+it.each(["probe", "probe-no-port", "unrelated", "missing-source", "source-without-id", "wrong-version", "missing-shell", "missing-client", "public-client", "current-marker", "navigate", "retry-marker", "navigation-refused"])("handles the actual worker message lifecycle: %s", async scenario => {
+  const { BUSINESS_SCHEMA_VERSION } = await import("@alook/shared/business-schema-version")
+  const { CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE } = await import("../lib/service-worker/business-upgrade")
+  const location = new URL("https://example.test/sw.js")
+  const match = vi.spyOn(Serwist.prototype, "matchPrecache").mockResolvedValue(scenario === "missing-shell" ? undefined : new Response("cached current shell"))
+  const handlers: Array<(event: MessageEvent & { waitUntil: (value: Promise<unknown>) => void }) => void> = []
+  const marker = scenario === "current-marker" || scenario === "retry-marker" ? `?__alook_schema_update=${BUSINESS_SCHEMA_VERSION}` : ""
+  const client = { id: "document", url: `https://example.test/${scenario === "public-client" ? "blog" : "c/me"}${marker}`, navigate: vi.fn(async () => scenario === "navigation-refused" ? null : ({ id: "new-document" })), postMessage: vi.fn() }
+  const clients = { matchAll: vi.fn(async () => scenario === "missing-client" ? [] : [client]), claim: vi.fn() }
+  vi.stubGlobal("location", location)
+  vi.stubGlobal("self", { location, skipWaiting: vi.fn(async () => undefined), registration: { scope: "https://example.test/" }, clients, __SW_MANIFEST: [{ url: shellUrl, revision: null }], addEventListener: (type: string, handler: typeof handlers[number]) => { if (type === "message") handlers.push(handler) } })
+  await import("./sw")
+  const reply = vi.fn()
+  const pending: Promise<unknown>[] = []
+  const data = { type: scenario.startsWith("probe") ? WORKER_VERSION_PROBE : scenario === "unrelated" ? "unrelated" : CURRENT_DOCUMENT_REQUEST, schemaVersion: scenario === "wrong-version" ? BUSINESS_SCHEMA_VERSION - 1 : BUSINESS_SCHEMA_VERSION, explicitRetry: scenario === "retry-marker" }
+  const source = scenario === "missing-source" ? null : scenario === "source-without-id" ? {} : { id: "document" }
+  handlers.at(-1)!({ data, source, ports: scenario === "probe-no-port" ? [] : [{ postMessage: reply }], waitUntil: promise => { pending.push(promise) } } as never)
+  await Promise.all(pending)
+  if (scenario.startsWith("probe")) {
+    expect(pending).toHaveLength(0)
+    if (scenario === "probe") expect(reply).toHaveBeenCalledWith({ schemaVersion: BUSINESS_SCHEMA_VERSION })
+    else expect(reply).not.toHaveBeenCalled()
+    expect(match).not.toHaveBeenCalled()
+  } else if (scenario === "unrelated") {
+    expect(pending).toHaveLength(0)
+    expect(reply).not.toHaveBeenCalled()
+    expect(match).not.toHaveBeenCalled()
+  } else {
+    const navigates = scenario === "navigate" || scenario === "retry-marker"
+    expect(reply).toHaveBeenCalledWith({ navigating: navigates })
+    expect(pending).toHaveLength(1)
+    expect(client.navigate).toHaveBeenCalledTimes(navigates || scenario === "navigation-refused" ? 1 : 0)
+    if (navigates) expect(client.navigate).toHaveBeenCalledWith(`https://example.test/c/me?__alook_schema_update=${BUSINESS_SCHEMA_VERSION}`)
+  }
 })

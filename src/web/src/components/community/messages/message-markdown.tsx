@@ -43,6 +43,7 @@ export function extractInviteTokens(text: string): string[] {
 // mention pill would lose its discriminator (same-name pills all resolve to
 // the first match) and @everyone loses its styling flag.
 export const MD_ALLOWED_TAGS = {
+  htmlpreview: ["dataAttachmentId"],
   redacted: [],
   redactedcode: ["dataRedactedBlock", "dataLanguage"],
   spoiler: [],

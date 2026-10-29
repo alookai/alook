@@ -1,3 +1,5 @@
+import { friendBucketScenarioFixture } from "../../test/community-resource-fixtures"
+import { currentCommunityFixtureError, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
@@ -164,10 +166,10 @@ test.setTimeout(180_000)
       if (route.request().method() !== "GET") return route.continue()
       acceptedGets += 1
       if (fail) {
-        await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"failed"}' })
+        await route.fulfill(currentCommunityFixtureError("failed", 503))
         return
       }
-      await route.fulfill({ status: 200, contentType: "application/json", body: '{"friends":[]}' })
+      await route.fulfill({ headers: CURRENT_COMMUNITY_FIXTURE_HEADERS, status: 200, contentType: "application/json", body: JSON.stringify(friendBucketScenarioFixture("friends", [], actors.userId("alice"))) })
     })
 
     await page.goto(`/c/channels/${inviteServerId}`)
@@ -203,7 +205,7 @@ test.setTimeout(180_000)
       if (route.request().method() !== "GET") return route.continue()
       participantGets += 1
       if (failParticipants) {
-        await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"failed"}' })
+        await route.fulfill(currentCommunityFixtureError("failed", 503))
         return
       }
       await route.continue()
@@ -285,7 +287,7 @@ test.setTimeout(180_000)
       if (route.request().method() !== "GET") return route.continue()
       parentGets += 1
       if (failParent) {
-        await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"failed"}' })
+        await route.fulfill(currentCommunityFixtureError("failed", 503))
         return
       }
       await route.continue()

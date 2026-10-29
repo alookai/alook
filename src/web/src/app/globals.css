@@ -2436,6 +2436,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 /* ── Streamdown block actions: unified styling (matches MessageActionsToolbar) ── */
 [data-streamdown="code-block-actions"],
 [data-streamdown="mermaid-block-actions"],
+[data-html-preview-actions],
 [data-streamdown="table-wrapper"]>div:first-child:not(:has([data-streamdown="table"])) {
   opacity: 0;
   pointer-events: none;
@@ -2451,6 +2452,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 
 [data-streamdown="code-block-actions"] button,
 [data-streamdown="mermaid-block-actions"] button,
+[data-html-preview-actions] button,
 [data-streamdown="table-wrapper"]>div:first-child:not(:has([data-streamdown="table"])) button {
   width: 1.5rem !important;
   height: 1.5rem !important;
@@ -2465,15 +2467,34 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 
 [data-streamdown="code-block-actions"] button:hover,
 [data-streamdown="mermaid-block-actions"] button:hover,
+[data-html-preview-actions] button:hover,
 [data-streamdown="table-wrapper"]>div:first-child:not(:has([data-streamdown="table"])) button:hover {
   color: #ffffff !important;
 }
 
 [data-streamdown="code-block-actions"] button svg,
 [data-streamdown="mermaid-block-actions"] button svg,
+[data-html-preview-actions] button svg,
 [data-streamdown="table-wrapper"]>div:first-child:not(:has([data-streamdown="table"])) button svg {
   width: 0.875rem !important;
   height: 0.875rem !important;
+}
+
+[data-html-preview]:is(:hover, :focus-within) [data-html-preview-actions] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none), (pointer: coarse) {
+  [data-html-preview-actions] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  [data-html-preview-actions] button {
+    width: 2.75rem !important;
+    height: 2.75rem !important;
+  }
 }
 
 /* ── Streamdown block actions: dropdown popups ── */

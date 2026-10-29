@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useRef } from "react"
-import type { VirtualListPositionScope } from "@/lib/community/virtual-list-position"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type { NewForumThread } from "../messages/create-forum-thread"
@@ -34,8 +34,8 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
   const feed = useForumFeed(serverId, forumChannelId, { routeTag, onSelectTag })
   const readState = useConversationEntry(feed.selectionReady ? { channelId: forumChannelId, serverId, tag: feed.tag === "All" ? null : feed.tag } : null)
   const proof = readState.resource?.proof
-  const positionScope = useMemo<VirtualListPositionScope | undefined>(() => readState.canRead && proof
-    ? { proof, kind: "forum", tag: feed.tag === "All" ? null : feed.tag } : undefined, [readState.canRead, proof, feed.tag])
+  const positionScope = useMemo<ConversationListScope | undefined>(() => readState.canRead && proof
+    ? { proof, tag: feed.tag === "All" ? null : feed.tag } : undefined, [readState.canRead, proof, feed.tag])
   const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   const retryScope = JSON.stringify([forumChannelId, feed.tag])
   const [retryAttempt, setRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))

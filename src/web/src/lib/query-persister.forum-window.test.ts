@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { channelResourceFixture, messageResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import { afterEach, describe, expect, it } from "vitest"
 import { dehydrate, QueryClient } from "@tanstack/react-query"
@@ -15,31 +17,34 @@ function setup(empty = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   owners.push(client)
   const rows = {
-    servers: [serverSchema.parse({ id: serverId, name: "Server", discriminator: "0001", description: "", ownerId: accountId,
-      icon: null, official: false, isOwner: true, unread: false, mentions: 0, detailComplete: true })],
-    channels: [canonicalChannelRow({ id: "forum", type: "forum", serverId }),
-      ...empty ? [] : [canonicalChannelRow({ id: "post", type: "thread", serverId, parentChannelId: "forum", parentMessageId: "opener" })]],
-    messages: empty ? [] : [messageSchema.parse({ id: "opener", channelId: "forum", type: "chat", content: "Canonical title", seq: 1 })],
-    channelMemberships: empty ? [] : [canonicalChannelMembershipRow("post", accountId, "notify")],
+    servers: [serverResourceFixture({ id: serverId, name: "Server", discriminator: "0001", ownerId: accountId })],
+    channels: [canonicalChannelRow(channelResourceFixture({ id: "forum", type: "forum", serverId })),
+      ...empty ? [] : [canonicalChannelRow(channelResourceFixture({ id: "post", type: "thread", serverId, parentChannelId: "forum", parentMessageId: "opener" }))]],
+    messages: empty ? [] : [messageResourceFixture({ id: "opener", channelId: "forum", content: "Canonical title", seq: 1 })],
+    channelMemberships: empty ? [] : [canonicalChannelMembershipRow("post", accountId, "notify", { source: "spoke" })],
   }
   for (const [name, data] of Object.entries(rows)) client.setQueryData(communityKeys.communityDbCollection(accountId, name), data)
+  const directory = { schemaVersion: BUSINESS_SCHEMA_VERSION, accountId, serverId, categoryIds: [], channelIds: ["forum"] }
+  client.setQueryData(communityKeys.server(serverId), directory)
   const result = {
     threads: [{ id: "duplicated-entity", title: "Must not persist" }], verifiedEpoch: 99,
     serverNow: new Date().toISOString(), serverClockOffsetMs: 0,
-    window: { version: 1 as const, accountId, serverId, parents: ["forum"],
+    window: { version: BUSINESS_SCHEMA_VERSION, accountId, serverId, parents: ["forum"],
       base: empty ? [] : [{ id: "post", parentChannelId: "forum", parentMessageId: "opener" }], retained: null },
   }
   client.setQueryData(key, result)
   const snapshot = () => ({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client, { shouldDehydrateQuery: shouldDehydrateCommunityQuery }) })
-  return { client, rows, result, snapshot }
+  return { client, rows: { ...rows, directory }, result, snapshot }
 }
 
 describe("scoped forum window persistence", () => {
   it("refreshes a restored forum-only window when visible text parents are missing", () => {
     const owner = setup()
-    const rows = { ...owner.rows, channels: [...owner.rows.channels, canonicalChannelRow({ id: "text", serverId, type: "text" })] }
+    const rows = { ...owner.rows, directory: { ...owner.rows.directory, channelIds: ["forum", "text"] },
+      channels: [...owner.rows.channels, canonicalChannelRow(channelResourceFixture({ id: "text", serverId, type: "text" }))] }
     expect(forumSidebarWindowComplete(owner.result.window, rows, accountId, serverId)).toBe(false)
     expect(forumSidebarWindowComplete({ ...owner.result.window, parents: ["forum", "text"] }, rows, accountId, serverId)).toBe(true)
+    expect(forumSidebarWindowComplete({ ...owner.result.window, parents: ["forum", "text"] }, { ...rows, directory: owner.rows.directory }, accountId, serverId)).toBe(false)
   })
 
   it.each([false, true])("restores only a complete minimal %s window without entity copies or access proof", async empty => {
@@ -55,11 +60,11 @@ describe("scoped forum window persistence", () => {
     expect(forumSidebarWindowComplete(readForumSidebarWindowResult(state.data)!.window, owner.rows, accountId, serverId)).toBe(true)
   })
 
-  it.each(["messages", "channelMemberships", "parent", "server", "detail"])("rejects a descriptor with missing %s before hydrate", async missing => {
+  it.each(["messages", "channelMemberships", "parent", "server", "directory"])("rejects a descriptor with missing %s before hydrate", async missing => {
     const owner = setup()
     if (missing === "parent") owner.client.setQueryData(communityKeys.communityDbCollection(accountId, "channels"), owner.rows.channels.filter(row => row.id !== "forum"))
     else if (missing === "server") owner.client.setQueryData(communityKeys.communityDbCollection(accountId, "servers"), [])
-    else if (missing === "detail") owner.client.setQueryData(communityKeys.communityDbCollection(accountId, "servers"), owner.rows.servers.map(row => ({ ...row, detailComplete: false })))
+    else if (missing === "directory") owner.client.removeQueries({ queryKey: communityKeys.server(serverId), exact: true })
     else owner.client.setQueryData(communityKeys.communityDbCollection(accountId, missing), [])
     const persister = createIdbPersister(accountId)
     await persister.persistClient(owner.snapshot())
@@ -105,9 +110,9 @@ describe("scoped forum window persistence", () => {
   it("checks a realtime visible child closure even when the last successful base was empty", async () => {
     const owner = setup(true)
     owner.client.setQueryData(communityKeys.communityDbCollection(accountId, "channels"), [
-      ...owner.rows.channels, canonicalChannelRow({ id: "realtime-post", type: "thread", serverId, parentChannelId: "forum", parentMessageId: "missing-opener", lastMessageAt: new Date().toISOString() }),
+      ...owner.rows.channels, canonicalChannelRow(channelResourceFixture({ id: "realtime-post", type: "thread", serverId, parentChannelId: "forum", parentMessageId: "missing-opener", lastMessageAt: new Date().toISOString() })),
     ])
-    owner.client.setQueryData(communityKeys.communityDbCollection(accountId, "channelMemberships"), [canonicalChannelMembershipRow("realtime-post", accountId, "notify")])
+    owner.client.setQueryData(communityKeys.communityDbCollection(accountId, "channelMemberships"), [canonicalChannelMembershipRow("realtime-post", accountId, "notify", { source: "spoke" })])
     const persister = createIdbPersister(accountId)
     await persister.persistClient(owner.snapshot())
     expect((await persister.restoreClient())!.clientState.queries.some(query => JSON.stringify(query.queryKey) === JSON.stringify(key))).toBe(false)

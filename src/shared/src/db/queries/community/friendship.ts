@@ -15,6 +15,7 @@ import type {
   FriendApprovalPayload,
   FriendApprovalProfile,
 } from "../../../community-ws-events";
+import { getResourceProfiles } from "./user-profile"
 import { createOrGetDM } from "./dm";
 import { createMessage, listMessagesReferencingFriendship } from "./message";
 import { nanoid } from "nanoid";
@@ -441,17 +442,21 @@ export async function sendRequest(
     });
     const approval =
       projectApproval(inserted, needsOwnerApproval, [botId, needsOwnerApproval], profiles) ?? undefined;
+    const [authorProfile] = await getResourceProfiles(db, [botId])
+    if (!authorProfile) throw new Error("Approval message author resource missing")
     broadcasts.push({
       userId: needsOwnerApproval,
       event: {
         type: WS_EVENTS.MESSAGE_CREATE,
         channelId: dm.id,
+        profiles: [authorProfile],
         message: {
           id: msg.id,
+          channelId: dm.id, replyToId: null, clientNonce: null, attachments: [],
           seq: msg.seq,
           authorId: botId,
-          authorName: botP?.name ?? "",
-          authorAvatarVersion: botP?.avatarVersion ?? 0,
+          authorName: authorProfile.name,
+          authorAvatarVersion: authorProfile.avatarVersion,
           content: msg.content,
           type: "chat",
           createdAt: msg.createdAt,
@@ -1138,17 +1143,21 @@ export async function ownerDecideOnRow(
         });
         const approval = projectApproval(updated, addresseeOwner, [row.addresseeId, addresseeOwner], profiles);
         if (approval) {
+          const [authorProfile] = await getResourceProfiles(db, [row.addresseeId])
+          if (!authorProfile) throw new Error("Approval message author resource missing")
           broadcasts.push({
             userId: addresseeOwner,
             event: {
               type: WS_EVENTS.MESSAGE_CREATE,
               channelId: dm.id,
+              profiles: [authorProfile],
               message: {
                 id: msg.id,
+                channelId: dm.id, replyToId: null, clientNonce: null, attachments: [],
                 seq: msg.seq,
                 authorId: row.addresseeId,
-                authorName: botP?.name ?? "",
-                authorAvatarVersion: botP?.avatarVersion ?? 0,
+                authorName: authorProfile.name,
+                authorAvatarVersion: authorProfile.avatarVersion,
                 content: msg.content,
                 type: "chat",
                 createdAt: msg.createdAt,

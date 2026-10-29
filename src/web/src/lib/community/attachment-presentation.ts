@@ -1,4 +1,4 @@
-import type { CommunityMessagePreviewAttachment, CommunityLegacyMessageAttachment } from "@alook/shared"
+import type { AttachmentPreview } from "./models/message"
 import type { Attachment } from "./models/message"
 import { isInlineAttachmentContentType } from "./attachment-content-type"
 
@@ -280,11 +280,11 @@ export function formatAttachmentSize(bytes?: number): string {
 }
 
 export function presentMessageAttachment(
-  attachment: CommunityMessagePreviewAttachment | CommunityLegacyMessageAttachment,
+  attachment: AttachmentPreview,
 ): Attachment {
-  const legacy = "kind" in attachment ? attachment : undefined
-  const kind = legacy?.kind ?? (isInlineAttachmentContentType(attachment.contentType) ? "image" : "file")
+  const kind = isInlineAttachmentContentType(attachment.contentType) ? "image" : "file"
   const metadata = {
+    ...("id" in attachment ? { id: attachment.id } : {}),
     name: attachment.name, url: attachment.url,
     ...(attachment.contentType != null ? { contentType: attachment.contentType } : {}),
     ...(attachment.sizeBytes != null ? { sizeBytes: attachment.sizeBytes } : {}),
@@ -295,5 +295,5 @@ export function presentMessageAttachment(
     ...(attachment.width != null ? { width: attachment.width } : {}),
     ...(attachment.height != null ? { height: attachment.height } : {}),
   }
-  return { ...metadata, kind, size: legacy?.size ?? formatAttachmentSize(attachment.sizeBytes ?? undefined) }
+  return { ...metadata, kind, size: formatAttachmentSize(attachment.sizeBytes ?? undefined) }
 }

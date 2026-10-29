@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, communityReadSchemas } from "@alook/shared"
+import { channelResourceFixture } from "@/test/community-resource-fixtures"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -155,12 +157,13 @@ describe("GET /channels/[id] — channel meta", () => {
   })
 
   it("returns the channel row when the caller is a member", async () => {
-    const channel = { id: "c1", serverId: "s1", type: "thread", parentChannelId: "p1", parentMessageId: "m1", creatorId: "u1" }
+    const channel = channelResourceFixture({ id: "c1", serverId: "s1", type: "thread", parentChannelId: "p1", parentMessageId: "m1", creatorId: "u1" })
     mockGetChannel.mockResolvedValue(channel)
     mockGetChannelForMember.mockResolvedValue(channel)
     const res = await GET(getReq(), { params: { id: "c1" } } as any)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual(channel)
+    expect(res.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    expect(communityReadSchemas().channel.parse(await res.json())).toEqual({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", channel, access: { channelId: "c1", canRead: true, canSend: true, canCreateDiscussion: false } })
   })
 
   it("returns 400 when the id is missing", async () => {

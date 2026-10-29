@@ -59,6 +59,9 @@ function buildRow(i: number) {
     userName: `User ${i}`,
     userEmail: `u${i}@x.com`,
     userImage: null,
+    userAvatarVersion: 0,
+    statusEmoji: null,
+    statusText: null,
     discriminator: String(i).padStart(4, "0"),
   }
 }
@@ -173,7 +176,7 @@ describe("GET /api/community/servers/[id]/members — cursor envelope", () => {
     expect(body.members.map((m) => m.discriminator)).toEqual(["0001", "0002"])
   })
 
-  it("includes statusEmoji/statusText sourced from the joined profile row, and defaults for a user with no profile row", async () => {
+  it("includes statusEmoji/statusText sourced from the joined profile row, and real NULL for a user with no profile row", async () => {
     const rows = [
       { ...buildRow(1), statusEmoji: "🎧", statusText: "Vibing" },
       { ...buildRow(2), statusEmoji: null, statusText: null },
@@ -182,9 +185,9 @@ describe("GET /api/community/servers/[id]/members — cursor envelope", () => {
     mockCountMembers.mockResolvedValue(2)
 
     const res = await GET(getReq(), ctx)
-    const body = await res.json() as { members: Array<{ statusEmoji: string | null; statusText: string }> }
+    const body = await res.json() as { members: Array<{ statusEmoji: string | null; statusText: string | null }> }
     expect(body.members[0]).toMatchObject({ statusEmoji: "🎧", statusText: "Vibing" })
-    expect(body.members[1]).toMatchObject({ statusEmoji: null, statusText: "" })
+    expect(body.members[1]).toMatchObject({ statusEmoji: null, statusText: null })
   })
 
   it("owner-scoped isBot gating: own bot exposes isBot/ownerUserId; other bots pass as humans", async () => {
@@ -221,14 +224,14 @@ describe("GET /api/community/servers/[id]/members — cursor envelope", () => {
     expect(res.status).toBe(401)
   })
 
-  it("envelope key set is { members, hasMore, cursor?, limit, total }", async () => {
+  it("binds the current member page to its server and viewer", async () => {
     // cursor is omitted from the JSON when hasMore=false (undefined values
     // are dropped by NextResponse.json). Assert the core keys are present.
     mockListMembersPaginated.mockResolvedValue({ members: [buildRow(1)], hasMore: false, cursor: undefined })
     mockCountMembers.mockResolvedValue(1)
     const res = await GET(getReq(), ctx)
     const body = await res.json() as Record<string, unknown>
-    expect(Object.keys(body).sort()).toEqual(["hasMore", "limit", "members", "total"])
+    expect(Object.keys(body).sort()).toEqual(["hasMore", "limit", "members", "serverId", "total", "viewerId"])
 
     // When hasMore=true the cursor key IS present.
     mockListMembersPaginated.mockResolvedValue({
@@ -238,6 +241,6 @@ describe("GET /api/community/servers/[id]/members — cursor envelope", () => {
     })
     const res2 = await GET(getReq(), ctx)
     const body2 = await res2.json() as Record<string, unknown>
-    expect(Object.keys(body2).sort()).toEqual(["cursor", "hasMore", "limit", "members", "total"])
+    expect(Object.keys(body2).sort()).toEqual(["cursor", "hasMore", "limit", "members", "serverId", "total", "viewerId"])
   })
 })

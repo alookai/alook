@@ -1,4 +1,5 @@
-import { COMMUNITY_BOT_ACTOR_HEADER, WS_EVENTS } from "@alook/shared"
+import { currentCommunityFixtureError } from "./_fixtures/business-contract"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, WS_EVENTS, admitCommunityBrowserEventBatch, decodeCommunityBrowserEvent, isCommunityBrowserEventBatchCandidate, type CommunityWsEvent } from "@alook/shared"
 import { spawnSync } from "node:child_process"
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -9,10 +10,10 @@ import { tid } from "./_fixtures/testids"
 import { REPO_ROOT, WEB_URL } from "./_setup/paths"
 
 type Bot = { id: string; name: string; runnerKey: string }
-type MembershipEvent = { type: string; wireType?: string; userId?: string; channelId?: string; serverId?: string; relation?: string; present?: boolean }
+type MembershipEvent = Extract<CommunityWsEvent, { type: typeof WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE | typeof WS_EVENTS.MEMBER_LEAVE }>
 
 async function prepareMembershipCase(actors: CaseActors, resources: CaseResources) {
-  const headers = (role: "alice" | "bob" = "alice") => ({ Cookie: actors.sessionCookie(role), Origin: WEB_URL, "Content-Type": "application/json" })
+  const headers = (role: "alice" | "bob" = "alice") => ({ Cookie: actors.sessionCookie(role), Origin: WEB_URL, "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) })
   const call = (path: string, method = "GET", body?: unknown, extra: Record<string, string> = {}) => fetch(`${WEB_URL}${path}`, {method, headers:{...headers(),...extra}, ...(body === undefined ? {} : {body:JSON.stringify(body)})})
   const pair = await call("/api/community/machines/pair", "POST")
   expect(pair.status).toBe(200)
@@ -80,13 +81,16 @@ async function openMemberships(page: Page, bot: Bot) {
 
 function observeMembershipEvents(page: Page) {
   const events: MembershipEvent[] = []
-  page.on("websocket", socket => socket.on("framereceived", ({payload}) => {
+  page.on("websocket", socket => socket.on("framereceived", async ({payload}) => {
     const text = String(payload)
     if (!text.startsWith("{")) return
-    const event = JSON.parse(text) as MembershipEvent & {events?:MembershipEvent[]}
-    for (const item of event.events ?? [event]) {
-      if (item.type === WS_EVENTS.CHANNEL_MEMBER_REMOVE) events.push({...item,wireType:item.type,type:WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE,relation:"access",present:false})
-      else if (([WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE,WS_EVENTS.MEMBER_LEAVE] as string[]).includes(item.type)) events.push(item)
+    const frame: unknown = JSON.parse(text)
+    const admitted = isCommunityBrowserEventBatchCandidate(frame)
+      ? await admitCommunityBrowserEventBatch(frame)
+      : decodeCommunityBrowserEvent(frame)
+    if (!admitted.ok) return
+    for (const item of "events" in admitted ? admitted.events : [admitted.event]) {
+      if (item.type === WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE || item.type === WS_EVENTS.MEMBER_LEAVE) events.push(item)
     }
   }))
   return events
@@ -149,7 +153,7 @@ test("owned bot exits preserve other identities, child participation boundaries 
     requests++
     expect(route.request().headers()[COMMUNITY_BOT_ACTOR_HEADER.toLowerCase()]).toBe(first.id)
     expect(route.request().headers().authorization).toBeUndefined()
-    if(fail){await route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"QA temporary failure"})});return}
+    if(fail){await route.fulfill(currentCommunityFixtureError("QA temporary failure",503));return}
     const response = await route.fetch()
     expect(response.status()).toBe(204)
     captured()
@@ -243,7 +247,7 @@ test("membership loading and late responses stay bound to the selected bot on de
   caseResources.own(releaseRead,async r=>r())
   await page.route("**/api/community/servers/channels",async route=>{
     if(route.request().headers()[COMMUNITY_BOT_ACTOR_HEADER.toLowerCase()]!==first.id){await route.continue();return}
-    if(fail){await failureGate;await route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"QA loading unavailable"})});return}
+    if(fail){await failureGate;await route.fulfill(currentCommunityFixtureError("QA loading unavailable",503));return}
     if(!hold){await route.continue();return}
     const response = await route.fetch()
     expect(response.status()).toBe(200)

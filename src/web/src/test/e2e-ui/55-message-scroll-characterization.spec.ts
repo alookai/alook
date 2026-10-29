@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./_fixtures/business-contract"
 import type { CommunityConversationEntryRead } from "@alook/shared"
 import type { Locator, Page, Route, TestInfo } from "@playwright/test"
 import { test, expect, type CaseActors } from "./_fixtures/case-fixture"
@@ -141,7 +142,7 @@ async function seedDmProfile(
 }
 
 async function setReadCheckpoint(actors: CaseActors, channelId: string, messageId: string): Promise<void> {
-  const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+  const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
     method: "PUT",
     headers: {
       Cookie: actors.sessionCookie("alice"),
@@ -914,7 +915,7 @@ test.describe("message scroll characterization", () => {
         await markScrollTrace(alice.page, `${author}-${distance}-precondition`, { detail: before })
         const nonce = `scroll186_${author}_${distance}_${Date.now()}`
         const content = `passive ${author} at ${distance} ${nonce}`
-        const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/messages`, {
+        const response = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${channelId}/messages`, {
           method: "POST",
           headers: { Cookie: sessionCookie(author), "Content-Type": "application/json", Origin: WEB_URL },
           body: JSON.stringify({ content, nonce }),

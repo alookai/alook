@@ -1,3 +1,4 @@
+import { resourceBundleFixture, friendBucketScenarioFixture } from "@/test/community-resource-fixtures"
 import { useAccountAttentionProjection, reconcileAccountAttention } from "./use-account-attention"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { publishCommunityFriendships, publishAccountAttentionSnapshot, captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
@@ -71,8 +72,11 @@ function friendsData(ids: readonly string[]): FriendsResponse {
   }
 }
 
+function friendResources(ids: readonly string[]) {
+  return resourceBundleFixture({ profiles: pendingRows.filter(row => ids.includes(row.id)).map(row => ({ id: row.userId, name: row.name, discriminator: "0001", avatar: null, avatarVersion: row.avatarVersion ?? 0 })) })
+}
 function attentionData(ids: readonly string[]) {
-  return {
+  return { resources: friendResources(ids),
     scopes: [], limit: 100, truncated: false,
     items: inboxRows.filter((row) => ids.includes(row.id)).map((row) => ({ id: `friend_request:${row.id}`, kind: "friend_request" as const, sourceId: row.id, actorUserId: row.userId, createdAt: row.createdAt })),
     included: { servers: [], channels: [], dms: [], messages: [], profiles: inboxRows.filter((row) => ids.includes(row.id)).map((row) => ({ userId: row.userId, name: row.name, discriminator: "0001", avatar: row.avatar, avatarVersion: row.avatarVersion ?? 0 })) },
@@ -97,11 +101,11 @@ function installTransport(transport: Transport) {
   apiFetchMock.mockImplementation(async (path: string) => {
     const action = path.match(/^\/api\/community\/friends\/([^/]+)\/(accept|reject)$/)
     if (action) return transport.action(action[1]!)
-    if (path === "/api/community/friends/accepted") return { friends: [] }
-    if (path === "/api/community/friends/blocked") return { blocked: [] }
+    if (path === "/api/community/friends/accepted") return friendBucketScenarioFixture("friends", [])
+    if (path === "/api/community/friends/blocked") return friendBucketScenarioFixture("blocked", [])
     if (path === "/api/community/friends/pending") {
       const ids = await transport.readFriends()
-      return { pending: pendingRows.filter((row) => ids.includes(row.id)) }
+      return friendBucketScenarioFixture("pending", pendingRows.filter((row) => ids.includes(row.id)).map(row => ({ ...row, discriminator: "0001" })))
     }
     if (path === "/api/community/users/me/attention") {
       return attentionData(await transport.readInbox())

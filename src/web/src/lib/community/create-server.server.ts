@@ -60,7 +60,7 @@ export async function createServerForUser(req: NextRequest, ctx: ResourceCreatio
         ownerMember.userId,
         ownerMember.userImage,
         ownerMember.userAvatarVersion,
-      ) ?? undefined,
+      ),
       avatarVersion: ownerMember.userAvatarVersion,
       role: ROLES.OWNER,
       joinedAt: ownerMember.joinedAt,

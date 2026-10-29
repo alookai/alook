@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
-import { writeJSON, writeError } from "@/lib/middleware/helpers"
+import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH, requestsCommunityContract, requestedCommunityContract } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH, COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { writeCommunityThreadsRead } from "@/lib/community/thread-read"
 import { parseBoundedInt } from "@/lib/community/messages"
@@ -15,11 +15,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const currentContract = requestsCommunityContract(req.headers)
-  const contract = requestedCommunityContract(req.headers) === 3 ? 3 : 2
+  const contract = COMMUNITY_RESOURCE_CONTRACT_VERSION
   const access = await requireMessageSurfaceAccess(db, channelId, ctx.userId)
-  if (!access.ok) return writeError(currentContract ? access.error : "forbidden", currentContract ? access.status : 403)
-  if (!currentContract && access.value.surface === "dm") return writeError("forbidden", 403)
+  if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.surface === "channel" ? access.value.channel
     : await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
   if (!channel) return writeError("not found", 404)
@@ -61,9 +59,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     if (cursor === null) return writeError("invalid cursor", 400)
 
     const page = await readCommunityForumRows(db, channelId, { tag, cursor: cursor ?? undefined, pageSize, includes })
-    if (currentContract) return writeCommunityThreadsRead(db, ctx.userId, channel, page.threads, { messages: [...page.parentMessages, ...page.firstMessages], tags: page.tags, participants: page.participants }, { hasMore: page.hasMore, nextCursor: page.nextCursor ?? null }, contract)
-    return writeJSON({ serverId: channel.serverId, parentType: channel.type, threads: page.threads,
-      included: { parentMessages: page.parentMessages, firstMessages: page.firstMessages.map(({ channelId, content }) => ({ channelId, content })), tags: page.tags, participants: page.participants }, hasMore: page.hasMore, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) })
+    return writeCommunityThreadsRead(db, ctx.userId, channel, page.threads, { messages: [...page.parentMessages, ...page.firstMessages], tags: page.tags, participants: page.participants }, { hasMore: page.hasMore, nextCursor: page.nextCursor ?? null }, contract)
 
   } else {
     threads = await queries.communityChannel.listChildChannels(db, channelId, {
@@ -112,13 +108,5 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     : Promise.resolve([]),
   ])
 
-  if (currentContract) {
-    return writeCommunityThreadsRead(db, ctx.userId, channel, threads, { messages: [...parentMessages, ...firstMessages], tags, participants }, { hasMore, nextCursor: nextCursor ?? null }, contract)
-  }
-  return writeJSON({
-    serverId: channel.serverId,
-    parentType: channel.type,
-    threads,
-    ...(order === "createdAt" || includes.size ? { included: { parentMessages, firstMessages: firstMessages.map(({ channelId, content }) => ({ channelId, content })), tags, participants }, hasMore, ...(nextCursor ? { nextCursor } : {}) } : {}),
-  })
+  return writeCommunityThreadsRead(db, ctx.userId, channel, threads, { messages: [...parentMessages, ...firstMessages], tags, participants }, { hasMore, nextCursor: nextCursor ?? null }, contract)
 })

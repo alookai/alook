@@ -1,3 +1,4 @@
+import * as currentCommunityTables from "../../../../../../../../shared/src/db/community-schema"
 import { DatabaseSync, type SQLInputValue } from "node:sqlite"
 import { createRequire } from "node:module"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -15,8 +16,11 @@ import {
 import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 
 const { getTableConfig } = createRequire(import.meta.resolve("@alook/shared"))("drizzle-orm/sqlite-core") as {
-  getTableConfig: (table: object) => { name: string; columns: Array<{ name: string; getSQLType: () => string }> }
+  getTableConfig: (table: object) => { name: string; columns: Array<{ name: string; getSQLType: () => string; default?: unknown }> }
 }
+
+const { is } = createRequire(import.meta.resolve("@alook/shared"))("drizzle-orm") as { is: (value: unknown, type: unknown) => boolean }
+const { SQLiteTable } = createRequire(import.meta.resolve("@alook/shared"))("drizzle-orm/sqlite-core") as { SQLiteTable: unknown }
 
 const { state, fanOut } = vi.hoisted(() => ({
   state: { binding: null as unknown as D1Database, userId: "admin" },
@@ -45,13 +49,18 @@ let sessions: string[]
 
 function seedDatabase() {
   const sqlite = new DatabaseSync(":memory:")
-  for (const table of [user, communityChannel, communityChannelMember, communityMessage, communityServerMember, communityCategory, communityPin]) {
+  for (const table of [user, ...Object.values(currentCommunityTables).filter(table => is(table, SQLiteTable))]) {
     const config = getTableConfig(table)
-    sqlite.exec(`CREATE TABLE "${config.name}" (${config.columns.map((column) => `"${column.name}" ${column.getSQLType()}`).join(", ")})`)
+    sqlite.exec(`CREATE TABLE "${config.name}" (${config.columns.map(column => {
+      const value = column.default
+      const defaultSql = typeof value === "string" ? " DEFAULT '" + value.replaceAll("'", "''") + "'" : typeof value === "number" ? ` DEFAULT ${value}` : typeof value === "boolean" ? ` DEFAULT ${Number(value)}` : ""
+      return `"${column.name}" ${column.getSQLType()}${defaultSql}`
+    }).join(", ")})`)
   }
   sqlite.exec(`
     INSERT INTO user (id,name,discriminator,"avatarVersion","isBot") VALUES
       ('admin','Administrator','0001',0,0),('creator','Creator','0002',0,0),('member','Member','0003',0,0);
+    INSERT INTO community_server (id,name,discriminator,description,icon,official,owner_id,created_at) VALUES ('server','Server','0042','',NULL,0,'creator','2026-10-19T00:00:00Z');
     INSERT INTO community_server_member (id,server_id,user_id,role) VALUES
       ('admin-row','server','admin','admin'),('creator-row','server','creator','member'),('member-row','server','member','member');
     INSERT INTO community_category (id,server_id,private) VALUES ('private-category','server',1),('public-category','server',0);
@@ -61,6 +70,7 @@ function seedDatabase() {
       ('private-thread','server',NULL,'thread','admin','private'),
       ('private-forum','server','private-category','forum','creator',NULL),
       ('private-post','server',NULL,'thread','admin','private-forum');
+    UPDATE community_channel SET name=id,topic='',position=0,archived=0,message_count=0,created_at='2026-10-19T00:00:00Z';
     INSERT INTO community_message (id,author_id,content,channel_id,seq,created_at) VALUES
       ('private-message','creator','Private example','private',1,'2026-10-19T00:00:00Z'),
       ('public-message','creator','Public example','public',1,'2026-10-19T00:00:00Z'),
@@ -80,6 +90,7 @@ function seedDatabase() {
 function session(view: DatabaseSync) {
   let current = view
   return {
+    async batch(statements: Array<{ all: () => Promise<unknown> }>) { return Promise.all(statements.map(statement => statement.all())) },
     prepare(sql: string) {
       let values: SQLInputValue[] = []
       const statement = () => {

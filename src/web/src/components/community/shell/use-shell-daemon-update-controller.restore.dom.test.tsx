@@ -17,7 +17,7 @@ it.each([false, true])("preserves collapsed preference through native restored l
   const owner = await createCommunityQueryOwner("user-1")
   const disk = createIdbPersister("user-1")
   const seed = new QueryClient()
-  seed.setQueryData(communityKeys.machines(), { machines: empty ? [] : [machine] })
+  seed.setQueryData(communityKeys.machines(), { machines: empty ? [] : [machine], complete: true })
   await disk.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(seed) })
   const restored = await disk.restoreClient()
   expect(restored).toBeDefined()
@@ -40,12 +40,12 @@ it.each([false, true])("preserves collapsed preference through native restored l
   try {
     await waitFor(() => expect(transport.load).toHaveBeenCalledWith("/api/community/machines?view=list", expect.anything()))
     expect(window.localStorage.getItem(key)).toBe("1")
-    await act(async () => { release({ machines: [machine] }) })
+    await act(async () => { release({ machines: [machine], complete: true }) })
     await waitFor(() => expect(state.update?.phase).toBe("collapsedBadge"))
     expect(state.active).toBe("none")
     expect(window.localStorage.getItem(key)).toBe("1")
   } finally {
-    await act(async () => { release({ machines: [machine] }) })
+    await act(async () => { release({ machines: [machine], complete: true }) })
     view.unmount();seed.clear();owner.client.clear()
     window.localStorage.removeItem(key)
   }
@@ -55,7 +55,7 @@ it("clears a restored collapse preference after a qualified fresh empty list", a
   const owner = await createCommunityQueryOwner("user-1")
   const disk = createIdbPersister("user-1")
   const seed = new QueryClient()
-  seed.setQueryData(communityKeys.machines(), { machines: [machine] })
+  seed.setQueryData(communityKeys.machines(), { machines: [machine], complete: true })
   await disk.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(seed) })
   const restored = await disk.restoreClient()
   hydrate(owner.client, restored!.clientState)
@@ -76,12 +76,12 @@ it("clears a restored collapse preference after a qualified fresh empty list", a
   try {
     await waitFor(() => expect(transport.load).toHaveBeenCalledWith("/api/community/machines?view=list", expect.anything()))
     expect(window.localStorage.getItem(key)).toBe("1")
-    await act(async () => { release({ machines: [] }) })
+    await act(async () => { release({ machines: [], complete: true }) })
     await waitFor(() => expect(window.localStorage.getItem(key)).toBeNull())
     expect(owner.client.getQueryData<MachinesResponse>(communityKeys.machines())).toMatchObject({ machines: [], source: "network" })
     expect(state).toEqual(initialUserBarExtensionState)
   } finally {
-    await act(async () => { release({ machines: [] }) })
+    await act(async () => { release({ machines: [], complete: true }) })
     view.unmount(); seed.clear(); owner.client.clear()
     window.localStorage.removeItem(key)
   }
@@ -124,7 +124,7 @@ it("syncs the same eligible machine identity only when its partial list becomes 
     expect(transport.load.mock.calls.filter(([url]) => String(url).includes("view=list"))).toHaveLength(1)
   } finally {
     view.unmount(); owner.client.clear()
-    await act(async () => { release({ machines: rows }) })
+    await act(async () => { release({ machines: rows, complete: true }) })
     window.localStorage.removeItem(key)
   }
 })

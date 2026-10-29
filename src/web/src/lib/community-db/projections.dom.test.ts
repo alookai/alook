@@ -1,3 +1,7 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { channelResourceFixture, categoryResourceFixture, serverResourceFixture, messageSeedFixture } from "@/test/community-resource-fixtures"
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
+import { serverDirectoryFixture } from "@/test/community-resource-fixtures"
 import { dehydrate, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import React, { type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
@@ -36,7 +40,7 @@ describe("community DB projections", () => {
     const rendered = renderHook(() => {
       const profiles = useCanonicalProfilesProjection(["peer"])
       const disabled = useServerMemberProjection(null, [])
-      return { profiles, disabled, state: getMemberReadState(true, { pending: false, failed: false }, [profiles], ["peer"], profiles.data) }
+      return { profiles, disabled, state: getMemberReadState(true, { pending: false, failed: false }, [profiles], ["peer"], profiles.resourceProfiles) }
     }, { wrapper })
     try {
       await waitFor(() => expect(rendered.result.current.profiles.isLoading).toBe(true))
@@ -45,7 +49,7 @@ describe("community DB projections", () => {
       await act(async () => reject(new Error("controlled profile restore failure")))
       await waitFor(() => expect(rendered.result.current.profiles.isError).toBe(true))
       expect(rendered.result.current.state).toEqual({ loading: false, failed: true })
-      await act(async () => client.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ identityComplete: false, id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 1 })]))
+      await act(async () => client.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 1 })]))
       await waitFor(() => expect(rendered.result.current.state).toEqual({ loading: false, failed: false }))
       expect(rendered.result.current.profiles.data.get("peer")?.discriminator).toBe("0042")
     } finally { rendered.unmount(); await registry.cleanup(); client.clear() }
@@ -62,10 +66,10 @@ describe("community DB projections", () => {
       await waitFor(() => expect(rendered.result.current.profiles.isReady).toBe(true))
       const { profiles, disabled } = rendered.result.current
       expect(profiles.data.get("peer")).toMatchObject({ id: "peer", presence: "online" })
-      expect(getMemberReadState(true, { pending: false, failed: false }, [profiles], ["peer"], profiles.data)).toEqual({ loading: false, failed: true })
-      expect(getMemberReadState(true, { pending: false, failed: false }, [profiles], [], profiles.data)).toEqual({ loading: false, failed: false })
-      expect(getMemberReadState(true, { pending: false, failed: false }, [disabled], [], profiles.data)).toEqual({ loading: true, failed: false })
-      expect(getMemberReadState(false, { pending: true, failed: true }, [disabled], ["peer"], profiles.data)).toEqual({ loading: false, failed: false })
+      expect(getMemberReadState(true, { pending: false, failed: false }, [profiles], ["peer"], profiles.resourceProfiles)).toEqual({ loading: false, failed: true })
+      expect(getMemberReadState(true, { pending: false, failed: false }, [profiles], [], profiles.resourceProfiles)).toEqual({ loading: false, failed: false })
+      expect(getMemberReadState(true, { pending: false, failed: false }, [disabled], [], profiles.resourceProfiles)).toEqual({ loading: true, failed: false })
+      expect(getMemberReadState(false, { pending: true, failed: true }, [disabled], ["peer"], profiles.resourceProfiles)).toEqual({ loading: false, failed: false })
     } finally { rendered.unmount(); await registry.cleanup(); client.clear() }
   })
   it("keeps disabled channel arrays unresolved and active empty selections empty while restore is pending", async () => {
@@ -95,8 +99,8 @@ describe("community DB projections", () => {
     const client = new QueryClient()
     const registry = createCommunityDbRegistry(client, "viewer")
     await registry.preload()
-    ingestMessages(registry, "c1", [{ id: "selected", type: "chat", content: "Before" }])
-    ingestMessages(registry, "other", [{ id: "unrelated", type: "chat", content: "Foreign" }])
+    ingestMessages(registry, "c1", messageSeedFixture("c1", [{ id: "selected", type: "chat", content: "Before" }]))
+    ingestMessages(registry, "other", messageSeedFixture("other", [{ id: "unrelated", type: "chat", content: "Foreign" }]))
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children),
     )
@@ -105,7 +109,7 @@ describe("community DB projections", () => {
     })
     try {
       await waitFor(() => expect([...rendered.result.current?.keys() ?? []]).toEqual(["selected"]))
-      act(() => ingestMessages(registry, "c1", [{ id: "selected", type: "chat", content: "After" }]))
+      act(() => ingestMessages(registry, "c1", messageSeedFixture("c1", [{ id: "selected", type: "chat", content: "After" }])))
       await waitFor(() => expect(rendered.result.current?.get("selected")?.content).toBe("After"))
       expect(registry.collections.messages.get("unrelated")?.content).toBe("Foreign")
       rendered.rerender({ ids: [] })
@@ -116,7 +120,7 @@ describe("community DB projections", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const registry = createCommunityDbRegistry(client, "viewer")
     await registry.preload()
-    const seed = (name: string) => ingestServers(registry, { servers: [{ id: "s1", name, initial: "S", active: false, unread: false, mentions: 0, ownerId: "viewer" }] })
+    const seed = (name: string) => ingestServers(registry, serverRailResponseFixture({ servers: [{ id: "s1", name, initial: "S", active: false, unread: false, mentions: 0, ownerId: "viewer" }] }, (registry)!.accountId))
     seed("Before")
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(React.StrictMode, null,
       React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children)))
@@ -148,7 +152,7 @@ describe("community DB projections", () => {
       id: "s1", name, initial: "S", active: false, unread: false,
       mentions: 0, ownerId: "viewer",
     }] })
-    ingestServers(registry, servers("Server"))
+    ingestServers(registry, serverRailResponseFixture(servers("Server"), (registry)!.accountId))
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -164,14 +168,14 @@ describe("community DB projections", () => {
       const before = rendered.result.current
       const beforeRenders = renders
       await act(async () => {
-        ingestMessages(registry, "unrelated-channel", [{ id: "m1", type: "chat", content: "First" }])
-        ingestMessages(registry, "unrelated-channel", [{ id: "m1", type: "chat", content: "Changed" }])
+        ingestMessages(registry, "unrelated-channel", messageSeedFixture("unrelated-channel", [{ id: "m1", type: "chat", content: "First" }]))
+        ingestMessages(registry, "unrelated-channel", messageSeedFixture("unrelated-channel", [{ id: "m1", type: "chat", content: "Changed" }]))
       })
       expect(registry.collections.messages.get("m1")?.content).toBe("Changed")
       expect(rendered.result.current).toBe(before)
       expect(renders).toBe(beforeRenders)
 
-      await act(async () => ingestServers(registry, servers("Renamed")))
+      await act(async () => ingestServers(registry, serverRailResponseFixture(servers("Renamed"), (registry)!.accountId)))
       await waitFor(() => expect(rendered.result.current?.servers[0]?.name).toBe("Renamed"))
     } finally {
       rendered.unmount()
@@ -180,6 +184,8 @@ describe("community DB projections", () => {
   })
 
   it("keeps every projection unresolved without a registry owner", () => {
+    const client = new QueryClient()
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, children)
     const rendered = renderHook(() => ({
       restored: useTrustedRestoredPrimary(),
       rail: useServerRailProjection(),
@@ -190,7 +196,7 @@ describe("community DB projections", () => {
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
       directory: useChannelRefDirectoryProjection(),
-    }))
+    }), { wrapper })
 
     expect(rendered.result.current).toEqual({
       restored: false,
@@ -225,7 +231,7 @@ describe("community DB projections", () => {
     const queryClient = new QueryClient()
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
-    ingestServers(registry, {
+    ingestServers(registry, serverRailResponseFixture({
       servers: [{
         id: "s1",
         name: "Server",
@@ -235,7 +241,7 @@ describe("community DB projections", () => {
         mentions: 0,
         ownerId: "viewer",
       }],
-    })
+    }, (registry)!.accountId))
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -244,7 +250,7 @@ describe("community DB projections", () => {
     const rendered = renderHook(() => useServerTreeProjection("s1"), { wrapper })
 
     expect(rendered.result.current).toBeUndefined()
-    act(() => ingestServerDetail(registry, {
+    act(() => ingestServerDetail(registry, serverDirectoryFixture({
       id: "s1",
       name: "Server",
       discriminator: "0001",
@@ -252,13 +258,13 @@ describe("community DB projections", () => {
       icon: null,
       ownerId: "viewer",
       categories: [],
-    }))
+    })))
     await waitFor(() => expect(rendered.result.current).toMatchObject({
       id: "s1",
       categories: [],
     }))
 
-    act(() => ingestServers(registry, {
+    act(() => ingestServers(registry, serverRailResponseFixture({
       servers: [{
         id: "s1",
         name: "Server renamed",
@@ -268,7 +274,7 @@ describe("community DB projections", () => {
         mentions: 0,
         ownerId: "viewer",
       }],
-    }))
+    }, (registry)!.accountId)))
     await waitFor(() => expect(rendered.result.current?.name).toBe("Server renamed"))
 
     rendered.unmount()
@@ -279,7 +285,7 @@ describe("community DB projections", () => {
     const queryClient = new QueryClient()
     const legacyServers = [
       {
-        id: "z-first",
+        id: "z-first", position: 0,
         name: "First",
         discriminator: "0001",
         description: "",
@@ -287,12 +293,9 @@ describe("community DB projections", () => {
         icon: null,
         official: false,
         isOwner: true,
-        unread: false,
-        mentions: 0,
-        detailComplete: false,
       },
       {
-        id: "a-second",
+        id: "a-second", position: 1,
         name: "Second",
         discriminator: "0001",
         description: "",
@@ -300,9 +303,6 @@ describe("community DB projections", () => {
         icon: null,
         official: false,
         isOwner: true,
-        unread: false,
-        mentions: 0,
-        detailComplete: false,
       },
     ]
     queryClient.setQueryData(
@@ -315,7 +315,7 @@ describe("community DB projections", () => {
         id: `${server.id}:viewer`,
         serverId: server.id,
         userId: "viewer",
-        role: "owner",
+        role: "owner", memberId: `member-${server.id}`,
         viewer: true,
       })),
     )
@@ -334,10 +334,10 @@ describe("community DB projections", () => {
     await waitFor(() => expect(rendered.result.current?.servers.map((server) => server.id))
       .toEqual(["z-first", "a-second"]))
 
-    act(() => ingestServers(registry, {
+    act(() => ingestServers(registry, serverRailResponseFixture({
       servers: [
         {
-          id: "z-first",
+          id: "z-first", position: 0,
           name: "First",
           initial: "F",
           active: false,
@@ -346,7 +346,7 @@ describe("community DB projections", () => {
           ownerId: "viewer",
         },
         {
-          id: "a-second",
+          id: "a-second", position: 1,
           name: "Second",
           initial: "S",
           active: false,
@@ -355,7 +355,7 @@ describe("community DB projections", () => {
           ownerId: "viewer",
         },
       ],
-    }))
+    }, (registry)!.accountId)))
 
     await waitFor(() => expect(rendered.result.current?.servers.map((server) => server.id))
       .toEqual(["z-first", "a-second"]))
@@ -370,20 +370,19 @@ describe("community DB projections", () => {
       communityKeys.communityDbCollection("viewer", name),
       rows,
     )
-    collection("servers", [{
+    collection("servers", [serverResourceFixture({
       id: "s1", position: 0, name: "Server", discriminator: "0001", description: "desc",
-      ownerId: "owner", icon: null, official: true, isOwner: false, unread: true,
-      mentions: 2, detailComplete: true,
-    }])
+      ownerId: "owner", icon: null, official: true, isOwner: false,
+    })])
     collection("serverMemberships", [{
-      id: "s1:viewer", serverId: "s1", userId: "viewer", role: "member", viewer: true,
+      id: "s1:viewer", serverId: "s1", userId: "viewer", role: "member", viewer: true, memberId: "member-s1",
     }])
     collection("categories", [
-      { id: "cat2", serverId: "s1", name: "Later", position: 2, private: false, pending: false },
-      { id: "cat1", serverId: "s1", name: "General", position: 1, private: false, pending: false },
+      { ...categoryResourceFixture({ id: "cat2", serverId: "s1", name: "Later", position: 2 }), pending: false },
+      { ...categoryResourceFixture({ id: "cat1", serverId: "s1", name: "General", position: 1 }), pending: false },
     ])
     const channelBase = {
-      position: 1, archived: false, muted: false, unread: false, tags: [], pending: false,
+      ...channelResourceFixture({ serverId: "s1", position: 1 }), muted: false, tags: [], pending: false,
     }
     collection("channels", [
       { ...channelBase, id: "c2", serverId: "s1", categoryId: "cat1", name: "later", type: "text", position: 2 },
@@ -391,26 +390,26 @@ describe("community DB projections", () => {
       { ...channelBase, id: "forum2", serverId: "s1", categoryId: null, name: "later forum", type: "forum", position: 2 },
       { ...channelBase, id: "forum1", serverId: "s1", categoryId: null, name: "forum", type: "forum", position: 1 },
       { ...channelBase, id: "thread1", serverId: "s1", categoryId: null, name: "thread", type: "thread", parentChannelId: "forum1" },
-      { ...channelBase, id: "dm1", serverId: null, categoryId: null, name: "Peer", type: "dm", preview: "hello", lastUnreadSeq: 8, lastMessageAt: "2026-09-25T00:00:00.000Z" },
+      { ...channelBase, id: "dm1", serverId: null, categoryId: null, name: "Peer", type: "dm", preview: "hello", lastMessageAt: "2026-09-25T00:00:00.000Z" },
       { ...channelBase, id: "dm-no-read-state", serverId: null, categoryId: null, name: "Quiet", type: "dm", lastMessageAt: "2026-09-25T00:00:01.000Z" },
       { ...channelBase, id: "dm-no-member", serverId: null, categoryId: null, name: "Missing", type: "dm" },
       { ...channelBase, id: "dm-no-profile", serverId: null, categoryId: null, name: "Missing profile", type: "dm" },
     ])
     collection("channelMemberships", [
-      { id: "dm1:viewer:access", channelId: "dm1", userId: "viewer", relation: "access" },
-      { id: "dm1:peer:access", channelId: "dm1", userId: "peer", relation: "access" },
-      { id: "dm-no-read-state:quiet:access", channelId: "dm-no-read-state", userId: "quiet", relation: "access" },
-      { id: "dm-no-profile:ghost:access", channelId: "dm-no-profile", userId: "ghost", relation: "access" },
+      { id: "dm1:viewer:access", channelId: "dm1", userId: "viewer", relation: "access", source: "added" },
+      { id: "dm1:peer:access", channelId: "dm1", userId: "peer", relation: "access", source: "added" },
+      { id: "dm-no-read-state:quiet:access", channelId: "dm-no-read-state", userId: "quiet", relation: "access", source: "added" },
+      { id: "dm-no-profile:ghost:access", channelId: "dm-no-profile", userId: "ghost", relation: "access", source: "added" },
     ])
     collection("profiles", [
-      { identityComplete: true, id: "viewer", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 1 },
-      { identityComplete: true, id: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 2 },
-      { identityComplete: true, id: "quiet", name: "Quiet", discriminator: "0003", avatar: "Q", avatarVersion: 1 },
+      { id: "viewer", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 1 },
+      { id: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 2 },
+      { id: "quiet", name: "Quiet", discriminator: "0003", avatar: "Q", avatarVersion: 1 },
     ])
-    collection("messages", [
+    collection("messages", messageSeedFixture("c1", [
       { id: "m2", channelId: "c1", type: "chat", authorId: "peer", content: "second", seq: 2 },
       { id: "m1", channelId: "c1", type: "chat", authorId: "peer", content: "first", seq: 1 },
-    ])
+    ]))
     collection("readStates", [{
       channelId: "dm1", lastReadMessageId: null, lastReadAt: "2026-09-25T00:00:00.000Z",
       lastReadSeq: 7,
@@ -424,8 +423,8 @@ describe("community DB projections", () => {
     ])
     collection("readStateClock", [{ id: "account", revision: 1 }])
     collection("folders", [
-      { id: "f2", name: "Later", position: 2 },
-      { id: "f1", name: "Folder", position: 1 },
+      { id: "f2", name: "Later" },
+      { id: "f1", name: "Folder" },
     ])
     collection("folderItems", [
       { id: "f1:missing", folderId: "f1", serverId: "missing", position: 2 },
@@ -435,6 +434,9 @@ describe("community DB projections", () => {
       { id: "server:s1", serverId: "s1", level: "all" },
       { id: "channel:c1", channelId: "c1", level: "mentions" },
     ])
+    queryClient.setQueryData(communityKeys.server("s1"), {
+      schemaVersion: BUSINESS_SCHEMA_VERSION, accountId: "viewer", serverId: "s1", categoryIds: ["cat1", "cat2"], channelIds: ["c1", "c2", "forum1", "forum2"],
+    })
     const input = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(queryClient) }, "viewer")
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()

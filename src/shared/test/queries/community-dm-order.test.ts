@@ -14,13 +14,15 @@ describe("listDMs ordering", () => {
       CREATE TABLE community_channel (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
+        server_id TEXT, category_id TEXT, name TEXT, topic TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0,
+        parent_channel_id TEXT, parent_message_id TEXT, creator_id TEXT, message_count INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,
         last_message_at TEXT,
         created_at TEXT NOT NULL
       );
       CREATE TABLE community_channel_member (
         channel_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
-        relation TEXT NOT NULL
+        relation TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'added'
       );
       CREATE TABLE user (
         id TEXT PRIMARY KEY,
