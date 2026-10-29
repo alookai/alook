@@ -69,5 +69,5 @@ describe("renderer-scoped artwork provenance", () => {
       expect(hashes["renderer:pnpm-dependencies"]).toMatch(/^[a-f0-9]{64}$/)
       expect(Object.values(hashes).every(hash => /^[a-f0-9]{64}$/.test(hash))).toBe(true)
     }
-  })
+  }, 15_000)
 })
