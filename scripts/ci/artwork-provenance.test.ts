@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { availableParallelism, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { performance } from "node:perf_hooks"
 import { describe, expect, it } from "vitest"
 import { parsePnpmLock, lockedDependency, projectDependencies } from "./pnpm-lock.mjs"
 import { artworkInputHashes, sourceInputs } from "../../src/web/app-store-capture/provenance.mjs"
@@ -60,14 +61,32 @@ describe("renderer-scoped artwork provenance", () => {
   })
 
   it("follows real local component imports and binds both producers without global package hashes", async () => {
+    const started = performance.now()
+    let previous = started
+    const stage = (name: string, facts = {}) => {
+      const now = performance.now()
+      process.stdout.write(`ARTWORK_PROVENANCE_TIMING ${JSON.stringify({ stage: name, elapsedMs: now - previous, totalMs: now - started,
+        node: process.version, platform: process.platform, arch: process.arch, availableParallelism: availableParallelism(),
+        worker: process.env.VITEST_WORKER_ID ?? null, githubSha: process.env.GITHUB_SHA ?? null, ...facts })}\n`)
+      previous = performance.now()
+    }
+    stage("sourceInputs:start")
     const inputs = sourceInputs([join(root, "src/web/app-store-capture/captures/surface.tsx")])
+    stage("sourceInputs:done", { files: inputs.files.length, roots: inputs.roots.length })
     expect(inputs.files).toContain(join(root, "src/web/src/components/community/messages/message.tsx"))
     expect(inputs.roots).toContainEqual({ importer: "src/web", name: "react" })
-    for (const hashes of [await captureInputHashes(), await creativeInputHashes()]) {
+    stage("captureInputHashes:start")
+    const capture = await captureInputHashes()
+    stage("captureInputHashes:done", { keys: Object.keys(capture).length })
+    stage("creativeInputHashes:start")
+    const creative = await creativeInputHashes()
+    stage("creativeInputHashes:done", { keys: Object.keys(creative).length })
+    for (const hashes of [capture, creative]) {
       expect(Object.keys(hashes)).not.toContain("pnpm-lock.yaml")
       expect(Object.keys(hashes)).not.toContain("package.json")
       expect(hashes["renderer:pnpm-dependencies"]).toMatch(/^[a-f0-9]{64}$/)
       expect(Object.values(hashes).every(hash => /^[a-f0-9]{64}$/.test(hash))).toBe(true)
     }
+    stage("assertions:done")
   })
 })
