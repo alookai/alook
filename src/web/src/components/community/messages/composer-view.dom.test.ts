@@ -88,8 +88,10 @@ function baseProps(
 describe("ComposerView", () => {
   it("dismisses the native keyboard without replacing draft, reply, attachments or send ownership", async () => {
     const descriptor = Object.getOwnPropertyDescriptor(window, "webkit")
+    const tauriDescriptor = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
     let visible = false
-    const postMessage = vi.fn(async () => visible)
+    const postMessage = vi.fn(async () => ({ bottomInset: visible ? 300 : 0, viewportWidth: window.innerWidth }))
     Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { alookKeyboard: { postMessage } } } })
     try {
       const props = baseProps({
@@ -123,6 +125,8 @@ describe("ComposerView", () => {
     } finally {
       if (descriptor) Object.defineProperty(window, "webkit", descriptor)
       else Reflect.deleteProperty(window, "webkit")
+      if (tauriDescriptor) Object.defineProperty(window, "__TAURI__", tauriDescriptor)
+      else Reflect.deleteProperty(window, "__TAURI__")
     }
   })
   it("replaces only editor content for a preview and restores the native editor by default", () => {

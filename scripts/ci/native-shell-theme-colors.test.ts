@@ -99,6 +99,18 @@ function driveIosThemeObserver(initial: Array<"light" | "dark"> = []) {
 }
 
 describe("native shell theme color contract", () => {
+  it("separates full native framing from the current root's keyboard overlap", () => {
+    const layout = iosRuntime.split("- (void)alook_viewDidLayoutSubviews {")[1]?.split("\n}\n")[0] ?? ""
+    const install = iosRuntime.split("static void alookInstallKeyboardLayout(")[1]?.split("\n}\n")[0] ?? ""
+    expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeGreaterThanOrEqual(0)
+    expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeLessThan(layout.indexOf("guide.layoutFrame"))
+    expect(install).toContain("previous.owningView == host")
+    expect(install).toContain("removeLayoutGuide:previous")
+    expect(layout).toContain("@\"bottomInset\"")
+    expect(layout).toContain("@\"viewportWidth\"")
+    expect(layout).not.toContain("contentFrame = guide.layoutFrame")
+    expect(layout).toContain("webView.frame = contentFrame")
+  })
   it("disables the iOS input accessory in all effective main-window definitions", () => {
     for (const file of ["tauri.conf.json", "tauri.dev.conf.json", "tauri.ios.release.conf.json"]) {
       const config = JSON.parse(readFileSync(resolve(desktopRoot, file), "utf8"))

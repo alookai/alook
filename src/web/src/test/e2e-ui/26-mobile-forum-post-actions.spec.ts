@@ -79,7 +79,7 @@ async function postActionGeometry(card: Locator, postId: string) {
     return {
       card: readRect(element),
       title: readRect(element.querySelector(`[data-testid="${titleId}"]`)),
-      preview: readRect(element.querySelector(":scope > p")),
+      preview: readRect(element.querySelector('[data-slot="community-forum-post-preview"]')),
       row: readRect(row),
       virtualHeight: readRect(row?.parentElement ?? null).height,
     }
