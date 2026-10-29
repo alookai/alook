@@ -1,4 +1,4 @@
-import { queries, formatHandle } from "@alook/shared"
+import { queries, formatHandle, formatCanonicalRef } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
 import { writeJSON } from "@/lib/middleware/helpers"
 import type { NextRequest } from "next/server"
@@ -23,6 +23,12 @@ export async function readAutomationFriends(_req: NextRequest, ctx: ReadContext)
 export async function readAutomationServers(_req: NextRequest, ctx: ReadContext) {
   const denied = await ctx.beforeCreate()
   if (denied) return denied
-  const servers = await queries.automation.listServers(getPrimaryDb(ctx.env.DB), ctx.userId)
-  return writeJSON({ servers: servers.map((server) => ({ name: server.name, handle: formatHandle(server.name, server.discriminator) })) })
+  const servers = await queries.communityChannel.listChannelRefDirectoryForUser(getPrimaryDb(ctx.env.DB), ctx.userId, { railOrder: false })
+  return writeJSON({ servers: servers.map((server) => {
+    const handle = formatHandle(server.name, server.discriminator)
+    return { name: server.name, handle, channels: server.channels.map((channel) => ({
+      name: channel.name, type: channel.type,
+      ref: formatCanonicalRef({ type: channel.type, serverHandle: handle, name: channel.name }),
+    })) }
+  }) })
 }

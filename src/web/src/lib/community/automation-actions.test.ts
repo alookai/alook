@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 const mocks = vi.hoisted(() => ({ machines: vi.fn(), friends: vi.fn(), servers: vi.fn(), friend: vi.fn(), server: vi.fn(), listInvites: vi.fn(), createInvite: vi.fn(), dm: vi.fn(), message: vi.fn(), rate: vi.fn(), fanout: vi.fn() }))
 vi.mock("@alook/shared", async (importOriginal) => { const actual = await importOriginal<typeof import("@alook/shared")>(); return { ...actual, queries: { ...actual.queries,
-  automation: { listMachines: mocks.machines, listFriends: mocks.friends, listServers: mocks.servers, getFriendByHandle: mocks.friend },
+  automation: { listMachines: mocks.machines, listFriends: mocks.friends, getFriendByHandle: mocks.friend },
+  communityChannel: { listChannelRefDirectoryForUser: mocks.servers },
   communityServer: { resolveServerByNameForMember: mocks.server }, communityInvite: { listServerInvites: mocks.listInvites, createInvite: mocks.createInvite }, communityDm: { createOrGetDM: mocks.dm },
 } } })
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }), getDb: () => ({ primary: true }) }))
@@ -20,7 +21,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.machines.mockResolvedValue([{ id: "mac1", name: "Mac", status: "online", hostname: "private", availableRuntimes: [] }])
   mocks.friends.mockResolvedValue([{ id: "hidden", name: "Alice", discriminator: "0001", isBot: false, ownerUserId: null, email: "private" }])
-  mocks.servers.mockResolvedValue([{ id: "hidden", name: "demo", discriminator: "0001", ownerId: "private" }])
+  mocks.servers.mockResolvedValue([{ id: "hidden", name: "demo", discriminator: "0001", ownerId: "private", channels: [{ id: "private-id", name: "general", type: "text", topic: "private" }, { id: "forum-id", name: "ideas", type: "forum" }] }])
   mocks.server.mockResolvedValue([{ id: "s1", name: "demo", discriminator: "0001" }])
   mocks.friend.mockResolvedValue({ id: "friend", name: "Alice", discriminator: "0001" })
   mocks.rate.mockResolvedValue({ allowed: true })
@@ -35,8 +36,15 @@ describe("Automation Read and invitation boundaries", () => {
     const ctx = context()
     expect(await (await readAutomationMachines(request(), ctx)).json()).toEqual({ machines: [{ id: "mac1", name: "Mac", status: "online", backends: [] }] })
     expect(await (await readAutomationFriends(request(), ctx)).json()).toEqual({ friends: [{ name: "Alice", handle: "Alice#0001", is_my_bot: false }] })
-    expect(await (await readAutomationServers(request(), ctx)).json()).toEqual({ servers: [{ name: "demo", handle: "demo#0001" }] })
-    for (const query of [mocks.machines, mocks.friends, mocks.servers]) expect(query).toHaveBeenCalledExactlyOnceWith({ primary: true }, "owner")
+    expect(await (await readAutomationServers(request(), ctx)).json()).toEqual({ servers: [{ name: "demo", handle: "demo#0001", channels: [{ name: "general", type: "text", ref: "/demo#0001/general" }, { name: "ideas", type: "forum", ref: "/demo#0001/ideas" }] }] })
+    expect(mocks.servers).toHaveBeenCalledExactlyOnceWith({ primary: true }, "owner", { railOrder: false })
+    for (const query of [mocks.machines, mocks.friends]) expect(query).toHaveBeenCalledExactlyOnceWith({ primary: true }, "owner")
+  })
+  it("keeps joined servers with no participating channels and handles no joined servers", async () => {
+    mocks.servers.mockResolvedValueOnce([{ id: "s1", name: "demo", discriminator: "0001", channels: [] }])
+    expect(await (await readAutomationServers(request(), context())).json()).toEqual({ servers: [{ name: "demo", handle: "demo#0001", channels: [] }] })
+    mocks.servers.mockResolvedValueOnce([])
+    expect(await (await readAutomationServers(request(), context())).json()).toEqual({ servers: [] })
   })
   it("marks only the code owner's bots and returns both persisted machine statuses without private fields", async () => {
     mocks.friends.mockResolvedValue([

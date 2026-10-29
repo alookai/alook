@@ -55,13 +55,31 @@ describe("use automation CLI", () => {
     for (const [kind, path, result, expected] of [
       ["machine", "/api/community/machines", { machines: [{ id: "mac1", name: "Mac", status: "online", backends: [], hostname: "secret-host" }] }, { machines: [{ id: "mac1", name: "Mac", status: "online", backends: [] }] }],
       ["friend", "/api/community/friends/accepted", { friends: [{ name: "Alice", handle: "Alice#0001", is_my_bot: false, email: "private" }] }, { friends: [{ name: "Alice", handle: "Alice#0001", is_my_bot: false }] }],
-      ["server", "/api/community/servers", { servers: [{ name: "demo", handle: "demo#0001", ownerId: "private" }] }, { servers: [{ name: "demo", handle: "demo#0001" }] }],
+      ["server", "/api/community/servers", { servers: [{ name: "demo", handle: "demo#0001", ownerId: "private", channels: [] }] }, { servers: [{ name: "demo", handle: "demo#0001", channels: [] }] }],
     ] as const) {
       vi.mocked(fetch).mockResolvedValueOnce(Response.json(result))
       const { run, output } = program()
       await run(["use", kind, "--list"])
       expect(vi.mocked(fetch).mock.lastCall).toMatchObject([`http://localhost:4328${path}`, { method: "GET" }])
       expect(output).toHaveBeenCalledExactlyOnceWith({ success: expected })
+    }
+  })
+  it("returns top-level server channel identities and strips unrelated fields", async () => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ servers: [{ name: "demo", handle: "demo#0001", channels: [
+      { name: "general", type: "text", ref: "/demo#0001/general", id: "internal", topic: "hidden" },
+      { name: "ideas", type: "forum", ref: "/demo#0001/ideas" },
+    ] }] }))
+    const { run, output } = program()
+    await run(["use", "server", "--list"])
+    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { servers: [{ name: "demo", handle: "demo#0001", channels: [
+      { name: "general", type: "text", ref: "/demo#0001/general" },
+      { name: "ideas", type: "forum", ref: "/demo#0001/ideas" },
+    ] }] } })
+  })
+  it("rejects malformed or child-thread server channel results", async () => {
+    for (const channels of [undefined, {}, [{ name: "child", type: "thread", ref: "/demo#0001/general/#1" }], [{ name: "general", type: "text" }]]) {
+      vi.mocked(fetch).mockResolvedValue(Response.json({ servers: [{ name: "demo", handle: "demo#0001", channels }] }))
+      await expect(program().run(["use", "server", "--list"])).rejects.toThrow("invalid server channel list")
     }
   })
   it("preserves own-bot flags and online/offline status while omitting unrelated API fields", async () => {

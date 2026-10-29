@@ -442,4 +442,6 @@ A code's six permissions count separately. Rates use the preceding hour or 24 ho
 
 Creation and invitation POSTs are sent once. If the connection fails, the resource may already exist; inspect the result in Alook before trying again. `use` never automatically repeats a creation request.
 
+`use server --list` includes each server's participating top-level `channels`, with `name`, `type` (`text` or `forum`) and canonical `ref`. It uses `server.read`: public channels follow server membership; private channels require the code owner's creator or access membership. Threads and messages are not returned. Servers with no visible top-level channels keep an empty `channels` array.
+
 For local development only, pass `use --server-url http://localhost:<port> …` or set `ALOOK_SERVER_URL`. Remote origins require HTTPS. `use` does not follow HTTP redirects with the access code.

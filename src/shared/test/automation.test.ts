@@ -149,9 +149,6 @@ describe("Automation access codes", () => {
         ('accepted','author','peer','accepted'), ('otherbot','otherbot','author','accepted'), ('pending','author','outsider','pending'), ('deleted','author','deleted','accepted');
       CREATE TABLE community_machine (id TEXT PRIMARY KEY,user_id TEXT,display_name TEXT,hostname TEXT,status TEXT,available_runtimes TEXT NOT NULL DEFAULT '[]');
       INSERT INTO community_machine (id,user_id,display_name,hostname,status) VALUES ('mac1','author','My Mac','hidden-host','online'),('mac0','author','Stopped Mac','hidden-host','offline'),('other','peer','Other','secret-host','online');
-      CREATE TABLE community_server (id TEXT PRIMARY KEY,name TEXT,discriminator TEXT,owner_id TEXT);
-      INSERT INTO community_server VALUES ('s1','demo','0001','author'),('s2','private','0002','peer');
-      INSERT INTO community_server_member VALUES ('member1','s1','author'),('member2','s2','peer');
     `)
     sqlite.prepare("UPDATE community_machine SET available_runtimes = ? WHERE id = ?").run(JSON.stringify(["codex"]), "mac1")
     expect(await queries.listMachines(db, "author")).toEqual([{ id: "mac0", name: "Stopped Mac", status: "offline", availableRuntimes: [] }, { id: "mac1", name: "My Mac", status: "online", availableRuntimes: ["codex"] }])
@@ -166,6 +163,5 @@ describe("Automation access codes", () => {
     }
     expect(await queries.getFriendByHandle(db, "author", "peer#0001")).toMatchObject({ id: "peer" })
     expect(await queries.getFriendByHandle(db, "author", "Helper#0001")).toMatchObject({ id: "ownbot" })
-    expect(await queries.listServers(db, "author")).toEqual([{ name: "demo", discriminator: "0001" }])
   })
 })

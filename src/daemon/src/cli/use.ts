@@ -14,6 +14,8 @@ const BackendList = z.array(z.object({
   modelRequired: z.boolean(),
 }))
 
+const ServerChannels = z.array(z.object({ name: z.string().min(1), type: z.enum(["text", "forum"]), ref: z.string().min(1) }))
+
 const ModelList = z.object({
   machineId: z.string().min(1), backendId: z.string().min(1), source: z.enum(["fresh_discovery", "cached_report"]), requestId: z.string().min(1),
   readAt: z.string(), observedAt: z.iso.datetime(), modelRequired: z.boolean(), defaultModelId: z.string().nullable(),
@@ -116,7 +118,11 @@ export function registerUseCommands(program: Command, output: (value: { success:
             return { id: row.id, name: row.name, status: row.status, backends: backends.data }
           }
           if (kind === "friend" && "handle" in row && typeof row.handle === "string" && "is_my_bot" in row && typeof row.is_my_bot === "boolean") return { name: row.name, handle: row.handle, is_my_bot: row.is_my_bot }
-          if (kind === "server" && "handle" in row && typeof row.handle === "string") return { name: row.name, handle: row.handle }
+          if (kind === "server" && "handle" in row && typeof row.handle === "string") {
+            const channels = ServerChannels.safeParse("channels" in row ? row.channels : undefined)
+            if (!channels.success) throw new Error("Automation returned an invalid server channel list")
+            return { name: row.name, handle: row.handle, channels: channels.data }
+          }
           throw new Error("Automation returned an invalid identity")
         })
         output({ success: { [key]: list } })

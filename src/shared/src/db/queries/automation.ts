@@ -3,7 +3,7 @@ import { nanoid } from "nanoid"
 import { automationAccessCode as code, automationAccessPermission as policy } from "../automation-schema"
 import { user } from "../schema"
 import { communityMachine } from "../community-machine-schema"
-import { communityFriendship, communityServer, communityServerMember } from "../community-schema"
+import { communityFriendship } from "../community-schema"
 import { parseNameAndTag } from "../../lib/discriminator"
 import type { Database } from "../index"
 import { automationExpiresAt, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeUpdate, type AutomationPermission } from "../../automation"
@@ -100,10 +100,4 @@ export async function getFriendByHandle(db: Database, ownerId: string, handle: s
   const [row] = await db.select({ id: user.id, name: user.name, discriminator: user.discriminator }).from(user)
     .where(and(friendScope(db, ownerId), eq(user.name, parsed.name), eq(user.discriminator, parsed.discriminator)))
   return row ?? null
-}
-
-export function listServers(db: Database, ownerId: string) {
-  return db.select({ name: communityServer.name, discriminator: communityServer.discriminator }).from(communityServer)
-    .innerJoin(communityServerMember, and(eq(communityServerMember.serverId, communityServer.id), eq(communityServerMember.userId, ownerId)))
-    .orderBy(asc(communityServer.name), asc(communityServer.discriminator))
 }
