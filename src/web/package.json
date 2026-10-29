@@ -1,6 +1,6 @@
 {
   "name": "@alook/web",
-  "version": "0.1.60",
+  "version": "0.1.61",
   "private": true,
   "scripts": {
     "dev": "node scripts/dev-zones.mjs",
