@@ -99,6 +99,46 @@ function driveIosThemeObserver(initial: Array<"light" | "dark"> = []) {
 }
 
 describe("native shell theme color contract", () => {
+  it("separates full native framing from the current root's keyboard overlap", () => {
+    const layout = iosRuntime.split("- (void)alook_viewDidLayoutSubviews {")[1]?.split("\n}\n")[0] ?? ""
+    const install = iosRuntime.split("static void alookInstallKeyboardLayout(")[1]?.split("\n}\n")[0] ?? ""
+    expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeGreaterThanOrEqual(0)
+    expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeLessThan(layout.indexOf("alookPublishKeyboardSnapshots(self)"))
+    expect(install).toContain("previous.superview == host")
+    expect(install).toContain("removeFromSuperview")
+    expect(install).toContain("host.keyboardLayoutGuide.topAnchor")
+    expect(install).toContain("translatesAutoresizingMaskIntoConstraints = NO")
+    expect(layout).not.toContain("contentFrame = guide.layoutFrame")
+    expect(layout).toContain("webView.frame = contentFrame")
+    expect(layout.indexOf("webView.frame = contentFrame")).toBeLessThan(layout.indexOf("alookPublishKeyboardSnapshots(self)"))
+  })
+
+  it("measures snapshot requests live and publishes after the guide-constrained native view lays out", () => {
+    const measure = iosRuntime.split("static NSDictionary *alookMeasureKeyboardSnapshot(")[1]?.split("\n}\n")[0] ?? ""
+    const observer = iosRuntime.split("@implementation AlookKeyboardLayoutView")[1]?.split("@end")[0] ?? ""
+    const handler = iosRuntime.split("@implementation AlookKeyboardHandler")[1]?.split("@end")[0] ?? ""
+    const publish = iosRuntime.split("static void alookPublishKeyboardSnapshots(")[1]?.split("\n}\n")[0] ?? ""
+    expect(measure).toContain("convertRect:host.keyboardLayoutGuide.layoutFrame fromView:host")
+    expect(measure).toContain("CGRectIntersectsRect(bounds, keyboardFrame)")
+    expect(measure).toContain("@\"bottomInset\"")
+    expect(measure).toContain("@\"viewportWidth\"")
+    expect(observer).toContain("[super layoutSubviews]")
+    expect(observer).toContain("alookPublishKeyboardSnapshots(controller)")
+    expect(observer.indexOf("[super layoutSubviews]")).toBeLessThan(observer.indexOf("alookPublishKeyboardSnapshots(controller)"))
+    expect(handler).toContain("replyHandler(alookMeasureKeyboardSnapshot(controller, webView), nil)")
+    expect(handler).toContain("webView.superview != controller.view")
+    expect(handler).not.toContain("objc_getAssociatedObject")
+    expect(publish).toContain("alookMeasureKeyboardSnapshot(controller, webView)")
+    expect(publish).toContain("isEqualToDictionary:published")
+    expect(publish).toContain("alook:keyboard-change")
+  })
+  it("disables the iOS input accessory in all effective main-window definitions", () => {
+    for (const file of ["tauri.conf.json", "tauri.dev.conf.json", "tauri.ios.release.conf.json"]) {
+      const config = JSON.parse(readFileSync(resolve(desktopRoot, file), "utf8"))
+      expect(config.app.windows).toHaveLength(1)
+      expect(config.app.windows[0]).toMatchObject({ label: "main", disableInputAccessoryView: true })
+    }
+  })
   it("uses white light chrome and preserves dark chrome on macOS", () => {
     expect(macosRuntime).toContain("(0.063f64, 0.051f64, 0.039f64)")
     expect(macosRuntime).toContain("(1.0f64, 1.0f64, 1.0f64)")

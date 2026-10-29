@@ -1,14 +1,78 @@
 import React from "react"
 import { createPortal } from "react-dom"
-import { fireEvent, render } from "@/test/react-dom-harness"
-import { describe, expect, it } from "vitest"
+import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
+import { afterEach, describe, expect, it } from "vitest"
+import { ConversationPresentationContext } from "@/contexts/community/conversation-activity"
 import {
   ConversationFooterShell,
   ConversationFooterSlotProvider,
   useConversationFooterSlot,
 } from "./conversation-footer-shell"
 
+const originalWebkit = Object.getOwnPropertyDescriptor(window, "webkit")
+const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+afterEach(() => {
+  if (originalWebkit) Object.defineProperty(window, "webkit", originalWebkit)
+  else Reflect.deleteProperty(window, "webkit")
+  if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
+  else Reflect.deleteProperty(window, "__TAURI__")
+})
+
 describe("ConversationFooterShell", () => {
+  it("reserves native occlusion only in the conversation footer and restores the existing style and draft", async () => {
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    let bottomInset = 0
+    Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: {
+      alookKeyboard: { postMessage: async () => ({ bottomInset, viewportWidth: window.innerWidth }) },
+    } } })
+    const renderer = render(<div data-testid="shell" style={{ height: 600, display: "flex" }}>
+      <aside data-testid="rail" style={{ width: 56 }}>Rail</aside>
+      <aside data-testid="sidebar" style={{ width: 260 }}>Sidebar</aside>
+      <section data-testid="conversation" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+        <header data-testid="header">Channel</header>
+        <div data-testid="messages" style={{ flex: 1 }}>Messages</div>
+        <ConversationFooterShell data-testid="footer" style={{ marginBottom: 6, borderRadius: 8 }}>
+          <input aria-label="Native draft" defaultValue="Unsent draft" />
+        </ConversationFooterShell>
+      </section>
+    </div>)
+    const footer = renderer.getByTestId("footer")
+    const draft = renderer.getByRole("textbox", { name: "Native draft" })
+    const stable = ["shell", "rail", "sidebar", "conversation", "header", "messages"]
+      .map(id => ({ node: renderer.getByTestId(id), style: renderer.getByTestId(id).getAttribute("style") }))
+    bottomInset = 300
+    act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
+    await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "300px", borderRadius: "8px" }))
+    for (const entry of stable) expect(entry.node.getAttribute("style")).toBe(entry.style)
+    expect(renderer.getByRole("textbox", { name: "Native draft" })).toBe(draft)
+    expect(draft).toHaveValue("Unsent draft")
+    bottomInset = 0
+    act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
+    await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "6px", borderRadius: "8px" }))
+    expect(renderer.getByRole("textbox", { name: "Native draft" })).toBe(draft)
+  })
+
+  it("keeps retained inactive conversations out of native layout consumption", async () => {
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: {
+      alookKeyboard: { postMessage: async () => ({ bottomInset: 200, viewportWidth: window.innerWidth }) },
+    } } })
+    function Page({ presented }: { presented: boolean }) {
+      return <ConversationPresentationContext value={presented}>
+        <ConversationFooterShell data-testid="footer"><input aria-label="Retained draft" defaultValue="Keep" /></ConversationFooterShell>
+      </ConversationPresentationContext>
+    }
+    const renderer = render(<Page presented={false} />)
+    const draft = renderer.getByRole("textbox", { name: "Retained draft" })
+    await act(async () => {})
+    expect(renderer.getByTestId("footer").style.marginBottom).toBe("")
+    renderer.rerender(<Page presented />)
+    await waitFor(() => expect(renderer.getByTestId("footer")).toHaveStyle({ marginBottom: "200px" }))
+    renderer.rerender(<Page presented={false} />)
+    expect(renderer.getByTestId("footer").style.marginBottom).toBe("")
+    expect(renderer.getByRole("textbox", { name: "Retained draft" })).toBe(draft)
+  })
+
   it("keeps ordinary composer content in normal flow", () => {
     const renderer = render(
       <ConversationFooterShell data-testid="footer">
