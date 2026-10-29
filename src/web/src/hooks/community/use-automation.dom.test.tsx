@@ -8,7 +8,7 @@ import { useAutomation } from "./use-automation"
 const mocks = vi.hoisted(() => ({ api: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api }))
 const create = { kind: "create" as const, data: { name: "Script", expiresIn: "24h" as const, permissions: [{ permission: "bot.create" as const, limit: 64, period: "hour" as const }] } }
-const response = { accessCode: { id: "code", name: "Script", prefix: "prefix", permissions: create.data.permissions, expiresAt: null, createdAt: "2026-01-01T00:00:00Z" }, secret: "synthetic-only-secret" }
+const response = { accessCode: { id: "code", name: "Script", permissions: create.data.permissions, expiresAt: null, createdAt: "2026-01-01T00:00:00Z" }, secret: "synthetic-only-secret" }
 function setup() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const wrapper = ({ children }: { children: React.ReactNode }) => <CommunityTestProvider client={client}>{children}</CommunityTestProvider>

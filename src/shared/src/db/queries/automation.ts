@@ -8,7 +8,7 @@ import { parseNameAndTag } from "../../lib/discriminator"
 import type { Database } from "../index"
 import { automationExpiresAt, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeUpdate, type AutomationPermission } from "../../automation"
 
-const publicFields = { id: code.id, name: code.name, prefix: code.prefix, createdAt: code.createdAt, expiresAt: code.expiresAt }
+const publicFields = { id: code.id, name: code.name, createdAt: code.createdAt, expiresAt: code.expiresAt }
 
 export async function listAccessCodes(db: Database, ownerId: string): Promise<AutomationAccessCode[]> {
   const rows = await db.select({ ...publicFields, permission: policy.permission, limit: policy.limit, period: policy.period })
@@ -18,7 +18,7 @@ export async function listAccessCodes(db: Database, ownerId: string): Promise<Au
   for (const row of rows) {
     let item = codes.get(row.id)
     if (!item) {
-      item = { id: row.id, name: row.name, prefix: row.prefix, createdAt: row.createdAt, expiresAt: row.expiresAt, permissions: [] }
+      item = { id: row.id, name: row.name, createdAt: row.createdAt, expiresAt: row.expiresAt, permissions: [] }
       codes.set(row.id, item)
     }
     if (row.permission && row.limit !== null && row.period) item.permissions.push({ permission: row.permission, limit: row.limit, period: row.period })
@@ -35,13 +35,13 @@ export async function getAccessCode(db: Database, ownerId: string, id: string): 
   return { ...row, permissions }
 }
 
-export async function createAccessCode(db: Database, ownerId: string, input: AutomationAccessCodeCreate, secretHash: string, prefix: string): Promise<AutomationAccessCode> {
-  const row = { id: nanoid(), ownerId, name: input.name, secretHash, prefix, createdAt: new Date().toISOString(), expiresAt: automationExpiresAt(input.expiresIn) }
+export async function createAccessCode(db: Database, ownerId: string, input: AutomationAccessCodeCreate, secretHash: string): Promise<AutomationAccessCode> {
+  const row = { id: nanoid(), ownerId, name: input.name, secretHash, createdAt: new Date().toISOString(), expiresAt: automationExpiresAt(input.expiresIn) }
   await db.batch([
     db.insert(code).values(row),
     db.insert(policy).values(input.permissions.map((permission) => ({ ...permission, codeId: row.id }))),
   ])
-  return { id: row.id, name: row.name, prefix, createdAt: row.createdAt, expiresAt: row.expiresAt, permissions: input.permissions }
+  return { id: row.id, name: row.name, createdAt: row.createdAt, expiresAt: row.expiresAt, permissions: input.permissions }
 }
 
 export async function updateAccessCode(db: Database, ownerId: string, id: string, input: AutomationAccessCodeUpdate): Promise<AutomationAccessCode | null> {
@@ -75,7 +75,7 @@ export async function authenticateAccessCode(db: Database, secretHash: string, p
 }
 
 export function listMachines(db: Database, ownerId: string) {
-  return db.select({ id: communityMachine.id, name: communityMachine.displayName }).from(communityMachine)
+  return db.select({ id: communityMachine.id, name: communityMachine.displayName, status: communityMachine.status, availableRuntimes: communityMachine.availableRuntimes }).from(communityMachine)
     .where(eq(communityMachine.userId, ownerId)).orderBy(asc(communityMachine.id))
 }
 
@@ -90,7 +90,7 @@ function friendScope(db: Database, ownerId: string) {
 }
 
 export function listFriends(db: Database, ownerId: string) {
-  return db.select({ name: user.name, discriminator: user.discriminator }).from(user)
+  return db.select({ name: user.name, discriminator: user.discriminator, isBot: user.isBot, ownerUserId: user.ownerUserId }).from(user)
     .where(friendScope(db, ownerId)).orderBy(asc(user.name), asc(user.discriminator))
 }
 

@@ -7,7 +7,6 @@ export const automationAccessCode = sqliteTable("automation_access_code", {
   ownerId: text("owner_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   secretHash: text("secret_hash").notNull().unique(),
-  prefix: text("prefix").notNull(),
   expiresAt: text("expires_at"),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("idx_automation_code_owner").on(table.ownerId)])

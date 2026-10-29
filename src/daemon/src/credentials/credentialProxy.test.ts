@@ -249,6 +249,40 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     upstreamClose = undefined;
   });
 
+  it("preserves waiting model query/body with a read voucher and gives only that route a longer timeout", async () => {
+    const upstream = await startUpstream()
+    upstreamClose = upstream.close
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url })
+    proxy = await startCredentialProxy(broker)
+    const reg = broker.mint("requester", "model-wait", ["read"], REAL_KEY)
+    const timeout = vi.spyOn(http.ClientRequest.prototype, "setTimeout")
+    try {
+      const body = JSON.stringify({ requestId: "request", runtimeId: "codex", refresh: true })
+      for (const path of ["/api/community/machines/m1/discover-models?wait=1&model=provider%2Fmodel", "/api/community/machines/m1/discover-models", "/api/community/machines/m1/models?backend=codex"]) {
+        const method = path.includes("discover-models") ? "POST" : "GET"
+        const response = await fetch(`${proxy.url}${path}`, { method, headers: { authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" }, ...(method === "POST" ? { body } : {}) })
+        expect(response.status).toBe(200)
+        await response.text()
+      }
+      expect(timeout.mock.calls.map((call) => call[0])).toEqual([55_000, 20_000, 20_000])
+      expect(upstream.seen[0]).toMatchObject({ path: "/api/community/machines/m1/discover-models?wait=1&model=provider%2Fmodel", body, authorization: `Bearer ${REAL_KEY}` })
+    } finally { timeout.mockRestore(); broker.revoke(reg.voucher) }
+  })
+
+  it("keeps an explicit upstream timeout override for waiting model requests", async () => {
+    const upstream = await startUpstream()
+    upstreamClose = upstream.close
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url })
+    proxy = await startCredentialProxy(broker, { upstreamTimeoutMs: 1234 })
+    const reg = broker.mint("requester", "model-override", ["read"], REAL_KEY)
+    const timeout = vi.spyOn(http.ClientRequest.prototype, "setTimeout")
+    try {
+      const response = await fetch(`${proxy.url}/api/community/machines/m1/discover-models?wait=1`, { method: "POST", headers: { authorization: `Bearer ${reg.voucher}` } })
+      await response.text()
+      expect(timeout.mock.calls.map((call) => call[0])).toEqual([1234])
+    } finally { timeout.mockRestore(); broker.revoke(reg.voucher) }
+  })
+
   it("permits platform discovery and proposals but rejects machine management before forwarding", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;

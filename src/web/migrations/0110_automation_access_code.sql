@@ -3,7 +3,6 @@ CREATE TABLE automation_access_code (
   owner_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   secret_hash TEXT NOT NULL UNIQUE,
-  prefix TEXT NOT NULL,
   expires_at TEXT,
   created_at TEXT NOT NULL
 );

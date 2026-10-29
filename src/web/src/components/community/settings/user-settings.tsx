@@ -42,12 +42,12 @@ type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "term
 
 const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
   { value: "profile", label: "My Profile", icon: User },
-  { value: "billing", label: "Subscription & billing", icon: CreditCard },
+  { value: "billing", label: "Subscription & billing", icon: CreditCard, hideIconOnDesktop: true },
   { value: "appearance", label: "Appearance", icon: Palette },
-  { value: "automation", label: "Automation", icon: KeyRound },
-  { value: "advanced", label: "Advanced", icon: Database },
-  { value: "privacy", label: "Privacy", icon: Shield },
-  { value: "terms", label: "Terms", icon: FileText },
+  { value: "automation", label: "Automation", icon: KeyRound, hideIconOnDesktop: true },
+  { value: "advanced", label: "Advanced", icon: Database, hideIconOnDesktop: true },
+  { value: "privacy", label: "Privacy", icon: Shield, hideIconOnDesktop: true },
+  { value: "terms", label: "Terms", icon: FileText, hideIconOnDesktop: true },
 ]
 
 function AppearanceSettings() {
@@ -254,7 +254,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
       disabled={deletionOpen}
       navFooter={
         <Button variant="ghost" className={SETTINGS_LOGOUT_CLASS} size="sm" onClick={onLogout} aria-label="Log out" disabled={deletionOpen}>
-          <LogOut className="size-4" /> <span className="sr-only sm:not-sr-only">Log Out</span>
+          <LogOut className="size-4 sm:invisible" /> <span className="sr-only sm:not-sr-only">Log Out</span>
         </Button>
       }
     >
@@ -336,7 +336,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
             </div>
           </SettingsShellPanel>
           <SettingsShellPanel value="automation">
-            {tab === "automation" && userId ? <AutomationSettings key={userId} userId={userId} /> : null}
+            {tab === "automation" && userId ? <AutomationSettings key={userId} userId={userId} onOpenChat={onClose} /> : null}
           </SettingsShellPanel>
           <SettingsShellPanel value="appearance">
             <AppearanceSettings />

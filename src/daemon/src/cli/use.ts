@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import type { Command } from "commander"
 import { readFile, stat } from "node:fs/promises"
 import { z } from "zod"
@@ -8,6 +9,19 @@ const BotInput = z.strictObject({
   backendId: z.string().min(1).max(64),
 })
 const ServerInput = z.strictObject({ name: z.string().trim().min(1).max(MAX_SERVER_NAME_LENGTH), description: z.string().max(MAX_SERVER_DESCRIPTION_LENGTH).optional() })
+const BackendList = z.array(z.object({
+  id: z.string().min(1), version: z.string().optional(), health: z.enum(["healthy", "unhealthy"]),
+  modelRequired: z.boolean(),
+}))
+
+const ModelList = z.object({
+  machineId: z.string().min(1), backendId: z.string().min(1), source: z.enum(["fresh_discovery", "cached_report"]), requestId: z.string().min(1),
+  readAt: z.string(), observedAt: z.iso.datetime(), modelRequired: z.boolean(), defaultModelId: z.string().nullable(),
+  models: z.array(z.object({ id: z.string().min(1), displayName: z.string().optional(),
+    reasoningEfforts: z.array(z.object({ value: z.string().min(1), description: z.string().optional() })),
+    defaultReasoningEffort: z.string().nullable(),
+  })).nullable(),
+})
 
 async function readAccessCode(file: string | undefined): Promise<string> {
   let secret = process.env.ALOOK_ACCESS_CODE?.trim()
@@ -46,7 +60,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
     .option("--access-code-file <path>", "read the code from a file instead of ALOOK_ACCESS_CODE")
     .option("--server-url <url>", "server origin (or ALOOK_SERVER_URL; defaults to production)")
     .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
-  const request = async (path: string, body?: unknown) => {
+  const request = async (path: string, body?: unknown, timeoutMs = 30_000) => {
     const options = use.opts<{ accessCodeFile?: string; serverUrl?: string }>()
     const origin = serverOrigin(options.serverUrl || process.env.ALOOK_SERVER_URL || "https://alook.ai")
     const secret = await readAccessCode(options.accessCodeFile)
@@ -54,7 +68,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
     try {
       response = await fetch(`${origin}${path}`, {
         method: body === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: "error", signal: AbortSignal.timeout(30_000),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: "error", signal: AbortSignal.timeout(timeoutMs),
       })
     } catch { throw new Error(body === undefined ? "Automation request failed" : "Automation request failed; the result may be unknown. Do not retry automatically.") }
     let raw: unknown
@@ -74,10 +88,21 @@ export function registerUseCommands(program: Command, output: (value: { success:
     const command = use.command(kind).description(`Automation ${kind} operations`).exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
     if (kind === "bot" || kind === "server") command.option("--create <json>", kind === "bot" ? "bot JSON: name, machineId, backendId, optional description/model/reasoningEffort" : "server JSON: name, optional description")
     if (kind !== "bot") command.option("--list", `list minimal ${kind} identities`)
+    if (kind === "machine") command.option("--list-models", "fetch fresh backend models and reasoning efforts").option("--refresh", "bypass the five-minute model cache").option("--id <machine-id>", "target machine ID for --list-models").option("--backend <backend-id>", "target backend ID for --list-models")
     if (kind === "server") command.option("--invite <json>", "invite JSON: server and friend full handles")
     command.action(async () => {
-      const options = command.opts<{ create?: string; list?: boolean; invite?: string }>()
-      if ([options.create !== undefined, options.list === true, options.invite !== undefined].filter(Boolean).length !== 1) throw new Error("Choose exactly one action: --create, --list, or --invite")
+      const options = command.opts<{ create?: string; list?: boolean; invite?: string; listModels?: boolean; id?: string; backend?: string; refresh?: boolean }>()
+      if ([options.create !== undefined, options.list === true, options.invite !== undefined, options.listModels === true].filter(Boolean).length !== 1) throw new Error("Choose exactly one action: --create, --list, --invite, or --list-models")
+      if (options.listModels) {
+        if (!options.id?.trim() || !options.backend?.trim()) throw new Error("--list-models requires --id and --backend")
+        const requestId = randomUUID()
+        const { result } = await request(`/api/community/machines/${encodeURIComponent(options.id)}/discover-models`, { requestId, runtimeId: options.backend, ...(options.refresh ? { refresh: true } : {}) }, 55_000)
+        const parsed = ModelList.safeParse(result)
+        if (!parsed.success || parsed.data.machineId !== options.id || parsed.data.backendId !== options.backend || parsed.data.requestId !== requestId) throw new Error("Automation returned an invalid model list")
+        output({ success: parsed.data })
+        return
+      }
+      if (options.id !== undefined || options.backend !== undefined || options.refresh) throw new Error("--id, --backend and --refresh require --list-models")
       if (options.list) {
         const key = `${kind}s`
         const { result } = await request(kind === "friend" ? "/api/community/friends/accepted" : `/api/community/${key}`)
@@ -85,8 +110,13 @@ export function registerUseCommands(program: Command, output: (value: { success:
         if (!Array.isArray(rows)) throw new Error("Automation returned an invalid list")
         const list = rows.map((row: unknown) => {
           if (!row || typeof row !== "object" || !("name" in row) || typeof row.name !== "string") throw new Error("Automation returned an invalid identity")
-          if (kind === "machine" && "id" in row && typeof row.id === "string") return { id: row.id, name: row.name }
-          if (kind !== "machine" && "handle" in row && typeof row.handle === "string") return { name: row.name, handle: row.handle }
+          if (kind === "machine" && "id" in row && typeof row.id === "string" && "status" in row && (row.status === "online" || row.status === "offline")) {
+            const backends = BackendList.safeParse("backends" in row ? row.backends : undefined)
+            if (!backends.success) throw new Error("Automation returned an invalid backend list")
+            return { id: row.id, name: row.name, status: row.status, backends: backends.data }
+          }
+          if (kind === "friend" && "handle" in row && typeof row.handle === "string" && "is_my_bot" in row && typeof row.is_my_bot === "boolean") return { name: row.name, handle: row.handle, is_my_bot: row.is_my_bot }
+          if (kind === "server" && "handle" in row && typeof row.handle === "string") return { name: row.name, handle: row.handle }
           throw new Error("Automation returned an invalid identity")
         })
         output({ success: { [key]: list } })

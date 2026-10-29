@@ -1,5 +1,6 @@
 "use client"
 
+import type { CSSProperties } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { AUTOMATION_READ_PERMISSIONS, AutomationAccessCodeCreateSchema, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeCreateResponse, type AutomationExpiry, type AutomationPermissionPolicy } from "@alook/shared"
 import { ChevronDown, Copy, Pencil, Trash2 } from "lucide-react"
@@ -14,6 +15,8 @@ import { useCommunityViewSource } from "@/hooks/community/use-community-view-sou
 import { getErrorMessage } from "@/lib/api/client"
 import { isAbortError } from "@/lib/errors"
 import { tid } from "@/lib/community/testids"
+import { tagColorClassName } from "@/lib/community/tag-color"
+import { AutomationChatAction } from "./automation-chat-action"
 
 const expiryOptions = [
   ["1h", "1 hour"], ["24h", "24 hours"], ["7d", "7 days"], ["30d", "30 days"], ["forever", "Never expires"],
@@ -26,6 +29,10 @@ const permissionOptions = [
   { permission: "friend.read", label: "List friends", group: "Read" },
   { permission: "server.read", label: "List servers", group: "Read" },
 ] as const
+const permissionColors: Record<"Read" | "Write", CSSProperties & { "--forum-tag-hue": number }> = {
+  Read: { "--forum-tag-hue": 145 },
+  Write: { "--forum-tag-hue": 30 },
+}
 const control = "h-11 sm:h-8"
 const selectControl = "data-[size=default]:h-11 sm:data-[size=default]:h-8"
 
@@ -67,23 +74,25 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
       }
     }}>
       <h2 className="text-base font-medium">{code ? "Edit access code" : "Create access code"}</h2>
-      <div className="space-y-2">
-        <label htmlFor="automation-name" className="text-sm font-medium">Name</label>
-        <Input id="automation-name" data-testid={tid.automationName} className={control} value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required autoComplete="off" placeholder="e.g. Project setup" disabled={pending} />
-      </div>
-      <div className="space-y-2">
-        <label id="automation-expiry-label" className="text-sm font-medium">{code ? "Expiration" : "Expires in"}</label>
-        <Select value={expiry} onValueChange={(value) => { if (value) setExpiry(value) }} disabled={pending}>
-          <SelectTrigger aria-labelledby="automation-expiry-label" data-testid={tid.automationExpiry} className={`${selectControl} w-full`}><SelectValue>{expiry === "keep" ? "Keep current expiration" : expiryOptions.find(([value]) => value === expiry)?.[1]}</SelectValue></SelectTrigger>
-          <SelectContent>{code ? <SelectItem value="keep" className="min-h-11 sm:min-h-8">Keep current expiration</SelectItem> : null}{expiryOptions.map(([value, label]) => <SelectItem key={value} value={value} className="min-h-11 sm:min-h-8">{label}</SelectItem>)}</SelectContent>
-        </Select>
-        {code ? <p className="text-xs leading-5 text-muted-foreground">{expiry === "keep" ? expiryLabel(code) : "The new expiration starts when you save."}</p> : null}
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <label htmlFor="automation-name" className="text-sm font-medium">Name</label>
+          <Input id="automation-name" data-testid={tid.automationName} className={control} value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required autoComplete="off" placeholder="e.g. Project setup" disabled={pending} />
+        </div>
+        <div className="space-y-2">
+          <label id="automation-expiry-label" className="text-sm font-medium">{code ? "Expiration" : "Expires in"}</label>
+          <Select value={expiry} onValueChange={(value) => { if (value) setExpiry(value) }} disabled={pending}>
+            <SelectTrigger aria-labelledby="automation-expiry-label" data-testid={tid.automationExpiry} className={`${selectControl} w-full`}><SelectValue>{expiry === "keep" ? "Keep current expiration" : expiryOptions.find(([value]) => value === expiry)?.[1]}</SelectValue></SelectTrigger>
+            <SelectContent>{code ? <SelectItem value="keep" className="min-h-11 sm:min-h-8">Keep current expiration</SelectItem> : null}{expiryOptions.map(([value, label]) => <SelectItem key={value} value={value} className="min-h-11 sm:min-h-8">{label}</SelectItem>)}</SelectContent>
+          </Select>
+          {code ? <p className="text-xs leading-5 text-muted-foreground">{expiry === "keep" ? expiryLabel(code) : "The new expiration starts when you save."}</p> : null}
+        </div>
       </div>
       <fieldset className="space-y-4" disabled={pending}>
         <legend className="mb-2 text-sm font-medium">Permissions</legend>
         <p className="text-sm text-muted-foreground">Choose what this code can do. Each permission has its own request limit.</p>
         {(["Read", "Write"] as const).map((group) => <fieldset key={group} className="space-y-2">
-          <legend className="mb-2 text-sm font-medium">{group}</legend>
+          <legend className="mb-2 text-xs font-medium text-muted-foreground">{group}</legend>
           {permissionOptions.map(({ permission, label, group: permissionGroup }, index) => {
           if (permissionGroup !== group) return null
           const policy = policies[index]
@@ -130,15 +139,18 @@ export function AutomationCodeForm({ code, pending, onCancel, onSave }: {
 
 function CreatedCode({ result, onDone }: { result: AutomationAccessCodeCreateResponse; onDone: () => void }) {
   const [copyState, setCopyState] = useAtom(useCreateAtom<"idle" | "copied" | "error">("idle"))
+  const [confirmDone, setConfirmDone] = useAtom(useCreateAtom(false))
   const source = useCommunityViewSource("automation-secret")
-  return <section className="space-y-4">
-    <h2 className="text-base font-medium">Access code created</h2>
-    <p className="text-sm leading-6 text-muted-foreground">Copy this code now. You cannot view it again after leaving this screen.</p>
+  return <section className="space-y-8">
     <div className="space-y-2">
-      <label htmlFor="automation-secret" className="text-sm font-medium">{result.accessCode.name}</label>
+      <h2 className="text-base font-medium">Access code created</h2>
+      <p className="text-sm leading-6 text-muted-foreground">Copy this code now. You cannot view it again after leaving this screen.</p>
+    </div>
+    <div className="space-y-2">
+      <label htmlFor="automation-secret" className="block wrap-break-word text-sm font-medium">{result.accessCode.name}</label>
       <Input id="automation-secret" data-testid={tid.automationSecret} className={`${control} font-mono`} readOnly value={result.secret} autoComplete="off" spellCheck={false} onFocus={(event) => event.target.select()} />
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="outline" className={control} onClick={async () => {
+        <Button type="button" className={control} onClick={async () => {
           const assert = source.capture()
           try { assert(); await navigator.clipboard.writeText(result.secret); assert(); setCopyState("copied") } catch (cause) {
             if (!isAbortError(cause)) { try { assert(); setCopyState("error") } catch { return } }
@@ -147,17 +159,18 @@ function CreatedCode({ result, onDone }: { result: AutomationAccessCodeCreateRes
         <span role="status" className="text-xs text-muted-foreground">{copyState === "error" ? "Copy failed. Select the code and copy it manually." : copyState === "copied" ? "Code copied" : ""}</span>
       </div>
     </div>
-    <div className="flex justify-end"><Button className={control} onClick={onDone}>Done</Button></div>
+    <div className="flex justify-end"><Button variant="outline" className={control} onClick={() => setConfirmDone(true)}>Done</Button></div>
+    <ConfirmDialog open={confirmDone} onOpenChange={setConfirmDone} title="Have you saved your access code?" description="You cannot view this code again after leaving this screen." confirmLabel="I've saved it" confirmVariant="default" onConfirm={onDone} />
   </section>
 }
 
-export function AutomationSettings({ userId }: { userId: string }) {
+export function AutomationSettings({ userId, onOpenChat }: { userId: string; onOpenChat?: () => void }) {
   const { list, execute, pending } = useAutomation(userId)
   const [editing, setEditing] = useAtom(useCreateAtom<AutomationAccessCode | "new" | null>(null))
   const [created, setCreated] = useAtom(useCreateAtom<AutomationAccessCodeCreateResponse | null>(null))
   const [deleting, setDeleting] = useAtom(useCreateAtom<AutomationAccessCode | null>(null))
   const [error, setError] = useAtom(useCreateAtom<string | null>(null))
-  return <div className="mx-auto w-full max-w-xl space-y-8" data-testid={tid.automationPanel}>
+  return <div className="w-full space-y-8" data-testid={tid.automationPanel}>
     {created ? <CreatedCode result={created} onDone={() => setCreated(null)} /> : editing ? (
       <AutomationCodeForm key={editing === "new" ? "new" : editing.id} code={editing === "new" ? undefined : editing} pending={pending} onCancel={() => setEditing(null)} onSave={async (data, renew) => {
         if (editing === "new") await execute({ kind: "create", data }, setCreated)
@@ -166,20 +179,25 @@ export function AutomationSettings({ userId }: { userId: string }) {
       }} />
     ) : <>
       <div className="space-y-4">
-        <p className="text-sm leading-6 text-muted-foreground">Access codes let scripts read your lists, create bots and servers, or invite friends. You choose the permissions and limits.</p>
+        <div className="space-y-2">
+          <p className="max-w-prose text-sm leading-6 text-muted-foreground">Access codes let scripts read your lists, create bots and servers, or invite friends. You choose the permissions and limits.</p>
+          <AutomationChatAction onAccepted={onOpenChat} />
+        </div>
         <Button className={control} data-testid={tid.automationCreate} onClick={() => { setError(null); setEditing("new") }}>Create access code</Button>
       </div>
       {list.isPending ? <div aria-label="Loading access codes" role="status" className="space-y-4">{[0, 1].map((i) => <div key={i} className="space-y-2 py-4"><Skeleton className="h-5 w-40" /><Skeleton className="h-4 w-64 max-w-full" /><Skeleton className="h-4 w-48" /></div>)}</div>
         : list.isError ? <div className="space-y-2"><p role="alert" className="text-sm text-destructive">Could not load access codes.</p><Button variant="outline" className={control} onClick={() => { void list.refetch() }}>Try again</Button></div>
         : !list.data?.accessCodes.length ? <p className="min-h-32 py-4 text-sm text-muted-foreground">No access codes yet. Create one to allow a script to act on your behalf.</p>
-        : <ul className="divide-y divide-border">{list.data.accessCodes.map((code) => <li key={code.id} data-testid={tid.automationCode(code.id)} className="space-y-2 py-4 first:pt-0">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1"><h2 className="wrap-break-word text-sm font-medium">{code.name}</h2></div>
-            <Button variant="ghost" size="icon" className="size-11 shrink-0 sm:size-8" aria-label={`Edit ${code.name}`} onClick={() => { setError(null); setEditing(code) }}><Pencil className="size-4" /></Button>
-            <Button variant="ghost" size="icon" className="size-11 shrink-0 sm:size-8" aria-label={`Delete ${code.name}`} onClick={() => { setError(null); setDeleting(code) }}><Trash2 className="size-4" /></Button>
+        : <ul className="divide-y divide-border">{list.data.accessCodes.map((code) => <li key={code.id} data-testid={tid.automationCode(code.id)} className="space-y-4 py-4 first:pt-0">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2">
+            <h2 className="flex min-h-11 min-w-0 items-center text-base leading-6 font-medium sm:min-h-8"><span className="min-w-0 wrap-break-word">{code.name}</span></h2>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label={`Edit ${code.name}`} onClick={() => { setError(null); setEditing(code) }}><Pencil className="size-4" /></Button>
+              <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label={`Delete ${code.name}`} onClick={() => { setError(null); setDeleting(code) }}><Trash2 className="size-4" /></Button>
+            </div>
+            <p className="col-span-2 text-xs leading-5 text-muted-foreground">{expiryLabel(code)}</p>
           </div>
-          <p className="text-xs leading-5 text-muted-foreground">{expiryLabel(code)}</p>
-          <div className="flex flex-wrap gap-2">{(["Read", "Write"] as const).flatMap((group) => permissionOptions.filter((option) => option.group === group && code.permissions.some((policy) => policy.permission === option.permission)).map(({ permission, label }) => <Badge key={permission} variant={group === "Read" ? "secondary" : "default"} aria-label={`${group}: ${label}`} title={group}>{label}</Badge>))}</div>
+          <div className="flex flex-wrap gap-2">{(["Read", "Write"] as const).flatMap((group) => permissionOptions.filter((option) => option.group === group && code.permissions.some((policy) => policy.permission === option.permission)).map(({ permission, label }) => <Badge key={permission} variant="secondary" className={group === "Write" ? "automation-write-color" : tagColorClassName} style={permissionColors[group]} aria-label={`${group}: ${label}`} title={group}>{label}</Badge>))}</div>
         </li>)}</ul>}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </>}

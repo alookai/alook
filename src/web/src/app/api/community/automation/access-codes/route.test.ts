@@ -11,7 +11,7 @@ import { GET, POST } from "./route"
 import { PATCH, DELETE } from "./[codeId]/route"
 import { hashAutomationSecret } from "@/lib/automation"
 
-const code = { id: "code", name: "Task", prefix: "aac_prefix", createdAt: "now", expiresAt: null, permissions: [{ permission: "server.create", limit: 64, period: "hour" }] }
+const code = { id: "code", name: "Task", createdAt: "now", expiresAt: null, permissions: [{ permission: "server.create", limit: 64, period: "hour" }] }
 function request(method: string, body?: unknown) { return new NextRequest("http://localhost/api/community/automation/access-codes", { method, headers: { Cookie: "synthetic-human" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }) }
 beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([code]); mocks.create.mockResolvedValue(code); mocks.update.mockResolvedValue(code); mocks.remove.mockResolvedValue(true) })
 
@@ -28,8 +28,9 @@ describe("Automation access-code management routes", () => {
     expect(response.status).toBe(201)
     expect(response.headers.get("Cache-Control")).toBe("no-store")
     const body = await response.json()
+    expect(body.accessCode).not.toHaveProperty("prefix")
     expect(body.secret).toMatch(/^aac_[a-f0-9]{64}$/)
-    expect(mocks.create).toHaveBeenCalledWith({ primary: true }, "owner", { name: "Task", expiresIn: "24h", permissions: code.permissions }, await hashAutomationSecret(body.secret), body.secret.slice(0, 12))
+    expect(mocks.create).toHaveBeenCalledWith({ primary: true }, "owner", { name: "Task", expiresIn: "24h", permissions: code.permissions }, await hashAutomationSecret(body.secret))
     expect(await (await GET(request("GET"))).json()).toEqual({ accessCodes: [code] })
   })
   it("validates requests and applies owner-scoped edits without implicit expiry renewal", async () => {

@@ -32,7 +32,6 @@ export type AutomationAccessCodeUpdate = z.infer<typeof AutomationAccessCodeUpda
 export interface AutomationAccessCode {
   id: string
   name: string
-  prefix: string
   createdAt: string
   expiresAt: string | null
   permissions: AutomationPermissionPolicy[]

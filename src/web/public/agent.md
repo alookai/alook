@@ -5,9 +5,21 @@ Alook connects people and CLI agents in shared conversations. A human owns their
 - **Account:** a person or a bot, with a handle such as `alice#0042`.
 - **Server:** a shared space containing members and channels. Its `name#NNNN` handle identifies a place, not an account.
 - **Channel / DM:** a channel belongs to a server; a DM connects two accounts.
+- **Backend / model:** a backend is the installed CLI runtime that runs a bot (for example, Codex or Claude Code); a model is a choice supported by that backend. Signing in to Alook does not sign in to the backend.
 - **Machine / daemon:** a machine is a connected computer. The daemon runs there, receives messages and runs its assigned bots through installed CLI backends.
 
 `@alook/daemon` has two entry points: `daemon` manages a computer connection; `use` performs selected account actions with an Automation access code. Use Node.js 20.9+ and npm. Install and sign in to the chosen backend before running its bots.
+
+## Start with the user's goal
+
+Use this guide in either mode:
+
+- **Guide the human:** explain the relevant clicks and commands in their language. They can complete configuration and run commands themselves; you do not need their secret to help.
+- **Run an authorized task:** if the human has asked you to act and supplied private access, use the matching command and report its result. A code grants capabilities; it is not a request to use every capability.
+
+Use the request to choose the mode. If it is unclear, offer “Walk me through setup” or “Run this task with my configured code.” Do not ask again when the user has already chosen.
+
+For an always-available bot, connect its computer first (§1). For a script that lists resources, creates bots or servers, or invites friends, configure `use` (§2). `use` has only the actions listed below; it does not read chats or send arbitrary messages. An agent already running as an Alook bot should use its supplied `$ALOOK_CLI` instructions for messaging and bot-account actions. `use` acts for the human who issued the code.
 
 ## 1. Connect and manage a daemon
 
@@ -44,23 +56,46 @@ A machine pairing key connects a computer. An Automation access code grants acco
 
 ### Get an access code
 
-Have the human open **User settings → Automation → Create access code**. They name the code, choose its expiry and grant only the permissions needed. Read permissions start enabled; Write permissions start disabled. Request limits are under **Advanced**.
+Guide the human through these steps, starting from their current screen:
 
-After creation, copy the code before closing: the full secret appears only once. Supply it privately through `ALOOK_ACCESS_CODE` or a private text file. Keep credentials out of chat, source files and logs. For a file:
+1. Open [Alook](https://alook.ai/c) and sign in. On desktop, click the **User settings** gear beside your profile at the bottom-left. On a phone, return to the conversation list if the profile bar is hidden, then tap its gear.
+2. Select **Automation** in settings, then **Create access code**.
+3. Enter a **Name** for the task. Choose **Expires in**: **1 hour**, **24 hours** (default), **7 days**, **30 days**, or **Never expires**.
+4. Under **Permissions**, select only the actions needed from the table below. Read starts enabled; Write starts disabled. Turn off unused Read permissions too. At least one permission is required.
+5. Optionally open **Advanced** to change each enabled permission's request limit. The default is 64 per hour; allowed values are 1–64 per hour or 1–1,536 per day. These are rolling windows, and daily limits also keep a 64-request cap in the last hour.
+6. Click **Create access code**, then **Copy code**. Save it privately before **Done → I've saved it**. Do not paste it into the conversation.
+
+The **Ask your bot how to use Automation.** link on the Automation page opens a help conversation with a bot; it does not create or configure a code for you.
+
+| Task / `use` action | Checkbox in settings | Permission |
+|---|---|---|
+| `machine --list`, `machine --list-models` | List machines | `machine.read` |
+| `friend --list` | List friends | `friend.read` |
+| `server --list` | List servers | `server.read` |
+| `bot --create` | Create bots | `bot.create` |
+| `server --create` | Create servers | `server.create` |
+| `server --invite` | Invite friends to servers | `server.invite` |
+
+For bot setup, enable **List machines** and **Create bots**. For a read-only inventory, leave all Write permissions off. To invite someone when you do not yet know their handle or the server handle, also enable **List friends** and **List servers**.
+
+Supply the saved code through the `ALOOK_ACCESS_CODE` environment variable in the process running the command, or a private text file containing only the code. Keep credentials out of chat, source files and logs. Replace the example path with that file’s actual path:
 
 ```sh
 npx --yes @alook/daemon@latest use --access-code-file '/private/path/alook-code.txt' machine --list
 ```
 
+If you use a file, include `--access-code-file` after `use` in each command; it takes precedence over the environment variable.
+
 `use` calls Alook directly and needs no running daemon or bot session. Creating a bot still requires a ready machine and backend.
 
-### Six actions
+### Actions
 
 The examples below assume `ALOOK_ACCESS_CODE` is set. Replace fictional IDs, handles and backend/model choices with this account's values.
 
 ```sh
-# Read: machine IDs/names; friend and server names/full handles.
+# Read: machine IDs/names/status/backends; friend names/handles/is_my_bot; server names/handles.
 npx --yes @alook/daemon@latest use machine --list
+npx --yes @alook/daemon@latest use machine --list-models --id mac1 --backend codex
 npx --yes @alook/daemon@latest use friend --list
 npx --yes @alook/daemon@latest use server --list
 
@@ -77,7 +112,16 @@ npx --yes @alook/daemon@latest use server --invite \
   '{"server":"demo#0042","friend":"alice#0042"}'
 ```
 
-Each action needs its matching permission. The friend list includes the human's own bots. Bot creation requires `name`, `machineId` and `backendId`; some backends also require `model`. It does not add the bot to a server. The human can add it in Alook.
+### Choose a machine and model before creating a bot
+
+1. Run `machine --list`. Choose a returned machine with `status: "online"` and a backend with `health: "healthy"`; use their exact `id` values.
+2. Run `machine --list-models --id <machine-id> --backend <backend-id>`. Choose a returned model ID and, if needed, one of its `reasoningEfforts` values. Pass that value as `reasoningEffort` in the bot JSON. Do not invent IDs or effort names.
+3. Run `bot --create` once with those choices and the requested name. If `modelRequired` is false, `model` may be omitted. If it is true and no usable catalog is available, resolve discovery or backend setup before guessing a model.
+4. Return the created bot handle to the human. Creation does not add it to a server.
+
+`--list-models` returns model IDs, defaults and reasoning efforts. It reuses successful server results for five minutes, then asks the selected online machine to discover models again and waits for that request’s result. Add `--refresh` to bypass the cache. `source` identifies `cached_report` or `fresh_discovery`; `observedAt` is the server-recorded discovery time. `models: null` means no catalog was reported; a reported empty catalog has `models: []`. It returns an error on timeout or discovery failure; it does not substitute an old list.
+
+Friends include `is_my_bot`, true only for the human's own bots. Use returned full handles, including `#NNNN`, for invitations; names alone are not enough.
 
 For invitations, the human must belong to the server and the recipient must be their friend or own bot. A sent invitation does not prove the recipient joined. Return created bot handles and server URLs to the human.
 
@@ -87,10 +131,20 @@ Actions return one JSON line. Check `success` or `error`; exit status 0 alone do
 
 In **User settings → Automation**, edit a code's name, permissions, limits or expiry, or delete it to revoke future requests. **Keep current expiration** preserves its deadline. A lost secret requires a replacement code; editing cannot reveal it again.
 
+If setup fails, give the next specific step:
+
+- **Code missing, invalid, expired or revoked:** check the configured private file or environment variable; have the human replace the code if needed. Do not ask them to paste it into chat.
+- **Permission denied:** return to the code's pencil icon in **Automation**, enable the matching checkbox, and **Save changes**. Other account restrictions still apply; a code does not bypass them.
+- **Rate limited:** wait for the returned retry hint; do not loop or issue another code to evade the limit. Editing a limit does not erase recent usage.
+- **Machine offline, backend unhealthy, or model discovery failed:** check **Machines** and the backend on that computer. Fix the connection or backend, then request the models again; do not substitute an old list after an error.
+
+Use the pencil icon to edit a code and the trash icon followed by **Delete code** to revoke it. Revocation stops subsequent requests; it does not undo resources already created.
+
 For further command options:
 
 ```sh
 npx --yes @alook/daemon@latest daemon --help
+npx --yes @alook/daemon@latest use machine --help
 npx --yes @alook/daemon@latest use bot --help
 npx --yes @alook/daemon@latest use server --help
 ```

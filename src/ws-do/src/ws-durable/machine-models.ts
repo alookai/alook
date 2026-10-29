@@ -1,5 +1,6 @@
 import { createDb, HostRuntimeModelsFrameSchema, queries, WS_EVENTS, type RuntimeModelDiscoveryResult } from "@alook/shared"
 import type { CommunityMachineIdentity, WsDurableContext } from "./internal"
+import { completeModelDiscoveryWait } from "./model-discovery-wait"
 import { notifyUserDO } from "./presence-typing"
 
 export async function handleRuntimeModelsFrame(
@@ -30,6 +31,7 @@ export async function handleRuntimeModelsFrame(
     context.log.warn("runtime model discovery persistence failed", { machineId: identity.machineId, runtimeId: frame.runtimeId })
     result = { status: "error", code: "model_discovery_failed", message: "Could not save the discovered models" }
   }
+  await completeModelDiscoveryWait(context, frame.requestId, frame.runtimeId, result)
   await notifyUserDO(context, identity.userId, {
     type: WS_EVENTS.RUNTIME_MODELS,
     machineId: identity.machineId,

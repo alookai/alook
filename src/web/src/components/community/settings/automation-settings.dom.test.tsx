@@ -4,7 +4,9 @@ import { render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import type { AutomationAccessCode } from "@alook/shared"
 import { AutomationCodeForm, AutomationSettings } from "./automation-settings"
 
-const fixture: AutomationAccessCode = { id: "code-1", name: "Build script", prefix: "alk_test", createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z", permissions: [{ permission: "bot.create", limit: 12, period: "day" }] }
+vi.mock("./automation-chat-action", () => ({ AutomationChatAction: () => null }))
+
+const fixture: AutomationAccessCode = { id: "code-1", name: "Build script", createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z", permissions: [{ permission: "bot.create", limit: 12, period: "day" }] }
 const state = vi.hoisted(() => ({ execute: vi.fn(), refetch: vi.fn(), data: { accessCodes: [] as AutomationAccessCode[] }, isError: false, isPending: false }))
 vi.mock("@/hooks/community/use-automation", () => ({ useAutomation: () => ({ list: { data: state.data, isError: state.isError, isPending: state.isPending, refetch: state.refetch }, execute: state.execute, pending: false }) }))
 vi.mock("@/hooks/community/use-community-view-source", () => ({ useCommunityViewSource: () => ({ capture: () => Object.assign(() => {}, { signal: new AbortController().signal }) }) }))
@@ -124,6 +126,11 @@ describe("Automation settings", () => {
     await user.click(screen.getByRole("button", { name: "Create access code" }))
     expect(await screen.findByDisplayValue("synthetic-secret-for-test")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Done" }))
+    expect(screen.getByRole("heading", { name: "Have you saved your access code?" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.getByDisplayValue("synthetic-secret-for-test")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    await user.click(screen.getByRole("button", { name: "I've saved it" }))
     expect(screen.queryByDisplayValue("synthetic-secret-for-test")).not.toBeInTheDocument()
   })
   it("keeps the one-time code selectable when clipboard access fails", async () => {
@@ -144,7 +151,6 @@ describe("Automation settings", () => {
     const user = setupUser()
     render(<AutomationSettings userId="owner" />)
     expect(screen.getByText("Create bots")).toBeInTheDocument()
-    expect(screen.queryByText(/alk_test/)).not.toBeInTheDocument()
     expect(screen.queryByText(/12\/day/)).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Edit Build script" }))
     await user.click(screen.getByRole("button", { name: "Advanced" }))

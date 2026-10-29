@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 const mocks = vi.hoisted(() => ({ machines: vi.fn(), friends: vi.fn(), servers: vi.fn(), friend: vi.fn(), server: vi.fn(), listInvites: vi.fn(), createInvite: vi.fn(), dm: vi.fn(), message: vi.fn(), rate: vi.fn(), fanout: vi.fn() }))
-vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(), queries: {
+vi.mock("@alook/shared", async (importOriginal) => { const actual = await importOriginal<typeof import("@alook/shared")>(); return { ...actual, queries: { ...actual.queries,
   automation: { listMachines: mocks.machines, listFriends: mocks.friends, listServers: mocks.servers, getFriendByHandle: mocks.friend },
   communityServer: { resolveServerByNameForMember: mocks.server }, communityInvite: { listServerInvites: mocks.listInvites, createInvite: mocks.createInvite }, communityDm: { createOrGetDM: mocks.dm },
-} }))
+} } })
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }), getDb: () => ({ primary: true }) }))
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.rate }))
 vi.mock("./message-handler", () => ({ createCommunityMessage: mocks.message }))
@@ -18,8 +18,8 @@ const request = (body: unknown = { friend: "Alice#0001" }) => new NextRequest("h
 function context() { return { env: { DB: {} } as Env, userId: "owner", params: { id: "demo#0001" }, beforeCreate: vi.fn(async (): Promise<Response | null> => null) } }
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.machines.mockResolvedValue([{ id: "mac1", name: "Mac", hostname: "private", availableRuntimes: ["private"] }])
-  mocks.friends.mockResolvedValue([{ id: "hidden", name: "Alice", discriminator: "0001", email: "private" }])
+  mocks.machines.mockResolvedValue([{ id: "mac1", name: "Mac", status: "online", hostname: "private", availableRuntimes: [] }])
+  mocks.friends.mockResolvedValue([{ id: "hidden", name: "Alice", discriminator: "0001", isBot: false, ownerUserId: null, email: "private" }])
   mocks.servers.mockResolvedValue([{ id: "hidden", name: "demo", discriminator: "0001", ownerId: "private" }])
   mocks.server.mockResolvedValue([{ id: "s1", name: "demo", discriminator: "0001" }])
   mocks.friend.mockResolvedValue({ id: "friend", name: "Alice", discriminator: "0001" })
@@ -33,10 +33,30 @@ beforeEach(() => {
 describe("Automation Read and invitation boundaries", () => {
   it("projects minimal API fields before returning lists, and scopes queries to the code owner", async () => {
     const ctx = context()
-    expect(await (await readAutomationMachines(request(), ctx)).json()).toEqual({ machines: [{ id: "mac1", name: "Mac" }] })
-    expect(await (await readAutomationFriends(request(), ctx)).json()).toEqual({ friends: [{ name: "Alice", handle: "Alice#0001" }] })
+    expect(await (await readAutomationMachines(request(), ctx)).json()).toEqual({ machines: [{ id: "mac1", name: "Mac", status: "online", backends: [] }] })
+    expect(await (await readAutomationFriends(request(), ctx)).json()).toEqual({ friends: [{ name: "Alice", handle: "Alice#0001", is_my_bot: false }] })
     expect(await (await readAutomationServers(request(), ctx)).json()).toEqual({ servers: [{ name: "demo", handle: "demo#0001" }] })
     for (const query of [mocks.machines, mocks.friends, mocks.servers]) expect(query).toHaveBeenCalledExactlyOnceWith({ primary: true }, "owner")
+  })
+  it("marks only the code owner's bots and returns both persisted machine statuses without private fields", async () => {
+    mocks.friends.mockResolvedValue([
+      { name: "Helper", discriminator: "0001", isBot: true, ownerUserId: "owner", id: "private" },
+      { name: "Peer bot", discriminator: "0002", isBot: true, ownerUserId: "other", email: "private" },
+      { name: "Human", discriminator: "0003", isBot: false, ownerUserId: "owner" },
+    ])
+    mocks.machines.mockResolvedValue([
+      { id: "online", name: "Running", status: "online", hostname: "private", availableRuntimes: [] },
+      { id: "offline", name: "Stopped", status: "offline", availableRuntimes: [] },
+    ])
+    expect(await (await readAutomationFriends(request(), context())).json()).toEqual({ friends: [
+      { name: "Helper", handle: "Helper#0001", is_my_bot: true },
+      { name: "Peer bot", handle: "Peer bot#0002", is_my_bot: false },
+      { name: "Human", handle: "Human#0003", is_my_bot: false },
+    ] })
+    expect(await (await readAutomationMachines(request(), context())).json()).toEqual({ machines: [
+      { id: "online", name: "Running", status: "online", backends: [] },
+      { id: "offline", name: "Stopped", status: "offline", backends: [] },
+    ] })
   })
   it("rejects invalid creation input before quota admission and stops valid input on denial", async () => {
     const ctx = context()
@@ -117,4 +137,15 @@ it("skips another author's, expired and exhausted invitations before reusing a v
   expect((await inviteAutomationFriend(request(), context())).status).toBe(201)
   expect(mocks.createInvite).not.toHaveBeenCalled()
   expect(mocks.message.mock.lastCall?.[0].body).toEqual({ content: "http://localhost/c/invite/valid" })
+})
+
+it("normalizes legacy backends and strips runtime diagnostics and model bodies from the machine list", async () => {
+  mocks.machines.mockResolvedValue([{ id: "m", name: "M", status: "online", availableRuntimes: ["codex", "", null,
+    { id: "opencode", status: "unhealthy", version: "1", lastError: "private", reasoning: { updateMode: "unsupported", catalogOrigin: "adapter_suggestions", models: [] } },
+    { id: "bad runtime", status: "healthy" },
+  ] }])
+  expect(await (await readAutomationMachines(request(), context())).json()).toEqual({ machines: [{ id: "m", name: "M", status: "online", backends: [
+    { id: "codex", health: "healthy", modelRequired: false },
+    { id: "opencode", version: "1", health: "unhealthy", modelRequired: true },
+  ] }] })
 })

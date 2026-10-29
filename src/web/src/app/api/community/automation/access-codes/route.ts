@@ -9,7 +9,7 @@ export const POST = withAutomationManagement(async (req, ctx) => {
   const [body, error] = await parseBody(req, AutomationAccessCodeCreateSchema)
   if (error) return error
   const secret = newAutomationSecret()
-  const accessCode = await queries.automation.createAccessCode(getPrimaryDb(ctx.env.DB), ctx.userId, body, await hashAutomationSecret(secret), secret.slice(0, 12))
+  const accessCode = await queries.automation.createAccessCode(getPrimaryDb(ctx.env.DB), ctx.userId, body, await hashAutomationSecret(secret))
   const response = writeJSON({ accessCode, secret }, 201)
   response.headers.set("Cache-Control", "no-store")
   return response
