@@ -108,7 +108,7 @@ describe("useMessages — instant channel switch", () => {
     const { client, registry } = await createCommunityQueryOwner()
     const scope: MessageScope = kind === "channel" ? { kind, id: "ch_new", serverId: "s1" } : { kind, id: "dm_new" }
     const attachments = [{ id: "attachment", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, thumbnailUrl: null, contentType: "text/plain", width: null, height: null }]
-    const presentedAttachments = [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, contentType: "text/plain", kind: "file", size: "1.0 KB" }]
+    const presentedAttachments = [{ id: "attachment", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, contentType: "text/plain", kind: "file", size: "1.0 KB" }]
     const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorId: "peer", authorName: "Peer", text: "reply" }
     const message: CanonicalMessage = { id: "rich", seq: 3, type: "chat", authorId: "peer", authorName: "Peer", content: "before", clientNonce: "rich-nonce", createdAt: "2026-08-07T10:00:00.000Z" }
     ingestMessages(registry, scope.id, [messageResourceFixture({ ...message, channelId: scope.id, replyToId: "reply", attachments, embeds, replyTo })])

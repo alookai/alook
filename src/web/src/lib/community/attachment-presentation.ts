@@ -284,6 +284,7 @@ export function presentMessageAttachment(
 ): Attachment {
   const kind = isInlineAttachmentContentType(attachment.contentType) ? "image" : "file"
   const metadata = {
+    ...("id" in attachment ? { id: attachment.id } : {}),
     name: attachment.name, url: attachment.url,
     ...(attachment.contentType != null ? { contentType: attachment.contentType } : {}),
     ...(attachment.sizeBytes != null ? { sizeBytes: attachment.sizeBytes } : {}),

@@ -181,3 +181,12 @@ describe("formatAttachmentSize", () => {
     expect(formatAttachmentSize(2 * 1024 * 1024)).toBe("2.0 MB")
   })
 })
+
+describe("HTML preview attachment identity", () => {
+  it("keeps a canonical attachment ID in the display projection", async () => {
+    const { presentMessageAttachment } = await import("./attachment-presentation")
+    expect(presentMessageAttachment({ id: "html-id", name: "page.html", url: "/attachment/html-id", contentType: "text/html", sizeBytes: 1024, thumbnailUrl: null, width: null, height: null })).toEqual({
+      id: "html-id", kind: "file", name: "page.html", url: "/attachment/html-id", contentType: "text/html", sizeBytes: 1024, size: "1.0 KB",
+    })
+  })
+})
