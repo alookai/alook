@@ -4,10 +4,8 @@ import { getPrimaryDb } from "@/lib/db"
 import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
 import { serverIconUrl } from "@/lib/community/storage"
 import { createServerForUser } from "@/lib/community/create-server.server"
-import { withAutomationOrExistingAuth } from "@/lib/automation"
-import { readAutomationServers } from "@/lib/community/automation-read.server"
 
-export const GET = withAutomationOrExistingAuth("server.read", readAutomationServers, withCommunityActor(async (_req, ctx) => {
+export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getPrimaryDb(ctx.env.DB)
   const rows = await withD1Retry(
     () => queries.communityServer.listUserServers(db, ctx.actor.userId),
@@ -55,10 +53,10 @@ export const GET = withAutomationOrExistingAuth("server.read", readAutomationSer
       mentionSources: mentionSourcesByServer.get(server.id) ?? [],
     })),
   })
-}))
+})
 
-export const POST = withAutomationOrExistingAuth("server.create", createServerForUser, withCommunityActor(async (req, ctx) => {
+export const POST = withCommunityActor(async (req, ctx) => {
   const denied = rejectBot(ctx.actor)
   if (denied) return denied
   return createServerForUser(req, { env: ctx.env, userId: ctx.actor.userId })
-}))
+})

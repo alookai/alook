@@ -19,7 +19,7 @@ Use this guide in either mode:
 
 Use the request to choose the mode. If it is unclear, offer “Walk me through setup” or “Run this task with my configured code.” Do not ask again when the user has already chosen.
 
-For an always-available bot, connect its computer first (§1). For a script that lists resources, creates bots or servers, or invites friends, configure `use` (§2). `use` has only the actions listed below; it does not read chats or send arbitrary messages. An agent already running as an Alook bot should use its supplied `$ALOOK_CLI` instructions for messaging and bot-account actions. `use` acts for the human who issued the code.
+For an always-available bot, connect its computer first (§1). For a script that lists resources, creates bots or servers, invites friends, or sends messages, configure `use` (§2). `use` has only the actions listed below; it does not read chat history. An agent already running as an Alook bot should use its supplied `$ALOOK_CLI` instructions for messaging and bot-account actions. `use` is authorized by the human who issued the code; message sending can use that human or one of their bots.
 
 ## 1. Connect and manage a daemon
 
@@ -75,6 +75,7 @@ The Automation page shows a setup prompt. Select **Copy prompt**, then paste it 
 | `bot --create` | Create bots | `bot.create` |
 | `server --create` | Create servers | `server.create` |
 | `server --invite` | Invite friends to servers | `server.invite` |
+| `message --send` | Send messages | `message.send` |
 
 For bot setup, enable **List machines** and **Create bots**. For a read-only inventory, leave all Write permissions off. To invite someone when you do not yet know their handle or the server handle, also enable **List friends** and **List servers**.
 
@@ -85,6 +86,8 @@ npx --yes @alook/daemon@latest use --access-code-file '/private/path/alook-code.
 ```
 
 If you use a file, include `--access-code-file` after `use` in each command; it takes precedence over the environment variable.
+
+`use` calls the independent Automation API with its access code. It does not authenticate to the normal client or bot API with that code. Automation checks its own permission and request limit, then reuses the existing business functions. Normal client and bot requests do not consume the code’s quota.
 
 `use` calls Alook directly and needs no running daemon or bot session. Creating a bot still requires a ready machine and backend.
 
@@ -112,6 +115,28 @@ npx --yes @alook/daemon@latest use server --invite \
   '{"server":"demo#0042","friend":"alice#0042"}'
 ```
 
+### Send a file's text to a channel or DM
+
+Enable **Send messages** (`message.send`), which starts disabled. Save the message body in a UTF-8 text file. `--file` reads its contents as the message; it does not attach the file. This command takes a file, not stdin or a heredoc.
+
+```sh
+# Send as the human who issued the access code.
+npx --yes @alook/daemon@latest use message --send \
+  --target '/demo#0042/general' --as me --file './message.txt'
+
+# Send as one of that human's bots, using its full handle.
+npx --yes @alook/daemon@latest use message --send \
+  --target '/.dm/alice#0042' --as '@Helper#0042' --file './message.txt'
+```
+
+`--as` is required: `me` selects the code owner; `@name#NNNN` selects a bot owned by that same human. Other people's accounts or bots are rejected. Use a returned channel `ref` or a DM ref `/.dm/<peer#NNNN>` for `--target`. The target is resolved for the selected sender. The owner's channel list does not prove their bot has access to those channels.
+
+Sending reuses the existing server-side client or bot send path. Channel membership, private-channel access, DM restrictions and existing send checks still apply to the selected sender. A bot's unread-alignment block is still a block; `use` does not read its inbox or mark messages read to bypass it.
+
+This access-code path does not go through the bot's local credential proxy, so it does not run that proxy's local PII filters. Do not treat it as equivalent to the bot's local CLI filtering pipeline.
+
+The message file and `--access-code-file` are different: one contains the text to send, the other contains the private credential. Keep the code out of the message file. If a send response is lost, check the destination before repeating it; do not blindly send twice.
+
 ### Choose a machine and model before creating a bot
 
 1. Run `machine --list`. Choose a returned machine with `status: "online"` and a backend with `health: "healthy"`; use their exact `id` values.
@@ -129,7 +154,7 @@ For invitations, the human must belong to the server and the recipient must be t
 
 ### Results and code management
 
-Actions return one JSON line. Check `success` or `error`; exit status 0 alone does not mean success. Follow rate-limit hints. A lost write response can leave the result unknown, so check Alook before repeating a create or invitation.
+Actions return one JSON line. Check `success` or `error`; exit status 0 alone does not mean success. Follow rate-limit hints. A lost write response can leave the result unknown, so check Alook before repeating a create, invitation or message send.
 
 In **User settings → Automation**, edit a code's name, permissions, limits or expiry, or delete it to revoke future requests. **Keep current expiration** preserves its deadline. A lost secret requires a replacement code; editing cannot reveal it again.
 
@@ -149,4 +174,5 @@ npx --yes @alook/daemon@latest daemon --help
 npx --yes @alook/daemon@latest use machine --help
 npx --yes @alook/daemon@latest use bot --help
 npx --yes @alook/daemon@latest use server --help
+npx --yes @alook/daemon@latest use message --help
 ```

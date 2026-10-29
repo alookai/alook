@@ -6,13 +6,13 @@ vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }) }))
 vi.mock("@/lib/broadcast", () => ({ wsDoFetch: mocks.dispatch }))
 vi.mock("@alook/shared", async (importOriginal) => { const actual = await importOriginal<typeof import("@alook/shared")>(); return { ...actual, queries: { ...actual.queries, communityMachine: { getMachineByIdForUser: mocks.machine } } } })
 vi.mock("@/lib/middleware/community-actor", () => ({ withCommunityActor: (handler: unknown) => handler }))
-vi.mock("@/lib/automation", () => ({ withAutomationOrExistingAuth: (permission: string, handler: (...args: any[]) => unknown) => {
+vi.mock("@/lib/automation", () => ({ withAutomation: (permission: string, handler: (...args: any[]) => unknown) => {
   expect(permission).toBe("machine.read")
   return (req: NextRequest) => handler(req, { env: { DB: {} }, userId: "code-owner", params: { id: "m1" }, beforeCreate: mocks.admit })
 } }))
 import { POST } from "./route"
 const catalog = { catalogOrigin: "native_report", updateMode: "unsupported", defaultModelId: "fresh/model", models: [{ id: "fresh/model", supportedReasoningEfforts: [{ value: "high" }], defaultReasoningEffort: "high" }] }
-const request = (body: unknown = { requestId: "request", runtimeId: "codex" }) => new NextRequest("http://localhost/api/community/machines/m1/discover-models", { method: "POST", body: JSON.stringify(body) })
+const request = (body: unknown = { requestId: "request", runtimeId: "codex" }) => new NextRequest("http://localhost/api/community/automation/machines/m1/discover-models", { method: "POST", body: JSON.stringify(body) })
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.machine.mockResolvedValue({ status: "online", availableRuntimes: [{ id: "codex", reasoning: { models: [{ id: "old" }] } }] })
@@ -71,4 +71,13 @@ it("returns a timestamped server cache hit and allows an explicit refresh withou
 it("rejects mismatched cache metadata instead of pairing it with an unrelated D1 snapshot", async () => {
   mocks.dispatch.mockResolvedValueOnce(Response.json({ sent: 0, unsupported: 0, cached: true, observedAt: "2026-10-29T00:00:00Z", catalogFingerprint: "b".repeat(64) }))
   expect((await POST(request())).status).toBe(503)
+})
+
+it("fails closed on HTTP transport failure and invalid observation timestamps", async () => {
+  mocks.dispatch.mockResolvedValueOnce(new Response("down", { status: 503 }))
+  expect((await POST(request())).status).toBe(503)
+  for (const observedAt of [undefined, "invalid"]) {
+    mocks.dispatch.mockResolvedValueOnce(Response.json({ sent: 1, observedAt, result: { status: "complete", catalog } }))
+    expect((await POST(request())).status).toBe(503)
+  }
 })

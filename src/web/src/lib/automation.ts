@@ -60,13 +60,3 @@ export function withAutomation(permission: AutomationPermission, handler: Automa
     return response
   }
 }
-
-export function withAutomationOrExistingAuth(
-  permission: AutomationPermission,
-  handler: AutomationHandler,
-  existing: (req: NextRequest, context?: { params?: Promise<Record<string, string>> | Record<string, string> }) => Promise<Response>,
-) {
-  const automation = withAutomation(permission, handler)
-  return (req: NextRequest, context?: { params?: Promise<Record<string, string>> | Record<string, string> }) =>
-    req.headers.get("Authorization")?.startsWith("Bearer aac_") ? automation(req, context) : existing(req, context)
-}

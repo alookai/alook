@@ -5,10 +5,8 @@ import { getDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { resolvePresence, toFriendCard } from "@/lib/community/friend-cards"
 
-import { withAutomationOrExistingAuth } from "@/lib/automation"
-import { readAutomationFriends } from "@/lib/community/automation-read.server"
 
-export const GET = withAutomationOrExistingAuth("friend.read", readAutomationFriends, withCommunityActor(async (_req: NextRequest, ctx) => {
+export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId
 
@@ -33,4 +31,4 @@ export const GET = withAutomationOrExistingAuth("friend.read", readAutomationFri
     { route: "community/friends/accepted" },
   )
   return NextResponse.json(value)
-}))
+})

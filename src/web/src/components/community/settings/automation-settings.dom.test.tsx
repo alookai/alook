@@ -31,18 +31,38 @@ describe("Automation form", () => {
     await user.click(screen.getByRole("button", { name: "Create access code" }))
     expect(save).toHaveBeenCalledWith({ name: "Deploy", expiresIn: "24h", permissions: [{ permission: "bot.create", limit: 5, period: "hour" }, { permission: "server.create", limit: 64, period: "hour" }] }, true)
   })
-  it("groups six permissions and defaults only the three reads on", async () => {
+  it("groups seven permissions and defaults only the three reads on", async () => {
     const user = setupUser(), save = vi.fn().mockResolvedValue(undefined)
     render(<AutomationCodeForm pending={false} onCancel={() => {}} onSave={save} />)
     expect(screen.getByRole("group", { name: /^Read$/ })).toBeInTheDocument()
     expect(screen.getByRole("group", { name: /^Write$/ })).toBeInTheDocument()
-    expect(screen.getAllByRole("checkbox")).toHaveLength(6)
+    expect(screen.getAllByRole("checkbox")).toHaveLength(7)
     for (const name of ["List machines", "List friends", "List servers"]) expect(screen.getByRole("checkbox", { name })).toBeChecked()
-    for (const name of ["Create bots", "Create servers", "Invite friends to servers"]) expect(screen.getByRole("checkbox", { name })).not.toBeChecked()
+    for (const name of ["Create bots", "Create servers", "Invite friends to servers", "Send messages"]) expect(screen.getByRole("checkbox", { name })).not.toBeChecked()
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Invitations")
     await user.click(screen.getByRole("checkbox", { name: "Invite friends to servers" }))
     await user.click(screen.getByRole("button", { name: "Create access code" }))
     expect(save).toHaveBeenCalledWith({ name: "Invitations", expiresIn: "24h", permissions: ["server.invite", "machine.read", "friend.read", "server.read"].map((permission) => ({ permission, limit: 64, period: "hour" })) }, true)
+  })
+  it("allows all seven permissions to be saved together", async () => {
+    const user = setupUser(), save = vi.fn().mockResolvedValue(undefined)
+    render(<AutomationCodeForm pending={false} onCancel={() => {}} onSave={save} />)
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "All actions")
+    for (const name of ["Create bots", "Create servers", "Invite friends to servers", "Send messages"]) await user.click(screen.getByRole("checkbox", { name }))
+    await user.click(screen.getByRole("button", { name: "Create access code" }))
+    expect(save).toHaveBeenCalledWith({ name: "All actions", expiresIn: "24h", permissions: ["bot.create", "server.create", "server.invite", "message.send", "machine.read", "friend.read", "server.read"].map((permission) => ({ permission, limit: 64, period: "hour" })) }, true)
+  })
+  it("saves an opt-in send permission with its own limit", async () => {
+    const user = setupUser(), save = vi.fn().mockResolvedValue(undefined)
+    render(<AutomationCodeForm pending={false} onCancel={() => {}} onSave={save} />)
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Messages")
+    for (const name of ["List machines", "List friends", "List servers"]) await user.click(screen.getByRole("checkbox", { name }))
+    await user.click(screen.getByRole("checkbox", { name: "Send messages" }))
+    await user.click(screen.getByRole("button", { name: "Advanced" }))
+    await user.clear(screen.getByRole("spinbutton", { name: "Send messages request limit" }))
+    await user.type(screen.getByRole("spinbutton", { name: "Send messages request limit" }), "9")
+    await user.click(screen.getByRole("button", { name: "Create access code" }))
+    expect(save).toHaveBeenCalledWith({ name: "Messages", expiresIn: "24h", permissions: [{ permission: "message.send", limit: 9, period: "hour" }] }, true)
   })
   it("hides rates in Advanced without losing an edited limit when collapsed", async () => {
     const user = setupUser(), save = vi.fn().mockResolvedValue(undefined)
@@ -105,6 +125,20 @@ describe("Automation form", () => {
 })
 
 describe("Automation settings", () => {
+  it("shows the send Write badge and preserves its policy when editing", async () => {
+    const policy = { permission: "message.send" as const, limit: 9, period: "day" as const }
+    state.data = { accessCodes: [{ ...fixture, permissions: [policy] }] }
+    state.execute.mockResolvedValue(undefined)
+    const user = setupUser()
+    render(<AutomationSettings userId="owner" />)
+    expect(screen.getByLabelText("Write: Send messages")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Edit Build script" }))
+    expect(screen.getByRole("checkbox", { name: "Send messages" })).toBeChecked()
+    await user.click(screen.getByRole("button", { name: "Advanced" }))
+    expect(screen.getByRole("spinbutton", { name: "Send messages request limit" })).toHaveValue(9)
+    await user.click(screen.getByRole("button", { name: "Save changes" }))
+    expect(state.execute).toHaveBeenCalledWith({ kind: "update", id: fixture.id, data: { name: fixture.name, permissions: [policy] } })
+  })
   it("shows loading and errors without a false empty state", async () => {
     state.isPending = true
     const view = render(<AutomationSettings userId="owner" />)

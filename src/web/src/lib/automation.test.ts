@@ -8,7 +8,7 @@ vi.mock("@/lib/broadcast", () => ({ wsDoFetch: transport }))
 vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: unknown) => fallback.mockImplementation(async (request: NextRequest) => (handler as (req: NextRequest, ctx: unknown) => Promise<Response>)(request, { env: { DB: {} }, userId: "human" })) }))
 vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(), queries: { automation: { authenticateAccessCode: authenticate } } }))
 
-import { hashAutomationSecret, newAutomationSecret, withAutomation, withAutomationManagement, withAutomationOrExistingAuth } from "./automation"
+import { hashAutomationSecret, newAutomationSecret, withAutomation, withAutomationManagement } from "./automation"
 
 const secret = "aac_" + "a".repeat(64)
 const request = (token = secret) => new NextRequest("http://localhost/api/community/bots", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "test" }) })
@@ -59,13 +59,17 @@ describe("automation authorization boundary", () => {
     expect(response.status).toBe(429)
     expect(response.headers.get("Retry-After")).toBe("20")
   })
-  it("does not fall back to cookie auth for a malformed access code", async () => {
-    const existing = vi.fn(async () => Response.json({ existing: true }))
-    const route = withAutomationOrExistingAuth("bot.create", create, existing)
-    expect((await route(request("aac_bad"))).status).toBe(401)
-    expect(existing).not.toHaveBeenCalled()
-    expect((await route(request("al_machine"))).status).toBe(200)
-    expect(existing).toHaveBeenCalledOnce()
+  it("accepts only standalone access codes, even when a session cookie is present", async () => {
+    const handler = vi.fn(create)
+    const route = withAutomation("bot.create", handler)
+    for (const token of ["aac_bad", "al_machine", "crk_bot", ""]) {
+      const req = request(token)
+      req.headers.set("cookie", "session=present")
+      expect((await route(req)).status).toBe(401)
+    }
+    expect(handler).not.toHaveBeenCalled()
+    expect(fallback).not.toHaveBeenCalled()
+    expect(transport).not.toHaveBeenCalled()
   })
   it("does not permit bearer credentials to manage their own codes", async () => {
     const managed = withAutomationManagement(async () => Response.json({ created: true }))

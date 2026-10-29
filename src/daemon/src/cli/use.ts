@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { Command } from "commander"
 import { readFile, stat } from "node:fs/promises"
 import { z } from "zod"
-import { CommunityBotCreateRequestSchema, MAX_SERVER_DESCRIPTION_LENGTH, MAX_SERVER_NAME_LENGTH, parseNameAndTag } from "@alook/shared"
+import { CommunityBotCreateRequestSchema, MAX_SERVER_DESCRIPTION_LENGTH, MAX_SERVER_NAME_LENGTH, parseNameAndTag, AutomationMessageSendSchema, AutomationMessageSentSchema, MAX_MESSAGE_CONTENT_LENGTH } from "@alook/shared"
 
 const BotInput = z.strictObject({
   ...CommunityBotCreateRequestSchema.omit({ runtime: true, image: true }).shape,
@@ -58,7 +58,7 @@ const InviteInput = z.strictObject({
 })
 
 export function registerUseCommands(program: Command, output: (value: { success: unknown }) => void) {
-  const use = program.command("use").description("user Automation access: read lists, create resources and invite friends; no daemon connection required")
+  const use = program.command("use").description("user Automation access: read lists, create resources, invite friends and send messages; no daemon connection required")
     .option("--access-code-file <path>", "read the code from a file instead of ALOOK_ACCESS_CODE")
     .option("--server-url <url>", "server origin (or ALOOK_SERVER_URL; defaults to production)")
     .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
@@ -86,6 +86,25 @@ export function registerUseCommands(program: Command, output: (value: { success:
     }
     return { result, origin }
   }
+  use.command("message").exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} }).description("send a UTF-8 file as yourself or an owned bot")
+    .option("--send", "send one message")
+    .requiredOption("--target <ref>", "channel or DM ref")
+    .requiredOption("--as <identity>", "me or @name#NNNN of your bot")
+    .requiredOption("--file <path>", "UTF-8 message body file")
+    .action(async (options: { send?: boolean; target: string; as: string; file: string }) => {
+      if (!options.send) throw new Error("Use message --send")
+      const info = await stat(options.file)
+      if (!info.isFile() || info.size > MAX_MESSAGE_CONTENT_LENGTH * 4) throw new Error("Message file is invalid or too large")
+      const bytes = await readFile(options.file)
+      if (bytes.length > MAX_MESSAGE_CONTENT_LENGTH * 4) throw new Error("Message file is too large")
+      const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)
+      const body = parseInput(JSON.stringify({ target: options.target, as: options.as, content, nonce: randomUUID() }), AutomationMessageSendSchema)
+      const { result } = await request("/api/community/automation/messages", body)
+      if (result.state === "blocked") throw Object.assign(new Error("Bot has unread messages; use its normal inbox pull before sending"), { code: "unaligned" })
+      const sent = AutomationMessageSentSchema.safeParse(result)
+      if (!sent.success) throw new Error("Automation returned an invalid message result")
+      output({ success: sent.data })
+    })
   for (const kind of ["bot", "server", "machine", "friend"] as const) {
     const command = use.command(kind).description(`Automation ${kind} operations`).exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
     if (kind === "bot" || kind === "server") command.option("--create <json>", kind === "bot" ? "bot JSON: name, machineId, backendId, optional description/model/reasoningEffort" : "server JSON: name, optional description")
@@ -98,7 +117,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
       if (options.listModels) {
         if (!options.id?.trim() || !options.backend?.trim()) throw new Error("--list-models requires --id and --backend")
         const requestId = randomUUID()
-        const { result } = await request(`/api/community/machines/${encodeURIComponent(options.id)}/discover-models`, { requestId, runtimeId: options.backend, ...(options.refresh ? { refresh: true } : {}) }, 55_000)
+        const { result } = await request(`/api/community/automation/machines/${encodeURIComponent(options.id)}/discover-models`, { requestId, runtimeId: options.backend, ...(options.refresh ? { refresh: true } : {}) }, 55_000)
         const parsed = ModelList.safeParse(result)
         if (!parsed.success || parsed.data.machineId !== options.id || parsed.data.backendId !== options.backend || parsed.data.requestId !== requestId) throw new Error("Automation returned an invalid model list")
         output({ success: parsed.data })
@@ -107,7 +126,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
       if (options.id !== undefined || options.backend !== undefined || options.refresh) throw new Error("--id, --backend and --refresh require --list-models")
       if (options.list) {
         const key = `${kind}s`
-        const { result } = await request(kind === "friend" ? "/api/community/friends/accepted" : `/api/community/${key}`)
+        const { result } = await request(kind === "friend" ? "/api/community/automation/friends" : `/api/community/automation/${key}`)
         const rows = result[key]
         if (!Array.isArray(rows)) throw new Error("Automation returned an invalid list")
         const list = rows.map((row: unknown) => {
@@ -130,7 +149,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
       }
       if (options.invite !== undefined) {
         const input = parseInput(options.invite, InviteInput)
-        const { result } = await request(`/api/community/servers/${encodeURIComponent(input.server)}/invites`, { friend: input.friend })
+        const { result } = await request(`/api/community/automation/servers/${encodeURIComponent(input.server)}/invites`, { friend: input.friend })
         const value = result.invitation
         if (!value || typeof value !== "object" || !("sent" in value) || value.sent !== true || !("server" in value) || typeof value.server !== "string" || !("friend" in value) || typeof value.friend !== "string") throw new Error("Automation returned an invalid invitation result; do not retry automatically")
         output({ success: { invitation: { server: value.server, friend: value.friend, sent: true } } })
@@ -141,7 +160,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
         const { backendId, ...bot } = parseInput(options.create!, BotInput)
         body = { ...bot, runtime: backendId }
       } else body = parseInput(options.create!, ServerInput)
-      const { result, origin } = await request(`/api/community/${kind}s`, body)
+      const { result, origin } = await request(`/api/community/automation/${kind}s`, body)
       const resource = result[kind]
       if (!resource || typeof resource !== "object" || !("id" in resource) || !("name" in resource) || !("discriminator" in resource) || typeof resource.id !== "string" || typeof resource.name !== "string" || typeof resource.discriminator !== "string") throw new Error("Automation returned an invalid result; do not retry automatically")
       output({ success: { [kind]: { id: resource.id, handle: `${resource.name}#${resource.discriminator}`,

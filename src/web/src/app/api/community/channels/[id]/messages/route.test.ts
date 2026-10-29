@@ -420,6 +420,24 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])("resolves a bot reply only within the selected channel (found=%s)", async (found) => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetMessageByChannelAndSeq.mockResolvedValueOnce(found ? { id: "reply_1" } : null)
+    if (found) mockGetMessageInScope.mockResolvedValueOnce({ id: "reply_1", authorId: "u2", content: "original" })
+    const response = await POST(botPostReq({ channel: "/demo#0042/general", content: { text: "reply" }, replyToSeq: 7 }), ctx)
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 7)
+    if (found) {
+      expect(response.status).toBe(200)
+      expect((await response.json()).state).toBe("sent")
+      expect(mockCreateMessage.mock.calls[0][1].replyToId).toBe("reply_1")
+    } else {
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ error: "reply target #7 not found in /demo#0042/general" })
+      expect(mockCreateMessage).not.toHaveBeenCalled()
+    }
+  })
+
   it("preserves the alignment CAS when a message arrives during JEV evaluation", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])

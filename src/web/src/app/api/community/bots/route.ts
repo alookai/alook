@@ -4,7 +4,6 @@ import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { createBotForUser } from "@/lib/community/create-bot.server"
-import { withAutomationOrExistingAuth } from "@/lib/automation"
 import { readCommunityBots } from "@/lib/community/bots.server"
 
 export { tokenUsageDayWindow } from "@/lib/community/bots.server"
@@ -16,4 +15,4 @@ export const GET = withCommunityActor(async (_req, ctx) => {
     machineId: bot.machineId, backendId: bot.runtime, model: bot.modelName, reasoningEffort: bot.reasoningEffort, isActive: bot.isActive, presence: bot.presence })) })
 })
 
-export const POST = withAutomationOrExistingAuth("bot.create", createBotForUser, withAuth(createBotForUser))
+export const POST = withAuth(createBotForUser)

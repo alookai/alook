@@ -5,7 +5,7 @@ import { getTableConfig } from "drizzle-orm/sqlite-core"
 import { communityWriteDb } from "./helpers/community-write-db"
 import * as queries from "../src/db/queries/automation"
 import { automationAccessCode, automationAccessPermission } from "../src/db/automation-schema"
-import { AutomationAccessCodeCreateSchema, AutomationAccessCodeUpdateSchema, automationExpiresAt } from "../src/automation"
+import { AutomationAccessCodeCreateSchema, AutomationAccessCodeUpdateSchema, automationExpiresAt, AutomationPermissionSchema, AutomationMessageSendSchema } from "../src/automation"
 
 const databases: ReturnType<typeof communityWriteDb>[] = []
 function fixture() {
@@ -164,4 +164,30 @@ describe("Automation access codes", () => {
     expect(await queries.getFriendByHandle(db, "author", "peer#0001")).toMatchObject({ id: "peer" })
     expect(await queries.getFriendByHandle(db, "author", "Helper#0001")).toMatchObject({ id: "ownbot" })
   })
+})
+
+it("supports seven independent grants and scopes bot identity resolution in SQL", async () => {
+  const all = AutomationAccessCodeCreateSchema.parse({ name: "all", permissions: AutomationPermissionSchema.options.map((permission) => ({ permission, limit: 1, period: "hour" })) })
+  expect(all.permissions).toHaveLength(7)
+  const { db, sqlite } = fixture()
+  const code = await queries.createAccessCode(db, "author", all, "send-digest")
+  expect(await queries.authenticateAccessCode(db, "send-digest", "message.send")).toMatchObject({ ownerId: "author", permission: "message.send" })
+  expect(code.permissions).toHaveLength(7)
+  sqlite.exec(`ALTER TABLE user ADD COLUMN name TEXT NOT NULL DEFAULT ''; ALTER TABLE user ADD COLUMN discriminator TEXT NOT NULL DEFAULT '0001';
+    INSERT INTO user (id,name,isBot,ownerUserId) VALUES ('ownbot','Helper',1,'author'), ('otherbot','Other',1,'peer'), ('deletedbot','Deleted',1,'author');
+    UPDATE user SET deletedAt='deleted' WHERE id='deletedbot'; UPDATE user SET name=id WHERE id IN ('author','peer');`)
+  expect(await queries.getOwnedBotByHandle(db, "author", "Helper#0001")).toEqual({ id: "ownbot" })
+  for (const handle of ["Other#0001", "Deleted#0001", "author#0001", "peer#0001", "Helper", "@Helper#0001"]) {
+    expect(await queries.getOwnedBotByHandle(db, "author", handle)).toBeNull()
+  }
+  expect(await queries.getOwnedBotByHandle(db, "peer", "Helper#0001")).toBeNull()
+})
+
+it("validates file-send requests without accepting extra authority fields", () => {
+  const body = { target: "/.dm/Alice#0001", as: "me", content: "hello\n", nonce: "n" }
+  expect(AutomationMessageSendSchema.parse(body)).toEqual(body)
+  expect(AutomationMessageSendSchema.parse({ ...body, as: "@Helper#0001" }).as).toBe("@Helper#0001")
+  for (const change of [{ as: "Helper#0001" }, { as: "@Helper" }, { content: " " }, { target: "id" }, { ownerId: "peer" }, { nonce: "" }]) {
+    expect(AutomationMessageSendSchema.safeParse({ ...body, ...change }).success).toBe(false)
+  }
 })

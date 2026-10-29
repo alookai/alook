@@ -101,3 +101,13 @@ export async function getFriendByHandle(db: Database, ownerId: string, handle: s
     .where(and(friendScope(db, ownerId), eq(user.name, parsed.name), eq(user.discriminator, parsed.discriminator)))
   return row ?? null
 }
+
+export async function getOwnedBotByHandle(db: Database, ownerId: string, handle: string) {
+  const parsed = parseNameAndTag(handle)
+  if (!parsed) return null
+  const [row] = await db.select({ id: user.id }).from(user).where(and(
+    eq(user.ownerUserId, ownerId), eq(user.isBot, true), isNull(user.deletedAt),
+    eq(user.name, parsed.name), eq(user.discriminator, parsed.discriminator),
+  )).limit(1)
+  return row ?? null
+}

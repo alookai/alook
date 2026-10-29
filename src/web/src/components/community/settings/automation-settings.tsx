@@ -25,6 +25,7 @@ const permissionOptions = [
   { permission: "bot.create", label: "Create bots", group: "Write" },
   { permission: "server.create", label: "Create servers", group: "Write" },
   { permission: "server.invite", label: "Invite friends to servers", group: "Write" },
+  { permission: "message.send", label: "Send messages", group: "Write" },
   { permission: "machine.read", label: "List machines", group: "Read" },
   { permission: "friend.read", label: "List friends", group: "Read" },
   { permission: "server.read", label: "List servers", group: "Read" },
@@ -180,7 +181,7 @@ export function AutomationSettings({ userId }: { userId: string }) {
     ) : <>
       <div className="space-y-4">
         <div className="space-y-2">
-          <p className="max-w-prose text-sm leading-6 text-muted-foreground">Access codes let scripts read your lists, create bots and servers, or invite friends. You choose the permissions and limits.</p>
+          <p className="max-w-prose text-sm leading-6 text-muted-foreground">Access codes let scripts read your lists, create bots and servers, invite friends, or send messages. You choose the permissions and limits.</p>
         </div>
         <Button className={control} data-testid={tid.automationCreate} onClick={() => { setError(null); setEditing("new") }}>Create access code</Button>
       </div>
