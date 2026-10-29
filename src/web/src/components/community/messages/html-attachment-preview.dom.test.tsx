@@ -32,6 +32,14 @@ function BackListener({ replacePath }: { replacePath: (path: string) => void }) 
 afterEach(() => { for (const owner of owners.splice(0)) owner.queryClient.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); theme.resolvedTheme = "light"; vi.useRealTimers() })
 
 describe("HTML attachment frame", () => {
+  it("keeps the filename out of content and groups floating preview actions", () => {
+    const view = setup()
+    const actions = view.getByRole("group", { name: "HTML preview actions" })
+    expect(view.queryByText(file.name)).toBeNull()
+    expect(actions).toContainElement(view.getByTestId(tid.htmlPreviewDownload("a1")))
+    expect(actions).toContainElement(view.getByTestId(tid.htmlPreviewExpand("a1")))
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAccessibleName(file.name)
+  })
   it("keeps one opaque-origin frame and clamps valid current-frame measurements", () => {
     const view = setup()
     const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement

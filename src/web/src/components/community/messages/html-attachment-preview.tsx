@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useSelector } from "@tanstack/react-store"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Download, Expand, X } from "lucide-react"
+import { Download, Expand, LoaderCircle, X } from "lucide-react"
 import { useTheme } from "next-themes"
 import { collectHtmlPreviewFonts, loadHtmlPreviewFonts } from "@/lib/community/html-preview-fonts"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
@@ -89,7 +89,8 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
     }
     window.addEventListener("message", message)
     theme()
-    return () => { clearTimeout(timeout); window.removeEventListener("message", message) }
+    const themeFrame = requestAnimationFrame(theme)
+    return () => { clearTimeout(timeout); cancelAnimationFrame(themeFrame); window.removeEventListener("message", message) }
   }, [mounted, error, resolvedTheme, fontSheet])
 
   function close() {
@@ -123,30 +124,32 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
       role={expanded ? "dialog" : "group"}
       aria-modal={expanded || undefined}
       aria-label={attachment.name}
+      data-html-preview
       data-testid={tid.htmlPreview(id)}
       data-html-preview-status={status}
       onCancel={(event) => { event.preventDefault(); close() }}
-      className="static m-0 block w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-background p-0 text-foreground backdrop:bg-background/80 [&:modal]:fixed [&:modal]:inset-0 [&:modal]:m-auto [&:modal]:flex [&:modal]:h-[calc(100dvh-2rem)] [&:modal]:max-h-none [&:modal]:w-[calc(100vw-2rem)] [&:modal]:max-w-none [&:modal]:flex-col"
+      className="relative m-0 block w-full min-w-0 max-w-full overflow-hidden rounded-none border-0 bg-transparent p-0 text-foreground backdrop:bg-background/80 [&:modal]:fixed [&:modal]:inset-0 [&:modal]:m-auto [&:modal]:flex [&:modal]:h-[calc(100dvh-2rem)] [&:modal]:max-h-none [&:modal]:w-[calc(100vw-2rem)] [&:modal]:max-w-none [&:modal]:flex-col [&:modal]:bg-background"
     >
-      <div className="flex items-center gap-2 border-b border-border px-2 py-1">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{attachment.name}</span>
+      <div role="group" aria-label="HTML preview actions" data-html-preview-actions className="absolute top-1.5 right-1.5 z-10 flex items-center">
         <button
           type="button"
           data-testid={tid.htmlPreviewDownload(id)}
-          className={buttonVariants({ variant: "ghost", size: "sm", className: "h-11 sm:h-8" })}
+          className={buttonVariants({ variant: "ghost", size: "icon" })}
           onClick={() => download.state.status === "downloading" ? download.cancel() : void download.start()}
           aria-label={download.state.status === "downloading" ? "Cancel download" : `Download ${attachment.name}`}
           aria-busy={download.state.status === "downloading"}
+          title={attachmentDownloadStatusText(download.state) ?? `Download ${attachment.name}`}
         >
-          <Download className="size-4" />
-          {attachmentDownloadStatusText(download.state) ?? "Download"}
+          {download.state.status === "downloading" ? <LoaderCircle className="size-4 motion-safe:animate-spin" /> : <Download className="size-4" />}
+          <span className="sr-only" aria-live="polite">{attachmentDownloadStatusText(download.state)}</span>
         </button>
         <button
           ref={expandButton}
           type="button"
-          className={buttonVariants({ variant: "ghost", size: "icon", className: "size-11 sm:size-8" })}
+          className={buttonVariants({ variant: "ghost", size: "icon" })}
           data-testid={expanded ? tid.htmlPreviewClose(id) : tid.htmlPreviewExpand(id)}
           aria-label={expanded ? "Close fullscreen preview" : "Expand HTML preview"}
+          title={expanded ? "Close fullscreen preview" : "Expand HTML preview"}
           onClick={expanded ? close : expand}
           disabled={error && !expanded}
         >

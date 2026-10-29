@@ -889,7 +889,7 @@ test("HTML attachment markers render once with interactive isolated content acro
   const { page } = await actors.asUser("alice")
   const channelPath = `/c/channels/${serverId}/${channelId}`
   await page.goto(channelPath)
-  const html = '<!doctype html><html><head><style>body{padding:16px}.row{height:64px}</style></head><body><h2>Interactive HTML</h2><button onclick="document.getElementById(\'rows\').insertAdjacentHTML(\'beforeend\',\'<div class=row>Added row</div>\');document.getElementById(\'count\').textContent=Number(document.getElementById(\'count\').textContent)+1">Add row</button><output id="count">0</output><div id="rows"></div><p id="isolation"></p><script>try{parent.document.body;document.getElementById("isolation").textContent="parent accessible"}catch(e){document.getElementById("isolation").textContent="parent isolated"}</script></body></html>'
+  const html = '<!doctype html><html><head><style>body{padding:16px;background:var(--background);color:var(--foreground)}button{background:var(--primary);color:var(--primary-foreground)}.row{height:64px}</style></head><body><h2>Interactive HTML</h2><button onclick="document.getElementById(\'rows\').insertAdjacentHTML(\'beforeend\',\'<div class=row>Added row</div>\');document.getElementById(\'count\').textContent=Number(document.getElementById(\'count\').textContent)+1">Add row</button><output id="count">0</output><div id="rows"></div><p id="isolation"></p><script>try{parent.document.body;document.getElementById("isolation").textContent="parent accessible"}catch(e){document.getElementById("isolation").textContent="parent isolated"}</script></body></html>'
   async function upload(name: string, mimeType: string, content: string) {
     const response = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
       headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
@@ -919,6 +919,47 @@ test("HTML attachment markers render once with interactive isolated content acro
   expect(await iframe.getAttribute("sandbox")).not.toContain("allow-same-origin")
   const content = iframe.contentFrame()
   await expect(content.locator("#isolation")).toHaveText("parent isolated")
+  const actions = preview.getByRole("group", { name: "HTML preview actions" })
+  await expect(preview).toHaveCSS("border-top-width", "0px")
+  await expect(preview.getByText("interactive.html", { exact: true })).toHaveCount(0)
+  await expect(actions).toHaveCSS("position", "absolute")
+  async function appearance(mode: "Light" | "Dark") {
+    await page.getByTestId(tid.userSettingsOpen).click()
+    await page.getByTestId(tid.settingsTab("appearance")).click()
+    await page.getByRole("button", { name: mode, exact: true }).click()
+    await page.getByTestId(tid.settingsClose).click()
+  }
+  async function expectCommittedTheme(dark: boolean) {
+    const names = ["background", "foreground", "card", "secondary", "primary", "primary-foreground", "border"]
+    await expect.poll(async () => {
+      const host = await iframe.evaluate((element, tokens) => {
+        const root = getComputedStyle(document.documentElement), painted = getComputedStyle(element)
+        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: painted.backgroundColor }
+      }, names)
+      const embedded = await content.locator("html").evaluate((element, tokens) => {
+        const root = getComputedStyle(element), painted = getComputedStyle(document.body)
+        return { dark: element.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: painted.backgroundColor }
+      }, names)
+      return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, background: embedded.background === host.background }
+    }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, background: true })
+    await expect(iframe).toHaveCount(1)
+  }
+  await appearance("Light")
+  await expectCommittedTheme(false)
+  const initialFrame = await iframe.elementHandle()
+  await appearance("Dark")
+  await expectCommittedTheme(true)
+  await appearance("Light")
+  await expectCommittedTheme(false)
+  expect(await iframe.evaluate((element, original) => element === original, initialFrame)).toBe(true)
+  await initialFrame?.dispose()
+  await page.mouse.move(0, 0)
+  await expect(actions).toHaveCSS("opacity", "0")
+  await preview.hover()
+  await expect(actions).toHaveCSS("opacity", "1")
+  await page.mouse.move(0, 0)
+  await message.getByTestId(tid.htmlPreviewDownload(attachmentId)).focus()
+  await expect(actions).toHaveCSS("opacity", "1")
   const beforeHeight = await iframe.evaluate((element) => element.getBoundingClientRect().height)
   await content.getByRole("button", { name: "Add row" }).click()
   await expect(content.locator("#count")).toHaveText("1")
@@ -939,11 +980,18 @@ test("HTML attachment markers render once with interactive isolated content acro
   expect(original.headers()["content-disposition"]).toContain("attachment")
   expect(await original.text()).toBe(html)
 
-  const { page: reader } = await actors.asUser("bob", { viewport: { width: 390, height: 844 } })
+  const { page: reader } = await actors.asUser("bob", { viewport: { width: 390, height: 844 }, hasTouch: true })
   await reader.goto(channelPath)
   const readerPreview = reader.getByTestId(tid.message(messageId)).getByTestId(tid.htmlPreview(attachmentId))
   await expect(readerPreview).toHaveAttribute("data-html-preview-status", "ready")
   await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().getByRole("button", { name: "Add row" })).toBeVisible()
+  await expect(readerPreview.getByRole("group", { name: "HTML preview actions" })).toHaveCSS("opacity", "1")
+  await expect(readerPreview.getByTestId(tid.htmlPreviewExpand(attachmentId))).toHaveCSS("width", "44px")
+  await readerPreview.getByTestId(tid.htmlPreviewExpand(attachmentId)).tap()
+  await expect(readerPreview).toHaveAttribute("aria-modal", "true")
+  await readerPreview.getByTestId(tid.htmlPreviewClose(attachmentId)).tap()
+  await expect(readerPreview).not.toHaveAttribute("aria-modal", "true")
+  await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().locator("#count")).toHaveText("0")
   const { page: outsider } = await actors.asUser("carol")
   const denied = await outsider.request.get(previewUrl)
   expect(denied.status()).toBe(404)
