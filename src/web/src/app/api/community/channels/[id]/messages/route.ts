@@ -225,7 +225,7 @@ async function handleHumanSend(
     })
     if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
     const response = humanMessageConfirmation(db, contract, target.channelId, {
-      message: await mapPostedMessageForApi(db, target.channelId, created.message, contract),
+      message: await mapPostedMessageForApi(db, target.channelId, { ...created.message, clientNonce }, contract),
       threadId: created.thread.id,
       deduped: created.deduped,
     }, created.deduped ? 200 : 201)
@@ -239,7 +239,7 @@ async function handleHumanSend(
     clientNonce,
   })
   if (replay) {
-    return humanMessageConfirmation(db, contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, replay.row, contract), deduped: true }, 200)
+    return humanMessageConfirmation(db, contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, { ...replay.row, clientNonce }, contract), deduped: true }, 200)
   }
 
   const result = await createCommunityMessage({
@@ -253,7 +253,7 @@ async function handleHumanSend(
     attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
-  const response = humanMessageConfirmation(db, contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, result.row, contract), deduped: result.deduped }, 201)
+  const response = humanMessageConfirmation(db, contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, { ...result.row, clientNonce }, contract), deduped: result.deduped }, 201)
   return response
 }
 

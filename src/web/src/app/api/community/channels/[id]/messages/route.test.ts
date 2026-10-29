@@ -300,9 +300,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetDMBetween.mockResolvedValue(null)
   })
 
-  it.each([false, true])("confirms a full v3 human message with replay=%s", async (replay) => {
+  it.each([false, true])("confirms a full v3 human message from a nonce-free read-back with replay=%s", async (replay) => {
     const row = { id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorImage: null, authorAvatarVersion: 0,
-      content: "hello", type: "default", mentionType: null, replyToId: null, clientNonce: "v3-nonce", embeds: null, createdAt: "now" }
+      content: "hello", type: "default", mentionType: null, replyToId: null, embeds: null, createdAt: "now" }
     mockGetMessage.mockResolvedValue(row)
     mockGetMessageByAuthorAndNonce.mockResolvedValue(replay ? row : null)
     const request = postReq({ content: "hello", nonce: "v3-nonce" })
