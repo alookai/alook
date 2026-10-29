@@ -204,6 +204,17 @@ describe("useMessageListController", () => {
     expect(mocks.scrollInputs.at(-1)).toMatchObject({ localSubmitVersion: 8, presentVersion: 3 })
   })
 
+  it("forwards the current takeover action to the existing position owner", () => {
+    const first = vi.fn(), current = vi.fn()
+    const view = rtlRender(React.createElement(Probe, { value: props({ onUserTakeover: first }) }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ onUserTakeover: first })
+    view.rerender(React.createElement(Probe, { value: props({ onUserTakeover: current }) }))
+    const action = (mocks.scrollInputs.at(-1) as { onUserTakeover: () => void }).onUserTakeover
+    act(action)
+    expect(current).toHaveBeenCalledOnce()
+    expect(first).not.toHaveBeenCalled()
+  })
+
   it("uses whole Query activity to pause both pagination directions", () => {
     const onLoadOlder = vi.fn(), onLoadNewer = vi.fn()
     rtlRender(React.createElement(Probe, { value: props({ isFetching: true, hasMore: true, hasMoreNewer: true, onLoadOlder, onLoadNewer }) }))

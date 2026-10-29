@@ -161,6 +161,7 @@ export function TextChannelSurface({
                   viewerUserId={viewer.id}
                   initialScrollReady={feed.initialDisplayReady}
                   preserveInitialPresentation={feed.preserveInitialPresentation}
+                  onUserTakeover={feed.onUserTakeover}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={feed.hasMoreOlder}
                   historyStartKnown={feed.historyStartKnown}

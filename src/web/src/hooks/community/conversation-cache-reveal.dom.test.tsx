@@ -8,13 +8,127 @@ import { communityKeys } from "@/lib/query-keys"
 import { MessageList } from "@/components/community/messages/message-list"
 import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
 import { useDmMessages, useMessages } from "./use-messages"
-import { installMessageScrollFixture, restoreMessageScrollFixture, resize } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, scrollFixture } from "@/test/message-scroll-fixture"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: load }))
 beforeEach(() => { installMessageScrollFixture(); load.mockReset() })
 afterEach(restoreMessageScrollFixture)
 const kinds = ["text", "text-thread", "forum-post", "dm"] as const
+
+it.each(kinds.flatMap(kind => [
+  { takeover: true, repairFailure: false }, { takeover: false, repairFailure: false }, { takeover: true, repairFailure: true },
+].map(mode => ({ kind, ...mode }))))(
+  "preserves the actual $kind reader through Retry recovery with takeover=$takeover, repairFailure=$repairFailure",
+  async ({ kind, takeover, repairFailure }) => {
+    scrollFixture.width = 1280
+    const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    const packet = kind === "dm" ? dmConversationEntryFixture() : conversationEntryFixture()
+    if (kind === "text-thread" || kind === "forum-post") {
+      packet.channel = { ...packet.channel, type: "thread", parentChannelId: "parent", parentMessageId: "opener" }
+      packet.parent = { ...packet.channel, id: "parent", type: kind === "forum-post" ? "forum" : "text", parentChannelId: null, parentMessageId: null }
+      packet.surfaceReceipt = { channelId: "c1", surfaceKind: "thread" }
+    }
+    const rows = Array.from({ length: 80 }, (_, index) => ({ ...packet.messages[0], id: `m${index + 1}`, seq: index + 1,
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
+    packet.messages = rows.slice(0, 35)
+    packet.readState = { ...packet.readState, lastReadMessageId: "m10", lastReadSeq: 10 }
+    packet.selection = { reason: "read_pointer", anchorMessageId: "m10" }
+    packet.page = { olderCursor: null, newerCursor: `${rows[34].createdAt}|m35`, hasMoreOlder: false, hasMoreNewer: true, latestSeq: 80 }
+    await seedConversationEntry(owner.client, packet)
+    const read = { ...packet.readState, lastReadMessageId: "m60", lastReadSeq: 60, lastReadAt: rows[59].createdAt }
+    ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [read] })
+    owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+    let reject!: (reason: Error) => void
+    load.mockReturnValue(new Promise((_, no) => { reject = no }))
+    let feed!: ReturnType<typeof useMessages>
+    function Probe() {
+      const channel = useMessages(kind === "dm" ? null : "c1", { serverId: "s1" })
+      const dm = useDmMessages(kind === "dm" ? "c1" : null)
+      feed = kind === "dm" ? dm : channel
+      const projection = resolveMessageReadProjection({ messages: feed.messages, lastReadMessageId: feed.readSnapshot?.lastReadMessageId ?? null,
+        viewerUserId: "viewer", anchorReconciled: feed.anchorReconciled })
+      return <MessageList channel="Channel" variant={kind === "dm" ? "dm" : "channel"} messages={feed.messages}
+        loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
+        initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+        positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+        newDividerBefore={projection.newDividerBefore} hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer}
+        onUserTakeover={feed.onUserTakeover} onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
+    }
+    const view = render(<CommunityTestProvider {...owner}><Probe /></CommunityTestProvider>)
+    try {
+      resize()
+      const root = view.getByTestId("community-message-scroller")
+      expect(root).toHaveAttribute("aria-busy", "false")
+      expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
+      expect(root).toHaveAttribute("data-pagination-enabled", "false")
+      await act(async () => { reject(new Error("held entry failed")); await vi.advanceTimersByTimeAsync(2000) })
+      resize()
+      let release!: (value: typeof packet) => void
+      const retry = new Promise<typeof packet>(resolve => { release = resolve })
+      const repairPage = { ...packet.page, profiles: packet.profiles, messages: packet.messages }
+      let failRepair = repairFailure
+      load.mockImplementation((url: string) => url.includes("entry=1") ? retry
+        : failRepair ? Promise.reject(new Error("owned window repair failed")) : Promise.resolve(repairPage))
+      fireEvent.click(view.getByRole("button", { name: "Retry" }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      expect(root).toHaveAttribute("aria-busy", "false")
+      expect(root).toHaveAttribute("data-pagination-enabled", "false")
+      if (takeover) {
+        fireEvent.wheel(root, { deltaY: -300 })
+        act(() => root.scrollTo({ top: root.scrollTop - 300 }))
+        resize()
+      }
+      const viewport = root.getBoundingClientRect()
+      const reader = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]")).find(row => row.getBoundingClientRect().bottom > viewport.top + 1)!
+      const readerId = reader.dataset.msgId!
+      const offset = reader.getBoundingClientRect().top - viewport.top
+      expect(Number(readerId.slice(1))).toBeLessThan(35)
+      const fresh = { ...packet, messages: rows.slice(34), readState: read, readStateRevision: 5,
+        selection: { reason: "read_pointer" as const, anchorMessageId: "m60" },
+        page: { olderCursor: `${rows[34].createdAt}|m35`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 } }
+      await act(async () => { release(fresh); await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      expect(view.getByTestId("community-message-scroller")).toBe(root)
+      expect(root).toHaveAttribute("aria-busy", "false")
+      if (repairFailure) expect(view.getByRole("alert")).toHaveTextContent("Couldn’t load the requested messages")
+      else expect(view.queryByRole("alert")).toBeNull()
+      if (takeover) {
+        expect(feed.messages.map(row => row.id)).toContain(readerId)
+        expect(root.querySelector(`[data-msg-id="${readerId}"]`)).toBe(reader)
+        expect(Math.abs(reader.getBoundingClientRect().top - root.getBoundingClientRect().top - offset)).toBeLessThanOrEqual(1)
+      } else {
+        expect(feed.messages.map(row => row.id)).toEqual(rows.slice(34).map(row => row.id))
+        const divider = root.querySelector<HTMLElement>("[data-new-divider]")!.getBoundingClientRect()
+        expect(divider.bottom).toBeGreaterThan(viewport.top)
+        expect(divider.top).toBeLessThan(viewport.bottom)
+      }
+      if (repairFailure) {
+        expect(root).toHaveAttribute("data-pagination-enabled", "false")
+        expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
+        fireEvent.click(view.getByRole("button", { name: "Retry" }))
+        await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+        resize()
+        expect(view.getByRole("alert")).toHaveTextContent("Couldn’t load the requested messages")
+        expect(root).toHaveAttribute("aria-busy", "false")
+        expect(feed.messages.map(row => row.id)).toContain(readerId)
+        failRepair = false
+        fireEvent.click(view.getByRole("button", { name: "Retry" }))
+        await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+        resize()
+        expect(view.queryByRole("alert")).toBeNull()
+        expect(view.getByTestId("community-message-scroller")).toBe(root)
+        expect(root).toHaveAttribute("aria-busy", "false")
+        expect(feed.messages.map(row => row.id)).toEqual(rows.map(row => row.id))
+      }
+      expect(feed.readSnapshotFetching).toBe(false)
+      expect(feed.readSnapshot?.lastReadSeq).toBe(60)
+      expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+      expect(root).toHaveAttribute("data-pagination-enabled", "true")
+    } finally { view.unmount(); owner.client.clear() }
+  },
+)
 
 it.each(kinds.flatMap(kind => (["success", "offline", "timeout"] as const).map(result => ({ kind, result }))))(
   "reveals complete $kind cache through the real list during missing target work and $result",

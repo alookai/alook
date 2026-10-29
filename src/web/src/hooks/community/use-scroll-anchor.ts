@@ -107,6 +107,7 @@ export function useScrollAnchor({
   localSubmitVersion,
   tailPaddingEnd = MESSAGE_RAIL_TAIL_PADDING_END_PX,
   onInitialPositionSettled,
+  onUserTakeover,
 }: {
   items: FlatItem[]
   newDividerBefore?: string
@@ -132,6 +133,7 @@ export function useScrollAnchor({
   localSubmitVersion?: number
   tailPaddingEnd?: number
   onInitialPositionSettled?: (outcome: PositionOutcome) => void
+  onUserTakeover?: () => void
 }) {
   type Kind = "initial" | "late-new" | "target" | "present" | "idle"
   type Intent = {
@@ -217,6 +219,7 @@ export function useScrollAnchor({
   const onTargetPositionedRef = useRef(onScrollTargetPositioned)
   const onTargetCancelledRef = useRef(onScrollTargetCancelled)
   const settleCallbackRef = useRef(onInitialPositionSettled)
+  const userTakeoverRef = useRef(onUserTakeover)
   useLayoutEffect(() => {
     if (entryActivationRef.current.entry !== positionEntry) entryActivationRef.current = { entry: positionEntry, seen: visible }
     else if (visible) entryActivationRef.current.seen = true
@@ -225,9 +228,10 @@ export function useScrollAnchor({
     onTargetPositionedRef.current = onScrollTargetPositioned
     onTargetCancelledRef.current = onScrollTargetCancelled
     settleCallbackRef.current = onInitialPositionSettled
+    userTakeoverRef.current = onUserTakeover
     contextRef.current = { dataState, targetDataState, initialScrollReady, messageWindow, isFetchingOlder, isFetchingNewer, visible, newDividerBefore }
     positionScopeRef.current = positionScope
-  }, [items, positionEntry, positionScope, initialScrollReady, newDividerBefore, onScrollTargetPositioned, onScrollTargetCancelled, onInitialPositionSettled, dataState, targetDataState, messageWindow, isFetchingOlder, isFetchingNewer, visible])
+  }, [items, positionEntry, positionScope, initialScrollReady, newDividerBefore, onScrollTargetPositioned, onScrollTargetCancelled, onInitialPositionSettled, onUserTakeover, dataState, targetDataState, messageWindow, isFetchingOlder, isFetchingNewer, visible])
   const followSuspension = useCreateAtom(false)
   const [followSuspended, setFollowSuspended] = useAtom(followSuspension)
   const acceptedGeometryRef = useRef<Geometry | null>(null)
@@ -323,7 +327,10 @@ export function useScrollAnchor({
     retireInitialPosition()
     positionedTargetRef.current = targetIntentRef.current
     if (cancelledTarget) onTargetCancelledRef.current?.(cancelledTarget)
-    if (userHandover) userInputRef.current.handover = true
+    if (userHandover) {
+      userInputRef.current.handover = true
+      userTakeoverRef.current?.()
+    }
     settlePresentation(outcome)
     scheduleGeometryRef.current()
   }, [claimPosition, finishPosition, positionKind, readReady, retireInitialPosition, setReadPositionReady, settlePresentation])

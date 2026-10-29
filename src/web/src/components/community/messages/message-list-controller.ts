@@ -39,6 +39,7 @@ export function useMessageListController({
   unreadCount,
   onScrollRoot,
   onScrollTargetConsumed,
+  onUserTakeover,
 }: ResolvedMessageListProps) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
@@ -110,6 +111,7 @@ export function useMessageListController({
     newDividerBefore,
     initialScrollReady,
     ...(preserveInitialPresentation ? { preserveInitialPresentation } : {}),
+    ...(onUserTakeover ? { onUserTakeover } : {}),
     scrollToMessageId,
     initialPositionMessageId,
     positionEntry,

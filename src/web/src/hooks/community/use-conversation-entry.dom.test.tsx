@@ -51,6 +51,44 @@ async function setup() {
 }
 
 describe("conversation entry selection", () => {
+  it("keeps takeover on its original entry and retires that selection on a fresh navigation", async () => {
+    const { client, wrapper: Owner, publish, registry } = await setup()
+    const old = fixture()
+    const original = publish(old)
+    const fresh = fixture()
+    fresh.messages = [{ ...fresh.messages[0], id: "m2", seq: 2, createdAt: "2026-10-01T00:00:02.000Z" }]
+    fresh.readState = { ...fresh.readState, lastReadMessageId: "m2", lastReadSeq: 2, lastReadAt: fresh.messages[0].createdAt }
+    fresh.readStateRevision = 5
+    fresh.selection = { reason: "read_pointer", anchorMessageId: "m2" }
+    ingestReadStateSnapshot(registry, { revision: 5, readStates: [{ ...fresh.readState, lastReadAt: fresh.messages[0].createdAt }] })
+    client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+    const held = deferred<typeof fresh>()
+    load.mockImplementation((url: string) => url.includes("entry=1") ? held.promise
+      : Promise.resolve({ ...old.page, messages: old.messages, profiles: old.profiles }))
+    const navigation = { entryIntent: { href: "/c/channels/s1/c1" } }
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(Owner, null, createElement(CommunityRouteContext, { value: { navigation } as never }, children))
+    }
+    const hook = renderHook(() => useConversationEntry(target), { wrapper: Wrapper })
+    const retained = hook.result.current.window
+    const oldTakeover = hook.result.current.retainWindow
+    act(() => { oldTakeover(); oldTakeover() })
+    await act(async () => held.resolve(fresh))
+    await waitFor(() => expect(hook.result.current.targetCovered).toBe(true))
+    expect(hook.result.current.window).toBe(retained)
+    expect(hook.result.current.window?.key).toEqual(original.windowKey)
+    navigation.entryIntent = { href: "/c/channels/s1/c1" }
+    hook.rerender()
+    expect(hook.result.current.window?.initial).toEqual({ mode: "anchor", anchor: "m2" })
+    act(oldTakeover)
+    expect(hook.result.current.window?.initial).toEqual({ mode: "anchor", anchor: "m2" })
+    await act(async () => registry.runtime.ws.actions.revokeChannelAccess("s1", "c1"))
+    act(() => hook.result.current.retainWindow())
+    expect(hook.result.current.window).toBeNull()
+    expect(hook.result.current.canRead).toBe(false)
+    hook.unmount()
+  })
+
   it("ignores actual reconnect helper cache keys when the original entry hook consumes a complete warm window", async () => {
     const { client, wrapper, publish } = await setup()
     const value = fixture()
