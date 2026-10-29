@@ -1,3 +1,4 @@
+import { currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Request } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
@@ -234,11 +235,7 @@ test("server → channel → message", async ({ caseActors, caseResources }) => 
     sendBodies.push(route.request().postDataJSON())
     pendingSendIntercepted = true
     await pendingSendGate
-    await route.fulfill({
-      status: 500,
-      contentType: "application/json",
-      body: JSON.stringify({ error: "forced staging rejection probe" }),
-    })
+    await route.fulfill(currentCommunityFixtureError("forced staging rejection probe", 500))
     pendingSendCompleted = true
   })
 

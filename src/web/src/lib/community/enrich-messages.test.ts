@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ vi.mock("@alook/shared", async () => {
     withD1Retry: (operation: () => unknown) => operation(),
     queries: {
       ...actual.queries,
+      communityUserProfile: { ...actual.queries.communityUserProfile, getResourceProfiles: async (_db: unknown, ids: string[]) => ids.map(id => ({ id, name: id, discriminator: "0042", avatar: null, avatarVersion: 0 })) },
       communityAttachment: {
         ...actual.queries.communityAttachment,
         listByMessageIds: (...args: unknown[]) => mocks.listAttachments(...args),
@@ -76,7 +78,7 @@ describe("enrichMessages attachment projection", () => {
 
   it("skips empty DM attachment, reaction, reply and approval hydration while reading latest sequence", async () => {
     const db = {} as never
-    expect(await enrichMessages(db, "u1", { channelId: "dm1", isDm: true }, [])).toEqual({ messages: [], latestSeq: 9 })
+    expect(await enrichMessages(db, "u1", { channelId: "dm1", isDm: true }, [])).toEqual({ messages: [], profiles: [], latestSeq: 9 })
     expect(mocks.listAttachments).not.toHaveBeenCalled()
     expect(mocks.listReactions).not.toHaveBeenCalled()
     expect(mocks.getReplies).not.toHaveBeenCalled()
@@ -124,6 +126,7 @@ describe("enrichMessages attachment projection", () => {
     }])
     mocks.getReplies.mockResolvedValue([{
       id: "reply_1",
+      authorId: "bob",
       authorName: "Bob",
       content: "original",
       channelId: "c1",
@@ -151,9 +154,9 @@ describe("enrichMessages attachment projection", () => {
 
     expect(result.messages).toEqual([
       expect.objectContaining({
-        replyTo: { id: "reply_1", authorName: "Bob", text: "original" },
+        replyTo: { id: "reply_1", authorId: "bob", authorName: "Bob", text: "original" },
         attachments: [{
-          kind: "image",
+          id: "att_1",
           name: "photo.png",
           url: "/api/community/channels/c1/attachments/att_1",
           contentType: "image/png",
@@ -226,7 +229,7 @@ describe("enrichMessages attachment projection", () => {
     })
   })
 
-  it("falls back to initials for forum participants without an avatar", async () => {
+  it("preserves a null resource avatar for forum participants without an image", async () => {
     mocks.listAttachments.mockResolvedValue([])
     mocks.getReplies.mockResolvedValue([])
     mocks.listForumChildren.mockResolvedValue([{
@@ -272,21 +275,21 @@ describe("enrichMessages attachment projection", () => {
       thread: {
         participants: [{
           id: "u2",
-          avatar: "B",
+          avatar: null,
           avatarVersion: 0,
         }],
       },
     })
   })
-  it("keeps actual NULL thread facts in contract 3 and rejects unknown participant identity", async () => {
+  it("keeps actual NULL thread facts in the current contract and rejects unknown participant identity", async () => {
     mocks.listAttachments.mockResolvedValue([])
     mocks.listForumChildren.mockResolvedValue([{ id: "thread", parentMessageId: "m1", name: null, messageCount: 0, lastMessageAt: null, createdAt: "now" }])
     mocks.listParticipants.mockResolvedValue([{ channelId: "thread", userId: "peer", userName: "Peer", userImage: null, userAvatarVersion: 4, participantCount: 1 }])
     const row = { id: "m1", channelId: "forum", seq: 1, authorId: "author", authorName: "Author", authorImage: null, authorAvatarVersion: 2, content: "body", type: "default", mentionType: null, replyToId: null, embeds: null, createdAt: "now" }
-    const result = await enrichMessages({} as never, "viewer", { channelId: "forum", isForum: true, contract: 3 }, [row])
+    const result = await enrichMessages({} as never, "viewer", { channelId: "forum", isForum: true, contract: BUSINESS_SCHEMA_VERSION }, [row])
     expect(result.messages[0]).toMatchObject({ authorAvatar: null, thread: { name: null, messageCount: 0, lastReplyAt: null, participants: [{ id: "peer", name: "Peer", avatar: null, avatarVersion: 4 }] } })
     mocks.listParticipants.mockResolvedValue([{ channelId: "thread", userId: "peer", userName: null, userImage: null, userAvatarVersion: 4 }])
-    await expect(enrichMessages({} as never, "viewer", { channelId: "forum", isForum: true, contract: 3 }, [row])).rejects.toThrow()
+    await expect(enrichMessages({} as never, "viewer", { channelId: "forum", isForum: true, contract: BUSINESS_SCHEMA_VERSION }, [row])).rejects.toThrow()
   })
 
 })

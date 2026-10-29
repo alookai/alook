@@ -50,6 +50,9 @@
  * update is genuinely harmless) → KV via this module is fine.
  */
 
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared";
+import { z } from "zod";
+
 const log = {
   warn(msg: string, ctx: Record<string, unknown>) {
     console.log(JSON.stringify({ level: "warn", service: "cache", msg, ...ctx, ts: new Date().toISOString() }));
@@ -68,25 +71,36 @@ export function getKV(): KVNamespace | null {
 
 const MIN_KV_TTL = 60;
 
+export function businessCacheKey(key: string) {
+  return `business:${BUSINESS_SCHEMA_VERSION}:${key}`;
+}
+
 export async function cached<T>(
   key: string,
   ttlSeconds: number,
   fn: () => Promise<T>,
+  schema: z.ZodType<T>,
 ): Promise<T> {
   const kv = getKV();
+  const physicalKey = businessCacheKey(key);
   if (kv) {
     try {
-      const raw = await kv.get(key);
-      if (raw) return JSON.parse(raw) as T;
+      const raw = await kv.get(physicalKey);
+      if (raw) {
+        const decoded = z.strictObject({ schemaVersion: z.literal(BUSINESS_SCHEMA_VERSION), cacheKey: z.literal(key), value: schema }).safeParse(JSON.parse(raw));
+        if (decoded.success) return decoded.data.value;
+        await kv.delete(physicalKey);
+      }
+      await kv.delete(key);
     } catch (err) {
       log.warn("KV read failed", { key, err });
     }
   }
 
-  const value = await fn();
+  const value = schema.parse(await fn());
 
   if (value != null && kv) {
-    kv.put(key, JSON.stringify(value), { expirationTtl: Math.max(ttlSeconds, MIN_KV_TTL) }).catch((err) => {
+    await kv.put(physicalKey, JSON.stringify({ schemaVersion: BUSINESS_SCHEMA_VERSION, cacheKey: key, value }), { expirationTtl: Math.max(ttlSeconds, MIN_KV_TTL) }).catch((err) => {
       log.warn("KV write failed", { key, err });
     });
   }
@@ -138,7 +152,7 @@ export async function throttled(
 
 export async function invalidate(key: string): Promise<void> {
   const kv = getKV();
-  if (kv) await kv.delete(key).catch((err) => {
+  if (kv) await kv.delete(key.startsWith("mt:") ? key : businessCacheKey(key)).catch((err) => {
     log.warn("KV invalidate failed", { key, err });
   });
 }
@@ -146,17 +160,17 @@ export async function invalidate(key: string): Promise<void> {
 export async function invalidateMany(keys: string[]): Promise<void> {
   const kv = getKV();
   if (!kv || keys.length === 0) return;
-  await Promise.all(keys.map((key) => kv.delete(key).catch((err) => {
+  await Promise.all(keys.map((key) => kv.delete(key.startsWith("mt:") ? key : businessCacheKey(key)).catch((err) => {
     log.warn("KV invalidate failed", { key, err });
   })));
 }
 
 export const cacheKeys = {
   machineToken: (token: string) => `mt:${token.slice(0, 20)}`,
-  member: (workspaceId: string, userId: string) => `mem:${workspaceId}:${userId}`,
+  member: (workspaceId: string, userId: string) => `task-payload:member-instruction:${workspaceId}:${userId}`,
   runtimeIds: (workspaceId: string, daemonId: string) => `rt:${workspaceId}:${daemonId}`,
-  user: (userId: string) => `usr:${userId}`,
-  allEmailAccounts: (workspaceId: string) => `ea:${workspaceId}`,
+  user: (userId: string) => `task-payload:user-identity:${userId}`,
+  allEmailAccounts: (workspaceId: string) => `task-payload:email-addresses:${workspaceId}`,
   allHandles: (workspaceId: string) => `handles:${workspaceId}`,
   overviewEmailAccounts: (workspaceId: string) => `ov_ea:${workspaceId}`,
   overviewEmailStats: (workspaceId: string) => `ov_email:${workspaceId}`,

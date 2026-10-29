@@ -1,7 +1,6 @@
-import { queries, withD1Retry, CommunityChannelResourceSchema, CommunityMessageThreadParticipantSchema, type CommunityMessageResource, type CommunityContract } from "@alook/shared"
+import { queries, withD1Retry, CommunityChannelResourceSchema, CommunityMessageThreadParticipantSchema, type CommunityMessageResource, type CommunityResourceProfile, type CommunityContract } from "@alook/shared"
 import type { getDb } from "@/lib/db"
-import { loadApiMessageContext, mapMessageForApi } from "@/lib/community/message-payload"
-import { avatarInitial } from "@/lib/community/avatar"
+import { loadApiMessageContext, mapMessageForApi, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { canonicalUserImage } from "@/lib/community/storage"
 
 // Message enrichment shared by the channel messages route, the channel
@@ -23,7 +22,7 @@ export async function enrichMessages(
   userId: string,
   scope: MessageScope,
   items: Array<Parameters<typeof mapMessageForApi>[0] & { channelId: string }>,
-): Promise<{ messages: unknown[]; latestSeq: number }> {
+): Promise<{ messages: CommunityMessageResource[]; profiles: CommunityResourceProfile[]; latestSeq: number }> {
   const isDm = scope.isDm === true
   const messageIds = items.map((m) => m.id)
   const creationMessageIds = items.filter((message) => message.type === "bot_creation_request").map((message) => message.id)
@@ -79,9 +78,8 @@ export async function enrichMessages(
       ...(participantsByChannel.get(row.channelId) ?? []),
       {
         id: row.userId,
-        name: scope.contract === 3 ? CommunityMessageThreadParticipantSchema.shape.name.parse(row.userName) : row.userName ?? "",
-        avatar: scope.contract === 3 ? canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion)
-          : canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion) ?? avatarInitial(row.userName ?? ""),
+        name: CommunityMessageThreadParticipantSchema.shape.name.parse(row.userName),
+        avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion),
         avatarVersion: row.userAvatarVersion,
       },
     ])
@@ -95,8 +93,8 @@ export async function enrichMessages(
         return [c.parentMessageId!, {
           id: c.id,
           name: c.name,
-          messageCount: scope.contract === 3 ? CommunityChannelResourceSchema.shape.messageCount.parse(c.messageCount) : c.messageCount ?? 0,
-          lastReplyAt: scope.contract === 3 ? c.lastMessageAt : c.lastMessageAt ?? c.createdAt,
+          messageCount: CommunityChannelResourceSchema.shape.messageCount.parse(c.messageCount),
+          lastReplyAt: c.lastMessageAt,
           ...(scope.isForum ? {
             tags: tagsByMessage.get(c.parentMessageId!) ?? [],
             preview: first?.content ?? "",
@@ -115,5 +113,5 @@ export async function enrichMessages(
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
     }, scope.contract, scope.channelId),
   )
-  return { messages, latestSeq }
+  return { messages, profiles: await readCommunityMessageProfiles(db, messages), latestSeq }
 }

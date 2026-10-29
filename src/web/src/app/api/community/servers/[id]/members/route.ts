@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
-  queries,
+  queries, parseCommunityServerMembersRead,
   formatHandle,
   parseNameAndTag,
   DEFAULT_MEMBERS_PAGE_SIZE,
@@ -128,5 +128,5 @@ async function handleHumanList(
     mapMemberForApi(r, userId, { botGating: true }),
   )
 
-  return writeJSON({ members, hasMore: envelope.hasMore, cursor: envelope.cursor, limit, total })
+  return writeJSON(parseCommunityServerMembersRead({ viewerId: userId, serverId, members, hasMore: envelope.hasMore, cursor: envelope.cursor, limit, total }, serverId, userId, false))
 }

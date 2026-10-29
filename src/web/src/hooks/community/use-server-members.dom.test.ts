@@ -47,8 +47,8 @@ import type {
   CommunityMemberUpdate,
 } from "@alook/shared"
 
-function m(id: string, userId = id, role: Member["role"] = "member"): Member {
-  return { id, userId, name: `n_${id}`, discriminator: "0000", avatar: `A`, avatarVersion: 0, status: "offline", sub: "", role }
+function m(id: string, userId = id, role: Member["role"] = "member"): Member & { statusEmoji: null; statusText: string } {
+  return { id, userId, name: `n_${id}`, discriminator: "0000", avatar: `A`, avatarVersion: 0, status: "offline", sub: "", role, statusEmoji: null, statusText: "" }
 }
 
 function joinEvent(userId: string, id = userId): CommunityMemberJoin {
@@ -241,8 +241,12 @@ function makeCache(pages: MembersEnvelope[]): InfiniteData<MembersEnvelope> {
   return { pages, pageParams: pages.map((_, i) => (i === 0 ? null : `cur_${i}`)) }
 }
 
-function makeEnvelope(members: Member[], hasMore: boolean, total = members.length): MembersEnvelope {
-  return { members, hasMore, limit: 50, total, ...(hasMore ? { cursor: "cur_next" } : {}) }
+function makeEnvelope(members: Member[], hasMore: boolean, total = members.length): MembersEnvelope & { viewerId: string; serverId: string } {
+  return { viewerId: "viewer", serverId: "srv_1", members, hasMore, limit: 50, total, ...(hasMore ? { cursor: "cur_next" } : {}) }
+}
+
+function makeSearchEnvelope(members: ReturnType<typeof m>[], hasMore: boolean) {
+  return { viewerId: "viewer", serverId: "srv_1", members, hasMore, limit: 50, ...(hasMore ? { cursor: "cur_next" } : {}) }
 }
 
 describe("patchCacheJoin", () => {
@@ -352,13 +356,13 @@ describe("patchCacheRole", () => {
 
 describe("membersPageQueryFn", () => {
   it("hits /members with no query string on page 1 and appends cursor on later pages", async () => {
-    apiFetchMock.mockResolvedValueOnce({ members: [], hasMore: false, limit: 50, total: 0 })
+    apiFetchMock.mockResolvedValueOnce({ viewerId: "viewer", serverId: "srv_1", members: [], hasMore: false, limit: 50, total: 0 })
     const { client } = await createCommunityQueryOwner()
     const fn = membersPageQueryFn("srv_1")
     await fn({ pageParam: null, client })
     expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/servers/srv_1/members", expect.objectContaining({ authenticationAccount: "viewer" }))
 
-    apiFetchMock.mockResolvedValueOnce({ members: [], hasMore: false, limit: 50, total: 0 })
+    apiFetchMock.mockResolvedValueOnce({ viewerId: "viewer", serverId: "srv_1", members: [], hasMore: false, limit: 50, total: 0 })
     await fn({ pageParam: "cur_1|abc", client })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/servers/srv_1/members?cursor=cur_1%7Cabc",
@@ -367,7 +371,7 @@ describe("membersPageQueryFn", () => {
   })
 
   it("populates queryClient at communityKeys.members(serverId)", async () => {
-    apiFetchMock.mockResolvedValueOnce({ members: [], hasMore: false, limit: 50, total: 0 })
+    apiFetchMock.mockResolvedValueOnce({ viewerId: "viewer", serverId: "srv_1", members: [], hasMore: false, limit: 50, total: 0 })
     const qc = (await createCommunityQueryOwner()).client
     const key = communityKeys.members("srv_1")
     await qc.infiniteQuery({
@@ -382,8 +386,8 @@ describe("membersPageQueryFn", () => {
 
   it("fetchNextPage produces a new page under the same key", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ members: [m("a")], hasMore: true, cursor: "cur_1|a", limit: 50, total: 2 })
-      .mockResolvedValueOnce({ members: [m("b")], hasMore: false, limit: 50, total: 2 })
+      .mockResolvedValueOnce({ viewerId: "viewer", serverId: "srv_1", members: [m("a")], hasMore: true, cursor: "cur_1|a", limit: 50, total: 2 })
+      .mockResolvedValueOnce({ viewerId: "viewer", serverId: "srv_1", members: [m("b")], hasMore: false, limit: 50, total: 2 })
     const qc = (await createCommunityQueryOwner()).client
     const key = communityKeys.members("srv_1")
     await qc.infiniteQuery({
@@ -420,7 +424,7 @@ describe("native member subscriptions", () => {
   })
   it("canonical member removal drops the exact row from an active search window", async () => {
     vi.useFakeTimers()
-    apiFetchMock.mockResolvedValue(makeEnvelope([m("mem_1"), m("mem_2"), m("mem_3")], false))
+    apiFetchMock.mockImplementation((url: string) => Promise.resolve(isSearchUrl(url) ? makeSearchEnvelope([m("mem_1"), m("mem_2"), m("mem_3")], false) : makeEnvelope([m("mem_1"), m("mem_2"), m("mem_3")], false)))
     const harness = await mountServerMembers()
     await act(async () => harness.resultRef.current!.searchMembers("mem"))
     await act(async () => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS + 1))
@@ -496,7 +500,7 @@ describe("useServerMembers search lifecycle", () => {
       expect(resultRef.current).toMatchObject({ loading: true, failed: false })
       expect(observations.every((value) => value.loading || value.failed)).toBe(true)
       await act(async () => {
-        queryClient.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ identityComplete: false, id: person.userId, name: person.name, discriminator: person.discriminator, avatar: person.avatar, avatarVersion: 0 })])
+        queryClient.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ id: person.userId, name: person.name, discriminator: person.discriminator, avatar: person.avatar, avatarVersion: 0 })])
         restore.resolve(); await registry.preload()
       })
       await vi.waitFor(() => expect(resultRef.current).toMatchObject({ loading: false, failed: false, members: [expect.objectContaining({ id: "a", discriminator: "0000" })] }))
@@ -505,12 +509,12 @@ describe("useServerMembers search lifecycle", () => {
   })
   it("debounces once, leaves the first page ready, and appends only requested continuation pages", async () => {
     vi.useFakeTimers()
-    const first = deferred<{ members: Member[]; hasMore: boolean; cursor?: string; limit: number }>()
-    const second = deferred<{ members: Member[]; hasMore: boolean; cursor?: string; limit: number }>()
+    const first = deferred<ReturnType<typeof makeSearchEnvelope>>()
+    const second = deferred<ReturnType<typeof makeSearchEnvelope>>()
     apiFetchMock.mockImplementation((url: unknown) => {
       if (!isSearchUrl(url)) return Promise.resolve(makeEnvelope([], false, 0))
       if (url.includes("q=none")) {
-        return Promise.resolve({ members: [], hasMore: false, limit: 50 })
+        return Promise.resolve({ viewerId: "viewer", serverId: "srv_1", members: [], hasMore: false, limit: 50 })
       }
       return url.includes("cursor=cur_2") ? second.promise : first.promise
     })
@@ -534,7 +538,7 @@ describe("useServerMembers search lifecycle", () => {
       ["/api/community/servers/srv_1/members/search?q=ad", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) })],
     ])
 
-    first.resolve({ members: [m("a"), m("b")], hasMore: true, cursor: "cur_2", limit: 50 })
+    first.resolve({ viewerId: "viewer", serverId: "srv_1", members: [m("a"), m("b")], hasMore: true, cursor: "cur_2", limit: 50 })
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       members: [m("a"), m("b")],
@@ -550,7 +554,7 @@ describe("useServerMembers search lifecycle", () => {
       ["/api/community/servers/srv_1/members/search?cursor=cur_2&q=ad", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) })],
     ])
 
-    second.resolve({ members: [m("b"), m("c")], hasMore: false, limit: 50 })
+    second.resolve({ viewerId: "viewer", serverId: "srv_1", members: [m("b"), m("c")], hasMore: false, limit: 50 })
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       members: [m("a"), m("b"), m("c")],
@@ -574,11 +578,11 @@ describe("useServerMembers search lifecycle", () => {
 
   it("keeps the latest query when older success and error responses settle late", async () => {
     vi.useFakeTimers()
-    const requests = new Map<string, Deferred<{ members: Member[]; hasMore: boolean; limit: number }>>()
+    const requests = new Map<string, Deferred<ReturnType<typeof makeSearchEnvelope>>>()
     apiFetchMock.mockImplementation((url: unknown) => {
       if (!isSearchUrl(url)) return Promise.resolve(makeEnvelope([], false, 0))
       const query = new URL(url, "https://alook.local").searchParams.get("q")!
-      const request = deferred<{ members: Member[]; hasMore: boolean; limit: number }>()
+      const request = deferred<ReturnType<typeof makeSearchEnvelope>>()
       requests.set(query, request)
       return request.promise
     })
@@ -590,14 +594,14 @@ describe("useServerMembers search lifecycle", () => {
       harness.resultRef.current!.searchMembers("new-success")
       await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
     })
-    requests.get("old-success")!.resolve({ members: [m("old")], hasMore: false, limit: 50 })
+    requests.get("old-success")!.resolve({ viewerId: "viewer", serverId: "srv_1", members: [m("old")], hasMore: false, limit: 50 })
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       searchQuery: "new-success",
       searchStatus: "loading",
       members: [],
     })
-    requests.get("new-success")!.resolve({ members: [m("new")], hasMore: false, limit: 50 })
+    requests.get("new-success")!.resolve({ viewerId: "viewer", serverId: "srv_1", members: [m("new")], hasMore: false, limit: 50 })
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       searchQuery: "new-success",
@@ -619,7 +623,7 @@ describe("useServerMembers search lifecycle", () => {
       searchStatus: "loading",
       members: [],
     })
-    requests.get("final")!.resolve({ members: [m("final")], hasMore: false, limit: 50 })
+    requests.get("final")!.resolve({ viewerId: "viewer", serverId: "srv_1", members: [m("final")], hasMore: false, limit: 50 })
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       searchQuery: "final",
@@ -633,9 +637,9 @@ describe("useServerMembers search lifecycle", () => {
 
   it("retains accumulated members on a current continuation error and same-term refresh", async () => {
     vi.useFakeTimers()
-    const first = deferred<{ members: Member[]; hasMore: boolean; cursor?: string; limit: number }>()
-    const continuation = deferred<{ members: Member[]; hasMore: boolean; limit: number }>()
-    const refreshed = deferred<{ members: Member[]; hasMore: boolean; limit: number }>()
+    const first = deferred<ReturnType<typeof makeSearchEnvelope>>()
+    const continuation = deferred<ReturnType<typeof makeSearchEnvelope>>()
+    const refreshed = deferred<ReturnType<typeof makeSearchEnvelope>>()
     let searchCall = 0
     apiFetchMock.mockImplementation((url: unknown) => {
       if (!isSearchUrl(url)) return Promise.resolve(makeEnvelope([], false, 0))
@@ -650,7 +654,7 @@ describe("useServerMembers search lifecycle", () => {
       harness.resultRef.current!.searchMembers("ad")
       await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
     })
-    first.resolve({ members: [m("a")], hasMore: true, cursor: "next", limit: 50 })
+    first.resolve({ viewerId: "viewer", serverId: "srv_1", members: [m("a")], hasMore: true, cursor: "next", limit: 50 })
     await flushEffects()
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     expect(searchCall).toBe(1)
@@ -674,7 +678,7 @@ describe("useServerMembers search lifecycle", () => {
       searchStatus: "loading",
       searchQuery: "ad",
     })
-    refreshed.resolve({ members: [m("refreshed")], hasMore: false, limit: 50 })
+    refreshed.resolve({ viewerId: "viewer", serverId: "srv_1", members: [m("refreshed")], hasMore: false, limit: 50 })
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       members: [m("refreshed")],
@@ -695,7 +699,7 @@ describe("useServerMembers search lifecycle", () => {
   it("clears pending searches and cancels the debounce on unmount", async () => {
     vi.useFakeTimers()
     apiFetchMock.mockImplementation((url: unknown) => {
-      if (isSearchUrl(url)) return Promise.resolve({ members: [], hasMore: false, limit: 50 })
+      if (isSearchUrl(url)) return Promise.resolve({ viewerId: "viewer", serverId: "srv_1", members: [], hasMore: false, limit: 50 })
       return Promise.resolve(makeEnvelope([], false, 0))
     })
     const harness = await mountServerMembers()
@@ -721,10 +725,10 @@ describe("useServerMembers search lifecycle", () => {
 
   it("drops the previous server overlay and ignores its late response", async () => {
     vi.useFakeTimers()
-    const oldResponse = deferred<{ members: Member[]; hasMore: boolean; limit: number }>()
+    const oldResponse = deferred<ReturnType<typeof makeSearchEnvelope>>()
     apiFetchMock.mockImplementation((url: unknown) => {
       if (isSearchUrl(url)) return oldResponse.promise
-      return Promise.resolve(makeEnvelope([], false, 0))
+      return Promise.resolve({ ...makeEnvelope([], false, 0), serverId: new URL(String(url), "https://alook.local").pathname.split("/")[4] })
     })
     const harness = await mountServerMembers()
 
@@ -748,7 +752,7 @@ describe("useServerMembers search lifecycle", () => {
       searchStatus: "idle",
     })
 
-    oldResponse.resolve({ members: [m("old")], hasMore: false, limit: 50 })
+    oldResponse.resolve({ viewerId: "viewer", serverId: "srv_1", members: [m("old")], hasMore: false, limit: 50 })
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       isSearching: false,
@@ -761,4 +765,26 @@ describe("useServerMembers search lifecycle", () => {
     await act(async () => harness.renderer.unmount())
     harness.queryClient.clear()
   })
+})
+
+it.each(["missing-later-core", "wrong-server", "wrong-viewer", "duplicate-user"])("rejects an entire warm member page %s before any canonical write", async defect => {
+  const { communityRegistrySnapshot } = await import("@/test/community-registry-snapshot")
+  const { client, registry } = await createCommunityQueryOwner()
+  const fn = membersPageQueryFn("srv_1")
+  const first = { ...m("first"), statusEmoji: null, statusText: "" }
+  const second = { ...m("second"), statusEmoji: null, statusText: "" }
+  const envelope = { viewerId: "viewer", serverId: "srv_1", members: [first, second], hasMore: false, limit: 50, total: 2 }
+  apiFetchMock.mockResolvedValueOnce(envelope)
+  await fn({ pageParam: null, client })
+  const before = communityRegistrySnapshot(registry)
+  const malformed = structuredClone(envelope)
+  malformed.members[0]!.name = "Must not publish first"
+  malformed.members[1]!.name = "Must not publish later"
+  if (defect === "missing-later-core") delete (malformed.members[1] as Partial<typeof second>).avatarVersion
+  if (defect === "wrong-server") malformed.serverId = "foreign-server"
+  if (defect === "wrong-viewer") malformed.viewerId = "foreign-viewer"
+  if (defect === "duplicate-user") malformed.members[1]!.userId = first.userId
+  apiFetchMock.mockResolvedValueOnce(malformed)
+  await expect(fn({ pageParam: null, client })).rejects.toThrow()
+  expect(communityRegistrySnapshot(registry)).toEqual(before)
 })

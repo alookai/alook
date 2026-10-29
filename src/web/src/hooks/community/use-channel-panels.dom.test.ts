@@ -1,3 +1,4 @@
+import { messageResourceFixture, resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { describe, expect, it, vi } from "vitest"
@@ -16,11 +17,11 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: api, toastApiError: vi.fn() }))
 describe("usePins", () => {
   it("includes the same-channel pending pin in the bounded native message selection", async () => {
     const owner = await createCommunityQueryOwner("viewer")
-    ingestMessages(owner.registry, "c1", [{ id: "pending", seq: 1, type: "chat", content: "Pinned body" }])
-    ingestMessages(owner.registry, "foreign", [{ id: "foreign", seq: 1, type: "chat", content: "Foreign body" }])
+    ingestMessages(owner.registry, "c1", [messageResourceFixture({ id: "pending", channelId: "c1", content: "Pinned body" })])
+    ingestMessages(owner.registry, "foreign", [messageResourceFixture({ id: "foreign", channelId: "foreign", content: "Foreign body" })])
     let resolve!: () => void
     api.mockReset().mockImplementation((_path: string, options: { method?: string }) => options.method === "POST"
-      ? new Promise<void>((done) => { resolve = done }) : Promise.resolve({ pins: [] }))
+      ? new Promise<void>((done) => { resolve = done }) : Promise.resolve({ pins: [], resources: resourceBundleFixture() }))
     const subscription = vi.spyOn(projections, "useCanonicalMessagesById")
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
       { client: owner.client, registry: owner.registry, userId: "viewer", retainOwner: true }, children)

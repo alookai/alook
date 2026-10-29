@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { serverRailResponseFixture, channelResourceFixture, categoryResourceFixture } from "@/test/community-resource-fixtures"
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
@@ -51,9 +53,9 @@ async function mount() {
     const key = `${options.authenticationAccount}:${path}`
     if (seen.has(key)) return new Promise((_, fail) => options.signal?.addEventListener("abort", () => fail(new DOMException("retired", "AbortError")), { once: true }))
     seen.add(key)
-    if (path.endsWith("/categories")) return Promise.resolve({ categories: [{ id: "cat1", name: "General", private: false }, { id: "cat2", name: "Elsewhere", private: false }] })
-    if (path.endsWith("/channels")) return Promise.resolve({ channels: [{ id: "c1", name: "general", categoryId: "cat1", type: "text" }] })
-    return Promise.resolve({ servers: [{ id: "s1", name: "original", description: "before", discriminator: "0001", icon: null, ownerId: "A", role: "owner" }] })
+    if (path.endsWith("/categories")) return Promise.resolve({ categories: [categoryResourceFixture({ id: "cat1", name: "General", private: false, creatorId: "A" }), categoryResourceFixture({ id: "cat2", name: "Elsewhere", private: false, creatorId: "A", position: 1 })] })
+    if (path.endsWith("/channels")) return Promise.resolve({ channels: [channelResourceFixture({ id: "c1", name: "general", categoryId: "cat1", type: "text", creatorId: "A" })] })
+    return Promise.resolve(serverRailResponseFixture({ servers: [{ id: "s1", name: "original", description: "before", discriminator: "0001", icon: null, ownerId: "A", role: "owner" }] }, options.authenticationAccount ?? "A"))
   })
   const view = render(<Root />)
   await waitFor(() => expect(screen.getByTestId("server-detail").textContent).toBe("original|before"))
@@ -96,7 +98,7 @@ describe("actual canonical server and tree command owner", () => {
   it("stores only list and detail IDs while deduplicating cold identity bootstrap", async () => {
     const { original } = await mount()
     expect(original.getQueryData(communityKeys.servers())).toEqual(["s1"])
-    expect(original.getQueryData(communityKeys.server("s1"))).toBe("s1")
+    expect(original.getQueryData(communityKeys.server("s1"))).toMatchObject({ schemaVersion: BUSINESS_SCHEMA_VERSION, serverId: "s1" })
     expect(api.mock.calls.filter(([path]) => path === "/api/community/servers")).toHaveLength(1)
   })
   it("shows native optimistic fields then commits normalized success before held refreshes can return", async () => {
@@ -124,25 +126,25 @@ describe("actual canonical server and tree command owner", () => {
     await act(async () => { resolve({ name: "requested-name", description: "confirmed description" }); await result })
     await waitFor(() => expect(screen.getByTestId("server-detail").textContent).toBe("newer-ws|confirmed description"))
     expect(original.getQueryData(communityKeys.servers())).toEqual(["s1"])
-    expect(original.getQueryData(communityKeys.server("s1"))).toBe("s1")
+    expect(original.getQueryData(communityKeys.server("s1"))).toMatchObject({ schemaVersion: BUSINESS_SCHEMA_VERSION, serverId: "s1" })
   })
   it("creates a native pending channel and maps its confirmed normalized identity with refresh held", async () => {
     const { resolve, original } = await mount()
     let result!: Promise<unknown>; act(() => { result = createChannel.mutateAsync({ serverId: "s1", categoryId: "cat1", name: "New Room", type: "text" }).catch((error) => error) })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).toContain("=New Room"))
-    await act(async () => { resolve({ channel: { id: "real-channel", name: "new-room", position: 1 } }); await result })
+    await act(async () => { resolve({ channel: channelResourceFixture({ id: "real-channel", name: "new-room", position: 1, categoryId: "cat1", creatorId: "A" }) }); await result })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).toContain("real-channel=new-room"))
     const registry = getCommunityDbRegistry(original)!
     expect([...registry.collections.channels.keys()].some((id) => id.startsWith("tmp_ch_"))).toBe(false)
     expect(registry.collections.channels.get("real-channel")).toMatchObject({ pending: false, position: 1 })
-    expect(original.getQueryData(communityKeys.server("s1"))).toBe("s1")
+    expect(original.getQueryData(communityKeys.server("s1"))).toMatchObject({ schemaVersion: BUSINESS_SCHEMA_VERSION, serverId: "s1" })
   })
   it("confirms category identity while preserving the newer WS row that arrived before POST success", async () => {
     const { resolve, original } = await mount()
     let result!: Promise<unknown>; act(() => { result = createCategory.mutateAsync({ serverId: "s1", name: "New Category", private: true }).catch((error) => error) })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).toContain(":New Category:"))
-    act(() => projectCommunityWsEventToDb(original, { type: "community:category.create", serverId: "s1", category: { id: "real-category", name: "WS Category", position: 2, private: true } }))
-    await act(async () => { resolve({ category: { id: "real-category", name: "New Category", position: 2, private: true } }); await result })
+    act(() => projectCommunityWsEventToDb(original, { type: "community:category.create", serverId: "s1", category: categoryResourceFixture({ id: "real-category", name: "WS Category", position: 2, private: true }) }))
+    await act(async () => { resolve({ category: categoryResourceFixture({ id: "real-category", name: "New Category", position: 2, private: true, creatorId: "A" }) }); await result })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).toContain("real-category:WS Category:"))
     expect([...getCommunityDbRegistry(original)!.collections.categories.keys()].some((id) => id.startsWith("tmp_cat_"))).toBe(false)
   })
@@ -164,7 +166,7 @@ describe("actual canonical server and tree command owner", () => {
   })
   it("confirms channel positions without losing a newer WS name", async () => {
     const { resolve, original } = await mount()
-    act(() => projectCommunityWsEventToDb(original, { type: "community:channel.create", serverId: "s1", channel: { id: "c2", name: "second", type: "text", categoryId: "cat1", position: 1, createdAt: "2026-10-02T00:00:00Z" } }))
+    act(() => projectCommunityWsEventToDb(original, { type: "community:channel.create", serverId: "s1", channel: { ...channelResourceFixture({ id: "c2", name: "second", categoryId: "cat1", position: 1, createdAt: "2026-10-02T00:00:00Z" }), type: "text" } }))
     let result!: Promise<unknown>; act(() => { result = reorderChannels.mutateAsync({ serverId: "s1", channelIds: ["c2", "c1"] }).catch((error) => error) })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).toContain("c2=second,c1=general"))
     act(() => projectCommunityWsEventToDb(original, { type: "community:channel.update", serverId: "s1", channelId: "c1", changes: { name: "newer-room" } }))
@@ -308,7 +310,7 @@ describe("actual canonical server and tree command owner", () => {
     await waitFor(() => expect(screen.getByTestId("tree").textContent).toContain("__uncategorized__::"))
     const post = api.mock.calls.find(([path, options]) => path === "/api/community/channels" && options.method === "POST")!
     expect(JSON.parse(post[1].body)).toEqual({ serverId: "s1", categoryId: null, name: "Top Level", type: "text" })
-    await act(async () => { resolve({ channel: { id: "real-top" } }); expect(await result).toEqual({ channel: { id: "real-top" } }) })
+    await act(async () => { resolve({ channel: channelResourceFixture({ id: "real-top", name: "Top", creatorId: "A", categoryId: null }) }); expect(await result).toEqual({ channel: channelResourceFixture({ id: "real-top", name: "Top", creatorId: "A", categoryId: null }) }) })
     expect(getCommunityDbRegistry(original)!.collections.channels.get("real-top")).toMatchObject({ categoryId: null, pending: false })
   })
   it("does not display a pending channel under a missing named category", async () => {
@@ -316,13 +318,13 @@ describe("actual canonical server and tree command owner", () => {
     let result!: Promise<unknown>; act(() => { result = createChannel.mutateAsync({ serverId: "s1", categoryId: "missing", name: "Hidden Pending", type: "text" }) })
     await waitFor(() => expect(api.mock.calls.some(([, o]) => o.method === "POST")).toBe(true))
     expect(screen.getByTestId("tree").textContent).not.toContain("Hidden Pending")
-    await act(async () => { resolve({ channel: { id: "real-hidden" } }); await result })
+    await act(async () => { resolve({ channel: channelResourceFixture({ id: "real-hidden", name: "Hidden", creatorId: "A", categoryId: "missing" }) }); await result })
   })
   it.each(["channel", "category"] as const)("rolls back failed native %s creation without removing a newer WS row", async (kind) => {
     const { reject, original } = await mount()
     let result!: Promise<unknown>; act(() => { result = (kind === "channel" ? createChannel.mutateAsync({ serverId: "s1", categoryId: "cat1", name: "Pending", type: "text" }) : createCategory.mutateAsync({ serverId: "s1", name: "Pending" })).catch((error) => error) })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).toContain("Pending"))
-    act(() => projectCommunityWsEventToDb(original, { type: "community:category.create", serverId: "s1", category: { id: "ws-independent", name: "Independent", position: 2, private: false } }))
+    act(() => projectCommunityWsEventToDb(original, { type: "community:category.create", serverId: "s1", category: categoryResourceFixture({ id: "ws-independent", name: "Independent", position: 2, private: false }) }))
     await act(async () => { reject(new Error("denied")); expect(await result).toBeInstanceOf(Error) })
     await waitFor(() => expect(screen.getByTestId("tree").textContent).not.toContain("Pending"))
     expect(screen.getByTestId("tree").textContent).toContain("ws-independent:Independent:")

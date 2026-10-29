@@ -120,3 +120,38 @@ describe("useCommunityWsStore", () => {
   it("keeps audit facts outside the transient owner", () => {
     expect(nativeStore.get()).not.toHaveProperty("botAuditEvents")
   })})
+
+describe("current scoped denial facts",()=>{
+  it("keeps a classified denial through same-generation cleanup and replaces it only with a current classified cause",()=>{
+    activate()
+    nativeStore.actions.revokeChannelAccess(null,"dm-a","blocked")
+    const generation=nativeStore.get().channelAccessScopes.get("dm-a")!.generation
+    nativeStore.actions.revokeChannelAccess(null,"dm-a")
+    expect(nativeStore.get().channelAccessScopes.get("dm-a")).toMatchObject({generation,revoked:true,denialCode:"blocked"})
+    expect(nativeStore.get().channelAccessScopes.has("dm-b")).toBe(false)
+    nativeStore.actions.revokeChannelAccess(null,"dm-a","not_found")
+    expect(nativeStore.get().channelAccessScopes.get("dm-a")).toMatchObject({generation,denialCode:"not_found"})
+  })
+  it("clears the reason on a new membership generation, authoritative grant and account retirement",()=>{
+    activate()
+    nativeStore.actions.revokeChannelAccess(null,"dm-a","blocked")
+    const generation=nativeStore.actions.beginChannelMembershipChange(null,"dm-a")
+    expect(nativeStore.get().channelAccessScopes.get("dm-a")).toMatchObject({generation,revoked:false})
+    expect(nativeStore.get().channelAccessScopes.get("dm-a")).not.toHaveProperty("denialCode")
+    nativeStore.actions.revokeChannelAccess(null,"dm-a","blocked")
+    nativeStore.actions.rememberChannelAccess(null,"dm-a")
+    expect(nativeStore.get().channelAccessScopes.get("dm-a")).not.toHaveProperty("denialCode")
+    nativeStore.actions.revokeChannelAccess(null,"dm-a","blocked")
+    nativeStore.actions.activateProfileAccount("next-viewer")
+    expect(nativeStore.get().channelAccessScopes.size).toBe(0)
+  })
+  it("preserves only explicitly retained revocation and clears a granted parent cause",()=>{
+    activate()
+    nativeStore.actions.revokeChannelAccess("server","parent","not_allowed")
+    nativeStore.actions.beginChannelMembershipChange("server","parent",{preserveRevocation:true})
+    expect(nativeStore.get().channelAccessScopes.get("parent")).toMatchObject({revoked:true,denialCode:"not_allowed"})
+    nativeStore.actions.rememberChannelAccess("server","child","parent")
+    expect(nativeStore.get().channelAccessScopes.get("parent")).toMatchObject({revoked:false})
+    expect(nativeStore.get().channelAccessScopes.get("parent")).not.toHaveProperty("denialCode")
+  })
+})

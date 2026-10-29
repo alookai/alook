@@ -1,3 +1,5 @@
+import { assertCaseProfileBaseline } from "./case-profile-baseline"
+import { communityFixtureFetch } from "./business-contract"
 import { createNaturalVisibilityActor } from "./natural-visibility-actor"
 import type { APIResponse, BrowserContext, BrowserContextOptions, Page, Response as PlaywrightResponse, TestInfo } from "@playwright/test"
 import { createHash } from "crypto"
@@ -180,7 +182,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       return state.cookies.filter((cookie) => cookie.name.startsWith("better-auth")).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ")
     }
     const read = async (key: UserKey, path: string): Promise<Record<string, unknown>> => {
-      const response = await retrySeedRequest(() => fetch(`${WEB_URL}${path}`, { headers: { Cookie: sessionCookie(key), Origin: WEB_URL } }))
+      const response = await retrySeedRequest(() => communityFixtureFetch(`${WEB_URL}${path}`, { headers: { Cookie: sessionCookie(key), Origin: WEB_URL } }))
       if (!response.ok) throw new Error(`Case baseline ${key} GET ${path} failed (${response.status})`)
       const body = await response.json() as Record<string, unknown>
       if (!body || typeof body !== "object" || body.stale === true || body.truncated === true) throw new Error(`Case baseline ${key} GET ${path} is incomplete`)
@@ -320,8 +322,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
           })
           originalSessions.set(key, sessionCookie(key))
           const profile = await read(key, "/api/community/users/me/profile")
-          if (profile.id !== user(key).userId || profile.name !== user(key).name) throw new Error(`Case baseline ${key} has a different profile identity`)
-          if (profile.aboutMe !== "" || profile.avatarVersion !== 0 || profile.bannerColor !== null || profile.statusEmoji !== null || profile.statusText !== "") throw new Error(`Case baseline ${key} has modified profile defaults`)
+          assertCaseProfileBaseline(profile, user(key), key)
           await Promise.all([
             assertEmpty(key, "/api/community/servers", "servers"),
             assertEmpty(key, "/api/community/users/me/server-folders", "folders"),

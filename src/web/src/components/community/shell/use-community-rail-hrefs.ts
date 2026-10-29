@@ -1,5 +1,6 @@
 "use client"
 
+import { getServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { useCallback, useMemo, useSyncExternalStore } from "react"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import type { CommunityDbRegistry } from "@/lib/community-db/collections"
@@ -11,7 +12,7 @@ import { readNavigationMemory, subscribeNavigationMemory } from "@/lib/community
 export function communityServerLandingHref(
   registry: CommunityDbRegistry | null, id: string, last: string | null, breakpoint: Breakpoint, canonicalChannelIds?: readonly string[],
 ) {
-  const complete = registry?.collections.servers.get(id)?.detailComplete === true
+  const complete = Boolean(getServerDirectoryWindow(registry, id))
   const channelIds = registry && complete
     ? canonicalChannelIds ?? Array.from(registry.collections.channels.values())
       .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)

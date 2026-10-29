@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -69,7 +70,7 @@ describe("returned entry and selected message window", () => {
       expect(hook.result.current.positionDataState).toBe("pending")
       expect(hook.result.current.initialPositionKnown).toBe(true)
       expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1"])
-      await act(async () => late.resolve({ messages: fresh.messages, latestSeq: 2, hasMoreNewer: false }))
+      await act(async () => late.resolve(messageReadPageFixture({ messages: fresh.messages, latestSeq: 2, hasMoreNewer: false })))
       await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
     } finally { hook.unmount() }
   })
@@ -104,14 +105,14 @@ describe("returned entry and selected message window", () => {
     fresh.channel.messageCount = 13
     fresh.channel.lastMessageAt = fresh.messages.at(-1)!.createdAt
     fresh.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 13 }
-    await act(async () => ingestMessages(registry, "c1", fresh.messages.map(message => ({ ...message, resourceComplete: true }))))
-    expect(fresh.messages.every(message => registry.collections.messages.get(message.id)?.resourceComplete === true)).toBe(true)
+    await act(async () => ingestMessages(registry, "c1", fresh.messages))
+    expect(fresh.messages.every(message => registry.collections.messages.has(message.id))).toBe(true)
     const response = deferred<ReturnType<typeof fixture>>()
     load.mockImplementation((url: string) => {
       const search = new URL(url, "https://example.test").searchParams
       if (search.has("entry")) return response.promise
-      if (search.has("since")) return Promise.resolve({ ...fresh.page, messages: fresh.messages.slice(1) })
-      if (search.size === 0) return Promise.resolve({ ...fresh.page, messages: fresh.messages })
+      if (search.has("since")) return Promise.resolve({ ...fresh.page, profiles: fresh.profiles, messages: fresh.messages.slice(1) })
+      if (search.size === 0) return Promise.resolve({ ...fresh.page, profiles: fresh.profiles, messages: fresh.messages })
       throw new Error(`Unexpected message window ${url}`)
     })
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000)
@@ -127,7 +128,7 @@ describe("returned entry and selected message window", () => {
       const expectedIds = fresh.messages.map(message => message.id)
       const anchorKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
       expect(client.getQueryData<MessageWindowData>(anchorKey)?.pages.flatMap(page => page.messages.map(message => message.id))).toEqual(expectedIds)
-      expect(expectedIds.every(id => registry.collections.messages.get(id)?.resourceComplete === true)).toBe(true)
+      expect(expectedIds.every(id => registry.collections.messages.has(id))).toBe(true)
       expect(returned.result.current.readSnapshot?.lastReadMessageId).toBe("m1")
       expect(returned.result.current.readSnapshot?.lastReadSeq).toBe(1)
       expect(returned.result.current.initialPositionKnown).toBe(true)
@@ -172,7 +173,7 @@ describe("returned entry and selected message window", () => {
     load.mockImplementation((url: string) => {
       const search = new URL(url, "https://example.test").searchParams
       if (search.has("entry")) return entry.promise
-      if (search.has("since")) return Promise.resolve({ ...fresh.page, messages: fresh.messages.slice(1) })
+      if (search.has("since")) return Promise.resolve({ ...fresh.page, profiles: fresh.profiles, messages: fresh.messages.slice(1) })
       if (search.size === 0) return oldWindow.promise
       throw new Error(`Unexpected message window ${url}`)
     })
@@ -194,7 +195,7 @@ describe("returned entry and selected message window", () => {
       const anchorKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m1" })
       expect(client.getQueryData<MessageWindowData>(anchorKey)?.pages[0].messages).toHaveLength(13)
       await act(async () => {
-        oldWindow.resolve({ messages: old.messages, latestSeq: 1, hasMoreNewer: false })
+        oldWindow.resolve(messageReadPageFixture({ messages: old.messages, latestSeq: 1, hasMoreNewer: false }))
         await olderRepair
       })
       expect(client.getQueryCache().find({ queryKey: key, exact: true })).toBe(owner)
@@ -217,7 +218,7 @@ describe("returned entry and selected message window", () => {
     })
     expect(signal.aborted).toBe(true)
     const lateMessage = { ...fresh.messages[0], id: "late_m3", seq: 3 }
-    await act(async () => late.resolve({ messages: [...fresh.messages, lateMessage], latestSeq: 3, hasMoreNewer: false }))
+    await act(async () => late.resolve(messageReadPageFixture({ messages: [...fresh.messages, lateMessage], latestSeq: 3, hasMoreNewer: false })))
     expect(registry.collections.messages.get("late_m3")).toBeUndefined()
     expect(client.getQueryData<MessageWindowData>(key)?.pages.flatMap(page => page.messages.map(message => message.id)) ?? []).not.toContain("late_m3")
     if (kind !== "unmount") hook.unmount()

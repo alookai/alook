@@ -1,3 +1,4 @@
+import { communityFixtureFetch, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Locator, Page, Route, TestInfo, WebSocket as BrowserSocket } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -32,7 +33,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     }
   }
   async function jsonRequest<T>(key: UserKey, path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${WEB_URL}${path}`, {
+    const response = await communityFixtureFetch(`${WEB_URL}${path}`, {
       ...init,
       headers: headersFor(key, {
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
@@ -75,7 +76,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
       machineId: string
     }
     createdMachineIds.set(data.machineId, caseResources.own(data.machineId, async (machineId) => {
-      const response = await fetch(`${WEB_URL}/api/community/machines/${machineId}`, { method: "DELETE", headers: headersFor("alice") })
+      const response = await communityFixtureFetch(`${WEB_URL}/api/community/machines/${machineId}`, { method: "DELETE", headers: headersFor("alice") })
       expect(response.status, `delete test machine ${machineId}`).toBe(204)
       createdMachineIds.delete(machineId)
     }))
@@ -94,7 +95,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
       body: JSON.stringify({ name, machineId, runtime: "codex" }),
     })
     createdBotIds.set(data.bot.id, caseResources.own(data.bot.id, async (botId) => {
-      const response = await fetch(`${WEB_URL}/api/community/bots/${botId}`, { method: "DELETE", headers: headersFor("alice") })
+      const response = await communityFixtureFetch(`${WEB_URL}/api/community/bots/${botId}`, { method: "DELETE", headers: headersFor("alice") })
       expect(response.status, `delete test bot ${botId}`).toBe(204)
       createdBotIds.delete(botId)
     }))
@@ -521,7 +522,7 @@ let caseJourneyFailure1Present = false
     }))
 
     await expect.poll(async () => {
-      const response = await fetch(
+      const response = await communityFixtureFetch(
         `${WEB_URL}/api/community/bots/${botId}/audit-log?limit=10`,
         { headers: headersFor("alice") },
       )
@@ -619,13 +620,13 @@ test("owned bot profile preview stays root-bounded from its first visible frame"
   const forumRef = `/${server!.name}#${server!.discriminator}/${forumName}`
   const forumEnvelope = await jsonRequest<{
     threads: Array<{ id: string; parentMessageId: string | null }>
-    included: { parentMessages: Array<{ id: string; seq: number }> }
+    included: { messages: Array<{ id: string; seq: number }> }
   }>(
     "alice",
     `/api/community/channels/${forumId}/threads?order=createdAt&limit=50&include=parentMessage`,
   )
   const forumThread = forumEnvelope.threads.find((thread) => thread.id === forumThreadId)
-  const forumOpener = forumEnvelope.included.parentMessages.find(
+  const forumOpener = forumEnvelope.included.messages.find(
     (message) => message.id === forumThread?.parentMessageId,
   )
   expect(forumOpener?.seq).toBeGreaterThan(0)
@@ -754,7 +755,7 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
   }>("alice", `/api/community/servers/${staleServerId}/members`)
   const staleBotMember = staleMembers.members.find((member) => member.userId === botId)
   expect(staleBotMember).toBeTruthy()
-  const removeStaleBot = await fetch(
+  const removeStaleBot = await communityFixtureFetch(
     `${WEB_URL}/api/community/servers/${staleServerId}/members/${staleBotMember!.id}`,
     { method: "DELETE", headers: headersFor("alice") },
   )
@@ -776,7 +777,7 @@ let caseJourneyFailure2Present = false
     }
 
     await expect.poll(async () => {
-      const response = await fetch(
+      const response = await communityFixtureFetch(
         `${WEB_URL}/api/community/bots/${botId}/audit-log?limit=10`,
         { headers: headersFor("alice") },
       )
@@ -990,7 +991,7 @@ let caseJourneyFailure2Present = false
     await expect(alice.page).toHaveURL(`/c/me/bots?machineId=${machineId}`)
 
     const bob = await asUser("bob")
-    const bobDirectMarks = await fetch(`${WEB_URL}/api/community/bots/${botId}/marks`, {
+    const bobDirectMarks = await communityFixtureFetch(`${WEB_URL}/api/community/bots/${botId}/marks`, {
       headers: headersFor("bob"),
     })
     expect(bobDirectMarks.status).toBe(404)
@@ -1165,7 +1166,7 @@ async function gateOlderActivityPages(page: Page, botId: string, caseResources: 
       const status = await ready
       if (page.isClosed()) return
       if (closing) await route.abort("failed")
-      else if (status) await route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ error: "Injected Activity older-page failure" }) })
+      else if (status) await route.fulfill(currentCommunityFixtureError("Injected Activity older-page failure", status))
       else await route.continue()
     })()
     entries.push({ url: url.toString(), release })

@@ -15,6 +15,7 @@ import { listParticipatingThreadIds } from "./thread";
 import { listVisibleChannelIdsForUser } from "./channel";
 import { reachIsParticipantSet } from "../../../utils/community-roles";
 import { hasUnreadAttentionSql, notificationEligibleSql } from "./notification-eligibility";
+import { dmPeerReadableSql } from "./dm";
 
 const ELIGIBLE_UNREAD_CHANNEL_CHUNK_SIZE = 80;
 
@@ -664,7 +665,8 @@ export async function listEligibleUnreadDms(
       and(
         eq(communityChannelMember.userId, userId),
         eq(communityChannelMember.relation, "access"),
-        eq(communityChannel.type, "dm")
+        eq(communityChannel.type, "dm"),
+        dmPeerReadableSql(db, userId, communityChannel.id)
       )
     );
   const dmChannelIds = selfRows.map((row) => row.channelId);

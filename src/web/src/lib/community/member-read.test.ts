@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({ access: vi.fn(), channel: vi.fn(), participants: vi.fn(), audience: vi.fn(), users: vi.fn(), serverMembers: vi.fn(), resolve: vi.fn() }))
 vi.mock("./permissions", () => ({ requireMessageSurfaceAccess: mocks.access }))
@@ -30,7 +31,7 @@ describe("common member relations", () => {
   it.each(["text", "forum"])("resolves the %s access audience rather than notify participants", async (type) => {
     mocks.access.mockResolvedValue({ ok: true, value: { surface: "channel", channel: { id: "parent", type, serverId: "server", creatorId: "viewer" } } })
     mocks.resolve.mockResolvedValue([{ userId: "viewer", source: "admin" }])
-    mocks.users.mockResolvedValue([{ id: "viewer", name: "Viewer", image: null, avatarVersion: 0 }])
+    mocks.users.mockResolvedValue([{ id: "viewer", name: "Viewer", discriminator: "1234", image: null, avatarVersion: 0 }])
     mocks.serverMembers.mockResolvedValue([])
     const response = await readCommunityMembers({} as never, "parent", "viewer", "access")
     expect(await response.json()).toMatchObject({ members: [{ channelId: "parent", userId: "viewer", relation: "access", source: "admin" }] })
@@ -45,7 +46,7 @@ describe("common member relations", () => {
   it("retains both DM participants without server membership or email fields", async () => {
     const response = await readCommunityMembers({} as never, "dm", "viewer", "access")
     const body = await response.json()
-    expect(body).toMatchObject({ contractVersion: 2, channelId: "dm", relation: "access" })
+    expect(body).toMatchObject({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "dm", relation: "access" })
     expect(body.members).toHaveLength(2)
     expect(body.members.every((member: { role: unknown; memberId: unknown }) => member.role === null && member.memberId === null)).toBe(true)
     expect(JSON.stringify(body)).not.toContain("private@example.test")

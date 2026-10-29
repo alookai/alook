@@ -1,3 +1,4 @@
+import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -6,8 +7,8 @@ import { queries, isUniqueConstraintError, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
-import { avatarInitial } from "@/lib/community/avatar"
-import { canonicalUserImage } from "@/lib/community/storage"
+
+
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -18,27 +19,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   const rows = await queries.communityPin.listPins(db, channelId)
-  const pins = rows.map((r) => ({
-    id: r.message.id,
-    // seq is the per-channel sequence the client needs to JUMP to a pinned
-    // message (jumpToSeq: scroll+highlight if in the loaded window, else open
-    // the context sheet). A pin is usually an OLD message outside the window,
-    // so a scroll-only path silently no-ops without seq. listPins selects the
-    // whole message row, so seq is already here.
-    seq: r.message.seq,
-    // authorId lets the client derive a stable beam avatar when the author
-    // has no uploaded image — same shape mapMessageForApi feeds the message
-    // list. Omitting it (and pre-flattening authorAvatar to an initial) is
-    // why the pinned panel showed no avatar for image-less authors.
-    authorId: r.author.id,
-    authorName: r.author.name,
-    authorAvatar: canonicalUserImage(r.author.id, r.author.image, r.author.avatarVersion)
-      ?? avatarInitial(r.author.name),
-    authorAvatarVersion: r.author.avatarVersion,
-    content: r.message.content,
-    createdAt: r.message.createdAt,
-  }))
-  return writeJSON({ pins })
+  const pins = rows.map(row => ({ id: row.message.id }))
+  const resources = await readCommunityResourceBundle(db, ctx.userId, { channelIds: [channelId], messageIds: pins.map(row => row.id) })
+  return writeJSON({ pins, resources })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {

@@ -1,3 +1,4 @@
+import { channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import "fake-indexeddb/auto"
 import { createStore, del, get, promisifyRequest, set } from "idb-keyval"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -7,7 +8,7 @@ import { canonicalChannelRow } from "@/lib/community-db/schema"
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { clearPersistedCache, createIdbPersister, PERSIST_BUSTER,
   PERSIST_VERSION,
-  PERSIST_CACHE_PREFIX, cacheInvalidation } from "./query-persister"
+  PERSIST_CACHE_PREFIX, PERSIST_ACCOUNT_PREFIX, cacheInvalidation } from "./query-persister"
 
 const client: PersistedClient = {
   timestamp: 1,
@@ -121,7 +122,7 @@ describe("native IDB persistence retirement", () => {
     const user = "u_missing_account_epoch"
     const stale = createIdbPersister(user)
     await stale.restoreClient()
-    await del(`${blobKey(user)}:epoch`)
+    await del(`${PERSIST_ACCOUNT_PREFIX}:${user}:account-epoch`)
     await stale.persistClient(client)
     expect(await get(blobKey(user))).toBeUndefined()
   })
@@ -144,10 +145,10 @@ describe("qualified native owner disk retirement", () => {
 function readingSnapshot(user: string): PersistedClient {
   const queryClient = new QueryClient()
   const setRows = (name: string, rows: unknown[]) => queryClient.setQueryData(communityKeys.communityDbCollection(user, name), rows)
-  setRows("channels", ["dm-A", "dm-B"].map((id) => canonicalChannelRow({ id, type: "dm", name: id, preview: `body-${id}`, unread: true })))
+  setRows("channels", ["dm-A", "dm-B"].map((id) => canonicalChannelRow({ ...channelResourceFixture({ id, type: "dm", serverId: null, name: id }), preview: `body-${id}` })))
   setRows("attentionScopes", ["dm-A", "dm-B"].map(channelId => ({ scopeId: channelId, channelId, serverId: null, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 1, attentionCount: 0, lastAttentionSeq: null })))
-  setRows("messages", ["dm-A", "dm-B"].map((channelId) => ({ id: `m-${channelId}`, channelId, type: "chat", resourceComplete: false, authorId: user, authorName: "Viewer", authorAvatar: "V", authorAvatarVersion: 0, seq: 1, content: `body-${channelId}` })))
-  setRows("channelMemberships", ["dm-A", "dm-B"].map((channelId) => ({ id: `${channelId}:peer:access`, channelId, userId: "peer", relation: "access" })))
+  setRows("messages", ["dm-A", "dm-B"].map((channelId) => messageResourceFixture({ id: `m-${channelId}`, channelId, authorId: user, authorName: "Viewer", authorAvatar: "V", authorAvatarVersion: 0, seq: 1, content: `body-${channelId}` })))
+  setRows("channelMemberships", ["dm-A", "dm-B"].map((channelId) => ({ id: `${channelId}:peer:access`, channelId, userId: "peer", relation: "access", source: "added" })))
   return { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(queryClient) }
 }
 function readingRows(snapshot: PersistedClient | undefined, name: string) {
@@ -157,7 +158,7 @@ function readingRows(snapshot: PersistedClient | undefined, name: string) {
 describe("native channel persistence fence", () => {
   it.each([
     ["account", false], ["account", true], ["channel", false], ["channel", true],
-  ] as const)("retires existing v3 eligibility on %s retirement with payload=%s", async (kind, hasPayload) => {
+  ] as const)("retires existing v3 payload scopes on %s retirement with payload=%s", async (kind, hasPayload) => {
     const user = `u_v3_qualified_${kind}_${hasPayload}`
     await clearPersistedCache(user)
     const owner = createIdbPersister(user)
@@ -178,7 +179,10 @@ describe("native channel persistence fence", () => {
     if (!hasPayload) expect(await get(`${oldNamespace}:client`)).toBeUndefined()
     if (kind === "account") await owner.retireAccount()
     else await owner.retireChannels(["dm-A"])
-    for (let i = 0; i < oldKeys.length; i++) expect(await get(oldKeys[i]!)).not.toBe(epochs[i])
+    for (let i = 0; i < oldKeys.length; i++) {
+      if (kind === "channel" && i === 0) expect(await get(oldKeys[i]!)).toBe(epochs[i])
+      else expect(await get(oldKeys[i]!)).not.toBe(epochs[i])
+    }
     expect(await get(`${oldNamespace}:client`)).toBeUndefined()
     expect(await get(otherKey)).toBe(otherEpoch)
     expect(await get(unrelated)).toBe("keep")
@@ -357,7 +361,7 @@ describe("v6 community scope qualification", () => {
     const user = `u_v6_scope_${hasPayload}`
     const owner = createIdbPersister(user)
     await owner.restoreClient()
-    const namespace = `${PERSIST_CACHE_PREFIX}:${user}`
+    const namespace = `${PERSIST_ACCOUNT_PREFIX}:${user}`
     const device = await get("alook:qc:device-epoch")
     const account = await get(`${namespace}:account-epoch`)
     const fences = new Map([["channel", { epoch: crypto.randomUUID(), deleted: true }]])
@@ -366,7 +370,7 @@ describe("v6 community scope qualification", () => {
     await set(`${blobKey(user)}:epoch`, oldScope)
     if (hasPayload) await set(blobKey(user), JSON.stringify({ ...client, version: 5, buster: "5", channelFences: [] }))
     else await del(blobKey(user))
-    const applicationKey = `${namespace}:application:client`
+    const applicationKey = `${PERSIST_CACHE_PREFIX}:${user}:application:client`
     const applicationScope = crypto.randomUUID()
     await set(applicationKey, "application payload")
     await set(`${applicationKey}:epoch`, applicationScope)
@@ -409,7 +413,7 @@ describe("v6 community scope qualification", () => {
     const fresh = createIdbPersister(user)
     expect(await fresh.restoreClient()).toBeUndefined()
     const qualified = await get<{ version: number; epoch: string }>(`${blobKey(user)}:epoch`)
-    expect(qualified).toEqual({ version: 6, epoch: expect.any(String) })
+    expect(qualified).toEqual({ version: PERSIST_VERSION, epoch: expect.any(String) })
     expect(qualified!.epoch).not.toBe(oldScope)
     expect(await get("alook:qc:device-epoch")).toBe(device)
     expect(await get(`${namespace}:account-epoch`)).toBe(account)

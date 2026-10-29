@@ -1,3 +1,5 @@
+import { profileResourceFixture } from "@/test/community-resource-fixtures"
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { createCollection } from "@tanstack/react-db"
 import { queryCollectionOptions } from "@tanstack/query-db-collection"
 import { QueryClient } from "@tanstack/react-query"
@@ -37,30 +39,82 @@ function observeProfilePublications(registry: CommunityDbRegistry) {
 }
 
 describe("canonical collection publication", () => {
-  it.each([false, true])("preserves sparse same-identity WS fields before ready=%s and honors explicit empty", async (ready) => {
+  it("replaces optional business fields and avoids republishing repeated equivalent snapshots", async () => {
+    const registry = owner()
+    await registry.preload()
+    const profile = profileSchema.parse({ id: "complete", name: "Complete", discriminator: "0042", avatar: null, avatarVersion: 0 })
+    await writeCommunityCollectionRows(registry, "profiles", [{ ...profile, aboutMe: "Private previous content" }], item => item.id)
+    const { publish, unsubscribe } = observeProfilePublications(registry)
+    try {
+      await writeCommunityCollectionRows(registry, "profiles", [profile], item => item.id)
+      expect(registry.collections.profiles.get(profile.id)?.aboutMe).toBeUndefined()
+      expect(publish).toHaveBeenCalledOnce()
+      await writeCommunityCollectionRows(registry, "profiles", [profile], item => item.id)
+      await writeCommunityCollectionRows(registry, "profiles", [{ ...profile, aboutMe: undefined }], item => item.id)
+      expect(publish).toHaveBeenCalledOnce()
+    } finally { unsubscribe() }
+  })
+
+  it("removes only documented live row metadata and still rejects missing or unknown business fields", async () => {
+    const registry = owner()
+    await registry.preload()
+    const profile = profileSchema.parse({ id: "complete", name: "Complete", discriminator: "0042", avatar: null, avatarVersion: 0 })
+    await writeCommunityCollectionRows(registry, "profiles", [profile], item => item.id)
+    const live = registry.collections.profiles.get(profile.id)!
+    expect(live).toHaveProperty("$key", profile.id)
+    await writeCommunityCollectionRows(registry, "profiles", [{ ...live, name: "Updated" }], item => item.id)
+    const key = communityKeys.communityDbCollection(registry.scopeId, "profiles")
+    const before = registry.queryClient.getQueryData(key)
+    await expect(async () => writeCommunityCollectionRows(registry, "profiles", [{ ...live, $unknown: true }], item => item.id)).rejects.toThrow()
+    await expect(async () => writeCommunityCollectionRows(registry, "profiles", [{ ...live, avatar: undefined }], item => item.id)).rejects.toThrow()
+    expect(registry.queryClient.getQueryData(key)).toBe(before)
+    expect(registry.collections.profiles.get(profile.id)?.name).toBe("Updated")
+  })
+
+  it.each([false, true])("rejects incomplete rows before canonical publication with ready=%s", async ready => {
     const registry = owner()
     if (ready) await registry.preload()
-    const message = { id: "m-rich", seq: 3, type: "chat" as const, authorId: "peer", authorName: "Peer",
-      authorAvatar: "peer-avatar", authorAvatarVersion: 0, content: "before", createdAt: "2026-08-07T10:00:00.000Z" }
-    const attachments = [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024 }]
+    const row = profileSchema.parse({ id: "complete", name: "Complete", discriminator: "0042", avatar: null, avatarVersion: 0 })
+    await writeCommunityCollectionRows(registry, "profiles", [row], item => item.id)
+    const key = communityKeys.communityDbCollection(registry.scopeId, "profiles")
+    const before = registry.queryClient.getQueryData(key)
+    await expect(async () => writeCommunityCollectionRows(registry, "profiles", [{ ...row, avatar: undefined }], item => item.id)).rejects.toThrow()
+    expect(registry.queryClient.getQueryData(key)).toBe(before)
+    expect(registry.collections.profiles.get("partial")).toBeUndefined()
+  })
+
+  it.each([false, true])("requires full WS messages before ready=%s and honors explicit empty", async (ready) => {
+    const registry = owner()
+    if (ready) await registry.preload()
+    const attachments = [{ id: "notes", name: "notes.txt", url: "/notes.txt", thumbnailUrl: null, contentType: "text/plain", sizeBytes: 1024, width: null, height: null }]
     const embeds = [{ title: "Reference" }]
-    ingestMessages(registry, "channel", [{ ...message, attachments, embeds }])
-    const summaryFacts = { type: "system" as const, clientNonce: "known-nonce", replyToId: "reply" }
-    ingestMessages(registry, "channel", [{ ...message, ...summaryFacts, attachments, embeds }])
-    ingestMessages(registry, "channel", [{ id: message.id, content: "summary" }])
-    expect(registry.queryClient.getQueryData(communityKeys.communityDbCollection(registry.scopeId, "messages"))).toMatchObject([
-      { ...summaryFacts, content: "summary", attachments, embeds },
-    ])
-    expect(registry.collections.messages.status === "ready").toBe(ready)
-    projectCommunityWsEventToDb(registry.queryClient, { type: "community:message.create",
-      serverId: "server", channelId: "channel", message: { ...message, content: "after" } })
+    const message = messageResourceFixture({ id: "m-rich", channelId: "channel", seq: 3, authorId: "peer", authorName: "Peer",
+      authorAvatar: "peer-avatar", authorAvatarVersion: 0, content: "before", createdAt: "2026-08-07T10:00:00.000Z", attachments, embeds })
+    ingestMessages(registry, "channel", [message])
     const key = communityKeys.communityDbCollection(registry.scopeId, "messages")
-    expect(registry.queryClient.getQueryData(key)).toMatchObject([{ ...message, content: "after", attachments, embeds }])
+    const before = registry.queryClient.getQueryData(key)
+    expect(() => ingestMessages(registry, "channel", [{ id: message.id, content: "summary" }])).toThrow()
+    expect(registry.queryClient.getQueryData(key)).toBe(before)
+    expect(registry.collections.messages.status === "ready").toBe(ready)
+    projectCommunityWsEventToDb(registry.queryClient, { type: "community:message.create", profiles: [profileResourceFixture({ id: "peer", name: "Peer", avatar: "peer-avatar" })],
+      serverId: "server", channelId: "channel", message: { ...message, content: "after" } })
+    expect(registry.queryClient.getQueryData(key)).toMatchObject([{ ...message, content: "after" }])
     await registry.preload()
     expect(registry.collections.messages.get(message.id)).toMatchObject({ content: "after", attachments, embeds })
-    projectCommunityWsEventToDb(registry.queryClient, { type: "community:message.create",
+    projectCommunityWsEventToDb(registry.queryClient, { type: "community:message.create", profiles: [profileResourceFixture({ id: "peer", name: "Peer", avatar: "peer-avatar" })],
       serverId: "server", channelId: "channel", message: { ...message, attachments: [], embeds: [] } })
     expect(registry.collections.messages.get(message.id)).toMatchObject({ attachments: [], embeds: [] })
+  })
+
+  it.each([false, true])("does not create an absent profile from a sparse patch with ready=%s", async ready => {
+    const registry = owner()
+    if (ready) await registry.preload()
+    writeCommunityProfilePatches([{ id: "unknown", identityAbout: { name: "Unknown" } }], registry)
+    const key = communityKeys.communityDbCollection(registry.scopeId, "profiles")
+    expect(registry.queryClient.getQueryData<Array<{ id: string }>>(key)?.some(row => row.id === "unknown") ?? false).toBe(false)
+    writeCommunityProfilePatches([{ id: "known", identityAbout: { name: "Known", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } }], registry)
+    writeCommunityProfilePatches([{ id: "known", identityAbout: { name: "Renamed" } }], registry)
+    expect(registry.queryClient.getQueryData(key)).toMatchObject([{ id: "known", name: "Renamed", discriminator: "0042", avatar: null, avatarVersion: 0 }])
   })
 
   it("reproduces snapshot loss with the library default collection GC", async () => {
@@ -94,7 +148,7 @@ describe("canonical collection publication", () => {
     vi.useFakeTimers()
     const registry = owner()
     await registry.preload()
-    writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alice" } }], registry)
+    writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alice", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } }], registry)
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
     expect(registry.collections.profiles.status).toBe("ready")
     expect(registry.collections.profiles.get("alice")?.name).toBe("Alice")
@@ -111,8 +165,8 @@ describe("canonical collection publication", () => {
     const registry = owner()
     await registry.preload()
     writeCommunityProfilePatches([
-      { id: "alice", identityAbout: { name: "Alice" } },
-      { id: "bob", identityAbout: { name: "Bob" } },
+      { id: "alice", identityAbout: { name: "Alice", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } },
+      { id: "bob", identityAbout: { name: "Bob", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } },
     ], registry)
     const bob = registry.collections.profiles.get("bob")
     const upsert = vi.spyOn(registry.collections.profiles.utils, "writeUpsert")
@@ -136,7 +190,7 @@ describe("canonical collection publication", () => {
   it("keeps equal rows silent and synchronizes deleting the final row", async () => {
     const registry = owner()
     await registry.preload()
-    writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alice" } }], registry)
+    writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alice", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } }], registry)
     const current = Array.from(registry.collections.profiles.values())
     const key = communityKeys.communityDbCollection("viewer", "profiles")
     const previous = registry.queryClient.getQueryData(key)
@@ -158,7 +212,7 @@ describe("canonical collection publication", () => {
   it("commits a confirmed value equal to the visible optimistic overlay before the native transaction drops it", async () => {
     const registry = owner()
     await registry.preload()
-    writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alice" } }], registry)
+    writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alice", discriminator: "0042" }, avatar: { avatar: null, avatarVersion: 0 } }], registry)
     const transaction = registry.dbClient.createTransaction({ mutationFn: async () => {
       writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alicia" } }], registry)
     } })
@@ -170,7 +224,7 @@ describe("canonical collection publication", () => {
 
   it("seeds a not-ready collection through the restore snapshot and then synchronizes", async () => {
     const registry = owner()
-    const row = profileSchema.parse({ identityComplete: false,
+    const row = profileSchema.parse({
       id: "alice", name: "Alice", discriminator: "0001", avatar: "A", avatarVersion: 1,
     })
     expect(registry.collections.profiles.status).not.toBe("ready")

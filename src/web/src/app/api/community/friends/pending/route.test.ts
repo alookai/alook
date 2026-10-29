@@ -1,5 +1,9 @@
+import { resourceBundleFixture } from "@/test/community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
+
+vi.mock("@/lib/community/attention-resources.server", () => ({ readCommunityResourceBundle: async (_db: unknown, viewerId: string, { profileIds }: { profileIds: string[] }) => resourceBundleFixture({ viewerId, profiles: profileIds.map(id => ({ id, name: id === "u_person" ? "Ada" : "HelperBot", discriminator: "0042", avatar: null, avatarVersion: 0 })) }) }))
 
 const listPending = vi.fn()
 
@@ -33,7 +37,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 
-const req = new NextRequest("http://localhost/api/community/friends/pending")
+const req = new NextRequest("http://localhost/api/community/friends/pending", { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
 
 describe("GET /api/community/friends/pending", () => {
   beforeEach(() => vi.clearAllMocks())

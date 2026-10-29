@@ -1,3 +1,5 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { serverDirectoryFixture, serverRailResponseFixture, channelResourceFixture, serverResourceFixture, fullResourceBundleFixture } from "@/test/community-resource-fixtures"
 import { IsRestoringProvider } from "@tanstack/react-query"
 import { beforeEach, expect, it, vi } from "vitest"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
@@ -29,10 +31,9 @@ it("uses the canonical target sidebar before commit, retaining its node while de
   const { client, registry } = await createCommunityQueryOwner()
   const server = { id: "target", name: "Target server", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
   const proof = { kind: "structural" as const, token: captureCommunityLiveSnapshotToken(client), signal: undefined }
-  publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: { servers: [{ ...server, initial: "T", active: false, unread: false, mentions: 0, isOwner: true, role: "owner", memberId: "membership" }] } }, proof })
-  publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: { ...server, categories: [{ id: "category", name: "Main", private: 0, channels: [{ id: "channel", name: "Target channel", active: false, unread: false, muted: false, type: "text" }] }] } }, proof })
+  publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: serverRailResponseFixture({ servers: [{ ...server, initial: "T", active: false, unread: false, mentions: 0, isOwner: true, role: "owner", memberId: "membership" }] }, "viewer") }, proof })
+  publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [{ id: "category", name: "Main", private: false, channels: [{ id: "channel", name: "Target channel", active: false, unread: false, muted: false, type: "text" }] }] }) }, proof })
   client.setQueryData(communityKeys.servers(), [server.id])
-  client.setQueryData(communityKeys.server(server.id), server.id)
   const sourceToken = createOwnerServerDeleteRouteToken(client)
   const targetToken = createOwnerServerDeleteRouteToken(client)
   const node = (committed: boolean) => <CommunityTestProvider client={client} registry={registry}>
@@ -67,7 +68,7 @@ it.each(["primary", "forum"])("ends a failed cold %s read with retry", async kin
   const { client, registry } = await createCommunityQueryOwner()
   const server = { id: "target", name: "Target server", discriminator: "0001", description: "", icon: null, ownerId: "viewer" }
   publishCommunityLiveSnapshot(client, {
-    snapshot: { kind: "servers", data: { servers: [{ ...server, initial: "T", active: false, unread: false, mentions: 0 }] } },
+    snapshot: { kind: "servers", data: serverRailResponseFixture({ servers: [{ ...server, initial: "T", active: false, unread: false, mentions: 0 }] }, "viewer") },
     proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
   })
   client.setQueryData(communityKeys.servers(), [server.id])
@@ -76,9 +77,9 @@ it.each(["primary", "forum"])("ends a failed cold %s read with retry", async kin
     if (url === "/api/community/servers/target/categories") {
       return kind === "primary" && fail ? Promise.reject(new Error("Temporary read failure")) : Promise.resolve({ categories: [] })
     }
-    if (url === "/api/community/servers/target/channels") return Promise.resolve({ channels: kind === "forum" ? [{ id: "forum", name: "Forum", type: "forum", categoryId: null, position: 0 }] : [] })
+    if (url === "/api/community/servers/target/channels") return Promise.resolve({ channels: kind === "forum" ? [channelResourceFixture({ id: "forum", serverId: "target", name: "Forum", type: "forum" })] : [] })
     if (url.startsWith("/api/community/servers/target/channels?")) {
-      return kind === "forum" && fail ? Promise.reject(new Error("Forum unavailable")) : Promise.resolve({ channels: [], included: { parentMessages: [] }, serverNow: new Date().toISOString() })
+      return kind === "forum" && fail ? Promise.reject(new Error("Forum unavailable")) : Promise.resolve({ schemaVersion: BUSINESS_SCHEMA_VERSION, serverId: "target", channels: [], canonicalChannels: [], retainedChannel: null, retainedDisposition: null, serverNow: new Date().toISOString(), resources: fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "target", name: "Target server", ownerId: "viewer" })], kind === "forum" ? [channelResourceFixture({ id: "forum", serverId: "target", name: "Forum", type: "forum" })] : []) })
     }
     return new Promise(() => {})
   })
@@ -99,7 +100,7 @@ it.each(["primary", "forum"])("ends a failed cold %s read with retry", async kin
   await waitFor(() => expect(view.queryByRole("alert")).toBeNull())
   expect(view.getByText("Target server")).toBeVisible()
   expect(mocks.load.mock.calls.filter(([path]) => path === "/api/community/servers/target/categories")).toHaveLength(kind === "primary" ? 2 : 1)
-  expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ categories: kind === "primary" ? [] : expect.arrayContaining([expect.objectContaining({ channels: [expect.objectContaining({ id: "forum" })] })]), primaryReady: true, forumProjectionMissing: false }))
+  await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ categories: kind === "primary" ? [] : expect.arrayContaining([expect.objectContaining({ channels: [expect.objectContaining({ id: "forum" })] })]), primaryReady: true, forumProjectionMissing: false })))
 })
 
 
@@ -128,7 +129,7 @@ it.each([
   mocks.search = `keep=${marker}`
   view.rerender(node())
   const qualify = async () => {
-    mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role, memberId: "membership" }] })
+    mocks.load.mockResolvedValueOnce(serverRailResponseFixture({ servers: [{ ...server, role, isOwner: role === "owner", memberId: "membership" }] }, "viewer"))
     await act(async () => { await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client), staleTime: 0 }) })
   }
   if (order === "owner-first") {
@@ -136,15 +137,18 @@ it.each([
     await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ onOpenSettings: expect.any(Function) })))
     expect(view.queryByText("Server settings")).toBeNull()
   }
-  act(() => { publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: { ...server, categories: [] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } }) })
-  await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ serverName: "Target server", onOpenSettings: undefined, onInvitePopoverOpenChange: undefined })))
-  expect(view.queryByText("Server settings")).toBeNull()
-  if (order === "detail-first") await qualify()
-  act(() => { client.setQueryData(communityKeys.server(server.id), server.id) })
+  act(() => { publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [] }) }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } }) })
+  view.rerender(node())
+  await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ serverName: "Target server", primaryReady: true })))
+  if (order === "detail-first") {
+    expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ onOpenSettings: undefined }))
+    expect(view.queryByText("Server settings")).toBeNull()
+    await qualify()
+  }
   view.rerender(node())
   if (role === "member") {
     expect(view.queryByText("Server settings")).toBeNull()
-    mocks.load.mockResolvedValueOnce({ servers: [{ ...server, role: "owner", memberId: "membership" }] })
+    mocks.load.mockResolvedValueOnce(serverRailResponseFixture({ servers: [{ ...server, role: "owner", isOwner: true, memberId: "membership" }] }, "viewer"))
     await act(async () => { await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client), staleTime: 0 }) })
     await waitFor(() => expect(mocks.props).toHaveBeenLastCalledWith(expect.objectContaining({ onOpenSettings: expect.any(Function) })))
     expect(view.queryByText("Server settings")).toBeNull()

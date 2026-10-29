@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -399,12 +400,12 @@ test.describe("mobile reaction details", () => {
     const chip = alice.page.getByTestId(tid.reactionChip(emptyMessageId, "✅"))
     await holdReaction(alice.page, chip)
     await expectDialogInsideViewport(alice.page, emptyMessageId)
-    const status = await alice.page.evaluate(async ({ id, emoji }) => {
-      const response = await fetch(`/api/community/messages/${id}/reactions/${encodeURIComponent(emoji)}`, {
+    const status = await alice.page.evaluate(async ({ businessHeaders, id, emoji }) => {
+      const response = await fetch(`/api/community/messages/${id}/reactions/${encodeURIComponent(emoji)}`, { headers: businessHeaders,
         method: "DELETE",
-      })
+      }).then(response => { if (response.ok && response.headers.get("X-Alook-Community-Contract") !== businessHeaders["X-Alook-Community-Contract"]) throw new Error("Fixture browser response did not confirm current business version"); return response })
       return response.status
-    }, { id: emptyMessageId, emoji: "✅" })
+    }, { id: emptyMessageId, emoji: "✅", businessHeaders: CURRENT_COMMUNITY_FIXTURE_HEADERS })
     expect(status).toBe(204)
     await expect(alice.page.getByTestId(tid.reactionEmpty(emptyMessageId))).toBeVisible()
     await expect(alice.page.getByTestId(tid.reactionDialog(emptyMessageId))).toBeVisible()

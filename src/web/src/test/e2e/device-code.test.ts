@@ -1,3 +1,4 @@
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
 import { signUp, signIn, sessionRequest, tokenRequest, sqlRun } from "@alook/test-utils"
@@ -121,7 +122,7 @@ describe("device-code-flow", () => {
     const tokenData = await tokenRes.json() as Record<string, unknown>
     const accessToken = tokenData.access_token as string
 
-    const meRes = await tokenRequest("/api/community/users/me/profile", accessToken)
+    const meRes = await tokenRequest("/api/community/users/me/profile", accessToken, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) } })
     expect(meRes.status).toBe(200)
     const me = await meRes.json() as Record<string, unknown>
     expect(me.name).toBe(testName)

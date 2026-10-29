@@ -1,3 +1,4 @@
+import { messageSeedFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createElement, type PropsWithChildren } from "react"
@@ -189,7 +190,7 @@ function useTestRender(options: Partial<Parameters<typeof useTimelineReadObserve
     scrollRootEl: root, snapshotStatus: "ready", feedStatus: "ready", tailAttached: true,
     confirmedSeq: 2, catchUp: () => Promise.resolve(), ...options,
   }
-  act(() => ingestMessages(owner.registry, props.channelId ?? "channel-1", props.messages.map((message) => ({ ...message, type: "chat" }))))
+  act(() => ingestMessages(owner.registry, props.channelId ?? "channel-1", messageSeedFixture(props.channelId ?? "channel-1", props.messages.map((message) => ({ ...message, type: "chat" })))))
   if (refState.persistent && activeView) activeView.rerender(props)
   else {
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer-1", retainOwner: true }, children)
@@ -310,7 +311,7 @@ describe("useTimelineReadObserver", () => {
       confirmedSeq: 2,
       catchUp: () => Promise.resolve(),
     }
-    act(() => ingestMessages(owner.registry, channelId, props.messages))
+    act(() => ingestMessages(owner.registry, channelId, messageSeedFixture(channelId, props.messages)))
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer-1", retainOwner: true }, children)
     const view = kind === "channel"
       ? renderHook(useChannelWatermark, { wrapper, initialProps: props })

@@ -1,3 +1,5 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
+import { channelResourceFixture, messageResourceFixture, forumFeedScenarioFixture } from "@/test/community-resource-fixtures"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
@@ -49,7 +51,8 @@ describe("embedded message surface ownership", () => {
     registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
     unregister = registerCommunityDbRegistry(registry)
-    const transport: Msg = {
+    const transport = messageResourceFixture({
+      channelId: "c1",
       id: "m1",
       type: "chat",
       seq: 1,
@@ -57,14 +60,14 @@ describe("embedded message surface ownership", () => {
       authorName: "Author",
       content: "initial",
       createdAt: "2026-09-26T00:00:00.000Z",
-    }
+    })
     const transportSurfaces = {
       mentions: [transport],
       marked: [transport],
       pins: [transport],
       context: [transport],
     }
-    const forumPage: ForumFeedTransportPage = {
+    const forumPage: ForumFeedTransportPage = forumFeedScenarioFixture("c1", {
       serverId: "s1",
       parentType: "forum",
       threads: [{
@@ -94,7 +97,7 @@ describe("embedded message surface ownership", () => {
         participants: [],
       },
       hasMore: false,
-    }
+    })
     const threads: ThreadsResponse = {
       threads: [{
         id: "post-1",
@@ -118,12 +121,13 @@ describe("embedded message surface ownership", () => {
     })
 
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
-    publishCommunityCreatedChannel(queryClient, {
+    publishCommunityCreatedChannel(queryClient, channelResourceFixture({
       id: "post-1", serverId: "s1", parentChannelId: "c1", parentMessageId: "m1", name: "transport", type: "thread", position: 0,
-      archived: false, muted: false, unread: false, tags: [], pending: false, createdAt: transport.createdAt,
-    }, { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
+      archived: false, creatorId: "author", messageCount: 1, createdAt: transport.createdAt,
+    }), { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
     publishCommunityEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
+      profiles: messageProfilesFixture([transport]),
       proof: {
         token: captureCommunityLiveSnapshotToken(queryClient),
         signal: undefined,
@@ -149,7 +153,7 @@ describe("embedded message surface ownership", () => {
     })
   })
 
-  it("normalizes legacy embedded messages that omit the transport type", async () => {
+  it("rejects incomplete type-less embedded messages without canonical publication", async () => {
     const queryClient = new QueryClient()
     registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
@@ -161,15 +165,11 @@ describe("embedded message surface ownership", () => {
       createdAt: "2026-09-26T00:00:00.000Z",
     } as Msg
 
-    expect(publishCommunityEmbeddedMessages(queryClient, {
+    expect(() => publishCommunityEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
-      proof: {
-        token: captureCommunityLiveSnapshotToken(queryClient),
-        signal: undefined,
-      },
-    })).toBe("published")
-    expect(getCanonicalCommunityMessages(queryClient)).toEqual([
-      expect.objectContaining({ id: transport.id, type: "chat" }),
-    ])
+      profiles: messageProfilesFixture([transport]),
+      proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined },
+    })).toThrow()
+    expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
   })
 })

@@ -4,7 +4,7 @@ import { useConversationPresentation } from "@/contexts/community/conversation-a
 import { useCallback, useEffect, useMemo } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
-import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityLegacyThreadsRead, type CommunityThreadsRead } from "@alook/shared"
+import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityThreadsRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
@@ -14,7 +14,7 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityForumFeed } from "@/lib/community-db/sync"
 import { forumTagFromUrl, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
-import type { ForumThread, Msg } from "@/lib/community/models/message"
+import { messageProfileIds, type ForumThread, type Msg } from "@/lib/community/models/message"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { channelHref } from "@/lib/community/community-route"
@@ -22,7 +22,7 @@ import { currentPageObservation, navigationForHref } from "@/lib/observability/c
 import { useForumTags } from "./use-channel-panels"
 import { useStoredForumTag } from "./use-stored-forum-tag"
 import { useConversationResource } from "./use-conversation-entry"
-import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectThread, type ForumFeedPage, type ForumFeedTransportPage } from "./forum-feed-window"
+import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectThread, type ForumFeedPage } from "./forum-feed-window"
 
 export { removeForumPostFromFeed } from "./forum-feed-window"
 export type { ForumFeedPage } from "./forum-feed-window"
@@ -64,16 +64,17 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
     const observation = request.observation ?? (action && !action.done ? { action, reason: "foreground" as const }
       : typeof window !== "undefined" && window.location.pathname === path ? { page: currentPageObservation(), reason: "background" as const }
       : { page: undefined, reason: "unknown" as const })
-    const transport = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead | CommunityLegacyThreadsRead>(`/api/community/channels/${channelId}/threads?${params}`, {
+    const transport = await apiFetch<CommunityThreadsRead>(`/api/community/channels/${channelId}/threads?${params}`, {
       ...request, observation: { ...observation, ...(pageParam ? { reason: "pagination" as const } : {}), role: pageParam ? "pagination" : "window", windowMode: pageParam ? "older" : "newest" },
     })
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, readSignal)
     const page = normalizeThreadResources(channelId, transport)
     const freshThreads = page.threads.filter((thread) => !protocol.get().publishedIds.has(thread.id))
     const ids = new Set(freshThreads.map((thread) => thread.id)), openerIds = new Set(freshThreads.map((thread) => thread.parentMessageId))
-    const users = new Set(page.included.members.filter((member) => ids.has(member.channelId)).map((member) => member.userId))
+    const messages = page.included.messages.filter((message) => openerIds.has(message.id) || ids.has(message.channelId))
+    const users = new Set([...page.included.members.filter((member) => ids.has(member.channelId)).map((member) => member.userId), ...messages.flatMap(messageProfileIds)])
     publishCommunityForumFeed(queryClient, channelId, { ...page, threads: freshThreads, included: {
-      messages: page.included.messages.filter((message) => openerIds.has(message.id) || ids.has(message.channelId)),
+      messages,
       previews: page.included.previews.filter((message) => ids.has(message.channelId)),
       tags: page.included.tags.filter((row) => openerIds.has(row.messageId)),
       members: page.included.members.filter((row) => ids.has(row.channelId)),

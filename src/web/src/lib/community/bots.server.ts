@@ -1,4 +1,4 @@
-import { queries, DAILY_TOKEN_USAGE_WINDOW_DAYS, calendarDayKeyDaysAgo, dayKeyInTimeZone, utcDayKey, utcDayKeyDaysAgo, type Database } from "@alook/shared"
+import { parseCommunityBotsProfileRead, queries, DAILY_TOKEN_USAGE_WINDOW_DAYS, calendarDayKeyDaysAgo, dayKeyInTimeZone, utcDayKey, utcDayKeyDaysAgo, type Database } from "@alook/shared"
 import { canonicalUserImage } from "./storage"
 
 export function tokenUsageDayWindow(now: Date, timeZone: string | null | undefined): string[] {
@@ -65,7 +65,7 @@ export async function readCommunityBots(db: Database, userId: string) {
       },
     }
   })
-  return {
+  const result = {
     bots: withActivity,
     plan: capacity.plan,
     isFounder: capacity.isFounder,
@@ -73,4 +73,6 @@ export async function readCommunityBots(db: Database, userId: string) {
     ownedCount: capacity.ownedCount,
     activeCount: capacity.activeCount,
   }
+  parseCommunityBotsProfileRead(result, userId)
+  return result
 }

@@ -16,6 +16,9 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { communityRequestOptions, retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { clearPersistedCache } from "@/lib/query-persister"
+import { z } from "zod"
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, CommunityReadErrorSchema } from "@alook/shared"
+import { BusinessSchemaMismatch, requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { isAbortError } from "@/lib/errors"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
 import { tid } from "@/lib/community/testids"
@@ -28,10 +31,19 @@ type Props = {
   onDeleted: () => Promise<void>
 }
 
-async function responseError(response: Response): Promise<string> {
+const AccountDeletionCodeReceiptSchema = z.strictObject({ ok: z.literal(true), expires_in: z.number().int().nonnegative(), resend_after: z.number().int().nonnegative() })
+
+function confirmResponse(response: Response) {
+  if (response.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) throw requestBusinessSchemaUpdate(Number(response.headers.get(COMMUNITY_CONTRACT_HEADER)))
+}
+
+async function responseError(response: Response, assertActive: () => void): Promise<string> {
   try {
-    const body = await response.json() as { error?: string }
-    switch (body.error) {
+    confirmResponse(response)
+    const raw: unknown = await response.json()
+    assertActive()
+    const body = CommunityReadErrorSchema.parse(raw)
+    switch (body.error.message) {
       case "INVALID_OTP": return "That code is incorrect. Try again."
       case "OTP_EXPIRED": return "That code expired. Send a new code."
       case "TOO_MANY_ATTEMPTS": return "Too many incorrect attempts. Send a new code."
@@ -39,7 +51,11 @@ async function responseError(response: Response): Promise<string> {
       case "CODE_SEND_FAILED": return "We couldn’t send the code. Try again."
       case "ACCOUNT_DELETION_FAILED": return "Your account wasn’t deleted. Try again."
     }
-  } catch {}
+  } catch (error) {
+    assertActive()
+    if (isAbortError(error) || error instanceof BusinessSchemaMismatch) throw error
+    throw requestBusinessSchemaUpdate()
+  }
   return "Something went wrong. Try again."
 }
 
@@ -99,7 +115,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
   }
   const request = useMutation({ meta: { observabilityAction: "account.deletion.command" }, mutationFn: async ({ action, body, source }: { action: "code" | "delete"; body: string; source: ReturnType<typeof capture> }) => {
     source.assertActive()
-    const response = await fetch(`/api/community/users/me/account-deletion${action === "code" ? "/code" : ""}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body, signal: source.controller.signal })
+    const response = await fetch(`/api/community/users/me/account-deletion${action === "code" ? "/code" : ""}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, body, signal: source.controller.signal })
     if (action === "code" || !response.ok) source.assertActive()
     return response
   } })
@@ -114,11 +130,17 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
       if (response.status === 401) { if (await source.options.onUnauthorized?.()) redirectToSignIn(source.registry.accountId); return }
       if (!response.ok) {
         const retryAfter = response.status === 429 ? parseRetryAfterSeconds(response.headers) : null
-        const message = await responseError(response); source.assertActive()
+        const message = await responseError(response, source.assertActive); source.assertActive()
         if (retryAfter) setResendAfter(retryAfter)
         setError(message); return
       }
-      const body = await response.json() as { resend_after: number }; source.assertActive()
+      confirmResponse(response)
+      let raw: unknown
+      try { raw = await response.json(); source.assertActive() }
+      catch (error) { source.assertActive(); if (isAbortError(error)) throw error; throw requestBusinessSchemaUpdate() }
+      const parsed = AccountDeletionCodeReceiptSchema.safeParse(raw)
+      if (!parsed.success) throw requestBusinessSchemaUpdate()
+      const body = parsed.data
       setOtp(""); setResendAfter(body.resend_after); setStep("code")
     } catch (error) {
       if (isAbortError(error)) return
@@ -138,7 +160,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
     try {
       const response = await request.mutateAsync({ action: "delete", body: JSON.stringify({ otp }), source })
       if (!response.ok) {
-        const message = await responseError(response); source.assertActive()
+        const message = await responseError(response, source.assertActive); source.assertActive()
         cancelAccountDeletionAuthTransition(lease); transition.current = undefined
         setOtp(""); setError(message); return
       }

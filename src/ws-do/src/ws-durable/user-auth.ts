@@ -1,9 +1,9 @@
 import {
+  BUSINESS_SCHEMA_VERSION,
   type CommunityContract,
   createDb,
   encodeCommunityBrowserEventBatchForContract,
   encodeCommunityBrowserEvent,
-  projectCommunityEventForContract,
   isUserWsConnectionPing,
   isValidCommunityUserTarget,
   queries,
@@ -50,7 +50,8 @@ const USER_SESSION_CHECK_INTERVAL_MS = 60_000
 
 async function refreshUserSession(context: WsDurableContext, ws: WebSocket): Promise<void> {
   const state = ws.deserializeAttachment() as ConnectionState
-  if (state?.type !== "user" || !state.authenticated || (state.sessionValidUntil ?? 0) > Date.now()) return
+  if (state?.type !== "user" || !state.authenticated) return
+  if (!isCurrentBusinessSocket(ws, state) || (state.sessionValidUntil ?? 0) > Date.now()) return
   try {
     const session = state.sessionId
       ? await queries.session.getValidSessionByIdForUser(createDb(context.env.DB), state.sessionId, state.userId)
@@ -244,6 +245,8 @@ export async function handleWebSocketMessage(
   let parsed: unknown
   try { parsed = JSON.parse(message) } catch { ws.close(1008, "Invalid JSON"); return }
 
+  const originalState = ws.deserializeAttachment() as ConnectionState
+  if (originalState?.type === "user" && originalState.authenticated && !isCurrentBusinessSocket(ws, originalState)) return
   await refreshUserSession(context, ws)
 
   const state = ws.deserializeAttachment() as ConnectionState
@@ -266,6 +269,8 @@ export async function handleWebSocketMessage(
     await handleCommunityMachineMessage(parsed)
     return
   }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || typeof (parsed as Record<string, unknown>).type !== "string") return
 
   const msg = parsed as {
     type: string
@@ -326,13 +331,13 @@ export async function handleWebSocketMessage(
       return
     }
     const wasOnline = countAuthenticatedUserConnections(context, userId) > 0
-    const selected = state?.type === "user" && state.authenticated ? state.communityContract : msg.communityContract
-    if (selected !== undefined && selected !== 1 && selected !== 2 && selected !== 3) {
-      ws.send(JSON.stringify({ type: "auth.error", error: "Unsupported community contract" }))
+    if (msg.communityContract !== BUSINESS_SCHEMA_VERSION
+      || (state?.type === "user" && state.authenticated && state.communityContract !== BUSINESS_SCHEMA_VERSION)) {
+      ws.send(JSON.stringify({ type: "auth.error", error: "Unsupported community contract", communityContract: BUSINESS_SCHEMA_VERSION }))
       ws.close(1008, "Unsupported community contract")
       return
     }
-    const communityContract: CommunityContract = selected ?? 1
+    const communityContract = BUSINESS_SCHEMA_VERSION
     ws.serializeAttachment({
       type: "user",
       userId,
@@ -348,7 +353,7 @@ export async function handleWebSocketMessage(
         : {}),
     } as ConnectionState)
     context.log.info("websocket authenticated", { userId })
-    ws.send(JSON.stringify({ type: "auth.ok", ...(communityContract !== 1 ? { communityContract } : {}) }))
+    ws.send(JSON.stringify({ type: "auth.ok", communityContract }))
     if (!wasOnline) {
       broadcastPresence(context, userId, true).catch(() => { })
     }
@@ -379,6 +384,11 @@ export async function handleWebSocketMessage(
     return
   }
 
+  if (state.type === "user" && !isCurrentBusinessSocket(ws, state)) return
+  if (state.type === "user" && msg.type.startsWith("community:") && (parsed as Record<string, unknown>).schemaVersion !== BUSINESS_SCHEMA_VERSION) {
+    ws.close(1008, "Unsupported community contract")
+    return
+  }
   if (state.type === "user" && await handleUserAgentInterrupt(context, state, parsed)) return
   if (state.type === "user") {
     const typingStart = handleClientTypingStart(context, state, parsed)
@@ -455,20 +465,27 @@ function broadcast(
   return sent
 }
 
-function broadcastCommunity(context: WsDurableContext, event: import("@alook/shared").CommunityWsEvent, targetUserId: string, sourceContract: CommunityContract = 2) {
+function broadcastCommunity(context: WsDurableContext, event: import("@alook/shared").CommunityWsEvent, targetUserId: string, sourceContract: CommunityContract = BUSINESS_SCHEMA_VERSION) {
+  const encoded = encodeCommunityBrowserEvent(event, sourceContract)
+  if (!encoded.ok) return 0
   let sent = 0
   for (const ws of context.ctx.getWebSockets()) {
     const state = ws.deserializeAttachment() as ConnectionState
     if (state?.type !== "user" || !state.authenticated || state.userId !== targetUserId) continue
-    const contract = state.communityContract ?? 1
-    if (contract !== 1 && contract !== 2 && contract !== 3) continue
-    const projected = projectCommunityEventForContract(event, contract, sourceContract)
-    if (!projected) continue
-    const encoded = encodeCommunityBrowserEvent(projected, contract)
-    if (!encoded.ok) continue
+    if (!isCurrentBusinessSocket(ws, state)) continue
     try { ws.send(encoded.body); sent++ } catch { }
   }
   return sent
+}
+
+function isCurrentBusinessSocket(ws: WebSocket, state: Extract<ConnectionState, { type: "user" }>): boolean {
+  if (state.communityContract === BUSINESS_SCHEMA_VERSION) return true
+  ws.serializeAttachment({ ...state, authenticated: false })
+  try {
+    ws.send(JSON.stringify({ type: "auth.error", error: "Unsupported community contract", communityContract: BUSINESS_SCHEMA_VERSION }))
+    ws.close(1008, "Unsupported community contract")
+  } catch { }
+  return false
 }
 
 type ValidCommunityBundle = Extract<
@@ -529,10 +546,9 @@ async function deliverCommunityBundle(
   bundle: ValidCommunityBundle,
   targetUserId: string,
 ): Promise<Response> {
-  const formats = await Promise.all(([1, 2, 3] as const).map((contract) => encodeCommunityBrowserEventBatchForContract({
-    operationId: bundle.operationId, prepared: bundle.prepared, contract,
-  })))
-  const encodedBatch = formats[bundle.prepared.contract === 3 ? 2 : 1]!
+  const encodedBatch = await encodeCommunityBrowserEventBatchForContract({
+    operationId: bundle.operationId, prepared: bundle.prepared, contract: BUSINESS_SCHEMA_VERSION,
+  })
   const targetSockets: Array<{
     ws: WebSocket
     state: Extract<ConnectionState, { type: "user" }>
@@ -546,14 +562,12 @@ async function deliverCommunityBundle(
       }
       continue
     }
-    targetSockets.push({ ws, state })
+    if (isCurrentBusinessSocket(ws, state)) targetSockets.push({ ws, state })
   }
 
-  const plans: DeliveryPlan[] = targetSockets.map(({ ws, state }, socketIndex) => {
-    const contract = state.communityContract ?? 1
-    const encoded = contract === 1 || contract === 2 || contract === 3 ? formats[contract - 1] : undefined
-    return { socketIndex, ws, state, frames: encoded?.ok ? [encoded.body] : [], progress: null }
-  })
+  const plans: DeliveryPlan[] = targetSockets.map(({ ws, state }, socketIndex) => ({
+    socketIndex, ws, state, frames: encodedBatch.ok ? [encodedBatch.body] : [], progress: null,
+  }))
 
   if (!encodedBatch.ok) {
     context.log.error("community_delivery_batch_encoder_invariant_failed", {

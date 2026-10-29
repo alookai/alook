@@ -1,3 +1,4 @@
+import { serverMembersReadFixture, friendBucketScenarioFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -19,9 +20,9 @@ describe("Native invitable friend projection", () => {
     api.mockClear()
     api.mockImplementation(async (path: string) => {
       if (path.endsWith("/accepted")) return accepted
-      if (path.endsWith("/blocked")) return { blocked: [] }
-      if (path.endsWith("/pending")) return { pending: [] }
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
+      if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000, retry: false } } })
@@ -35,7 +36,7 @@ describe("Native invitable friend projection", () => {
     expect(view.result.current.picker.isSuccess).toBe(false)
     expect(api.mock.calls.filter(([path]) => path.endsWith("/accepted"))).toHaveLength(1)
 
-    await act(async () => { release({ friends: [friend] }); await accepted })
+    await act(async () => { release(friendBucketScenarioFixture("friends", [friend])); await accepted })
     await waitFor(() => expect(view.result.current.picker.isSuccess).toBe(true))
     expect(view.result.current.picker.friends).toEqual([expect.objectContaining(friend)])
     expect(view.result.current.shell.friends).toEqual([expect.objectContaining(friend)])
@@ -46,10 +47,10 @@ describe("Native invitable friend projection", () => {
     const friend = { id: "friendship_warm", userId: "friend_warm", name: "Warm friend", discriminator: "0042", avatar: "W", avatarVersion: 0, status: "offline", sub: "" }
     api.mockClear()
     api.mockImplementation(async (path: string) => {
-      if (path.endsWith("/accepted")) return { friends: [friend] }
-      if (path.endsWith("/blocked")) return { blocked: [] }
-      if (path.endsWith("/pending")) return { pending: [] }
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", [friend])
+      if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
+      if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000, retry: false } } })
@@ -70,10 +71,10 @@ describe("Native invitable friend projection", () => {
     const friend = { id: "friendship_selected", userId: "friend_selected", name: "Selected friend", discriminator: "0042", avatar: "S", avatarVersion: 0, status: "offline", sub: "" }
     api.mockClear()
     api.mockImplementation(async (path: string) => {
-      if (path.endsWith("/accepted")) return { friends: [friend] }
-      if (path.endsWith("/blocked")) return { blocked: [] }
-      if (path.endsWith("/pending")) return { pending: [] }
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", [friend])
+      if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
+      if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000, retry: false } } })
@@ -92,7 +93,7 @@ describe("Native invitable friend projection", () => {
   it("keeps raw complete member pages with a default selector on fetched and cached reads", async () => {
     const member = { id: "member_selected", userId: "user_selected", name: "Member", discriminator: "0042", avatar: "M", avatarVersion: 0, status: "offline", sub: "", role: "member" }
     api.mockClear()
-    api.mockResolvedValue({ members: [member], hasMore: false, cursor: null, limit: 100, total: 1 })
+    api.mockResolvedValue(serverMembersReadFixture("server_1", [member]))
     const owner = await createCommunityQueryOwner()
     const select = vi.fn(() => ({ pages: [], pageParams: [] }))
     owner.client.setQueryDefaults(communityKeys.members("server_1"), { select })
@@ -111,11 +112,11 @@ describe("Native invitable friend projection", () => {
     api.mockImplementation(async (path: string) => {
       if (path.endsWith("/accepted")) {
         if (failing) throw new Error("Friends unavailable")
-        return { friends: [] }
+        return friendBucketScenarioFixture("friends", [])
       }
-      if (path.endsWith("/blocked")) return { blocked: [] }
-      if (path.endsWith("/pending")) return { pending: [] }
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
+      if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: 1, retryDelay: 0 } } })
@@ -129,24 +130,24 @@ describe("Native invitable friend projection", () => {
     expect(view.result.current.friends).toEqual([])
     expect(view.result.current.data).toEqual({ friends: [] })
   })
-  it("seeds identified friends and preserves identifier-free presentation", async () => {
+  it("seeds explicit peer identities while preserving relationship presentation", async () => {
     const identified = { id: "friendship_1", userId: "friend_1", name: "Alice", discriminator: "0042", avatar: "A", avatarVersion: 2, status: "offline", sub: "" }
-    const legacy = { id: "legacy", name: "Legacy", discriminator: "0000", avatar: "L", avatarVersion: 0, status: "offline", sub: "" }
+    const other = { id: "relationship_other", userId: "friend_other", name: "Other", discriminator: "0000", avatar: "L", avatarVersion: 0, status: "offline", sub: "" }
     api.mockImplementation(async (path: string) => {
-      if (path.endsWith("/accepted")) return { friends: [identified, legacy] }
-      if (path.endsWith("/blocked")) return { blocked: [] }
-      if (path.endsWith("/pending")) return { pending: [] }
-      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", [identified, other])
+      if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [])
+      if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [])
+      if (path.includes("/members")) return serverMembersReadFixture("server_1", [])
       throw new Error(`Unexpected friend request: ${path}`)
     })
     const owner = await createCommunityQueryOwner()
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
     const view = renderHook(() => useInvitableFriends("server_1"), { wrapper })
     await waitFor(() => expect(view.result.current.friends).toEqual([
-      expect.objectContaining(identified), expect.objectContaining(legacy),
+      expect.objectContaining(identified), expect.objectContaining(other),
     ]))
-    expect(owner.client.getQueryData(communityKeys.invitableFriends("server_1"))).toEqual({ serverId: "server_1", friendIds: ["friendship_1", "legacy"] })
+    expect(owner.client.getQueryData(communityKeys.invitableFriends("server_1"))).toEqual({ serverId: "server_1", friendIds: ["friendship_1", "relationship_other"] })
     expect(owner.registry.collections.profiles.get("friend_1")?.name).toBe("Alice")
-    expect(owner.registry.collections.friendships.get("legacy")).toMatchObject({ id: "legacy", kind: "accepted" })
+    expect(owner.registry.collections.friendships.get("relationship_other")).toMatchObject({ id: "relationship_other", userId: "friend_other", kind: "accepted" })
   })
 })

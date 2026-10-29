@@ -121,7 +121,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
           userId: bot.id,
           name: bot.name,
           discriminator: bot.discriminator,
-          avatar: canonicalUserImage(bot.id, bot.image, bot.avatarVersion) ?? undefined,
+          avatar: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
           avatarVersion: bot.avatarVersion,
           role: member.role ?? ROLES.MEMBER,
           joinedAt: member.joinedAt,

@@ -1,3 +1,4 @@
+import { messageReadPageFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClientProvider, onlineManager } from "@tanstack/react-query"
@@ -37,7 +38,7 @@ describe("entry-owned message activation", () => {
     const first = renderHook(useSurface, { wrapper })
     await waitFor(() => expect(first.result.current.initialPositionKnown).toBe(true))
     expect(first.result.current.messages?.map(row => row.id)).toEqual(["m1"])
-    expect(load).toHaveBeenCalledOnce()
+    expect(load, JSON.stringify(load.mock.calls.map(call => call[0]))).toHaveBeenCalledOnce()
     first.unmount()
     const returned = renderHook(useSurface, { wrapper })
     await waitFor(() => expect(returned.result.current.messages?.map(row => row.id)).toEqual(["m1"]))
@@ -78,7 +79,7 @@ describe("entry-owned message activation", () => {
     const m3 = { ...m2, id: "m3", seq: 3, content: "New landing", createdAt: "2026-10-01T00:00:03.000Z" }
     load.mockImplementation((url: string) => url.includes("entry=1")
       ? Promise.resolve({ ...packet, messages: [packet.messages[0], m3], page: { ...packet.page, latestSeq: 3 } })
-      : Promise.resolve({ messages: [m2, m3], latestSeq: 3, hasMoreNewer: false, hasMoreOlder: true }))
+      : Promise.resolve(messageReadPageFixture({ messages: [m2, m3], latestSeq: 3, hasMoreNewer: false, hasMoreOlder: true })))
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000)
     try {
       const returned = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })

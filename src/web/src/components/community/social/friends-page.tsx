@@ -1,4 +1,6 @@
 "use client"
+
+import { CommunityUserSearchReadSchema, type CommunityUserSearchRead } from "@alook/shared"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 import { useObservedRegion } from "@/lib/observability/regions"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -18,7 +20,6 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { Avatar } from "../avatar"
-import { avatarInitial } from "@/lib/community/avatar"
 import { EmptyState } from "../empty-state"
 import { FriendRowsSkeleton, FriendsPageSkeleton } from "./friends-page-skeleton"
 import { hasStatus } from "./status-presets"
@@ -126,14 +127,12 @@ export function FriendsPage({
       const token = captureCommunityLiveSnapshotToken(profileQueryClient)
       const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(profileQueryClient, token, signal)
       try {
-        const data = await apiFetchProfiles<{
-          users: Array<{ id: string; name: string; image: string | null; avatarVersion: number; discriminator: string }>
-        }>(
+        const data = await apiFetchProfiles<CommunityUserSearchRead>(
           `/api/community/users/search?q=${encodeURIComponent(searchTerm)}`,
-          (response) => response.users.map((user) => ({
+          (response) => CommunityUserSearchReadSchema.parse(response).users.map((user) => ({
             id: user.id,
             identityAbout: { name: user.name, discriminator: user.discriminator },
-            avatar: { avatar: user.image ?? avatarInitial(user.name), avatarVersion: user.avatarVersion },
+            avatar: { avatar: user.image, avatarVersion: user.avatarVersion },
           })),
           { signal, assertActive }, getCommunityDbRegistry(profileQueryClient),
         )

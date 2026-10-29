@@ -1,4 +1,5 @@
 "use client"
+import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { currentPageObservation, startPageOperation, finishPageOperation, pageOperationAttributes, runPageOperation, type PageOperation } from "@/lib/observability/context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { useEffect, useRef, useCallback } from "react"
@@ -711,7 +712,7 @@ export function useUserWs(
       trackCommunityWsAuthFailure({ failureClass })
     }
 
-    let communityContract: CommunityContract = 1
+    let communityContract: CommunityContract = COMMUNITY_CONTRACT_VERSION
     const requestedCommunityContract = requestedCommunityContractRef.current
     let communityAdmission = Promise.resolve()
     let pendingAdmissions = 0
@@ -783,7 +784,7 @@ export function useUserWs(
         return
       }
       const msg = parsed as Record<string, unknown>
-      if (msg.type === "auth.error") protocolRejected = true
+      if (msg.type === "auth.error") { protocolRejected = true; requestBusinessSchemaUpdate(Number(msg.communityContract)); ws.close(1008, "Community contract mismatch"); return }
       if (typeof msg.type !== "string" || msg.type.length === 0) {
         reportDroppedFrame("missing-type", msg)
         return
@@ -821,10 +822,10 @@ export function useUserWs(
           reportDroppedFrame("duplicate-auth-ok", msg)
           return
         }
-        const confirmed = msg.communityContract ?? 1
-        if ((confirmed !== 1 && confirmed !== 2 && confirmed !== 3)
-          || (confirmed !== requestedCommunityContract && !(confirmed === 1 && requestedCommunityContract === 2))) {
+        const confirmed = msg.communityContract
+        if (confirmed !== COMMUNITY_CONTRACT_VERSION || confirmed !== requestedCommunityContract) {
           protocolRejected = true
+          requestBusinessSchemaUpdate(Number(confirmed))
           reportDroppedFrame("invalid-payload", msg)
           ws.close(1008, "Community contract confirmation mismatch")
           return
@@ -883,12 +884,12 @@ export function useUserWs(
           return
         }
       }
-      if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(communityContract)
-        && !(communityContract === 2 && msg.type === communityBrowserEventBatchType(1)))
-        || (communityContract === 1 && (msg.type === "community:channel.membership.change"
-          || (isCommunityBatch && Array.isArray(msg.events) && msg.events.some((event: unknown) =>
-            isCommunityEventCandidate(event) && event.type === "community:channel.membership.change"))))) {
+      if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(communityContract))
+        || (isCommunityEventCandidate(msg) && !isCommunityBatch && msg.schemaVersion !== communityContract)) {
+        protocolRejected = true
+        requestBusinessSchemaUpdate()
         reportDroppedFrame("invalid-payload", msg)
+        ws.close(1008, "Community contract mismatch")
         return
       }
 
@@ -896,7 +897,7 @@ export function useUserWs(
       const assertAdmissionCurrent = () => {
         if (!ownsAuthenticatedConnection(ws, generation) || isOffline() || callback !== onMessageRef.current) throw new DOMException("Retired WebSocket admission", "AbortError")
       }
-      if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(1)) || pendingAdmissions > 0) {
+      if (isCommunityBatch || pendingAdmissions > 0) {
         if (pendingAdmissions >= 32) { ws.close(1011, "Community admission overloaded"); return }
         pendingAdmissions++
         communityAdmission = communityAdmission.then(async () => {
@@ -962,6 +963,7 @@ export function useUserWs(
         isBackground() || frozenRef.current ? "suspended" : "reconnecting",
       )
       if (generation !== connectionGenerationRef.current) return
+      if (protocolRejected) { credentialRetryRef.current.stopped = true; return }
       if (failedValidation && !isBackground() && !isOffline() && !frozenRef.current) {
         void connectRef.current?.()
       } else {
@@ -1276,7 +1278,7 @@ export function useUserWs(
   const send = useCallback((msg: object) => {
     const ws = wsRef.current
     if (!isOffline() && isCurrentWsAccount(viewerUserId) && ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg))
+      ws.send(JSON.stringify(isCommunityEventCandidate(msg) ? { ...msg, schemaVersion: COMMUNITY_CONTRACT_VERSION } : msg))
     }
   }, [isOffline, viewerUserId])
 

@@ -245,6 +245,11 @@ function isCookieHumanSameOrigin(req: NextRequest): boolean {
 }
 
 export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
+  const authenticate = createCookieHumanAuthHandler(handler)
+  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], await authenticate(...args))
+}
+
+function createCookieHumanAuthHandler(handler: CookieHumanAuthHandler) {
   return async (
     req: NextRequest,
     context?: { params?: Promise<Record<string, string>> | Record<string, string> },
@@ -263,6 +268,8 @@ export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
     if (req.headers.has("Authorization")) {
       return accountDeletionAuthError("UNAUTHORIZED", 401)
     }
+    const unsupported = rejectUnknownCommunityContract(req)
+    if (unsupported) return unsupported
 
     const cloudflare = await getCloudflareContext({ async: true })
     const cloudflareEnv = cloudflare.env as Env
@@ -309,7 +316,7 @@ export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
 
 export function withAuth(handler: AuthenticatedHandler, options: { allowBotSelection?: boolean } = {}) {
   const authenticate = createAuthenticatedHandler(handler, options)
-  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], rejectUnknownCommunityContract(args[0]) ?? await authenticate(...args))
+  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], await authenticate(...args))
 }
 
 function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { allowBotSelection?: boolean }) {
@@ -326,11 +333,14 @@ function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { al
         : context.params
       : undefined
 
+    const authHeader = req.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer al_")) {
+      const unsupported = rejectUnknownCommunityContract(req)
+      if (unsupported) return unsupported
+    }
     const { env } = await getCloudflareContext({ async: true })
     const cloudflareEnv = env as Env
     bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
-
-    const authHeader = req.headers.get("Authorization")
     if (authHeader?.startsWith("Bearer ")) {
       const raw = authHeader.slice(7)
       if (raw.startsWith("al_")) {
@@ -392,6 +402,8 @@ function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { al
             // failure — those throw and fall to the 503 catch below.
             return NextResponse.json({ error: "invalid token" }, { status: 401 })
           }
+          const unsupported = rejectUnknownCommunityContract(req, true)
+          if (unsupported) return unsupported
           if (bump) {
             Promise.resolve(queries.machineToken.updateMachineTokenLastUsed(db, mt.id)).catch(() => {})
           }
@@ -461,6 +473,11 @@ function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { al
  *    reusable by any future login-optional page.
  */
 export function withOptionalAuth(handler: OptionalAuthHandler) {
+  const authenticate = createOptionalAuthHandler(handler)
+  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], rejectUnknownCommunityContract(args[0]) ?? await authenticate(...args))
+}
+
+function createOptionalAuthHandler(handler: OptionalAuthHandler) {
   return async (
     req: NextRequest,
     context?: { params?: Promise<Record<string, string>> | Record<string, string> }

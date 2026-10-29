@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import React from "react"
 import { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -5,6 +6,13 @@ import { act, fireEvent, render as renderDom, screen, setupUser, waitFor } from 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { AccountDeletionFlow } from "./account-deletion-flow"
+
+function currentResponse(body: unknown, init?: ResponseInit) {
+  return Response.json(body, { ...init, headers: { ...init?.headers, [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
+}
+function currentError(message: string, status: number) {
+  return currentResponse({ contractVersion: BUSINESS_SCHEMA_VERSION, error: { code: status >= 500 ? "temporarily_unavailable" : "invalid_input", message, retryable: status >= 500 } }, { status })
+}
 
 const authTransition = vi.hoisted(() => ({
   begin: vi.fn(),
@@ -46,8 +54,8 @@ describe("AccountDeletionFlow", () => {
   it("does not send on open and never deletes when digit six is entered", async () => {
     const user = setupUser({ advanceTimers: (delay) => vi.advanceTimersByTime(delay) })
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ ok: true, expires_in: 300, resend_after: 60 }))
-      .mockResolvedValueOnce(Response.json({ ok: true }))
+      .mockResolvedValueOnce(currentResponse({ ok: true, expires_in: 300, resend_after: 60 }))
+      .mockResolvedValueOnce(currentResponse({ ok: true }))
     vi.stubGlobal("fetch", fetchMock)
     const onDeleted = vi.fn().mockResolvedValue(undefined)
     render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={onDeleted} />)
@@ -67,15 +75,15 @@ describe("AccountDeletionFlow", () => {
     expect(authTransition.cancel).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/community/users/me/account-deletion",
-      expect.objectContaining({ body: JSON.stringify({ otp: "123456" }) }),
+      expect.objectContaining({ body: JSON.stringify({ otp: "123456" }), headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }),
     )
   })
 
   it("clears an invalid code, returns focus to the OTP, and preserves the resend cooldown after Back", async () => {
     const user = setupUser({ advanceTimers: (delay) => vi.advanceTimersByTime(delay) })
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ ok: true, expires_in: 300, resend_after: 60 }))
-      .mockResolvedValueOnce(Response.json({ error: "INVALID_OTP" }, { status: 400 }))
+      .mockResolvedValueOnce(currentResponse({ ok: true, expires_in: 300, resend_after: 60 }))
+      .mockResolvedValueOnce(currentError("INVALID_OTP", 400))
     vi.stubGlobal("fetch", fetchMock)
     render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={vi.fn()} />)
 
@@ -99,7 +107,7 @@ describe("AccountDeletionFlow", () => {
   it("restores normal auth navigation when the deletion request cannot complete", async () => {
     const user = setupUser({ advanceTimers: (delay) => vi.advanceTimersByTime(delay) })
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ ok: true, expires_in: 300, resend_after: 60 }))
+      .mockResolvedValueOnce(currentResponse({ ok: true, expires_in: 300, resend_after: 60 }))
       .mockRejectedValueOnce(new TypeError("offline"))
     vi.stubGlobal("fetch", fetchMock)
     render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={vi.fn()} />)
@@ -117,8 +125,8 @@ describe("AccountDeletionFlow", () => {
   it.each([200, 202])("preserves the accepted deletion status %s when local cleanup rejects", async (status) => {
     const user = setupUser({ advanceTimers: (delay) => vi.advanceTimersByTime(delay) })
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ ok: true, expires_in: 300, resend_after: 60 }))
-      .mockResolvedValueOnce(Response.json({ ok: true }, { status }))
+      .mockResolvedValueOnce(currentResponse({ ok: true, expires_in: 300, resend_after: 60 }))
+      .mockResolvedValueOnce(currentResponse({ ok: true }, { status }))
     vi.stubGlobal("fetch", fetchMock)
     const replace = vi.fn()
     vi.stubGlobal("location", { replace })
@@ -146,14 +154,14 @@ describe("retired deletion UI commands", () => {
     vi.stubGlobal("fetch", vi.fn((_path, options) => { signal = options.signal; return new Promise<Response>((resolve) => { complete = resolve }) }))
     const onDeleted = vi.fn(); const mounted = render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={onDeleted} />)
     fireEvent.click(screen.getByTestId(tid.accountDeletionSendCode)); await waitFor(() => expect(complete).toBeTypeOf("function")); mounted.rerender(<output>Current screen</output>)
-    await act(async () => complete(Response.json({}, { status: 401 }))); expect(signal.aborted).toBe(true); expect(onDeleted).not.toHaveBeenCalled(); expect(screen.queryByTestId(tid.accountDeletionOtp)).not.toBeInTheDocument()
+    await act(async () => complete(currentResponse({}, { status: 401 }))); expect(signal.aborted).toBe(true); expect(onDeleted).not.toHaveBeenCalled(); expect(screen.queryByTestId(tid.accountDeletionOtp)).not.toBeInTheDocument()
   })
   it("held failed delete after view retirement cannot publish its old error or invoke completion", async () => {
     let complete!: (response: Response) => void; let signal!: AbortSignal
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({ resend_after: 0 })).mockImplementationOnce((_path, options) => { signal = options.signal; return new Promise<Response>((resolve) => { complete = resolve }) }))
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(currentResponse({ ok: true, expires_in: 300, resend_after: 0 })).mockImplementationOnce((_path, options) => { signal = options.signal; return new Promise<Response>((resolve) => { complete = resolve }) }))
     const onDeleted = vi.fn(); const mounted = render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={onDeleted} />)
     fireEvent.click(screen.getByTestId(tid.accountDeletionSendCode)); const input = await screen.findByTestId(tid.accountDeletionOtp); fireEvent.change(input, { target: { value: "123456" } }); fireEvent.click(screen.getByTestId(tid.accountDeletionSubmit))
     await waitFor(() => expect(complete).toBeTypeOf("function")); mounted.rerender(<output>Current screen</output>)
-    await act(async () => complete(Response.json({ error: "ACCOUNT_DELETION_FAILED" }, { status: 500 }))); expect(signal.aborted).toBe(true); expect(onDeleted).not.toHaveBeenCalled(); expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    await act(async () => complete(currentError("ACCOUNT_DELETION_FAILED", 500))); expect(signal.aborted).toBe(true); expect(onDeleted).not.toHaveBeenCalled(); expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 })

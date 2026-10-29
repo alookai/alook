@@ -1,4 +1,5 @@
 "use client"
+import { getServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { readCommunityServerRailServers } from "@/lib/community-db/server-rail"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -194,7 +195,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
   const serverDestination = useCallback(async (id: string) => {
     const lastChannel = getLastChannel(id)
     const read = () => communityDb ? Array.from(communityDb.collections.channels.values()).filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending).map((channel) => channel.id) : []
-    if (!communityDb?.collections.servers.get(id)?.detailComplete && !lastChannel && read().length === 0) {
+    if (!getServerDirectoryWindow(communityDb, id) && !lastChannel && read().length === 0) {
       try {
         await queryClient.query({ queryKey: communityKeys.server(id), queryFn: ({ signal }) => serverProjectedQueryFn(queryClient, id, signal)(), staleTime: Infinity, select: undefined })
       } catch {}

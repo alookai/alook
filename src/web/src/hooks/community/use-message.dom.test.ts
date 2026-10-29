@@ -1,11 +1,13 @@
+import { messageProfilesFixture, messageResourceFixture, singleMessageReadFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { ingestMessages } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { useMessage } from "./use-message"
 import { takeMessageIdsForAccessScope } from "@/lib/community-db/message-access-scope"
 
@@ -29,16 +31,36 @@ function Owner({ children }: PropsWithChildren) {
   return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children))
 }
 const scope = { channelId: "channel-1", serverId: "server-1" }
-const message = { id: "m_1", type: "chat" as const, authorId: "u_1", authorName: "Alice", content: "cached opener", createdAt: "2026-07-03T00:00:00.000Z" }
+const message = messageResourceFixture({ id: "m_1", channelId: scope.channelId, authorId: "u_1", authorName: "Alice", content: "cached opener", createdAt: "2026-07-03T00:00:00.000Z" })
 
 describe("useMessage cache-first placeholder", () => {
   it("returns a cached canonical list message while the exact query is pending", async () => {
-    ingestMessages(registry, scope.channelId, [message])
+    publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     client.setQueryData(communityKeys.channelMessages(scope.channelId), { pages: [{ ids: [message.id], hasMore: false }], pageParams: [{ mode: "newest" }] })
     const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
-    await waitFor(() => expect(rendered.result.current.message).toMatchObject(message))
+    await waitFor(() => expect(rendered.result.current.message).toMatchObject({ id: message.id, type: message.type, seq: message.seq, authorId: message.authorId, authorName: message.authorName, content: message.content, createdAt: message.createdAt }))
     expect(rendered.result.current.isPlaceholderData).toBe(true)
     expect(rendered.result.current.fetchStatus).toBe("fetching")
+  })
+
+  it.each(["body", "profile"] as const)("repairs a fresh cached ID with its native %s missing through the same query", async missing => {
+    publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
+    client.setQueryData(communityKeys.message(message.id), message.id)
+    if (missing === "body") await writeCommunityCollectionRows(registry, "messages", [], row => row.id)
+    else await writeCommunityCollectionRows(registry, "profiles", [], row => row.id)
+    let release!: (value: ReturnType<typeof singleMessageReadFixture>) => void
+    const held = new Promise<ReturnType<typeof singleMessageReadFixture>>(resolve => { release = resolve })
+    apiFetchMock.mockImplementationOnce(() => held)
+    const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
+    expect(rendered.result.current.message).toBeNull()
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+    expect(apiFetchMock).toHaveBeenCalledWith(`/api/community/messages/${message.id}`, expect.any(Object))
+    expect(rendered.result.current.message).toBeNull()
+    await act(async () => { release(singleMessageReadFixture(message)); await held })
+    await waitFor(() => expect(rendered.result.current.message).toMatchObject({ id: message.id, authorId: message.authorId, authorName: "Alice", content: message.content }))
+    expect(client.getQueryData(communityKeys.message(message.id))).toBe(message.id)
+    expect(registry.collections.profiles.get(message.authorId)).toMatchObject({ id: message.authorId, name: "Alice", discriminator: expect.any(String), avatarVersion: 0 })
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
   })
 
   it("keeps a missing id disabled and returns no message", () => {
@@ -50,7 +72,7 @@ describe("useMessage cache-first placeholder", () => {
 
   it("uses canonical identity exclusively when the DB provider is active", async () => {
     client.setQueryData(communityKeys.message(message.id), { ...message, authorId: "raw", content: "raw query" })
-    ingestMessages(registry, scope.channelId, [{ ...message, authorId: "canonical", authorName: "Canonical", content: "canonical row" }])
+    publishCommunityMessages(client, { channelId: scope.channelId, messages: [{ ...message, authorId: "canonical", authorName: "Canonical", content: "canonical row" }], profiles: messageProfilesFixture([{ ...message, authorId: "canonical", authorName: "Canonical" }]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.message).toMatchObject({ authorId: "canonical", content: "canonical row" }))
   })
@@ -64,7 +86,7 @@ describe("useMessage cache-first placeholder", () => {
   })
 
   it.each(["current", "retired"] as const)("observes a %s native server retirement without copying access state", async lifetime => {
-    ingestMessages(registry, scope.channelId, [message])
+    publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     client.setQueryData(communityKeys.message(message.id), message.id)
     const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.message?.id).toBe(message.id))

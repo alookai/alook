@@ -1,3 +1,4 @@
+import { attentionSnapshotScenarioFixture, resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
@@ -10,7 +11,7 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(
 let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
 const row = (seq: number) => ({ channelId: "c1", lastReadMessageId: `m${seq}`, lastReadAt: `2026-10-27T00:00:0${seq}.000Z`, lastReadSeq: seq })
 const snapshot = (revision: number, seq = revision) => ({ revision, readStates: [row(seq)] })
-const attention = { scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
+const attention = { resources: resourceBundleFixture(), scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
 beforeEach(async () => { apiFetch.mockReset(); owner = await createCommunityQueryOwner(); apiFetch.mockImplementation(async (path: string) => path.endsWith("/attention") ? attention : snapshot(1)) })
 afterEach(async () => { await owner.client.cancelQueries(); await owner.registry.cleanup(); owner.client.clear(); vi.useRealTimers() })
@@ -35,11 +36,11 @@ describe("native account read-state reconciliation", () => {
   it("rechecks an early attention count only after a held read-state advances its confirmed revision", async () => {
     const gate = deferred<ReturnType<typeof snapshot>>()
     let attentionReads = 0
-    apiFetch.mockImplementation(async (path: string) => path.endsWith("/read-state") ? gate.promise : {
+    apiFetch.mockImplementation(async (path: string) => path.endsWith("/read-state") ? gate.promise : attentionSnapshotScenarioFixture({
       ...attention,
       scopes: [{ scopeId: "c1", channelId: "c1", serverId: null, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 5, unreadCount: ++attentionReads === 1 ? 5 : 3, attentionCount: 0, lastAttentionSeq: null }],
       included: { ...attention.included, dms: [{ id: "c1", userId: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 0, lastMessageAt: "2026-10-27T00:00:05.000Z", lastUnreadSeq: 5 }], profiles: [{ userId: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 0 }] },
-    })
+    }))
     const outcome = reconcileAccountReadState(owner.client).then(() => null, error => error)
     try {
       await vi.waitFor(() => expect(owner.registry.collections.attentionScopes.get("c1")?.unreadCount).toBe(5))

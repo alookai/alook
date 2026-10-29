@@ -1,3 +1,4 @@
+import { currentCommunityFixtureError } from "./_fixtures/business-contract"
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
@@ -171,7 +172,7 @@ test.describe("mentions — candidate scope", () => {
     await page.route(`**/api/community/channels/${privateChannelId}/members?*`, async (route) => {
       if (new URL(route.request().url()).searchParams.get("relation") !== "access") return route.continue()
       accessReads += 1
-      if (failAccess) return route.fulfill({ status: 500, json: { error: "controlled access read failure" } })
+      if (failAccess) return route.fulfill(currentCommunityFixtureError("controlled access read failure", 500))
       return route.continue()
     })
     await page.goto(`/c/channels/${serverId}/${privateChannelId}`)

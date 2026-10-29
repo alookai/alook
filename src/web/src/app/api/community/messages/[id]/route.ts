@@ -16,9 +16,9 @@ import {
   broadcastToUserSafe,
   fanOutToServerMembers,
 } from "@/lib/community/fanout"
-import { readCommunityMessageResource } from "@/lib/community/message-payload"
+import { readCommunityMessageResource, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { scheduleForumPostMediaCleanup } from "@/lib/community/forum-post-media-cleanup"
-import { CommunityMessageReadSchema, requestedCommunityContract, type CommunityContract } from "@alook/shared"
+import { CommunityMessageReadSchema, COMMUNITY_RESOURCE_CONTRACT_VERSION, type CommunityContract } from "@alook/shared"
 import { writeCommunityContractJSON } from "@/lib/community/read-contract"
 
 // A bot addresses by ref-in-query (`?ref=` + `?seq=`, the folded `resolve`
@@ -56,7 +56,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   if (ctx.actor.kind === "bot") {
     return handleBotResolve(db, ctx.actor.userId, req)
   }
-  return handleHumanGet(db, ctx.actor.userId, ctx.params?.id, requestedCommunityContract(req.headers) ?? 1)
+  return handleHumanGet(db, ctx.actor.userId, ctx.params?.id, COMMUNITY_RESOURCE_CONTRACT_VERSION)
 })
 
 /**
@@ -179,9 +179,9 @@ async function handleHumanGet(
     if (!auth.ok) return writeError(auth.error, auth.status)
   }
 
-  const payload = await readCommunityMessageResource(db, userId, message, contract === 3 ? 3 : 1)
-  if (contract === 3) return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: 3, channelId: message.channelId, message: payload }), 3)
-  return writeJSON({ ...payload, channelId: message.channelId })
+  const payload = await readCommunityMessageResource(db, userId, message, contract)
+  const profiles = await readCommunityMessageProfiles(db, [payload])
+  return writeCommunityContractJSON(CommunityMessageReadSchema.parse({ contractVersion: contract, channelId: message.channelId, message: payload, profiles }), contract)
 }
 
 /**

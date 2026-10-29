@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_BULK_BODY_MAX_BYTES,
   deriveCommunityDeliveryOperationId,
@@ -37,7 +38,7 @@ function corruptRequiredField(event: CommunityWsEvent, path: readonly string[]) 
 }
 
 function requestFromBytes(bytes: BodyInit, headers?: HeadersInit) {
-  return new Request("http://internal/community", { method: "POST", headers, body: bytes })
+  return new Request("http://internal/community", { method: "POST", headers: headers ?? { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, body: bytes })
 }
 
 function maximizePadding<T extends CommunityWsEvent>(build: (padding: string) => T) {
@@ -69,15 +70,17 @@ function worstEscapingTarget(index: number) {
 }
 
 describe("community browser event ingress", () => {
-  it("normalizes all 48 current fixtures without a contract version field", () => {
+  it("normalizes all 46 current versioned wire fixtures", () => {
     const fixtures = Object.values(communityWsEventFixtures)
-    expect(fixtures).toHaveLength(48)
+    expect(fixtures).toHaveLength(46)
     for (const fixture of fixtures) {
-      const normalized = normalizeCommunityBrowserEvent(fixture)
-      expect(normalized).toMatchObject({ ok: true, event: fixture, envelope: fixture })
+      const encoded = encodeCommunityBrowserEvent(fixture)
+      if (!encoded.ok) throw new Error("invalid current fixture")
+      const normalized = normalizeCommunityBrowserEvent(encoded.envelope)
+      expect(normalized).toMatchObject({ ok: true, event: fixture, envelope: { ...fixture, schemaVersion: BUSINESS_SCHEMA_VERSION } })
       if (!normalized.ok) continue
       expect(normalized.envelope).not.toHaveProperty("contractVersion")
-      expect(JSON.parse(normalized.body)).toEqual(fixture)
+      expect(JSON.parse(normalized.body)).toEqual({ ...fixture, schemaVersion: BUSINESS_SCHEMA_VERSION })
     }
   })
 
@@ -88,8 +91,8 @@ describe("community browser event ingress", () => {
         path.length ? corruptRequiredField(fixture, path) : { ...fixture, entries: [] },
       )).toMatchObject({ ok: false, reason: "invalid-payload" })
     }
-    expect(normalizeCommunityBrowserEvent({ type: "task.updated" })).toMatchObject({ reason: "wrong-family" })
-    expect(normalizeCommunityBrowserEvent({ type: "community:future" })).toMatchObject({ reason: "unknown-community-type" })
+    expect(normalizeCommunityBrowserEvent({ type: "task.updated", schemaVersion: BUSINESS_SCHEMA_VERSION })).toMatchObject({ reason: "wrong-family" })
+    expect(normalizeCommunityBrowserEvent({ type: "community:future", schemaVersion: BUSINESS_SCHEMA_VERSION })).toMatchObject({ reason: "unknown-community-type" })
     expect(normalizeCommunityBrowserEvent({
       ...communityWsEventFixtures["community:presence.update"],
       contractVersion: 1,
@@ -130,9 +133,9 @@ describe("community browser event ingress", () => {
         content: "m".repeat(4000),
         attachments: Array.from({ length: 10 }, (_, index) => ({
           id: `attachment-${index}`,
-          filename: `file-${index}.txt`,
+          name: `file-${index}.txt`, thumbnailUrl: null, contentType: null, width: null, height: null,
           url: `/attachment/${index}`,
-          size: 25 * 1024 * 1024,
+          sizeBytes: 25 * 1024 * 1024,
         })),
         embeds: [{ padding }],
       },
@@ -160,6 +163,7 @@ describe("community browser event ingress", () => {
     if (!prepared.ok) throw new Error("bundle fixture must prepare")
     const operationId = await deriveCommunityDeliveryOperationId("message-1")
     const body = {
+      communityContract: BUSINESS_SCHEMA_VERSION,
       operationId,
       operationDigest: prepared.prepared.digest,
       events: prepared.prepared.envelopes,
@@ -204,7 +208,7 @@ describe("community browser event ingress", () => {
     const targets = Array.from({ length: 1000 }, (_, index) => worstEscapingTarget(index))
     const body = JSON.stringify({
       userIds: targets,
-      message: event.event,
+      message: event.envelope,
       excludeUserId: worstEscapingTarget(1000),
     })
     expect(utf8ByteLength(body)).toBe(COMMUNITY_BULK_BODY_MAX_BYTES)

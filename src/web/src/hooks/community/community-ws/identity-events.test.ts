@@ -14,6 +14,8 @@ async function harness() {
   const registry = createCommunityDbRegistry(queryClient, "viewer")
   await registry.preload()
   registerCommunityDbRegistry(registry)
+  registry.collections.profiles.utils.writeUpsert({ id: "u1", name: "User", discriminator: "0001", avatar: "/avatar?v=1", avatarVersion: 1 })
+  registry.collections.profiles.utils.writeUpsert({ id: "bot-1", name: "Before", discriminator: "0002", avatar: null, avatarVersion: 0 })
   return { queryClient }
 }
 
@@ -98,4 +100,10 @@ describe("profile identity events", () => {
       ownerUserId: "owner-1",
     })
   })
+  it("does not invent a full profile from an avatar-only event for an unknown user", async () => {
+    const { queryClient } = await harness()
+    projectCommunityWsEventToDb(queryClient, { type: "community:identity.update", userId: "unknown", avatar: null, avatarVersion: 4 })
+    expect(profile(queryClient, "unknown")).toBeUndefined()
+  })
+
 })

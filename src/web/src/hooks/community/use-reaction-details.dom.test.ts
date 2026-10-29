@@ -1,3 +1,4 @@
+import { channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -45,6 +46,9 @@ function wrapperFor(queryClient: QueryClient) {
 type ReactionProps = { open: boolean; userIds: string[] }
 
 function renderReactionHook(queryClient: QueryClient, initialProps: ReactionProps) {
+  const registry = getCommunityDbRegistry(queryClient)!
+  registry.collections.channels.utils.writeUpsert({ ...channelResourceFixture({ id: "channel_1", serverId: "server_1" }), muted: false, pending: false, tags: [] })
+  registry.collections.messages.utils.writeUpsert(messageResourceFixture({ id: "message_1", channelId: "channel_1" }))
   return renderHook(
     ({ open, userIds }: ReactionProps) => useReactionDetails({
       messageId: "message_1",
@@ -152,4 +156,24 @@ describe("useReactionDetails", () => {
     await act(async () => vi.advanceTimersByTimeAsync(100))
     expect(apiFetchProfiles).not.toHaveBeenCalled()
   })
+})
+
+it.each(["missing-later-core", "wrong-actor", "wrong-message", "wrong-scope"])("refuses a malformed named reaction identity subset %s before patching", async defect => {
+  const { communityRegistrySnapshot } = await import("@/test/community-registry-snapshot")
+  const { client, registry } = await createCommunityQueryOwner()
+  const initial = envelope(["first", "second"])
+  apiFetchProfiles.mockResolvedValueOnce(initial)
+  const hook = renderReactionHook(client, { open: true, userIds: ["first", "second"] })
+  await waitFor(() => expect(hook.result.current.data?.actors).toHaveLength(2))
+  const before = communityRegistrySnapshot(registry)
+  const malformed = structuredClone(initial)
+  malformed.actors[0]!.profile!.name = "Must not publish"
+  if (defect === "missing-later-core") delete (malformed.actors[1]!.profile as Partial<NonNullable<ReactionDetailsEnvelope["actors"][number]["profile"]>>).avatarVersion
+  if (defect === "wrong-actor") malformed.actors[1]!.profile!.id = "foreign"
+  if (defect === "wrong-message") malformed.messageId = "foreign"
+  if (defect === "wrong-scope") malformed.scope.channelId = "foreign"
+  apiFetchProfiles.mockResolvedValueOnce(malformed)
+  await act(async () => { await expect(hook.result.current.refetch({ throwOnError: true })).rejects.toThrow() })
+  expect(communityRegistrySnapshot(registry)).toEqual(before)
+  hook.unmount()
 })

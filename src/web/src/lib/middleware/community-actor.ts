@@ -83,7 +83,7 @@ export function withCommunityActor(
   options: { allowInactiveBot?: boolean } = {},
 ) {
   const authenticate = createCommunityActorHandler(handler, options)
-  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], rejectUnknownCommunityContract(args[0]) ?? await authenticate(...args))
+  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], await authenticate(...args))
 }
 
 function createCommunityActorHandler(
@@ -124,6 +124,8 @@ function createCommunityActorHandler(
         return NextResponse.json({ error: "invalid runner key" }, { status: 401 })
       }
 
+      const unsupported = rejectUnknownCommunityContract(req, true)
+      if (unsupported) return unsupported
       return varyPrivateResponseByCredentials(await handler(req, {
         env: cloudflareEnv,
         actor: {

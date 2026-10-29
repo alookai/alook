@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 
@@ -31,7 +32,7 @@ class SessionSocket {
   }
   open() { this.readyState = SessionSocket.OPEN; this.onopen?.() }
   message(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) }) }
-  authenticate() { this.open(); this.message({ type: "auth.ok", communityContract: 2 }) }
+  authenticate() { this.open(); this.message({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION }) }
   rejected() { this.readyState = SessionSocket.CLOSED; this.onclose?.({ code: 1008, reason: "Unauthorized", wasClean: false }) }
 }
 
@@ -96,7 +97,7 @@ beforeEach(async () => {
 
 function mount(onMessage = vi.fn()) {
   return renderHook(({ viewerUserId }) => useUserWs(onMessage, {
-    viewerUserId, communityContract: 2, requestDaemonStatusOnAuth: false,
+    viewerUserId, communityContract: BUSINESS_SCHEMA_VERSION, requestDaemonStatusOnAuth: false,
   }), { initialProps: { viewerUserId: "account-a" } })
 }
 
@@ -257,7 +258,7 @@ describe("real BetterAuth SDK WebSocket ownership", () => {
     expect(old.readyState).toBe(SessionSocket.CLOSED)
     selected = { userId: "account-a", id: "session-a-2", token: "fixture-sdk-a-2" }
     await act(async () => { await authClient.$store.atoms.session.get().refetch() })
-    act(() => { old.open(); old.message({ type: "auth.ok", communityContract: 2 }); old.message({ type: "task.updated", taskId: "after-unmount" }) })
+    act(() => { old.open(); old.message({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION }); old.message({ type: "task.updated", taskId: "after-unmount" }) })
     expect(onMessage).not.toHaveBeenCalled()
     expect(SessionSocket.instances).toHaveLength(1)
     expect(tokenPaths).toEqual(["/api/ws/token"])

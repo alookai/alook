@@ -69,13 +69,13 @@ export const POST = withCommunityActor(async (_req, ctx) => {
     member: {
       id: result.member.id,
       userId: result.member.userId,
-      name: result.member.userName ?? "",
-      discriminator: result.member.discriminator ?? undefined,
+      name: result.member.userName,
+      discriminator: result.member.discriminator,
       avatar: canonicalUserImage(
         result.member.userId,
         result.member.userImage,
         result.member.userAvatarVersion,
-      ) ?? undefined,
+      ),
       avatarVersion: result.member.userAvatarVersion,
       role: result.member.role ?? ROLES.MEMBER,
       joinedAt: result.member.joinedAt,

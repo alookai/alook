@@ -2,6 +2,7 @@ import {
   COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
   MESSAGE_DELIVERY_BODY_MAX_BYTES,
   WS_EVENTS,
+  type CommunityContract,
   deriveCommunityDeliveryOperationId,
   isCommunityDeliveryOperationId,
   parseMessageDeliveryBatch,
@@ -36,7 +37,7 @@ async function deliverTarget(
   userId: string,
   events: CommunityWsEvent[],
   operationId: CommunityDeliveryOperationId,
-  contract: 2 | 3,
+  contract: CommunityContract,
 ): Promise<TargetResult> {
   const prepared = await prepareCommunityDeliveryEvents(events, contract)
   if (!prepared.ok) return { ok: false, kind: "invalid-receipt" }
@@ -132,10 +133,6 @@ export async function handleMessageDelivery(
   }
   const unreadMentionUsers = new Set(batch.unreadMentionUserIds)
   for (const userId of batch.mentionUserIds) {
-    // Keep mention.create's production strict shape rollout-safe. A user who
-    // only receives attention (for example through a visible forum parent)
-    // first gets the existing scoped bump so both old and new clients decode
-    // the batch and the new projection knows its server/rail scope.
     if (!unreadMentionUsers.has(userId)) {
       addEvent(bundles, userId, {
         type: WS_EVENTS.UNREAD_BUMP,
@@ -154,12 +151,6 @@ export async function handleMessageDelivery(
       messageId: batch.messageId,
       channelId: batch.messageEvent.channelId,
       authorName: batch.messageEvent.message.authorName,
-    })
-  }
-  if (batch.memberAdded) {
-    addEvent(bundles, batch.memberAdded.userId, {
-      type: WS_EVENTS.CHANNEL_MEMBER_ADD,
-      ...batch.memberAdded,
     })
   }
   if (batch.joinedParticipantUserIds && batch.rosterRefreshUserId && batch.messageEvent.serverId) {
@@ -182,7 +173,7 @@ export async function handleMessageDelivery(
   const startedAt = Date.now()
   const results = await settleInBatches(
     entries,
-    ([userId, events]) => deliverTarget(env, userId, events, operationId, batch.communityContract ?? 2),
+    ([userId, events]) => deliverTarget(env, userId, events, operationId, batch.communityContract),
     targetBatchSize,
   )
   const failedUserIds: string[] = []

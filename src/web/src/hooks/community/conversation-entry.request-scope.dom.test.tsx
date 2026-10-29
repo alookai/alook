@@ -1,3 +1,4 @@
+import { resourceBundleFixture, forumFeedScenarioFixture, friendBucketScenarioFixture } from "@/test/community-resource-fixtures"
 import { afterEach, expect, it, vi } from "vitest"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -13,6 +14,9 @@ import { useNotificationSettings } from "./use-notification-settings"
 import { useDms } from "./use-dms"
 import { useForumFeed } from "./use-forum-feed"
 
+const emptyPins = () => ({ pins: [], resources: resourceBundleFixture() })
+const emptyThreads = () => forumFeedScenarioFixture("c1", { serverId: "s1", parentType: "text", threads: [], included: {}, hasMore: false })
+
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
 afterEach(() => { load.mockReset(); localStorage.clear() })
@@ -26,8 +30,8 @@ it("retains hidden message and panel caches without starting requests, then load
   owner.client.setQueryData(communityKeys.threads("c1"), { parentChannelId: "c1", parentType: "text", serverId: "s1", threads: [] }, { updatedAt: 1 })
   let presented = false
   const held = new Promise(() => {})
-  load.mockImplementation((url: string) => url.includes("entry=1") ? held : url.endsWith("/pins") ? { pins: [] }
-    : { parentChannelId: "c1", parentType: "text", serverId: "s1", threads: [], included: { parentMessages: [], firstMessages: [], tags: [], participants: [] } })
+  load.mockImplementation(async (url: string) => url.includes("entry=1") ? held : url.endsWith("/pins") ? emptyPins()
+    : emptyThreads())
   const hook = renderHook(() => ({ feed: useMessages("c1", { serverId: "s1" }), pins: usePins("c1"), threads: useThreads("c1") }), {
     wrapper: ({ children }) => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>
       <ConversationActivityContext value={false}><ConversationPresentationContext value={presented}>{children}</ConversationPresentationContext></ConversationActivityContext>
@@ -57,7 +61,7 @@ it("reuses the entry-provided Forum first page instead of starting a parallel th
   owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
   owner.client.removeQueries({ queryKey: communityKeys.forumFeed("c1", null), exact: true })
   let release!: () => void
-  load.mockImplementation((url: string) => url.includes("entry=1") ? new Promise(resolve => { release = () => resolve(value) }) : { tags: [] })
+  load.mockImplementation(async (url: string) => url.includes("entry=1") ? new Promise(resolve => { release = () => resolve(value) }) : { tags: [] })
   const hook = renderHook(() => useForumFeed("s1", "c1"), {
     wrapper: ({ children }) => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>{children}</CommunityDbProvider></QueryClientProvider>,
   })
@@ -71,8 +75,8 @@ it("reuses the entry-provided Forum first page instead of starting a parallel th
 
 it("shares account collections with subscribed consumers without refreshing them on consumer mount", async () => {
   const owner = await createCommunityQueryOwner()
-  load.mockImplementation((url: string) => url.endsWith("/accepted") ? { friends: [] }
-    : url.endsWith("/blocked") ? { blocked: [] } : url.endsWith("/pending") ? { pending: [] }
+  load.mockImplementation(async (url: string) => url.endsWith("/accepted") ? friendBucketScenarioFixture("friends", [])
+    : url.endsWith("/blocked") ? friendBucketScenarioFixture("blocked", []) : url.endsWith("/pending") ? friendBucketScenarioFixture("pending", [])
       : url.endsWith("/dms") ? { conversations: [] } : [])
   const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>{children}</CommunityDbProvider></QueryClientProvider>
   const consumer = renderHook(() => ({ friends: useFriends({ enabled: false }), settings: useNotificationSettings(false), dms: useDms(false, true) }), { wrapper })
@@ -96,7 +100,7 @@ it("shares account collections with subscribed consumers without refreshing them
 it("reads the complete active threads only on panel demand and keeps pin status available while closed", async () => {
   const owner = await createCommunityQueryOwner()
   let requested = false
-  load.mockImplementation((url: string) => url.endsWith("/pins") ? { pins: [] } : { serverId: "s1", parentType: "text", threads: [], included: { parentMessages: [], firstMessages: [], tags: [], participants: [] } })
+  load.mockImplementation(async (url: string) => url.endsWith("/pins") ? emptyPins() : emptyThreads())
   const hook = renderHook(() => ({ threads: useThreads("c1", requested), pins: usePins("c1") }), {
     wrapper: ({ children }) => <QueryClientProvider client={owner.client}><CommunityDbProvider registry={owner.registry}>{children}</CommunityDbProvider></QueryClientProvider>,
   })

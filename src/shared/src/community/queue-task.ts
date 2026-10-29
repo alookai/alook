@@ -21,7 +21,7 @@ export type QueueTaskRejectReason =
   | "unknown_kind"
 
 export type QueueTaskParseResult =
-  | { ok: true; source: "legacy" | "v1"; task: AlookQueueTask }
+  | { ok: true; source: "v1"; task: AlookQueueTask }
   | { ok: false; reason: QueueTaskRejectReason }
 
 export type QueueTaskBatchParseResult =
@@ -47,28 +47,6 @@ function isNonEmptyId(value: unknown): value is string {
 
 export function parseQueueTask(value: unknown): QueueTaskParseResult {
   if (!isRecord(value)) return { ok: false, reason: "malformed" }
-
-  const hasDiscriminator = hasOwn(value, "version") || hasOwn(value, "kind")
-  if (!hasDiscriminator) {
-    if (
-      !hasExactKeys(value, ["messageId", "botUserId"])
-      || !isNonEmptyId(value.messageId)
-      || !isNonEmptyId(value.botUserId)
-    ) {
-      return { ok: false, reason: "malformed" }
-    }
-
-    return {
-      ok: true,
-      source: "legacy",
-      task: {
-        version: 1,
-        kind: "bot-wake",
-        messageId: value.messageId,
-        botUserId: value.botUserId,
-      },
-    }
-  }
 
   if (!hasOwn(value, "version") || typeof value.version !== "number") {
     return { ok: false, reason: "malformed" }

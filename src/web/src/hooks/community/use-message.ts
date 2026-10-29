@@ -12,13 +12,15 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
-import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_RESOURCE_CONTRACT_VERSION, CommunityMessageResourcesSchema, CommunityResourceProfileSchema, communityMessageProfileIds, type CommunityMessageRead } from "@alook/shared"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
-import type { MessageInput, MessagesPage, Msg } from "@/lib/community/models/message"
+import type { MessagesReadPage, Msg } from "@/lib/community/models/message"
+import { avatarInitial } from "@/lib/community/avatar"
 import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import {
   useCanonicalMessagesById,
+  useCanonicalProfilesProjection,
   useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
 import {
@@ -34,7 +36,7 @@ import {
   captureCommunityLiveSnapshotToken,
   assertCommunityLiveSnapshotTokenCurrent,
   publishCommunityMessages,
-  getCanonicalCommunityMessages,
+  getCanonicalCommunityMessages, getCanonicalCommunityMessageResources,
 } from "@/lib/community-db/sync"
 
 /**
@@ -60,15 +62,17 @@ export const messageQueryFn = (
 ) => (context: QueryFunctionContext) => withConversationReadDeadline(context.signal, async readSignal => {
   if (context.client !== queryClient) throw new DOMException("Mismatched message query owner", "AbortError")
   const token = captureCommunityLiveSnapshotToken(queryClient, channelId)
-  const message = await apiFetchCommunity<MessageInput>(
+  const read = await apiFetchCommunity<CommunityMessageRead>(
     `/api/community/messages/${messageId}`,
     { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } }, token,
   )
+  const message = read.message
   const publishChannelId = message.channelId ?? channelId
   if (publishChannelId) {
     publishCommunityMessages(queryClient, {
       channelId: publishChannelId,
       messages: [message],
+      profiles: read.profiles,
       proof: { token, signal: readSignal },
     })
   }
@@ -91,7 +95,7 @@ export async function prefetchCommunityMessage(queryClient: QueryClient, message
     || !communityScopeAllowsAccess(registry.runtime.ws.get(), scope)
     || queryClient.getMutationCache().findAll({ mutationKey: communityServerRetirementKey, status: "pending" }).some(mutation => communityServerRetirementId(mutation, registry) === scope.serverId && scope.serverId != null)) return
   rememberMessageAccessScope(queryClient, messageId, scope)
-  if (registry.collections.messages.get(messageId)?.resourceComplete) return
+  if (findCachedMessage(queryClient, messageId)) return
   await queryClient.query({ ...messageQueryOptions(queryClient, messageId, scope.channelId), staleTime: 0, select: undefined })
 }
 
@@ -111,11 +115,11 @@ export async function prefetchCommunityLatestMessage(queryClient: QueryClient, c
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry),
     networkMode: "always",
     queryFn: ({ signal }) => withConversationReadDeadline(signal, async (readSignal) => {
-      const page = await apiFetchCommunity<MessagesPage>(
+      const page = await apiFetchCommunity<MessagesReadPage>(
         `/api/community/channels/${channelId}/messages?limit=1`,
         { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } }, token,
       )
-      publishCommunityMessages(queryClient, { channelId, messages: page.messages, proof: { token, signal: readSignal } })
+      publishCommunityMessages(queryClient, { channelId, messages: page.messages, profiles: page.profiles, proof: { token, signal: readSignal } })
       return page.messages[0]?.id ?? null
     }),
     select: undefined,
@@ -128,14 +132,17 @@ export function findCachedMessage(
 ): OpenerPayload | undefined {
   const message = getCanonicalCommunityMessages(queryClient).find((row) => row.id === messageId)
   if (!message?.authorId || !message.createdAt) return undefined
+  const graph = getCanonicalCommunityMessageResources(queryClient, [message])
+  const author = graph?.profiles.find(profile => profile.id === message.authorId)
+  if (!author) return undefined
   const view = presentCanonicalMessage(message)
   return {
     ...view,
     authorId: message.authorId,
-    authorName: message.authorName ?? "Deleted user",
-    authorAvatar: view.authorAvatar ?? "",
-    authorAvatarVersion: message.authorAvatarVersion ?? 0,
-    content: message.content ?? "",
+    authorName: author.name,
+    authorAvatar: author.avatar ?? avatarInitial(author.name),
+    authorAvatarVersion: author.avatarVersion,
+    content: message.content,
     createdAt: message.createdAt,
   }
 
@@ -152,15 +159,23 @@ export function useMessage(
   const retiringServers = useMutationState({ filters: { mutationKey: communityServerRetirementKey, status: "pending" }, select: mutation => communityServerRetirementId(mutation, registry) })
   const accessAllowed = useCommunityWsStore((state) => !accessScope || communityScopeAllowsAccess(state, accessScope))
     && !(accessScope?.serverId && retiringServers.includes(accessScope.serverId))
+  const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
+  const raw = messageId ? registry?.collections.messages.get(messageId) : undefined
+  const profileIds = raw ? communityMessageProfileIds([raw]) : []
+  const profiles = useCanonicalProfilesProjection(profileIds)
+  const graph = raw ? getCanonicalCommunityMessageResources(queryClient, [raw]) : undefined
+  const nativeGraph = graph ? CommunityMessageResourcesSchema.safeParse({ messages: graph.messages, profiles: [...profiles.resourceProfiles.values()].flatMap(profile => {
+    const parsed = CommunityResourceProfileSchema.strip().safeParse(profile)
+    return parsed.success ? [parsed.data] : []
+  }) }) : undefined
+  const profilesReady = profileIds.length === 0 || profiles.isReady && !profiles.isError && nativeGraph?.success === true
   const enabled = !!messageId && accessAllowed
   useEffect(() => {
     if (!messageId || !accessScope || !accessAllowed) return
     rememberMessageAccessScope(queryClient, messageId, accessScope)
   }, [accessAllowed, accessScope, messageId, queryClient])
-  const placeholderData = useMemo(
-    () => messageId && accessAllowed ? findCachedMessage(queryClient, messageId)?.id : undefined,
-    [accessAllowed, messageId, queryClient],
-  )
+  const placeholderData = messageId && accessAllowed ? findCachedMessage(queryClient, messageId)?.id : undefined
+
   const query = useQuery({
     ...messageQueryOptions(queryClient, enabled ? messageId! : "__none__", accessScope?.channelId),
     queryFn: enabled
@@ -169,13 +184,12 @@ export function useMessage(
     enabled,
     placeholderData,
   })
-  const canonical = messageId ? canonicalMessages?.get(messageId) : undefined
+  const refetch = query.refetch
+  useEffect(() => {
+    if (enabled && typeof query.data === "string" && !graph && query.isSuccess && !query.isFetching) void refetch({ cancelRefetch: false })
+  }, [enabled, query.data, graph, query.isSuccess, query.isFetching, refetch])
   return {
     ...query,
-    message: accessAllowed
-      ? registry
-        ? (canonical as OpenerPayload | undefined) ?? null
-        : null
-      : null,
+    message: accessAllowed && profilesReady && canonical && messageId ? findCachedMessage(queryClient, messageId) ?? null : null,
   }
 }

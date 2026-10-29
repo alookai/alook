@@ -20,7 +20,7 @@ import type { Msg } from "@/lib/community/models/message"
 import type { MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
 import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { messageReconcileOptions } from "./community-ws/reconnect-messages"
-import type { VirtualListPositionScope } from "@/lib/community/virtual-list-position"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 
 export { channelMessagesQueryFn } from "@/lib/community/message-window"
 export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
@@ -91,8 +91,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const anchorMessageId = opts?.anchorMessageId ?? null
   const entry = useConversationEntry(channelId && opts?.enabled !== false ? { channelId, serverId, anchorMessageId, tag } : null)
   const proof = entry.scope?.proof
-  const positionScope = useMemo<VirtualListPositionScope | undefined>(() => entry.canRead && proof
-    ? { proof, kind: "messages", tag } : undefined, [entry.canRead, proof, tag])
+  const positionScope = useMemo<ConversationListScope | undefined>(() => entry.canRead && proof
+    ? { proof, tag } : undefined, [entry.canRead, proof, tag])
   const viewKey = hashKey([channelId, serverId, anchorMessageId, tag, proof?.accountEpoch ?? -1, proof?.accessEpoch ?? -1,
     channelId ? proof?.channelScopes.get(channelId)?.generation ?? 0 : 0])
   const present = useMemo(() => ({ viewKey, intent: entry.intent,
@@ -127,6 +127,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const originalQuery = client.getQueryCache().find({ queryKey, exact: true })
   const owner = useMemo(() => ({ present, retries, query: originalQuery, enabled: enabled && presented }), [present, retries, originalQuery, enabled, presented])
   const committed = useRef<typeof owner | null>(null)
+  const committedWindowReady = useRef(entry.windowReady)
+  useLayoutEffect(() => { committedWindowReady.current = entry.windowReady }, [entry.windowReady])
   useLayoutEffect(() => {
     committed.current = owner
     return () => { if (committed.current === owner) committed.current = null }
@@ -177,7 +179,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const hasMoreNewer = newest?.hasMoreNewer ?? false
   const fetchPage = useCallback((direction: "older" | "newer"): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || !original.query || original !== owner) return { accepted: false }
+    if (!channelId || !original?.enabled || !original.query || original !== owner || !committedWindowReady.current) return { accepted: false }
     if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) return { accepted: false }
     const token = captureChannelMetadataToken(client, channelId)
     const isCurrent = () => committed.current === original && isChannelMetadataTokenCurrent(token)
@@ -196,7 +198,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const fetchNewer = useCallback(() => fetchPage("newer"), [fetchPage])
   const jumpToPresent = useCallback((): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || original !== owner || present.get().pending) return { accepted: false }
+    if (!channelId || !original?.enabled || original !== owner || !committedWindowReady.current || present.get().pending) return { accepted: false }
     const token = captureChannelMetadataToken(client, channelId)
     const tail = messageWindowOptions(client, channelId, { mode: "newest" }, tag, { observation })
     const captured = client.getQueryCache().build<unknown, Error, unknown>(client, { queryKey: tail.queryKey })
@@ -255,7 +257,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     isFetchingNewer: query.isFetchingPreviousPage || selection.pending,
     fetchOlder, fetchNewer, jumpToPresent, presentVersion: selection.version, presentRequest: selection.request,
     anchorReconciled: entry.targetCovered || !!selection.window,
-    navigationBlocked: !entry.canRead,
+    navigationBlocked: !entry.windowReady,
     readSnapshot: entry.snapshot, readSnapshotFetching,
     initialPositionKnown: windowAvailable && entry.snapshot !== null && !loading && !missingCanonical && !initialLoadError && !retrySelection.pending && !entry.initialPositionPending,
     initialPositionMessageId: entry.initialPositionMessageId, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow: query.data,

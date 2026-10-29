@@ -1,8 +1,9 @@
 "use client"
+import { parseCommunityReactionDetailsRead, type CommunityReactionDetailsRead, type CommunityReactionActorProfile } from "@alook/shared"
 import { createStore } from "@tanstack/react-store"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { useCommunityViewSource } from "./use-community-view-source"
-import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
 
@@ -12,30 +13,23 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { apiFetchProfiles, communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 
-export type ReactionDetailsProfile = {
-  id: string
-  name: string
-  discriminator: string
-  avatar: string
-  avatarVersion: number
-}
-
-export type ReactionDetailsEnvelope = {
-  messageId: string
-  scope:
-    | { kind: "server"; serverId: string; channelId: string }
-    | { kind: "dm"; channelId: string }
-  actors: Array<{
-    userId: string
-    profile: ReactionDetailsProfile | null
-  }>
-}
+export type ReactionDetailsProfile = CommunityReactionActorProfile
+export type ReactionDetailsEnvelope = CommunityReactionDetailsRead
 
 const loadReactionDetails = async (queryClient: QueryClient, messageId: string, signal: AbortSignal) => {
   const original = captureCommunityLiveSnapshotToken(queryClient)
+  const registry = original.registry
+  if (!registry) throw new DOMException("Missing reaction owner", "AbortError")
+  await registry.ready
+  await Promise.all([registry.collections.messages.preload(), registry.collections.channels.preload()])
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, original, signal)
+  const message = registry.collections.messages.get(messageId)
+  const channel = message ? registry.collections.channels.get(message.channelId) : undefined
+  if (!message || !channel || channel.type !== "dm" && !channel.serverId) throw new Error("Missing reaction request scope")
+  const scope: CommunityReactionDetailsRead["scope"] = channel.type === "dm" ? { kind: "dm", channelId: channel.id } : { kind: "server", channelId: channel.id, serverId: channel.serverId! }
   const data = await apiFetchProfiles<ReactionDetailsEnvelope>(
     `/api/community/messages/${messageId}/reactions`,
-    (data) => data.actors.flatMap((actor) => actor.profile ? [communityUserProfilePatch(actor.userId, actor.profile)] : []),
+    (data) => parseCommunityReactionDetailsRead(data, messageId, scope).actors.flatMap((actor) => actor.profile ? [communityUserProfilePatch(actor.userId, actor.profile)] : []),
     communityRequestOptions(queryClient, original, signal), original.registry,
   )
   return { messageId: data.messageId, scope: data.scope, actors: data.actors.map((actor) => ({ userId: actor.userId, profilePresent: !!actor.profile })) }

@@ -102,6 +102,7 @@ const {
     retryingMetadata: false,
     retryMetadata: vi.fn(),
     routeHydrated: true,
+    windowReady: true,
     routeLifecycle: "ready" as "pending" | "ready" | "terminal-error",
     skeletonSubtype: "unknown" as "unknown" | "text" | "forum" | "thread",
     layoutHint: {
@@ -472,6 +473,7 @@ describe("ChannelRoute message surface ownership", () => {
       metadataError: false,
       retryingMetadata: false,
       routeHydrated: true,
+      windowReady: true,
       routeLifecycle: "ready",
       skeletonSubtype: "unknown",
       layoutHint: { subtype: "unknown", parentChannelId: null, parentSubtype: "unknown" },
@@ -489,8 +491,8 @@ describe("ChannelRoute message surface ownership", () => {
     vi.mocked(useChannelRouteModel).mockImplementation((_server, _param, id) => (id === "channel_1" ? parent : child) as never)
     const base = conversationEntryFixture().channel
     registry.collections.channels.utils.writeUpsert([
-      channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
-      channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, unread: false, tags: [], pending: false, resourceComplete: true }),
+      channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", muted: false, tags: [], pending: false }),
+      channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, tags: [], pending: false }),
     ])
     mockBreakpoint.value = "mobile"
     mockSearchParams.value = ""
@@ -529,7 +531,11 @@ describe("ChannelRoute message surface ownership", () => {
     if (boundary === "forward") mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1" }
     if (boundary === "unhydrated") mockRouteModel.routeHydrated = false
     if (boundary === "pending") mockRouteModel.routeLifecycle = "pending"
-    if (boundary === "text") mockRouteModel.isForum = false
+    if (boundary === "text") {
+      mockRouteModel.isForum = false
+      mockRouteModel.channel = { id: "channel_1", name: "Text", type: "text" }
+      mockedUseChannelMessageFeed.mockReturnValue(feed())
+    }
     render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1", routeCommitted: false }))
     const model = mockedUseChannelMemberViewModel.mock.calls.at(-1)![0]
     expect(model.accessAllowed).toBe(false)
@@ -1439,6 +1445,17 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockRouter.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
     expect(mockClearLastChannel).toHaveBeenCalledExactlyOnceWith("server_1")
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+  })
+
+  it("mounts a qualified child composer while window-dependent read actions remain pending", () => {
+    configureThreadRoute()
+    mockRouteModel.windowReady = false
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true, navigationBlocked: true, messages: [] }))
+    const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    expect(view.container.querySelector('textarea[data-draft-key="server_1/channel_1"]')).not.toBeNull()
+    expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith("viewer_1", { kind: "server", serverId: "server_1", channelId: "channel_1" }, false)
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+    expect(mockOpenerGate).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: "pending" }))
   })
 
   it("commits and dismisses only a ready top-level channel for the active account", async () => {

@@ -1,3 +1,4 @@
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityMessageCreate, CommunityWsEvent } from "@alook/shared"
@@ -105,7 +106,7 @@ async function createClient() {
 }
 function seedCanonicalDirectory(queryClient: QueryClient, options: { channels?: boolean } = {}) {
   const registry = getCommunityDbRegistry(queryClient)!
-  ingestServers(registry, { servers: serverRows })
+  ingestServers(registry, serverRailResponseFixture({ servers: serverRows }, (registry)!.accountId))
   if (options.channels !== false) {
     for (const channel of channelRows) publishCommunityCreatedChannel(queryClient, channel, { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
   }

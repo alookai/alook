@@ -1,8 +1,9 @@
+import { serverDirectoryFixture, messageResourceFixture, channelResourceFixture, resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { getCommunityDbRegistry, createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
-import { ingestServerDetail, ingestMessages, ingestAttentionSnapshot, captureCommunityLiveSnapshotToken, publishCommunityChannelFields } from "@/lib/community-db/sync"
+import { ingestServerDetail, ingestMessages, ingestAttentionSnapshot, captureCommunityLiveSnapshotToken, publishCommunityChannelFields, publishCommunityChannelMetadata } from "@/lib/community-db/sync"
 import {
   activateInboxProjectionTicket,
   armInboxReadReservationCandidate,
@@ -59,15 +60,16 @@ async function seedProjection(queryClient: QueryClient, data: {
     const channels = server.channels.flatMap((parent) => {
       scopes.push({ scopeId: parent.channelId, channelId: parent.channelId, serverId, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 7, lastAttentionSeq: null, attentionCount: 0 })
       for (const child of parent.children ?? []) if (child.openerUnread && child.openerMessageId && child.openerSeq !== undefined) {
-        ingestMessages(registry, parent.channelId, [{ id: child.openerMessageId, type: "chat", seq: child.openerSeq, createdAt: child.lastMessageAt }])
+        ingestMessages(registry, parent.channelId, [messageResourceFixture({ id: child.openerMessageId, channelId: parent.channelId, authorId: "user-1", type: "chat", seq: child.openerSeq, createdAt: child.lastMessageAt })])
         items.push({ id: "forum:" + child.channelId, kind: "forum_post", sourceId: child.channelId, scopeId: parent.channelId, childChannelId: child.channelId, messageId: child.openerMessageId, openerSeq: child.openerSeq, readTarget: { channelId: parent.channelId, seq: child.openerSeq }, createdAt: child.lastMessageAt })
       }
       return [{ id: parent.channelId, name: parent.channelId, type: parent.children?.length ? "forum" as const : "text" as const, active: false, unread: true, lastMessageAt: parent.lastMessageAt }, ...(parent.children ?? []).map((child) => ({ id: child.channelId, name: child.channelId, type: "thread" as const, active: false, unread: true, lastMessageAt: child.lastMessageAt, parentChannelId: parent.channelId, parentMessageId: child.openerMessageId }))]
     })
-    ingestServerDetail(registry, { id: serverId, name: serverId, discriminator: "0001", description: "", icon: null, ownerId: "user-1", categories: [{ id: "category:" + serverId, name: "Category", channels }] })
+    ingestServerDetail(registry, serverDirectoryFixture({ id: serverId, name: serverId, discriminator: "0001", description: "", icon: null, ownerId: "user-1", categories: [{ id: "category:" + serverId, name: "Category", channels: channels.filter(channel => !channel.parentChannelId) }] }))
+    for (const channel of channels.filter(channel => channel.parentChannelId)) publishCommunityChannelMetadata(queryClient, { metadata: channelResourceFixture({ id: channel.id, serverId, name: channel.name, type: "thread", parentChannelId: channel.parentChannelId, parentMessageId: channel.parentMessageId, lastMessageAt: channel.lastMessageAt }), proof: { token: captureCommunityLiveSnapshotToken(queryClient) } })
     for (const channel of channels) publishCommunityChannelFields(queryClient, channel.id, { lastMessageAt: channel.lastMessageAt }, { token: captureCommunityLiveSnapshotToken(queryClient) })
   }
-  ingestAttentionSnapshot(registry, { scopes, items, limit: 100, truncated: false })
+  ingestAttentionSnapshot(registry, { resources: resourceBundleFixture({ viewerId: "user-1" }), scopes, items, limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } })
 }
 
 function response(channelId = "focused", lastMessageAt = "2026-08-27T01:00:00.000Z") {

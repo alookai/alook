@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, CommunityChannelReadSchema } from "@alook/shared"
+import { singleMessageReadFixture, messageResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -9,10 +11,14 @@ import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
 import { MessageRoute } from "./message-route"
-const api = vi.hoisted(()=>({read:vi.fn()}))
+const api = vi.hoisted(()=>({read:vi.fn(), realBoundary:false}))
 vi.mock("@/lib/community/account-cache-lifecycle", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/community/account-cache-lifecycle")>(),
-  apiFetchCommunity: async (path:string, options:{assertActive?:()=>void}) => {
+  apiFetchCommunity: async (path:string, options:{assertActive?:()=>void}, ...rest: unknown[]) => {
+    if (api.realBoundary) {
+      const actual = await importOriginal<typeof import("@/lib/community/account-cache-lifecycle")>()
+      return actual.apiFetchCommunity(path, options, rest[0] as Parameters<typeof actual.apiFetchCommunity>[2])
+    }
     options.assertActive?.()
     try { const result=await api.read(path); options.assertActive?.();return result }
     catch(error){options.assertActive?.();throw error}
@@ -26,16 +32,39 @@ let navigation:CommunityNavigationController
 const openInbox=vi.fn()
 beforeEach(async()=>{
   owner=await createCommunityQueryOwner("viewer")
-  vi.clearAllMocks();api.read.mockReset();revision=0;href="/c/messages/message_1"
+  vi.clearAllMocks();api.read.mockReset();api.realBoundary=false;revision=0;href="/c/messages/message_1"
   navigation={publishedHref:href,navigationPending:false,pendingHref:null,
     captureIntent:()=>{const original=revision;return()=>original===revision},
     push:vi.fn(),pushImmediate:vi.fn(),replace:vi.fn(()=>{revision++}),resolveAndPush:vi.fn(),cancelPendingNavigation:vi.fn()}
 })
 const wrapper=({children}:PropsWithChildren)=>createElement(CommunityTestProvider,{client:owner.client,registry:owner.registry,userId:"viewer",retainOwner:true},
   createElement(CommunityRouteContext,{value:{breakpoint:"desktop",ownerDeleteRouteScope:undefined,frame:{...normalizeCommunityHref(href),revision},navigation,openInbox}},children))
+function currentMessageRead(channelId: string) {
+  return singleMessageReadFixture(messageResourceFixture({ id: "message_1", channelId, authorId: "author", authorName: "Author", authorAvatarVersion: 0 }))
+}
 describe("ordinary message page",()=>{
+  it.each(["dm", "text"] as const)("uses actual HTTP decoding for a complete %s single message before navigation", async type => {
+    api.realBoundary = true
+    const wire = singleMessageReadFixture(messageResourceFixture({ id: "message_1", channelId: "actual_channel", authorId: "author", authorName: "Author", authorAvatarVersion: 0 }))
+    const metadata = CommunityChannelReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "actual_channel",
+      channel: channelResourceFixture({ id: "actual_channel", type, serverId: type === "dm" ? null : "actual_server" }),
+      access: { channelId: "actual_channel", canRead: true, canSend: true, canCreateDiscussion: type === "text" } })
+    const requests: string[] = []
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const path = new URL(input instanceof Request ? input.url : String(input), "http://localhost").pathname
+      requests.push(path)
+      expect(new Headers(options?.headers).get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+      if (!["/api/community/messages/message_1", "/api/community/channels/actual_channel"].includes(path)) throw new Error(`Unexpected read ${path}`)
+      return new Response(JSON.stringify(path.includes("/messages/") ? wire : metadata), { headers: { "content-type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
+    }))
+    render(<MessageRoute messageId="message_1"/>,{wrapper})
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledExactlyOnceWith(type === "dm" ? "/c/me/actual_channel" : "/c/channels/actual_server/actual_channel"))
+    expect(requests).toEqual(["/api/community/messages/message_1", "/api/community/channels/actual_channel"])
+    expect(api.read).not.toHaveBeenCalled()
+  })
+
   it.each(["dm","text","forum","thread"])("resolves a %s through the permission door then replaces with its bare conversation URL",async type=>{
-    api.read.mockResolvedValueOnce({id:"message_1",channelId:"actual_channel"})
+    api.read.mockResolvedValueOnce(currentMessageRead("actual_channel"))
       .mockResolvedValueOnce({id:"actual_channel",type,serverId:type==="dm"?null:"actual_server",archived:false})
     render(<MessageRoute messageId="message_1"/>,{wrapper})
     await waitFor(()=>expect(navigation.replace).toHaveBeenCalledExactlyOnceWith(type==="dm"?"/c/me/actual_channel":"/c/channels/actual_server/actual_channel"))
@@ -52,7 +81,7 @@ describe("ordinary message page",()=>{
     expect(api.read).toHaveBeenCalledExactlyOnceWith("/api/community/messages/message_1")
   })
   it.each(["archived","denied","wrong channel"])("shows the normal unavailable state for %s metadata",async reason=>{
-    api.read.mockResolvedValueOnce({id:"message_1",channelId:"channel_1"}).mockResolvedValueOnce({
+    api.read.mockResolvedValueOnce(currentMessageRead("channel_1")).mockResolvedValueOnce({
       id:reason==="wrong channel"?"other":"channel_1",type:"text",serverId:"server_1",
       archived:reason==="archived",accessDecision:{canRead:reason!=="denied"},
     })
@@ -72,7 +101,7 @@ describe("ordinary message page",()=>{
     expect(await screen.findByRole("alert", {}, {timeout:4000})).toHaveTextContent("Could not open this conversation")
     expect(api.read).toHaveBeenCalledTimes(2)
     expect(navigation.replace).not.toHaveBeenCalled()
-    api.read.mockResolvedValueOnce({id:"message_1",channelId:"channel_1"})
+    api.read.mockResolvedValueOnce(currentMessageRead("channel_1"))
       .mockResolvedValueOnce({id:"channel_1",type:"dm",serverId:null,archived:false})
     fireEvent.click(screen.getByRole("button",{name:"Retry"}))
     await waitFor(()=>expect(navigation.replace).toHaveBeenCalledExactlyOnceWith("/c/me/channel_1"))
@@ -87,12 +116,12 @@ describe("ordinary message page",()=>{
     render(<MessageRoute messageId="message_1"/>,{wrapper})
     await waitFor(()=>expect(api.read).toHaveBeenCalledOnce())
     revision++
-    await act(async()=>release({id:"message_1",channelId:"channel_1"}))
+    await act(async()=>release(currentMessageRead("channel_1")))
     expect(api.read).toHaveBeenCalledOnce();expect(navigation.replace).not.toHaveBeenCalled()
   })
   it("ignores delayed channel authorization after the originating account retires",async()=>{
     let release!:(value:unknown)=>void
-    api.read.mockResolvedValueOnce({id:"message_1",channelId:"channel_1"})
+    api.read.mockResolvedValueOnce(currentMessageRead("channel_1"))
       .mockReturnValueOnce(new Promise(resolve=>{release=resolve}))
     render(<MessageRoute messageId="message_1"/>,{wrapper})
     await waitFor(()=>expect(api.read).toHaveBeenCalledTimes(2))
@@ -101,3 +130,5 @@ describe("ordinary message page",()=>{
     expect(navigation.replace).not.toHaveBeenCalled()
   })
 })
+
+afterEach(() => { vi.unstubAllGlobals() })

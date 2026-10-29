@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { protectCommunityJsonResponse, rejectUnknownCommunityContract } from "./response-cache"
 
 describe("protected community JSON policy", () => {
   it.each([200, 400, 401, 403, 404, 409, 429, 500, 503])("protects status %s and preserves cookies and vary", async (status) => {
-    const request = new Request("https://alook.test/api/community/channels/c/messages", { headers: { [COMMUNITY_CONTRACT_HEADER]: "2" } })
+    const request = new Request("https://alook.test/api/community/channels/c/messages", { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
     const response = await protectCommunityJsonResponse(request, Response.json(status === 200 ? { value: 1 } : { error: "blocked" }, { status,
       headers: { "Vary": "Origin, cookie", "Cache-Control": "public, max-age=600", "ETag": "old", "Last-Modified": "old", "Set-Cookie": "session=refreshed; HttpOnly" } }))
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
@@ -12,7 +12,8 @@ describe("protected community JSON policy", () => {
     expect(response.headers.get("ETag")).toBeNull()
     expect(response.headers.get("Last-Modified")).toBeNull()
     expect(response.headers.get("Set-Cookie")).toBe("session=refreshed; HttpOnly")
-    if (status !== 200) expect(await response.json()).toMatchObject({ contractVersion: 2, error: { message: "blocked", retryable: status >= 500 || status === 429 } })
+    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
+    if (status !== 200) expect(await response.json()).toMatchObject({ contractVersion: BUSINESS_SCHEMA_VERSION, error: { message: "blocked", retryable: status >= 500 || status === 429 } })
   })
   it("preserves the independent media policy and rejects unknown versions", async () => {
     const request = new Request("https://alook.test/api/community/channels/c/icon", { headers: { [COMMUNITY_CONTRACT_HEADER]: "4" } })

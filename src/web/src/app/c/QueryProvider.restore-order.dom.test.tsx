@@ -1,3 +1,8 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import type { UserProfile } from "@/hooks/community/use-user-profile"
+import { serverResourceFixture, messageResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
+import { canonicalChannelRow } from "@/lib/community-db/schema"
 import { useToggleReactionApi } from "@/hooks/community/mutations/message-reactions"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import React from "react"
@@ -50,7 +55,7 @@ import { createCommunityDbRegistry, getCommunityDbRegistry } from "@/lib/communi
 import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/runtime"
 import { applyTypingIndicator } from "@/hooks/community/community-ws/typing"
 import { useCommunityStore } from "@/stores/community"
-import { apiFetchProfiles } from "@/lib/community/profile-seed"
+import { apiFetchProfiles, communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 vi.mock("next/navigation", () => ({ usePathname: () => "/c/channels/server-1/post-1", useRouter: () => ({ replace: vi.fn() }) }))
 vi.mock("@/hooks/community/use-servers", async (importOriginal) => ({
@@ -70,26 +75,41 @@ beforeEach(() => {
 })
 
 describe("QueryProvider persistence ordering", () => {
-  it.each([0, 1_000])("preserves the original server snapshot timestamp through legacy position migration (%s)", async (updatedAt) => {
+  it.each([0, 1_000])("preserves the current complete server snapshot timestamp without migration (%s)", async (updatedAt) => {
     const client = new QueryClient()
     const key = communityKeys.communityDbCollection("restore-order-viewer", "servers")
-    client.setQueryData(key, [{ id: "legacy-server", name: "Legacy", discriminator: "0001", description: "", ownerId: "restore-order-viewer", icon: null, official: false, isOwner: true, unread: false, mentions: 0 }], { updatedAt })
+    client.setQueryData(key, [serverResourceFixture({ id: "current-server", name: "Current", position: 7, discriminator: "0001", ownerId: "restore-order-viewer" })], { updatedAt })
     const registry = createCommunityDbRegistry(client, "restore-order-viewer")
     const input = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client) }, "restore-order-viewer")
     await restoreCommunityCollections(registry, input)
     registry.captureRestoredCollections(input)
     expect(client.getQueryState(key)?.dataUpdatedAt).toBe(updatedAt)
-    expect(client.getQueryData(key)).toEqual([expect.objectContaining({ id: "legacy-server", position: 0 })])
+    expect(client.getQueryData(key)).toEqual([expect.objectContaining({ id: "current-server", position: 7 })])
     expect(registry.hasRestoredCollection("servers")).toBe(true)
     expect(registry.hasRestoredData()).toBe(true)
     await registry.cleanup()
     client.clear()
   })
-  it.each([false, true])("distinguishes the SSR self profile from an actual restored profile (%s)", async (hasDiskSnapshot) => {
+  it("refuses an incomplete old server row without inventing its position", async () => {
+    const seed = new QueryClient(), client = new QueryClient()
+    const { position: _position, ...old } = serverResourceFixture({ id: "old-server" })
+    const key = communityKeys.communityDbCollection("restore-order-viewer", "servers")
+    seed.setQueryData(key, [old], { updatedAt: 0 })
+    const disk = readCommunityRestoredCollections({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(seed) }, "restore-order-viewer")
+    expect(disk.servers).toBeUndefined()
+    const registry = createCommunityDbRegistry(client, "restore-order-viewer")
+    await restoreCommunityCollections(registry, disk)
+    registry.captureRestoredCollections(disk)
+    await registry.preload()
+    expect(registry.collections.servers.size).toBe(0)
+    expect(registry.hasRestoredCollection("servers")).toBe(false)
+    await registry.cleanup(); seed.clear(); client.clear()
+  })
+  it.each([false, true])("distinguishes auth-only self props from an actual restored full profile (%s)", async (hasDiskSnapshot) => {
     const viewerId = "restore-order-viewer"
     const profileKey = communityKeys.communityDbCollection(viewerId, "profiles")
     const seed = new QueryClient()
-    seed.setQueryData(profileKey, [{ id: viewerId, identityComplete: true, name: "Disk viewer", discriminator: "0001", avatar: "D", avatarVersion: 1 }], { updatedAt: Date.now() - 60_000 })
+    seed.setQueryData(profileKey, [{ id: viewerId, name: "Disk viewer", discriminator: "0001", avatar: "D", avatarVersion: 1 }], { updatedAt: Date.now() - 60_000 })
     persister.restoreClient.mockResolvedValue(hasDiskSnapshot ? { buster: PERSIST_BUSTER, timestamp: Date.now(), clientState: dehydrate(seed) } : undefined)
     const mark = vi.spyOn(performance, "mark")
     mark.mockClear()
@@ -107,7 +127,7 @@ describe("QueryProvider persistence ordering", () => {
     await waitFor(() => expect(restoring).toBe(false))
     expect(registry.hasRestoredData()).toBe(hasDiskSnapshot)
     expect(registry.hasRestoredCollection("profiles")).toBe(hasDiskSnapshot)
-    await waitFor(() => expect(registry.collections.profiles.get(viewerId)?.name).toBe(hasDiskSnapshot ? "Disk viewer" : "SSR viewer"))
+    await waitFor(() => expect(registry.collections.profiles.get(viewerId)?.name).toBe(hasDiskSnapshot ? "Disk viewer" : undefined))
     expect(mark.mock.calls.filter(([name]) => name === "alook:restore:first-cached-paint")).toHaveLength(hasDiskSnapshot ? 1 : 0)
     mark.mockRestore()
     renderer.unmount()
@@ -116,15 +136,7 @@ describe("QueryProvider persistence ordering", () => {
   })
   it("hydrates canonical rows before collection preload can publish an empty snapshot", async () => {
     const viewerId = "restore-order-viewer"
-    const message = {
-      id: "persisted-message",
-      channelId: "persisted-dm",
-      type: "chat" as const,
-      resourceComplete: false as const,
-      seq: 1,
-      createdAt: "2026-09-25T00:00:00.000Z",
-      content: "persisted canonical body",
-    }
+    const message = messageResourceFixture({ id: "persisted-message", channelId: "persisted-dm", authorId: "peer", createdAt: "2026-09-25T00:00:00.000Z", content: "persisted canonical body" })
     const canonicalKey = communityKeys.communityDbCollection(viewerId, "messages")
     const seedClient = new QueryClient()
     seedClient.setQueryData(
@@ -134,24 +146,7 @@ describe("QueryProvider persistence ordering", () => {
     )
     seedClient.setQueryData(
       communityKeys.communityDbCollection(viewerId, "channels"),
-      [{ topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
-        id: "persisted-dm",
-        resourceComplete: false,
-        serverId: null,
-        categoryId: null,
-        name: "",
-        type: "dm",
-        parentChannelId: null,
-        parentMessageId: null,
-        creatorId: null,
-        position: 0,
-        archived: false,
-        muted: false,
-        unread: false,
-        tags: [],
-        pending: false,
-        lastMessageAt: null,
-      }],
+      [canonicalChannelRow(channelResourceFixture({ id: "persisted-dm", type: "dm", serverId: null, name: null, creatorId: null }))],
       { updatedAt: Date.now() - 60_000 },
     )
     seedClient.setQueryData(
@@ -161,13 +156,13 @@ describe("QueryProvider persistence ordering", () => {
           id: `persisted-dm:${viewerId}:access`,
           channelId: "persisted-dm",
           userId: viewerId,
-          relation: "access",
+          relation: "access", source: "explicit",
         },
         {
           id: "persisted-dm:peer:access",
           channelId: "persisted-dm",
           userId: "peer",
-          relation: "access",
+          relation: "access", source: "explicit",
         },
       ],
       { updatedAt: Date.now() - 60_000 },
@@ -175,7 +170,7 @@ describe("QueryProvider persistence ordering", () => {
     seedClient.setQueryData(
       communityKeys.communityDbCollection(viewerId, "profiles"),
       [{
-        identityComplete: true, id: "peer",
+        id: "peer",
         name: "Persisted peer",
         discriminator: "0001",
         avatar: "P",
@@ -326,7 +321,14 @@ describe("QueryProvider real DbClient Strict Mode ownership", () => {
     const cleanupReads: boolean[] = []
     const requestOwners: Array<ReturnType<typeof getCommunityDbRegistry>> = []
     const requestResults: Array<string> = []
-    const fetch = vi.fn((_input: RequestInfo | URL) => Promise.resolve(new Response(JSON.stringify({ id: "strict-peer", name: "Strict response" }), { status: 200 })))
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input)
+      const body = path.includes("/channels/strict-route/messages?entry=1")
+        ? conversationEntryFromChannel(channelResourceFixture({ id: "strict-route", serverId: "strict-server", name: "Strict route" }), "strict-viewer")
+        : { id: "strict-peer", name: "Strict response", discriminator: "0042", image: null, avatarVersion: 0, aboutMe: "", bannerColor: null, kind: "human", mutualServers: 0, statusEmoji: null, statusText: null }
+      if (!path.includes("/channels/strict-route/messages?entry=1") && !path.includes("/users/strict-peer/profile")) throw new Error(`Unexpected strict-owner request ${path}`)
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }))
+    })
     vi.stubGlobal("fetch", fetch)
     let original: ReturnType<typeof getCommunityDbRegistry> = null
     let client: QueryClient | null = null
@@ -350,7 +352,7 @@ describe("QueryProvider real DbClient Strict Mode ownership", () => {
         runtime.ui.actions.setCurrentChannelId("strict-route")
         requestOwners.push(registry)
         const controller = new AbortController()
-        void apiFetchProfiles<{ id: string; name: string }>("/api/community/users/strict-peer/profile", (profile) => [{ id: profile.id, identityAbout: { name: profile.name } }], { signal: controller.signal }, registry)
+        void apiFetchProfiles<UserProfile>("/api/community/users/strict-peer/profile", (profile) => [communityUserProfilePatch(profile.id, { name: profile.name, discriminator: profile.discriminator, avatar: profile.image, avatarVersion: profile.avatarVersion })], { signal: controller.signal }, registry)
           .then((data) => { requestResults.push(data.name) }, (error: unknown) => { requestResults.push((error as { name: string }).name) })
         return () => { controller.abort(); runtime.ui.actions.setCurrentChannelId(null) }
       }, [qc, registry, runtime])

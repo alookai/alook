@@ -1,3 +1,7 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
+import { decodeCommunityReadResponse } from "@/lib/community/read-response"
+import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { fullResourceBundleFixture, serverResourceFixture, messageResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { createElement, useLayoutEffect, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -27,17 +31,21 @@ function deferred() {
   return { promise, resolve, reject }
 }
 function wire(ids: string[]): ForumFeedTransportPage {
-  return {
-    serverId: "server_1", parentType: "forum", hasMore: false,
-    threads: ids.map((id, index) => ({ id, name: id, creatorId: `author_${id}`, messageCount: 1, parentMessageId: `opener_${id}`, createdAt: new Date(Date.now() - index * 1000).toISOString(), lastMessageAt: new Date().toISOString(), activityAt: new Date().toISOString() })),
+  const at = new Date().toISOString()
+  const channel = channelResourceFixture({ id: "forum_1", serverId: "server_1", type: "forum", name: "Forum" })
+  return { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: channel.id, channel,
+    threads: ids.map((id, index) => channelResourceFixture({ id, serverId: channel.serverId, type: "thread", parentChannelId: channel.id, name: id, creatorId: `author_${id}`, messageCount: 1, parentMessageId: `opener_${id}`, createdAt: new Date(Date.now() - index * 1000).toISOString(), lastMessageAt: at })),
     included: {
-      parentMessages: ids.map((id, index) => ({ id: `opener_${id}`, channelId: "forum_1", seq: index + 1, content: id, authorId: `author_${id}`, authorName: id, authorImage: null, authorAvatarVersion: 0 })),
-      firstMessages: ids.map((id) => ({ channelId: id, content: `body ${id}` })),
+      messages: ids.flatMap((id, index) => [messageResourceFixture({ id: `opener_${id}`, channelId: channel.id, seq: index + 1, content: id, authorId: `author_${id}`, authorName: id, authorAvatar: null, authorAvatarVersion: 0 }),
+        messageResourceFixture({ id: `first_${id}`, channelId: id, content: `body ${id}`, authorId: `author_${id}` })]),
       tags: ids.map((id) => ({ messageId: `opener_${id}`, tag: "bug" })),
-      participants: [],
-    },
+      members: ids.map(id => ({ channelId: id, userId: "viewer", relation: "notify", source: "spoke", isCreator: false, role: "owner", memberId: "member-server_1" })),
+      profiles: [{ id: "viewer", name: "Viewer", discriminator: "0001", avatar: null, avatarVersion: 0 }, ...ids.map(id => ({ id: `author_${id}`, name: id, discriminator: "0002", avatar: null, avatarVersion: 0 }))],
+      participantCounts: ids.map(id => ({ channelId: id, count: 1 })),
+    }, page: { hasMore: false, nextCursor: null },
   }
 }
+
 const tagInput = { serverId: "server_1", forumChannelId: "forum_1", threadId: "p2", openerMessageId: "opener_p2", previousTags: ["bug"], tags: ["bug", "archived"] }
 const deleteInput = { serverId: "server_1", forumChannelId: "forum_1", threadId: "p2", openerMessageId: "opener_p2" }
 async function setup(ids = ["before", "p2", "after"], observeCatalog = false) {
@@ -59,12 +67,12 @@ async function setup(ids = ["before", "p2", "after"], observeCatalog = false) {
   }, { wrapper })
   function seed(rows: string[], append = false) {
     const page = wire(rows), token = captureCommunityLiveSnapshotToken(owner.client)
-    publishCommunityForumSidebar(owner.client, { serverId: "server_1", channels: page.threads.map((row) => ({ ...row, name: row.name!, unread: false, parentChannelId: "forum_1", type: "thread", archived: false })), openers: page.included.parentMessages, proof: { token, signal: undefined } })
+    publishCommunityForumSidebar(owner.client, { serverId: "server_1", resources: fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server_1" })], [page.channel, ...page.threads], page.included.messages, page.included.profiles), channels: page.threads.map((row) => ({ ...row, name: row.name!, unread: false, parentChannelId: "forum_1", type: "thread", archived: false })), openers: page.included.messages.filter(message => message.channelId === "forum_1"), proof: { token, signal: undefined } })
     publishCommunityForumFeed(owner.client, "forum_1", normalizeThreadResources("forum_1", page), { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
     for (const filter of [null, "bug", "archived"]) owner.client.setQueryData<InfiniteData<ForumFeedPage>>(communityKeys.forumFeed("forum_1", filter), (current) => ({ pages: append && current ? [{ ...current.pages[0], threads: [...current.pages[0].threads, ...forumFeedWindow(normalizeThreadResources("forum_1", page)).threads] }] : [forumFeedWindow(normalizeThreadResources("forum_1", page))], pageParams: [null] }))
   }
   act(() => {
-    projectCommunityWsEventToDb(owner.client, { type: "community:channel.create", serverId: "server_1", channel: { id: "forum_1", name: "Forum", type: "forum", categoryId: null, position: 0, createdAt: new Date().toISOString() } })
+    projectCommunityWsEventToDb(owner.client, { type: "community:channel.create", serverId: "server_1", channel: channelResourceFixture({ id: "forum_1", serverId: "server_1", name: "Forum", type: "forum", createdAt: new Date().toISOString() }) })
     seed(ids)
     owner.client.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [{ messages: ids.map((id) => ({ id: `opener_${id}` })) }], pageParams: [null] })
     owner.client.setQueryData([...communityKeys.channelMessages("forum_1"), "tag", "bug"], { pages: [], pageParams: [null] })
@@ -84,39 +92,51 @@ async function begin(view: View, command: "tags" | "remove", input = command ===
   return { held, request }
 }
 
+function mockForumCreation(nonce: string, title: string, content: string, held?: ReturnType<typeof deferred>) {
+  const opener = messageResourceFixture({ id: "created-opener", channelId: "forum_1", seq: 40, content: title, authorId: "viewer", authorName: "Viewer", authorAvatarVersion: 0, clientNonce: `${nonce}:opener` })
+  const child = channelResourceFixture({ id: "p_new", serverId: "server_1", type: "thread", parentChannelId: "forum_1", parentMessageId: opener.id, name: title })
+  const reply = messageResourceFixture({ id: "created-reply", channelId: child.id, content, clientNonce: `${nonce}:reply` })
+  const response = new Response(null, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } })
+  const posted = decodeCommunityReadResponse("/api/community/channels/forum_1/messages", "POST", response, { profiles: messageProfilesFixture([opener]), contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "forum_1", message: opener, deduped: false, threadId: child.id })
+  const metadata = decodeCommunityReadResponse(`/api/community/channels/${child.id}`, "GET", response, { contractVersion: BUSINESS_SCHEMA_VERSION, channelId: child.id, channel: child, access: { channelId: child.id, canRead: true, canSend: true, canCreateDiscussion: false } })
+  const replied = decodeCommunityReadResponse(`/api/community/channels/${child.id}/messages`, "POST", response, { profiles: messageProfilesFixture([reply]), contractVersion: BUSINESS_SCHEMA_VERSION, channelId: child.id, message: reply, deduped: false })
+  mocks.api.mockResolvedValueOnce(posted).mockResolvedValueOnce(metadata).mockReturnValueOnce(held?.promise ?? Promise.resolve(replied))
+  return { opener, child, replied }
+}
+
 describe("Native forum creation", () => {
   it("POSTs opener and reply with exact nonce suffixes and optional fields omitted", async () => {
     const view = await setup()
-    mocks.api.mockResolvedValueOnce({ threadId: "p_new" }).mockResolvedValueOnce({})
+    mockForumCreation("command_1", "hi", "body")
     await act(async () => { await view.view.result.current.create.mutateAsync({ nonce: "command_1", channelId: "forum_1", name: "hi", content: "body" }) })
-    expect(mocks.api).toHaveBeenCalledTimes(2)
+    expect(mocks.api).toHaveBeenCalledTimes(3)
+    expect(mocks.api.mock.calls[1][0]).toBe("/api/community/channels/p_new")
     expect(mocks.api.mock.calls[0][0]).toBe("/api/community/channels/forum_1/messages")
     expect(JSON.parse(mocks.api.mock.calls[0][1].body)).toEqual({ content: "hi", nonce: "command_1:opener" })
-    expect(mocks.api.mock.calls[1][0]).toBe("/api/community/channels/p_new/messages")
-    expect(JSON.parse(mocks.api.mock.calls[1][1].body)).toEqual({ content: "body", nonce: "command_1:reply" })
+    expect(mocks.api.mock.calls[2][0]).toBe("/api/community/channels/p_new/messages")
+    expect(JSON.parse(mocks.api.mock.calls[2][1].body)).toEqual({ content: "body", nonce: "command_1:reply" })
   })
   it("publishes the actual returned opener and linked child before the reply settles", async () => {
     const view = await setup(), held = deferred()
-    const opener = { id: "created-opener", seq: 40, type: "chat", content: "New post", authorId: "viewer", authorName: "Viewer", authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-08T01:00:00Z" }
-    mocks.api.mockResolvedValueOnce({ threadId: "p_new", message: opener }).mockReturnValueOnce(held.promise)
+    const { opener, replied } = mockForumCreation("create_1", "New post", "Body", held)
     let request!: Promise<unknown>
     act(() => { request = view.view.result.current.create.mutateAsync({ nonce: "create_1", channelId: "forum_1", name: "New post", content: "Body" }) })
-    await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(3))
     expect(view.registry.collections.messages.get(opener.id)).toMatchObject({ channelId: "forum_1", content: "New post", clientNonce: "create_1:opener", seq: 40 })
     expect(view.registry.collections.channels.get("p_new")).toMatchObject({ serverId: "server_1", parentChannelId: "forum_1", parentMessageId: opener.id, name: "New post", type: "thread" })
-    await act(async () => { held.resolve({}); await request })
+    await act(async () => { held.resolve(replied); await request })
     expect(view.registry.collections.messages.get("opener_p2")).toBeDefined()
   })
   it("reserves attachment IDs for both messages and broadcasts mentionType on the opener", async () => {
     const view = await setup(), attachments = [{ id: "att_1", filename: "abc.png", contentType: "image/png", size: 100, width: 10, height: 10 }]
-    mocks.api.mockResolvedValueOnce({ threadId: "p_new" }).mockResolvedValueOnce({})
+    mockForumCreation("command_1", "heads up", "Heads up @everyone")
     await act(async () => { await view.view.result.current.create.mutateAsync({ nonce: "command_1", channelId: "forum_1", name: "heads up", content: "Heads up @everyone", attachments, mentionType: "everyone" }) })
     expect(JSON.parse(mocks.api.mock.calls[0][1].body)).toEqual({ content: "heads up", attachments: ["att_1"], mentionType: "everyone", nonce: "command_1:opener" })
-    expect(JSON.parse(mocks.api.mock.calls[1][1].body).attachments).toEqual(["att_1"])
+    expect(JSON.parse(mocks.api.mock.calls[2][1].body).attachments).toEqual(["att_1"])
   })
   it("invalidates the original composed forum list on success", async () => {
     const view = await setup()
-    mocks.api.mockResolvedValueOnce({ threadId: "p_new" }).mockResolvedValueOnce({})
+    mockForumCreation("command_1", "n", "c")
     await act(async () => { await view.view.result.current.create.mutateAsync({ nonce: "command_1", channelId: "forum_1", name: "n", content: "c" }) })
     expect(view.client.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
     expect(view.client.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)

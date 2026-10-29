@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./e2e-ui/_fixtures/business-contract"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { APIResponse, Browser, BrowserContext, Page, Response as PlaywrightResponse, TestFixture, TestInfo } from "@playwright/test"
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
@@ -6,6 +7,12 @@ import { test as caseTest, type CaseActors, type CaseResources } from "./e2e-ui/
 import { cleanupGeometryServers, seedGeometryRoutes } from "./e2e-ui/_fixtures/community-loading-geometry"
 import { seedChannel, seedDm, seedForumThread, seedMessage, seedServer, seedThread } from "./e2e-ui/_fixtures/seed"
 import * as legacySeed from "./e2e-ui/_fixtures/seed"
+
+function communityJsonReply(body: unknown, init?: ResponseInit) {
+  const headers = new Headers(init?.headers)
+  for (const [name, value] of Object.entries(CURRENT_COMMUNITY_FIXTURE_HEADERS)) headers.set(name, value)
+  return Response.json(body, { ...init, headers })
+}
 
 type CaseFactory = (roles: readonly ("alice" | "bob" | "carol" | "logout")[]) => Promise<CaseActors>
 type ExitOwner = { allocate: CaseFactory; resources: CaseResources }
@@ -72,7 +79,7 @@ describe("geometry fixture backend resource isolation", () => {
     const owned: string[] = []
     let nextId = 0
     vi.mocked(seedServer).mockImplementation(async () => `owned-${++nextId}`)
-    const request = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    const request = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     vi.stubGlobal("fetch", request)
 
     const routes = await seedGeometryRoutes(owned, legacySeed, (key) => `user-${key}`)
@@ -84,7 +91,7 @@ describe("geometry fixture backend resource isolation", () => {
       owned.map((id) => `/api/community/servers/${id}`),
     )
     expect(request.mock.calls.every(([, options]) => options.method === "DELETE"
-      && options.headers.Cookie === "fixture-user=dave")).toBe(true)
+      && new Headers(options.headers).get("Cookie") === "fixture-user=dave")).toBe(true)
   })
 
   it("keeps successful IDs available for teardown when later seeding fails", async () => {
@@ -93,7 +100,7 @@ describe("geometry fixture backend resource isolation", () => {
       .mockResolvedValueOnce("owned-first")
       .mockResolvedValueOnce("owned-second")
       .mockRejectedValueOnce(new Error("seed failed"))
-    const request = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    const request = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     vi.stubGlobal("fetch", request)
 
     await expect(seedGeometryRoutes(owned, legacySeed, (key) => `user-${key}`)).rejects.toThrow("seed failed")
@@ -111,7 +118,7 @@ describe("geometry fixture backend resource isolation", () => {
       .mockResolvedValueOnce(new Response(null, { status: 400 }))
       .mockRejectedValueOnce(new Error("connection failed"))
       .mockResolvedValueOnce(new Response(null, { status: 404 }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     vi.stubGlobal("fetch", request)
 
     const error = await cleanupGeometryServers(["failed", "disconnected", "already-gone", "remaining"], legacySeed)
@@ -245,7 +252,7 @@ describe("test-scoped case actors and cleanup", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string, options?: RequestInit) => {
       const path = new URL(input).pathname
       if (path === "/api/ws/token") return emptySessionResponse ?? new Response("Unauthorized", { status: 401 })
-      const cookie = (options?.headers as Record<string, string>).Cookie
+      const cookie = new Headers(options?.headers).get("Cookie")!
       const actor = actors.get(cookie.split("=")[1])!
       if (options?.method === "DELETE") {
         const id = path.split("/").at(-1)!
@@ -253,39 +260,39 @@ describe("test-scoped case actors and cleanup", () => {
         const found = servers.get(id)
         if (found && found.ownerId !== actor.userId) return new Response("{}", { status: 403 })
         servers.delete(id)
-        return new Response(null, { status: found ? 204 : missingDeleteStatus })
+        return new Response(null, { status: found ? 204 : missingDeleteStatus, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })
       }
       if (options?.method === "POST") {
         if (path === "/api/community/servers") {
           const server = { id: `owned-${++nextServer}`, ownerId: actor.userId }
           servers.set(server.id, server)
-          if (loseServerResponse) return new Response("invalid server JSON")
-          return Response.json({ server })
+          if (loseServerResponse) return new Response("invalid server JSON", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })
+          return communityJsonReply({ server })
         }
         if (path === "/api/community/channels") {
           dmCreated = true
-          return Response.json({ conversation: { id: "case-dm" } })
+          return communityJsonReply({ conversation: { id: "case-dm" } })
         }
-        if (path.endsWith("/friends/request")) return Response.json({ id: "case-friendship" })
-        return Response.json({})
+        if (path.endsWith("/friends/request")) return communityJsonReply({ id: "case-friendship" })
+        return communityJsonReply({})
       }
-      if (path.endsWith("/profile")) return Response.json({ id: actor.userId, name: actor.name, aboutMe: baselineFault === "profile" ? "old account profile" : "", avatarVersion: 0, bannerColor: null, statusEmoji: null, statusText: "" })
+      if (path.endsWith("/profile")) return communityJsonReply({ id: actor.userId, name: actor.name, discriminator: "0042", avatar: null, aboutMe: baselineFault === "profile" ? "old account profile" : "", avatarVersion: 0, bannerColor: null, statusEmoji: null, statusText: null })
       if (path === "/api/community/servers") {
-        if (serverListFault === "error") return Response.json({ error: "Unavailable" }, { status: 503 })
-        if (serverListFault === "missing") return Response.json({})
-        if (serverListFault === "stale" || serverListFault === "truncated") return Response.json({ servers: [], [serverListFault]: true })
-        if (serverListFault === "malformed") return Response.json({ servers: [{ id: "incomplete-server" }] })
-        if (serverListFault === "empty-id") return Response.json({ servers: [{ id: "", ownerId: actor.userId }] })
-        return Response.json({ servers: [...servers.values()].filter((server) => server.ownerId === actor.userId) })
+        if (serverListFault === "error") return communityJsonReply({ error: "Unavailable" }, { status: 503 })
+        if (serverListFault === "missing") return communityJsonReply({})
+        if (serverListFault === "stale" || serverListFault === "truncated") return communityJsonReply({ servers: [], [serverListFault]: true })
+        if (serverListFault === "malformed") return communityJsonReply({ servers: [{ id: "incomplete-server" }] })
+        if (serverListFault === "empty-id") return communityJsonReply({ servers: [{ id: "", ownerId: actor.userId }] })
+        return communityJsonReply({ servers: [...servers.values()].filter((server) => server.ownerId === actor.userId) })
       }
-      if (path.endsWith("/read-state")) return Response.json({ readStates: dmCreated ? [{ channelId: "case-dm", lastReadSeq: dmCursor }] : [] })
+      if (path.endsWith("/read-state")) return communityJsonReply({ readStates: dmCreated ? [{ channelId: "case-dm", lastReadSeq: dmCursor }] : [] })
       if (path.endsWith("/attention")) {
-        if (baselineFault === "error") return Response.json({ error: "Unavailable" }, { status: 503 })
-        if (baselineFault === "malformed") return Response.json({ scopes: null, items: [] })
-        return Response.json({ scopes: [], items: [], stale: baselineFault === "stale", truncated: baselineFault === "truncated" })
+        if (baselineFault === "error") return communityJsonReply({ error: "Unavailable" }, { status: 503 })
+        if (baselineFault === "malformed") return communityJsonReply({ scopes: null, items: [] })
+        return communityJsonReply({ scopes: [], items: [], stale: baselineFault === "stale", truncated: baselineFault === "truncated" })
       }
       const field = path.endsWith("/dms") ? "conversations" : path.endsWith("/server-folders") ? "folders" : path.endsWith("/marks") ? "marked" : path.endsWith("/accepted") ? "friends" : path.endsWith("/pending") ? "pending" : "blocked"
-      return Response.json({ [field]: [] })
+      return communityJsonReply({ [field]: [] })
     }))
   })
 
@@ -558,9 +565,9 @@ describe("test-scoped case actors and cleanup", () => {
   })
 
   it.each([
-    ["SDK JSON 401", () => Response.json({ code: "UNAUTHORIZED", message: "SDK failure" }, { status: 401 })],
+    ["SDK JSON 401", () => communityJsonReply({ code: "UNAUTHORIZED", message: "SDK failure" }, { status: 401 })],
     ["server failure", () => new Response("Unavailable", { status: 503 })],
-    ["live session", () => Response.json({ userId: "still-live", token: "test-token" })],
+    ["live session", () => communityJsonReply({ userId: "still-live", token: "test-token" })],
   ] as const)("does not retire a session after %s", async (_label, response) => {
     emptySessionResponse = response()
     await expect(run(info("unproved-session"), async (create) => {

@@ -17,13 +17,13 @@ import {
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
-  publishCommunityEmbeddedMessages,
+  publishCommunityResourceBundle,
   publishCommunityForumFeed,
   assertCommunityLiveSnapshotTokenCurrent,
 } from "@/lib/community-db/sync"
 import type { CommunityFreshQueryProof } from "@/lib/community-db/sync"
-import { normalizeThreadResources, projectThread, type ForumFeedTransportPage } from "./forum-feed-window"
-import { CommunityMessagePreviewSchema, type CommunityLegacyThreadsRead, type CommunityThreadsRead, type CommunityChannelResource, type CommunityMessageResource } from "@alook/shared"
+import { normalizeThreadResources, projectThread } from "./forum-feed-window"
+import { type CommunityThreadsRead, type CommunityChannelResource, type CommunityMessageResource } from "@alook/shared"
 import type { ChannelRow } from "@/lib/community-db/schema"
 
 /**
@@ -44,17 +44,9 @@ export type ThreadsResponse = {
 
 async function loadThreadResources(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof) {
   const options = qualifiedCommunityRequestOptions(queryClient, proof.token, proof.signal)
-  const response = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead | CommunityLegacyThreadsRead>(`/api/community/channels/${channelId}/threads?include=parentMessage,firstMessage,tags,participants&archived=false`, options)
+  const response = await apiFetch<CommunityThreadsRead>(`/api/community/channels/${channelId}/threads?include=parentMessage,firstMessage,tags,participants&archived=false`, options)
   assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
-  if ("contractVersion" in response || response.included) return normalizeThreadResources(channelId, response)
-  const openerIds = response.threads.flatMap((thread) => thread.parentMessageId ? [thread.parentMessageId] : [])
-  const threadIds = response.threads.map((thread) => thread.id)
-  const [messages, tags, participants] = await Promise.all([
-    apiFetch<Pick<ForumFeedTransportPage["included"], "parentMessages" | "firstMessages"> & { messages: ForumFeedTransportPage["included"]["parentMessages"] }>("/api/community/messages/batch", { method: "POST", body: JSON.stringify({ channelId, ids: openerIds, firstInChannelIds: threadIds }), ...options }),
-    apiFetch<Pick<ForumFeedTransportPage["included"], "tags">>("/api/community/messages/tags/batch", { method: "POST", body: JSON.stringify({ channelId, messageIds: openerIds }), ...options }),
-    apiFetch<Pick<ForumFeedTransportPage["included"], "participants">>("/api/community/channels/participants/batch", { method: "POST", body: JSON.stringify({ parentChannelId: channelId, channelIds: threadIds }), ...options }),
-  ])
-  return normalizeThreadResources(channelId, { ...response, hasMore: false, included: { parentMessages: messages.messages, firstMessages: messages.firstMessages, tags: tags.tags, participants: participants.participants } })
+  return normalizeThreadResources(channelId, response)
 }
 
 export const threadsQueryFn = (channelId: string, queryClient: QueryClient) => async ({ signal }: { signal?: AbortSignal } = {}) => {
@@ -114,7 +106,7 @@ export function useForumTags(channelId: string | null, enabled: boolean) {
  * Fetches the pinned-message list for a channel. Server-side hydrates the
  * author + content so no follow-up fetch is needed.
  */
-export type PinsResponse = { pins: Array<Pick<Msg, "id" | "seq" | "authorId" | "authorName" | "authorAvatar" | "authorAvatarVersion" | "content" | "createdAt">> }
+export type PinsResponse = { pins: Array<Pick<CommunityMessageResource, "id">>; resources: import("@alook/shared").CommunityResourceBundle }
 export type PinsWindowResponse = { pins: Array<Pick<CommunityMessageResource, "id">> }
 
 export const pinsQueryFn = (channelId: string, queryClient: QueryClient) =>
@@ -124,12 +116,7 @@ export const pinsQueryFn = (channelId: string, queryClient: QueryClient) =>
       `/api/community/channels/${channelId}/pins`,
       signal ? { signal } : undefined, publicationToken,
     )
-    {
-      publishCommunityEmbeddedMessages(queryClient, {
-        entries: data.pins.map((message) => ({ channelId, message: { ...CommunityMessagePreviewSchema.partial({ type: true }).parse({ ...message, channelId }), resourceComplete: false } })),
-        proof: { token: publicationToken, signal },
-      })
-    }
+    publishCommunityResourceBundle(queryClient, data.resources, { token: publicationToken, signal }, data.pins.map(row => ({ id: row.id, channelId })))
     return { pins: data.pins.map((message) => ({ id: message.id })) }
   }
 

@@ -1,4 +1,5 @@
-import { CommunityMessageResourceSchema } from "@alook/shared"
+import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, CommunityMessageResourceSchema } from "@alook/shared"
 import { CancelledError, hashKey, queryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -12,7 +13,7 @@ import type { ApiRequestOptions } from "@/lib/api/client"
 import { actionAttributes, currentPageObservation } from "@/lib/observability/context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { channelHref } from "@/lib/community/community-route"
-import { messageWindowPage, type MessageInput, type MessagesPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
+import { messageWindowPage, type MessageInput, type MessagesPage, type MessagesReadPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
 import { buildMessagesUrl, messageWindowIdentity } from "@/lib/community/message-window"
 
 type MessageCache = InfiniteData<MessagesWindowPage, MessagesPageParam>
@@ -40,7 +41,7 @@ function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: Mess
 function cachedCoverage(queryClient: QueryClient, scopeId: string, cache: MessageCache, refreshed: MessagesPage, target: number, tag: string | null) {
   if (tag !== null || !Number.isSafeInteger(target)) return
   const byId = new Map<string, MessageInput>(getCanonicalCommunityMessages(queryClient)
-    .filter(row => row.channelId === scopeId && row.resourceComplete === true).map(row => [row.id, row]))
+    .filter(row => row.channelId === scopeId).map(row => [row.id, row]))
   for (const message of refreshed.messages) {
     const parsed = CommunityMessageResourceSchema.strip().safeParse(message)
     if (parsed.success && parsed.data.channelId === scopeId) byId.set(message.id, parsed.data)
@@ -133,7 +134,7 @@ export function retryFailedMessageRepairs(queryClient: QueryClient) {
     }))
 }
 
-export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, landing?: { page: MessagesPage; param: MessagesPageParam }, owner?: MessageRepairOwner) {
+export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, landing?: { page: MessagesReadPage; param: MessagesPageParam }, owner?: MessageRepairOwner) {
   const scopeId = scope.scopeId
   const token = captureCommunityLiveSnapshotToken(queryClient, scopeId), registry = getCommunityDbRegistry(queryClient)
   const channel = registry?.collections.channels.get(scopeId)
@@ -143,7 +144,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
   const pendingDirection = originalQuery?.state.fetchStatus === "fetching" ? originalQuery.state.fetchMeta?.fetchMore?.direction : undefined
   let paginationReplayed = false
   let landingPage = landing
-  let prefetched: { param: MessagesPageParam; page: MessagesPage } | undefined
+  let prefetched: { param: MessagesPageParam; page: MessagesReadPage } | undefined
   const repairKey: QueryKey = [...key, "reconcile"]
   return queryOptions({
     queryKey: repairKey, staleTime: 0,
@@ -175,8 +176,8 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         const tag = messageWindowIdentity(key)?.tag ?? null
         const load = async (param: MessagesPageParam) => {
           assert()
-          const page = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesPage>(
-            url(scopeId, param, tag), { signal: readSignal, assertActive: assert,
+          const page = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesReadPage>(
+            url(scopeId, param, tag), { signal: readSignal, assertActive: assert, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) },
               observation: { ...observation, reason: "background", role: "reconcile", windowMode: param.mode } }, token,
           ))
           assert()
@@ -185,8 +186,8 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         const target = () => queryClient.getQueryData<number>(targetKey(key)) ?? 0
         let cached: MessagesPage | undefined
         let cachedCovered = 0
-        const published = new Set<MessagesPage>()
-        const prefetch = async (current: MessageCache, refreshed: MessagesPage) => {
+        const published = new Set<MessagesReadPage>()
+        const prefetch = async (current: MessageCache, refreshed: MessagesReadPage) => {
           if (prefetched) return
           const required = Math.max(refreshed.latestSeq ?? 0, target())
           const coverage = cachedCoverage(queryClient, scopeId, current, refreshed, required, tag)
@@ -206,14 +207,14 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
             if (remaining) { cached = remaining.page; cachedCovered = remaining.covered }
           }
         }
-        const publish = (refreshed: MessagesPage) => {
+        const publish = (refreshed: MessagesReadPage) => {
           assert()
           const fetchedEnd = Math.max(0, ...(prefetched?.page.messages.map(message => message.seq ?? 0) ?? []))
           const catchUp = cached && prefetched && cachedCovered >= fetchedEnd
             ? [prefetched.page, cached] : [...(cached ? [cached] : []), ...(prefetched ? [prefetched.page] : [])]
           const pending = [refreshed, ...(prefetched ? [prefetched.page] : [])].filter(page => !published.has(page))
           if (pending.length) {
-            publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), proof: { token, signal } })
+            publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), profiles: [...new Map(pending.flatMap(page => page.profiles).map(profile => [profile.id, profile])).values()], proof: { token, signal } })
             for (const page of pending) published.add(page)
           }
           queryClient.setQueryData<MessageCache>(key, (cache) => isMessageCache(cache) ? mergeWindow(cache, refreshed, catchUp) : cache)
@@ -258,7 +259,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
   })
 }
 
-export function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, target = 0, landing?: { page: MessagesPage; param: MessagesPageParam }, owner?: MessageRepairOwner) {
+export function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, target = 0, landing?: { page: MessagesReadPage; param: MessagesPageParam }, owner?: MessageRepairOwner) {
   const query = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   if (!query) return Promise.resolve()
   queryClient.setQueryData<number>(targetKey(key), (current) => Math.max(current ?? 0, target))
@@ -299,7 +300,7 @@ export function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope,
   })
 }
 
-export function reconcileConversationLanding(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, page: MessagesPage, param: MessagesPageParam, owner: MessageRepairOwner) {
+export function reconcileConversationLanding(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, page: MessagesReadPage, param: MessagesPageParam, owner: MessageRepairOwner) {
   const data = queryClient.getQueryData(key)
   const highWater = page.latestSeq ?? 0
   if (!isMessageCache(data)) return Promise.resolve()

@@ -8,7 +8,7 @@ import type {
 import type { CommunityMachineSummary } from "../src/schemas";
 
 describe("CommunityChannelDelete post-unit address contract", () => {
-  it("accepts canonical post identity while preserving legacy/top-level compatibility", () => {
+  it("accepts canonical post identity while preserving current top-level addressing", () => {
     const canonical: CommunityChannelDelete = {
       type: "community:channel.delete",
       serverId: "server_1",
@@ -52,7 +52,7 @@ describe("CommunityChannelDelete post-unit address contract", () => {
 
 describe("isCommunityEvent", () => {
   it("accepts every exact event declared by WS_EVENTS", () => {
-    expect(Object.values(WS_EVENTS)).toHaveLength(48);
+    expect(Object.values(WS_EVENTS)).toHaveLength(46);
     for (const type of Object.values(WS_EVENTS)) {
       expect(isCommunityEvent({ type })).toBe(true);
     }

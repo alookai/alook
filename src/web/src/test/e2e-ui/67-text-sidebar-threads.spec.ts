@@ -1,6 +1,7 @@
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 
 test("participating text threads share sidebar limits, retention and live membership with forums", async ({ caseActors }, testInfo) => {
   test.setTimeout(180_000)
@@ -16,7 +17,7 @@ test("participating text threads share sidebar limits, retention and live member
   const viewer = await actors.asUser("bob", { viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" })
   const bobId = actors.userId("bob")
   const add = async (id: string) => {
-    const response = await owner.page.request.post(`/api/community/channels/${id}/participants`, { data: { userId: bobId } })
+    const response = await confirmCommunityFixtureApiResponse(owner.page.request.post(`/api/community/channels/${id}/participants`, { data: { userId: bobId }, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(response.status()).toBe(201)
   }
   const threads: string[] = []
@@ -40,13 +41,13 @@ test("participating text threads share sidebar limits, retention and live member
   }))
   const query = new URLSearchParams({ type: "thread", parentType: "forum,text", participating: "true", activeWithin: "72h", limitPerParent: "5", include: "parentMessage" })
   const endpoint = `/api/community/servers/${serverId}/channels?${query}`
-  const canonicalResponse = await page.request.get(endpoint)
+  const canonicalResponse = await confirmCommunityFixtureApiResponse(page.request.get(endpoint, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(canonicalResponse.status()).toBe(200)
   const canonical = await canonicalResponse.json() as { canonicalChannels: Array<{ id: string; parentChannelId: string }> }
   expect(canonical.canonicalChannels.filter((row) => row.parentChannelId === textId)).toHaveLength(5)
   expect(canonical.canonicalChannels.map((row) => row.id)).not.toContain(excludedId)
   expect(canonical.canonicalChannels.map((row) => row.id)).not.toContain(privateThread)
-  const legacyResponse = await page.request.get(endpoint.replace("forum%2Ctext", "forum"))
+  const legacyResponse = await confirmCommunityFixtureApiResponse(page.request.get(endpoint.replace("forum%2Ctext", "forum"), { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(legacyResponse.status()).toBe(200)
   const legacy = await legacyResponse.json() as { canonicalChannels: Array<{ id: string }> }
   expect(legacy.canonicalChannels.map((row) => row.id)).toEqual([forumThread])
@@ -66,7 +67,7 @@ test("participating text threads share sidebar limits, retention and live member
   await page.goto(`/c/channels/${serverId}/${threads[0]}`, { waitUntil: "commit" })
   await expect(sidebarRow(threads[0])).toBeVisible()
   await expect(sidebarRow(threads[0])).toHaveAttribute("aria-current", "page")
-  const retainedResponse = await page.request.get(`${endpoint}&retainId=${threads[0]}`)
+  const retainedResponse = await confirmCommunityFixtureApiResponse(page.request.get(`${endpoint}&retainId=${threads[0]}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(retainedResponse.status()).toBe(200)
   const retained = await retainedResponse.json() as { retainedChannel: { id: string } }
   expect(retained.retainedChannel.id).toBe(threads[0])
@@ -75,7 +76,7 @@ test("participating text threads share sidebar limits, retention and live member
   await expect(sidebarRow(threads[6])).toBeVisible()
   await add(excludedId)
   await expect(sidebarRow(excludedId)).toBeVisible()
-  const remove = await page.request.delete(`/api/community/channels/${excludedId}/participants/${bobId}`)
+  const remove = await confirmCommunityFixtureApiResponse(page.request.delete(`/api/community/channels/${excludedId}/participants/${bobId}`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(remove.status()).toBe(204)
   await expect(sidebarRow(excludedId)).toHaveCount(0)
   await seed.seedMessage("alice", threads[0], "Live activity lifts the oldest thread")
@@ -83,7 +84,7 @@ test("participating text threads share sidebar limits, retention and live member
   const ordered = await page.locator(`[data-testid^="${tid.forumSidebarThread("")}"]`).evaluateAll((rows) => rows.map((row) => row.getAttribute("data-testid")))
   expect(ordered.indexOf(tid.forumSidebarThread(threads[0]))).toBeLessThan(ordered.indexOf(tid.forumSidebarThread(threads[6])))
   await expect.poll(() => events.some((event) => JSON.stringify(event).includes(excludedId))).toBe(true)
-  const membershipResponse = await page.request.get(`/api/community/channels/${threads[0]}/members`)
+  const membershipResponse = await confirmCommunityFixtureApiResponse(page.request.get(`/api/community/channels/${threads[0]}/members?relation=notify`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect(membershipResponse.status()).toBe(200)
   const membership = await membershipResponse.json() as { members: Array<{ userId: string }> }
   expect(membership.members.map((member) => member.userId)).toContain(bobId)

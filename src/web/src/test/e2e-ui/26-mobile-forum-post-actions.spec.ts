@@ -1,3 +1,4 @@
+import { communityFixtureFetch } from "./_fixtures/business-contract"
 import type { Locator, Page, TestInfo } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -9,7 +10,7 @@ import type { CaseActors } from "./_fixtures/case-fixture"
 async function prepareCase(actors: CaseActors) {
   const { sessionCookie } = actors
   async function seedTags(forumId: string, threadId: string, tags: string[]): Promise<void> {
-    const listResponse = await fetch(`${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: { Cookie: sessionCookie("bob"), Origin: WEB_URL } })
+    const listResponse = await communityFixtureFetch(`${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: { Cookie: sessionCookie("bob"), Origin: WEB_URL } })
     expect(listResponse.ok).toBe(true)
     const page = await listResponse.json() as {
       threads: Array<{
@@ -19,7 +20,7 @@ async function prepareCase(actors: CaseActors) {
     }
     const openerMessageId = page.threads.find((thread) => thread.id === threadId)?.parentMessageId
     expect(openerMessageId).toBeTruthy()
-    const tagResponse = await fetch(`${WEB_URL}/api/community/messages/${openerMessageId}/tags`, {
+    const tagResponse = await communityFixtureFetch(`${WEB_URL}/api/community/messages/${openerMessageId}/tags`, {
       method: "PUT",
       headers: {
         Cookie: sessionCookie("bob"),

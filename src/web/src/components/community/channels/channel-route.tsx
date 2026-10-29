@@ -219,7 +219,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,
-    presented && isForumPostChild && !resolvingParent && routeModel.routeHydrated,
+    presented && isForumPostChild && !resolvingParent && routeModel.routeHydrated && routeModel.windowReady,
   )
   const channelName = useMemo(() => resolveChannelDisplayName({
     forumPostTitle: isForumPostChild ? forumPostOpener.data?.content : null,
@@ -300,11 +300,11 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     uiHandlers.openProfile?.(name, e, discriminator, userId)
   }, [uiHandlers])
 
-  const channelReadReady =
+  const channelSurfaceReady =
     routeModel.routeLifecycle === "ready" &&
     routeModel.routeHydrated
-  const channelHydrated = !resolvingParent && channelReadReady
-  const clientReady = active && routeCommitted && channelHydrated && currentChannelId === channelId
+  const channelHydrated = !resolvingParent && channelSurfaceReady
+  const clientReady = active && routeCommitted && channelHydrated && routeModel.windowReady && currentChannelId === channelId
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",
     serverId,
@@ -347,7 +347,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
               parentChannelId={currentChannelMeta?.parentChannelId ?? null}
               parentMessageId={currentChannelMeta?.parentMessageId ?? null}
               parentIsForum={isForumPostChild}
-              routeLifecycle={routeCommitted ? routeModel.routeLifecycle : "pending"}
+              routeLifecycle={routeCommitted && routeModel.windowReady ? routeModel.routeLifecycle : "pending"}
               canRenameThread={canManageServer(myRole)}
               onNavigateParent={navigateParent}
               notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}

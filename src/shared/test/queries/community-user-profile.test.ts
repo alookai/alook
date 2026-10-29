@@ -96,10 +96,16 @@ describe("getPublicProfileForViewer", () => {
         aboutMe: "",
         bannerColor: null,
         statusEmoji: null,
-        statusText: "",
+        statusText: null,
         identity: { kind: "human" },
       });
   });
+
+  it.each([null, "", "Busy"])("preserves explicit status %s through actual insert and public SQL read", async statusText => {
+    await profileQueries.updateProfile(db, "human_1", { statusEmoji: null, statusText })
+    expect(sqlite.prepare("SELECT status_text FROM community_user_profile WHERE user_id=?").get("human_1")).toEqual({ status_text: statusText })
+    expect((await profileQueries.getPublicProfileForViewer(db, "human_1", "viewer_1"))?.statusText).toBe(statusText)
+  })
 
   it("returns canonical public owner navigation and SQL-derived viewer ownership", async () => {
     const ownerView = await profileQueries.getPublicProfileForViewer(db, "bot_1", "owner_1");

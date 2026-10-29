@@ -52,8 +52,8 @@ describe("initializeCommunityOnboarding", () => {
   beforeEach(async () => {
     owner = await createCommunityQueryOwner()
     writeCommunityProfilePatches([
-      { id: "bot-a", identityAbout: { name: "Maya", discriminator: "0001", kind: "bot" } },
-      { id: "bot-b", identityAbout: { name: "Sol", discriminator: "0002", kind: "bot" } },
+      { id: "bot-a", identityAbout: { name: "Maya", discriminator: "0001", kind: "bot" }, avatar: { avatar: null, avatarVersion: 0 } },
+      { id: "bot-b", identityAbout: { name: "Sol", discriminator: "0002", kind: "bot" }, avatar: { avatar: null, avatarVersion: 0 } },
     ], owner.registry)
     apiFetch.mockReset()
     randomBotName.mockReset().mockReturnValueOnce("Ari").mockReturnValueOnce("Bo")

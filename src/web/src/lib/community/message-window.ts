@@ -1,12 +1,13 @@
+import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { infiniteQueryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
-import type { CommunityMessageSurfaceReceipt } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, type CommunityMessageSurfaceReceipt } from "@alook/shared"
 import { actionAttributes } from "@/lib/observability/context"
 import { emitTelemetry, telemetryGeneration } from "@/lib/observability/telemetry"
 import { apiFetchCommunity } from "./account-cache-lifecycle"
 import { captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
-import { messageWindowPage, type MessagesPage as WireMessagesPage, type MessagesWindowPage as MessagesPage, type MessagesPageParam } from "./models/message"
+import { messageWindowPage, type MessagesReadPage as WireMessagesPage, type MessagesWindowPage as MessagesPage, type MessagesPageParam } from "./models/message"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
 
 type MessagesTransportPage = WireMessagesPage & {
@@ -50,7 +51,7 @@ async function fetchMessagesTransport(
 ): Promise<WireMessagesPage> {
   const transport = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesTransportPage>(
     url,
-    { signal: readSignal, observation: typeof options?.observation === "function" ? options.observation() : options?.observation }, token,
+    { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) }, observation: typeof options?.observation === "function" ? options.observation() : options?.observation }, token,
   ))
   const { surfaceReceipt: _surfaceReceipt, ...page } = transport
   return page
@@ -88,6 +89,7 @@ export const channelMessagesQueryFn =
       const result = publishCommunityMessages(originalClient, {
         channelId,
         messages: page.messages,
+        profiles: page.profiles,
         proof: { token: publicationToken, signal },
       })
       if (result === "published" && generation === telemetryGeneration()) emitTelemetry("data.publish", { ...actionAttributes(observation?.action ?? observation?.page), source: "network", cache_stage: "canonical", request_reason: observation?.reason ?? "unknown", eligibility: "eligible", outcome: "success" })

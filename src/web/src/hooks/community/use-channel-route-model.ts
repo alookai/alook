@@ -95,7 +95,8 @@ export function useChannelRouteModel(
   const model = useMemo(() => buildChannelRouteModel(server, renderableChannelMeta, channelId,
     { channelId, settled: metaQuery.canRead }, identity, canonicalParent),
   [server, renderableChannelMeta, channelId, metaQuery.canRead, identity, canonicalParent])
-  const routeLifecycle = metaQuery.canRead && !metadataExit ? "ready" as const
+  const surfaceReady = model.routeHydrated && metaQuery.canRead && !metadataExit && !metadataError
+  const routeLifecycle = surfaceReady ? "ready" as const
     : metadataExit || metadataError ? "terminal-error" as const : "pending" as const
   const skeletonSubtype = routeLifecycle === "ready"
     ? model.isChild ? "thread" as const : model.isForum ? "forum" as const : "text" as const
@@ -144,7 +145,8 @@ export function useChannelRouteModel(
 
   return {
     ...model,
-    routeHydrated: model.routeHydrated && metaQuery.canRead && !metadataExit,
+    routeHydrated: surfaceReady,
+    windowReady: metaQuery.windowReady,
     routeLifecycle,
     skeletonSubtype,
     layoutHint,

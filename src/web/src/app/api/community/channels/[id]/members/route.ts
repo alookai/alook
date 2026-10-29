@@ -2,30 +2,20 @@ import { NextRequest } from "next/server"
 import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import {
-  queries,
-  WS_EVENTS,
-  isForum,
-  isThread,
-  DM_SERVER,
-  formatHandle,
-  parseRef,
-  withD1Retry,
-} from "@alook/shared"
+import { queries, WS_EVENTS, isThread, DM_SERVER, formatHandle, parseRef, withD1Retry } from "@alook/shared"
 import type { CommunityCliServerMember as ServerMember } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
-import { mapMemberForApi } from "@/lib/community/member-payload"
+
 import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
-import { requestsCommunityContract, requestedCommunityContract } from "@alook/shared"
+import { requestsCommunityContract, COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { readCommunityMembers } from "@/lib/community/member-read"
 import { resolveMessageTarget } from "@/lib/community/message-door"
 
 // A bot addresses by ref-in-query (`?ref=`, the folded `channelMember` verb);
 // the path `[id]` is then the `resolve` placeholder (a ref carries `/`). A
 // human/web caller puts the real channelId in the path.
-const REF_PLACEHOLDER_ID = "resolve"
 
 /**
  * GET /api/community/channels/[id]/members — the canonical "who is in this
@@ -44,82 +34,14 @@ const REF_PLACEHOLDER_ID = "resolve"
 export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
-  if (requestsCommunityContract(req.headers)) {
-    const ref = req.nextUrl.searchParams.get("ref")
-    const target = ctx.actor.kind === "bot" && ref ? { ref } : { id: ctx.params?.id ?? "" }
-    const resolved = await resolveMessageTarget(db, ctx.actor.userId, target, ctx.actor.kind)
-    if (!resolved.ok) return writeError(resolved.error, resolved.status)
-    return readCommunityMembers(db, resolved.value.target.channelId, ctx.actor.userId, req.nextUrl.searchParams.get("relation"), requestedCommunityContract(req.headers) === 3 ? 3 : 2)
-  }
-
-  if (ctx.actor.kind === "bot") {
+  if (ctx.actor.kind === "bot" && !requestsCommunityContract(req.headers)) {
     return handleBotChannelMember(db, ctx.env, ctx.actor.userId, req)
   }
-
-  const channelId = ctx.params?.id
-  if (!channelId || channelId === REF_PLACEHOLDER_ID) return writeError("missing channel id", 400)
-
-  const access = await requireChannelAccess(db, channelId, ctx.actor.userId)
-  if (!access.ok) return writeError(access.error, access.status)
-  const userId = ctx.actor.userId
-
-  const { anchor, channel } = access.value
-
-  // Thread: the NOTIFY dimension. The panel == the participant set (not the
-  // access audience), so a public thread lists only its participants, never
-  // the whole server. The row's `isCreator` locks the UNIT's own author
-  // (`channel.creatorId`), NOT the access anchor. NOTE: the live /c UI reads
-  // `/participants` for these units; this branch is API/agent parity so a
-  // direct GET of a thread's `/members` agrees.
-  if (isThread(channel.type)) {
-    const participants = await queries.communityThread.listThreadParticipants(db, channelId)
-    const userIds = participants.map((p) => p.userId)
-    const rows = await queries.communityMember.getMembersByUserIds(db, channel.serverId, userIds)
-    const rowByUser = new Map(rows.map((r) => [r.userId, r]))
-    const members = participants
-      .map((p) => {
-        const row = rowByUser.get(p.userId)
-        if (!row) return null
-        return mapMemberForApi(row, userId, {
-          isCreator: p.userId === channel.creatorId,
-          source: p.source,
-        })
-      })
-      .filter((m): m is NonNullable<typeof m> => m !== null)
-    return writeJSON({ members })
-  }
-
-  // Channel / forum: the ACCESS dimension. Resolve the audience (public → all
-  // server members; private → own roster ∪ creator). The anchor IS the roster
-  // for these top-level units, so the roster creator is `anchor.creatorId`.
-  const scopeMembers = await withD1Retry(
-    () => queries.communityMembersResolver.resolveScopeMembers(db, {
-      scope: isForum(channel.type) ? "forum" : "channel",
-      scopeId: channelId,
-    }),
-    { route: "community/channel-members:resolve-scope" },
-  )
-  const rows = await queries.communityMember.getMembersByUserIds(
-    db,
-    anchor.serverId,
-    scopeMembers.map((m) => m.userId),
-  )
-  const rowByUser = new Map(rows.map((r) => [r.userId, r]))
-
-  // `resolveScopeMembers` order is the source of truth for membership; hydrate
-  // display via the server-member rows (soft-deleted users drop out — expected).
-  const members = scopeMembers
-    .map((sm) => {
-      const row = rowByUser.get(sm.userId)
-      if (!row) return null
-      return mapMemberForApi(row, userId, {
-        isCreator: sm.userId === anchor.creatorId,
-        source: sm.source,
-      })
-    })
-    .filter((m): m is NonNullable<typeof m> => m !== null)
-
-  return writeJSON({ members })
+  const ref = req.nextUrl.searchParams.get("ref")
+  const target = ctx.actor.kind === "bot" && ref ? { ref } : { id: ctx.params?.id ?? "" }
+  const resolved = await resolveMessageTarget(db, ctx.actor.userId, target, ctx.actor.kind)
+  if (!resolved.ok) return writeError(resolved.error, resolved.status)
+  return readCommunityMembers(db, resolved.value.target.channelId, ctx.actor.userId, req.nextUrl.searchParams.get("relation"), COMMUNITY_RESOURCE_CONTRACT_VERSION)
 })
 
 /**

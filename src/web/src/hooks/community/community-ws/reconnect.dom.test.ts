@@ -1,3 +1,4 @@
+import { currentCommunityEventFixture, messageResourceFixture, forumSidebarEnvelopeFixture, serverDirectoryFixture } from "@/test/community-resource-fixtures"
 import { seedCanonicalFocusedChannel } from "./test-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { ingestMessages, ingestServerDetail } from "@/lib/community-db/sync"
@@ -51,9 +52,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const subscriptions: Array<() => void> = []
     for (const serverId of ["server-A", "server-B"]) {
       const id = serverId === "server-A" ? "channel-A" : "channel-B"
-      ingestServerDetail(registry, { id: serverId, name: serverId, discriminator: "0001", description: "", icon: null, ownerId: "scope-viewer",
-        categories: [{ id: "category-" + serverId, name: "Chats", channels: [{ id, name: id, active: false, unread: false }] }] })
-      ingestMessages(registry, id, [{ id: "message-" + id, seq: 1, type: "chat", content: id }])
+      ingestServerDetail(registry, serverDirectoryFixture({ id: serverId, name: serverId, discriminator: "0001", description: "", icon: null, ownerId: "scope-viewer",
+        categories: [{ id: "category-" + serverId, name: "Chats", channels: [{ id, name: id, active: false, unread: false }] }] }))
+      ingestMessages(registry, id, [messageResourceFixture({ id: "message-" + id, channelId: id, content: id })])
       const queryKey = communityKeys.channelMessages(id)
       client.setQueryData(queryKey, { pages: [{ messages: [{ id: "message-" + id, seq: 1 }], latestSeq: 1, hasMore: false }], pageParams: [{ mode: "newest" }] })
       subscriptions.push(new QueryObserver(client, { queryKey, queryFn: async () => null, staleTime: Infinity }).subscribe(() => {}))
@@ -164,7 +165,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     resetHookMemoization()
     await mountHook({ viewerUserId: "u_me" })
     flushEffects()
-    capturedOnMessage?.({ type: "community:unread.bump", channelId: "dm_effect_replay", userId: "u_me", isMention: false })
+    await capturedOnMessage?.(currentCommunityEventFixture({ type: "community:unread.bump", channelId: "dm_effect_replay", userId: "u_me", isMention: false }))
     await vi.advanceTimersByTimeAsync(500)
 
     expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => (
@@ -827,7 +828,10 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       if (url === "/api/community/users/me/read-state") {
         return { revision: 0, readStates: [] }
       }
-      if (String(url).includes("/channels?")) return forumSidebarFixture([])
+      if (String(url).includes("/channels?")) {
+        const serverId = new URL(String(url), "https://alook.test").pathname.split("/")[4]!
+        return { ...forumSidebarEnvelopeFixture(serverId, [], "u_me"), serverNow: "2026-08-01T00:00:00.000Z" }
+      }
       throw new Error(`unexpected API fetch: ${String(url)}`)
     })
     const queryClient = new QueryClient({

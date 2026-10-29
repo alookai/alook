@@ -16,8 +16,6 @@ const REF_PLACEHOLDER_ID = "resolve"
  *     else is the creator's call; admins have no content privilege here).
  *   - A creator may self-leave after deterministic creator handoff. Removing
  *     another current creator remains out of scope.
- * The removed user gets a CHANNEL_MEMBER_REMOVE so their sidebar drops the
- * channel + evicts its caches.
  */
 export const DELETE = withCommunityActor(async (req: NextRequest, ctx) => {
   const pathChannelId = ctx.params?.id

@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -64,7 +65,7 @@ const TOKEN = "tok_abc"
 function req(token: string, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest(`http://localhost/api/community/invites/${token}/join`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json", ...(new Headers(headers).has("Authorization") ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }), ...headers },
   })
 }
 const params = (token: string) => ({ params: Promise.resolve({ token }) })

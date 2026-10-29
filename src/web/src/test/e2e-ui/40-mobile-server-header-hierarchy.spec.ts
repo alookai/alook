@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Page, Request, Response } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
@@ -152,9 +153,9 @@ test.describe("mobile server header direct hierarchy", () => {
             await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}/${postId}`)
             await expect(page.locator('[data-mobile-page-active="true"]').getByTestId(tid.composerInput)).toBeVisible()
           }
-          const metadata = await page.request.get(new URL(`/api/community/channels/${postId}`, page.url()).href)
+          const metadata = await confirmCommunityFixtureApiResponse(page.request.get(new URL(`/api/community/channels/${postId}`, page.url()).href, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
           expect(metadata.status()).toBe(200)
-          expect(await metadata.json()).toMatchObject({ id: postId, serverId, parentChannelId: forumId })
+          expect((await metadata.json()).channel).toMatchObject({ id: postId, serverId, parentChannelId: forumId })
         }
       } finally { page.off("request", requested) }
     })

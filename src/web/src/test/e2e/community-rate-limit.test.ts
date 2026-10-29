@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { DEV_WS_DO_URL, RATE_LIMITS, type RateLimitResult } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, DEV_WS_DO_URL, RATE_LIMITS, type RateLimitResult } from "@alook/shared"
 import {
   seedTestData,
   cleanupTestData,
@@ -84,7 +84,7 @@ describe("community message rate limit — DO-backed", () => {
       cookie,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) },
         body: JSON.stringify({ content }),
       },
     )

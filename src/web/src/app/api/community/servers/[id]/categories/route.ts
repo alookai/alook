@@ -1,3 +1,4 @@
+import { CommunityCategoryResourceSchema } from "@alook/shared"
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -19,7 +20,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
   const categories = await readCommunityServerCategoryRows(db, serverId)
-  return writeJSON({ categories })
+  return writeJSON({ categories: categories.map(row => CommunityCategoryResourceSchema.strip().parse({ ...row, private: !!row.private })) })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -63,12 +64,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     throw err
   }
 
-  const category = {
-    id: row.id,
-    name: row.name,
-    position: row.position ?? 0,
-    private: !!row.private,
-  }
+  const category = CommunityCategoryResourceSchema.strip().parse({ ...row, private: !!row.private })
 
   await fanOutToServerMembers(serverId, {
     type: WS_EVENTS.CATEGORY_CREATE,

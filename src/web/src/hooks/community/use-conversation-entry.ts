@@ -6,8 +6,9 @@ import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useConversationActivity, useConversationPresentation } from "@/contexts/community/conversation-activity"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { channelHref, normalizeCommunityHref } from "@/lib/community/community-route"
-import type { CommunityReadStateResource } from "@alook/shared"
-import { useChannelReadStateProjection, useChannelRosterRows, useRouteChannelProjection } from "@/lib/community-db/projections"
+import { communityMessageProfileIds, CommunityMessageResourceSchema, CommunityResourceProfileSchema, type CommunityReadStateResource } from "@alook/shared"
+import { useCanonicalMessagesById, useCanonicalProfilesProjection, useChannelReadStateProjection, useChannelRosterRows, useRouteChannelProjection } from "@/lib/community-db/projections"
+import { getCanonicalCommunityMessageResources } from "@/lib/community-db/sync"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
@@ -112,13 +113,58 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     if (pointer && !findConversationEntryWindow(client, input, query.data, pointer)) void client.query({ ...options, select: undefined }).catch(() => undefined)
   }, [client, channelId, intent, input, options, query.data, query.isFetching, query.isError, revoked, target, presented])
   const currentPointer = read.readState ?? (read.hasSnapshot ? currentConversationReadState(client, channelId) : undefined)
-  const cachedWindow = scope ? findConversationDisplayWindow(client, baseInput, scope) : undefined
+  const retainedIds = client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages(channelId) }).flatMap(query => {
+    const identity = messageWindowIdentity(query.queryKey)
+    if (!identity || identity.tag !== tag || identity.initial.mode === "since") return []
+    const value = query.state.data as MessageWindowData | undefined
+    if (!Array.isArray(value?.pages) || !Array.isArray(value.pageParams) || !value.pages.length || value.pages.length !== value.pageParams.length
+      || value.pages.some(page => !Array.isArray(page?.messages) || page.messages.some(message => typeof message?.id !== "string" || !message.id))) return []
+    return value.pages.flatMap(page => page.messages.map(message => message.id))
+  })
+  const forumMessageIds: string[] = []
+  const forum = client.getQueryData<{ pages: import("./forum-feed-window").ForumFeedPage[] }>(communityKeys.forumFeed(channelId, tag))
+  if (Array.isArray(forum?.pages)) for (const page of forum.pages) if (Array.isArray(page?.threads)) for (const thread of page.threads) {
+    if (!thread || typeof thread.id !== "string") continue
+    if (typeof thread.openerMessageId === "string") forumMessageIds.push(thread.openerMessageId)
+    const child = getCommunityDbRegistry(client)?.collections.channels.get(thread.id)
+    if (child?.firstMessageId) forumMessageIds.push(child.firstMessageId)
+  }
+  retainedIds.push(...forumMessageIds)
+  const retainedMessages = useCanonicalMessagesById([...new Set(retainedIds)])
+  const retainedResources = [...(retainedMessages?.keys() ?? [])].flatMap(id => {
+    const parsed = CommunityMessageResourceSchema.strip().safeParse(getCommunityDbRegistry(client)?.collections.messages.get(id))
+    return parsed.success ? [parsed.data] : []
+  })
+  const retainedProfileIds = communityMessageProfileIds(retainedResources)
+  const retainedProfiles = useCanonicalProfilesProjection(retainedProfileIds)
+  const availableWindow = readableScope ? findConversationDisplayWindow(client, baseInput, readableScope) : undefined
+  const availableMessageIds = availableWindow && messageWindowIdentity(availableWindow.key)
+    ? client.getQueryData<MessageWindowData>(availableWindow.key)!.pages.flatMap(page => page.messages.map(message => message.id))
+    : forumMessageIds
+  const availableGraph = availableWindow ? getCanonicalCommunityMessageResources(client,
+    availableMessageIds.map(id => getCommunityDbRegistry(client)?.collections.messages.get(id))) : undefined
+  const requiredProfileIds = availableGraph?.profiles.map(profile => profile.id) ?? retainedProfileIds
+  const profilesReady = requiredProfileIds.length === 0 || retainedProfiles.isReady && !retainedProfiles.isError
+    && requiredProfileIds.every(id => CommunityResourceProfileSchema.strip().safeParse(retainedProfiles.resourceProfiles.get(id)).success)
+  const cachedWindow = profilesReady ? availableWindow : undefined
+  const dependencyWindowKey = availableWindow?.key ?? resource?.windowKey
+  const dependencyWindow = dependencyWindowKey && messageWindowIdentity(dependencyWindowKey)
+    ? client.getQueryData<MessageWindowData>(dependencyWindowKey) : undefined
+  const dependencyIds = dependencyWindow && Array.isArray(dependencyWindow.pages) && dependencyWindow.pages.every(page => Array.isArray(page?.messages) && page.messages.every(message => typeof message?.id === "string" && message.id))
+    ? dependencyWindow.pages.flatMap(page => page.messages.map(message => message.id)) : canonical?.type === "forum" ? forumMessageIds : undefined
+  const retainedBodiesReady = dependencyIds === undefined || dependencyIds.every(id => getCommunityDbRegistry(client)?.collections.messages.get(id)?.channelId === channelId)
   const cachedData = cachedWindow ? client.getQueryData<{ pages: Array<{ messages?: unknown[]; threads?: unknown[] }> }>(cachedWindow.key) : undefined
   const rawWindowExists = canonical?.type === "forum" && !anchorMessageId ? client.getQueryData(communityKeys.forumFeed(channelId, tag)) !== undefined
     : client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages(channelId) }).some(query => {
       const identity = messageWindowIdentity(query.queryKey)
       return !!identity && identity.tag === tag && identity.initial.mode !== "since" && query.state.data !== undefined
     })
+  useEffect(() => {
+    if (presented && enabled && qualified && rawWindowExists && retainedProfiles.isReady && !retainedProfiles.isError && retainedBodiesReady && !availableWindow && query.isSuccess && !query.isFetching) {
+      void refetch({ cancelRefetch: false })
+    }
+  }, [presented, enabled, qualified, rawWindowExists, retainedProfiles.isReady, retainedProfiles.isError, retainedBodiesReady, availableWindow, query.isSuccess, query.isFetching, refetch])
+  const windowReady = qualified && currentPointer !== undefined && cachedWindow !== undefined
   const cacheWindow = !cachedWindow ? rawWindowExists ? "incomplete" : "missing" : cachedData?.pages.some(page => (page.messages ?? page.threads ?? []).length > 0) ? "ready" : "empty"
   const targetCoverage = scope && findConversationEntryWindow(client, baseInput, resource ?? scope, currentPointer) ? "covered" : "uncovered"
   const entryStatus = resource ? "current" : client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries(channelId) }).some(candidate => candidate.state.data !== undefined) ? "stale" : "missing"
@@ -132,7 +178,7 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     emitTelemetry("conversation.cache", { ...actionAttributes(action), cache_consumer: consumer, cache_reason: assessment.reason,
       cache_window: cacheWindow, entry_status: entryStatus, target_coverage: targetCoverage, eligibility: scopeAvailable ? "eligible" : "rejected" })
   }, [active, assessment.reason, cacheWindow, channelId, consumer, enabled, entryStatus, intent, scopeAvailable, serverId, targetCoverage, telemetryOwner])
-  return { client, cachedResource, scope: readableScope, currentPointer, input: anchorMissing && landing.position ? baseInput : input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
+  return { client, cachedResource, scope: readableScope, currentPointer, windowReady, displayWindow: cachedWindow, input: anchorMissing && landing.position ? baseInput : input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
     localPosition: anchorMissing ? null : landing.position,
     denied: serverRevoked || revoked && (!verification.needed || generation !== verification.generation) || isConversationAccessError(query.error) && Number((query.error as { status?: unknown } | null)?.status) !== 401, anchorMissing,
     verificationError: (!qualified && anchorMissing ? fallback.error : query.error)?.name === "AbortError" ? null : !qualified && anchorMissing ? fallback.error : query.error,
@@ -156,7 +202,7 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
       ? current : { path: expectedPath, intent: incomingIntent })
   }, [active, expectedPath, incomingIntent, resuming])
   const intent = (active && !resuming) || retainedIntent.path !== expectedPath ? incomingIntent : retainedIntent.intent
-  const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, revoked, denied, anchorMissing, localPosition } = useConversationResource(target, intent, true, "messages")
+  const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, windowReady, revoked, denied, anchorMissing, localPosition } = useConversationResource(target, intent, true, "messages")
   const canonicalInput = useMemo(() => localPosition ? { ...input, anchorMessageId: null } : input, [input, localPosition])
   const entry = useMemo(() => {
     const pointer = scope ? currentConversationReadState(client, input.channelId) : undefined
@@ -209,7 +255,7 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   const activeQuery = needsCanonicalWindow ? canonicalQuery : query
   const refetch = activeQuery.refetch
   const retry = useCallback(() => refetch({ cancelRefetch: false }), [refetch])
-  return { ...activeQuery, intent, resource, scope, canonical, canRead, window, snapshot, targetCovered, revoked, denied, anchorMissing,
+  return { ...activeQuery, intent, resource, scope, canonical, canRead, windowReady, window, snapshot, targetCovered, revoked, denied, anchorMissing,
     initialPositionPending: !targetCovered,
     initialPositionMessageId: targetCovered && localPosition && snapshot && snapshot.lastReadSeq < localPosition.seq ? localPosition.messageId : null,
     isPending: !!target && !window && !denied && !anchorMissing && !activeQuery.isError && activeQuery.errorUpdatedAt === 0,

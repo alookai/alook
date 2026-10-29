@@ -1,3 +1,4 @@
+import { messageResourceFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { expect, it } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -9,7 +10,7 @@ import { useMessageUnreadCount } from "./use-message-unread-count"
 
 it("projects admitted local progress without changing the frozen entry boundary or confirming the read", async () => {
   const owner = await createCommunityQueryOwner()
-  const messages = [2, 5, 9].map(seq => ({ id: `m${seq}`, channelId: "c1", seq, authorId: "peer", type: "chat" as const, content: "Message", createdAt: `2026-10-27T00:00:0${seq}.000Z` }))
+  const messages = [2, 5, 9].map(seq => messageResourceFixture({ id: `m${seq}`, channelId: "c1", seq, authorId: "peer", content: "Message", createdAt: `2026-10-27T00:00:0${seq}.000Z` }))
   ingestMessages(owner.registry, "c1", messages)
   const entry = Object.freeze({ lastReadSeq: 2 })
   const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)

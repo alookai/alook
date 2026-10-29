@@ -1,3 +1,6 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { channelResourceFixture, messageResourceFixture, currentCommunityEventFixture } from "@/test/community-resource-fixtures"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { seedCommunityAttentionScope } from "@/test/community-query-owner"
 import { conversationEntryFixture, conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
@@ -80,11 +83,11 @@ describe("useCommunityWs — member events", () => {
       } },
     )
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.leave",
       serverId: "srv_1",
       userId: "u_me",
-    } satisfies CommunityMemberLeave)
+    } satisfies CommunityMemberLeave))
 
     expect(getCapturedRuntime().ui.get()).toMatchObject({
       currentServerId: null,
@@ -106,11 +109,11 @@ describe("useCommunityWs — member events", () => {
     }).catch(() => undefined)
     expect(capturedQueryClient.getQueryState(key)).toBeDefined()
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.leave",
       serverId: "srv_1",
       userId: "u_me",
-    } satisfies CommunityMemberLeave)
+    } satisfies CommunityMemberLeave))
 
     expect(capturedQueryClient.getQueryState(key)).toBeUndefined()
   })
@@ -129,11 +132,11 @@ describe("useCommunityWs — member events", () => {
       scope: { kind: "server", serverId: "srv_2", channelId: "channel_2" },
       actors: [],
     })
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.leave",
       serverId: "srv_1",
       userId: "u_other",
-    } satisfies CommunityMemberLeave)
+    } satisfies CommunityMemberLeave))
     expect(capturedQueryClient.getQueryState(matching)?.isInvalidated).toBe(true)
     expect(capturedQueryClient.getQueryState(other)?.isInvalidated).toBe(false)
   })
@@ -149,11 +152,11 @@ describe("useCommunityWs — member events", () => {
     const unsubscribe = observer.subscribe(() => undefined)
     expect(queryFn).toHaveBeenCalledOnce()
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.leave",
       serverId: "srv_1",
       userId: "u_other",
-    } satisfies CommunityMemberLeave)
+    } satisfies CommunityMemberLeave))
 
     await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2))
     expect(capturedQueryClient.getQueryState(key)?.data).toBeUndefined()
@@ -170,7 +173,7 @@ describe("useCommunityWs — member events", () => {
     const event: CommunityMemberJoin = {
       type: "community:member.join",
       serverId: "srv_1",
-      member: {
+      member: { avatar: null,
         id: "mem_1",
         userId: "u_1",
         name: "n",
@@ -180,7 +183,7 @@ describe("useCommunityWs — member events", () => {
         joinedAt: "2026-07-03T00:00:00.000Z",
       },
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
     const cache = capturedQueryClient.getQueryData<{
       pages: { members: { userId: string }[]; total: number }[]
     }>(communityKeys.members("srv_1"))
@@ -219,10 +222,10 @@ describe("useCommunityWs — member events", () => {
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     online = ["u_online"]
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.join",
       serverId: "srv_1",
-      member: {
+      member: { avatar: null,
         id: "mem_online",
         userId: "u_online",
         name: "Online member",
@@ -231,7 +234,7 @@ describe("useCommunityWs — member events", () => {
         role: "member",
         joinedAt: "2026-08-17T00:00:00.000Z",
       },
-    } satisfies CommunityMemberJoin)
+    } satisfies CommunityMemberJoin))
 
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: affectedKey,
@@ -247,10 +250,10 @@ describe("useCommunityWs — member events", () => {
       })
     })
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.join",
       serverId: "srv_1",
-      member: {
+      member: { avatar: null,
         id: "mem_offline",
         userId: "u_offline",
         name: "Offline member",
@@ -259,7 +262,7 @@ describe("useCommunityWs — member events", () => {
         role: "member",
         joinedAt: "2026-08-17T00:01:00.000Z",
       },
-    } satisfies CommunityMemberJoin)
+    } satisfies CommunityMemberJoin))
 
     await vi.waitFor(() => {
       expect(affectedQuery).toHaveBeenCalledTimes(3)
@@ -279,7 +282,7 @@ describe("useCommunityWs — member events", () => {
     const event = {
       type: "community:member.join",
       serverId: "srv_new",
-      member: {
+      member: { avatar: null,
         id: "mem_me",
         userId: "u_me",
         name: "Me",
@@ -290,24 +293,24 @@ describe("useCommunityWs — member events", () => {
       },
     } satisfies CommunityMemberJoin
 
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.servers(), exact: true })
     expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.server("srv_new"), exact: true })
 
     spy.mockClear()
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       ...event,
-      member: { ...event.member, id: "mem_peer", userId: "u_peer" },
-    })
+      member: { avatar: null, ...event.member, id: "mem_peer", userId: "u_peer" },
+    }))
     expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.servers(), exact: true })
   })
 
   it("forwards WS membership changes onto the server-scoped search overlay bus", async () => {
     await mountHook()
     const server = (id: string) => {
-      capturedOnMessage!({ type: "community:member.join", serverId: id, member: { id: `${id}-gone`, userId: "u_gone", name: "Gone", discriminator: "0001", avatarVersion: 0, role: "member", joinedAt: "2026-07-03T00:00:00.000Z" } })
-      capturedOnMessage!({ type: "community:member.join", serverId: id, member: { id: `${id}-remaining`, userId: "u_remaining", name: "Remaining", discriminator: "0002", avatarVersion: 0, role: "member", joinedAt: "2026-07-03T00:00:00.000Z" } })
+      capturedOnMessage!(currentCommunityEventFixture({ type: "community:member.join", serverId: id, member: { avatar: null, id: `${id}-gone`, userId: "u_gone", name: "Gone", discriminator: "0001", avatarVersion: 0, role: "member", joinedAt: "2026-07-03T00:00:00.000Z" } }))
+      capturedOnMessage!(currentCommunityEventFixture({ type: "community:member.join", serverId: id, member: { avatar: null, id: `${id}-remaining`, userId: "u_remaining", name: "Remaining", discriminator: "0002", avatarVersion: 0, role: "member", joinedAt: "2026-07-03T00:00:00.000Z" } }))
       const key = [...communityKeys.members(id), "search", "g"]
       capturedQueryClient.setQueryData(key, { pages: [{ members: [{ id: `${id}-gone`, userId: "u_gone" }, { id: `${id}-remaining`, userId: "u_remaining" }], hasMore: false, limit: 50 }], pageParams: [null] })
       return key
@@ -315,17 +318,17 @@ describe("useCommunityWs — member events", () => {
     const current = server("srv_1"), other = server("srv_2")
     const otherBefore = capturedQueryClient.getQueryData(other)
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.leave",
       serverId: "srv_1",
       userId: "u_gone",
-    } satisfies CommunityMemberLeave)
-    capturedOnMessage!({
+    } satisfies CommunityMemberLeave))
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.update",
       serverId: "srv_1",
       memberId: "srv_1-remaining",
       changes: { role: "admin" },
-    } satisfies CommunityMemberUpdate)
+    } satisfies CommunityMemberUpdate))
     expect(capturedQueryClient.getQueryData<{ pages: Array<{ members: Array<{ userId: string }> }> }>(current)?.pages[0]?.members.map((member) => member.userId)).toEqual(["u_remaining"])
     expect(capturedQueryClient.getQueryData(other)).toBe(otherBefore)
     const registry = (await import("./test-harness")).canonicalRegistry!
@@ -377,7 +380,7 @@ describe("useCommunityWs — member events", () => {
       userId: "u_renamed",
       changes: { nickname: "NewName" },
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     const channelCache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string; authorName: string }[] }[]
@@ -415,7 +418,7 @@ describe("useCommunityWs — member events", () => {
       memberId: "mem_1",
       changes: { role: "admin" },
     }
-    capturedOnMessage!(event)
+    capturedOnMessage!(currentCommunityEventFixture(event))
 
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: { id: string; authorName: string }[] }[]
@@ -432,7 +435,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     seedCanonicalThread("srv_1", "private_parent", "forum", "private")
 
     seedCommunityAttentionScope(capturedQueryClient, { channelId: "private", serverId: "srv_1", seq: 1 })
-    capturedOnMessage!({ type: "community:channel.membership.change", relation: "notify", present: false, serverId: "srv_1", channelId: "private", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", relation: "notify", present: false, serverId: "srv_1", channelId: "private", userId: "u_me" }))
     expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("private")?.ordinaryUnread)).toBe(false)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("private")).toBe(false)
     seedCommunityAttentionScope(capturedQueryClient, { channelId: "private", serverId: "srv_1", seq: 2 })
@@ -443,27 +446,27 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
   it("member_add invalidates channelMembers AND threadParticipants for a child thread", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    capturedOnMessage!({
-      type: "community:channel.member_add",
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "notify", present: true,
+      type: "community:channel.membership.change",
       serverId: "srv_1",
       channelId: "ch_1",
       userId: "u_new",
-    })
+    }))
     const invalidated = (key: unknown) =>
       spy.mock.calls.some((c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(key))
-    expect(invalidated(communityKeys.channelMembers("ch_1"))).toBe(true)
+    await vi.waitFor(() => expect(invalidated(communityKeys.channelMembers("ch_1", "notify"))).toBe(true))
     expect(invalidated(communityKeys.threadParticipants("ch_1"))).toBe(true)
   })
 
   it("member_remove invalidates threadParticipants too", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    capturedOnMessage!({
-      type: "community:channel.member_remove",
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "notify", present: false,
+      type: "community:channel.membership.change",
       serverId: "srv_1",
       channelId: "ch_1",
       userId: "u_gone",
-    })
+    }))
     expect(
       spy.mock.calls.some(
         (c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(communityKeys.threadParticipants("ch_1")),
@@ -485,12 +488,12 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       categories: [{ id: "cat_1", channels: [{ id: "ch_1", type: "text" }] }],
     })
 
-    capturedOnMessage!({
-      type: "community:channel.member_remove",
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: false,
+      type: "community:channel.membership.change",
       serverId: "srv_1",
       channelId: "ch_1",
       userId: "u_other",
-    })
+    }))
 
     expect(capturedQueryClient.getQueryState(messagesKey)).toBeDefined()
     expect(capturedQueryClient.getQueryState(pinsKey)).toBeDefined()
@@ -508,12 +511,12 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       id: "srv_1",
       categories: [{ id: "cat_1", channels: [{ id: "ch_1", type: "text" }] }],
     })
-    capturedOnMessage!({
-      type: "community:channel.member_remove",
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: false,
+      type: "community:channel.membership.change",
       serverId: "srv_1",
       channelId: "ch_1",
       userId: "u_me",
-    })
+    }))
 
     expect(hasCanonicalChannel("ch_1")).toBe(false)
   })
@@ -523,11 +526,10 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("srv_1")
     await act(async () => { seedCanonicalForumSidebar("srv_1", ["post_1", "post_2"]) })
-    await act(async () => { patchCanonicalCommunityChannel(capturedQueryClient, "forum_1", row => ({ ...row, type: parentType })) })
-    await act(async () => { patchCanonicalCommunityChannel(capturedQueryClient, "post_1", (row) => ({
-      ...row,
-      unread: true,
-    })) })
+    await act(async () => {
+      patchCanonicalCommunityChannel(capturedQueryClient, "forum_1", row => ({ ...row, type: parentType }))
+      seedCommunityAttentionScope(capturedQueryClient, { channelId: "post_1", serverId: "srv_1", parentChannelId: "forum_1", seq: 1 })
+    })
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentChannelId("post_1") })
     await act(async () => { seedCanonicalFocusedChannel({
       name: "Private forum title",
@@ -536,24 +538,24 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     }) })
 
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    await act(async () => { capturedOnMessage!({
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.membership.change", relation: "notify", present: false,
       serverId: "srv_1",
       channelId: "post_1",
       userId: "u_me",
-    }) })
+    })) })
     expect(hasCanonicalChannelAccess("post_1", "u_me")).toBe(true)
     expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
     expect(getCanonicalCommunityChannels(capturedQueryClient)
       .find(({ id }) => id === "post_1")).not.toHaveProperty("unread")
     expect(readCurrentCommunityChannelMeta(capturedQueryClient)?.name).toBe("Private forum title")
 
-    await act(async () => { capturedOnMessage!({
+    await act(async () => { capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.membership.change", relation: "notify", present: true,
       serverId: "srv_1",
       channelId: "post_2",
       userId: "u_me",
-    }) })
+    })) })
     expect(hasCanonicalChannelAccess("post_2", "u_me")).toBe(true)
     expect(hasCanonicalChannelNotify("post_2", "u_me")).toBe(true)
   })
@@ -583,12 +585,12 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       hint: capturedQueryClient.getQueryData(hintKey),
     }
 
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.membership.change", relation: "notify", present: true,
       serverId: "srv_1",
       channelId: "text_thread",
       userId: "u_me",
-    })
+    }))
 
     expect(capturedQueryClient.getQueryData(baseKey)).toBe(before.base)
     expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
@@ -601,12 +603,12 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       name: "Private title",
       parentChannelId: "text_parent",
     })
-    capturedOnMessage!({
+    capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.membership.change", relation: "notify", present: false,
       serverId: "srv_1",
       channelId: "text_thread",
       userId: "u_me",
-    })
+    }))
 
     expect(capturedQueryClient.getQueryData(baseKey)).toBe(before.base)
     expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
@@ -628,7 +630,7 @@ describe("membership metadata and access lifetime", () => {
     capturedQueryClient.setQueryData(key, content)
     const api = getCommunityApiFetchMock()
     api.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false }, "u_me"))
-    capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present }))
     if (!present) expect(capturedQueryClient.getQueryData(key)).toBeUndefined()
     else expect(capturedQueryClient.getQueryData(key)).toEqual(content)
     await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
@@ -648,7 +650,7 @@ describe("membership metadata and access lifetime", () => {
     seedCommunityAttentionScope(capturedQueryClient, { channelId: "dm-private", serverId: null, seq: 2 })
     const api = getCommunityApiFetchMock()
     api.mockRejectedValue(new ApiError("DM blocked", 403))
-    capturedOnMessage!({ type: "community:channel.membership.change", channelId: "dm-private", serverId: null, userId: "u_me", relation: "access", present: false })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", channelId: "dm-private", serverId: null, userId: "u_me", relation: "access", present: false }))
     expect(capturedQueryClient.getQueryData(key)).toBeUndefined()
     expect(capturedQueryClient.getQueryData(otherKey)).toBeDefined()
     expect(getCapturedRuntime().ui.get()).toMatchObject({ currentChannelId: null, subscription: { channelId: "other-channel" } })
@@ -670,7 +672,7 @@ describe("membership metadata and access lifetime", () => {
     const error = new ApiError("metadata lookup failed", status)
     api.mockImplementation((...args) => args[0] === "/api/community/channels/child/messages?entry=1" ? Promise.reject(error) : fallback(...args))
     const query = vi.spyOn(capturedQueryClient, "query")
-    capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present: true })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present: true }))
     await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
     await expect(query.mock.results[0]!.value).rejects.toBe(error)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(status !== 500)
@@ -691,7 +693,7 @@ describe("membership metadata and access lifetime", () => {
     capturedQueryClient.setQueryData(key, { pages: [{ messages: [{ id: "private" }] }] })
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
     const query = vi.spyOn(capturedQueryClient, "query")
-    capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present: true })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present: true }))
     await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
     await expect(query.mock.results[0]!.value).rejects.toBe(archived)
     await vi.waitFor(() => expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(true))
@@ -704,11 +706,12 @@ describe("membership metadata and access lifetime", () => {
     seedCanonicalThread("server", "parent", "forum", "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
-      readContractVersion: 2, accessDecision: { channelId: "child", canRead: true, canSend: true, canCreateDiscussion: false } }, "u_me")
-    const member = { id: "member", userId: "u_me", role: "member", name: "Viewer", discriminator: "0001",
-      avatar: "", avatarVersion: 0, source: "explicit", isCreator: true }
+ }, "u_me")
+    const member = { channelId: "child", userId: "u_me", relation: "notify" as const, role: "member", memberId: "member", source: "explicit", isCreator: true }
+    const memberResponse = (members: typeof member[]) => ({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "child", relation: "notify", members,
+      profiles: [{ id: "u_me", name: "Viewer", discriminator: "0001", avatar: null, avatarVersion: 0 }] })
     const api = getCommunityApiFetchMock()
-    api.mockImplementation(async (path: string) => path.endsWith("/members?relation=notify") ? { members: [member] } : payload)
+    api.mockImplementation(async (path: string) => path.endsWith("/members?relation=notify") ? memberResponse([member]) : payload)
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     const roster = await mountCanonicalHook(() => useChannelMembers("child", true, "server", "notify"))
     await vi.waitFor(() => {
@@ -730,15 +733,15 @@ describe("membership metadata and access lifetime", () => {
     let pending!: ReturnType<typeof roster.result.current.refetch>
     act(() => { pending = roster.result.current.refetch() })
     await vi.waitFor(() => expect(reads).toHaveLength(1))
-    await act(async () => capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "notify", present: false }))
+    await act(async () => capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "notify", present: false })))
     await vi.waitFor(() => expect(reads).toHaveLength(2))
     expect(reads[0]!.signal.aborted).toBe(true)
-    await act(async () => reads[1]!.resolve({ members: [] }))
+    await act(async () => reads[1]!.resolve(memberResponse([])))
     await vi.waitFor(() => {
       expect(roster.result.current.members).toHaveLength(0)
       expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
     })
-    await act(async () => { reads[0]!.resolve({ members: [member] }); await pending })
+    await act(async () => { reads[0]!.resolve(memberResponse([member])); await pending })
     expect(roster.result.current.members).toHaveLength(0)
     expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
     expect(metadata.result.current.data!.readProof).toBe(proof)
@@ -760,14 +763,14 @@ describe("membership metadata and access lifetime", () => {
     capturedQueryClient.setQueryData(communityKeys.channelMessages("child"), content)
     const bodyQuery = capturedQueryClient.getQueryCache().find({ queryKey: communityKeys.channelMessages("child"), exact: true })
     const generation = getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation
-    await act(async () => capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "notify", present }))
+    await act(async () => capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "notify", present })))
     expect(metadata.result.current.isVerified).toBe(true)
     expect(metadata.result.current.data!.identityProof).toBe(proof)
     expect(getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation).toBe(generation)
     expect(capturedQueryClient.getQueryCache().find({ queryKey: communityKeys.channelMessages("child"), exact: true })).toBe(bodyQuery)
     expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("child"))).toEqual(content)
   })
-  it.each(["text", "forum"] as const)("replaces an in-flight %s child metadata read when participation changes again", async (parentType) => {
+  it.each(["text", "forum"] as const)("replaces an in-flight %s child metadata read when explicit access refresh changes again", async (parentType) => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", parentType, "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
@@ -778,6 +781,7 @@ describe("membership metadata and access lifetime", () => {
     const currentBody = { ...conversationEntryFixture().messages[0]!, id: "m_current", channelId: "child", seq: 2, content: "Current body" }
     const historyBody = { ...currentBody, id: "m_history", seq: 1, content: "History body", createdAt: "2026-09-30T00:00:01.000Z" }
     payload.messages = [historyBody, currentBody]
+    payload.profiles = messageProfilesFixture(payload.messages)
     payload.page = { olderCursor: `${historyBody.createdAt}|${historyBody.id}`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 2 }
     const api = getCommunityApiFetchMock()
     api.mockResolvedValue(payload)
@@ -802,9 +806,9 @@ describe("membership metadata and access lifetime", () => {
         reads.push({ signal: (args[1] as { signal: AbortSignal }).signal, resolve, reject })
       })
     })
-    capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(reads).toHaveLength(1))
-    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(reads).toHaveLength(2))
     expect(reads[0]!.signal.aborted).toBe(true)
     expect(reads[1]!.signal.aborted).toBe(false)
@@ -814,7 +818,7 @@ describe("membership metadata and access lifetime", () => {
       else reads[0]!.reject(new ApiError("Old denial", 403))
     })
     expect(metadata.result.current.data?.name).not.toBe("Old archived child")
-    expect(metadata.result.current.isVerified).toBe(true)
+    expect(metadata.result.current.isVerified).toBe(false)
     expect(getCapturedRuntime().ws.get().channelAccessScopes.get("child")?.generation).toBe(generation)
     expect(canonicalMessage(currentBody.id)?.content).toBe("Current body")
     expect(canonicalMessage("m_late_only")).toBeUndefined()
@@ -836,7 +840,7 @@ describe("membership metadata and access lifetime", () => {
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(false)
   })
 
-  it("hands one batched add/remove to the latest participation generation", async () => {
+  it("hands batched explicit access refreshes to the latest access generation", async () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "text", "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
@@ -849,8 +853,8 @@ describe("membership metadata and access lifetime", () => {
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
     const events = [
-      { type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" },
-      { type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" },
+      { relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" },
+      { relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" },
     ] as const
     const prepared = await prepareCommunityDeliveryEvents(events)
     if (!prepared.ok) throw new Error("Participant events must prepare")
@@ -877,13 +881,13 @@ describe("membership metadata and access lifetime", () => {
     const api = getCommunityApiFetchMock()
     api.mockResolvedValue(payload)
     const metaKey = entryKey("server", "child")
-    capturedQueryClient.setQueryDefaults(metaKey, { retryDelay: 0 })
+    capturedQueryClient.setQueryDefaults(communityKeys.conversationEntries("child"), { retryDelay: 0 })
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
     api.mockRejectedValue(new ApiError("temporary", 503))
-    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
-    await vi.waitFor(() => expect(metadata.result.current).toMatchObject({ isError: true, fetchStatus: "idle", isVerified: true }))
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
+    await vi.waitFor(() => expect(metadata.result.current).toMatchObject({ isError: true, fetchStatus: "idle", isVerified: false }))
     expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 2)
     await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 20)) })
     expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1")).toHaveLength(before + 2)
@@ -916,9 +920,9 @@ describe("membership metadata and access lifetime", () => {
     vi.spyOn(capturedQueryClient, "cancelQueries").mockImplementation(async (...args) => { await cancel(...args); await gate })
     const before = api.mock.calls.filter(([path]) => path === "/api/community/channels/child/messages?entry=1").length
     await act(async () => {
-      capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
-      if (race === "parent") capturedOnMessage!({ type: "community:channel.member_remove", channelId: "parent", serverId: "server", userId: "u_me" })
-      else if (race === "server") capturedOnMessage!({ type: "community:member.leave", serverId: "server", userId: "u_me" })
+      capturedOnMessage!(currentCommunityEventFixture({ relation: "notify", present: false, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
+      if (race === "parent") capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: false, type: "community:channel.membership.change", channelId: "parent", serverId: "server", userId: "u_me" }))
+      else if (race === "server") capturedOnMessage!(currentCommunityEventFixture({ type: "community:member.leave", serverId: "server", userId: "u_me" }))
       else if (race === "account") getCapturedRuntime().ws.actions.activateProfileAccount("other")
       else metadata.unmount()
     })
@@ -950,7 +954,7 @@ describe("membership metadata and access lifetime", () => {
     expect(capturedQueryClient.getQueryData(metaKey)).not.toHaveProperty("type")
     const content = { pages: [{ messages: [{ id: "m1" }] }] }
     act(() => { capturedQueryClient.setQueryData(key, content) })
-    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "notify", present: false, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     expect(metadata.result.current.data).toMatchObject({ id: "child", type: "thread" })
     expect(hasCanonicalChannelAccess("child", "u_me")).toBe(true)
@@ -960,14 +964,14 @@ describe("membership metadata and access lifetime", () => {
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(false)
   })
 
-  it("retires unqualified legacy content before a cold relationship recheck", async () => {
+  it("replaces unqualified transport content after a cold explicit access recheck", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const api = getCommunityApiFetchMock()
-    api.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false }, "u_me"))
+    api.mockResolvedValue({ ...conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false }, "u_me"), parent: channelResourceFixture({ id: "parent", serverId: "server", type: "text" }) })
     const key = communityKeys.channelMessages("child")
     const content = { pages: [{ messages: [{ id: "m1", content: "readable" }] }] }
     capturedQueryClient.setQueryData(key, content)
-    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
     expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).not.toHaveProperty("type")
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
@@ -976,34 +980,35 @@ describe("membership metadata and access lifetime", () => {
     expect(capturedQueryClient.getQueryData(key)).toMatchObject({ pages: [{ messages: [] }] })
   })
 
-  it("restores a newly mentioned forum participant and refreshes the mounted sidebar after legacy metadata recovery", async () => {
+  it("restores a newly mentioned forum participant and refreshes the mounted sidebar after complete metadata recovery", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const api = getCommunityApiFetchMock()
     const base = communityKeys.forumSidebarThreads("server")
     capturedQueryClient.setQueryData(base, { threads: [], serverNow: "2026-10-01T00:00:00Z", verifiedEpoch: 0, serverClockOffsetMs: 0 })
 
     seedCommunityAttentionScope(capturedQueryClient, { channelId: "child", serverId: "server", parentChannelId: "forum", seq: 1, attentionCount: 1 })
-    api.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 1, creatorId: "peer", createdAt: "2026-10-01T00:00:00Z", lastMessageAt: "2026-10-01T00:00:01Z", id: "child", serverId: "server", type: "thread", parentChannelId: "forum", parentMessageId: "opener", name: "New post", archived: false }, "u_me"))
-    capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
+    api.mockResolvedValue({ ...conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 1, creatorId: "peer", createdAt: "2026-10-01T00:00:00Z", lastMessageAt: "2026-10-01T00:00:01Z", id: "child", serverId: "server", type: "thread", parentChannelId: "forum", parentMessageId: "opener", name: "New post", archived: false }, "u_me"), parent: channelResourceFixture({ id: "forum", serverId: "server", type: "forum" }) })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
+    await act(async () => capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", relation: "notify", present: true, channelId: "child", serverId: "server", userId: "u_me" })))
     await vi.waitFor(() => expect(hasCanonicalChannelNotify("child", "u_me")).toBe(true))
     await vi.waitFor(() => expect(capturedQueryClient.getQueryState(base)?.isInvalidated).toBe(true))
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
     expect(Boolean(getCommunityDbRegistry(capturedQueryClient)!.collections.attentionScopes.get("child")?.ordinaryUnread)).toBe(true)
   })
 
-  it.each([403, 404, 500].flatMap((status) => (["community:channel.member_add", "community:channel.member_remove"] as const).map((type) => ({ status, type }))))("keeps unknown legacy content retired after $type when the access recheck returns $status", async ({ status, type }) => {
+  it.each([403, 404, 500].flatMap((status) => ([true, false] as const).map((present) => ({ status, present }))))("keeps denied access retired and transient access unqualified for present=$present and status=$status", async ({ status, present }) => {
     await mountHook({ viewerUserId: "u_me" })
     const { ApiError } = await import("@/lib/errors")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     getCommunityApiFetchMock().mockRejectedValue(new ApiError("lookup failed", status))
     const key = communityKeys.channelMessages("child")
     capturedQueryClient.setQueryData(key, { pages: [] })
-    capturedOnMessage!({ type, channelId: "child", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", relation: "access", present, channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith("/api/community/channels/child/messages?entry=1", expect.anything()))
     await vi.waitFor(() => expect(capturedQueryClient.getQueryState(entryKey("server", "child"))?.fetchStatus ?? "idle").toBe("idle"))
-    expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(true)
-    expect(capturedQueryClient.getQueryData(key) === undefined).toBe(true)
+    expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(!present || status !== 500)
+    expect(capturedQueryClient.getQueryData(key) === undefined).toBe(!present || status !== 500)
     expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
   })
 
@@ -1013,15 +1018,15 @@ describe("membership metadata and access lifetime", () => {
     let release!: (value: unknown) => void
     const api = getCommunityApiFetchMock()
     api.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
-    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: false, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(release).toBeTypeOf("function"))
-    const meta = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
+    const meta = { ...conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
       id: "child", serverId: "server", name: "Child", type: "thread",
       parentChannelId: "parent", parentMessageId: "opener", creatorId: null,
       archived: false, lastMessageAt: null,
-    }, "u_me")
+    }, "u_me"), parent: channelResourceFixture({ id: "parent", serverId: "server", type: "text" }) }
     api.mockResolvedValue(meta)
-    capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: true, type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(capturedQueryClient.getQueryData(entryKey("server", "child"))).toMatchObject({ channelId: "child", proof: expect.any(Object) }))
     release({ ...meta, channel: { ...meta.channel, type: "text", parentChannelId: null, parentMessageId: null } })
     await Promise.resolve()
@@ -1030,9 +1035,9 @@ describe("membership metadata and access lifetime", () => {
 
     let releaseAfterLeave!: (value: unknown) => void
     api.mockImplementationOnce(() => new Promise((resolve) => { releaseAfterLeave = resolve }))
-    capturedOnMessage!({ type: "community:channel.member_add", channelId: "other", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: true, type: "community:channel.membership.change", channelId: "other", serverId: "server", userId: "u_me" }))
     await vi.waitFor(() => expect(releaseAfterLeave).toBeTypeOf("function"))
-    capturedOnMessage!({ type: "community:member.leave", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ type: "community:member.leave", serverId: "server", userId: "u_me" }))
     releaseAfterLeave(conversationEntryFromChannel({ ...meta.channel, id: "other" }, "u_me"))
     await Promise.resolve()
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("other", "server")).toBe(true)
@@ -1050,12 +1055,14 @@ describe("membership metadata and access lifetime", () => {
     getCapturedRuntime().ui.actions.setCurrentServerId("server")
     getCapturedRuntime().ui.actions.setCurrentChannelId("child")
     getCapturedRuntime().ui.actions.subscribe({ channelId: "child" })
-    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "parent", serverId: "server", userId: "u_me" })
+    capturedOnMessage!(currentCommunityEventFixture({ relation: "access", present: false, type: "community:channel.membership.change", channelId: "parent", serverId: "server", userId: "u_me" }))
     expect(capturedQueryClient.getQueryData(communityKeys.pins("child"))).toBeUndefined()
     expect(getCapturedRuntime().ui.get().currentChannelId).toBeNull()
-    capturedOnMessage!({ type: "community:message.create", channelId: "child", parentChannelId: "parent", serverId: "server", message: {
+    capturedOnMessage!(currentCommunityEventFixture({ profiles: messageProfilesFixture([messageResourceFixture({ channelId: "child",
       id: "late", seq: 2, authorId: "author", authorName: "Author", authorAvatarVersion: 0, content: "late", type: "chat", createdAt: "2026-09-06T00:00:00.000Z",
-    } })
+    })]), type: "community:message.create", channelId: "child", parentChannelId: "parent", serverId: "server", message: messageResourceFixture({ channelId: "child",
+      id: "late", seq: 2, authorId: "author", authorName: "Author", authorAvatarVersion: 0, content: "late", type: "chat", createdAt: "2026-09-06T00:00:00.000Z",
+    }) }))
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "child", serverId: "server" }).liveIds.length).toBe(0)
   })
 })

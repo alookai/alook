@@ -8,7 +8,6 @@ import type {
   CommunityMemberJoin,
   CommunityMemberLeave,
   CommunityMemberUpdate,
-  CommunityWsEvent,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -17,23 +16,13 @@ import {
   isKnownNonForumSidebarChannel,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
-import { getQualifiedConversationEntry } from "@/lib/community/conversation-entry"
 import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { runCommunityWsProjectionTransaction } from "./projection-transaction"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
 import { evictServerChannelScopes } from "./scope-eviction"
 
 
-import {
-  invalidateChannelRefDirectory,
-  invalidateForumSidebar,
-  invalidateInbox,
-  invalidateChannelRoster,
-  invalidateInvitableFriends,
-  invalidatePresence,
-  invalidateServerDetail,
-  invalidateServersList,
-} from "./invalidation-projections"
+import { invalidateChannelRefDirectory, invalidateForumSidebar, invalidateInbox, invalidateInvitableFriends, invalidatePresence, invalidateServerDetail, invalidateServersList } from "./invalidation-projections"
 import {
   refreshServerReactionDetails,
   removeServerReactionDetails,
@@ -44,17 +33,12 @@ import {
   setCanonicalCommunityChannelMember,
 } from "@/lib/community-db/sync"
 
-type ChannelMemberEvent = Extract<
-  CommunityWsEvent,
-  { type: "community:channel.member_add" | "community:channel.member_remove" }
->
-
 function retireChannelAccess(event: { serverId: string | null; channelId: string }, context: MembershipEventContext) {
   const registry = getCommunityDbRegistry(context.queryClient)
   if (registry) retireCommunityChannelReading(registry, event.channelId, { reason: "read-denied", serverId: event.serverId })
 }
 
-function refreshChannelAccess(event: { serverId: string | null; channelId: string }, context: MembershipEventContext, legacyEvent?: ChannelMemberEvent) {
+function refreshChannelAccess(event: { serverId: string | null; channelId: string }, context: MembershipEventContext) {
   const { queryClient } = context
   const token = captureChannelMetadataToken(queryClient, event.channelId)
   const options = channelMetadataOptions(queryClient, event.serverId, event.channelId)
@@ -67,14 +51,8 @@ function refreshChannelAccess(event: { serverId: string | null; channelId: strin
       if (!isChannelMetadataTokenCurrent(token)) return
       const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
       if (channel?.archived) runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection }))
-      else if (channel) {
-        if (legacyEvent && channel.type === "thread") runCommunityWsProjectionTransaction(queryClient, (projection) => {
-          handleChannelMembershipChange({ ...legacyEvent, type: "community:channel.membership.change", relation: "notify", present: legacyEvent.type === "community:channel.member_add" }, { ...context, projection })
-        })
-      }
-    } catch {
-      if (legacyEvent?.type === "community:channel.member_add" && isChannelMetadataTokenCurrent(token)) runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection }))
-    }
+    } catch {}
+
   })()
 }
 
@@ -98,28 +76,6 @@ export function handleChannelMembershipChange(event: CommunityChannelMembershipC
   if (!event.present) retireChannelAccess(event, context)
   else getCommunityRuntime(queryClient).ws.actions.beginChannelMembershipChange(event.serverId, event.channelId)
   refreshChannelAccess(event, context)
-}
-
-export function handleChannelMemberEvent(event: ChannelMemberEvent, context: MembershipEventContext) {
-  const { queryClient } = context
-  const proof = getQualifiedConversationEntry(queryClient, event.channelId)?.proof
-  const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
-  const verified = !!proof && isChannelMetadataTokenCurrent(proof) && !channel?.pending && !channel?.archived
-    && !getCommunityRuntime(queryClient).ws.actions.isChannelAccessRevoked(event.channelId, event.serverId)
-  const relation = verified && channel?.type === "thread" ? "notify"
-    : verified && (channel?.type === "text" || channel?.type === "forum") ? "access" : undefined
-  if (relation) {
-    handleChannelMembershipChange({ ...event, type: "community:channel.membership.change", relation, present: event.type === "community:channel.member_add" }, context)
-    if (relation === "notify" && event.userId === context.viewerUserIdRef.current) {
-      const token = captureChannelMetadataToken(queryClient, event.channelId)
-      context.projection.fence("channel-metadata", { queryKey: channelMetadataOptions(queryClient, event.serverId, event.channelId).queryKey, exact: true }, () => isChannelMetadataTokenCurrent(token))
-    }
-    return
-  }
-  if (event.userId === context.viewerUserIdRef.current) {
-    if (event.type === "community:channel.member_remove") retireChannelAccess(event, context)
-    refreshChannelAccess(event, context, event)
-  } else invalidateChannelRoster(context.projection, event.channelId)
 }
 
 function finishMemberEvent(

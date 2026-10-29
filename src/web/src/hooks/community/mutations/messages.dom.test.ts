@@ -1,3 +1,8 @@
+import { messageProfilesFixture } from "@/test/community-resource-fixtures"
+import { AccountAttentionSnapshotSchema, AttentionIncludedChannelSchema, AttentionIncludedMessageSchema, type AccountAttentionSnapshot, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { messageResourceFixture, channelResourceFixture, serverResourceFixture, fullResourceBundleFixture, messageSeedFixture } from "@/test/community-resource-fixtures"
+import { serverDirectoryFixture } from "@/test/community-resource-fixtures"
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { getMessageStreamState, canonicalMessageReader } from "@/test/community-query-owner"
 import { materializeMessageStream } from "@/lib/community/message-stream"
 import { createElement, type PropsWithChildren } from "react"
@@ -44,18 +49,11 @@ function makeCache(msgs: Array<{ id: string } & Record<string, unknown>> = []) {
   }
 }
 
-function postedMessage(id: string, seq: number) {
-  return {
-    id,
-    seq,
-    createdAt: "2026-08-07T10:00:00.000Z",
-    content: "canonical content",
-    authorId: "u_me",
-    authorName: "Canonical Name",
-    authorImage: "https://avatar.test/me.png",
-    type: "default",
-    embeds: [{ title: "Canonical embed" }],
-  }
+function postedMessage(id: string, seq: number, channelId: string, fields: Partial<import("@alook/shared").CommunityMessageResource> = {}) {
+  return messageResourceFixture({ id, seq, channelId,
+    createdAt: "2026-08-07T10:00:00.000Z", content: "canonical content", authorId: "u_me",
+    authorName: "Canonical Name", authorAvatar: "https://avatar.test/me.png",
+    embeds: [{ title: "Canonical embed" }], ...fields })
 }
 
 function sidebarData(threadId = "post_1") {
@@ -78,8 +76,8 @@ function sidebarData(threadId = "post_1") {
 
 async function seedParent(type: "forum" | "text", parentId = "forum_1") {
   const sync = await import("@/lib/community-db/sync")
-  sync.ingestServers(canonicalRegistry, { servers: [{ id: "s1", name: "Server", initial: "S", active: false, unread: false, mentions: 0, ownerId: "u_me" }] })
-  sync.ingestServerDetail(canonicalRegistry, { id: "s1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "u_me", categories: [{ id: "cat_1", name: "Category", channels: [{ id: parentId, name: "Parent", active: false, unread: false, type }] }] })
+  sync.ingestServers(canonicalRegistry, serverRailResponseFixture({ servers: [{ id: "s1", name: "Server", initial: "S", active: false, unread: false, mentions: 0, ownerId: "u_me" }] }, (canonicalRegistry)!.accountId))
+  sync.ingestServerDetail(canonicalRegistry, serverDirectoryFixture({ id: "s1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "u_me", categories: [{ id: "cat_1", name: "Category", channels: [{ id: parentId, name: "Parent", active: false, unread: false, type }] }] }))
   capturedQc.setQueryData(communityKeys.server("s1"), "s1")
 }
 beforeEach(async () => {
@@ -112,39 +110,70 @@ function attentionIncluded(overrides: {
   }
 }
 
+function attentionScenarioFixture(scenario: Pick<AccountAttentionSnapshot, "scopes" | "items" | "limit" | "truncated"> & { included?: ReturnType<typeof attentionIncluded> }) {
+  const scopes = scenario.scopes
+  const channels = scopes.map(scope => channelResourceFixture({ id: scope.channelId, serverId: scope.serverId ?? null,
+    type: scope.serverId ? "text" : "dm", name: scope.serverId ? "Channel" : null }))
+  const servers = [...new Set(scopes.flatMap(scope => scope.serverId ? [scope.serverId] : []))].map(id => serverResourceFixture({ id, ownerId: "u_me" }))
+  const declaredProfiles = new Map((scenario.included?.profiles ?? []).map(profile => [String(profile.userId), profile]))
+  const peerIds = scopes.filter(scope => !scope.serverId).map(scope => `peer-${scope.channelId}`)
+  const profiles = [...new Set([...scenario.items.flatMap(item => item.actorUserId ? [item.actorUserId] : item.messageId ? ["system"] : []), ...peerIds, ...declaredProfiles.keys()])].map(id => {
+    const declared = declaredProfiles.get(id)
+    return { id, name: typeof declared?.name === "string" ? declared.name : id,
+      discriminator: typeof declared?.discriminator === "string" ? declared.discriminator : "0042",
+      avatar: typeof declared?.avatar === "string" ? declared.avatar : null,
+      avatarVersion: typeof declared?.avatarVersion === "number" ? declared.avatarVersion : 0 }
+  })
+  const declaredMessages = new Map((scenario.included?.messages ?? []).map(message => [String(message.id), message]))
+  const messages = [...new Set(scenario.items.flatMap(item => item.messageId ? [item.messageId] : []))].map(id => {
+    const item = scenario.items.find(row => row.messageId === id)!
+    const scope = scopes.find(row => row.scopeId === item.scopeId)!
+    const declared = declaredMessages.get(id)
+    return messageResourceFixture({ id, channelId: scope.channelId, authorId: item.actorUserId ?? "system", seq: scope.lastAttentionSeq ?? scope.lastUnreadSeq, createdAt: item.createdAt,
+      ...(typeof declared?.content === "string" ? { content: declared.content } : {}),
+      ...(typeof declared?.seq === "number" ? { seq: declared.seq } : {}) })
+  })
+  const resources = fullResourceBundleFixture("u_me", servers, channels, messages, profiles)
+  const included = { servers: servers.map(({ id, name, discriminator }) => ({ id, name, discriminator })),
+    channels: channels.filter(row => row.type !== "dm").map(row => AttentionIncludedChannelSchema.strip().parse(row)),
+    dms: scopes.filter(scope => !scope.serverId).map(scope => {
+      const profile = profiles.find(row => row.id === `peer-${scope.channelId}`)!
+      return { id: scope.channelId, userId: profile.id, name: profile.name, discriminator: "1234", avatar: profile.avatar, avatarVersion: profile.avatarVersion,
+        lastMessageAt: "2026-09-27T00:00:00Z", lastUnreadSeq: scope.lastUnreadSeq }
+    }),
+    profiles: profiles.map(({ id, ...profile }) => ({ userId: id, ...profile })),
+    messages: messages.map(row => AttentionIncludedMessageSchema.strip().parse(row)),
+  }
+  return AccountAttentionSnapshotSchema.parse({ scopes, items: scenario.items, limit: scenario.limit, truncated: scenario.truncated, resources, included })
+}
+
 async function seedCanonicalParent(type: "forum" | "text") {
   if (!canonicalRegistry) throw new Error("canonical test registry is not active")
   const sync = await import("@/lib/community-db/sync")
-  sync.ingestServers(canonicalRegistry, { servers: [{
+  sync.ingestServers(canonicalRegistry, serverRailResponseFixture({ servers: [{
     id: "s1", name: "Server", initial: "S", active: false, unread: false,
     mentions: 0, ownerId: "u_me",
-  }] })
-  sync.ingestServerDetail(canonicalRegistry, {
+  }] }, (canonicalRegistry)!.accountId))
+  sync.ingestServerDetail(canonicalRegistry, serverDirectoryFixture({
     id: "s1", name: "Server", discriminator: "0001", description: "",
     icon: null, ownerId: "u_me", categories: [{
       id: "cat_1", name: "Category", channels: [{
         id: "forum_1", name: "Parent", active: false, unread: false, type,
       }],
     }],
-  })
+  }))
 }
 
 async function seedCanonicalSidebar() {
   await seedCanonicalParent("forum")
   const sync = await import("@/lib/community-db/sync")
-  sync.publishCommunityForumSidebar(capturedQc, {
-    serverId: "s1",
-    channels: [{
-      id: "post_1", name: "Post", parentChannelId: "forum_1",
-      parentMessageId: "opener_1", activityAt: "2026-08-06T00:00:00.000Z",
-      unread: false, type: "thread",
-    }],
-    openers: [{ id: "opener_1", channelId: "forum_1", content: "Old title", type: "chat" }],
-    proof: {
-      token: sync.captureCommunityLiveSnapshotToken(capturedQc),
-      signal: undefined,
-    },
-  })
+  const server = serverResourceFixture({ id: "s1", ownerId: "u_me" })
+  const parent = channelResourceFixture({ id: "forum_1", serverId: "s1", type: "forum" })
+  const channel = channelResourceFixture({ id: "post_1", serverId: "s1", name: "Post", type: "thread", parentChannelId: "forum_1", parentMessageId: "opener_1", lastMessageAt: "2026-08-06T00:00:00.000Z" })
+  const opener = messageResourceFixture({ id: "opener_1", channelId: "forum_1", content: "Old title" })
+  sync.publishCommunityForumSidebar(capturedQc, { serverId: "s1", resources: fullResourceBundleFixture("u_me", [server], [parent, channel], [opener], messageProfilesFixture([opener])),
+    channels: [{ ...channel, activityAt: channel.lastMessageAt!, unread: false, participating: true }], openers: [opener],
+    proof: { token: sync.captureCommunityLiveSnapshotToken(capturedQc) } })
 }
 
 async function canonicalSidebar() {
@@ -167,11 +196,12 @@ describe("useSendMessage — happy path", () => {
     const runtime = canonicalRegistry.runtime
     runtime.ui.actions.setCurrentServerId(scope.serverId)
     runtime.ui.actions.subscribe({ channelId: scope.id })
-    const replyTo = { id: "reply_1", authorName: "Reply Author", text: "preview" }
+    const replyTo = { id: "reply_1", authorId: "reply-author", authorName: "Reply Author", text: "preview" }
     const attachment = { id: "file_1", filename: "notes.txt", contentType: "text/plain", size: 1024 }
     const remoteAttachment = { kind: "file" as const, name: attachment.filename,
       url: "/api/community/channels/ch_1/attachments/file_1", contentType: attachment.contentType,
       sizeBytes: attachment.size, size: "1.0 KB" }
+    const wireAttachment = { id: attachment.id, name: remoteAttachment.name, url: remoteAttachment.url, contentType: remoteAttachment.contentType, sizeBytes: remoteAttachment.sizeBytes, thumbnailUrl: null, width: null, height: null }
     const revoke = vi.fn(), originalRevoke = URL.revokeObjectURL
     URL.revokeObjectURL = revoke
     try {
@@ -190,11 +220,11 @@ describe("useSendMessage — happy path", () => {
       const { dispatchCommunityWsEvent } = await import("@/hooks/community/community-ws/registry")
       const { getMessageStreamState } = await import("@/test/community-query-owner")
       const { materializeMessageStream } = await import("@/lib/community/message-stream")
-      const older = { id: "older", seq: 1, type: "chat" as const, content: "anchor", authorId: "peer", createdAt: "2026-08-07T09:00:00.000Z" }
+      const older = messageResourceFixture({ id: "older", channelId: scope.id, seq: 1, content: "anchor", authorId: "peer", createdAt: "2026-08-07T09:00:00.000Z" })
       let currentBase: import("@/lib/community/message-stream").CanonicalMessage[] = [older]
       for (const stage of stages) {
         if (stage === "post") {
-          await act(async () => { release({ message: postedMessage("server_id_1", 9) }); await pending })
+          await act(async () => { release({ profiles: messageProfilesFixture([postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo, attachments: [wireAttachment] })]), message: postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo, attachments: [wireAttachment] }) }); await pending })
           expect(getMessageStreamState(capturedQc, scope).liveIds).toContain("server_id_1")
           expect(materializeMessageStream([], getMessageStreamState(capturedQc, scope), canonicalMessageReader(capturedQc)).find(row => row.id === "server_id_1")).toMatchObject({
             id: "server_id_1", seq: 9, authorName: "Canonical Name", content: "canonical content",
@@ -202,12 +232,17 @@ describe("useSendMessage — happy path", () => {
             embeds: [{ title: "Canonical embed" }], replyTo, attachments: [remoteAttachment], clientNonce: "n1", failed: false,
           })
         } else if (stage === "ws") {
-          await act(async () => { dispatchCommunityWsEvent({ type: "community:message.create", serverId: scope.serverId,
-            channelId: scope.id, message: { id: "server_id_1", seq: 9, type: "chat", authorId: "u_me",
+          await act(async () => { dispatchCommunityWsEvent({ profiles: messageProfilesFixture([{ id: "server_id_1", channelId: scope.id, seq: 9, type: "chat", authorId: "u_me",
               authorName: "Canonical Name", authorAvatar: "https://avatar.test/me.png", authorAvatarVersion: 0, content: "canonical content",
-              createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyTo,
+              createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyToId: replyTo.id, replyTo,
               embeds: [{ title: "Canonical embed" }],
-              attachments: [{ ...attachment, url: remoteAttachment.url }],
+              attachments: [wireAttachment],
+            }]), type: "community:message.create", serverId: scope.serverId,
+            channelId: scope.id, message: { id: "server_id_1", channelId: scope.id, seq: 9, type: "chat", authorId: "u_me",
+              authorName: "Canonical Name", authorAvatar: "https://avatar.test/me.png", authorAvatarVersion: 0, content: "canonical content",
+              createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyToId: replyTo.id, replyTo,
+              embeds: [{ title: "Canonical embed" }],
+              attachments: [wireAttachment],
             } }, { deliveryMode: "single", queryClient: capturedQc, communityStore: runtime.ui, wsStore: runtime.ws,
               sub: { channelId: scope.id }, viewerUserIdRef: { current: "u_me" },
               matchesFocus: event => event.channelId === scope.id }) })
@@ -215,24 +250,24 @@ describe("useSendMessage — happy path", () => {
           const { channelMessagesQueryFn } = await import("@/hooks/community/use-messages")
           const { decodeCommunityReadResponse } = await import("@/lib/community/read-response")
           const path = `/api/community/channels/${scope.id}/messages`
-          const confirmed = { id: "server_id_1", seq: 9, type: "chat", authorId: "u_me",
-            authorName: "Canonical Name", authorAvatar: "https://avatar.test/me.png", authorAvatarVersion: 0,
-            content: "canonical content", createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyTo,
-            embeds: [{ title: "Canonical embed" }], attachments: [remoteAttachment] }
-          apiFetchMock.mockResolvedValueOnce(decodeCommunityReadResponse(path, "GET", new Response(),
-            { messages: [older, confirmed], latestSeq: 9, hasMore: false }))
+          const confirmed = postedMessage("server_id_1", 9, scope.id, { clientNonce: "n1", replyToId: replyTo.id, replyTo, attachments: [wireAttachment] })
+          apiFetchMock.mockResolvedValueOnce(decodeCommunityReadResponse(path, "GET", new Response(null, { headers: { "X-Alook-Community-Contract": String(BUSINESS_SCHEMA_VERSION) } }), { profiles: messageProfilesFixture([older, confirmed]),
+            contractVersion: BUSINESS_SCHEMA_VERSION, channelId: scope.id, messages: [older, confirmed],
+            surfaceReceipt: { channelId: scope.id, surfaceKind: "channel" },
+            page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 9 },
+          }))
           await act(async () => { await channelMessagesQueryFn(scope.id, undefined, { queryClient: capturedQc })({ pageParam: { mode: "newest" } })
             const canonical = canonicalRegistry.collections.messages.get(confirmed.id)
             if (typeof canonical?.seq !== "number") throw new Error("Missing confirmed canonical seq")
             currentBase = [older, { ...canonical, seq: canonical.seq }]
             runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: currentBase, latestSeq: 9 }) })
-          expect(canonicalRegistry.collections.messages.get(confirmed.id)?.attachments).toEqual([{ name: remoteAttachment.name, url: remoteAttachment.url, contentType: remoteAttachment.contentType, sizeBytes: remoteAttachment.sizeBytes }])
+          expect(canonicalRegistry.collections.messages.get(confirmed.id)?.attachments).toEqual([wireAttachment])
           expect(materializeMessageStream(currentBase, getMessageStreamState(capturedQc, scope), canonicalMessageReader(capturedQc))).toEqual([
             expect.objectContaining({ id: older.id }),
             expect.objectContaining({ id: confirmed.id, replyTo, attachments: [remoteAttachment] }),
           ])
         } else {
-          await act(async () => { ingestMessages(canonicalRegistry, scope.id, [older])
+          await act(async () => { ingestMessages(canonicalRegistry, scope.id, messageSeedFixture(scope.id, [older]))
             runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: [older], latestSeq: 100 }) })
         }
       }
@@ -251,7 +286,7 @@ describe("useSendMessage — happy path", () => {
 
   it("keeps Query base-only and acknowledges the accepted overlay intent", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
-    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
+    apiFetchMock.mockResolvedValueOnce({ profiles: messageProfilesFixture([postedMessage("server_id_1", 9, "ch_1", { clientNonce: "n1" })]), message: postedMessage("server_id_1", 9, "ch_1", { clientNonce: "n1" }) })
 
     const mod = await loadMod()
     const stream = await import("@/test/community-query-owner")
@@ -278,11 +313,11 @@ describe("useSendMessage — happy path", () => {
     expect(overlay.liveIds).toContain("server_id_1")
     expect(materializeMessageStream([], overlay, canonicalMessageReader(capturedQc)).find(row => row.id === "server_id_1")).toMatchObject({ seq: 9, authorId: "u_me", content: "canonical content", clientNonce: "n1" })
     expect(canonicalRegistry.collections.messages.get("server_id_1")).toMatchObject({ authorId: "u_me", content: "canonical content", embeds: [{ title: "Canonical embed" }] })
-    expect(canonicalRegistry.collections.profiles.get("u_me")?.name).toBe("Canonical Name")
+    expect(canonicalRegistry.collections.profiles.get("u_me")).toMatchObject({ id: "u_me", name: "Canonical Name", discriminator: "0042", avatar: "https://avatar.test/me.png", avatarVersion: 0 })
   })
 
   it("re-ranks a loaded participating forum thread from the canonical send timestamp", async () => {
-    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
+    apiFetchMock.mockResolvedValueOnce({ profiles: messageProfilesFixture([postedMessage("server_id_1", 9, "post_1")]), message: postedMessage("server_id_1", 9, "post_1") })
     const mod = await loadMod()
     await installCanonicalRegistry()
     await seedCanonicalSidebar()
@@ -306,7 +341,7 @@ describe("useSendMessage — happy path", () => {
   it("invalidates the sidebar collection when a just-enrolled thread is not loaded", async () => {
     const sidebarKey = communityKeys.forumSidebarThreads("s1")
     capturedQc.setQueryData(sidebarKey, { ...sidebarData(), threads: [] })
-    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
+    apiFetchMock.mockResolvedValueOnce({ profiles: messageProfilesFixture([postedMessage("server_id_1", 9, "post_new")]), message: postedMessage("server_id_1", 9, "post_new") })
     const mod = await loadMod()
     await installCanonicalRegistry()
     await seedCanonicalParent("forum")
@@ -341,7 +376,7 @@ describe("useSendMessage — happy path", () => {
       capturedQc.getQueryData(metaKey),
       capturedQc.getQueryData(hintKey),
     ]
-    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
+    apiFetchMock.mockResolvedValueOnce({ profiles: messageProfilesFixture([postedMessage("server_id_1", 9, "text_thread")]), message: postedMessage("server_id_1", 9, "text_thread") })
     const mod = await loadMod()
     mountHook(() => mod.useSendMessage())
 
@@ -429,7 +464,7 @@ async function acceptDmIntent(nonce = "n1") {
 describe("useSendDmMessage — overlay terminal emitter", () => {
   it("keeps Query base-only and emits exactly one postAck", async () => {
     capturedQc.setQueryData(communityKeys.dmMessages("dm_1"), makeCache([]))
-    apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_1", 8) })
+    apiFetchMock.mockResolvedValueOnce({ profiles: messageProfilesFixture([postedMessage("server_1", 8, "dm_1", { clientNonce: "n1" })]), message: postedMessage("server_1", 8, "dm_1", { clientNonce: "n1" }) })
     const mod = await loadMod()
     const stream = await acceptDmIntent()
     const dispatch = vi.spyOn(canonicalRegistry.runtime.messageStream.actions, "dispatch")
@@ -493,7 +528,7 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
   })
 
   it("continues the upload intent when its view retires after upload succeeds, before native POST", async () => {
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "confirmed", seq: 12, type: "chat", content: "keep optimistic", authorId: "u_me", authorName: "Me", authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-09T01:00:00Z", embeds: [] } })
+    apiFetchMock.mockResolvedValueOnce({ profiles: messageProfilesFixture([messageResourceFixture({ id: "confirmed", channelId: "ch_1", seq: 12, content: "keep optimistic", authorId: "u_me", authorName: "Me", authorAvatar: null, authorAvatarVersion: 0, clientNonce: "upload-view", createdAt: "2026-10-09T01:00:00Z", embeds: [] })]), message: messageResourceFixture({ id: "confirmed", channelId: "ch_1", seq: 12, content: "keep optimistic", authorId: "u_me", authorName: "Me", authorAvatar: null, authorAvatarVersion: 0, clientNonce: "upload-view", createdAt: "2026-10-09T01:00:00Z", embeds: [] }) })
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }, runtime = canonicalRegistry.runtime
     const file = new File(["x"], "x.txt", { type: "text/plain" })
     runtime.messageStream.actions.accept(scope, { nonce: "upload-view", tempId: "temp-upload-view", message: { type: "chat", content: "file", authorId: "u_me" }, localUploads: [{ file, previewObjectUrl: "blob:view" }] })
@@ -517,7 +552,7 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
   })
 
   it("continues the accepted channel intent when its view retires before native POST starts", async () => {
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "confirmed", seq: 12, type: "chat", content: "keep optimistic", authorId: "u_me", authorName: "Me", authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-09T01:00:00Z", embeds: [] } })
+    apiFetchMock.mockResolvedValueOnce({ profiles: messageProfilesFixture([messageResourceFixture({ id: "confirmed", channelId: "ch_1", seq: 12, content: "keep optimistic", authorId: "u_me", authorName: "Me", authorAvatar: null, authorAvatarVersion: 0, clientNonce: "retired_view", createdAt: "2026-10-09T01:00:00Z", embeds: [] })]), message: messageResourceFixture({ id: "confirmed", channelId: "ch_1", seq: 12, content: "keep optimistic", authorId: "u_me", authorName: "Me", authorAvatar: null, authorAvatarVersion: 0, clientNonce: "retired_view", createdAt: "2026-10-09T01:00:00Z", embeds: [] }) })
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
     const runtime = canonicalRegistry.runtime
     runtime.messageStream.actions.accept(scope, { nonce: "retired_view", tempId: "temp_retired_view",
@@ -710,14 +745,25 @@ describe("useUnpinMessage — rollback", () => {
 // ── useCreateThread ───────────────────────────────────────────────────────
 
 describe("useCreateThread — patches parent message + invalidates threads", () => {
+  it.each(["partial", "server", "parent", "opener"] as const)("rejects %s thread create confirmation without publishing a channel", async mismatch => {
+    const channel = channelResourceFixture({ id: "wrong_thread", type: "thread", serverId: mismatch === "server" ? "other" : "s1",
+      parentChannelId: mismatch === "parent" ? "other" : "ch_parent", parentMessageId: mismatch === "opener" ? "other" : "m_p" })
+    apiFetchMock.mockResolvedValueOnce(mismatch === "partial" ? { id: "wrong_thread" } : channel)
+    const mod = await loadMod()
+    mountHook(() => mod.useCreateThread())
+    await expect(runMutation({ serverId: "s1", channelId: "ch_parent", messageId: "m_p", name: "Discussion" }))
+      .rejects.toThrow(mismatch === "partial" ? undefined : "Created thread scope mismatch")
+    expect(canonicalRegistry.collections.channels.has("wrong_thread")).toBe(false)
+  })
+
   it("adds thread indicator to the parent message with messageCount: 0", async () => {
     // Regression: previously patched messageCount=1 on the assumption that
     // the parent message was cloned into the thread. #6 removed the
     // parent-clone, so new threads start empty. `messageCount` MUST be 0
     // to avoid the UI showing "1 reply" on an empty thread.
-    ingestMessages(canonicalRegistry, "ch_parent", [{ id: "m_p", type: "chat", content: "Opener" }])
+    ingestMessages(canonicalRegistry, "ch_parent", messageSeedFixture("ch_parent", [{ id: "m_p", type: "chat", content: "Opener" }]))
     capturedQc.setQueryData(communityKeys.channelMessages("ch_parent"), makeCache([{ id: "m_p" }]))
-    apiFetchMock.mockResolvedValueOnce({ id: "thr_1" })
+    apiFetchMock.mockResolvedValueOnce(channelResourceFixture({ id: "thr_1", serverId: "s1", type: "thread", parentChannelId: "ch_parent", parentMessageId: "m_p", name: "Discussion" }))
     const mod = await loadMod()
     mountHook(() => mod.useCreateThread())
     await runMutation({ serverId: "s1", channelId: "ch_parent", messageId: "m_p", name: "Discussion" })
@@ -750,7 +796,7 @@ describe("useMarkAllInboxRead", () => {
     const mod = await loadMod()
     await installCanonicalRegistry()
     const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
-    ingestAttentionSnapshot(canonicalRegistry!, {
+    ingestAttentionSnapshot(canonicalRegistry!, attentionScenarioFixture({
       scopes: [{
         scopeId: "ch_1", channelId: "ch_1", serverId: "s_1", parentChannelId: null,
         ordinaryUnread: true, lastUnreadSeq: 1, lastAttentionSeq: 1, attentionCount: 1,
@@ -765,7 +811,7 @@ describe("useMarkAllInboxRead", () => {
       }],
       limit: 100,
       truncated: false,
-    })
+    }))
     capturedQc.setQueryData(communityKeys.inboxUnreads(), {
       servers: [{ serverId: "s_1", serverName: "s", channels: [{ channelId: "ch_1" }] }],
     })
@@ -788,7 +834,7 @@ describe("useMarkAllInboxRead", () => {
       expect(canonicalRegistry!.collections.attentionItems.get("mention:men_1")).toBeUndefined()
       expect(canonicalRegistry!.collections.attentionItems.get("friend_request:f_1")).toBeDefined()
     })
-    apiFetchMock.mockResolvedValue({ scopes: [], items: [], limit: 100, truncated: false })
+    apiFetchMock.mockResolvedValue(attentionScenarioFixture({ scopes: [], items: [], limit: 100, truncated: false }))
     await act(async () => { release({ revision: 2 }); await pending })
   })
 
@@ -800,7 +846,7 @@ describe("useMarkAllInboxRead", () => {
         return { revision: 3 }
       }
       if (path === "/api/community/users/me/attention") {
-        return { scopes: [], items: [], limit: 100, truncated: false }
+        return attentionScenarioFixture({ scopes: [], items: [], limit: 100, truncated: false })
       }
       if (path === "/api/community/users/me/read-state") {
         return { revision: 3, readStates: [] }
@@ -825,7 +871,7 @@ describe("useMarkAllInboxRead", () => {
     const mod = await loadMod()
     await installCanonicalRegistry()
     const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
-    const mentionOnly = {
+    const mentionOnly = attentionScenarioFixture({
       scopes: [{
         scopeId: "ch_1", channelId: "ch_1", serverId: "s_1", parentChannelId: null,
         ordinaryUnread: false, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 1,
@@ -836,7 +882,7 @@ describe("useMarkAllInboxRead", () => {
       }],
       limit: 100,
       truncated: false,
-    }
+    })
     ingestAttentionSnapshot(canonicalRegistry!, {
       ...mentionOnly,
       scopes: [{ ...mentionOnly.scopes[0]!, ordinaryUnread: true }],
@@ -873,7 +919,7 @@ describe("useMarkAllInboxRead", () => {
   it("restores canonical attention when the atomic read-all request fails", async () => {
     await installCanonicalRegistry()
     const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
-    ingestAttentionSnapshot(canonicalRegistry!, {
+    ingestAttentionSnapshot(canonicalRegistry!, attentionScenarioFixture({
       scopes: [{
         scopeId: "channel", channelId: "channel", serverId: "s_1", parentChannelId: null,
         ordinaryUnread: true, lastUnreadSeq: 1, lastAttentionSeq: null, attentionCount: 0,
@@ -881,7 +927,7 @@ describe("useMarkAllInboxRead", () => {
       items: [],
       limit: 100,
       truncated: false,
-    })
+    }))
     apiFetchMock.mockRejectedValue(new Error("account read-all failed"))
     const mod = await loadMod()
     mountHook(() => mod.useMarkAllInboxRead())
@@ -899,7 +945,7 @@ describe("useMarkAllInboxRead", () => {
     const { ingestAttentionSnapshot, ingestMessages, projectCommunityWsEventToDb } = await import(
       "@/lib/community-db/sync"
     )
-    const canonical = {
+    const canonical = attentionScenarioFixture({
       scopes: [{
         scopeId: "channel", channelId: "channel", serverId: "s_1", parentChannelId: null,
         ordinaryUnread: true, lastUnreadSeq: 1, lastAttentionSeq: null, attentionCount: 0,
@@ -908,7 +954,7 @@ describe("useMarkAllInboxRead", () => {
       limit: 100,
       truncated: false,
       included: attentionIncluded(),
-    }
+    })
     ingestAttentionSnapshot(canonicalRegistry!, canonical)
     let fail!: (error: Error) => void
     const held = new Promise((_, reject) => { fail = reject })
@@ -921,7 +967,7 @@ describe("useMarkAllInboxRead", () => {
     mountHook(() => mod.useMarkAllInboxRead())
     const pending = startMutation(undefined)
     await waitFor(() => expect(canonicalRegistry.collections.attentionScopes.get("channel")).toBeUndefined())
-    ingestMessages(canonicalRegistry!, "other", [{ id: "event", type: "chat", content: "old" }])
+    ingestMessages(canonicalRegistry!, "other", messageSeedFixture("other", [{ id: "event", type: "chat", content: "old" }]))
     projectCommunityWsEventToDb(capturedQc, {
       type: "community:reaction.add",
       channelId: "other",
@@ -977,7 +1023,7 @@ describe("useDeleteMention — rollback", () => {
     const mod = await loadMod()
     await installCanonicalRegistry()
     const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
-    const canonical = {
+    const canonical = attentionScenarioFixture({
       scopes: [{
         scopeId: "ch_1", channelId: "ch_1", serverId: "s_1", parentChannelId: null,
         ordinaryUnread: false, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 1,
@@ -997,7 +1043,7 @@ describe("useDeleteMention — rollback", () => {
           createdAt: "2026-09-27T00:00:00.000Z", seq: 4, type: "chat",
         }],
       }),
-    }
+    })
     ingestAttentionSnapshot(canonicalRegistry!, canonical)
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
       mentions: [{ id: "men_1", channelId: "ch_1", kind: "mention", m: { id: "m_1", seq: 4 } }],
@@ -1025,7 +1071,7 @@ describe("useDeleteMention — rollback", () => {
     const { ingestAttentionSnapshot, ingestMessages, projectCommunityWsEventToDb } = await import(
       "@/lib/community-db/sync"
     )
-    const canonical = {
+    const canonical = attentionScenarioFixture({
       scopes: [{
         scopeId: "ch_1", channelId: "ch_1", serverId: "s_1", parentChannelId: null,
         ordinaryUnread: false, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 1,
@@ -1045,7 +1091,7 @@ describe("useDeleteMention — rollback", () => {
           createdAt: "2026-09-27T00:00:00.000Z", seq: 4, type: "chat",
         }],
       }),
-    }
+    })
     ingestAttentionSnapshot(canonicalRegistry!, canonical)
     capturedQc.setQueryData(communityKeys.inboxMentions(), {
       mentions: [{ id: "men_1", channelId: "ch_1", kind: "mention", m: { id: "m_1", seq: 4 } }],
@@ -1060,7 +1106,7 @@ describe("useDeleteMention — rollback", () => {
     mountHook(() => mod.useDeleteMention())
     const pending = startMutation({ mentionId: "men_1" })
     await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("mention:men_1")).toBeUndefined())
-    ingestMessages(canonicalRegistry!, "other", [{ id: "event", type: "chat", content: "old" }])
+    ingestMessages(canonicalRegistry!, "other", messageSeedFixture("other", [{ id: "event", type: "chat", content: "old" }]))
     projectCommunityWsEventToDb(capturedQc, {
       type: "community:reaction.add",
       channelId: "other",
@@ -1097,10 +1143,10 @@ describe("useDeleteMention — rollback", () => {
     const { ingestAttentionSnapshot, ingestMessages } = await import(
       "@/lib/community-db/sync"
     )
-    ingestMessages(canonicalRegistry!, "ch_1", [{
+    ingestMessages(canonicalRegistry!, "ch_1", messageSeedFixture("ch_1", [{
       id: "msg_1", type: "chat", authorId: "u_2", seq: 4,
-    }])
-    ingestAttentionSnapshot(canonicalRegistry!, {
+    }]))
+    ingestAttentionSnapshot(canonicalRegistry!, attentionScenarioFixture({
       scopes: [{
         scopeId: "ch_1", channelId: "ch_1", serverId: "srv_1", parentChannelId: null,
         ordinaryUnread: false, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 2,
@@ -1116,7 +1162,7 @@ describe("useDeleteMention — rollback", () => {
       })),
       limit: 100,
       truncated: false,
-    })
+    }))
     mountHook(() => mod.useDeleteMention())
     let fail!: (error: Error) => void
     apiFetchMock.mockImplementation((path: string) => path === "/api/community/users/me/attention"
@@ -1168,10 +1214,10 @@ describe("useDeleteMention — rollback", () => {
     const { ingestAttentionSnapshot, ingestMessages } = await import(
       "@/lib/community-db/sync"
     )
-    ingestMessages(canonicalRegistry!, "ch_1", [{
+    ingestMessages(canonicalRegistry!, "ch_1", messageSeedFixture("ch_1", [{
       id: "msg_1", type: "chat", authorId: "u_2", seq: 4,
-    }])
-    ingestAttentionSnapshot(canonicalRegistry!, {
+    }]))
+    ingestAttentionSnapshot(canonicalRegistry!, attentionScenarioFixture({
       scopes: [{
         scopeId: "ch_1", channelId: "ch_1", serverId: "srv_1", parentChannelId: null,
         ordinaryUnread: true, lastUnreadSeq: 4, lastAttentionSeq: 4, attentionCount: 1,
@@ -1182,7 +1228,7 @@ describe("useDeleteMention — rollback", () => {
       }],
       limit: 100,
       truncated: false,
-    })
+    }))
     mountHook(() => mod.useDeleteMention())
     let fail!: (error: Error) => void
     apiFetchMock.mockImplementation((path: string) => path === "/api/community/users/me/attention"
@@ -1247,7 +1293,7 @@ describe("useDeleteMention — rollback", () => {
 describe("confirmed send failures", () => {
   const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
   const args = { serverId: "s1", channelId: "ch_1", content: "hi", nonce: "n1", author: { id: "u_me", name: "me", avatar: "M" } }
-  const confirmed = { id: "server_confirmed", seq: 7, type: "chat" as const, content: "hi", authorId: "u_me", clientNonce: "n1" }
+  const confirmed = messageResourceFixture({ id: "server_confirmed", channelId: "ch_1", seq: 7, content: "hi", authorId: "u_me", clientNonce: "n1" })
   it.each(["ordinary", "network", "500", "503"].flatMap(kind => ["canonical", "ws", "base"].map(stage => [kind, stage])))("settles the existing intent when %s failure follows %s confirmation", async (kind, stage) => {
     const { ApiError } = await import("@/lib/errors")
     const error = kind === "ordinary" ? new Error("late failure") : new ApiError("late failure", kind === "network" ? 0 : Number(kind))
@@ -1257,13 +1303,13 @@ describe("confirmed send failures", () => {
     apiFetchMock.mockImplementationOnce(async () => {
       if (stage === "ws") {
         const { dispatchCommunityWsEvent } = await import("@/hooks/community/community-ws/registry")
-        dispatchCommunityWsEvent({ type: "community:message.create", serverId: scope.serverId, channelId: scope.id,
+        dispatchCommunityWsEvent({ profiles: messageProfilesFixture([{ ...confirmed, authorName: "Me", authorAvatar: "M", authorAvatarVersion: 0, createdAt: "2026-08-07T10:00:00.000Z" }]), type: "community:message.create", serverId: scope.serverId, channelId: scope.id,
           message: { ...confirmed, authorName: "Me", authorAvatar: "M", authorAvatarVersion: 0, createdAt: "2026-08-07T10:00:00.000Z" } }, {
           deliveryMode: "single", queryClient: capturedQc, communityStore: canonicalRegistry.runtime.ui, wsStore: canonicalRegistry.runtime.ws,
           sub: { channelId: scope.id }, viewerUserIdRef: { current: "u_me" }, matchesFocus: event => event.channelId === scope.id,
         })
       } else {
-        ingestMessages(canonicalRegistry, scope.id, [confirmed])
+        ingestMessages(canonicalRegistry, scope.id, messageSeedFixture(scope.id, [confirmed]))
         if (stage === "base") canonicalRegistry.runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: [confirmed] })
       }
       throw error
@@ -1278,7 +1324,7 @@ describe("confirmed send failures", () => {
   it.each([400, 401, 403, 429])("retains explicit %s despite matching canonical confirmation", async (status) => {
     const { ApiError } = await import("@/lib/errors")
     const error = new ApiError("explicit rejection", status)
-    ingestMessages(canonicalRegistry, scope.id, [confirmed])
+    ingestMessages(canonicalRegistry, scope.id, messageSeedFixture(scope.id, [confirmed]))
     apiFetchMock.mockRejectedValueOnce(error)
     const mod = await loadMod()
     mountHook(() => mod.useSendMessage())
@@ -1288,7 +1334,8 @@ describe("confirmed send failures", () => {
   it.each([
     { authorId: "other" }, { clientNonce: "other" }, { seq: undefined }, { seq: 0 },
   ])("does not accept an invalid confirmation %j", async (change) => {
-    ingestMessages(canonicalRegistry, scope.id, [{ ...confirmed, ...change }])
+    if ("seq" in change && change.seq === undefined) expect(() => ingestMessages(canonicalRegistry, scope.id, [{ ...confirmed, ...change }])).toThrow()
+    else ingestMessages(canonicalRegistry, scope.id, messageSeedFixture(scope.id, [{ ...confirmed, ...change }]))
     apiFetchMock.mockRejectedValueOnce(new Error("not confirmed"))
     const mod = await loadMod()
     mountHook(() => mod.useSendMessage())
@@ -1296,7 +1343,7 @@ describe("confirmed send failures", () => {
     expect(toastMock).toHaveBeenCalledWith("not confirmed")
   })
   it.each(["owner", "view", "abort", "synthetic nonce"])("does not confirm after %s loses eligibility", async (mode) => {
-    ingestMessages(canonicalRegistry, scope.id, [confirmed])
+    ingestMessages(canonicalRegistry, scope.id, messageSeedFixture(scope.id, [confirmed]))
     const { useCommunityMutationOrigin } = await import("../community-origin")
     const origin = mountHook(() => useCommunityMutationOrigin()), original = origin.begin().token
     const mod = await loadMod()
@@ -1311,7 +1358,7 @@ describe("confirmed send failures", () => {
     URL.revokeObjectURL = revoke
     try {
       canonicalRegistry.runtime.messageStream.actions.accept(scope, { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi", authorId: "u_me" }, localUploads: [{ file: new File(["x"], "x.txt"), previewObjectUrl: "blob:confirmed" }] })
-      apiFetchMock.mockImplementationOnce(async () => { ingestMessages(canonicalRegistry, scope.id, [confirmed]); throw new Error("late failure") })
+      apiFetchMock.mockImplementationOnce(async () => { ingestMessages(canonicalRegistry, scope.id, messageSeedFixture(scope.id, [confirmed])); throw new Error("late failure") })
       const mod = await loadMod()
       mountHook(() => mod.useSendMessage())
       await runMutation(args).catch(() => {})
@@ -1323,10 +1370,10 @@ describe("confirmed send failures", () => {
     } finally { URL.revokeObjectURL = originalRevoke }
   })
   it.each([{ id: "" }, { seq: -1 }, { seq: 1.5 }, { seq: Number.MAX_SAFE_INTEGER + 1 }])("rejects invalid server id/seq at canonical ingestion %j", (change) => {
-    expect(() => ingestMessages(canonicalRegistry, scope.id, [{ ...confirmed, ...change }])).toThrow()
+    expect(() => ingestMessages(canonicalRegistry, scope.id, messageSeedFixture(scope.id, [{ ...confirmed, ...change }]))).toThrow()
   })
   it("does not accept another target or an absent outbox as confirmation", async () => {
-    ingestMessages(canonicalRegistry, "other_channel", [confirmed])
+    ingestMessages(canonicalRegistry, "other_channel", messageSeedFixture("other_channel", [{ ...confirmed, channelId: "other_channel" }]))
     apiFetchMock.mockRejectedValueOnce(new Error("not confirmed"))
     const mod = await loadMod()
     mountHook(() => mod.useSendMessage())
@@ -1341,7 +1388,7 @@ describe("confirmed send failures", () => {
     await runMutation(args).catch(() => {})
     expect(toastMock).toHaveBeenCalledWith("not confirmed yet")
     expect(getMessageStreamState(capturedQc, scope).outboxByNonce.get("n1")?.status).toBe("failed")
-    ingestMessages(canonicalRegistry, scope.id, [confirmed])
+    ingestMessages(canonicalRegistry, scope.id, messageSeedFixture(scope.id, [confirmed]))
     canonicalRegistry.runtime.messageStream.actions.dispatch(scope, { type: "wsMessage", message: confirmed })
     expect(getMessageStreamState(capturedQc, scope).outboxByNonce.size).toBe(0)
   })

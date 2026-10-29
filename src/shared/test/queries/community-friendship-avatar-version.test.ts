@@ -83,6 +83,8 @@ describe("friend approval MESSAGE_CREATE identity", () => {
         { id: "bot1", name: "Bot", discriminator: "0002", image: "/bot", avatarVersion: 7, isBot: true, ownerUserId: "owner1" },
         { id: "owner1", name: "Owner", discriminator: "0003", image: null, avatarVersion: 0, isBot: false, ownerUserId: null },
       ],
+      [{ id: "bot1", name: "Bot", discriminator: "0002", image: "/bot", avatarVersion: 7 }],
+      [],
     ])
     db.batch.mockResolvedValue([[], [inserted]])
 
@@ -123,6 +125,8 @@ describe("friend approval MESSAGE_CREATE identity", () => {
         { id: "bot2", name: "Bot Two", discriminator: "0002", image: "/bot2", avatarVersion: 9, isBot: true, ownerUserId: "owner2" },
         { id: "owner2", name: "Owner Two", discriminator: "0003", image: null, avatarVersion: 0, isBot: false, ownerUserId: null },
       ],
+      [{ id: "bot2", name: "Bot Two", discriminator: "0002", image: "/bot2", avatarVersion: 9 }],
+      [],
     ], [[updated]])
 
     const result = await friendship.ownerDecideOnRow(db, {

@@ -1,3 +1,4 @@
+import { channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -38,7 +39,22 @@ const probes = {
 }
 type Kind = keyof typeof probes
 const kinds = Object.keys(probes) as Kind[]
-function Root({ kind, consumers = 2 }: { kind: Kind; consumers?: number }) { const Probe = probes[kind]; return <QueryProvider userId="A">{Array.from({ length: consumers }, (_, index) => <Probe key={index} />)}</QueryProvider> }
+function ReactionScope({ children }: { children: React.ReactNode }) {
+  const qc = useQueryClient(), registry = getCommunityDbRegistry(qc)!
+  const [ready, setReady] = React.useState(false)
+  React.useEffect(() => {
+    let active = true
+    void (async () => {
+      await registry.ready; await registry.preload()
+      registry.collections.channels.utils.writeUpsert({ ...channelResourceFixture({ id: "channel", serverId: "server" }), muted: false, pending: false, tags: [] })
+      registry.collections.messages.utils.writeUpsert(messageResourceFixture({ id: "message", channelId: "channel" }))
+      if (active) setReady(true)
+    })()
+    return () => { active = false }
+  }, [registry])
+  return ready ? children : null
+}
+function Root({ kind, consumers = 2 }: { kind: Kind; consumers?: number }) { const Probe = probes[kind]; const children = Array.from({ length: consumers }, (_, index) => <Probe key={index} />); return <QueryProvider userId="A">{kind === "reactions" ? <ReactionScope>{children}</ReactionScope> : children}</QueryProvider> }
 const peer = { id: "peer", userId: "peer", name: "Late Peer", discriminator: "0001", avatar: "", avatarVersion: 0, status: "offline", sub: "" }
 function response(path: string) {
   if (path.endsWith("accepted")) return { friends: [{ ...peer, id: "friendship" }] }

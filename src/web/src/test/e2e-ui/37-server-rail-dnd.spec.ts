@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { devices, type Locator, type Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 
@@ -650,7 +651,7 @@ test("server rail keeps scroll separate from React DnD native and touch drag", a
   })
 
   const readFolderIds = async () => {
-    const response = await page.request.get("/api/community/users/me/server-folders")
+    const response = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/server-folders", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(response.status()).toBe(200)
     const body = await response.json() as { topOrder: Array<{ kind: "server" | "folder"; id: string }> }
     return body.topOrder.filter((entry) => entry.kind === "folder").map((entry) => entry.id)

@@ -1,3 +1,4 @@
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "../../_fixtures/business-contract"
 import { expect, test } from "../../_fixtures/case-fixture"
 import { communityFrameEvents, proxyCommunityWebSockets } from "../../_fixtures/community-ws-proxy"
 import { gotoAfterUserWsAuth } from "../../_fixtures/actions"
@@ -80,7 +81,7 @@ test("real Alice logout and Bob login retain server facts while device Clear rem
   const identity = await context.request.get("/api/ws/token?refresh=1")
   expect(identity.status()).toBe(200)
   expect((await identity.json()).userId).toBe(actors.userId("bob"))
-  const denied = await context.request.get(`/api/community/channels/${aliceChannel}/messages`)
+  const denied = await confirmCommunityFixtureApiResponse(context.request.get(`/api/community/channels/${aliceChannel}/messages`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
   expect([403, 404]).toContain(denied.status())
   const retained = (await qaApi<{ messages: typeof bobMessagesBefore.body.messages }>(actors, caseResources, "bob", `/api/community/channels/${bobChannel}/messages`)).body.messages.find(message => message.id === bobMessage)
   expect(retained).toEqual(original)

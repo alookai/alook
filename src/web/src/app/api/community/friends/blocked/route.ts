@@ -1,9 +1,8 @@
+import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, readOrStale } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, CommunityBlockedFriendsReadSchema, type CommunityBlockedFriendsRead, queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
-import { avatarInitial } from "@/lib/community/avatar"
-import { canonicalUserImage } from "@/lib/community/storage"
 
 /**
  * GET /api/community/friends/blocked — the blocked bucket (route/disc trunk,
@@ -21,19 +20,15 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
   if (denied) return denied
 
   const db = getDb(ctx.env.DB)
-  type BlockedRow = Awaited<ReturnType<typeof queries.communityFriendship.listBlocked>>[number]
-  const { value, stale } = await readOrStale<{ rows: BlockedRow[] }>(
-    async () => ({ rows: await queries.communityFriendship.listBlocked(db, ctx.actor.userId) }),
-    { rows: [] },
+  const { value } = await readOrStale<CommunityBlockedFriendsRead>(
+    async () => {
+      const rows = await queries.communityFriendship.listBlocked(db, ctx.actor.userId)
+      const blocked = rows.map(row => ({ id: row.id, userId: row.blockedUserId }))
+      const resources = await readCommunityResourceBundle(db, ctx.actor.userId, { channelIds: [], profileIds: blocked.map(row => row.userId) })
+      return CommunityBlockedFriendsReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, blocked, resources })
+    },
+    CommunityBlockedFriendsReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, blocked: [], stale: true }),
     { route: "community/friends/blocked" },
   )
-  const blocked = value.rows.map((b) => ({
-    id: b.id,
-    userId: b.blockedUserId,
-    name: b.blockedName,
-    avatar: canonicalUserImage(b.blockedUserId, b.blockedImage, b.blockedAvatarVersion)
-      ?? avatarInitial(b.blockedName),
-    avatarVersion: b.blockedAvatarVersion,
-  }))
-  return NextResponse.json(stale ? { blocked, stale: true } : { blocked })
+  return NextResponse.json(value)
 })

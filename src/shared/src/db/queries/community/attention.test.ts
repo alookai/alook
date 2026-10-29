@@ -32,7 +32,7 @@ vi.mock("./mention", () => ({
 }))
 vi.mock("./server", () => ({ getServersByIds: mocks.getServersByIds }))
 
-import { DEFAULT_ATTENTION_ITEM_LIMIT, getAccountAttentionSnapshot } from "./attention"
+import { DEFAULT_ATTENTION_ITEM_LIMIT, getAccountAttentionProjection } from "./attention"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -58,9 +58,9 @@ beforeEach(() => {
   mocks.listThreadOpenersByChildIds.mockResolvedValue([])
 })
 
-describe("getAccountAttentionSnapshot", () => {
+describe("getAccountAttentionProjection", () => {
   it("uses the default limit and projects ordinary DM unread scopes", async () => {
-    const snapshot = await getAccountAttentionSnapshot({} as never, "user_1")
+    const snapshot = await getAccountAttentionProjection({} as never, "user_1")
 
     expect(snapshot.limit).toBe(DEFAULT_ATTENTION_ITEM_LIMIT)
     expect(snapshot.scopes).toEqual([{
@@ -101,7 +101,7 @@ describe("getAccountAttentionSnapshot", () => {
       id: "s1", name: "Server", discriminator: "0001",
     }])
 
-    const snapshot = await getAccountAttentionSnapshot({} as never, "user_1")
+    const snapshot = await getAccountAttentionProjection({} as never, "user_1")
 
     expect(snapshot.included.channels).toEqual([])
     expect(snapshot.scopes).toEqual([])
@@ -131,7 +131,7 @@ describe("getAccountAttentionSnapshot", () => {
       id: "s2", name: "Other", discriminator: "0002",
     }])
 
-    const snapshot = await getAccountAttentionSnapshot({} as never, "user_1")
+    const snapshot = await getAccountAttentionProjection({} as never, "user_1")
 
     expect(snapshot.included.channels).toHaveLength(1)
     expect(snapshot.scopes).toEqual([])
@@ -179,7 +179,7 @@ describe("getAccountAttentionSnapshot", () => {
       id: "s1", name: "Server", discriminator: "0001",
     }])
 
-    const snapshot = await getAccountAttentionSnapshot({} as never, "user_1")
+    const snapshot = await getAccountAttentionProjection({} as never, "user_1")
 
     expect(snapshot.scopes).toHaveLength(1)
     expect(snapshot.items.filter((item) => item.kind === "forum_post")).toEqual([])

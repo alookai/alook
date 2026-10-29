@@ -1,3 +1,4 @@
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import React from "react"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -11,7 +12,7 @@ const api = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: api }))
 afterEach(() => api.mockReset())
 function client() { return new QueryClient({ defaultOptions: { queries: { retry: false } } }) }
-const list = { servers: [{ id: "srv", name: "Cold", discriminator: "0001", icon: null, ownerId: "viewer", role: "owner" }] }
+const list = serverRailResponseFixture({ servers: [{ id: "srv", name: "Cold", discriminator: "0001", icon: null, ownerId: "viewer", isOwner: true, memberId: "member-viewer", role: "owner" }] })
 function respond(path: string) {
   if (path.endsWith("/categories")) return { categories: [] }
   if (path.endsWith("/channels")) return { channels: [] }

@@ -1,3 +1,4 @@
+import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { useLayoutEffect, useMemo } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -73,7 +74,7 @@ async function mount(sidebar = false, extraServer = false) {
     if (options.method === "POST") return held
     if (seen.has(path)) return new Promise((_, fail) => options.signal?.addEventListener("abort", () => fail(new DOMException("cancelled", "AbortError")), { once: true }))
     seen.add(path)
-    return Promise.resolve(path.endsWith("server-folders") ? { folders: [] } : { servers: [{ id: "s1", name: "One", discriminator: "0001", icon: null, ownerId: sidebar ? "other-owner" : "A", role: sidebar ? "member" : "owner" }, ...((sidebar || extraServer) ? [{ id: "s2", name: "Two", discriminator: "0002", icon: null, ownerId: "other-owner", role: "member" }] : []), ...(extraServer ? [{ id: "s3", name: "Three", discriminator: "0003", icon: null, ownerId: "other-owner", role: "member" }] : [])] })
+    return Promise.resolve(path.endsWith("server-folders") ? { folders: [] } : serverRailResponseFixture({ servers: [{ id: "s1", name: "One", discriminator: "0001", icon: null, ownerId: sidebar ? "other-owner" : "A", role: sidebar ? "member" : "owner" }, ...((sidebar || extraServer) ? [{ id: "s2", name: "Two", discriminator: "0002", icon: null, ownerId: "other-owner", role: "member" }] : []), ...(extraServer ? [{ id: "s3", name: "Three", discriminator: "0003", icon: null, ownerId: "other-owner", role: "member" }] : [])] }, "A"))
   })
   const view = render(<Root sidebar={sidebar} />)
   await waitFor(() => expect(controller.railProps.servers).toHaveLength(extraServer ? 3 : sidebar ? 2 : 1))

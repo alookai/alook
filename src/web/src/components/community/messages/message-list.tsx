@@ -5,7 +5,7 @@ import { useObservedRegion } from "@/lib/observability/regions"
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import { useContext, useLayoutEffect, useState } from "react"
 import { hashKey } from "@tanstack/react-query"
-import { virtualListPositionKey } from "@/lib/community/virtual-list-position"
+import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { useMessageListController } from "./message-list-controller"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
@@ -16,7 +16,7 @@ import { VirtualRows } from "./virtual-cursor-list"
 import { ConversationPresentationContext, useConversationActivity } from "@/contexts/community/conversation-activity"
 
 export function MessageList(props: MessageListProps) {
-  return <MessageListEntry key={props.positionScope ? hashKey(virtualListPositionKey(props.positionScope)) : undefined} {...props} />
+  return <MessageListEntry key={props.positionScope ? hashKey(conversationListScopeKey(props.positionScope)) : undefined} {...props} />
 }
 
 function MessageListEntry({

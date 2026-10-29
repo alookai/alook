@@ -1,3 +1,4 @@
+import { serverMembersReadFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -21,13 +22,13 @@ function deferred() {
 async function setup(kind: "role" | "kick") {
   const owner = await createCommunityQueryOwner()
   const key = serverMembershipKey("srv_1", "u_1")
-  const member = { id: "mem_1", userId: "u_1", role: "member", name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" }
+  const member = { id: "mem_1", userId: "u_1", role: "member", avatarVersion: 0, name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" }
   owner.registry.collections.serverMemberships.utils.writeUpsert({ id: key, serverId: "srv_1", userId: "u_1", memberId: "mem_1", role: "member", viewer: false })
-  owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ identityComplete: false, id: "u_1", kind: "human", name: "n", discriminator: "0000", avatar: "N", avatarVersion: 0, presence: "offline" }))
+  owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ id: "u_1", kind: "human", name: "n", discriminator: "0000", avatar: "N", avatarVersion: 0 }))
   owner.client.setQueryData(communityKeys.members("srv_1"), { pages: [{ members: [{ id: "mem_1", userId: "u_1" }], hasMore: false, limit: 50, total: 1, liveRevision: 0 }], pageParams: [null] })
   const held = deferred()
   let remote = [member]
-  apiFetch.mockImplementation((_path: string, options?: { method?: string }) => options?.method ? held.promise.then(() => { remote = kind === "role" ? [{ ...member, role: "admin" }] : [] }) : Promise.resolve({ members: remote, hasMore: false, limit: 50, total: remote.length }))
+  apiFetch.mockImplementation((_path: string, options?: { method?: string }) => options?.method ? held.promise.then(() => { remote = kind === "role" ? [{ ...member, role: "admin" }] : [] }) : Promise.resolve(serverMembersReadFixture("srv_1", remote, { search: _path.includes("/members/search"), limit: 50 })))
   const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
   const rendered = renderHook(() => ({ role: useSetMemberRole(), kick: useKickMember(), roster: useServerMembers("srv_1") }), { wrapper })
   await waitFor(() => expect(rendered.result.current.roster.members[0]?.role).toBe("member"))
