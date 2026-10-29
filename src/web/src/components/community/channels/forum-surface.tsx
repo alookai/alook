@@ -33,7 +33,7 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
 }) {
   const feed = useForumFeed(serverId, forumChannelId, { routeTag, onSelectTag })
   const readState = useConversationEntry(feed.selectionReady ? { channelId: forumChannelId, serverId, tag: feed.tag === "All" ? null : feed.tag } : null)
-  const proof = readState.resource?.proof
+  const proof = readState.scope?.proof
   const positionScope = useMemo<ConversationListScope | undefined>(() => readState.canRead && proof
     ? { proof, tag: feed.tag === "All" ? null : feed.tag } : undefined, [readState.canRead, proof, feed.tag])
   const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
@@ -42,8 +42,8 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
   const retryRef = useRef<{ scope: string } | null>(null)
   const retrying = retryAttempt?.scope === retryScope
   const accessError = isConversationAccessError(feed.error) || isConversationAccessError(readState.error)
-  const initialLoadError = accessError || (feed.data === undefined && (
-    feed.isError || !!readState.error || retrying
+  const initialLoadError = accessError || (!feed.displayReady && (
+    feed.isError || !!feed.initialLoadError || !!readState.error || retrying
   ))
   useTimelineReadObserver({
     channelId: forumChannelId,

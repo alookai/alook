@@ -130,9 +130,9 @@ export function TextChannelSurface({
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
-              data-testid={!embedded && feed.positionDataState === "pending" ? tid.conversationResolutionPending : undefined}
-              aria-busy={!embedded && feed.positionDataState === "pending" ? true : undefined}
-              aria-label={!embedded && feed.positionDataState === "pending" ? "Loading conversation" : undefined}
+              data-testid={!embedded && feed.isLoading ? tid.conversationResolutionPending : undefined}
+              aria-busy={!embedded && feed.isLoading ? true : undefined}
+              aria-label={!embedded && feed.isLoading ? "Loading conversation" : undefined}
               data-community-conversation-subtype="text"
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
@@ -143,6 +143,7 @@ export function TextChannelSurface({
                   messages={feed.messages}
                   loading={feed.isLoading}
                   initialLoadError={feed.initialLoadError}
+                  targetLoadError={feed.targetLoadError}
                   observation={feed.observation}
                   retryingInitialLoad={feed.retryingInitialLoad}
                   onRetryInitialLoad={feed.retryInitialLoad}
@@ -158,7 +159,9 @@ export function TextChannelSurface({
                   scrollToMessageId={controller.scrollTargetId}
                   onScrollRoot={feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={feed.initialPositionKnown}
+                  initialScrollReady={feed.initialDisplayReady}
+                  preserveInitialPresentation={feed.preserveInitialPresentation}
+                  onUserTakeover={feed.onUserTakeover}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={feed.hasMoreOlder}
                   historyStartKnown={feed.historyStartKnown}

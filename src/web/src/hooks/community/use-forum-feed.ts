@@ -1,13 +1,14 @@
 "use client"
 
 import { useConversationPresentation } from "@/contexts/community/conversation-activity"
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityThreadsRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
+import { ConversationReadTimeoutError, conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
+import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -129,12 +130,36 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
   const entry = useConversationResource(selectionReady ? { channelId, serverId, tag: selectedTag } : null, null, false, "forum")
   const queryKey = communityKeys.forumFeed(entry.canRead ? channelId : "__none__", selectedTag)
   const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
-    enabled: presented && selectionReady && entry.canRead && !entry.verificationFetching, subscribed: selectionReady && entry.canRead, staleTime: 5_000,
+    enabled: presented && selectionReady && entry.canRead && !entry.verificationFetching && (!entry.verificationFailed || entry.displayWindow !== undefined), subscribed: selectionReady && entry.canRead, staleTime: 5_000,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry), networkMode: "always" })
-  const messageIds = useMemo(() => [...new Set(query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : [])) ?? [])], [query.data?.pages])
+  const displayCandidate = selectionReady && entry.canRead && entry.displayWindow !== undefined
+  const messageIds = useMemo(() => [...new Set(displayCandidate ? query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : [])) ?? [] : [])], [displayCandidate, query.data?.pages])
   const messages = useCanonicalMessagesById(messageIds)
-  const posts = useMemo(() => selectionReady ? mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag) : [], [selectionReady, query.data?.pages, messages, channels, profiles, selectedTag])
+  const displayReady = displayCandidate && query.data !== undefined && messageIds.every(id => messages?.has(id))
+    && query.data.pages.every(page => page.threads.every(thread => channels.has(thread.id) && thread.participantIds.every(id => profiles.has(id))))
+  const posts = useMemo(() => displayReady ? mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag) : [], [displayReady, query.data?.pages, messages, channels, profiles, selectedTag])
+  const projectionScope = JSON.stringify([queryKey, entry.scope ? conversationListScopeKey({ proof: entry.scope.proof, tag: selectedTag }) : null])
+  const hasWindowData = query.data !== undefined
+  const [retryAttempt, setRetryAttempt] = useState(0)
+  const [projectionFailure, setProjectionFailure] = useState<{ scope: string; attempt: number; error: Error } | null>(null)
+  useEffect(() => {
+    if (!presented || !entry.canRead || !hasWindowData || displayReady) return
+    const controller = new AbortController()
+    void withConversationReadDeadline(controller.signal, () => new Promise<never>(() => {})).catch(error => {
+      if (!controller.signal.aborted && error instanceof ConversationReadTimeoutError) setProjectionFailure({ scope: projectionScope, attempt: retryAttempt, error })
+    })
+    return () => controller.abort()
+  }, [presented, entry.canRead, hasWindowData, projectionScope, retryAttempt, displayReady])
+  const initialLoadError = !displayReady && projectionFailure?.scope === projectionScope && projectionFailure?.attempt === retryAttempt
+    ? projectionFailure.error : null
+  const pending = !displayReady && !initialLoadError && !query.isError && !entry.verificationFailed && !entry.denied
+  const refetchQuery = query.refetch
+  const refetch = useCallback((...args: Parameters<typeof refetchQuery>) => {
+    setRetryAttempt(attempt => attempt + 1)
+    return refetchQuery(...args)
+  }, [refetchQuery])
   const fetchNextPage = query.fetchNextPage
-  const fetchOlder = useCallback(() => { if (presented) void fetchNextPage({ cancelRefetch: false }) }, [fetchNextPage, presented])
-  return { ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: query.data ? "covered" as const : "uncovered" as const, wait_reason: !entry.canRead ? "entry" as const : query.data ? "none" as const : "window" as const }, posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError: tagsQuery.isError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
+  const fetchOlder = useCallback(() => { if (presented && displayReady && entry.windowReady) void fetchNextPage({ cancelRefetch: false }) }, [fetchNextPage, presented, displayReady, entry.windowReady])
+  return { ...query, refetch, isPending: pending, isLoading: pending, displayReady, initialLoadError,
+    observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: displayReady ? "covered" as const : "uncovered" as const, wait_reason: !entry.canRead ? "entry" as const : displayReady ? "none" as const : "window" as const }, posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError: tagsQuery.isError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: displayReady && entry.windowReady && query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
 }

@@ -21,10 +21,17 @@ const useForumTagsMock = vi.fn(() => ({
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
-vi.mock("./use-conversation-entry", async (original) => ({
-  ...await original<typeof import("./use-conversation-entry")>(),
-  useConversationResource: () => ({ canRead: true }),
-}))
+vi.mock("./use-conversation-entry", async original => {
+  const actual = await original<typeof import("./use-conversation-entry")>()
+  const { useQueryClient } = await import("@tanstack/react-query")
+  const { findConversationDisplayWindow, getQualifiedConversationScope, currentConversationReadState } = await import("@/lib/community/conversation-entry")
+  return { ...actual, useConversationResource: (target: Parameters<typeof getQualifiedConversationScope>[1]) => {
+    const client = useQueryClient()
+    const scope = getQualifiedConversationScope(client, target)
+    const displayWindow = scope && findConversationDisplayWindow(client, target, scope)
+    return { canRead: !!scope, displayWindow, windowReady: !!displayWindow && currentConversationReadState(client, target.channelId) !== undefined }
+  } }
+})
 vi.mock("./use-channel-panels", () => ({
   useForumTags: (...args: unknown[]) => useForumTagsMock(...args),
 }))

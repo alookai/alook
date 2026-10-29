@@ -4,7 +4,7 @@ import { channelHref } from "./community-route"
 import { actionAttributes, currentPageObservation, navigationForHref } from "@/lib/observability/context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { hashKey, notifyManager, queryOptions, type QueryClient, type QueryKey } from "@tanstack/react-query"
-import { COMMUNITY_CONTRACT_HEADER, CommunityConversationEntryReadSchema, type CommunityConversationEntryRead, type CommunityReadStateResource } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, CommunityConversationEntryReadSchema, CommunityResourceProfileSchema, type CommunityConversationEntryRead, type CommunityReadStateResource } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { communityRequestOptions } from "./account-cache-lifecycle"
@@ -156,8 +156,9 @@ function conversationDisplayWindows(client: QueryClient, target: ConversationEnt
       if (!thread || typeof thread.id !== "string" || !thread.id) return true
       const child = byId.get(thread.id)
       const opener = thread.openerMessageId ? messages.get(thread.openerMessageId) : undefined
-      return !child || child.type !== "thread" || child.serverId !== channel.serverId || child.parentChannelId !== channel.id
-        || !!thread.openerMessageId && (!opener || opener.channelId !== channel.id)
+      return !child || child.pending || child.type !== "thread" || child.serverId !== channel.serverId || child.parentChannelId !== channel.id
+        || !opener || opener.channelId !== channel.id || child.parentMessageId !== opener.id
+        || !Array.isArray(thread.participantIds) || thread.participantIds.some(id => !CommunityResourceProfileSchema.strip().safeParse(registry.collections.profiles.get(id)).success)
     }))) return
     const retained = feed.pages.flatMap(page => page.threads.flatMap(thread => {
       const child = byId.get(thread.id)

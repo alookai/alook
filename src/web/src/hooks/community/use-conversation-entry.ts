@@ -210,9 +210,9 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     const covered = cachedScope ? findConversationEntryWindow(client,
       localPosition && pointer && pointer.lastReadSeq >= localPosition.seq ? canonicalInput : input, cachedScope, pointer) : undefined
     const window = covered ?? (cachedScope ? findConversationDisplayWindow(client, input, cachedScope) : undefined)
-    return { intent, knownRevision: pointer?.observedRevision ?? -1, state: createStore<{ snapshot: CommunityReadStateResource | null; window: EntryWindow | null; covered: boolean }>({
+    return { intent, knownRevision: pointer?.observedRevision ?? -1, state: createStore<{ snapshot: CommunityReadStateResource | null; window: EntryWindow | null; covered: boolean; retained: boolean }>({
       snapshot: pointer ?? null,
-      window: window ?? null, covered: !!covered,
+      window: window ?? null, covered: !!covered, retained: false,
     }) }
   }, [client, cachedResource, scope, input, canonicalInput, localPosition, intent])
   const selected = useSelector(entry.state, (state) => state)
@@ -231,13 +231,17 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   const candidate = (!selected.covered || needsCanonicalWindow) && candidateScope
     ? findConversationEntryWindow(client, candidateTarget, candidateScope, candidatePointer) : undefined
   const display = !selected.window && candidateScope ? findConversationDisplayWindow(client, input, candidateScope) : undefined
-  const window = canRead ? candidate ?? selected.window ?? display ?? null : null
+  const window = canRead ? (selected.retained ? selected.window : candidate) ?? selected.window ?? candidate ?? display ?? null : null
   const snapshot = window ? (needsCanonicalWindow || !selected.covered ? candidatePointer ?? selected.snapshot : selected.snapshot) ?? null : null
   const targetCovered = canRead && (needsCanonicalWindow ? !!candidate : selected.covered || !!candidate)
   useLayoutEffect(() => {
     if (!window || !snapshot || selected.window === window && selected.snapshot === snapshot && selected.covered === targetCovered) return
-    entry.state.setState(() => ({ window, snapshot, covered: targetCovered }))
+    entry.state.setState(current => ({ ...current, window, snapshot, covered: targetCovered }))
   }, [window, snapshot, targetCovered, entry, selected])
+  const retainWindow = useCallback(() => {
+    if (!canRead || !window) return
+    entry.state.setState(current => current.retained ? current : { ...current, window, retained: true })
+  }, [canRead, entry, window])
   useEffect(() => {
     if (!presented || query.isFetching || !canRead || !selected.covered || !window || !resource || hashKey(window.key) === hashKey(resource.windowKey)) return
     if (client.getQueryData(entryOptions.queryKey) !== resource) return
@@ -260,6 +264,6 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     initialPositionMessageId: targetCovered && localPosition && snapshot && snapshot.lastReadSeq < localPosition.seq ? localPosition.messageId : null,
     isPending: !!target && !window && !denied && !anchorMissing && !activeQuery.isError && activeQuery.errorUpdatedAt === 0,
     failed: !window && activeQuery.errorUpdatedAt > 0,
-    retry, retrying: activeQuery.isFetching,
+    retry, retrying: activeQuery.isFetching, retainWindow,
   }
 }
