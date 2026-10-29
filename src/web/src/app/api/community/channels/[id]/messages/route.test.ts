@@ -449,6 +449,17 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
 
+  it.each([undefined, "", "resolve"])("rejects a human send without a real path ID (%s), even with a body ref", async (id) => {
+    const params: Record<string, string> = id === undefined ? {} : { id }
+    const response = await POST(postReq({ content: "hello", channel: "/demo#0042/general" }), { params })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "missing channel id" })
+    expect(mockCheckMessageRateLimit).not.toHaveBeenCalled()
+    expect(mockGetChannel).not.toHaveBeenCalled()
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
+  })
+
   it("starts the write path on a first-primary D1 session", async () => {
     const res = await POST(postReq({ content: "hello" }), ctx)
 
