@@ -4,6 +4,7 @@ import { replaceMachines, type MachinesResponse } from "@/hooks/community/use-ma
 import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
 import { assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import type {
+  RuntimeModelDiscoveryResult,
   CommunityBotAuditEvent,
   CommunityMachineCreated,
   CommunityMachineRemoved,
@@ -16,8 +17,12 @@ import type {
 import { communityKeys } from "@/lib/query-keys"
 
 
-import type { RuntimeModelsState } from "@/hooks/community/use-runtime-models"
 import type { PresenceMachineEventContext } from "@/hooks/community/community-ws/handler-context"
+
+export type RuntimeModelsState = { requestId: string; transport?: "http" } & (
+  | { status: "pending" | "cancelled" }
+  | RuntimeModelDiscoveryResult
+)
 
 export function handlePresenceUpdate(
   event: CommunityPresenceUpdate,

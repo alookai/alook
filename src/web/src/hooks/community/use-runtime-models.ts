@@ -2,16 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query"
-import { RuntimeModelDiscoveryResultSchema, type RuntimeModelDiscoveryResult } from "@alook/shared"
+import { RuntimeModelDiscoveryResultSchema } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
-import { handleRuntimeModels } from "./community-ws/presence-machine-events"
+import { handleRuntimeModels, type RuntimeModelsState } from "./community-ws/presence-machine-events"
 import { useCommunityMutationOrigin } from "./community-origin"
 
-export type RuntimeModelsState = { requestId: string; transport?: "http" } & (
-  | { status: "pending" | "cancelled" }
-  | RuntimeModelDiscoveryResult
-)
+export type { RuntimeModelsState } from "./community-ws/presence-machine-events"
 
 export function useRuntimeModels(machineId: string, runtimeId: string) {
   const queryClient = useQueryClient()
