@@ -221,9 +221,9 @@ export function ThreadChannelSurface({
             <Body
               data-slot="community-conversation-surface"
               data-channel-id={channelId}
-              data-testid={!embedded && controller.feed.positionDataState === "pending" ? tid.conversationResolutionPending : undefined}
-              aria-busy={!embedded && controller.feed.positionDataState === "pending" ? true : undefined}
-              aria-label={!embedded && controller.feed.positionDataState === "pending" ? "Loading thread" : undefined}
+              data-testid={!embedded && controller.feed.isLoading ? tid.conversationResolutionPending : undefined}
+              aria-busy={!embedded && controller.feed.isLoading ? true : undefined}
+              aria-label={!embedded && controller.feed.isLoading ? "Loading thread" : undefined}
               data-community-conversation-subtype="thread"
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
@@ -234,6 +234,7 @@ export function ThreadChannelSurface({
                   messages={controller.feed.messages}
                   loading={controller.feed.isLoading}
                   initialLoadError={controller.feed.initialLoadError}
+                  targetLoadError={controller.feed.targetLoadError}
                   observation={controller.feed.observation}
                   retryingInitialLoad={controller.feed.retryingInitialLoad}
                   onRetryInitialLoad={controller.feed.retryInitialLoad}
@@ -250,7 +251,8 @@ export function ThreadChannelSurface({
                   hero={opener}
                   onScrollRoot={controller.feed.setScrollRootEl}
                   viewerUserId={viewer.id}
-                  initialScrollReady={controller.feed.initialPositionKnown}
+                  initialScrollReady={controller.feed.initialDisplayReady}
+                  preserveInitialPresentation={controller.feed.preserveInitialPresentation}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={controller.feed.hasMoreOlder}
                   historyStartKnown={controller.feed.historyStartKnown}

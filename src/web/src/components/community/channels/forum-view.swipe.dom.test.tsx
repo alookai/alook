@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, mockElementGeometry, render, waitFor } from "@/test/react-dom-harness"
 import { SwipeRoot, SwipePortal, SwipeViewport, SwipePopup, SwipeTitle } from "@/components/ui/swipe-container"
 import { canStartSwipe } from "@/components/ui/swipe-gesture-policy"
@@ -10,6 +10,12 @@ vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true, useBreakpoint: (
 vi.mock("@/lib/community-db/projections", () => ({ useCanonicalProfilesByUserId: () => new Map() }))
 
 const hitTest = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
+const originalRect = HTMLElement.prototype.getBoundingClientRect
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return this.hasAttribute("data-index") ? new DOMRect(0, Number.parseFloat(this.style.top) || 0, 390, 128) : originalRect.call(this)
+  })
+})
 afterEach(() => {
   vi.restoreAllMocks()
   if (hitTest) Object.defineProperty(document, "elementFromPoint", hitTest)
@@ -30,7 +36,7 @@ function fixture({ empty = false, kind = "page" as "page" | "overlay" } = {}) {
       <ForumView forumChannelId="forum" members={[]} posts={empty ? [] : [post]}
         tag="All" tagsKnown availableTags={[]} onTagChange={() => {}} onOpenPost={opened}
         onEditPostTags={archive} canEditPostTags={() => true}
-        onScrollRoot={node => { if (node) mockElementGeometry(node, { clientHeight: 600, clientWidth: 390 }) }} />
+        onScrollRoot={node => { if (node) mockElementGeometry(node, { clientHeight: 600, clientWidth: 390, width: 390, height: 600 }) }} />
     </SwipePopup></SwipeViewport></SwipePortal>
   </SwipeRoot>)
   const root = view.getByTestId("page-viewport"), popup = view.getByTestId("page-popup")

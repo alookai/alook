@@ -13,6 +13,7 @@ import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { EmptyState } from "../empty-state"
 import { VirtualRows } from "../messages/virtual-cursor-list"
+import { useInitialPositionTransition } from "../messages/initial-position-transition"
 
 const OVERSCAN = 5
 const forumRangeExtractor = (range: Range) => defaultRangeExtractor({ ...range, overscan: range.overscan + range.endIndex - range.startIndex + 1 })
@@ -42,10 +43,13 @@ function ForumPostListEntry(props: Props) {
   return <ForumPostListOwner {...props} />
 }
 
-function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore, isFetching, isError, onLoadMore, onScrollRoot, renderPost }: Props) {
+function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore, isFetching, isError, onLoadMore, onScrollRoot, renderPost, loadingContent }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
   const [positionReady, setPositionReady] = useState(false)
+  useLayoutEffect(() => { if (posts.length === 0) setPositionReady(!loading) }, [loading, posts.length])
+  const presentation = useInitialPositionTransition({ firstWindowReady: !loading || posts.length > 0,
+    authoritativeEmpty: !loading && posts.length === 0, positionSettled: positionReady })
   const postsRef = useRef(posts)
   useLayoutEffect(() => { postsRef.current = posts }, [posts])
   const bindScrollRoot = useCallback((node: HTMLDivElement | null) => { scrollRef.current = node; onScrollRoot?.(node) }, [onScrollRoot])
@@ -56,12 +60,14 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
       || native.isScrolling || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1
       || native.options.count !== current.length
       || current.some((post, index) => native.options.getItemKey(index) !== post.id)) return
+    const viewport = root.getBoundingClientRect()
+    if (viewport.width <= 0 || viewport.height <= 0) return
     const fold = native.getVirtualItemForOffset(root.scrollTop + 1)
     const wrapper = fold && root.querySelector<HTMLElement>(`[data-index="${fold.index}"]`)
     const rect = wrapper?.getBoundingClientRect()
     const padding = Number.parseFloat(window.getComputedStyle(root).paddingTop) || 0
     if (!fold || !rect || rect.height <= 0 || Math.abs(rect.height - fold.size) > 1
-      || Math.abs(rect.top - root.getBoundingClientRect().top + root.scrollTop - padding - fold.start) > 1) return
+      || Math.abs(rect.top - viewport.top + root.scrollTop - padding - fold.start) > 1) return
     setPositionReady(true)
   }, [])
   const getItemKey = useCallback((index: number) => posts[index]?.id ?? index, [posts])
@@ -104,14 +110,22 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
     return virtualItems.filter(item => indexes.has(item.index))
   }, [posts.length, range, virtualItems])
   const observedPosts = visibleVirtualItems(virtualizer).flatMap(item => posts[item.index] ? [posts[item.index]] : [])
-  useObservedRegion("forum", (!loading || posts.length > 0) && (!posts.length || observedPosts.length > 0), observedPosts.length, observation)
+  useObservedRegion("forum", presentation.contentVisible && (!posts.length || observedPosts.length > 0), observedPosts.length, observation)
   useVirtualCursorPagination({
     virtualizer: { getVirtualItems: () => paginationItems }, count: posts.length, enabled: !loading,
     hasMore, isFetching: isFetching || loadingMore, isError, onLoad: onLoadMore, edge: "end",
   })
-  return <div ref={bindScrollRoot} role="main" data-testid={tid.forumPostList} className="flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] px-0 py-2 sm:px-4">
-    {!posts.length ? <div data-message-list-content aria-hidden="false" data-read-position-ready="true"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
+  return <div className="relative flex min-h-0 flex-1 flex-col">
+    <div ref={bindScrollRoot} role="main" data-testid={tid.forumPostList} data-community-conversation-subtype="forum"
+      aria-busy={presentation.showSkeleton || undefined} aria-label={presentation.showSkeleton ? "Loading forum" : undefined}
+      className="flex-1 overflow-y-auto thin-scrollbar [overflow-anchor:none] px-0 py-2 sm:px-4">
+    {!posts.length && loading ? <div data-message-list-content aria-hidden="true" inert data-read-position-ready="false" />
+      : !posts.length ? <div data-message-list-content aria-hidden="false" data-read-position-ready="true"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
       : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer} renderItem={renderPost}
-        containerAttributes={{ "data-message-list-content": "", "aria-hidden": false, "data-read-position-ready": positionReady ? "true" : "false" }} />}
+        containerAttributes={{ "data-message-list-content": "", "aria-hidden": !presentation.contentVisible, inert: !presentation.contentInteractive,
+          "data-read-position-ready": positionReady ? "true" : "false" }} />}
+    </div>
+    {presentation.showSkeleton && <div data-forum-positioning-skeleton aria-hidden="true"
+      className="pointer-events-none absolute inset-0 overflow-hidden bg-background px-0 py-2 sm:px-4">{loadingContent}</div>}
   </div>
 }

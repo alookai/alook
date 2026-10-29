@@ -39,6 +39,8 @@ describe("Forum native list identity and ordinary reconstruction", () => {
     resize()
     if (mode === "hidden") {
       expect(second.getByTestId("community-forum-post-list").querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
+      expect(second.getByTestId("community-forum-post-list")).toHaveAttribute("aria-busy", "true")
+      expect(second.getByTestId("community-forum-post-list").querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "true")
       scrollFixture.width = 320
       scrollFixture.height = 500
       resize()
@@ -83,7 +85,7 @@ it("exposes only an unadmitted forum's initial loading and keeps an admitted emp
   const admitted = view.getByTestId("community-forum-post-list")
   expect(admitted).not.toHaveAttribute("aria-busy")
   expect(view.queryByLabelText("Loading forum")).toBeNull()
-  view.rerender(<ForumPostList {...props} loading isFetching />)
+  view.rerender(<ForumPostList {...props} isFetching />)
   expect(view.getByTestId("community-forum-post-list")).toBe(admitted)
   expect(view.queryByText("Loading actual forum")).toBeNull()
   expect(view.queryByLabelText("Loading forum")).toBeNull()

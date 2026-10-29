@@ -554,7 +554,7 @@ describe("conversation entry return during accepted reading", () => {
       const props = { channel: "Channel", messages: feed.messages,
         loading: feed.isLoading, initialLoadError: feed.initialLoadError,
         newDividerBefore: projection.newDividerBefore, scrollToMessageId,
-        initialScrollReady: feed.initialPositionKnown,
+        initialScrollReady: feed.initialDisplayReady,
         positionDataState: feed.positionDataState, positionEntry: feed.positionEntry, messageWindow: feed.messageWindow,
         hasMore: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer,
         historyStartKnown: feed.historyStartKnown,
@@ -1014,7 +1014,7 @@ describe("conversation entry return during accepted reading", () => {
     } finally { view.unmount(); releaseReadSurface(owner.lease); await owner.finish() }
   })
 
-  it("retains the actual cached history boundary while an uncovered newer target keeps first admission masked", async () => {
+  it("reveals the actual cached history boundary while an uncovered newer target is pending", async () => {
     const owner = await readingOwner()
     const entryRead = deferred<ReturnType<typeof fixture>>()
     const previousKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m30" })
@@ -1050,12 +1050,13 @@ describe("conversation entry return during accepted reading", () => {
       expect(owner.client.getQueryData(previousKey)).toBe(previousWindow)
       expect(view.latest.feed.readSnapshot?.lastReadSeq).toBe(60)
       expect(view.latest.feed.isLoading).toBe(false)
-      expect(view.latest.controller.initialPosition.contentVisible).toBe(false)
-      expect(view.latest.controller.initialPosition.showSkeleton).toBe(true)
+      expect(view.latest.feed.initialDisplayReady).toBe(true)
+      expect(view.latest.controller.initialPosition.contentVisible).toBe(true)
+      expect(view.latest.controller.initialPosition.showSkeleton).toBe(false)
       expect(view.latest.controller.readPositionReady).toBe(false)
       expect(view.latest.feed.hasMoreOlder).toBe(false)
       expect(view.latest.feed.historyStartKnown).toBe(true)
-      expect(view.root.textContent).toContain("Beginning of the channel")
+      expect(view.latest.controller.items.some(item => item.kind === "leading")).toBe(true)
       await act(async () => entryRead.resolve(fresh))
       resize()
       expect(view.latest.feed.initialPositionKnown).toBe(true)

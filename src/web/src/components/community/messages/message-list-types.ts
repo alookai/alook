@@ -10,6 +10,7 @@ export type MessageListProps = {
   messages: Msg[]
   loading?: boolean
   initialLoadError?: Error | null
+  targetLoadError?: Error | null
   retryingInitialLoad?: boolean
   onRetryInitialLoad?: () => void
   pinnedIds?: Set<string>
@@ -45,6 +46,7 @@ export type MessageListProps = {
   onScrollRoot?: (el: HTMLDivElement | null) => void
   viewerUserId?: string
   initialScrollReady?: boolean
+  preserveInitialPresentation?: boolean
   onScrollTargetConsumed?: (id: string) => void
   hasMore?: boolean
   historyStartKnown?: boolean

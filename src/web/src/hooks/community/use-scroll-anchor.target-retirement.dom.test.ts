@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
 import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
 beforeEach(installMessageScrollFixture)
@@ -74,7 +74,11 @@ describe("current ready-window target retirement through the native position own
     })
     act(() => vi.advanceTimersByTime(20000))
     expect(scrollFixture.frames.size).toBe(0)
-    expect(settled).not.toHaveBeenCalled()
+    if (kind === "explicit") {
+      expect(settled).toHaveBeenCalledExactlyOnceWith("success")
+      expect(scrollFixture.latest.readPositionReady).toBe(false)
+      expect(scrollFixture.latest.paginationEnabled).toBe(false)
+    } else expect(settled).not.toHaveBeenCalled()
     const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
     h.update({ positionDataState: "ready", items: [...h.input.items, message("missing")] })
     expect(index).toHaveBeenCalledOnce()
@@ -98,4 +102,21 @@ describe("current ready-window target retirement through the native position own
     expect(settled).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
   })
+})
+
+
+it("reveals local cache while the explicit target is pending and retires that deferred target on real user takeover", () => {
+  const settled = vi.fn(), cancelled = vi.fn(), positioned = vi.fn()
+  const h = mount({ initialScrollReady: true, positionDataState: "pending", targetPositionDataState: "pending", scrollToMessageId: "later",
+    onInitialPositionSettled: settled, onScrollTargetCancelled: cancelled, onScrollTargetPositioned: positioned })
+  expect(settled).toHaveBeenCalledExactlyOnceWith("success")
+  expect(scrollFixture.latest.readPositionReady).toBe(false)
+  expect(scrollFixture.latest.paginationEnabled).toBe(false)
+  fireEvent.wheel(h.root, { deltaY: -20 })
+  const offset = h.root.scrollTop
+  expect(cancelled).toHaveBeenCalledExactlyOnceWith("later")
+  h.update({ positionDataState: "ready", targetPositionDataState: "ready", items: [...h.input.items, message("later")] })
+  expect(h.root.scrollTop).toBe(offset)
+  expect(positioned).not.toHaveBeenCalled()
+  expect(settled).toHaveBeenCalledOnce()
 })

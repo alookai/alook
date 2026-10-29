@@ -27,7 +27,7 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
   })
   const identityKnown = canRead && !!scope && !!canonical && canonical.id === channelId && canonical.serverId === serverId && !canonical.pending
   const error = entry.verificationError
-  const status: ChannelReadingStatus = !channelId ? "no-target" : denied ? "denied" : windowReady ? "readable"
+  const status: ChannelReadingStatus = !channelId ? "no-target" : denied ? "denied" : canRead && entry.displayWindow !== undefined ? "readable"
     : error || entry.verificationFailed ? "retryable-error" : query.isFetching || entry.verificationPending ? "pending" : "unresolved"
   const data = useMemo(() => {
     if (!identityKnown || !canonical || !scope) return undefined

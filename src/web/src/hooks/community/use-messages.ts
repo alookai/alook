@@ -225,6 +225,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const projectionError = projectionFailed || missingCanonical && !!projectionFailure && projectionFailure.window === query.data
     && projectionFailure.attempt === retrySelection.attempt && projectionFailure.viewKey === viewKey ? INITIAL_ENTRY_ERROR : null
   const initialLoadError = windowAvailable ? projectionError : retrySelection.error ?? error ?? (entry.failed ? INITIAL_ENTRY_ERROR : null)
+  const targetLoadError = windowAvailable && !entry.targetCovered && !selection.window && !entry.isFetching
+    && entry.error?.name !== "AbortError" ? entry.error : null
   const loading = !!channelId && (windowAvailable ? projection.canonicalMessages === undefined : !initialLoadError && !entry.denied && !entry.anchorMissing)
   const entryWindow = entry.window, retryEntry = entry.retry, refetchWindow = query.refetch
   const retryInitialLoad = useCallback(() => {
@@ -233,17 +235,17 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     const token = channelId ? captureChannelMetadataToken(client, channelId) : null
     const current = () => committed.current?.retries === retries && retries.get().attempt === attempt && !!token && isChannelMetadataTokenCurrent(token)
     retries.setState(() => ({ attempt, pending: true, error: null }))
-    const request = entryWindow ? refetchWindow({ cancelRefetch: false }) : retryEntry()
+    const request = entryWindow && entry.targetCovered ? refetchWindow({ cancelRefetch: false }) : retryEntry()
     void request.then(result => {
       if (!current()) return
       retries.setState(() => ({ attempt, pending: false, error: result.error }))
     })
-  }, [channelId, client, entryWindow, retryEntry, refetchWindow, retries])
+  }, [channelId, client, entryWindow, entry.targetCovered, retryEntry, refetchWindow, retries])
   const targetPositionDataState: MessagePositionState = retrySelection.pending ? "pending"
-    : initialLoadError || retrySelection.error || entry.denied || !windowAvailable && entry.anchorMissing && !entry.isFetching ? "error"
+    : initialLoadError || targetLoadError || retrySelection.error || entry.denied || !windowAvailable && entry.anchorMissing && !entry.isFetching ? "error"
       : !windowAvailable || loading || missingCanonical || !!anchorMessageId && !entry.targetCovered && !selection.window && !entry.anchorMissing ? "pending"
         : messages.length ? "ready" : "empty"
-  const positionDataState: MessagePositionState = targetPositionDataState === "error" ? "error"
+  const positionDataState: MessagePositionState = targetPositionDataState === "error" && !targetLoadError ? "error"
     : !windowAvailable || !entry.snapshot || loading || readSnapshotFetching || retrySelection.pending ? "pending"
       : messages.length ? "ready" : "empty"
   return {
@@ -252,13 +254,15 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     messages, canonicalMessages: canonicalBase, canonicalById,
     latestSeq, hasMoreOlder, hasMoreNewer, historyStartKnown, hasMore: hasMoreOlder,
     isLoading: loading, isPending: loading, isError: !!initialLoadError && !query.data,
-    error, initialLoadError, isFetching: entry.isFetching || query.isFetching,
+    error, initialLoadError, targetLoadError, isFetching: entry.isFetching || query.isFetching,
     isFetchingOlder: query.isFetchingNextPage,
     isFetchingNewer: query.isFetchingPreviousPage || selection.pending,
     fetchOlder, fetchNewer, jumpToPresent, presentVersion: selection.version, presentRequest: selection.request,
     anchorReconciled: entry.targetCovered || !!selection.window,
     navigationBlocked: !entry.windowReady,
     readSnapshot: entry.snapshot, readSnapshotFetching,
+    initialDisplayReady: windowAvailable && !loading && !missingCanonical && !initialLoadError,
+    preserveInitialPresentation: !!retrySelection.attempt && windowAvailable,
     initialPositionKnown: windowAvailable && entry.snapshot !== null && !loading && !missingCanonical && !initialLoadError && !retrySelection.pending && !entry.initialPositionPending,
     initialPositionMessageId: entry.initialPositionMessageId, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow: query.data,
     retryInitialLoad, retryingInitialLoad: entry.isFetching || query.isFetching,

@@ -86,6 +86,7 @@ export function useScrollAnchor({
   items,
   newDividerBefore,
   initialScrollReady,
+  preserveInitialPresentation = false,
   positionDataState,
   targetPositionDataState,
   messageWindow,
@@ -110,6 +111,7 @@ export function useScrollAnchor({
   items: FlatItem[]
   newDividerBefore?: string
   initialScrollReady: boolean
+  preserveInitialPresentation?: boolean
   positionDataState?: MessagePositionState
   targetPositionDataState?: MessagePositionState
   messageWindow?: object
@@ -196,6 +198,7 @@ export function useScrollAnchor({
   const entryResolvedRef = useRef(false)
   const initialRetiredRef = useRef(false)
   const lateNewRef = useRef({ allowed: true, consumed: false })
+  const localTargetRef = useRef<string | null>(null)
   const initialSettleFrameRef = useRef<number | null>(null)
   const semanticIntentRef = useRef<Intent | null>(null)
   const committedRowsRef = useRef<{
@@ -311,11 +314,8 @@ export function useScrollAnchor({
   }, [])
   const releasePosition = useCallback((userHandover = false, outcome: PositionOutcome = userHandover ? "user-cancelled" : "cancelled", reason: PositionReason = userHandover ? "manual_takeover" : outcome === "empty" ? "empty" : outcome === "error" ? "data_error" : "cancelled") => {
     lateNewRef.current.allowed = false
-    const intent = semanticIntentRef.current
-    const cancelledTarget = positionKind.get() === "target"
-      ? intent?.notifyTarget ? intent.id
-        : !intent && positionedTargetRef.current !== targetIntentRef.current ? targetIntentRef.current : null
-      : null
+    const cancelledTarget = (positionKind.get() === "target" || userHandover) && positionedTargetRef.current !== targetIntentRef.current
+      ? targetIntentRef.current : null
     const wasReadable = positionKind.get() === "idle" && readReady.get()
     finishPosition(reason)
     claimPosition("idle")
@@ -654,34 +654,51 @@ export function useScrollAnchor({
     if (committedEntry === positionEntry) return
     setCommittedEntry(() => positionEntry)
     finishPosition("entry_changed")
-    claimPosition("initial")
-    entryResolvedRef.current = false
-    initialRetiredRef.current = false
-    setPositionOutcome("pending")
+    const preserve = preserveInitialPresentation && presentation.get() !== "pending"
+    claimPosition(preserve ? "idle" : "initial")
+    entryResolvedRef.current = preserve
+    initialRetiredRef.current = preserve
+    if (!preserve) setPositionOutcome("pending")
     lateNewRef.current = { allowed: true, consumed: false }
+    localTargetRef.current = null
     targetIntentRef.current = null
     positionedTargetRef.current = null
     consumedPresentVersionRef.current = presentVersion ?? 0
     consumedLocalSubmitVersionRef.current = localSubmitVersion ?? 0
     userInputRef.current.handover = false
     setFollowSuspended(false)
-  }, [claimPosition, committedEntry, finishPosition, localSubmitVersion, positionEntry, presentVersion, setFollowSuspended, setPositionOutcome])
+  }, [claimPosition, committedEntry, finishPosition, localSubmitVersion, positionEntry, presentation, preserveInitialPresentation, presentVersion, setFollowSuspended, setPositionOutcome])
 
   useLayoutEffect(() => {
     const target = scrollToMessageId ?? null
     if (!visible && target) return
-    if (targetIntentRef.current === target) return
+    const changed = targetIntentRef.current !== target
+    if (!changed && (!target || positionedTargetRef.current === target || positionKind.get() === "target")) return
     targetIntentRef.current = target
     if (!target) {
       if (positionKind.get() === "target") releasePosition()
       positionedTargetRef.current = null
       return
     }
+    lateNewRef.current.allowed = false
+    if (changed) positionedTargetRef.current = null
+    if (targetDataState === "pending") {
+      if (changed && (entryResolvedRef.current || positionKind.get() !== "initial" || semanticIntentRef.current)) {
+        claimPosition("target")
+        retireInitialPosition()
+        if (initialScrollReady) settlePresentation("cancelled")
+      }
+      return
+    }
+    if (targetDataState === "error" && initialScrollReady && presentation.get() === "pending") {
+      positionedTargetRef.current = target
+      onTargetCancelledRef.current?.(target)
+      return
+    }
     claimPosition("target")
     retireInitialPosition()
-    positionedTargetRef.current = null
     if (targetDataState === "ready" && visible) startIntent("target", target, "auto", true)
-  }, [claimPosition, targetDataState, items.length, positionEntry, positionKind, releasePosition, retireInitialPosition, scrollToMessageId, startIntent, visible])
+  }, [claimPosition, initialScrollReady, presentation, targetDataState, items.length, positionEntry, positionKind, releasePosition, retireInitialPosition, scrollToMessageId, settlePresentation, startIntent, visible])
 
   useLayoutEffect(() => {
     const intent = semanticIntentRef.current
@@ -1151,6 +1168,16 @@ export function useScrollAnchor({
 
   const virtualItems = virtualizer.getVirtualItems()
   useLayoutEffect(() => {
+    if (!initialPositionMessageId || localTargetRef.current || !lateNewRef.current.allowed || !entryResolvedRef.current
+      || !visible || !initialScrollReady || !hasMessages
+      || positionKind.get() !== "idle" && positionKind.get() !== "initial"
+      || findMessageIndex(items, initialPositionMessageId) === null) return
+    localTargetRef.current = initialPositionMessageId
+    if (newDividerBefore) lateNewRef.current.consumed = true
+    claimPosition("initial")
+    startIntent("target", initialPositionMessageId)
+  }, [claimPosition, hasMessages, initialPositionMessageId, initialScrollReady, items, newDividerBefore, positionEntry, positionKind, startIntent, visible])
+  useLayoutEffect(() => {
     const late = lateNewRef.current
     if (!late.allowed || late.consumed || !newDividerBefore || !entryResolvedRef.current
       || !visible || !initialScrollReady || !hasMessages
@@ -1175,6 +1202,7 @@ export function useScrollAnchor({
     if (positionKind.get() !== "initial" || initialRetiredRef.current || !hasMessages) return
     if (!entryResolvedRef.current) {
       entryResolvedRef.current = true
+      localTargetRef.current = initialPositionMessageId ?? null
       if (newDividerBefore) lateNewRef.current.consumed = true
       startIntent(initialPositionMessageId ? "target" : newDividerBefore ? "unread" : "end", initialPositionMessageId ?? newDividerBefore ?? null)
     } else scheduleInitialPositionSettled()
