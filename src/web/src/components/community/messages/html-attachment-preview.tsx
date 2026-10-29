@@ -27,6 +27,7 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   const fonts = useMemo(() => typeof document === "undefined" ? [] : collectHtmlPreviewFonts(document,
     getComputedStyle(document.documentElement).getPropertyValue("--font-dm-sans") + "," + getComputedStyle(document.documentElement).getPropertyValue("--font-dm-mono")), [])
   const [mounted, setMounted] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
   const [height, setHeight] = useState(320)
   const [expanded, setExpanded] = useState(false)
@@ -169,8 +170,9 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
             sandbox={HTML_PREVIEW_SANDBOX}
             referrerPolicy="no-referrer"
             allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
-            className={cn("block w-full border-0 bg-background", expanded && "min-h-0 flex-1")}
-            style={expanded ? undefined : { height }}
+            onLoad={() => setLoaded(true)}
+            className={cn("block w-full border-0 bg-background scheme-light", expanded && "min-h-0 flex-1")}
+            style={{ height: expanded ? undefined : height, colorScheme: loaded ? resolvedTheme === "dark" ? "dark" : "light" : undefined }}
           />}
         </>
       )}

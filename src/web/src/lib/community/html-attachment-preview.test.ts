@@ -48,6 +48,33 @@ describe("HTML preview response preparation", () => {
 
 
 describe("generated HTML bootstrap", () => {
+  it.each(["light dark", "only light"])("preserves the author's %s scheme and colors when styles load after the theme", async (scheme) => {
+    const dom = new JSDOM(prepareHtmlPreview(`<!doctype html><html><head><style data-authored>:root{color-scheme:${scheme}}html,body{background:transparent}#authored{background:#73a3b2;color:#112233}</style></head><body><section id="authored">Original colors</section><input id="state" value="original"></body></html>`), {
+      runScripts: "dangerously",
+      beforeParse(window) {
+        Object.defineProperty(window, "parent", { value: { postMessage: vi.fn() } })
+        window.requestAnimationFrame = vi.fn(() => 0)
+      },
+    })
+    try {
+      await new Promise<void>((resolve) => dom.window.document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }))
+      const { document } = dom.window
+      const input = document.querySelector<HTMLInputElement>("#state")!
+      input.value = "retained edit"
+      for (const dark of [false, true, false]) {
+        dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: dom.window.parent, data: { type: "alook-html-theme", dark, variables: { "--background": dark ? "#121314" : "#ffffff", "--foreground": dark ? "#eeeeee" : "#111111" } } }))
+        document.head.appendChild(document.querySelector("style[data-authored]")!)
+        expect(dom.window.getComputedStyle(document.documentElement).colorScheme).toBe(scheme)
+        for (const element of [document.documentElement, document.body]) expect(dom.window.getComputedStyle(element).backgroundColor).toBe("rgba(0, 0, 0, 0)")
+        const authored = dom.window.getComputedStyle(document.querySelector("#authored")!)
+        expect(authored.backgroundColor).toBe("rgb(115, 163, 178)")
+        expect(authored.color).toBe("rgb(17, 34, 51)")
+        expect(document.querySelector("#state")).toBe(input)
+        expect(input.value).toBe("retained edit")
+      }
+    } finally { dom.window.close() }
+  })
+
   it("requests the host theme, reports readiness and rejects a different sender", async () => {
     const post = vi.fn()
     const frames = new Map<number, FrameRequestCallback>()

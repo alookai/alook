@@ -1,5 +1,6 @@
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Locator, Page, TestInfo } from "@playwright/test"
+import sharp from "sharp"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer } from "./_fixtures/actions"
@@ -999,4 +1000,71 @@ test("HTML attachment markers render once with interactive isolated content acro
     body: JSON.stringify({ serverId, channelId, messageId, attachmentId, preview: Object.fromEntries(Object.entries(direct.headers()).filter(([name]) => ["content-type", "content-disposition", "content-security-policy", "cache-control", "referrer-policy", "x-content-type-options"].includes(name))), download: Object.fromEntries(Object.entries(original.headers()).filter(([name]) => ["content-type", "content-disposition", "cache-control"].includes(name))), outsiderStatus: denied.status() }, null, 2),
     contentType: "application/json",
   })
+
+  const transparentHtml = '<!doctype html><html><head><style>:root{color-scheme:light dark}html,body{margin:0;background:transparent}body{min-height:112px;color:var(--foreground)}#authored{position:absolute;left:0;top:48px;width:160px;height:48px;background:#73a3b2;color:#112233}input{position:absolute;left:180px;top:48px}</style></head><body><div id="authored"></div><input id="state" value="original"></body></html>'
+  const transparentId = await upload("transparent.html", "text/html", transparentHtml)
+  await appearance("Dark")
+  let releasePreview!: () => void
+  const previewGate = new Promise<void>((resolve) => { releasePreview = resolve })
+  const transparentPreviewUrl = new URL(`/api/community/channels/${channelId}/attachments/${transparentId}?preview=html`, page.url()).href
+  await page.route(transparentPreviewUrl, async (route) => { await previewGate; await route.continue() })
+  let transparentPreview: Locator, transparentFrame: Locator
+  let loadingCanvas: number[]
+  try {
+    const transparentResponse = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      data: { content: `[alook-html-preview](${transparentId})`, attachments: [transparentId] },
+    }))
+    expect(transparentResponse.status()).toBe(201)
+    const transparentMessageId = (await transparentResponse.json() as { message: { id: string } }).message.id
+    transparentPreview = page.getByTestId(tid.message(transparentMessageId)).getByTestId(tid.htmlPreview(transparentId))
+    transparentFrame = transparentPreview.getByTestId(tid.htmlPreviewFrame(transparentId))
+    await transparentPreview.scrollIntoViewIfNeeded()
+    await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "loading")
+    await expect(transparentFrame).toHaveCSS("color-scheme", "light")
+    const screenshot = await transparentFrame.screenshot({ scale: "css" })
+    await testInfo.attach("transparent-canvas-dark-host-loading.png", { body: screenshot, contentType: "image/png" })
+    loadingCanvas = [...await sharp(screenshot).extract({ left: 2, top: 2, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
+  } finally { releasePreview(); await page.unroute(transparentPreviewUrl) }
+  await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "ready")
+  await expect(transparentFrame).toHaveCSS("color-scheme", "dark")
+  const transparentContent = transparentFrame.contentFrame()
+  const originalTransparentFrame = await transparentFrame.elementHandle()
+  await transparentContent.locator("#state").fill("retained edit")
+  async function transparentPixels(name: string) {
+    const screenshot = await transparentFrame.screenshot({ scale: "css" })
+    await testInfo.attach(name, { body: screenshot, contentType: "image/png" })
+    const canvas = [...await sharp(screenshot).extract({ left: 2, top: 2, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
+    const authored = [...await sharp(screenshot).extract({ left: 2, top: 52, width: 1, height: 1 }).removeAlpha().raw().toBuffer()]
+    expect(authored).toEqual([115, 163, 178])
+    return { canvas, authored }
+  }
+  const canvasSamples = []
+  for (const mode of ["Light", "Dark"] as const) {
+    await appearance(mode)
+    await expect(transparentFrame).toHaveCSS("color-scheme", mode.toLowerCase())
+    await expect(transparentContent.locator("html")).toHaveCSS("color-scheme", "light dark")
+    await expect.poll(() => transparentContent.locator("html").evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(mode === "Dark")
+    for (const selector of ["html", "body"]) await expect(transparentContent.locator(selector)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expect(transparentContent.locator("#authored")).toHaveCSS("color", "rgb(17, 34, 51)")
+    const inline = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-inline.png`)
+    await transparentPreview.getByTestId(tid.htmlPreviewExpand(transparentId)).click()
+    await expect(transparentPreview).toHaveAttribute("aria-modal", "true")
+    const fullscreen = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-fullscreen.png`)
+    await transparentPreview.getByTestId(tid.htmlPreviewClose(transparentId)).click()
+    await expect(transparentPreview).not.toHaveAttribute("aria-modal", "true")
+    await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
+    canvasSamples.push({ mode, inline, fullscreen })
+  }
+  for (const phase of ["inline", "fullscreen"] as const) {
+    expect(canvasSamples[1]![phase].canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]![phase].canvas.reduce((sum, value) => sum + value, 0))
+  }
+  expect(loadingCanvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]!.inline.canvas.reduce((sum, value) => sum + value, 0))
+  await appearance("Light")
+  await expect(transparentContent.locator("html")).toHaveCSS("color-scheme", "light dark")
+  await expect.poll(() => transparentContent.locator("html").evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(false)
+  await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
+  expect(await transparentFrame.evaluate((element, original) => element === original, originalTransparentFrame)).toBe(true)
+  await originalTransparentFrame?.dispose()
+  await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas, themes: canvasSamples }, null, 2), contentType: "application/json" })
 })
