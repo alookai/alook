@@ -390,10 +390,10 @@ function ServerRailContent({
         return (
           <div key={`folder:${folderId}`} data-slot="community-rail-folder-surface" data-folder-id={folderId}
             data-rail-preview={operation || undefined}
-            className="group/folder relative w-full py-1">
+            className={`group/folder relative w-full ${open ? "py-1" : ""}`}>
             <RailFolderGapDropTarget dnd={dnd} folderId={folderId} operation="reorder-before" testId={tid.serverRailFolderBefore(folderId)} />
             {index < entries.length - 1 && <RailFolderGapDropTarget dnd={dnd} folderId={folderId} operation="reorder-after" testId={tid.serverRailFolderAfter(folderId)} />}
-            <div data-slot="community-rail-folder-backdrop" className={`pointer-events-none absolute bg-accent/50 dark:bg-accent ${open ? "inset-x-1 inset-y-0 rounded-[12px]" : `left-1/2 top-1 size-10 -translate-x-1/2 transition-[border-radius] duration-150 ${active ? "rounded-xl" : "rounded-[18px] group-hover/folder:rounded-xl"}`} ${operation === "combine" ? "ring-2 ring-primary" : ""}`} />
+            <div data-slot="community-rail-folder-backdrop" className={`pointer-events-none absolute bg-accent/50 dark:bg-accent ${open ? "inset-x-1 inset-y-0 rounded-[12px]" : `left-1/2 top-0 size-10 -translate-x-1/2 transition-[border-radius] duration-150 ${active ? "rounded-xl" : "rounded-[18px] group-hover/folder:rounded-xl"}`} ${operation === "combine" ? "ring-2 ring-primary" : ""}`} />
             {operation && operation !== "combine" && <span data-slot="community-server-rail-insert" className={`pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-primary ${operation === "reorder-before" ? "-top-1 -translate-y-1/2" : "-bottom-1 translate-y-1/2"}`} />}
             <RailFolder folderId={folderId} name={folderNames.get(folderId) ?? "Group"} open={open}
               active={!open && active}

@@ -99,6 +99,13 @@ function driveIosThemeObserver(initial: Array<"light" | "dark"> = []) {
 }
 
 describe("native shell theme color contract", () => {
+  it("disables the iOS input accessory in all effective main-window definitions", () => {
+    for (const file of ["tauri.conf.json", "tauri.dev.conf.json", "tauri.ios.release.conf.json"]) {
+      const config = JSON.parse(readFileSync(resolve(desktopRoot, file), "utf8"))
+      expect(config.app.windows).toHaveLength(1)
+      expect(config.app.windows[0]).toMatchObject({ label: "main", disableInputAccessoryView: true })
+    }
+  })
   it("uses white light chrome and preserves dark chrome on macOS", () => {
     expect(macosRuntime).toContain("(0.063f64, 0.051f64, 0.039f64)")
     expect(macosRuntime).toContain("(1.0f64, 1.0f64, 1.0f64)")

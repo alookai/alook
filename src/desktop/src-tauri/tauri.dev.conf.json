@@ -129,6 +129,7 @@
         "minHeight": 600,
         "center": true,
         "visible": false,
+        "disableInputAccessoryView": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": {
