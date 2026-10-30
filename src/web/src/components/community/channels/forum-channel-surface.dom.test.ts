@@ -164,6 +164,32 @@ describe("ForumChannelSurface ownership", () => {
     expect(renderer!.container.querySelector('[data-manage-dialog="true"]')).toBeInTheDocument()
   })
 
+  it("keeps other-post permission pending until the qualified viewer role resolves", () => {
+    const node = (viewerRole: "admin" | "member" | undefined) => React.createElement(
+      ForumChannelSurface, surfaceProps({ viewerRole }),
+    )
+    const view = render(node(undefined))
+    const pending = mockedForumSurface.mock.calls.at(-1)![0]
+    const ownPost = { id: "own", authorId: "viewer_1", openerMessageId: "own-opener", tags: [] } as Parameters<NonNullable<typeof pending.canEditPostTags>>[0]
+    const otherPost = { ...ownPost, id: "other", authorId: "other_1" }
+    expect(pending.canEditPostTags?.(ownPost)).toBe(true)
+    expect(pending.canDeletePost?.(ownPost)).toBe(true)
+    expect(pending.canEditPostTags?.(otherPost)).toBeUndefined()
+    expect(pending.canDeletePost?.(otherPost)).toBeUndefined()
+    view.rerender(node("member"))
+    const denied = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(denied.canEditPostTags?.(otherPost)).toBe(false)
+    expect(denied.canDeletePost?.(otherPost)).toBe(false)
+    view.rerender(node("admin"))
+    const allowed = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(allowed.canEditPostTags?.(otherPost)).toBe(true)
+    expect(allowed.canDeletePost?.(otherPost)).toBe(true)
+    view.rerender(node(undefined))
+    const retired = mockedForumSurface.mock.calls.at(-1)![0]
+    expect(retired.canEditPostTags?.(otherPost)).toBeUndefined()
+    expect(retired.canDeletePost?.(otherPost)).toBeUndefined()
+  })
+
   it("allows server managers to edit and delete other authors' posts", () => {
     act(() => {
       render(React.createElement(ForumChannelSurface, surfaceProps({ viewerRole: "admin" })))

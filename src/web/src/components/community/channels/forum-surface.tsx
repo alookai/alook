@@ -25,10 +25,10 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
   onOpenPost: (id: string) => void
   onCreatePost?: (post: NewForumThread) => Promise<void>
   onEditPostTags?: (post: ForumThread, tags: string[]) => Promise<void> | void
-  canEditPostTags?: (post: ForumThread) => boolean
+  canEditPostTags?: (post: ForumThread) => boolean | undefined
   savingTagsFor?: string | null
   onDeletePost?: (post: ForumThread) => void
-  canDeletePost?: (post: ForumThread) => boolean
+  canDeletePost?: (post: ForumThread) => boolean | undefined
   deletingPost?: string | null
 }) {
   const feed = useForumFeed(serverId, forumChannelId, { routeTag, onSelectTag })
