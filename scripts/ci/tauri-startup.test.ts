@@ -12,20 +12,22 @@ const base = JSON.parse(read("tauri.conf.json"))
 const release = JSON.parse(read("tauri.ios.release.conf.json"))
 const development = JSON.parse(read("tauri.dev.conf.json"))
 
-function verifyIosArtifact(orientationKey?: string, orientations?: string[]) {
+function verifyIosArtifact(overrides: Record<string, unknown> = {}) {
   const workflow = readFileSync(resolve(root, ".github/workflows/mobile-release.yml"), "utf8")
   const validator = workflow.match(/^\s+python3 - "\$app_path\/Info\.plist" "\$entitlements_path" <<'PY'\n([\s\S]*?)^\s+PY$/m)
   expect(validator).not.toBeNull()
   const info: Record<string, unknown> = {
     CFBundleIdentifier: "ai.alook.ios",
     WKAppBoundDomains: ["localhost", "alook.ai"],
+    UIRequiresFullScreen: true,
+    "UIRequiresFullScreen~iphone": false,
     UISupportedInterfaceOrientations: ["UIInterfaceOrientationPortrait"],
     "UISupportedInterfaceOrientations~ipad": ["UIInterfaceOrientationPortrait"],
     CFBundleURLTypes: [{ CFBundleURLName: "ai.alook", CFBundleURLSchemes: ["ai.alook"] }],
   }
-  if (orientationKey) {
-    if (orientations) info[orientationKey] = orientations
-    else delete info[orientationKey]
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete info[key]
+    else info[key] = value
   }
   return spawnSync("python3", ["-c", `
 import json
@@ -96,7 +98,7 @@ describe("Tauri startup release separation", () => {
     }
   })
 
-  it("accepts the final IPA metadata with portrait-only phone and tablet declarations", () => {
+  it("accepts the final IPA metadata with portrait-only phone and tablet declarations and Boolean full-screen requirement", () => {
     const result = verifyIosArtifact()
     expect(result.error).toBeUndefined()
     expect(result.status, result.stderr).toBe(0)
@@ -110,10 +112,36 @@ describe("Tauri startup release separation", () => {
     ["missing tablet", "UISupportedInterfaceOrientations~ipad", undefined],
   ]
   it.each(invalidOrientations)("rejects final IPA metadata with %s declarations", (_name, key, orientations) => {
-    const result = verifyIosArtifact(key, orientations)
+    const result = verifyIosArtifact({ [key]: orientations })
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(1)
     expect(result.stderr).toMatch(/AssertionError|KeyError/)
+  })
+
+  const invalidFullScreen: [string, unknown][] = [
+    ["missing", undefined],
+    ["false", false],
+    ["string true", "true"],
+    ["integer one", 1],
+  ]
+  it.each(invalidFullScreen)("rejects final IPA metadata with %s full-screen requirement", (_name, value) => {
+    const result = verifyIosArtifact({ UIRequiresFullScreen: value })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/AssertionError/)
+  })
+
+  const invalidPhoneFullScreen: [string, unknown][] = [
+    ["missing", undefined],
+    ["true", true],
+    ["string false", "false"],
+    ["integer zero", 0],
+  ]
+  it.each(invalidPhoneFullScreen)("rejects final IPA metadata with %s iPhone full-screen override", (_name, value) => {
+    const result = verifyIosArtifact({ "UIRequiresFullScreen~iphone": value })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/AssertionError/)
   })
 
   it("does not require a generated plist on a fresh development checkout", () => {
