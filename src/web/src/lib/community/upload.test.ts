@@ -168,6 +168,7 @@ function restartMarkerJpegFile() {
 describe("handleAttachmentUpload", () => {
   beforeEach(() => vi.clearAllMocks())
 
+
   it("uploads a file under the size cap", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
@@ -595,7 +596,7 @@ describe("runAttachmentUpload", () => {
       env,
       userId: "u1",
       email: "u@t.com",
-
+      params,
     }
   }
 
