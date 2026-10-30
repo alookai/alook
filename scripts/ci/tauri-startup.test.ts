@@ -20,6 +20,7 @@ function verifyIosArtifact(overrides: Record<string, unknown> = {}) {
     CFBundleIdentifier: "ai.alook.ios",
     WKAppBoundDomains: ["localhost", "alook.ai"],
     UIRequiresFullScreen: true,
+    "UIRequiresFullScreen~iphone": false,
     UISupportedInterfaceOrientations: ["UIInterfaceOrientationPortrait"],
     "UISupportedInterfaceOrientations~ipad": ["UIInterfaceOrientationPortrait"],
     CFBundleURLTypes: [{ CFBundleURLName: "ai.alook", CFBundleURLSchemes: ["ai.alook"] }],
@@ -125,6 +126,19 @@ describe("Tauri startup release separation", () => {
   ]
   it.each(invalidFullScreen)("rejects final IPA metadata with %s full-screen requirement", (_name, value) => {
     const result = verifyIosArtifact({ UIRequiresFullScreen: value })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(1)
+    expect(result.stderr).toMatch(/AssertionError/)
+  })
+
+  const invalidPhoneFullScreen: [string, unknown][] = [
+    ["missing", undefined],
+    ["true", true],
+    ["string false", "false"],
+    ["integer zero", 0],
+  ]
+  it.each(invalidPhoneFullScreen)("rejects final IPA metadata with %s iPhone full-screen override", (_name, value) => {
+    const result = verifyIosArtifact({ "UIRequiresFullScreen~iphone": value })
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(1)
     expect(result.stderr).toMatch(/AssertionError/)

@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { availableParallelism, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { performance } from "node:perf_hooks"
 import { describe, expect, it } from "vitest"
 import { parsePnpmLock, lockedDependency, projectDependencies } from "./pnpm-lock.mjs"
 import { artworkInputHashes, sourceInputs } from "../../src/web/app-store-capture/provenance.mjs"
@@ -10,6 +11,18 @@ import { creativeInputHashes } from "../../src/web/app-store-capture/creative/ca
 const root = resolve(import.meta.dirname, "../..")
 const lockText = readFileSync(join(root, "pnpm-lock.yaml"), "utf8")
 const roots = [{ importer: "src/web", name: "sharp" }]
+
+function recordStages(contract: string) {
+  const started = performance.now()
+  let previous = started
+  return (name: string, facts = {}) => {
+    const now = performance.now()
+    process.stdout.write(`ARTWORK_PROVENANCE_TIMING ${JSON.stringify({ contract, stage: name, elapsedMs: now - previous, totalMs: now - started,
+      node: process.version, platform: process.platform, arch: process.arch, availableParallelism: availableParallelism(),
+      worker: process.env.VITEST_WORKER_ID ?? null, githubSha: process.env.GITHUB_SHA ?? null, ...facts })}\n`)
+    previous = performance.now()
+  }
+}
 
 describe("renderer-scoped artwork provenance", () => {
   it("retains selected transitive integrity, peers and patches without unrelated lock entries", () => {
@@ -59,15 +72,29 @@ describe("renderer-scoped artwork provenance", () => {
     } finally { rmSync(directory, { recursive: true, force: true }) }
   })
 
-  it("follows real local component imports and binds both producers without global package hashes", async () => {
+  it("follows real local component imports and their locked dependency roots", () => {
+    const stage = recordStages("source-inputs")
+    stage("sourceInputs:start")
     const inputs = sourceInputs([join(root, "src/web/app-store-capture/captures/surface.tsx")])
+    stage("sourceInputs:done", { files: inputs.files.length, roots: inputs.roots.length })
     expect(inputs.files).toContain(join(root, "src/web/src/components/community/messages/message.tsx"))
     expect(inputs.roots).toContainEqual({ importer: "src/web", name: "react" })
-    for (const hashes of [await captureInputHashes(), await creativeInputHashes()]) {
+  })
+
+  it("binds both producers without global package hashes", async () => {
+    const stage = recordStages("producer-hashes")
+    stage("captureInputHashes:start")
+    const capture = await captureInputHashes()
+    stage("captureInputHashes:done", { keys: Object.keys(capture).length })
+    stage("creativeInputHashes:start")
+    const creative = await creativeInputHashes()
+    stage("creativeInputHashes:done", { keys: Object.keys(creative).length })
+    for (const hashes of [capture, creative]) {
       expect(Object.keys(hashes)).not.toContain("pnpm-lock.yaml")
       expect(Object.keys(hashes)).not.toContain("package.json")
       expect(hashes["renderer:pnpm-dependencies"]).toMatch(/^[a-f0-9]{64}$/)
       expect(Object.values(hashes).every(hash => /^[a-f0-9]{64}$/.test(hash))).toBe(true)
     }
+    stage("assertions:done")
   })
 })

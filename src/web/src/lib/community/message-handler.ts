@@ -115,7 +115,7 @@ export async function getCommunityMessageReplay(params: {
 }
 
 type FullMessageRow = NonNullable<
-  Awaited<ReturnType<typeof queries.communityMessage.getMessage>>
+  Awaited<ReturnType<typeof queries.communityMessage.getMessageByAuthorAndNonce>>
 >
 
 type CreateMessageError = {
@@ -596,8 +596,9 @@ export async function createCommunityMessage(params: {
     throw new Error("message not found after insert")
   }
 
+  const postedRow = { ...row, clientNonce: created.clientNonce }
   if (!suppressBroadcast && deferBroadcast) {
-    return { ok: true, row, attachments, broadcast: doBroadcast }
+    return { ok: true, row: postedRow, attachments, broadcast: doBroadcast }
   }
-  return { ok: true, row, attachments }
+  return { ok: true, row: postedRow, attachments }
 }

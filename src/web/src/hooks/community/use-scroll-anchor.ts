@@ -1,7 +1,7 @@
 import { beginPositionObservation, type PositionDecision, type PositionReason } from "@/lib/observability/position"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useLayoutEffect, useRef, useState } from "react"
-import { measureElement, useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
+import { elementScroll, measureElement, useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS, type VirtualRowsLayoutSnapshot } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
@@ -376,6 +376,20 @@ export function useScrollAnchor({
     && lateNewRef.current.allowed && !lateNewRef.current.consumed && (ownerKind === "idle" || ownerKind === "initial")
   const getItemKey = useCallback((index: number) => items[index].key, [items])
   const estimateSize = useCallback((index: number) => estimateRowHeight(items[index], !!hasMoreOlder), [items, hasMoreOlder])
+  const scrollToFn = useCallback<ReactVirtualizer<HTMLDivElement, Element>["options"]["scrollToFn"]>((offset, options, native) => {
+    const owner = positionOwnerRef.current
+    const epoch = owner.epoch
+    const intent = semanticIntentRef.current
+    const origin = intent?.origin
+    const root = scrollRef.current
+    const ownsOrigin = owner.active && contextRef.current.visible && intent && !intent.issued && intent.epoch === epoch
+      && root && origin && origin.root === root && native === virtualizerRef.current && native.scrollElement === root
+      && Math.abs(root.scrollTop - origin.offset) <= 1
+    elementScroll(offset, options, native)
+    if (ownsOrigin && root && origin && intent && !intent.issued && owner.active && owner.epoch === epoch
+      && contextRef.current.visible && semanticIntentRef.current === intent && intent.origin === origin
+      && scrollRef.current === root && virtualizerRef.current === native) origin.offset = root.scrollTop
+  }, [])
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const virtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
@@ -384,6 +398,7 @@ export function useScrollAnchor({
     initialRect: { width: 0, height: 800 },
     count: items.length,
     getScrollElement: () => scrollRef.current,
+    scrollToFn,
     estimateSize,
     useCachedMeasurements: !visible,
     measureElement: (element, entry, instance) => {

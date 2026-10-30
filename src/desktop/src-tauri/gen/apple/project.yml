@@ -42,6 +42,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         UIRequiresFullScreen: true
+        UIRequiresFullScreen~iphone: false
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchStoryboardName: LaunchScreen

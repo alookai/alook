@@ -181,6 +181,7 @@ jobs:
           assert info["UISupportedInterfaceOrientations"] == ["UIInterfaceOrientationPortrait"]
           assert info["UISupportedInterfaceOrientations~ipad"] == ["UIInterfaceOrientationPortrait"]
           assert info.get("UIRequiresFullScreen") is True
+          assert info.get("UIRequiresFullScreen~iphone") is False
           assert info["CFBundleURLTypes"] == [
               {"CFBundleURLName": "ai.alook", "CFBundleURLSchemes": ["ai.alook"]}
           ]

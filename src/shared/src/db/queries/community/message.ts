@@ -1084,8 +1084,7 @@ export async function getMessageClientNonceForDelivery(
 /**
  * Idempotency lookup for the message-send dedup path (mutation-idempotency
  * plan). Returns the message this author already committed under `nonce`, or
- * null if none. Same select/return shape as `getMessage` so the send handler
- * can return the existing row as-is (deduped resend). Backed by the partial
+ * null if none. Backed by the partial
  * unique index `uq_message_author_client_nonce (author_id, client_nonce)`.
  */
 export async function getMessageByAuthorAndNonce(
@@ -1097,6 +1096,7 @@ export async function getMessageByAuthorAndNonce(
     .select({
       ...messageProjection,
       seq: communityMessage.seq,
+      clientNonce: communityMessage.clientNonce,
       authorEmail: user.email,
     })
     .from(communityMessage)
