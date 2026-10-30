@@ -88,9 +88,15 @@ describe("Auth sessions without runtime schema introspection", () => {
     const authEnv = authEnvironment(statements)
     const auth = getAuth(authEnv)
     expect(getAuth({ ...authEnv })).toBe(auth)
-    const results = await Promise.all([first.token, second.token, undefined, "invalid-session-token", expired.token].map((token) =>
-      auth.api.getSession({ headers: new Headers(token ? { authorization: `Bearer ${token}` } : {}) }),
-    ))
+    const context = await auth.$context
+    const results = await Promise.all([first.token, second.token, undefined, "invalid-session-token", expired.token].map(async (token) => {
+      const headers = new Headers()
+      if (token) {
+        const signed = encodeURIComponent(`${token}.${await makeSignature(token, authEnv.BETTER_AUTH_SECRET)}`)
+        headers.set("cookie", `${context.authCookies.sessionToken.name}=${signed}`)
+      }
+      return auth.api.getSession({ headers })
+    }))
     expect(results.map((result) => result?.user.id ?? null)).toEqual([first.id, second.id, null, null, null])
   })
 })
