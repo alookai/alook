@@ -104,14 +104,14 @@ describe("withAuth middleware", () => {
     expect((await res.json()).error).toBe("unauthorized");
   });
 
-  it("authenticates valid Better Auth session and passes userId/email to handler", async () => {
+  it("authenticates valid Better Auth Cookie session and passes userId/email to handler", async () => {
     mockGetSession.mockResolvedValue({
       headers: new Headers(),
       response: { user: { id: "user-1", email: "user@example.com" } },
     });
 
     const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer some-session-token" },
+      headers: { Cookie: "better-auth.session_token=live" },
     });
     const res = await wrapped(req);
     const body = await res.json();

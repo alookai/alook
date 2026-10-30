@@ -98,6 +98,33 @@ describe("independent actor qualification", () => {
     expect(response.status).toBe(400)
     expect(handler).not.toHaveBeenCalled()
   })
+  it.each(["auth", "optional", "actor"])("preserves current-header Cookie fallback (%s)", async kind => {
+    const handler = vi.fn(async () => NextResponse.json({ ok: true }))
+    const response = await wrap(kind, handler)(new NextRequest("https://alook.test/api/community/operation", { headers: { Cookie: "better-auth.session_token=live", Authorization: "Bearer invalid", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }))
+    expect(response.status).toBe(200); expect(handler).toHaveBeenCalledOnce()
+    expect(mocks.session).toHaveBeenCalledOnce()
+  })
+  it.each(["cookie", "runner"])("preserves asynchronous handler error identity (%s)", async kind => {
+    const failure = new Error("route failed")
+    const handler = vi.fn(async () => { throw failure })
+    mocks.bot.mockResolvedValue({ kind: "ok", actor: { botUserId: "bot", ownerUserId: "viewer", machineId: "machine", isActive: true } })
+    const request = new NextRequest("https://alook.test/api/community/operation", {
+      headers: {
+        Cookie: "better-auth.session_token=live",
+        [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION),
+        ...(kind === "runner" ? { Authorization: "Bearer crk_credential" } : {}),
+      },
+    })
+    await expect(wrap(kind === "runner" ? "actor" : "auth", handler)(request)).rejects.toBe(failure)
+    expect(handler).toHaveBeenCalledOnce()
+    if (kind === "runner") {
+      expect(mocks.bot).toHaveBeenCalledOnce()
+      expect(mocks.session).not.toHaveBeenCalled()
+    } else {
+      expect(mocks.session).toHaveBeenCalledOnce()
+      expect(mocks.bot).not.toHaveBeenCalled()
+    }
+  })
   it.each([true, false])("qualifies bot credentials before an independent request (%s)", async valid => {
     mocks.bot.mockResolvedValue(valid ? { kind: "ok", actor: { botUserId: "bot", ownerUserId: "viewer", machineId: "machine", isActive: true } } : { kind: "error", response: NextResponse.json({ error: "invalid runner key" }, { status: 401 }) })
     const handler = vi.fn(async () => NextResponse.json({ ok: true }))
