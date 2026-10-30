@@ -1,3 +1,4 @@
+import { withAuth } from "./auth-policy"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
 
@@ -17,18 +18,18 @@ vi.mock("@alook/shared", () => ({
   },
 }))
 
-import { withCommunityDaemonAuth } from "./community-daemon-auth"
+import { machineAuthPolicy } from "./community-daemon-auth"
 
 const handler = vi.fn(async (_req: NextRequest, ctx: any) =>
   NextResponse.json({ ok: true, ctx })
 )
 
-describe("withCommunityDaemonAuth", () => {
+describe("machineAuthPolicy", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  const wrapped = withCommunityDaemonAuth(handler)
+  const wrapped = withAuth(machineAuthPolicy, handler)
 
   it("rejects when Authorization is missing", async () => {
     const req = new NextRequest("http://localhost/x")

@@ -1,13 +1,14 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { CommunityBotActivationRequestSchema, queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
 import { fanOutPresenceUpdate } from "@/lib/community/fanout"
 import { log } from "@/lib/logger"
 
-export const PATCH = withAuth(async (req: NextRequest, ctx) => {
+export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const id = ctx.params?.id as string
   const [body, error] = await parseBody(req, CommunityBotActivationRequestSchema)
   if (error) return error

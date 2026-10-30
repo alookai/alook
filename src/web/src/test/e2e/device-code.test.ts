@@ -1,177 +1,60 @@
-import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { randomUUID } from "crypto"
-import { signUp, signIn, sessionRequest, tokenRequest, sqlRun } from "@alook/test-utils"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { randomUUID } from "node:crypto"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, DEV_WEB_URL } from "@alook/shared"
+import { signUp, signIn, sessionRequest, sqlRun } from "@alook/test-utils"
 
-const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
-const TEST_CLIENT_ID = "e2e-test-client"
+const appUrl = process.env.APP_URL ?? DEV_WEB_URL
+const email = `retired-cli-${randomUUID()}@test.local`
+let cookie: string
 
-const testEmail = `e2e_device_${randomUUID().slice(0, 8)}@test.local`
-const testPassword = "TestPassword123!"
-const testName = "E2E Device User"
-
-let sessionCookie: string
-
-describe("device-code-flow", () => {
-  beforeAll(async () => {
-    await signUp(testEmail, testPassword, testName)
-    sessionCookie = await signIn(testEmail, testPassword)
-  })
-
-  let deviceCode: string
-  let userCode: string
-
-  it("POST /api/auth/device/code returns device_code, user_code, and verification URLs", async () => {
-    const res = await fetch(`${APP_URL}/api/auth/device/code`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: TEST_CLIENT_ID }),
-    })
-    if (res.status !== 200) {
-      const text = await res.text()
-      console.error("device/code error response:", res.status, text)
-    }
-    expect(res.status).toBe(200)
-    const data = await res.json() as Record<string, unknown>
-    expect(data.device_code).toBeTruthy()
-    expect(data.user_code).toBeTruthy()
-    expect(data.verification_uri).toBeTruthy()
-    expect(data.verification_uri_complete).toBeTruthy()
-    expect(data.expires_in).toBeGreaterThan(0)
-    expect(data.interval).toBeDefined()
-    deviceCode = data.device_code as string
-    userCode = data.user_code as string
-  })
-
-  it("POST /api/auth/device/token returns authorization_pending before approval", async () => {
-    const res = await fetch(`${APP_URL}/api/auth/device/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: deviceCode,
-        client_id: TEST_CLIENT_ID,
-      }),
-    })
-    expect(res.status).toBe(400)
-    const data = await res.json() as Record<string, unknown>
-    expect(data.error).toBe("authorization_pending")
-  })
-
-  it("GET /api/auth/device claims code to authenticated user session", async () => {
-    const res = await sessionRequest(
-      `/api/auth/device?user_code=${userCode}`,
-      sessionCookie,
-    )
-    expect(res.status).toBe(200)
-  })
-
-  it("POST /api/auth/device/approve approves the device and token poll succeeds", async () => {
-    const approveRes = await sessionRequest("/api/auth/device/approve", sessionCookie, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: APP_URL },
-      body: JSON.stringify({ userCode }),
-    })
-    expect(approveRes.status).toBe(200)
-
-    // Wait for polling interval to elapse (plugin enforces 5s minimum between polls)
-    await new Promise(r => setTimeout(r, 5100))
-
-    const tokenRes = await fetch(`${APP_URL}/api/auth/device/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: deviceCode,
-        client_id: TEST_CLIENT_ID,
-      }),
-    })
-    expect(tokenRes.status).toBe(200)
-    const data = await tokenRes.json() as Record<string, unknown>
-    expect(data.access_token).toBeTruthy()
-    expect(data.token_type).toBe("Bearer")
-  })
-
-  it("access_token from device flow works as Bearer token for API calls", async () => {
-    // Get a fresh token via a new flow
-    const codeRes = await fetch(`${APP_URL}/api/auth/device/code`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: TEST_CLIENT_ID }),
-    })
-    const codeData = await codeRes.json() as Record<string, unknown>
-    const dc = codeData.device_code as string
-    const uc = codeData.user_code as string
-
-    await sessionRequest(`/api/auth/device?user_code=${uc}`, sessionCookie)
-    await sessionRequest("/api/auth/device/approve", sessionCookie, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: APP_URL },
-      body: JSON.stringify({ userCode: uc }),
-    })
-
-    const tokenRes = await fetch(`${APP_URL}/api/auth/device/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: dc,
-        client_id: TEST_CLIENT_ID,
-      }),
-    })
-    const tokenData = await tokenRes.json() as Record<string, unknown>
-    const accessToken = tokenData.access_token as string
-
-    const meRes = await tokenRequest("/api/community/users/me/profile", accessToken, { headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) } })
-    expect(meRes.status).toBe(200)
-    const me = await meRes.json() as Record<string, unknown>
-    expect(me.name).toBe(testName)
-  })
-
-  it("POST /api/auth/device/deny denies authorization and token poll returns access_denied", async () => {
-    const codeRes = await fetch(`${APP_URL}/api/auth/device/code`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: TEST_CLIENT_ID }),
-    })
-    const codeData = await codeRes.json() as Record<string, unknown>
-    const dc = codeData.device_code as string
-    const uc = codeData.user_code as string
-
-    await sessionRequest(`/api/auth/device?user_code=${uc}`, sessionCookie)
-    await sessionRequest("/api/auth/device/deny", sessionCookie, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: APP_URL },
-      body: JSON.stringify({ userCode: uc }),
-    })
-
-    const tokenRes = await fetch(`${APP_URL}/api/auth/device/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: dc,
-        client_id: TEST_CLIENT_ID,
-      }),
-    })
-    const data = await tokenRes.json() as Record<string, unknown>
-    expect(data.error).toBe("access_denied")
-  })
-
-  afterAll(() => {
-    try {
-      sqlRun(`DELETE FROM "deviceCode" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
-      sqlRun(`DELETE FROM "session" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
-      sqlRun(`DELETE FROM "account" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
-      sqlRun(`DELETE FROM "user" WHERE email = ?`, testEmail)
-    } catch { /* ignore cleanup errors */ }
-  })
+beforeAll(async () => {
+  expect((await signUp(email, "TestPassword123!", "Current login")).status).toBe(200)
+  cookie = await signIn(email, "TestPassword123!")
+})
+afterAll(() => {
+  sqlRun('DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)', email)
+  sqlRun('DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)', email)
+  sqlRun('DELETE FROM "user" WHERE email = ?', email)
 })
 
-describe("onboard.md", () => {
-  it("GET /onboard.md returns markdown with correct content-type", async () => {
-    const res = await fetch(`${APP_URL}/onboard.md`)
-    expect(res.status).toBe(200)
-    expect(res.headers.get("content-type")).toContain("text/markdown")
+describe("retired CLI connection", () => {
+  it.each([
+    ["GET", "/api/auth/device?user_code=RETIRED"],
+    ["POST", "/api/auth/device/code"],
+    ["POST", "/api/auth/device/token"],
+    ["POST", "/api/auth/device/approve"],
+    ["POST", "/api/auth/device/deny"],
+    ["GET", "/api/me"],
+    ["GET", "/api/workspaces"],
+    ["POST", "/api/machine-tokens"],
+    ["POST", "/api/machine-tokens/activate"],
+    ["GET", "/api/ws/daemon"],
+    ["POST", "/api/workspaces"],
+    ...["register", "heartbeat", "sweep", "deregister", "tasks/poll",
+      "tasks/retired/start", "tasks/retired/complete", "tasks/retired/fail",
+      "tasks/retired/supersede", "tasks/retired/messages", "workspace/report", "skills/sync",
+    ].map(path => ["POST", `/api/daemon/${path}`]),
+  ])("%s %s is absent even with a valid browser session", async (method, path) => {
+    const response = await fetch(`${appUrl}${path}`, {
+      method,
+      headers: { Cookie: cookie, Origin: appUrl, "Content-Type": "application/json" },
+      ...(method === "POST" ? { body: JSON.stringify({ client_id: "alook-cli", userCode: "RETIRED" }) } : {}),
+    })
+    expect(response.status).toBe(404)
+  })
+
+  it.each(["/device", "/onboard.md"])("%s no longer offers the old CLI connection", async path => {
+    expect((await fetch(`${appUrl}${path}`, { redirect: "manual" })).status).toBe(404)
+  })
+
+  it("keeps current Cookie login while rejecting an old CLI session bearer", async () => {
+    const path = "/api/community/users/me/profile"
+    expect((await sessionRequest(path, cookie)).status).toBe(200)
+    const sessionToken = decodeURIComponent(cookie.slice(cookie.indexOf("=") + 1)).split(".")[0]
+    const response = await fetch(`${appUrl}${path}`, { headers: {
+      Authorization: `Bearer ${sessionToken}`,
+      [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION),
+    } })
+    expect(response.status).toBe(401)
   })
 })

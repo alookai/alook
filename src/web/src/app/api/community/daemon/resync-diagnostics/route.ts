@@ -1,10 +1,11 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse } from "next/server";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { pushDiagnosticReportToMachine } from "@/lib/community/diagnostic-report-push";
-import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth";
+import { machineAuthPolicy } from "@/lib/middleware/community-daemon-auth";
 
-export const POST = withCommunityDaemonAuth(async (_request, ctx) => {
+export const POST = withAuth(machineAuthPolicy, async (_request, ctx) => {
   const db = getDb(ctx.env.DB);
   const nowMs = Date.now();
   await queries.communityDiagnosticReport.timeoutPendingDiagnosticReportsForMachine(db, {

@@ -1,4 +1,5 @@
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { makeD1Error } from "@alook/shared/db/resilience-testing"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   deriveCommunityDeliveryOperationId,
@@ -28,10 +29,7 @@ import {
   mockGetCoMemberUserIds,
   mockGetDM,
   mockGetFriendUserIds,
-  mockGetLatestTokenForUser,
-  mockGetMachineByDaemon,
   mockGetMachineByIdForUser,
-  mockGetMachineTokenByToken,
   mockGetPrivateChannelAudienceUserIds,
   mockGetProfile,
   mockGetRuntimeIdsByDaemon,
@@ -153,8 +151,13 @@ describe("WebSocketDurableObject", () => {
     mockListReadableChannelsForUser.mockResolvedValueOnce([])
     await expect((await send(typing)).json()).resolves.toEqual({ sent: 0 })
     expect(socket.send).not.toHaveBeenCalled()
-    mockListReadableChannelsForUser.mockRejectedValueOnce(new Error("D1 temporary"))
+    const cause = new Error("D1_ERROR: Failed to get session commit token")
+    const error = new Error("Failed query", { cause })
+    mockListReadableChannelsForUser.mockRejectedValueOnce(error)
     expect((await send(typing)).status).toBe(503)
+    expect(mockLogWarn).toHaveBeenCalledWith("community_content_access_failed", {
+      targetUserId: "user-42", error: String(error), cause: cause.message,
+    })
     expect(socket.send).not.toHaveBeenCalled()
     const control = { type: "community:channel.membership.change", channelId: "private", serverId: "server", userId: "user-42", relation: "access", present: false }
     expect((await send(control)).status).toBe(200)
@@ -229,6 +232,47 @@ describe("WebSocketDurableObject", () => {
       })
     }
 
+    it.each([
+      ["recover", 2, 200, 1],
+      ["revoked", 2, 200, 0],
+      ["exhausted", 4, 503, 0],
+      ["permanent", 1, 503, 0],
+      ["healthy", 1, 200, 1],
+    ] as const)("uses real D1 retries for %s access checks on both routes", async (mode, calls, status, sent) => {
+      const { withD1Retry } = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+      mockWithD1Retry.mockImplementation(async <T>(fn: () => Promise<T>): Promise<T> =>
+        withD1Retry(fn, { baseDelayMs: 0 }))
+      for (const bundle of [false, true]) {
+        const { durable, ctx } = createDO()
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+        ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+        mockListReadableChannelsForUser.mockReset()
+        const failure = makeD1Error(mode === "permanent" ? "sqlite_constraint" : "internal_error")
+        if (mode !== "permanent" && failure.cause instanceof Error) {
+          failure.cause.message = "D1_ERROR: Failed to get session commit token: internal error; reference = fixture"
+        }
+        if (mode === "exhausted" || mode === "permanent") {
+          mockListReadableChannelsForUser.mockRejectedValue(failure)
+        } else {
+          mockListReadableChannelsForUser.mockResolvedValue(mode === "revoked" ? [] : [{ id: "ch-1" }])
+          if (mode !== "healthy") mockListReadableChannelsForUser.mockRejectedValueOnce(failure)
+        }
+        const request = bundle ? await requestFor([events[0]]) : new Request("http://internal/community-broadcast", {
+          method: "POST",
+          headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), [INTERNAL_USER_TARGET_HEADER]: "user-42" },
+          body: JSON.stringify({ ...events[0], schemaVersion: BUSINESS_SCHEMA_VERSION }),
+        })
+        const response = await durable.fetch(request)
+        expect(response.status).toBe(status)
+        expect(mockListReadableChannelsForUser).toHaveBeenCalledTimes(calls)
+        expect(ws.send).toHaveBeenCalledTimes(sent)
+        if (mode === "revoked") {
+          expect(await response.json()).toMatchObject(bundle ? { status: "cancelled", reason: "access-revoked" } : { sent: 0 })
+        }
+      }
+    })
+
     it("cancels revoked content without changing progress, and retries transient failures", async () => {
       const { durable, ctx } = createDO()
       const ws = createMockWebSocket()
@@ -242,8 +286,13 @@ describe("WebSocketDurableObject", () => {
       expect(await denied.json()).toEqual({ status: "cancelled", reason: "access-revoked", targetUserId: "user-42", operationId: body.operationId, operationDigest: body.operationDigest, eventCount: body.events.length })
       expect(ws.send).not.toHaveBeenCalled()
       expect(ws.deserializeAttachment()).toEqual(original)
-      mockListReadableChannelsForUser.mockRejectedValueOnce(new Error("temporary"))
+      const cause = new Error("D1_ERROR: Failed to get session commit token")
+      const error = new Error("Failed query", { cause })
+      mockListReadableChannelsForUser.mockRejectedValueOnce(error)
       expect((await durable.fetch(request.clone())).status).toBe(503)
+      expect(mockLogWarn).toHaveBeenCalledWith("community_delivery_access_failed", {
+        targetUserId: "user-42", error: String(error), cause: cause.message,
+      })
       expect(ws.send).not.toHaveBeenCalled()
       expect((await durable.fetch(request.clone())).status).toBe(200)
       expect(ws.send).toHaveBeenCalledTimes(1)
@@ -1272,190 +1321,14 @@ describe("WebSocketDurableObject", () => {
   })
 
 
-  describe("webSocketMessage — daemon auth flow", () => {
-    it("rejects daemon with pending token (not yet activated)", async () => {
-      const { durable } = createDO()
-      mockGetMachineTokenByToken.mockResolvedValue({
-        id: "mt_1", userId: "u1", status: "pending", workspaceId: null,
-      })
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "", userId: "", authenticated: false })
-
-      await durable.webSocketMessage(
-        ws as any,
-        JSON.stringify({ type: "auth", machineToken: "al_pending123", daemonId: "my-daemon" }),
-      )
-
-      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
-      expect(mockGetRuntimeIdsByDaemon).not.toHaveBeenCalled()
-    })
-
-    it("authenticates daemon with active token (no runtime check in auth)", async () => {
-      const { durable } = createDO()
-      mockGetMachineTokenByToken.mockResolvedValue({
-        id: "mt_1", userId: "u1", status: "active", workspaceId: "sp_ws1",
-      })
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
-
-      await durable.webSocketMessage(
-        ws as any,
-        JSON.stringify({ type: "auth", machineToken: "al_active123", daemonId: "my-daemon" }),
-      )
-
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
-      // Runtime presence is no longer part of auth — it must not gate the WS
-      // connection (tasks route by workspaceId; runtimes may be mid-register).
-      expect(mockGetRuntimeIdsByDaemon).not.toHaveBeenCalled()
-    })
-
-    it("authenticates daemon with active token even when it has no runtimes yet", async () => {
-      const { durable } = createDO()
-      mockGetMachineTokenByToken.mockResolvedValue({
-        id: "mt_1", userId: "u1", status: "active", workspaceId: "sp_ws1",
-      })
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
-
-      await durable.webSocketMessage(
-        ws as any,
-        JSON.stringify({ type: "auth", machineToken: "al_noruntimes", daemonId: "my-daemon" }),
-      )
-
-      // No-runtime is a valid state (not an auth failure) — auth.ok, no reject.
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
-      expect(ws.send).not.toHaveBeenCalledWith(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
-    })
-
-    it("sends AUTH_REJECTED then closes on definitely-invalid token", async () => {
-      const { durable } = createDO()
-      mockGetMachineTokenByToken.mockResolvedValue(null)
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
-
-      await durable.webSocketMessage(
-        ws as any,
-        JSON.stringify({ type: "auth", machineToken: "al_dead", daemonId: "my-daemon" }),
-      )
-
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
-      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
-    })
-
-    it("closes WITHOUT AUTH_REJECTED on transient D1 failure (daemon must retry)", async () => {
-      const { durable } = createDO()
-      mockGetMachineTokenByToken.mockRejectedValue(new Error("D1 unavailable"))
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
-
-      await durable.webSocketMessage(
-        ws as any,
-        JSON.stringify({ type: "auth", machineToken: "al_blip", daemonId: "my-daemon" }),
-      )
-
-      expect(ws.send).not.toHaveBeenCalledWith(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
-      expect(ws.close).toHaveBeenCalledWith(1011, "Auth temporarily unavailable")
-    })
-
-    it("rejects daemon with unknown token", async () => {
-      const { durable } = createDO()
-      mockGetMachineTokenByToken.mockResolvedValue(null)
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
-
-      await durable.webSocketMessage(
-        ws as any,
-        JSON.stringify({ type: "auth", machineToken: "al_unknown", daemonId: "my-daemon" }),
-      )
-
-      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
-    })
-
-    it("rejects daemon with non-al_ prefixed token", async () => {
-      const { durable } = createDO()
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
-
-      await durable.webSocketMessage(
-        ws as any,
-        JSON.stringify({ type: "auth", machineToken: "bad_prefix", daemonId: "my-daemon" }),
-      )
-
-      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
-      expect(mockGetMachineTokenByToken).not.toHaveBeenCalled()
-    })
+  it("refuses the retired machine-token handshake without querying credentials", async () => {
+    const { durable } = createDO()
+    const ws = createMockWebSocket()
+    ws.serializeAttachment({ type: "user", targetUserId: "user-1", authenticated: false })
+    await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", machineToken: "al_retired", daemonId: "old-daemon" }))
+    expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+    expect(mockGetValidSessionWithIdentity).not.toHaveBeenCalled()
   })
-
-
-  describe("webSocketMessage — check_daemon_status (cross-DO)", () => {
-    it("returns runtime.status online when daemon DO reports alive", async () => {
-      const { durable, env } = createDO()
-      mockGetLatestTokenForUser.mockResolvedValue({ hostname: "MyMachine.local" })
-
-      const aliveStub = { fetch: vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: true }))) }
-        ; (env.WS_DO as any).get = vi.fn().mockReturnValue(aliveStub)
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-
-      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "check_daemon_status" }))
-
-      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("daemon:MyMachine.local")
-      expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "runtime.status", status: "online", daemonId: "MyMachine.local" }),
-      )
-    })
-
-    it("does not respond when daemon DO reports not alive", async () => {
-      const { durable, env } = createDO()
-      mockGetLatestTokenForUser.mockResolvedValue({ hostname: "MyMachine.local" })
-
-      const deadStub = { fetch: vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: false }))) }
-        ; (env.WS_DO as any).get = vi.fn().mockReturnValue(deadStub)
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-
-      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "check_daemon_status" }))
-
-      expect(ws.send).not.toHaveBeenCalled()
-    })
-
-    it("does not respond when no token/hostname found", async () => {
-      const { durable } = createDO()
-      mockGetLatestTokenForUser.mockResolvedValue(null)
-
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-
-      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "check_daemon_status" }))
-
-      expect(ws.send).not.toHaveBeenCalled()
-    })
-
-    it("does not respond when the daemon durable object fetch rejects", async () => {
-      const { durable, env } = createDO()
-      mockGetLatestTokenForUser.mockResolvedValue({ hostname: "MyMachine.local" })
-      ;(env.WS_DO as any).get = vi.fn().mockReturnValue({
-        fetch: vi.fn().mockRejectedValue(new Error("daemon DO unavailable")),
-      })
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-
-      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "check_daemon_status" }))
-
-      expect(ws.send).not.toHaveBeenCalled()
-      expect(ws.close).not.toHaveBeenCalled()
-    })
-  })
-
 
   describe("webSocketError", () => {
     it("closes with 1011", async () => {
@@ -1470,7 +1343,7 @@ describe("WebSocketDurableObject", () => {
   })
 
 
-  describe("webSocketClose — user and daemon characterization", () => {
+  describe("webSocketClose — user characterization", () => {
     it("keeps user presence online while another authenticated tab remains", async () => {
       const { durable, ctx } = createDO()
       const closing = createMockWebSocket()
@@ -1520,26 +1393,7 @@ describe("WebSocketDurableObject", () => {
       })
     })
 
-    it("reports daemon offline and swallows a rejected owner notification", async () => {
-      const { durable } = createDO()
-      mockStubFetch.mockRejectedValue(new Error("owner DO unavailable"))
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "daemon-1", userId: "user-1", authenticated: true })
 
-      await expect(
-        durable.webSocketClose(ws as any, 1001, "daemon going away", true),
-      ).resolves.toBeUndefined()
-      await flushAsyncWork()
-
-      expect(ws.close).toHaveBeenCalledWith(1001, "daemon going away")
-      expect(mockStubFetch).toHaveBeenCalledTimes(1)
-      const [request] = mockStubFetch.mock.calls[0] as [Request]
-      expect(await request.clone().json()).toEqual({
-        type: "runtime.status",
-        status: "offline",
-        daemonId: "daemon-1",
-      })
-    })
   })
 })
 

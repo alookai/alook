@@ -1,10 +1,11 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { projectModelOptions } from "@/lib/community/machine-options.server"
 
-export const GET = withCommunityActor(async (req, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req, ctx) => {
   const ownerId = ctx.actor.kind === "bot" ? ctx.actor.ownerUserId : ctx.actor.userId
   const machine = await queries.communityBot.getMachineForOwner(getPrimaryDb(ctx.env.DB), ctx.params?.id as string, ownerId)
   if (!machine) return writeJSON({ error: "machine not found", code: "MACHINE_NOT_FOUND", machineId: ctx.params?.id }, 404)

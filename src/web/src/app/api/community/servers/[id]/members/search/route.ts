@@ -1,4 +1,5 @@
-import { withAuth } from "@/lib/middleware/auth"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { parseCommunityServerMembersRead, queries, MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
@@ -10,7 +11,7 @@ import {
   parseMemberSearchCursor,
 } from "@/lib/community/member-search-cursor"
 
-export const GET = withAuth(async (req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 

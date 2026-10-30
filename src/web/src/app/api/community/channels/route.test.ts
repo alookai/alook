@@ -25,13 +25,13 @@ vi.mock("@/lib/db", () => ({
 // reject; dm/thread defensive, no bot verb today) → bot → 403 before any target
 // touch. The human arm dispatches to the creation cores.
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: any) => {
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
     const authz = req?.headers?.get?.("Authorization") ?? ""
     const actor = authz.startsWith("Bearer crk_")
       ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
       : { kind: "human", userId: "u1", email: "u@t.com" }
-    return handler(req, { env: { DB: {} }, actor })
-  },
+    return ({ context: { env: { DB: {} }, actor } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

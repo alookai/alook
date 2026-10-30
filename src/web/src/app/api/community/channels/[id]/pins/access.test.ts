@@ -28,15 +28,7 @@ const { state, fanOut } = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: AuthenticatedHandler) => async (
-    request: NextRequest,
-    context?: { params?: Record<string, string> | Promise<Record<string, string>> },
-  ) => handler(request, {
-    userId: state.userId,
-    email: "pin-access@example.test",
-    env: { DB: state.binding } as Env,
-    params: await context?.params,
-  }),
+  humanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: { userId: state.userId, email: "pin-access@example.test", env: { DB: state.binding } as Env } }) },
 }))
 vi.mock("@/lib/community/fanout", () => ({ fanOutToChannel: fanOut }))
 

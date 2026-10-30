@@ -152,7 +152,7 @@ export async function throttled(
 
 export async function invalidate(key: string): Promise<void> {
   const kv = getKV();
-  if (kv) await kv.delete(key.startsWith("mt:") ? key : businessCacheKey(key)).catch((err) => {
+  if (kv) await kv.delete(businessCacheKey(key)).catch((err) => {
     log.warn("KV invalidate failed", { key, err });
   });
 }
@@ -160,13 +160,12 @@ export async function invalidate(key: string): Promise<void> {
 export async function invalidateMany(keys: string[]): Promise<void> {
   const kv = getKV();
   if (!kv || keys.length === 0) return;
-  await Promise.all(keys.map((key) => kv.delete(key.startsWith("mt:") ? key : businessCacheKey(key)).catch((err) => {
+  await Promise.all(keys.map((key) => kv.delete(businessCacheKey(key)).catch((err) => {
     log.warn("KV invalidate failed", { key, err });
   })));
 }
 
 export const cacheKeys = {
-  machineToken: (token: string) => `mt:${token.slice(0, 20)}`,
   member: (workspaceId: string, userId: string) => `task-payload:member-instruction:${workspaceId}:${userId}`,
   runtimeIds: (workspaceId: string, daemonId: string) => `rt:${workspaceId}:${daemonId}`,
   user: (userId: string) => `task-payload:user-identity:${userId}`,

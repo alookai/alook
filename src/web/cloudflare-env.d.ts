@@ -33,7 +33,6 @@ interface __BaseEnv_CloudflareEnv {
 	APPLE_TEAM_ID: string;
 	APPLE_KEY_ID: string;
 	APPLE_PRIVATE_KEY: string;
-	DEVICE_CLIENT_IDS: string;
 	OPENROUTER_API_KEY: string;
 	TYPESAFE_API_KEY: string;
 	NEXT_CACHE_DO_QUEUE: DurableObjectNamespace<import("./custom-worker").DOQueueHandler>;
@@ -55,7 +54,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "RUNTIME_MODEL_OPTIONS" | "MIN_CLI_VERSION" | "BLOG_DISCOVERY_REQUIRED" | "JEV_PROVIDER" | "JEV_WAKE_THRESHOLD" | "OPENROUTER_JEV_BASE_URL" | "OPENROUTER_JEV_MODEL" | "TYPESAFE_JEV_BASE_URL" | "TYPESAFE_JEV_MODEL" | "BETTER_AUTH_SECRET" | "RESEND_API_KEY" | "BETTER_AUTH_URL" | "ENCRYPTION_KEY" | "GITHUB_CLIENT_ID" | "GITHUB_CLIENT_SECRET" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "APPLE_CLIENT_ID" | "APPLE_TEAM_ID" | "APPLE_KEY_ID" | "APPLE_PRIVATE_KEY" | "DEVICE_CLIENT_IDS" | "OPENROUTER_API_KEY" | "TYPESAFE_API_KEY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "RUNTIME_MODEL_OPTIONS" | "MIN_CLI_VERSION" | "BLOG_DISCOVERY_REQUIRED" | "JEV_PROVIDER" | "JEV_WAKE_THRESHOLD" | "OPENROUTER_JEV_BASE_URL" | "OPENROUTER_JEV_MODEL" | "TYPESAFE_JEV_BASE_URL" | "TYPESAFE_JEV_MODEL" | "BETTER_AUTH_SECRET" | "RESEND_API_KEY" | "BETTER_AUTH_URL" | "ENCRYPTION_KEY" | "GITHUB_CLIENT_ID" | "GITHUB_CLIENT_SECRET" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "APPLE_CLIENT_ID" | "APPLE_TEAM_ID" | "APPLE_KEY_ID" | "APPLE_PRIVATE_KEY" | "OPENROUTER_API_KEY" | "TYPESAFE_API_KEY">> {}
 }
 declare module "*.txt" {
 	const value: string;

@@ -1,13 +1,14 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries } from "@alook/shared";
 import { getPrimaryDb } from "@/lib/db";
 import {
   isCookieHumanSameOrigin,
   notificationDeviceInstallationIdSchema,
 } from "@/lib/community/notification-device-schema";
-import { withCommunityActor } from "@/lib/middleware/community-actor";
+import { communityActorPolicy } from "@/lib/middleware/community-actor";
 import { writeError } from "@/lib/middleware/helpers";
 
-export const DELETE = withCommunityActor(async (req, ctx) => {
+export const DELETE = withAuth(communityActorPolicy(), async (req, ctx) => {
   if (req.headers.has("Authorization")) return writeError("unauthorized", 401);
   if (ctx.actor.kind !== "human") return writeError("forbidden", 403);
   if (!isCookieHumanSameOrigin(req)) return writeError("forbidden", 403);

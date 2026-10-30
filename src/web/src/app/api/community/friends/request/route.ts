@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest, NextResponse } from "next/server"
 import {
   queries,
@@ -6,7 +7,7 @@ import {
   CommunityAgentFriendRequestSchema,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import type { BotActor, CommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
@@ -14,7 +15,7 @@ import { requireNotBlocked } from "@/lib/community/permissions"
 
 /**
  * POST /api/community/friends/request — the friend-request door (route/disc
- * 接口树统一, friendRequest fold; Melly #540). Dual-actor via withCommunityActor,
+ * 接口树统一, friendRequest fold; Melly #540). Dual-actor via communityActorPolicy,
  * dispatched by actor.kind to TWO INDEPENDENT handlers that share ONLY the URL +
  * the gate — NOT one handler with shared-middle if-branches (that would flatten
  * the two distinct semantics; Ingaborg #539/#542 reds cross-contamination):
@@ -32,7 +33,7 @@ import { requireNotBlocked } from "@/lib/community/permissions"
  *     the flat-delete step). Self-scoped: requesterId = the credential's
  *     botUserId, never a body field.
  */
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   if (ctx.actor.kind === "bot") {
     return handleBotFriendRequest(req, ctx.env, ctx.actor)
   }

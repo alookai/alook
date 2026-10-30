@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ authenticate: vi.fn(), limiter: vi.fn(), actio
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ env: { DB: {} } }) }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }) }))
 vi.mock("@/lib/broadcast", () => ({ wsDoFetch: mocks.limiter }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: () => { throw new Error("normal authentication must not be used") } }))
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: { resolve: () => { throw new Error("normal authentication must not be used") } } }))
 vi.mock("@alook/shared", async (original) => ({ ...await original<typeof import("@alook/shared")>(), queries: { automation: { authenticateAccessCode: mocks.authenticate } } }))
 vi.mock("@/lib/community/create-bot.server", () => ({ createBotForUser: mocks.action }))
 vi.mock("@/lib/community/create-server.server", () => ({ createServerForUser: mocks.action }))

@@ -24,7 +24,6 @@ import {
   broadcastPresence,
   handleClientTypingStart,
   handleClientTypingStop,
-  notifyUserDO,
   sendPresenceSnapshot,
 } from "./presence-typing"
 import {
@@ -77,7 +76,7 @@ export async function handleUserFetch(
   request: Request,
   url: URL,
 ): Promise<Response | null> {
-  if (["/community-broadcast-bundle", "/community-broadcast", "/broadcast", "/check-alive", "/check-user-online"].includes(url.pathname)) {
+  if (["/community-broadcast-bundle", "/community-broadcast", "/broadcast", "/check-user-online"].includes(url.pathname)) {
     for (const ws of context.ctx.getWebSockets()) await refreshUserSession(context, ws)
   }
   if (url.pathname === "/community-broadcast-bundle" && request.method === "POST") {
@@ -96,7 +95,10 @@ export async function handleUserFetch(
       return deliverCommunityBundle(context, bundle, targetUserId)
     }
     try {
-      if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, bundle.prepared.events)) {
+      if (!await withD1Retry(
+        () => canDeliverCommunityContent(createDb(context.env.DB), targetUserId, bundle.prepared.events),
+        { route: "ws-do:community-delivery-access" },
+      )) {
         return jsonResponse({
           status: "cancelled",
           reason: "access-revoked",
@@ -107,7 +109,11 @@ export async function handleUserFetch(
         } satisfies CommunityDeliveryCancellation, 200)
       }
     } catch (error) {
-      context.log.warn("community_delivery_access_failed", { targetUserId, error: String(error) })
+      context.log.warn("community_delivery_access_failed", {
+        targetUserId,
+        error: String(error),
+        cause: error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
+      })
       return jsonResponse({ operationId: bundle.operationId, error: "access_check_failed" }, 503)
     }
     return deliverCommunityBundle(context, bundle, targetUserId)
@@ -129,12 +135,19 @@ export async function handleUserFetch(
       return jsonResponse({ sent: broadcastCommunity(context, event.event, targetUserId, event.contract) })
     }
     try {
-      if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event])) {
+      if (!await withD1Retry(
+        () => canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event]),
+        { route: "ws-do:community-content-access" },
+      )) {
         context.log.info("community_content_access_denied", { targetUserId, type: event.event.type })
         return jsonResponse({ sent: 0 }, 200)
       }
     } catch (error) {
-      context.log.warn("community_content_access_failed", { targetUserId, error: String(error) })
+      context.log.warn("community_content_access_failed", {
+        targetUserId,
+        error: String(error),
+        cause: error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
+      })
       return jsonResponse({ error: "access_check_failed" }, 503)
     }
     const sent = broadcastCommunity(context, event.event, targetUserId, event.contract)
@@ -147,16 +160,6 @@ export async function handleUserFetch(
     const body = await request.text()
     const sent = broadcast(context, body, getInternalUserTarget(request))
     return new Response(JSON.stringify({ sent }), {
-      headers: { "Content-Type": "application/json" },
-    })
-  }
-
-  if (url.pathname === "/check-alive") {
-    const hasAuthDaemon = context.ctx.getWebSockets().some(ws => {
-      const s = ws.deserializeAttachment() as ConnectionState
-      return s?.type === "daemon" && s.authenticated
-    })
-    return new Response(JSON.stringify({ alive: hasAuthDaemon }), {
       headers: { "Content-Type": "application/json" },
     })
   }
@@ -275,33 +278,10 @@ export async function handleWebSocketMessage(
   const msg = parsed as {
     type: string
     token?: string
-    machineToken?: string
-    daemonId?: string
     communityContract?: unknown
   }
 
   if (msg.type === "auth") {
-    if (msg.machineToken && msg.daemonId) {
-      const authResult = await validateMachineToken(context, msg.machineToken, msg.daemonId)
-      if (authResult.kind === "invalid") {
-        context.log.warn("daemon websocket auth rejected", { daemonId: msg.daemonId })
-        try { ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED" })) } catch { }
-        ws.close(1008, "Unauthorized")
-        return
-      }
-      if (authResult.kind === "transient") {
-        context.log.warn("daemon websocket auth transient failure", { daemonId: msg.daemonId })
-        ws.close(1011, "Auth temporarily unavailable")
-        return
-      }
-      ws.serializeAttachment({ type: "daemon", daemonId: msg.daemonId, userId: authResult.userId, authenticated: true } as ConnectionState)
-      context.log.info("daemon websocket authenticated", { daemonId: msg.daemonId })
-      ws.send(JSON.stringify({ type: "auth.ok" }))
-
-      notifyUserDO(context, authResult.userId, { type: "runtime.status", status: "online", daemonId: msg.daemonId }).catch(() => { })
-      return
-    }
-
     if (!msg.token) {
       ws.close(1008, "Unauthorized")
       return
@@ -366,24 +346,6 @@ export async function handleWebSocketMessage(
     return
   }
 
-  if (msg.type === "check_daemon_status" && state.type === "user") {
-    const daemonId = await getDaemonIdForUser(context, state.userId)
-    if (daemonId) {
-      try {
-        const daemonDoId = context.env.WS_DO.idFromName("daemon:" + daemonId)
-        const daemonStub = context.env.WS_DO.get(daemonDoId)
-        const resp = await daemonStub.fetch(new Request("http://internal/check-alive"))
-        const { alive } = await resp.json() as { alive: boolean }
-        if (alive) {
-          ws.send(JSON.stringify({ type: "runtime.status", status: "online", daemonId }))
-        }
-      } catch {
-        context.log.debug("check_daemon_status: failed to reach daemon DO", { daemonId })
-      }
-    }
-    return
-  }
-
   if (state.type === "user" && !isCurrentBusinessSocket(ws, state)) return
   if (state.type === "user" && msg.type.startsWith("community:") && (parsed as Record<string, unknown>).schemaVersion !== BUSINESS_SCHEMA_VERSION) {
     ws.close(1008, "Unsupported community contract")
@@ -410,10 +372,6 @@ export async function handleWebSocketClose(
   handleCommunityMachineClose: (state: CommunityMachineConnectionState) => Promise<void>,
 ): Promise<void> {
   const state = ws.deserializeAttachment() as ConnectionState
-  if (state?.type === "daemon" && state.authenticated) {
-    context.log.info("daemon websocket closed", { daemonId: state.daemonId })
-    notifyUserDO(context, state.userId, { type: "runtime.status", status: "offline", daemonId: state.daemonId }).catch(() => { })
-  }
   if (state?.type === "user" && state.authenticated) {
     if (!hasOtherAuthenticatedUserConnection(context, ws, state.userId)) {
       broadcastPresence(context, state.userId, false).catch(() => { })
@@ -751,12 +709,6 @@ function hasOtherAuthenticatedUserConnection(
   })
 }
 
-async function getDaemonIdForUser(context: WsDurableContext, userId: string): Promise<string | null> {
-  const db = createDb(context.env.DB)
-  const token = await queries.machineToken.getLatestTokenForUser(db, userId)
-  return token?.hostname || null
-}
-
 async function validateToken(
   context: WsDurableContext,
   token: string,
@@ -766,27 +718,4 @@ async function validateToken(
     () => queries.session.getValidSessionWithIdentity(db, token),
     { route: "ws-do:user-auth-session" },
   )
-}
-
-async function validateMachineToken(
-  context: WsDurableContext,
-  token: string,
-  daemonId: string,
-): Promise<
-  | { kind: "valid"; userId: string }
-  | { kind: "invalid" }
-  | { kind: "transient" }
-> {
-  if (!token.startsWith("al_")) return { kind: "invalid" }
-  try {
-    const db = createDb(context.env.DB)
-    const mt = await queries.machineToken.getMachineTokenByToken(db, token)
-    if (!mt || mt.status !== "active" || !mt.workspaceId) return { kind: "invalid" }
-    const machine = await queries.machine.getMachineByDaemon(db, daemonId, mt.workspaceId)
-    if (!machine) return { kind: "invalid" }
-    return { kind: "valid", userId: mt.userId }
-  } catch (err) {
-    context.log.warn("daemon websocket auth lookup threw", { err: String(err) })
-    return { kind: "transient" }
-  }
 }

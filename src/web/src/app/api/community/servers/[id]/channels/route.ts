@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityChannelResourceFromStorage } from "@alook/shared"
 import { BUSINESS_SCHEMA_VERSION, CommunityForumSidebarChannelSummarySchema, CommunityForumSidebarEnvelopeSchema } from "@alook/shared"
 import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
@@ -5,7 +6,7 @@ import { NextResponse, NextRequest } from "next/server"
 import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { getDb } from "@/lib/db"
 import { compareAsciiSqliteBinary, parseNameAndTag, queries } from "@alook/shared"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
 import { requireServerMember } from "@/lib/community/permissions"
 import { readCommunityServerChannelRows } from "@/lib/community/server-directory.server"
@@ -25,7 +26,7 @@ import { readCommunityServerChannelRows } from "@/lib/community/server-directory
  * nonexistent server). `buildServerChannelGroups` runs `listChannelsForMember`
  * so private-category channels the bot can't see never appear.
  */
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   if (ctx.actor.kind === "human") {

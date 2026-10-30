@@ -1,8 +1,9 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse } from "next/server"
 import { queries, dispatchOneUnreadWake, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { wsDoFetch } from "@/lib/broadcast"
-import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
+import { machineAuthPolicy } from "@/lib/middleware/community-daemon-auth"
 
 /**
  * POST /api/community/daemon/resync-wakes
@@ -23,7 +24,7 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  * Because the daemon's WS just connected, `sendWakeToMachine` finds a live
  * socket this time and delivers immediately.
  */
-export const POST = withCommunityDaemonAuth(async (_req, ctx) => {
+export const POST = withAuth(machineAuthPolicy, async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const wakeEnv = {
     WS_DO_WORKER: {

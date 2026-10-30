@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries, BotCreationDecisionSchema, WS_EVENTS } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { botCreationFailure, completeBotCreation } from "@/lib/community/bot-creation.server"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 
-export const PATCH = withCommunityActor(async (req, ctx) => {
+export const PATCH = withAuth(communityActorPolicy(), async (req, ctx) => {
   if (ctx.actor.kind !== "human" || ctx.actor.isBot) return writeError("Only the human owner can decide", 403)
   const [body, error] = await parseBody(req, BotCreationDecisionSchema)
   if (error) return error

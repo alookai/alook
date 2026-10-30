@@ -52,11 +52,6 @@ const mutationCoverage = [
     "action": "server.invite.accept"
   },
   {
-    "file": "src/web/src/app/device/page.tsx",
-    "owner": "DeviceAuthPageInner",
-    "action": "device.authorization.command"
-  },
-  {
     "file": "src/web/src/components/community/machines/machine-list.tsx",
     "owner": "MachineList",
     "action": "machine.command"

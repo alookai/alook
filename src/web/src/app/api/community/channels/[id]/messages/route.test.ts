@@ -193,26 +193,26 @@ vi.mock("@/lib/broadcast", () => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 
-// POST is now the dual-actor door (withCommunityActor). These POST tests
+// POST is now the dual-actor door (communityActorPolicy). These POST tests
 // exercise the HUMAN arm — mock the wrapper to yield a human actor + the real
 // channelId from the path. The bot arm is covered in the send-fold tests.
 vi.mock("@/lib/middleware/community-actor", () => ({
   // Credential-based actor dispatch (mirrors the real wrapper): a crk_ bearer →
   // bot actor, else → human. Lets the bot-read arm be exercised via header.
-  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
+
     const authz = req?.headers?.get?.("Authorization") ?? ""
     const actor = authz.startsWith("Bearer crk_")
       ? { kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" }
       : { kind: "human", userId: "u1", email: "u@t.com" }
-    return handler(req, { env: { DB: {} }, actor, params })
-  }),
+    return ({ context: { env: { DB: {} }, actor } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

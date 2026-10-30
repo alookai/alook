@@ -7,7 +7,7 @@ const log = createLogger({ service: "community-agent-runner-auth" })
 /**
  * The bot identity resolved from a `crk_` runner key — the BOT's own user id,
  * its OWNER's user id, and the machine it's bound to. Consumed by the unified
- * `withCommunityActor` (see community-actor.ts). The legacy `withAgentRunnerAuth`
+ * `communityActorPolicy` (see community-actor.ts). The legacy `withAgentRunnerAuth`
  * wrapper and the `/api/community/agent/*` route tree it guarded were deleted
  * once every bot verb moved onto the unified actor;
  * `resolveBotActor` is the surviving, shared crk_ validator.
@@ -54,13 +54,13 @@ async function lookupOr503<T>(
 
 /**
  * Resolve a `crk_` runner-key bearer to a bot identity, shared by
- * `withAgentRunnerAuth` and the unified `withCommunityActor`. Returns a
+ * `withAgentRunnerAuth` and the unified `communityActorPolicy`. Returns a
  * 3-variant discriminant:
  *   - `{ kind: "bot", actor }`   — a valid runner key; `actor` is the resolved
  *                                   {botUserId, ownerUserId, machineId}.
  *   - `{ kind: "not_bot" }`      — no `Bearer crk_…` header at all; the caller
  *                                   MAY fall through to another auth path
- *                                   (this is how `withCommunityActor` routes a
+ *                                   (this is how `communityActorPolicy` routes a
  *                                   human request to `withAuth`).
  *   - `{ kind: "error", response }` — a `crk_` bearer that failed to resolve
  *                                   (bad/revoked key, bot inactive, binding

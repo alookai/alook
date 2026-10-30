@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { CommunityCategoryResourceSchema } from "@alook/shared"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -13,7 +14,7 @@ import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
 import { readCommunityServerCategoryRows } from "@/lib/community/server-directory.server"
 
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
   const db = getDb(ctx.env.DB)
@@ -23,7 +24,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   return writeJSON({ categories: categories.map(row => CommunityCategoryResourceSchema.strip().parse({ ...row, private: !!row.private })) })
 })
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
@@ -71,7 +72,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     serverId,
     category,
   })
-
 
   return writeJSON({ category }, 201)
 })

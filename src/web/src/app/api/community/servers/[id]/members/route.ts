@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse, type NextRequest } from "next/server"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -8,7 +9,7 @@ import {
   DEFAULT_MEMBERS_PAGE_SIZE,
   MAX_MEMBERS_PAGE_SIZE,
 } from "@alook/shared"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { requireServerMember } from "@/lib/community/permissions"
 import { parseBoundedInt, parseMemberCursor, buildMemberPaginatedResponse } from "@/lib/community/messages"
 import { mapMemberForApi } from "@/lib/community/member-payload"
@@ -32,7 +33,7 @@ import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-prese
  * (indistinguishable from a truly nonexistent server — no existence leak). The
  * human arm keeps `requireServerMember`'s own 403/404.
  */
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   if (ctx.actor.kind === "bot") {

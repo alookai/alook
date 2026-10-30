@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse, type NextRequest } from "next/server"
 import { queries, createLogger } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withCommunityActor, requireBot, type CommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, requireBot, type CommunityActor } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
 import {
   requireChannelMember,
@@ -17,7 +18,7 @@ const log = createLogger({ service: "community-attachments-upload" })
 // which the bot arm ignores — it resolves the ref itself. A human/web caller
 // puts the real channelId in the path. Mirrors the channels/[id]/members
 // dual-actor door.
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const ownerId = ctx.actor.kind === "bot" ? ctx.actor.ownerUserId : ctx.actor.userId
   const rate = await checkRateLimit(ctx.env, "community:upload", ownerId)
   if (!rate.allowed) return NextResponse.json({ error: "Upload limit reached. Try again shortly." }, {
@@ -33,7 +34,6 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     env: ctx.env,
     userId: ctx.actor.userId,
     email: ctx.actor.email,
-    workspaceId: ctx.actor.workspaceId,
     params: ctx.params,
   })
 })

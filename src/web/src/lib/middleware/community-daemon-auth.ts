@@ -1,3 +1,4 @@
+import type { AuthPolicy } from "./auth-policy"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, withD1Retry } from "@alook/shared"
@@ -24,17 +25,8 @@ export type CommunityDaemonAuthenticatedHandler = (
  * credential. Response body is `{ error: string }`, matching the plan's
  * wire contract.
  */
-export function withCommunityDaemonAuth(handler: CommunityDaemonAuthenticatedHandler) {
-  return async (
-    req: NextRequest,
-    context?: { params?: Promise<Record<string, string>> | Record<string, string> }
-  ) => {
-    const resolvedParams = context?.params
-      ? context.params instanceof Promise
-        ? await context.params
-        : context.params
-      : undefined
-
+export const machineAuthPolicy: AuthPolicy<CommunityDaemonAuthContext> = {
+  resolve: async req => {
     const authHeader = req.headers.get("Authorization")
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json({ error: "missing or malformed Authorization header" }, { status: 401 })
@@ -56,12 +48,13 @@ export function withCommunityDaemonAuth(handler: CommunityDaemonAuthenticatedHan
       return NextResponse.json({ error: "credential revoked or unrecognized" }, { status: 401 })
     }
 
-    return handler(req, {
-      env: cloudflareEnv,
-      userId: active.userId,
-      machineId: active.machineId,
-      credentialId: active.credentialId,
-      params: resolvedParams,
-    })
-  }
+    return {
+      context: {
+        env: cloudflareEnv,
+        userId: active.userId,
+        machineId: active.machineId,
+        credentialId: active.credentialId,
+      },
+    }
+  },
 }

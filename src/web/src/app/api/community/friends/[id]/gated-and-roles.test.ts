@@ -33,14 +33,13 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+  humanAuthPolicy: { resolve: async (req: any) => {
+
     // caller id supplied per test via a header, defaults to alice
     const uid = req.headers?.get?.("x-test-uid") ?? "u_alice"
-    return handler(req, { env: {}, userId: uid, email: "a@t.com", user: { isBot: false }, params })
-  }),
+    return ({ context: { env: {}, userId: uid, email: "a@t.com", user: { isBot: false } } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", async () => {

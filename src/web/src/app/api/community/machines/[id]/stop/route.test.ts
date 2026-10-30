@@ -7,8 +7,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 vi.mock("@alook/shared", () => ({ queries: { communityMachine: { getMachineByIdForUser: (...args: unknown[]) => getMachine(...args) } } }))
 vi.mock("@/lib/community/bot-push", () => ({ pushMachineStop: (...args: unknown[]) => pushStop(...args) }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: (request: NextRequest, context: unknown) => Promise<Response>) => async (request: NextRequest, context: { params?: Promise<Record<string, string>> }) =>
-    handler(request, { env: { DB: {} }, userId: "owner", email: "owner@test.local", params: await context.params }),
+  humanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: { env: { DB: {} }, userId: "owner", email: "owner@test.local" } }) },
 }))
 
 import { POST } from "./route"

@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION, MAX_FORUM_TAG_LENGTH, queries, requestsCommunityContract, requestedCommunityContract } from "@alook/shared"
 import { NextRequest, NextResponse } from "next/server"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { parseCommunityMessageWindow } from "@/lib/community/messages"
@@ -41,7 +42,7 @@ function parseIntParam(raw: string | null): number | undefined {
  * create-if-missing (structurally, not just create=false — Aigneis #246 ⑤); a
  * ref to a nonexistent target is a 404, not a read-then-create.
  */
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const params = req.nextUrl.searchParams
 
@@ -127,7 +128,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
  *     carries `/`, can't sit in a path segment).
  *
  * Authorization is credential-defined, addressing is body/path only. First
- * segment = `withCommunityActor` credential dispatch (crk_ → bot arm; session →
+ * segment = `communityActorPolicy` credential dispatch (crk_ → bot arm; session →
  * human arm) BEFORE any field is read, so a body field can't flip the actor arm.
  *
  * §3 (Ingaborg #219): the former standalone `requireChannelMember` is REPLACED
@@ -137,7 +138,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
  * would be a bypass of the single mask). A bot hitting this id route passes the
  * SAME mask (never skipped because machine-token — ASSERT 1 ①-C).
  */
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   // A send is read-before-write: authorization, alignment, retries, and the
   // blocked response all depend on the latest committed channel state. Start
   // this request on primary so a lagging replica cannot supply a stale CAS

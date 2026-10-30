@@ -18,7 +18,6 @@ vi.mock("better-auth/react", () => ({
 
 vi.mock("better-auth/client/plugins", () => ({
   emailOTPClient: vi.fn(() => ({})),
-  deviceAuthorizationClient: vi.fn(() => ({})),
 }))
 
 vi.mock("@/lib/community/mobile-system-notification", () => ({

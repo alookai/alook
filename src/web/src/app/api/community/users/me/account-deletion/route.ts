@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { withCookieHumanAuth } from "@/lib/middleware/auth"
+import { cookieHumanAuthPolicy } from "@/lib/middleware/auth"
 import { getPrimaryDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
 import {
@@ -27,7 +28,7 @@ function clearAuthCookies(response: NextResponse): void {
   }
 }
 
-export const POST = withCookieHumanAuth(async (request, context) => {
+export const POST = withAuth(cookieHumanAuthPolicy, async (request, context) => {
   let input: z.infer<typeof bodySchema>
   try {
     input = bodySchema.parse(await request.json())

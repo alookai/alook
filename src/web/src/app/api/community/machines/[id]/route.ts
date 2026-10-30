@@ -1,4 +1,5 @@
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { getPrimaryDb } from "@/lib/db"
 import { projectMachineBackends } from "@/lib/community/machine-options.server"
 import { NextRequest, NextResponse } from "next/server"
@@ -6,14 +7,14 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, WS_EVENTS } from "@alook/shared"
 import type { CommunityWsEvent } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
 import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
 import { buildBotAvatarKey, isOwnedBotAvatarObjectKey } from "@/lib/community/storage"
 
-export const DELETE = withAuth(async (req: NextRequest, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const id = ctx.params?.id as string
   if (!id) return writeError("machine id is required", 400)
@@ -113,7 +114,7 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   return new NextResponse(null, { status: 204 })
 })
 
-export const GET = withCommunityActor(async (_req, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (_req, ctx) => {
   const db = getPrimaryDb(ctx.env.DB)
   const ownerId = ctx.actor.kind === "bot" ? ctx.actor.ownerUserId : ctx.actor.userId
   const machine = await queries.communityBot.getMachineForOwner(db, ctx.params?.id as string, ownerId)

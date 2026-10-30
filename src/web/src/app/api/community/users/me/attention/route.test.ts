@@ -32,10 +32,10 @@ vi.mock("@alook/shared", async () => {
 })
 vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: async (_db: unknown, channelId: string) => ({ ok: true, value: { channel: channelResourceFixture({ id: channelId, serverId: null, type: "dm", name: null }) } }) }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => (request: any) => handler(request, {
+  humanAuthPolicy: { resolve: async (request: any) => ({ context: {
     env: { DB: { binding: "d1" } },
     userId: "u1",
-  }),
+  } }) },
 }))
 vi.mock("@/lib/middleware/helpers", () => ({
   writeJSON: (data: unknown) => Response.json(data),

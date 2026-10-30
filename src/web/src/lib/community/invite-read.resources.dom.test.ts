@@ -13,7 +13,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), users: vi.fn(), profiles: vi.fn(), servers: vi.fn(), api: vi.fn(), member: vi.fn(), db: {} }))
 vi.mock("@/lib/db", () => ({ getDb: () => mocks.db }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: (request: NextRequest, context: unknown) => Promise<Response>) => (request: NextRequest) => handler(request, { userId: "viewer", env: { DB: mocks.db }, params: { id: "s1" } }) }))
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: { userId: "viewer", env: { DB: mocks.db } } }) } }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => mocks.api(...args) }))
 vi.mock("@alook/shared", async original => {
   const actual = await original<typeof import("@alook/shared")>()
@@ -45,7 +45,7 @@ beforeEach(() => {
   mocks.api.mockImplementation(async (path: string, options: { authenticationAccount?: string }) => {
     expect(path).toBe("/api/community/servers/s1/invites")
     expect(options.authenticationAccount).toBe("viewer")
-    const response = await GET(request())
+    const response = await GET(request(), { params: { id: "s1" } })
     expect(response.status).toBe(200)
     return response.json()
   })
@@ -62,7 +62,7 @@ it("publishes a cold real creator profile and renders the creator name through t
 })
 
 it("produces scoped descriptors with full resources and no creator email or second identity", async () => {
-  const response = await GET(request())
+  const response = await GET(request(), { params: { id: "s1" } })
   expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))
   const data = CommunityInvitesReadSchema.parse(await response.json())
   expect(data.invites).toEqual([{ id: "invite", token: "token", uses: 0, maxUses: null, expiresAt: null, createdAt: "2026-10-01T00:00:00Z", creatorId: "creator" }])
@@ -76,13 +76,13 @@ it("produces scoped descriptors with full resources and no creator email or seco
 it("retains an explicitly null deleted creator without a fabricated profile", async () => {
   const rows = await mocks.list()
   mocks.list.mockResolvedValue([{ ...rows[0], creatorId: null, creatorName: null }])
-  const data = CommunityInvitesReadSchema.parse(await (await GET(request())).json())
+  const data = CommunityInvitesReadSchema.parse(await (await GET(request(), { params: { id: "s1" } })).json())
   expect(data.invites[0].creatorId).toBeNull()
   expect(data.resources.profiles.map(row => row.id)).toEqual(["viewer"])
 })
 it("gates membership before reading invite or creator resources", async () => {
   mocks.member.mockResolvedValue(null)
-  expect((await GET(request())).status).toBe(403)
+  expect((await GET(request(), { params: { id: "s1" } })).status).toBe(403)
   expect(mocks.list).not.toHaveBeenCalled()
   expect(mocks.users).not.toHaveBeenCalled()
 })
@@ -97,7 +97,7 @@ it("rejects a missing creator full resource without publishing the descriptor", 
 it.each(["list", "users", "profiles"] as const)("propagates original %s errors without a false empty result", async query => {
   const failure = new Error("unavailable")
   mocks[query].mockRejectedValue(failure)
-  await expect(GET(request())).rejects.toBe(failure)
+  await expect(GET(request(), { params: { id: "s1" } })).rejects.toBe(failure)
 })
 const item = { id: "invite", token: "token", uses: 0, maxUses: null, expiresAt: null, createdAt: "now", creatorId: "creator" }
 const creator = { id: "creator", name: "Alice", discriminator: "0042", avatar: null, avatarVersion: 2 }

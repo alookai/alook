@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -11,9 +12,6 @@ import {
 } from "@alook/shared"
 import { parseBoundedInt } from "@/lib/community/messages"
 
-
-
-
 // Cross-channel Marked tab: every message the current user has marked, newest
 // first. Scoped to the viewer's visible channels in-query (same guard as the
 // Mentions tab) so a mark in a private channel the user has since left never
@@ -21,7 +19,7 @@ import { parseBoundedInt } from "@/lib/community/messages"
 // three to navigate: serverId/channelId locate the channel, m.seq jumps to the
 // message (a marked message is usually outside the loaded window, so a
 // seq-less scroll would silently no-op).
-export const GET = withCommunityActor(async (req, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId
 

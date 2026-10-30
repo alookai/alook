@@ -102,8 +102,8 @@ describe("ws (dev direct to ws-do)", () => {
     const ack = await waitForMessage<{ type: string }>(ws, (m) => m.type === "auth.ok")
     expect(ack.type).toBe("auth.ok")
 
-    const payload = { type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" }
-    const recv = waitForMessage<typeof payload>(ws, (m) => m.type === "runtime.status")
+    const payload = { type: "email.received", agentId: "synthetic-agent" }
+    const recv = waitForMessage<typeof payload>(ws, (m) => m.type === "email.received")
 
     const broadcastRes = await fetch(`${DEV_WS_DO_URL}/broadcast/user/${userId}`, {
       method: "POST",

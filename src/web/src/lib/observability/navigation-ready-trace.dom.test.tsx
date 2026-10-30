@@ -55,7 +55,12 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   const navigation = navigationForHref(window.location.href)!
   expect(navigation.span).toBeUndefined()
   now = 900
-  await act(async () => { native.release?.(); await vi.advanceTimersByTimeAsync(1500) })
+  await act(async () => {
+    native.release?.()
+    // Fake timer advancement does not wait for the other tracing imports.
+    await vi.dynamicImportSettled()
+    await vi.advanceTimersByTimeAsync(1500)
+  })
   expect(navigation.span?.isRecording()).toBe(true)
   expect(navigationForHref(window.location.href)).toBe(navigation)
   const parent = navigation.span!.spanContext()

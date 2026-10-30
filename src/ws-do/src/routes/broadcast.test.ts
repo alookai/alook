@@ -102,30 +102,10 @@ describe("ws-do router", () => {
   })
 
   describe("broadcast route", () => {
-    it("preserves daemon routing, trace logging, streamed body, and the internal response", async () => {
-      doMock.stubFetch.mockResolvedValue(new Response("daemon-ok", {
-        status: 202,
-        headers: { "x-broadcast": "accepted" },
-      }))
-      const req = new Request("http://localhost/broadcast/daemon/daemon-42", {
-        method: "POST",
-        headers: { "X-Trace-Id": "trace-9" },
-        body: "stream-me",
-      })
-
-      const res = await handler.fetch(req, env as any)
-
-      expect(loggerMocks.child).toHaveBeenCalledWith({ traceId: "trace-9", daemonId: "daemon-42" })
-      expect(loggerMocks.debug).toHaveBeenCalledWith("broadcasting to daemon")
-      expect(doMock.idFromName).toHaveBeenCalledWith("daemon:daemon-42")
-      expect(doMock.get).toHaveBeenCalledWith("mock-do-id")
-      const internal = doMock.stubFetch.mock.calls[0][0] as Request
-      expect(internal.url).toBe("http://internal/broadcast")
-      expect(internal.method).toBe("POST")
-      expect(await internal.text()).toBe("stream-me")
-      expect(res.status).toBe(202)
-      expect(res.headers.get("x-broadcast")).toBe("accepted")
-      expect(await res.text()).toBe("daemon-ok")
+    it("does not route retired daemon broadcasts", async () => {
+      const res = await handler.fetch(new Request("http://localhost/broadcast/daemon/retired", { method: "POST", body: "{}" }), env as any)
+      expect(res.status).toBe(400)
+      expect(doMock.idFromName).not.toHaveBeenCalled()
     })
 
     it("forwards POST /broadcast/user/:userId with a router-owned target marker", async () => {

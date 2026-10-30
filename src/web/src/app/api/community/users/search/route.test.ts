@@ -8,8 +8,10 @@ let database: ReturnType<typeof createCommunitySqliteDb>
 vi.mock("@/lib/db", () => ({ getDb: () => database.db }))
 vi.mock("@/lib/middleware/auth", async () => {
   const { protectCommunityJsonResponse } = await import("@/lib/middleware/response-cache")
-  return { withAuth: (handler: AuthenticatedHandler) => async (request: NextRequest) => protectCommunityJsonResponse(request,
-    await handler(request, { env: { DB: {} } as Env, userId: "viewer", email: "viewer@example.test" })) }
+  return { humanAuthPolicy: {
+    resolve: async () => ({ context: { env: { DB: {} } as Env, userId: "viewer", email: "viewer@example.test" } }),
+    respond: protectCommunityJsonResponse,
+  } }
 })
 import { GET } from "./route"
 

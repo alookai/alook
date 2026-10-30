@@ -67,20 +67,20 @@ let isAuthed = true
 let actorKind: "human" | "bot" = "human"
 
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
     if (!isAuthed) {
       const { NextResponse } = require("next/server")
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, {
+
+    return ({ context: {
       env: { DB: {}, COMMUNITY_MEDIA: { delete: vi.fn() } },
       actor: actorKind === "bot"
         ? { kind: "bot", userId: "b1", ownerUserId: "u1", machineId: "m1" }
         : { kind: "human", userId: "u1", email: "u@t.com" },
-      params,
-    })
-  }),
+
+    } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

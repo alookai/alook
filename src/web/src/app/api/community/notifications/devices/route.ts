@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { encrypt } from "@alook/shared/crypto";
 import { queries } from "@alook/shared";
 import { getPrimaryDb } from "@/lib/db";
@@ -5,10 +6,10 @@ import {
   hashProviderToken,
   notificationDeviceRegistrationSchema,
 } from "@/lib/community/notification-device-schema";
-import { withCookieHumanAuth } from "@/lib/middleware/auth";
+import { cookieHumanAuthPolicy } from "@/lib/middleware/auth";
 import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers";
 
-export const POST = withCookieHumanAuth(async (req, ctx) => {
+export const POST = withAuth(cookieHumanAuthPolicy, async (req, ctx) => {
   const [body, error] = await parseBody(
     req,
     notificationDeviceRegistrationSchema,

@@ -27,14 +27,18 @@ vi.mock("@alook/shared", async () => {
 
 let authOverride: { userId?: string; unauth?: boolean } = {}
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+  resolveHumanAuth: async () => {
+    if (authOverride.unauth) return Response.json({ error: "Unauthorized" }, { status: 401 })
+    return { context: { env: { DB: {} }, userId: authOverride.userId ?? "u1", email: "u@t.com" } }
+  },
+  humanAuthPolicy: { resolve: async (req: any) => {
     if (authOverride.unauth) {
       const { NextResponse } = require("next/server")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: authOverride.userId ?? "u1", email: "u@t.com", params })
-  }),
+
+    return ({ context: { env: { DB: {} }, userId: authOverride.userId ?? "u1", email: "u@t.com" } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

@@ -15,9 +15,7 @@ let beforeUnread: (() => Promise<boolean>) | undefined
 
 vi.mock("@/lib/db", () => ({ getDb: () => fixture.db, getPrimaryDb: () => fixture.db }))
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => (request: any) => handler(request, {
-    env: { DB: {} }, actor: { kind: actorKind, userId: "author" }, params: { id: "channel" },
-  }),
+  communityActorPolicy: () => ({ resolve: async (request: any) => ({ context: { env: { DB: {} }, actor: { kind: actorKind, userId: "author" } } }) }),
 }))
 vi.mock("@/lib/community/message-door", () => ({
   resolveMessageTarget: async () => ({ ok: true, value: { target: { kind: targetKind, channelId: "channel", serverId: "server" } } }),
@@ -94,7 +92,7 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
 
   it.each(["human", "bot"] as const)("%s concurrent first sends both acknowledge the same complete attached message", async (kind) => {
     actorKind = kind
-    const responses = await Promise.all([POST(request()), POST(request())])
+    const responses = await Promise.all([POST(request(), { params: { id: "channel" } }), POST(request(), { params: { id: "channel" } })])
     const bodies = await Promise.all(responses.map((response) => response.json()))
     expect(responses.map((response) => response.status)).toEqual(kind === "human" ? [201, 201] : [200, 200])
     expect(bodies[0].message.id).toBe(bodies[1].message.id)
@@ -108,7 +106,7 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
 
   it("concurrent bot forum titles return the same complete thread and count sent once", async () => {
     targetKind = "forum"
-    const responses = await Promise.all([POST(request()), POST(request())])
+    const responses = await Promise.all([POST(request(), { params: { id: "channel" } }), POST(request(), { params: { id: "channel" } })])
     const bodies = await Promise.all(responses.map((response) => response.json()))
     expect(responses.map((response) => response.status)).toEqual([200, 200])
     expect(bodies[0].message.id).toBe(bodies[1].message.id)
@@ -128,7 +126,7 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
       })
       return true
     }
-    const response = await POST(request())
+    const response = await POST(request(), { params: { id: "channel" } })
     const body = await response.json()
     expect(response.status).toBe(200)
     expect(body).toMatchObject({ state: "sent", deduped: true })
@@ -138,12 +136,12 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     targetKind = "forum"
     nonceReads = 2
     vi.mocked(dispatchCommittedMessage).mockRejectedValueOnce(new Error("notification offline"))
-    expect((await POST(request())).status).toBe(200)
+    expect((await POST(request(), { params: { id: "channel" } })).status).toBe(200)
     await Promise.all(background)
     const committed = fixture.sqlite.prepare("SELECT id FROM community_message").get() as { id: string }
     expect(committed.id).toBeTruthy()
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_channel WHERE type='thread'").get()).toEqual({ count: 1 })
-    const response = await POST(request())
+    const response = await POST(request(), { params: { id: "channel" } })
     expect(await response.json()).toMatchObject({ state: "sent", message: { id: committed.id }, deduped: true })
     expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
     expect(dispatchCommittedMessage).toHaveBeenCalledOnce()

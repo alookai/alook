@@ -1,10 +1,11 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { PII_REQUEST_MAX_BYTES, PiiRequestSchema, queries, readBoundedJsonRequest } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withCookieHumanAuth } from "@/lib/middleware/auth"
+import { cookieHumanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { wsDoFetch } from "@/lib/broadcast"
 
-export const POST = withCookieHumanAuth(async (request, context) => {
+export const POST = withAuth(cookieHumanAuthPolicy, async (request, context) => {
   const input = await readBoundedJsonRequest(request, PII_REQUEST_MAX_BYTES)
   const payload = PiiRequestSchema.safeParse(input.ok ? input.value : null)
   if (!payload.success) return writeError("INVALID_PII_REQUEST", 400)

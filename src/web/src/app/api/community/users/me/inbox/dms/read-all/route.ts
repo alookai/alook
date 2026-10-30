@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries, WS_EVENTS } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 
@@ -12,7 +13,7 @@ import { broadcastToUserSafe } from "@/lib/community/fanout"
  * "mark all read" affordance fires three independent POSTs — mentions +
  * channel-unreads + dms — each idempotent and independently retryable.
  */
-export const POST = withAuth(async (_req, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const db = getPrimaryDb(ctx.env.DB)
   const { count, changed, revision } = await queries.communityReadState.markAllDmsRead(db, ctx.userId)
   if (changed) {

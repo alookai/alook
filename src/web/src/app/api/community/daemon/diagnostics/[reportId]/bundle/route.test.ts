@@ -14,19 +14,12 @@ vi.mock("@/lib/community/diagnostic-upload", () => ({
 vi.mock("@/lib/db", () => ({ getDb: () => ({ diagnosticDb: true }) }));
 
 vi.mock("@/lib/middleware/community-daemon-auth", () => ({
-  withCommunityDaemonAuth: (handler: (...args: unknown[]) => Promise<Response>) =>
-    async (request: NextRequest, context?: { params?: Promise<Record<string, string>> }) => {
+  machineAuthPolicy: { resolve: async (request: NextRequest) => {
       if (request.headers.get("authorization") !== "Bearer cmk_valid") {
         return NextResponse.json({ error: "unauthorized" }, { status: 401 });
       }
-      return handler(request, {
-        env: { DB: {}, BUG_REPORTS: { privateBucket: true } },
-        machineId: "cm_original",
-        userId: "owner_1",
-        credentialId: "cred_1",
-        params: await context?.params,
-      });
-    },
+      return ({ context: { env: { DB: {}, BUG_REPORTS: { privateBucket: true } }, machineId: "cm_original", userId: "owner_1", credentialId: "cred_1" } });
+    } },
 }));
 
 interface BundleRouteModule {

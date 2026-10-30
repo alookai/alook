@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { flattenError } from "zod"
 import { NextResponse } from "next/server"
 import {
@@ -11,7 +12,7 @@ import {
 import { getPrimaryDb } from "@/lib/db"
 import { broadcastToUser } from "@/lib/broadcast"
 import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
-import { withCommunityPairingToken } from "@/lib/middleware/community-pairing-token"
+import { pairingTokenPolicy } from "@/lib/middleware/community-pairing-token"
 
 const log = createLogger({ service: "community/daemon/activate" })
 
@@ -22,7 +23,7 @@ const log = createLogger({ service: "community/daemon/activate" })
  * daemon credential (`cmk_...`). Server atomically revokes the pairing
  * token so it can't be re-used.
  */
-export const POST = withCommunityPairingToken(async (req, ctx) => {
+export const POST = withAuth(pairingTokenPolicy, async (req, ctx) => {
   const tokenId = ctx.rawTokenId
 
   let raw: unknown

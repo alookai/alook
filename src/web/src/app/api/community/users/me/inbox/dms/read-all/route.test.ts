@@ -26,11 +26,11 @@ vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: (...args: unknown[]) => mocks.broadcast(...args),
 }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => (req: any) => handler(req, {
+  humanAuthPolicy: { resolve: async (req: any) => ({ context: {
     env: { DB: {} },
     userId: "u1",
     email: "u@example.com",
-  }),
+  } }) },
 }))
 vi.mock("@/lib/middleware/helpers", () => ({
   writeJSON: (data: unknown) => Response.json(data),

@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH, COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
@@ -9,7 +10,7 @@ import { parseBoundedInt } from "@/lib/community/messages"
 import { parseForumCreatedAtCursor } from "@/lib/community/forum-feed-cursor"
 import { readCommunityForumRows } from "@/lib/community/forum-feed.server"
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 

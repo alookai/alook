@@ -27,7 +27,6 @@ export type {
   Channel,
   WsMessage,
   WorkspaceFileResult,
-  DaemonPushMessage,
 } from "./types";
 
 // API types
@@ -251,7 +250,6 @@ export {
   UpdateAgentRequestSchema,
   CreateConversationRequestSchema,
   CreateMessageRequestSchema,
-  AgentDmRequestSchema,
   EmailAttachmentSchema,
   SendEmailRequestSchema,
   UpdateEmailStatusRequestSchema,
@@ -273,7 +271,6 @@ export {
   CreateStudioRequestSchema,
   RecruitAgentRequestSchema,
   CreateThreadRequestSchema,
-  DaemonPushMessageSchema,
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
   ReasoningEffortSchema,
@@ -359,7 +356,6 @@ export type {
   DeregisterRequest,
   CompleteTaskRequest,
   FailTaskRequest,
-  AgentDmRequest,
   MessageItem,
   ReportMessagesRequest,
   CreateCalendarEventRequestInput,
@@ -388,7 +384,6 @@ export type {
   CreateStudioRequest,
   RecruitAgentRequest,
   CreateThreadRequest,
-  DaemonPushMessageType,
   CommunityDaemonReady,
   CommunityPairTokenResponse,
   CommunityDaemonActivateRequest,

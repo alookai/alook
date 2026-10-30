@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries, PRESENCE_MEMBER_CAP, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { wsDoFetch } from "@/lib/broadcast"
 
@@ -14,7 +15,7 @@ import { wsDoFetch } from "@/lib/broadcast"
  * list is looked up server-side from `ctx.userId` — callers can never pass
  * in arbitrary ids to probe someone else's presence.
  */
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   // D1 read is fail-closed via `readOrStale`; a transient outage yields
   // `{ online: [] }` with `stale: true` rather than a 500.

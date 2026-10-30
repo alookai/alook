@@ -243,7 +243,6 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         }}
         typewriterClassName={styles.landingHeroTypewriter}
         largeCtas
-        showClipboard={false}
         showCommunityLinks={false}
         showMobileDesktopHint={false}
         primaryCtaLabel={(isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta).toUpperCase()}

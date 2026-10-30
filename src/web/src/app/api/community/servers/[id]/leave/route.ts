@@ -1,4 +1,5 @@
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, isServerOwner, parseNameAndTag, WS_EVENTS } from "@alook/shared"
@@ -7,7 +8,7 @@ import { requireServerMember } from "@/lib/community/permissions"
 
 const REF_PLACEHOLDER_ID = "resolve"
 
-export const POST = withCommunityActor(async (req, ctx) => {
+export const POST = withAuth(communityActorPolicy({ allowInactiveBot: true }), async (req, ctx) => {
   const pathServerId = ctx.params?.id
   if (!pathServerId) return writeError("missing server id", 400)
 
@@ -77,4 +78,4 @@ export const POST = withCommunityActor(async (req, ctx) => {
   ])
 
   return new Response(null, { status: 204 })
-}, { allowInactiveBot: true })
+})

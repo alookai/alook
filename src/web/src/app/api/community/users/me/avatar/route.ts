@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest, NextResponse } from "next/server"
 import { createLogger, queries } from "@alook/shared"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
@@ -16,7 +17,7 @@ import { fanOutIdentityUpdate } from "@/lib/community/fanout"
 
 const log = createLogger({ service: "community-self-avatar" })
 
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const userId = ctx.actor.userId
   const db = getDb(ctx.env.DB)
 

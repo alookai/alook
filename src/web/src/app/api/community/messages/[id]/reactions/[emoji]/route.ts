@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
@@ -14,7 +15,7 @@ import {
 // in the path.
 /**
  * Message-keyed reaction door (route/disc trunk — message-keyed faces dual-actor).
- * withCommunityActor: both human (session) and bot (crk_, the folded `reactAdd`
+ * communityActorPolicy: both human (session) and bot (crk_, the folded `reactAdd`
  * verb) hit this one route. Authorization is credential-scoped — `authorizeReaction`
  * resolves the message → its channel → the communication surface gate (DM
  * participant + block + accepted friendship, channel member otherwise) keyed
@@ -23,7 +24,7 @@ import {
  * messageId resolution happens upstream at the flat-verb→door retarget (proxy); this
  * route is message-keyed (messageId in path) for both actors.
  */
-export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const rawEmoji = ctx.params?.emoji
   if (!rawEmoji) return writeError("missing params", 400)
 
@@ -66,7 +67,7 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   return writeJSON(result.value.reaction)
 })
 
-export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
+export const DELETE = withAuth(communityActorPolicy(), async (_req: NextRequest, ctx) => {
   // Defensive bot→404 (①-C): there is NO bot react-REMOVE verb in the ServerApi
   // contract (only `reactAdd`), so no bot caller reaches this arm today and the
   // retarget wires none. 5c opened bot credentials on the route; collapse the

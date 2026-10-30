@@ -1,3 +1,4 @@
+import type { AuthPolicy } from "./auth-policy"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 
@@ -20,19 +21,10 @@ export type CommunityPairingTokenAuthenticatedHandler = (
  *
  * Rejects with 401 on missing header, non-Bearer prefix, or wrong token
  * prefix. Response body is `{ error: string }`, matching the wire contract
- * used by the sibling `withCommunityDaemonAuth` middleware.
+ * used by the sibling `machineAuthPolicy` middleware.
  */
-export function withCommunityPairingToken(handler: CommunityPairingTokenAuthenticatedHandler) {
-  return async (
-    req: NextRequest,
-    context?: { params?: Promise<Record<string, string>> | Record<string, string> }
-  ) => {
-    const resolvedParams = context?.params
-      ? context.params instanceof Promise
-        ? await context.params
-        : context.params
-      : undefined
-
+export const pairingTokenPolicy: AuthPolicy<CommunityPairingTokenContext> = {
+  resolve: async req => {
     const authHeader = req.headers.get("Authorization")
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json({ error: "missing Authorization header" }, { status: 401 })
@@ -45,11 +37,12 @@ export function withCommunityPairingToken(handler: CommunityPairingTokenAuthenti
     const { env, ctx } = await getCloudflareContext({ async: true })
     const cloudflareEnv = env as Env
 
-    return handler(req, {
-      env: cloudflareEnv,
-      rawTokenId,
-      waitUntil: ctx ? ctx.waitUntil.bind(ctx) : undefined,
-      params: resolvedParams,
-    })
-  }
+    return {
+      context: {
+        env: cloudflareEnv,
+        rawTokenId,
+        waitUntil: ctx ? ctx.waitUntil.bind(ctx) : undefined,
+      },
+    }
+  },
 }

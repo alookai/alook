@@ -1,6 +1,6 @@
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import type { WsMessage, DaemonPushMessage } from "@alook/shared"
+import type { WsMessage } from "@alook/shared"
 import {
   COMMUNITY_BULK_BODY_MAX_BYTES,
   COMMUNITY_CONTRACT_HEADER,
@@ -273,22 +273,4 @@ export function broadcastToUsers(
     ctx.waitUntil(work.catch(() => {}))
   } catch {}
   return work
-}
-
-
-export function broadcastToDaemon(daemonId: string, message: DaemonPushMessage): Promise<{ sent: number }> {
-  const promise = doSend(
-    `/broadcast/daemon/${daemonId}`,
-    JSON.stringify(message),
-    { label: daemonId, type: message.type },
-  )
-  try {
-    // CF worker may terminate before the fetch completes if the response is sent early;
-    // waitUntil keeps the isolate alive until the broadcast resolves.
-    const { ctx } = getCloudflareContext()
-    ctx.waitUntil(promise.catch(() => { }))
-  } catch {
-    // Not in CF context — promise runs on its own
-  }
-  return promise
 }

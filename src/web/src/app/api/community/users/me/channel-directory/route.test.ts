@@ -23,9 +23,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any) =>
-    handler(req, { env: { DB: {} }, userId: "viewer_1", email: "viewer@alook.test" }),
-  ),
+  humanAuthPolicy: { resolve: async (req: any) => ({ context: { env: { DB: {} }, userId: "viewer_1", email: "viewer@alook.test" } }) },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

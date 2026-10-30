@@ -4,7 +4,7 @@ import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 const m = vi.hoisted(() => ({ db: {}, resolve: vi.fn() }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => m.db }))
 vi.mock("@/lib/community/channel-ref-target", () => ({ resolveChannelRefTarget: m.resolve }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: AuthenticatedHandler) => (request: NextRequest) => handler(request, { env: { DB: {} } as Env, userId: "viewer", email: "viewer@example.test" }) }))
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: { env: { DB: {} } as Env, userId: "viewer", email: "viewer@example.test" } }) } }))
 import { GET } from "./route"
 beforeEach(() => { m.resolve.mockReset() })
 describe("human readonly channel ref route", () => {

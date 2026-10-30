@@ -52,16 +52,16 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, {
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
+
+    return ({ context: {
       env: {},
       actor: actorKind === "bot"
         ? { kind: "bot", userId: "b1", ownerUserId: "u1", machineId: "m1" }
         : { kind: "human", userId: "u1", email: "u@t.com" },
-      params,
-    })
-  }),
+
+    } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", async () => {

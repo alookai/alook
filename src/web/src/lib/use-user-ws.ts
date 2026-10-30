@@ -172,7 +172,6 @@ export type UseUserWsOptions = {
   onAuthenticated?: () => void | Promise<void>
   onForeground?: () => void | Promise<void>
   onConnectionStateChange?: (phase: UserWsConnectionPhase) => void | Promise<void>
-  requestDaemonStatusOnAuth?: boolean
 }
 
 function runLifecycleCallback(
@@ -229,7 +228,6 @@ export function useUserWs(
   const onForegroundRef = useRef(options?.onForeground)
   const onConnectionStateChangeRef = useRef(options?.onConnectionStateChange)
   const lastConnectionPhaseRef = useRef<UserWsConnectionPhase | null>(null)
-  const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingTokenRef = useRef<PendingTokenAttempt | null>(null)
   const tokenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -281,10 +279,6 @@ export function useUserWs(
     options?.onConnectionStateChange,
     options?.onDisconnect,
   ])
-
-  useEffect(() => {
-    requestDaemonStatusOnAuthRef.current = options?.requestDaemonStatusOnAuth ?? true
-  }, [options?.requestDaemonStatusOnAuth])
 
   const observedSockets = useRef(new WeakMap<WebSocket, { generation: number; start: number; operation?: PageOperation }>())
   const connectRef = useRef<(() => Promise<void>) | null>(null)
@@ -854,17 +848,6 @@ export function useUserWs(
         }
         reconnectDelay.current = WS_RECONNECT_INIT
         reconnectAttemptRef.current = 0
-        if (requestDaemonStatusOnAuthRef.current) {
-          try {
-            ws.send(JSON.stringify({ type: "check_daemon_status" }))
-          } catch {
-            retireSocket(true, "local-retire")
-            if (generation === connectionGenerationRef.current) {
-              scheduleReconnect(generation)
-            }
-            return
-          }
-        }
         if (!ownsAuthenticatedConnection(ws, generation) || isOffline()) return
         startHeartbeat(ws, generation)
         return

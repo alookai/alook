@@ -8,11 +8,8 @@ const mocks = vi.hoisted(() => ({ db: {}, access: vi.fn(), channel: vi.fn(), fri
 vi.mock("@/lib/db", () => ({ getDb: () => mocks.db, getPrimaryDb: () => mocks.db }))
 vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: mocks.access, requireChannelAccess: mocks.access }))
 vi.mock("@/lib/community/message-door", () => ({ resolveMessageTarget: mocks.resolve }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: (request: NextRequest, context: unknown) => Promise<Response>) =>
-  async (request: NextRequest, context: { params?: Promise<Record<string, string>> }) => handler(request, { params: await context.params, env: { DB: mocks.db }, userId: "viewer" }) }))
-vi.mock("@/lib/middleware/community-actor", () => ({ withCommunityActor: (handler: (request: NextRequest, context: unknown) => Promise<Response>) =>
-  async (request: NextRequest, context: { params?: Promise<Record<string, string>> }) => handler(request, { params: await context.params, env: { DB: mocks.db },
-    actor: request.headers.has("Authorization") ? { kind: "bot", userId: "bot" } : { kind: "human", userId: "viewer" } }) }))
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: { env: { DB: mocks.db }, userId: "viewer" } }) } }))
+vi.mock("@/lib/middleware/community-actor", () => ({ communityActorPolicy: () => ({ resolve: async (request: NextRequest) => ({ context: { env: { DB: mocks.db }, actor: request.headers.has("Authorization") ? { kind: "bot", userId: "bot" } : { kind: "human", userId: "viewer" } } }) }) }))
 vi.mock("@alook/shared", async (original) => ({ ...await original<typeof import("@alook/shared")>(), queries: {
   communityChannel: { getChannelForMember: mocks.channel, listChildChannels: mocks.children }, communityFriendship: { areFriends: mocks.friends },
   communityThread: { listThreadParticipants: mocks.participants, listForumThreadsByCreatedAt: mocks.threads, listParticipantsForChannels: mocks.threadParticipants },

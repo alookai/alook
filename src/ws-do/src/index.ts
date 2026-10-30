@@ -4,7 +4,6 @@ import { handleAuditBroadcast } from "./routes/audit-broadcast"
 import {
   handleCommunityUserBroadcast,
   handleCommunityUsersBroadcast,
-  handleDaemonBroadcast,
   handleUserBroadcast,
   handleUsersBroadcast,
 } from "./routes/broadcast"
@@ -50,8 +49,6 @@ export default {
       log,
     }
 
-    response = await handleDaemonBroadcast(context)
-    if (response) return response
     response = await handleCommunityUserBroadcast(context)
     if (response) return response
     response = await handleCommunityUsersBroadcast(context)

@@ -23,10 +23,7 @@ import {
   mockIsThreadParticipant,
   mockAreFriends,
   mockGetFriendUserIds,
-  mockGetLatestTokenForUser,
-  mockGetMachineByDaemon,
   mockGetMachineByIdForUser,
-  mockGetMachineTokenByToken,
   mockGetPrivateChannelAudienceUserIds,
   mockGetProfile,
   mockGetRuntimeIdsByDaemon,
@@ -208,34 +205,6 @@ describe("WebSocketDurableObject", () => {
     })
   })
 
-
-  describe("fetch — /check-alive characterization", () => {
-    it("reports alive only when an authenticated daemon socket is attached", async () => {
-      const { durable, ctx } = createDO()
-      const daemon = createMockWebSocket()
-      daemon.serializeAttachment({ type: "daemon", daemonId: "daemon-1", userId: "user-1", authenticated: true })
-      const user = createMockWebSocket()
-      user.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([user, daemon])
-
-      const response = await durable.fetch(new Request("http://internal/check-alive"))
-
-      expect(await response.json()).toEqual({ alive: true })
-    })
-
-    it("reports not alive for unauthenticated daemon and authenticated non-daemon attachments", async () => {
-      const { durable, ctx } = createDO()
-      const daemon = createMockWebSocket()
-      daemon.serializeAttachment({ type: "daemon", daemonId: "daemon-1", userId: "user-1", authenticated: false })
-      const machine = createMockWebSocket()
-      machine.serializeAttachment({ type: "community-machine", machineId: "machine-1", userId: "user-1", authenticated: true })
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([daemon, machine])
-
-      const response = await durable.fetch(new Request("http://internal/check-alive"))
-
-      expect(await response.json()).toEqual({ alive: false })
-    })
-  })
 
 
   describe("fetch — /check-user-online (bot-aware, keyed by ?userId=)", () => {

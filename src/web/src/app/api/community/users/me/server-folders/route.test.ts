@@ -8,10 +8,10 @@ vi.mock("@alook/shared", async () => {
   return { ...actual, queries: { communityServerFolder: { listFolders } } }
 })
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => (request: NextRequest) => handler(request, {
+  humanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: {
     userId: "viewer",
     env: { DB: {} },
-  }),
+  } }) },
 }))
 import { GET } from "./route"
 

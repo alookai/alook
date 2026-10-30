@@ -24,16 +24,12 @@ vi.mock("@alook/shared", async () => {
   }
 })
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: Function) => async (req: NextRequest, ctx: { params: { id: string } }) => {
+  communityActorPolicy: () => ({ resolve: async (req: NextRequest) => {
     const bot = req.headers.get("authorization")?.startsWith("Bearer crk_")
-    return handler(req, {
-      env: { DB: {} },
-      params: ctx.params,
-      actor: bot
+    return ({ context: { env: { DB: {} }, actor: bot
         ? { kind: "bot", userId: "bot_1", ownerUserId: "u1", machineId: "machine_1" }
-        : { kind: "human", userId: "viewer_1", email: "viewer@example.com" },
-    })
-  },
+        : { kind: "human", userId: "viewer_1", email: "viewer@example.com" } } })
+  } }),
 }))
 
 import { GET } from "./route"

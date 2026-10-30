@@ -1,8 +1,9 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { contentDisposition, encodeRfc5987 } from "@/lib/content-disposition"
 import { NextResponse, type NextRequest } from "next/server"
 import { createLogger } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { authorizeAttachment } from "@/lib/community/attachment-authorization"
 import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE } from "@/lib/community/storage"
@@ -36,7 +37,6 @@ function parseByteRange(value: string, size: number): ParsedByteRange | null {
   return { offset, length: end - offset + 1, end }
 }
 
-
 /**
  * GET /api/community/channels/[id]/attachments/[attachmentId] — the canonical
  * attachment-download door. Dual-actor (route/disc trunk — folds the bot
@@ -53,7 +53,7 @@ function parseByteRange(value: string, size: number): ParsedByteRange | null {
  * when the DB row exists but R2 has drifted (infra fault, not a user-facing
  * gate). Response FORM forks by actor; the authz core is identical.
  */
-export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const attachmentId = ctx.params?.attachmentId
   if (!attachmentId) {
     return NextResponse.json({ error: "attachment not found" }, { status: 404 })

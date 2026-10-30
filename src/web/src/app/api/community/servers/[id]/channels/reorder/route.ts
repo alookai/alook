@@ -1,12 +1,13 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getPrimaryDb } from "@/lib/db"
 import { channelReorderRequestSchema, queries, WS_EVENTS } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
-export const PATCH = withAuth(async (req: NextRequest, ctx) => {
+export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
   const db = getPrimaryDb(ctx.env.DB)

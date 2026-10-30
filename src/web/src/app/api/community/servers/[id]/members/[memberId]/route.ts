@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -13,7 +14,7 @@ import {
 import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
-export const PATCH = withAuth(async (req: NextRequest, ctx) => {
+export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   const memberId = ctx.params?.memberId
   if (!serverId) return writeError("missing server id", 400)
@@ -51,7 +52,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const updated = await queries.communityMember.updateRole(db, memberId, body.role)
   if (!updated) return writeError("member not found", 404)
 
-
   fanOutToServerMembers(serverId, {
     type: WS_EVENTS.MEMBER_UPDATE,
     serverId,
@@ -62,7 +62,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   return writeJSON(updated)
 })
 
-export const DELETE = withAuth(async (_req, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const serverId = ctx.params?.id
   const memberId = ctx.params?.memberId
   if (!serverId) return writeError("missing server id", 400)

@@ -47,12 +47,7 @@ vi.mock("@alook/shared", async (importOriginal) => {
 })
 vi.mock("@/lib/db", () => ({ getDb: () => ({}) }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: Function) => (req: NextRequest, context?: { params?: Record<string, string> }) =>
-    handler(req, {
-      env: {},
-      userId: "owner-1",
-      params: context?.params,
-    }),
+  humanAuthPolicy: { resolve: async (req: NextRequest) => ({ context: { env: {}, userId: "owner-1" } }) },
 }))
 vi.mock("@/lib/community/bot-push", () => ({
   pushBotEventToMachine: (...args: unknown[]) => mocks.push(...args),

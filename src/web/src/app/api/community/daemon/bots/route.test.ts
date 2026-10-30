@@ -3,7 +3,7 @@ import { NextRequest } from "next/server"
 const mocks = vi.hoisted(() => ({ list: vi.fn(async () => []) }))
 vi.mock("@/lib/db", () => ({ getDb: () => "normal-db", getPrimaryDb: () => "primary-db" }))
 vi.mock("@alook/shared", () => ({ queries: { communityBot: { listBotsForMachine: mocks.list } } }))
-vi.mock("@/lib/middleware/community-daemon-auth", () => ({ withCommunityDaemonAuth: (handler: (req: NextRequest, ctx: unknown) => Promise<Response>) => (req: NextRequest) => handler(req, { env: { DB: {} }, machineId: "bound-machine" }) }))
+vi.mock("@/lib/middleware/community-daemon-auth", () => ({ machineAuthPolicy: { resolve: async (req: NextRequest) => ({ context: { env: { DB: {} }, machineId: "bound-machine" } }) } }))
 import { GET } from "./route"
 describe("daemon bound bot inventory", () => {
   it("keeps normal warmup active-only and scopes both modes to the authenticated machine", async () => {

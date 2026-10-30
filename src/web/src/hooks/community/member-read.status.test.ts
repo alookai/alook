@@ -7,9 +7,9 @@ import { membersPageQueryFn } from "./use-server-members"
 
 const state = vi.hoisted(() => ({ db: null as unknown, wire: null as unknown }))
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }))
-vi.mock("@/lib/middleware/community-actor", () => ({ withCommunityActor: (handler: (req: NextRequest, ctx: unknown) => Promise<Response>) => (req: NextRequest) => handler(req, { env: {}, actor: { kind: "human", userId: "viewer" }, params: { id: "server" } }) }))
+vi.mock("@/lib/middleware/community-actor", () => ({ communityActorPolicy: () => ({ resolve: async (req: NextRequest) => ({ context: { env: {}, actor: { kind: "human", userId: "viewer" } } }) }) }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: async () => {
-  const response = await GET(new NextRequest("https://app.example.test/api/community/servers/server/members"), {} as never)
+  const response = await GET(new NextRequest("https://app.example.test/api/community/servers/server/members"), { params: { id: "server" } })
   if (!response.ok) throw new Error(`Actual member producer refused ${response.status}`)
   state.wire = await response.json()
   return state.wire

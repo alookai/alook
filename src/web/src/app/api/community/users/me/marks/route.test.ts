@@ -51,24 +51,24 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: async (_db: unknown, id: string) => ({ ok: true, value: { channel: channelResourceFixture({ id, serverId: "s1", type: id === "c1" ? "thread" : "text", name: id === "c1" ? "general" : "Parent", parentChannelId: id === "c1" ? "parent1" : null, parentMessageId: id === "c1" ? "opener" : null }) } }) }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
+
     const bot = req.headers.get("x-test-actor") === "bot"
-    return handler(req, {
+    return ({ context: {
       env: { DB: {} },
       actor: bot
         ? { kind: "bot", userId: "bot_1", ownerUserId: "u1", machineId: "machine_1" }
         : { kind: "human", userId: "u1", email: "u@t.com" },
-      params,
-    })
-  }),
+
+    } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

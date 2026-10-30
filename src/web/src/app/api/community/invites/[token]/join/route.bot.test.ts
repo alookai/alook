@@ -58,7 +58,7 @@ import { isUniqueConstraintError } from "@alook/shared"
 // Bot-path coverage for the UNIFIED join route (folded from /agent/joinServer,
 // plan §9 phase 4/5). The token is a ROUTE PARAM now (`[token]`), not a body
 // field — the invite body carried it on the old flat /agent route; here it
-// rides `ctx.params.token`. A `crk_` bearer drives withCommunityActor's bot
+// rides `ctx.params.token`. A `crk_` bearer drives communityActorPolicy's bot
 // path (same resolveBotActor query mocks as before). The human path is covered
 // by the sibling route.test.ts.
 const TOKEN = "tok_abc"

@@ -325,7 +325,7 @@ describe("E2E UI workflow", () => {
     const producer = ciJob("ui-e2e-build")
     const shard = ciJob("e2e-ui")
     const gate = ciJob("ui-e2e-gate")
-    const devVars = "printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\\nBETTER_AUTH_URL=http://localhost:3000\\nDEVICE_CLIENT_IDS=e2e-test-client\\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\\nDEV_WS_DO_URL=http://localhost:3000\\nNODE_ENV=development\\n' > src/web/.dev.vars"
+    const devVars = "printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\\nBETTER_AUTH_URL=http://localhost:3000\\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\\nDEV_WS_DO_URL=http://localhost:3000\\nNODE_ENV=development\\n' > src/web/.dev.vars"
 
     expect(producer).toContain("image: ${{ fromJSON(needs.scope.outputs.e2e_matrix).include[0].image }}")
     expect(producer).toContain("options: --init --ipc=host --user 1001")

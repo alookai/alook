@@ -358,7 +358,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     onAuthenticated: handleAuthenticated,
     onForeground: handleForeground,
     onConnectionStateChange: handleConnectionStateChange,
-    requestDaemonStatusOnAuth: false,
   })
   useEffect(() => {
     reconnectTransportRef.current = reconnectNow

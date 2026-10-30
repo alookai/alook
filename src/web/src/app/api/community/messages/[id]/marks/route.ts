@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
@@ -21,7 +22,7 @@ import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 // Toggle-on: mark a message for the current user. Idempotent — a re-mark hits
 // UNIQUE(userId, messageId) and no-ops (markMessage uses onConflictDoNothing),
 // so the client can call it without a 409 dance.
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   let body: { channelId?: string }
   try {
@@ -58,7 +59,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 // Toggle-off: unmark a message for the current user. Self-scoped — deletes only
 // ctx.userId's own row; another user's mark on the same message is untouched
 // (0-row no-op). Returns ok whether or not a row existed (idempotent).
-export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const messageId = ctx.params?.id
   if (!messageId) return writeError("missing message id", 400)
@@ -74,7 +75,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
 // Menu-open check: is THIS message marked by the current user? Self-scoped
 // (WHERE userId=ctx.userId) — answers "did *I* mark it", never "did anyone",
 // so it can't leak another user's private mark state. One-row index lookup.
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
   if (!messageId) return writeError("missing message id", 400)
 

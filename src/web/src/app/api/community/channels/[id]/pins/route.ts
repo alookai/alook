@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { queries, isUniqueConstraintError, WS_EVENTS } from "@alook/shared"
@@ -8,9 +9,7 @@ import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
 
-
-
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -24,7 +23,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   return writeJSON({ pins, resources })
 })
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -74,7 +73,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     channelId,
     messageId: body.messageId,
   })
-
 
   return writeJSON(pin, 201)
 })

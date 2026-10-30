@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 const mocks = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }) }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: (req: NextRequest, ctx: unknown) => Promise<Response>) => async (req: NextRequest, context?: { params?: Promise<Record<string, string>> }) => {
-  if (req.headers.get("Cookie") !== "synthetic-human") return Response.json({}, { status: 401 })
-  return handler(req, { env: { DB: {} }, userId: "owner", params: await context?.params })
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: {
+  resolve: async (req: NextRequest) => req.headers.get("Cookie") !== "synthetic-human"
+    ? Response.json({}, { status: 401 })
+    : { context: { env: { DB: {} }, userId: "owner" } },
+  respond: (_req: NextRequest, response: Response) => response,
 } }))
 vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(), queries: { automation: { listAccessCodes: mocks.list, createAccessCode: mocks.create, updateAccessCode: mocks.update, deleteAccessCode: mocks.remove } } }))
 import { GET, POST } from "./route"

@@ -4,13 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   db: { primary: true },
   claimPendingEvents: vi.fn(),
-  withCookieHumanAuth: vi.fn(
-    (handler: (req: NextRequest, ctx: Record<string, any>) => Promise<Response>) =>
-      async (req: NextRequest) => handler(req, {
+  cookieHumanAuthPolicy: { resolve: async (req: NextRequest) => ({ context: {
         env: { DB: {} },
         userId: "session-user",
-      }),
-  ),
+      } }) },
 }))
 
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => mocks.db }))
@@ -22,7 +19,7 @@ vi.mock("@alook/shared", () => ({
   },
 }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withCookieHumanAuth: mocks.withCookieHumanAuth,
+  cookieHumanAuthPolicy: mocks.cookieHumanAuthPolicy,
 }))
 
 import { POST } from "./route"

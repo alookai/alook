@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import {
@@ -16,7 +17,7 @@ import { requireServerAdmin } from "@/lib/community/permissions"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
 import { isOwnedServerIconKey } from "@/lib/community/storage"
 
-export const PATCH = withAuth(async (req: NextRequest, ctx) => {
+export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
@@ -63,7 +64,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const updated = await queries.communityServer.updateServer(db, serverId, changes)
   if (!updated) return writeError("server not found", 404)
 
-
   fanOutToServerMembers(serverId, {
     type: WS_EVENTS.SERVER_UPDATE,
     serverId,
@@ -73,7 +73,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   return writeJSON(updated)
 })
 
-export const DELETE = withAuth(async (_req, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 

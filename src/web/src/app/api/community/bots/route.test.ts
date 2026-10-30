@@ -54,10 +54,11 @@ vi.mock("@/lib/community/bot-push", () => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  },
+  resolveHumanAuth: async () => ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } }),
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", async () => {

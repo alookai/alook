@@ -1,8 +1,9 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { NOTIFICATION_LEVEL_VALUES, queries } from "@alook/shared"
 import { requireServerMember } from "@/lib/community/permissions"
 import { getDb } from "@/lib/db"
-import { withAuth, type AuthContext } from "@/lib/middleware/auth"
+import { humanAuthPolicy, type AuthContext } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 
 async function authorize(ctx: AuthContext & { params?: Record<string, string> }) {
@@ -17,7 +18,7 @@ async function authorize(ctx: AuthContext & { params?: Record<string, string> })
   return { ok: true as const, db, botId: bot.id, serverId }
 }
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const auth = await authorize(ctx)
   if (!auth.ok) return auth.response
   const setting = await queries.communityNotificationSetting.getServerSetting(
@@ -26,7 +27,7 @@ export const GET = withAuth(async (_req, ctx) => {
   return writeJSON({ level: setting?.level ?? null })
 })
 
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const auth = await authorize(ctx)
   if (!auth.ok) return auth.response
   let body: { level?: string }
