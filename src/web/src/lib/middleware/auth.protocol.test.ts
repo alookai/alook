@@ -12,7 +12,7 @@ vi.mock("./community-agent-runner-auth", () => ({ resolveBotActor: mocks.bot }))
 vi.mock("@/lib/auth", () => ({ getAuth: vi.fn(() => ({ api: { getSession: mocks.session, signOut: mocks.signOut } })) }))
 vi.mock("@alook/shared", async original => {
   const actual = await original<typeof import("@alook/shared")>()
-  return { ...actual, createDb: vi.fn(() => ({})), queries: { ...actual.queries, machineToken: { ...actual.queries.machineToken, getMachineTokenByToken: mocks.machine, updateMachineTokenLastUsed: mocks.bump }, user: { ...actual.queries.user, getUserInternal: mocks.user } } }
+  return { ...actual, createDb: vi.fn(() => ({})), queries: { ...actual.queries, user: { ...actual.queries.user, getUserInternal: mocks.user } } }
 })
 
 beforeEach(() => {
@@ -97,20 +97,6 @@ describe("independent actor qualification", () => {
     const response = await wrap(kind, handler)(new NextRequest("https://alook.test/api/community/operation", { headers: { Cookie: "better-auth.session_token=live", Authorization: "Bearer invalid", ...(version === null ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(version) }) } }))
     expect(response.status).toBe(400)
     expect(handler).not.toHaveBeenCalled()
-  })
-  it.each(["auth", "optional", "actor"])("preserves current-header Cookie fallback (%s)", async kind => {
-    const handler = vi.fn(async () => NextResponse.json({ ok: true }))
-    const response = await wrap(kind, handler)(new NextRequest("https://alook.test/api/community/operation", { headers: { Cookie: "better-auth.session_token=live", Authorization: "Bearer invalid", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } }))
-    expect(response.status).toBe(200); expect(handler).toHaveBeenCalledOnce()
-    expect(mocks.session).toHaveBeenCalledOnce()
-  })
-  it.each([true, false])("qualifies machine credentials before an independent request (%s)", async valid => {
-    mocks.machine.mockResolvedValue(valid ? { id: "mt", userId: "viewer", userEmail: "current@example.test", workspaceId: null } : null)
-    const handler = vi.fn(async () => NextResponse.json({ ok: true }))
-    const response = await withAuth(handler)(new NextRequest("https://alook.test/api/community/operation", { headers: { Cookie: "better-auth.session_token=live", Authorization: "Bearer al_credential" } }))
-    expect(response.status).toBe(valid ? 200 : 401)
-    expect(handler).toHaveBeenCalledTimes(valid ? 1 : 0)
-    expect(mocks.machine).toHaveBeenCalledOnce(); expect(mocks.session).not.toHaveBeenCalled()
   })
   it.each([true, false])("qualifies bot credentials before an independent request (%s)", async valid => {
     mocks.bot.mockResolvedValue(valid ? { kind: "ok", actor: { botUserId: "bot", ownerUserId: "viewer", machineId: "machine", isActive: true } } : { kind: "error", response: NextResponse.json({ error: "invalid runner key" }, { status: 401 }) })

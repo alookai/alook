@@ -1,7 +1,5 @@
 import { createLogger, queries, WS_EVENTS, type Database } from "@alook/shared"
-import { cacheKeys, invalidateMany } from "@/lib/cache"
 import { getPrimaryDb } from "@/lib/db"
-import { broadcastToDaemon } from "@/lib/broadcast"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
 import { fanOutToUsers, broadcastToUserSafe } from "@/lib/community/fanout"
 import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
@@ -18,10 +16,6 @@ export type ExecuteAccountDeletionResult =
   | { kind: "failed" }
   | { kind: "pending" }
 
-async function invalidateMachineTokens(tokens: string[]): Promise<void> {
-  await invalidateMany(tokens.map((token) => cacheKeys.machineToken(token))).catch(() => {})
-}
-
 function scheduleAfterCommit(
   env: Env,
   executionContext: Pick<ExecutionContext, "waitUntil">,
@@ -33,10 +27,6 @@ function scheduleAfterCommit(
     ...snapshot.botBindings.map((binding) => pushBotEventToMachine(env, binding.machineId, {
       type: "bot:removed",
       botId: binding.botId,
-    })),
-    ...snapshot.legacyDaemons.map((daemon) => broadcastToDaemon(daemon.daemonId, {
-      type: "daemon.evict",
-      workspaceId: daemon.workspaceId,
     })),
     ...snapshot.ownedServers.map((server) => fanOutToUsers(server.memberIds, {
       type: WS_EVENTS.SERVER_DELETE,
@@ -74,19 +64,13 @@ export async function executeAccountDeletion(
     started = true
     const firstSnapshot = await queries.accountDeletion.getAccountDeletionSnapshot(db, userId)
     if (!firstSnapshot) return { kind: "missing" }
-    await invalidateMachineTokens(firstSnapshot.machineTokens)
     await forceCloseCommunityMachinesByDoNames(env, firstSnapshot.machineDoNames, true)
     await closeAccountBilling(finalDb, env, userId)
     const finalSnapshot = await queries.accountDeletion.getAccountDeletionSnapshot(finalDb, userId)
     if (!finalSnapshot) {
       await deleteAccountStorage(env, firstSnapshot)
-      await invalidateMachineTokens(firstSnapshot.machineTokens)
       return { kind: "missing" }
     }
-    const machineTokens = [...new Set([
-      ...firstSnapshot.machineTokens,
-      ...finalSnapshot.machineTokens,
-    ])]
     await Promise.all(
       finalSnapshot.providers
         .filter((provider) => provider.providerId === "apple")
@@ -101,7 +85,6 @@ export async function executeAccountDeletion(
     } catch (error) {
       const remaining = await queries.user.getUserInternal(getPrimaryDb(env.DB), userId)
       if (remaining) throw error
-      await invalidateMachineTokens(machineTokens)
       scheduleAfterCommit(env, executionContext, finalSnapshot, [])
       return { kind: "deleted" }
     }
@@ -110,7 +93,6 @@ export async function executeAccountDeletion(
       if (remaining) return { kind: "pending" }
     }
 
-    await invalidateMachineTokens(machineTokens)
     scheduleAfterCommit(env, executionContext, finalSnapshot, deletion.readStateRevisions)
     return { kind: "deleted" }
   } catch (error) {

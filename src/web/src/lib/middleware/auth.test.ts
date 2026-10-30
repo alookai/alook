@@ -15,10 +15,6 @@ vi.mock("@alook/shared", async (importOriginal) => ({
   ...await importOriginal<typeof import("@alook/shared")>(),
   createDb: vi.fn(() => ({})),
   queries: {
-    machineToken: {
-      getMachineTokenByToken: vi.fn(),
-      updateMachineTokenLastUsed: vi.fn(),
-    },
     user: {
       getUserInternal: vi.fn(),
     },
@@ -36,27 +32,12 @@ vi.mock("@/lib/auth", () => ({
   })),
 }));
 
-import { withAuth, withCookieHumanAuth, withOptionalAuth, warmMachineTokenCache } from "./auth";
+import { withAuth, withCookieHumanAuth, withOptionalAuth } from "./auth";
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, queries } from "@alook/shared";
 import { withCommunityActor, type CommunityActor } from "./community-actor";
 
-const mockGetMachineTokenByHash = queries.machineToken
-  .getMachineTokenByToken as ReturnType<typeof vi.fn>;
-const mockUpdateMachineTokenLastUsed = queries.machineToken
-  .updateMachineTokenLastUsed as ReturnType<typeof vi.fn>;
 const mockGetUserInternal = queries.user.getUserInternal as ReturnType<typeof vi.fn>;
 const mockGetCloudflareContext = getCloudflareContext as unknown as ReturnType<typeof vi.fn>;
-
-/** Build a stub KV and point the CF context at it for one test. */
-function bindMockKV(overrides?: { get?: ReturnType<typeof vi.fn> }) {
-  const kv = {
-    get: overrides?.get ?? vi.fn().mockResolvedValue(null),
-    put: vi.fn().mockResolvedValue(undefined),
-    delete: vi.fn().mockResolvedValue(undefined),
-  };
-  mockGetCloudflareContext.mockResolvedValue({ env: { DB: {}, CACHE_KV: kv }, ctx: { waitUntil: vi.fn() } });
-  return kv;
-}
 
 const testHandler = vi.fn(async (_req: NextRequest, ctx: any) =>
   NextResponse.json({ ok: true, ctx })
@@ -190,22 +171,6 @@ describe("withAuth middleware", () => {
     expect(await res.text()).toBe("media");
   });
 
-  it.each([200, 304])("varies private machine-token media status %s by both credential headers", async (status) => {
-    mockGetMachineTokenByHash.mockResolvedValue({ id: "mt-1", userId: "A", userEmail: "a@example.com", workspaceId: "ws-1" });
-    const res = await withAuth(async () => new Response(status === 304 ? null : "media", {
-      status, headers: { "Cache-Control": "private, max-age=31536000, immutable", Vary: "Accept-Encoding" },
-    }))(new NextRequest("http://localhost/media", { headers: { Authorization: "Bearer al_test" } }));
-    expect(res.status).toBe(status);
-    expect(res.headers.get("Vary")).toBe("Accept-Encoding, Cookie, Authorization, X-Alook-Bot-Id");
-  });
-
-  it("preserves asynchronous machine handler error propagation", async () => {
-    mockGetMachineTokenByHash.mockResolvedValue({ id: "mt-1", userId: "A", userEmail: "a@example.com", workspaceId: "ws-1" });
-    const failure = new Error("route failed");
-    const res = withAuth(async () => { throw failure; })(new NextRequest("http://localhost/media", { headers: { Authorization: "Bearer al_test" } }));
-    await expect(res).rejects.toBe(failure);
-  });
-
   it("preserves the declared public response policy", async () => {
     mockGetSession.mockResolvedValue({ headers: new Headers(), response: { user: { id: "A", email: "a@example.com" } } });
     const original = new Response("public", { headers: { "Cache-Control": "public, max-age=300", Vary: "Accept-Encoding" } });
@@ -260,166 +225,13 @@ describe("withAuth middleware", () => {
     expect(body.error).toBe("unauthorized");
   });
 
-  it("authenticates machine token (al_ prefix) via hash lookup", async () => {
-    mockGetMachineTokenByHash.mockResolvedValue({
-      id: "mt-1",
-      userId: "user-mt",
-      userEmail: "mt@example.com",
-      workspaceId: "ws-1",
-    });
-    mockUpdateMachineTokenLastUsed.mockResolvedValue(undefined);
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_secret_token" },
-    });
-    const res = await wrapped(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.ctx.userId).toBe("user-mt");
-    expect(body.ctx.email).toBe("mt@example.com");
-    expect(body.ctx.workspaceId).toBe("ws-1");
-    expect(mockGetMachineTokenByHash).toHaveBeenCalledOnce();
-  });
-
-  it("returns 401 for unknown machine token (getMachineTokenByToken returns null)", async () => {
-    mockGetMachineTokenByHash.mockResolvedValue(null);
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_invalid_token" },
-    });
-    const res = await wrapped(req);
-    const body = await res.json();
-
+  it("rejects retired al_ credentials without consulting a live cookie or infrastructure", async () => {
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: { user: { id: "owner", email: "owner@example.test" } } });
+    const res = await wrapped(new NextRequest("http://localhost/api/test", { headers: { Authorization: "Bearer al_retired", Cookie: "better-auth.session_token=live" } }));
     expect(res.status).toBe(401);
-    expect(body.error).toBe("invalid token");
-  });
-
-  it("returns 503 (not 401) when the D1 token lookup throws — transient, daemon must retry", async () => {
-    mockGetMachineTokenByHash.mockRejectedValue(new Error("D1 unavailable"));
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_valid_but_db_down" },
-    });
-    const res = await wrapped(req);
-    const body = await res.json();
-
-    // Must NOT be 401 — a DB blip is not a revoked token; the daemon uses 401
-    // to mark a workspace auth-failed, so a transient failure must be 503.
-    expect(res.status).toBe(503);
-    expect(body.error).not.toBe("invalid token");
-  });
-
-  it("updates lastUsedAt on machine token auth", async () => {
-    mockGetMachineTokenByHash.mockResolvedValue({
-      id: "mt-2",
-      userId: "user-mt2",
-      userEmail: "mt2@example.com",
-      workspaceId: null,
-    });
-    mockUpdateMachineTokenLastUsed.mockResolvedValue(undefined);
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_another_token" },
-    });
-    await wrapped(req);
-
-    expect(mockUpdateMachineTokenLastUsed).toHaveBeenCalledWith({}, "mt-2");
-  });
-
-  it("cold KV miss populates the merged entry and bumps last_used immediately", async () => {
-    const kv = bindMockKV();
-    mockGetMachineTokenByHash.mockResolvedValue({
-      id: "mt-cold",
-      userId: "user-cold",
-      userEmail: "cold@example.com",
-      workspaceId: null,
-    });
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_cold_token" },
-    });
-    const res = await wrapped(req);
-
-    expect(res.status).toBe(200);
-    expect(mockGetMachineTokenByHash).toHaveBeenCalledOnce();
-    expect(mockUpdateMachineTokenLastUsed).toHaveBeenCalledWith({}, "mt-cold");
-    // Entry written back with luAt so the throttle window starts now.
-    expect(kv.put).toHaveBeenCalledOnce();
-    const [, storedJson] = kv.put.mock.calls[0];
-    const stored = JSON.parse(storedJson);
-    expect(stored.row.id).toBe("mt-cold");
-    expect(typeof stored.luAt).toBe("number");
-  });
-
-  it("warm KV hit within throttle window skips D1 and does not bump", async () => {
-    const entry = {
-      row: { id: "mt-warm", userId: "user-warm", userEmail: "warm@example.com", workspaceId: "ws-w" },
-      luAt: Date.now(),
-    };
-    bindMockKV({ get: vi.fn().mockResolvedValue(JSON.stringify(entry)) });
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_warm_token" },
-    });
-    const res = await wrapped(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.ctx.userId).toBe("user-warm");
-    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
-    expect(mockUpdateMachineTokenLastUsed).not.toHaveBeenCalled();
-  });
-
-  it("warm KV hit past throttle window bumps last_used and refreshes luAt", async () => {
-    const stale = {
-      row: { id: "mt-stale", userId: "user-stale", userEmail: "stale@example.com", workspaceId: null },
-      luAt: Date.now() - 901_000,
-    };
-    const kv = bindMockKV({ get: vi.fn().mockResolvedValue(JSON.stringify(stale)) });
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_stale_token" },
-    });
-    const res = await wrapped(req);
-
-    expect(res.status).toBe(200);
-    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
-    expect(mockUpdateMachineTokenLastUsed).toHaveBeenCalledWith({}, "mt-stale");
-    expect(kv.put).toHaveBeenCalledOnce();
-  });
-
-  it("negative-caches an invalid token so a repeat request skips D1", async () => {
-    bindMockKV({ get: vi.fn().mockResolvedValue(JSON.stringify({ row: null, luAt: Date.now() })) });
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_negcached_token" },
-    });
-    const res = await wrapped(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(401);
-    expect(body.error).toBe("invalid token");
-    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
-  });
-
-  it("falls back to D1 when KV read throws (a blip must not 401 a valid token)", async () => {
-    bindMockKV({ get: vi.fn().mockRejectedValue(new Error("kv down")) });
-    mockGetMachineTokenByHash.mockResolvedValue({
-      id: "mt-blip",
-      userId: "user-blip",
-      userEmail: "blip@example.com",
-      workspaceId: null,
-    });
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_blip_token" },
-    });
-    const res = await wrapped(req);
-
-    expect(res.status).toBe(200);
-    expect(mockGetMachineTokenByHash).toHaveBeenCalledOnce();
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockGetCloudflareContext).not.toHaveBeenCalled();
+    expect(testHandler).not.toHaveBeenCalled();
   });
 
   it("resolves dynamic params from context", async () => {
@@ -529,7 +341,6 @@ describe("withOptionalAuth middleware", () => {
     expect(res.status).toBe(200);
     expect(body.ctx.userId).toBeUndefined();
     // The optional wrapper never touches the machine-token D1 lookup.
-    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
   });
 
   it("resolves dynamic params from context", async () => {
@@ -653,7 +464,6 @@ describe("withCookieHumanAuth middleware", () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "UNAUTHORIZED" });
     expect(mockGetSession).not.toHaveBeenCalled();
-    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
   });
 
   it("rejects a Better Auth bearer because deletion is cookie-session only", async () => {
@@ -798,51 +608,6 @@ describe("withCookieHumanAuth middleware", () => {
   });
 });
 
-describe("warmMachineTokenCache", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const row = {
-    id: "mt-warm",
-    userId: "user-warm",
-    userEmail: "warm@example.com",
-    workspaceId: "ws-w",
-    status: "active",
-  } as any;
-
-  it("writes a positive { row, luAt } entry at the 15-min TTL", async () => {
-    const kv = { get: vi.fn(), put: vi.fn().mockResolvedValue(undefined), delete: vi.fn() };
-    await warmMachineTokenCache(kv as any, "al_warm_token", row);
-
-    expect(kv.put).toHaveBeenCalledOnce();
-    const [key, value, opts] = kv.put.mock.calls[0];
-    expect(key).toBe(`mt:${"al_warm_token".slice(0, 20)}`);
-    const parsed = JSON.parse(value);
-    expect(parsed.row).toEqual(row);
-    expect(typeof parsed.luAt).toBe("number");
-    expect(opts.expirationTtl).toBe(900);
-  });
-
-  it("a subsequent withAuth read hits the warmed entry without touching D1", async () => {
-    const entry = { row, luAt: Date.now() };
-    bindMockKV({ get: vi.fn().mockResolvedValue(JSON.stringify(entry)) });
-    const wrapped = withAuth(testHandler);
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { Authorization: "Bearer al_warm_token" },
-    });
-    const res = await wrapped(req);
-
-    expect(res.status).toBe(200);
-    // Warm hit — no cold D1 read.
-    expect(mockGetMachineTokenByHash).not.toHaveBeenCalled();
-  });
-
-  it("is a no-op when KV is null (no throw)", async () => {
-    await expect(warmMachineTokenCache(null, "al_x", row)).resolves.toBeUndefined();
-  });
-});
-
-
 describe("human-only bot-selection rejection", () => {
   it.each([withAuth, withCookieHumanAuth, withOptionalAuth])("rejects bot selection before a human-only handler can mutate the owner (%#)", async (wrap) => {
     const handler = vi.fn(async () => NextResponse.json({ ok: true }))
@@ -864,7 +629,6 @@ describe("current contract with actual owner-delegated actor authentication", ()
     vi.clearAllMocks()
     mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} }, ctx: { waitUntil: vi.fn() } })
     mockGetSession.mockResolvedValue({ headers: new Headers(), response: { user: { id: "owner", email: "owner@example.test", isBot: false, deletedAt: null } } })
-    mockGetMachineTokenByHash.mockResolvedValue(null)
     ownedBot.mockResolvedValue({ id: "selected-bot", machineId: "machine", isActive: true })
   })
   it("admits the current owner session only after real auth and scoped bot resolution", async () => {
@@ -897,33 +661,12 @@ describe("current contract with actual owner-delegated actor authentication", ()
     expect(ownedBot).toHaveBeenCalledWith({}, "selected-bot", "owner")
     expect(route).not.toHaveBeenCalled()
   })
-  it("validates an invalid machine token before refusing missing-contract delegation", async () => {
+  it("rejects retired tokens before resolving an owner-selected bot", async () => {
     const req = request(null)
-    req.headers.set("Authorization", "Bearer al_invalid-composition-control")
+    req.headers.set("Authorization", "Bearer al_retired")
     const response = await withCommunityActor(route)(req)
     expect(response.status).toBe(401)
-    expect(mockGetMachineTokenByHash).toHaveBeenCalledWith({}, "al_invalid-composition-control")
-    expect(ownedBot).not.toHaveBeenCalled()
-    expect(route).not.toHaveBeenCalled()
-  })
-  it("allows the missing version only after a valid independent machine credential", async () => {
-    mockGetMachineTokenByHash.mockResolvedValue({ id: "machine-token", userId: "owner", userEmail: "owner@example.test" })
-    const req = request(null)
-    req.headers.set("Authorization", "Bearer al_valid-composition-control")
-    const response = await withCommunityActor(route)(req)
-    expect(response.status).toBe(200)
-    expect(mockGetMachineTokenByHash).toHaveBeenCalledWith({}, "al_valid-composition-control")
     expect(mockGetSession).not.toHaveBeenCalled()
-    expect(ownedBot).toHaveBeenCalledWith({}, "selected-bot", "owner")
-    expect(route).toHaveBeenCalledOnce()
-  })
-  it.each(["2", "3"])("refuses explicit old contract %s even after valid machine authentication", async version => {
-    mockGetMachineTokenByHash.mockResolvedValue({ id: "machine-token", userId: "owner", userEmail: "owner@example.test" })
-    const req = request(version)
-    req.headers.set("Authorization", "Bearer al_valid-composition-control")
-    const response = await withCommunityActor(route)(req)
-    expect(response.status).toBe(400)
-    expect(mockGetMachineTokenByHash).toHaveBeenCalledWith({}, "al_valid-composition-control")
     expect(ownedBot).not.toHaveBeenCalled()
     expect(route).not.toHaveBeenCalled()
   })

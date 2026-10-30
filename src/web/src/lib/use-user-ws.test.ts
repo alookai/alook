@@ -316,7 +316,7 @@ describe("useUserWs", () => {
   it("keeps bootstrap port discovery and authenticates a current SDK reconnect without another HTTP request", async () => {
     mockSdkSession.set(sdkSession())
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ userId: "user-1", token: "bootstrap-token", wsPort: 9123 }) })
-    await mountHook(vi.fn(), { viewerUserId: "user-1", communityContract: BUSINESS_SCHEMA_VERSION, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1", communityContract: BUSINESS_SCHEMA_VERSION })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -335,7 +335,7 @@ describe("useUserWs", () => {
   it.each(["pending", "error", "missing", "missing-session", "empty-id", "session-owner", "expired", "invalid-expiry"])("falls back without admitting %s SDK credentials", async (state) => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -362,7 +362,7 @@ describe("useUserWs", () => {
     mockSdkSession.set(sdkSession())
     const response = deferred<Response>()
     mockFetch.mockReturnValue(response.promise)
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const signal = mockFetch.mock.calls[0]![1].signal as AbortSignal
     mockSdkSession.set(sdkSession("user-2", "sdk-session-2", "other-sdk-token"))
     expect(signal.aborted).toBe(true)
@@ -378,7 +378,7 @@ describe("useUserWs", () => {
   it("rejects a foreign HTTP identity before socket construction", async () => {
     mockSdkSession.set(sdkSession())
     mockFetch.mockResolvedValue(Response.json({ userId: "user-2", token: "foreign-fixture-token" }))
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(MockWebSocket.instances).toEqual([])
     expect(mockFetch).toHaveBeenCalledOnce()
@@ -388,7 +388,7 @@ describe("useUserWs", () => {
   it.each([401, 403])("stops an HTTP%s credential sequence and refetches the native SDK at most once", async (status) => {
     mockSdkSession.set(sdkSession())
     mockFetch.mockResolvedValue({ ok: false, status })
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     mockDocument.dispatch("resume")
     mockWindow.dispatch("focus")
     await vi.advanceTimersByTimeAsync(60_000)
@@ -404,7 +404,7 @@ describe("useUserWs", () => {
   it("makes one authoritative fallback for a rejected SDK session and stops a fresh rejection until explicit Retry", async () => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -433,7 +433,7 @@ describe("useUserWs", () => {
     mockSdkSession.set(sdkSession())
     mockSdkSession.refetch.mockRejectedValueOnce(new Error("fixture SDK refetch exception"))
     mockFetch.mockResolvedValue({ ok: false, status: 401 })
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     mockDocument.dispatch("resume")
     mockWindow.dispatch("focus")
     await vi.advanceTimersByTimeAsync(60_000)
@@ -445,7 +445,7 @@ describe("useUserWs", () => {
   it("does not repeat an authoritative read after a transient fallback failure", async () => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -462,7 +462,7 @@ describe("useUserWs", () => {
   it.each(["Unsupported community contract", "Invalid JSON", "Not authenticated"])("keeps protocol policy close %s out of credential refresh", async (reason) => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -480,7 +480,7 @@ describe("useUserWs", () => {
   it("does not refresh credentials after a server contract frame even with an Unauthorized close", async () => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
-    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -536,7 +536,7 @@ describe("useUserWs", () => {
   it.each([undefined, 1, 2, 3, 6, BUSINESS_SCHEMA_VERSION + 1])("retires missing or unsupported business confirmation %s before application admission", async contract => {
     setupTokenFetch()
     const callback = vi.fn(), authenticated = vi.fn()
-    await mountHook(callback, { onAuthenticated: authenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(callback, { onAuthenticated: authenticated })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", ...(contract === undefined ? {} : { communityContract: contract }) })
@@ -598,7 +598,7 @@ describe("useUserWs", () => {
       }
     })
     const onAuthenticated = vi.fn()
-    await mountHook(callback, { communityContract: BUSINESS_SCHEMA_VERSION, requestDaemonStatusOnAuth: false, onAuthenticated })
+    await mountHook(callback, { communityContract: BUSINESS_SCHEMA_VERSION, onAuthenticated })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -723,31 +723,11 @@ describe("useUserWs", () => {
     expect(firstConnect).toBe(secondConnect)
   })
 
-  it.each<[string, UseUserWsOptions | undefined]>([
-    ["the option is omitted", undefined],
-    ["the option is explicitly true", { requestDaemonStatusOnAuth: true }],
-  ])("auth.ok sends the complete daemon-status frame when %s", async (_label, options) => {
+  it("auth.ok sends no legacy daemon-status request", async () => {
     setupTokenFetch()
 
     const onMsg = vi.fn()
-    await mountHook(onMsg, options)
-
-    const ws = MockWebSocket.instances[0]
-    ws.simulateOpen()
-    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
-
-    expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION }),
-      JSON.stringify({ type: "check_daemon_status" }),
-    ])
-    expect(onMsg).not.toHaveBeenCalled()
-  })
-
-  it("auth.ok suppresses daemon status and remains consumed when the option is false", async () => {
-    setupTokenFetch()
-
-    const onMsg = vi.fn()
-    await mountHook(onMsg, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMsg)
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
@@ -765,7 +745,7 @@ describe("useUserWs", () => {
       json: () => Promise.resolve({ userId: "user-1", token: "tok-123", wsPort: 3000 }),
     } as Response)
 
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
 
     expect(MockWebSocket.instances[0]?.url).toBe("ws://localhost:3000/api/ws/user?userId=user-1")
   })
@@ -775,7 +755,7 @@ describe("useUserWs", () => {
 
     const onMessage = vi.fn()
     const onAuthenticated = vi.fn()
-    await mountHook(onMessage, { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage, { onAuthenticated })
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
@@ -792,7 +772,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
 
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onAuthenticated })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
     effectCleanup?.()
@@ -800,32 +780,6 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
 
     expect(onAuthenticated).not.toHaveBeenCalled()
-  })
-
-  it("uses the latest option on the original socket without changing connect identity", async () => {
-    setupTokenFetch()
-
-    const onMsg = vi.fn()
-    const mod = await mountHook(onMsg, { requestDaemonStatusOnAuth: false })
-    const ws = MockWebSocket.instances[0]
-    ws.simulateOpen()
-    const firstConnect = callbackMemo.get("cb-1")?.fn
-
-    refCounter = 0
-    callbackCounter = 0
-    effectCounter = 0
-    mod.useUserWs(onMsg, { requestDaemonStatusOnAuth: true })
-    const secondConnect = callbackMemo.get("cb-1")?.fn
-
-    expect(secondConnect).toBe(firstConnect)
-    expect(MockWebSocket.instances).toEqual([ws])
-
-    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
-    expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION }),
-      JSON.stringify({ type: "check_daemon_status" }),
-    ])
-    expect(onMsg).not.toHaveBeenCalled()
   })
 
   it("effect cleanup nullifies wsRef.current and calls .close() — subsequent onclose skips reconnect", async () => {
@@ -908,7 +862,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
 
@@ -927,7 +880,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
@@ -954,7 +906,6 @@ describe("useUserWs", () => {
 
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
     expect(mockFetch).not.toHaveBeenCalled()
@@ -977,7 +928,6 @@ describe("useUserWs", () => {
 
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     mockNavigator.onLine = false
     mockWindow.dispatch("offline")
@@ -994,7 +944,6 @@ describe("useUserWs", () => {
 
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
 
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("reconnecting")
@@ -1007,7 +956,6 @@ describe("useUserWs", () => {
     const onAuthenticated = vi.fn()
     await mountHook(vi.fn(), {
       onAuthenticated,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
@@ -1033,7 +981,7 @@ describe("useUserWs", () => {
   it("manual Retry replaces a connecting online recovery and fences its late authentication", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onAuthenticated })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1067,7 +1015,7 @@ describe("useUserWs", () => {
 
   it("reports local retirement and remote close exactly once per socket", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1099,7 +1047,7 @@ describe("useUserWs", () => {
     [4321, "other"],
   ] as const)("normalizes remote close code %i to %s", async (code, reasonBucket) => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1129,7 +1077,7 @@ describe("useUserWs", () => {
       .mockReturnValueOnce(firstTokenResponse.promise)
       .mockReturnValueOnce(secondTokenResponse.promise)
 
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     latestHookResult!.reconnectNow()
     expect(mockFetch).toHaveBeenCalledTimes(2)
 
@@ -1151,7 +1099,7 @@ describe("useUserWs", () => {
 
   it("manual reconnect clears a scheduled automatic retry before opening one replacement", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateClose()
@@ -1169,7 +1117,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
@@ -1211,7 +1158,7 @@ describe("useUserWs", () => {
 
   it("classifies HTTP auth failures without recording token or close reason content", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 403 })
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
 
     expect(mockTrackCommunityWsAuthFailure).toHaveBeenCalledWith({
       failureClass: "credentials",
@@ -1254,7 +1201,7 @@ describe("useUserWs", () => {
 
   it("rechecks offline state before foreground validation after telemetry", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1277,7 +1224,6 @@ describe("useUserWs", () => {
 
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
 
     expect(onConnectionStateChange).toHaveBeenCalledWith("reconnecting")
@@ -1291,7 +1237,7 @@ describe("useUserWs", () => {
       ok: true,
       json: () => body.promise,
     } as Response)
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     expect(mockFetch).toHaveBeenCalledOnce()
 
     mockNavigator.onLine = false
@@ -1303,7 +1249,7 @@ describe("useUserWs", () => {
 
   it("does not run a scheduled retry if navigator becomes offline before it fires", async () => {
     mockFetch.mockRejectedValueOnce(new Error("network unavailable"))
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
 
     mockNavigator.onLine = false
@@ -1326,7 +1272,7 @@ describe("useUserWs", () => {
     vi.stubGlobal("WebSocket", ThrowingWebSocket)
     setupTokenFetch()
 
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
 
     expect(mockTrackCommunityWsLifecycleStage).toHaveBeenCalledWith(expect.objectContaining({
       stage: "open",
@@ -1337,7 +1283,7 @@ describe("useUserWs", () => {
 
   it("closes without authenticating if navigator becomes offline before open", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
 
     mockNavigator.onLine = false
@@ -1352,7 +1298,7 @@ describe("useUserWs", () => {
 
   it("reports an auth transport failure when the auth frame send throws", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.send = vi.fn(() => { throw new Error("auth send failed") })
 
@@ -1371,28 +1317,6 @@ describe("useUserWs", () => {
     }))
   })
 
-  it("retires and retries when the post-auth status frame send throws", async () => {
-    setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: true })
-    const ws = MockWebSocket.instances[0]!
-    const send = ws.send.bind(ws)
-    ws.send = vi.fn((data: string) => {
-      if (data === JSON.stringify({ type: "check_daemon_status" })) {
-        throw new Error("status send failed")
-      }
-      send(data)
-    })
-    ws.simulateOpen()
-
-    ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
-
-    expect(ws.closed).toBe(true)
-    expect(mockTrackCommunityWsLifecycleClose).toHaveBeenCalledWith(expect.objectContaining({
-      initiator: "local-retire",
-    }))
-    expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
-  })
-
   it("uses offline as a hard gate for pending tokens, retries, and manual recovery", async () => {
     const firstTokenResponse = deferred<Response>()
     mockFetch
@@ -1402,7 +1326,7 @@ describe("useUserWs", () => {
         json: () => Promise.resolve({ userId: "online-user", token: "online-token" }),
       })
 
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const firstSignal = (mockFetch.mock.calls[0]?.[1] as RequestInit).signal
 
     mockNavigator.onLine = false
@@ -1435,7 +1359,7 @@ describe("useUserWs", () => {
 
   it("keeps an authenticated socket silent offline and validates it once online", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1469,7 +1393,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
     const onMessage = vi.fn()
     const onReconnect = vi.fn()
-    await mountHook(onMessage, { onReconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage, { onReconnect })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1501,7 +1425,7 @@ describe("useUserWs", () => {
   it("defers offline gap reconciliation to replacement auth after validation failure", async () => {
     setupTokenFetch()
     const onReconnect = vi.fn()
-    const mod = await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn(), { onReconnect })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1538,7 +1462,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -1566,7 +1489,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -1588,7 +1510,7 @@ describe("useUserWs", () => {
   it("retires an open pre-auth socket offline and ignores every late frame", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onAuthenticated })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION }))
@@ -1613,7 +1535,7 @@ describe("useUserWs", () => {
 
   it("cancels a scheduled retry offline and starts one replacement online", async () => {
     mockFetch.mockRejectedValueOnce(new Error("network unavailable"))
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     expect(mockTrackCommunityWsRetryScheduled).toHaveBeenCalledOnce()
 
     mockNavigator.onLine = false
@@ -1635,7 +1557,7 @@ describe("useUserWs", () => {
 
   it("suppresses reconnect while hidden and reconnects immediately when visible", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1660,7 +1582,6 @@ describe("useUserWs", () => {
     const interval = vi.spyOn(globalThis, "setInterval")
     try {
       await mountHook(vi.fn(), {
-        requestDaemonStatusOnAuth: false,
         onAuthenticated: () => {
           mockDocument.visibilityState = "hidden"
           mockDocument.dispatch("visibilitychange")
@@ -1691,7 +1612,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -1721,7 +1641,7 @@ describe("useUserWs", () => {
 
   it("does not recover for initial pageshow or element focus", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1739,7 +1659,7 @@ describe("useUserWs", () => {
 
   it("validates once for page-level focus and coalesces the foreground event storm", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1770,7 +1690,7 @@ describe("useUserWs", () => {
 
   it("replaces expired CONNECTING and CLOSING sockets with bounded ready-state telemetry", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const connecting = MockWebSocket.instances[0]!
 
     vi.setSystemTime(Date.now() + mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS + 1)
@@ -1803,7 +1723,7 @@ describe("useUserWs", () => {
 
   it("preserves a remote initiator when recovery races a remote closing handshake", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1829,7 +1749,7 @@ describe("useUserWs", () => {
 
   it("clears a pending reconnect when the page becomes hidden", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1846,7 +1766,7 @@ describe("useUserWs", () => {
 
   it("clears a pending reconnect before an immediate foreground replacement", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -1869,7 +1789,6 @@ describe("useUserWs", () => {
     const mod = await mountHook(vi.fn(), {
       onDisconnect,
       onReconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
@@ -1935,7 +1854,6 @@ describe("useUserWs", () => {
     const mod = await mountHook(vi.fn(), {
       onDisconnect,
       onReconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
@@ -1972,7 +1890,7 @@ describe("useUserWs", () => {
   it("uses a wall-clock gap as a local visible sentinel without ordinary polling", async () => {
     setupTokenFetch()
     const intervalSpy = vi.spyOn(globalThis, "setInterval")
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2002,7 +1920,7 @@ describe("useUserWs", () => {
   it("keeps sentinel work local while hidden and clears it on cleanup", async () => {
     setupTokenFetch()
     const intervalSpy = vi.spyOn(globalThis, "setInterval")
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2038,7 +1956,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
 
@@ -2065,7 +1982,6 @@ describe("useUserWs", () => {
     const onAuthenticated = vi.fn()
     await mountHook(vi.fn(), {
       onAuthenticated,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
@@ -2089,7 +2005,7 @@ describe("useUserWs", () => {
 
   it("keeps an OPEN pre-auth event storm inside the original auth deadline", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     const fetchCount = mockFetch.mock.calls.length
@@ -2120,7 +2036,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     const mod = await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -2154,7 +2069,7 @@ describe("useUserWs", () => {
     const dataWork = new Promise<void>((resolve) => { finish = resolve })
     const onForeground = vi.fn(() => dataWork)
     const onReconnect = vi.fn()
-    await mountHook(vi.fn(), { onForeground, onReconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground, onReconnect })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2182,7 +2097,7 @@ describe("useUserWs", () => {
     const token = deferred<Response>()
     mockFetch.mockReturnValueOnce(token.promise)
     const onForeground = vi.fn()
-    await mountHook(vi.fn(), { onForeground, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground })
     dispatchWindowFocus()
     expect(onForeground).not.toHaveBeenCalled()
     mockDocument.dispatch("resume")
@@ -2208,7 +2123,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const onForeground = vi.fn(() => { throw new Error("data unavailable") })
-    await mountHook(vi.fn(), { onForeground, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2231,7 +2146,7 @@ describe("useUserWs", () => {
 
   it("coalesces an offline-online signal pair while foreground validation is pending", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2248,7 +2163,7 @@ describe("useUserWs", () => {
 
   it("keeps a cleared foreground validation timer inert", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2278,7 +2193,6 @@ describe("useUserWs", () => {
     })
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -2301,7 +2215,6 @@ describe("useUserWs", () => {
     const onDisconnect = vi.fn()
     await mountHook(vi.fn(), {
       onDisconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     const send = ws.send.bind(ws)
@@ -2329,7 +2242,6 @@ describe("useUserWs", () => {
     const mod = await mountHook(vi.fn(), {
       onConnectionStateChange,
       onDisconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
@@ -2371,7 +2283,6 @@ describe("useUserWs", () => {
     const onDisconnect = vi.fn()
     const mod = await mountHook(vi.fn(), {
       onDisconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -2403,7 +2314,7 @@ describe("useUserWs", () => {
 
   it("coalesces visible, pageshow, and online while one replacement token request is pending", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2430,7 +2341,7 @@ describe("useUserWs", () => {
 
   it("lets an exact response queued first at the deadline win without a reconnect", async () => {
     setupTokenFetch()
-    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2451,7 +2362,6 @@ describe("useUserWs", () => {
     const onDisconnect = vi.fn()
     const mod = await mountHook(vi.fn(), {
       onDisconnect,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -2480,7 +2390,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     const mod = await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -2510,7 +2419,6 @@ describe("useUserWs", () => {
     const onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), {
       onConnectionStateChange,
-      requestDaemonStatusOnAuth: false,
     })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -2541,7 +2449,7 @@ describe("useUserWs", () => {
   it("uses full jitter, preserves the failure window across manual retries, and resets on auth.ok", async () => {
     const random = vi.spyOn(Math, "random").mockReturnValue(0.5)
     mockFetch.mockRejectedValue(new Error("network error"))
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
 
     expect(mockTrackCommunityWsAuthFailure).toHaveBeenCalledWith({
       failureClass: "network",
@@ -2612,8 +2520,8 @@ describe("useUserWs", () => {
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
-    send({ type: "check_daemon_status" })
-    expect(ws.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+    send({ type: "connection.ping", nonce: "manual-ping" })
+    expect(ws.sent).toContain(JSON.stringify({ type: "connection.ping", nonce: "manual-ping" }))
   })
 
   it("send() is a no-op when WS is not connected", async () => {
@@ -2732,7 +2640,7 @@ describe("useUserWs", () => {
   it("drops application frames until auth.ok commits the connection generation", async () => {
     setupTokenFetch()
     const onMessage = vi.fn()
-    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage)
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
@@ -2747,7 +2655,7 @@ describe("useUserWs", () => {
   it("does not report an access disconnect for a socket that never authenticated", async () => {
     setupTokenFetch()
     const onDisconnect = vi.fn()
-    await mountHook(vi.fn(), { onDisconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onDisconnect })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
@@ -2759,7 +2667,7 @@ describe("useUserWs", () => {
   it("does not classify a replacement for an unauthenticated failed generation as reconnect", async () => {
     setupTokenFetch()
     const onReconnect = vi.fn()
-    await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onReconnect })
     const first = MockWebSocket.instances[0]
     first.simulateOpen()
     first.simulateClose()
@@ -2776,7 +2684,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const onMessage = vi.fn()
-    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage)
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
@@ -2799,7 +2707,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const onMessage = vi.fn()
-    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage)
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
     warn.mockClear()
@@ -2813,7 +2721,7 @@ describe("useUserWs", () => {
   it("refreshes the liveness deadline when a raw pong arrives", async () => {
     setupTokenFetch()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn())
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2833,7 +2741,7 @@ describe("useUserWs", () => {
   it("consumes duplicate auth.ok frames once per generation", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onAuthenticated })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
@@ -2846,7 +2754,7 @@ describe("useUserWs", () => {
   it("fires reconnect only after replacement authentication and passes gap duration", async () => {
     setupTokenFetch()
     const onReconnect = vi.fn()
-    await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onReconnect })
     const first = MockWebSocket.instances[0]
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2865,7 +2773,7 @@ describe("useUserWs", () => {
     expect(onReconnect).toHaveBeenCalledWith({ reconnectDurationMs: 2_000 })
   })
 
-  it("commits auth before callbacks and preserves authenticated → reconnect → status order", async () => {
+  it("commits auth before callbacks and preserves authenticated → reconnect order", async () => {
     setupTokenFetch()
     const trace: string[] = []
     const onMessage = vi.fn(() => trace.push("message"))
@@ -2889,7 +2797,7 @@ describe("useUserWs", () => {
     replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     replacement.simulateMessage({ type: "task.updated", taskId: "after-auth" })
 
-    expect(trace).toEqual(["authenticated", "reconnect", "status", "message"])
+    expect(trace).toEqual(["authenticated", "reconnect", "message"])
   })
 
   it("does not send or start heartbeat after onAuthenticated synchronously reconnects", async () => {
@@ -2900,7 +2808,7 @@ describe("useUserWs", () => {
       reconnectDuringCallback = false
       latestHookResult!.reconnectNow()
     })
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: true })
+    await mountHook(vi.fn(), { onAuthenticated })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2916,7 +2824,7 @@ describe("useUserWs", () => {
   it("does not continue an old auth.ok after onReconnect synchronously replaces it", async () => {
     setupTokenFetch()
     const onReconnect = vi.fn(() => latestHookResult!.reconnectNow())
-    await mountHook(vi.fn(), { onReconnect, requestDaemonStatusOnAuth: true })
+    await mountHook(vi.fn(), { onReconnect })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -2943,20 +2851,19 @@ describe("useUserWs", () => {
       onAuthenticated,
       onDisconnect,
       onReconnect,
-      requestDaemonStatusOnAuth: true,
     })
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
 
     expect(() => ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })).not.toThrow()
-    expect(ws.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+    expect(ws.sent).not.toContain(JSON.stringify({ type: "check_daemon_status" }))
     expect(() => ws.simulateClose()).not.toThrow()
     setupTokenFetch()
     await vi.advanceTimersByTimeAsync(2_000)
     const replacement = MockWebSocket.instances.at(-1)!
     replacement.simulateOpen()
     expect(() => replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })).not.toThrow()
-    expect(replacement.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+    expect(replacement.sent).not.toContain(JSON.stringify({ type: "check_daemon_status" }))
     await flushPromises()
     expect(warn.mock.calls.flat()).not.toContain("secret sync error")
     expect(warn.mock.calls.flat()).not.toContain("secret async error")
@@ -2966,7 +2873,7 @@ describe("useUserWs", () => {
   it("caps community frames without imposing the cap on generic frames", async () => {
     setupTokenFetch()
     const onMessage = vi.fn()
-    await mountHook(onMessage, { requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage)
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -3002,7 +2909,7 @@ describe("useUserWs", () => {
       const tokenResponse = deferred<never>()
       if (kind === "token") mockFetch.mockReturnValueOnce(tokenResponse.promise)
       else setupTokenFetch()
-      const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+      const mod = await mountHook(vi.fn())
       const old = MockWebSocket.instances[0]
       if (old) {
         old.close = vi.fn(() => { old.readyState = MockWebSocket.CLOSING })
@@ -3034,7 +2941,7 @@ describe("useUserWs", () => {
   it.each(["authentication", "heartbeat"] as const)("retires %s timeout without waiting for close and ignores every stale callback", async (kind) => {
     setupTokenFetch()
     const onDisconnect = vi.fn(), onReconnect = vi.fn(), onMessage = vi.fn(), onConnectionStateChange = vi.fn()
-    const mod = await mountHook(onMessage, { onDisconnect, onReconnect, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    const mod = await mountHook(onMessage, { onDisconnect, onReconnect, onConnectionStateChange })
     const old = MockWebSocket.instances[0]!
     old.close = vi.fn(() => { old.readyState = MockWebSocket.CLOSING })
     old.simulateOpen()
@@ -3072,7 +2979,7 @@ describe("useUserWs", () => {
     }) } } })
     setupTokenFetch()
     const onForeground = vi.fn(), onConnectionStateChange = vi.fn()
-    await mountHook(vi.fn(), { onForeground, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground, onConnectionStateChange })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
@@ -3112,7 +3019,7 @@ describe("useUserWs", () => {
     }) } } })
     setupTokenFetch()
     const onForeground = vi.fn(), onConnectionStateChange = vi.fn()
-    await mountHook(vi.fn(), { onForeground, onConnectionStateChange, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), { onForeground, onConnectionStateChange })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })

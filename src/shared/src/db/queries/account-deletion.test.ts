@@ -308,8 +308,6 @@ describe("account deletion snapshot and delete queries", () => {
     expect(snapshot!.providers).toHaveLength(1)
     expect(snapshot!.ownedWorkspaceIds).toEqual([ownedWorkspace])
     expect(snapshot!.ownedAgentIds.sort()).toEqual([ownedAgent, sharedOwnedAgent].sort())
-    expect(snapshot!.legacyDaemons).toEqual([{ workspaceId: sharedWorkspace, daemonId: daemon }])
-    expect(snapshot!.machineTokens.sort()).toEqual(["al_owner_token", "al_workspace_token"])
     expect(snapshot!.machineDoNames).toEqual(["b".repeat(32)])
     expect(snapshot!.botBindings).toEqual([{ botId: bot, machineId: "community_machine_1" }])
     expect(snapshot!.ownedServers).toEqual(expect.arrayContaining([

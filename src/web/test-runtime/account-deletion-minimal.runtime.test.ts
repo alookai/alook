@@ -179,7 +179,6 @@ describe("minimal account deletion real D1 batch", () => {
     expect(snapshot?.identities.map((row) => row.id).sort()).toEqual([bot, owner].sort())
     expect(snapshot?.ownedWorkspaceIds).toEqual([workspace])
     expect(snapshot?.ownedAgentIds.sort()).toEqual([`agent_${stamp}`, ownedSharedAgent].sort())
-    expect(snapshot?.machineTokens.sort()).toEqual([ownerMachineToken, workspaceMachineToken].sort())
     expect(snapshot?.media.communityExactKeys).not.toContain(threadAttachment)
     expect(snapshot?.media.communityExactKeys).not.toContain(pendingServerAttachmentKey)
     expect(snapshot?.media.communityExactKeys).not.toContain(pendingThreadAttachmentKey)

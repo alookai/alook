@@ -3,9 +3,7 @@
 import { runInDurableObject } from "cloudflare:test"
 import { env, exports } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { BUSINESS_SCHEMA_VERSION, CommunityForumSidebarEnvelopeSchema, CommunityForumSidebarChannelSummarySchema, ClaimedTaskRowSchema, createDb, queries, schema } from "@alook/shared"
-import { bindCacheKV, businessCacheKey, cacheKeys } from "@/lib/cache"
-import { TaskPayloadBuilder } from "@/lib/services/task-payload-builder"
+import { BUSINESS_SCHEMA_VERSION, CommunityForumSidebarEnvelopeSchema, CommunityForumSidebarChannelSummarySchema, createDb, queries } from "@alook/shared"
 import { hydrateAttentionResources, readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 
 const runtimeEnv = env as unknown as CloudflareEnv
@@ -85,64 +83,6 @@ describe("Web workerd runtime", () => {
       { ...value, resources: { ...resources, memberships: resources.memberships.filter(row => row.relation !== "notify") } },
     ]) expect(CommunityForumSidebarEnvelopeSchema.safeParse(broken).success).toBe(false)
   })
-
-  it.each(["hit", "wrong-version", "bad-json", "missing-field", "wrong-scope", "wrong-value-identity", "unversioned"])(
-    "uses actual TaskPayloadBuilder D1/KV inputs for a %s cache value",
-    async mode => {
-      const db = createDb(runtimeEnv.DB)
-      bindCacheKV(runtimeEnv.CACHE_KV)
-      const owner = await queries.user.createUser(db, { name: "D1 Owner", email: `${crypto.randomUUID()}@runtime.test` })
-      const [workspace] = await db.insert(schema.workspace).values({ name: "Runtime workspace", slug: crypto.randomUUID() }).returning()
-      const [runtime] = await db.insert(schema.agentRuntime).values({ workspaceId: workspace.id, daemonId: crypto.randomUUID(), provider: "codex" }).returning()
-      await queries.member.createMember(db, { workspaceId: workspace.id, userId: owner.id, role: "owner" })
-      await queries.member.updateMemberGlobalInstruction(db, owner.id, workspace.id, "D1 instructions")
-      const agent = await queries.agent.createAgent(db, { workspaceId: workspace.id, name: "Runtime agent", ownerId: owner.id, runtimeId: runtime.id })
-      const conversation = await queries.conversation.createConversation(db, { workspaceId: workspace.id, agentId: agent.id, userId: owner.id, title: "Runtime conversation" })
-      const row = await queries.task.createTask(db, { workspaceId: workspace.id, agentId: agent.id, runtimeId: runtime.id, conversationId: conversation.id, prompt: "Runtime cache check" })
-      await queries.emailAccount.createEmailAccount(db, {
-        workspaceId: workspace.id, agentId: agent.id, emailAddress: "d1@runtime.test",
-        imapHost: "imap.runtime.test", imapUsername: "fixture", imapPassword: "fixture-unused",
-        smtpHost: "smtp.runtime.test", smtpUsername: "fixture", smtpPassword: "fixture-unused",
-      })
-      const values = [
-        [cacheKeys.allEmailAccounts(workspace.id), [{ workspaceId: workspace.id, agentId: agent.id, emailAddress: "cached@runtime.test" }]],
-        [cacheKeys.member(workspace.id, owner.id), { workspaceId: workspace.id, userId: owner.id, globalInstruction: "Cached instructions" }],
-        [cacheKeys.user(owner.id), { id: owner.id, name: "Cached Owner", email: owner.email }],
-      ] as const
-      for (const [key, value] of values) {
-        let cacheKey: string = key
-        let payload: unknown = value
-        if (mode === "missing-field") payload = Array.isArray(value) ? [{}] : {}
-        if (mode === "wrong-scope") cacheKey = `other:${key}`
-        if (mode === "wrong-value-identity") {
-          if (Array.isArray(value)) payload = value.map(row => ({ ...row, workspaceId: "other-workspace" }))
-          else if ("userId" in value) payload = { ...value, userId: "other-user", workspaceId: "other-workspace" }
-          else payload = { ...value, id: "other-user" }
-        }
-        const body = mode === "unversioned" ? payload : {
-          schemaVersion: mode === "wrong-version" ? BUSINESS_SCHEMA_VERSION - 1 : BUSINESS_SCHEMA_VERSION,
-          cacheKey, value: payload,
-        }
-        await runtimeEnv.CACHE_KV.put(businessCacheKey(key), mode === "bad-json" ? "not-json" : JSON.stringify(body))
-      }
-      try {
-        const [payload] = await new TaskPayloadBuilder(db).buildFullPayloads([ClaimedTaskRowSchema.parse(row)], workspace.id)
-        expect(payload.agent?.user_name).toBe(mode === "hit" ? "Cached Owner" : "D1 Owner")
-        expect(payload.agent?.instructions).toBe(mode === "hit" ? "Cached instructions" : "D1 instructions")
-        expect(payload.agent?.email_addresses).toEqual([mode === "hit" ? "cached@runtime.test" : "d1@runtime.test"])
-        expect(payload.sender?.name).toBe(mode === "hit" ? "Cached Owner" : "D1 Owner")
-        for (const [key] of values) {
-          const saved = JSON.parse((await runtimeEnv.CACHE_KV.get(businessCacheKey(key)))!)
-          expect(saved).toMatchObject({ schemaVersion: BUSINESS_SCHEMA_VERSION, cacheKey: key })
-          expect(Object.keys(saved).sort()).toEqual(["cacheKey", "schemaVersion", "value"])
-          expect(JSON.stringify(saved.value)).not.toContain("fixture-unused")
-        }
-      } finally {
-        await Promise.all(values.map(([key]) => runtimeEnv.CACHE_KV.delete(businessCacheKey(key))))
-        bindCacheKV(null)
-      }
-    },
-  )
 
   it("loads production migrations and local storage bindings", async () => {
     const schema = await runtimeEnv.DB.prepare(

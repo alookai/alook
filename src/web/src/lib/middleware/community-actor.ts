@@ -6,28 +6,11 @@ import { COMMUNITY_BOT_ACTOR_HEADER } from "@alook/shared"
 import { resolveBotActor, resolveOwnedBotActor } from "./community-agent-runner-auth"
 import { protectCommunityJsonResponse, rejectUnknownCommunityContract, varyPrivateResponseByCredentials } from "./response-cache"
 
-/**
- * The unified community actor — the single identity a `/api/community/*` route
- * handler runs as, whether the caller is a signed-in human (Better-Auth session
- * or `al_` machine token) or a bot (a `crk_` runner key). It fuses the two
- * pre-existing wrappers (`withAuth` for humans, `withAgentRunnerAuth` for bots)
- * behind one decorator so a route can serve both callers and branch on
- * `actor.kind` for the few genuinely bot-specific semantics (channel-alignment
- * gate on send, invite owner-gate on join).
- *
- * Discriminated on `kind` (NOT a flat `isBot` boolean): the semantic branches
- * read `actor.kind === "bot"` and, in that arm, `ownerUserId`/`machineId` are
- * present without a non-null assertion. `userId` is common to both arms — for a
- * bot it IS the bot's own user id ("bots are users"), so an unbranched handler
- * that only reads `actor.userId` works identically for either caller.
- */
 export type CommunityActor =
   | {
       kind: "human"
       userId: string
       email: string
-      /** Present on the `al_`/session human path; absent for a bot. */
-      workspaceId?: string
       /**
        * The session user's `isBot` flag, carried through from withAuth's
        * AuthContext. Always false in production (a bot session is rejected at
@@ -61,23 +44,6 @@ export type CommunityActorHandler = (
   ctx: CommunityActorContext,
 ) => Promise<NextResponse | Response>
 
-/**
- * Wrap a `/api/community/*` route handler with unified actor resolution.
- *
- * Auth routing (by the `Authorization` header):
- *   - `Bearer crk_…` → bot path: resolve via the shared `resolveBotActor`.
- *     A `crk_` bearer that FAILS to resolve returns its 401/503 and NEVER
- *     falls through to the human path (a malformed bot token must not be
- *     retried as an anonymous human — that would leak the human 401 shape and
- *     mask a revoked key).
- *   - anything else → human path: delegated VERBATIM to `withAuth`, reusing its
- *     machine-token KV cache, Better-Auth session guard (bot-session rejection,
- *     soft-delete check), and Set-Cookie refresh untouched. The human
- *     `AuthContext` is adapted into `{ kind: "human", … }`.
- *
- * A bot request never pays the session-validation cost; a human never hits the
- * runner-key lookups.
- */
 export function withCommunityActor(
   handler: CommunityActorHandler,
   options: { allowInactiveBot?: boolean } = {},
@@ -102,9 +68,6 @@ function createCommunityActorHandler(
 
     const authHeader = req.headers.get("Authorization")
 
-    // Bot path — only when a crk_ bearer is actually present. `resolveBotActor`
-    // returns `not_bot` for any other header (including an `al_` machine token
-    // or a session cookie), which we route to the human `withAuth` path below.
     if (authHeader?.startsWith("Bearer ") && authHeader.slice(7).trim().startsWith("crk_")) {
       if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)) {
         return NextResponse.json({ error: "runner keys cannot select another bot" }, { status: 403 })
@@ -159,7 +122,6 @@ function createCommunityActorHandler(
           kind: "human",
           userId: humanCtx.userId,
           email: humanCtx.email,
-          workspaceId: humanCtx.workspaceId,
           isBot: humanCtx.user?.isBot,
         },
         params: humanCtx.params,

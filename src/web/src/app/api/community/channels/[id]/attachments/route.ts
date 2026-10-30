@@ -33,7 +33,6 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     env: ctx.env,
     userId: ctx.actor.userId,
     email: ctx.actor.email,
-    workspaceId: ctx.actor.workspaceId,
     params: ctx.params,
   })
 })

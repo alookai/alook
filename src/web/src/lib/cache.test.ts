@@ -192,7 +192,6 @@ describe("cache", () => {
       expect(cacheKeys.user("usr1")).toBe("task-payload:user-identity:usr1");
       expect(cacheKeys.allEmailAccounts("ws1")).toBe("task-payload:email-addresses:ws1");
       expect(cacheKeys.allHandles("ws1")).toBe("handles:ws1");
-      expect(cacheKeys.machineToken("al_1234567890abcdefghij_rest")).toBe("mt:al_1234567890abcdefg");
       expect(cacheKeys.runtimeIds("ws1", "d1")).toBe("rt:ws1:d1");
     });
 

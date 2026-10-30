@@ -269,7 +269,6 @@ describe("useCommunityWs — double-mount detection", () => {
     expect(useUserWsCallCount).toBe(1)
     expect(capturedOnMessage).not.toBeNull()
     expect(capturedOnReconnect).not.toBeNull()
-    expect(capturedUseUserWsOptions?.requestDaemonStatusOnAuth).toBe(false)
     expect(capturedUseUserWsOptions).not.toHaveProperty("capabilities")
   })
 

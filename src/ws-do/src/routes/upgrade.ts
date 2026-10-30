@@ -17,16 +17,6 @@ export async function handleUpgrade({ request, env, url, traceId, log }: RouterC
     return stub.fetch(request)
   }
 
-  const daemonId = url.searchParams.get("daemonId")
-  if (daemonId) {
-    const reqLog = log.child({ traceId, daemonId })
-    reqLog.info("daemon websocket upgrade")
-
-    const doId = env.WS_DO.idFromName("daemon:" + daemonId)
-    const stub = env.WS_DO.get(doId)
-    return stub.fetch(request)
-  }
-
   const userId = url.searchParams.get("userId")
   if (!userId) return new Response("userId required", { status: 400 })
 

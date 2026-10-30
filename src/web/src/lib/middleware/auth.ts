@@ -2,16 +2,15 @@ import { observeWorkerOperation } from "@/lib/observability/worker"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { COMMUNITY_BOT_ACTOR_HEADER, queries } from "@alook/shared"
-import { getDb, getPrimaryDb } from "@/lib/db"
+import { getPrimaryDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
-import { getKV, cacheKeys, bindCacheKV } from "@/lib/cache"
+import { bindCacheKV } from "@/lib/cache"
 import { protectCommunityJsonResponse, rejectUnknownCommunityContract, varyPrivateResponseByCredentials } from "./response-cache"
 
 export interface AuthContext {
   env: Env
   userId: string
   email: string
-  workspaceId?: string
   /**
    * The authenticated user's internal flags. Populated from the request-time
    * session guard. `isBot` is always false in production (a bot session is
@@ -41,55 +40,6 @@ interface OptionalAuthContext {
   userId?: string
   email?: string
   user?: { isBot: boolean }
-}
-
-/**
- * Merged machine-token cache entry. One KV read per authenticated request
- * yields BOTH the token-validation result (`row`) and the last-used bump
- * throttle (`luAt`, the epoch ms of the last `last_used_at` D1 write),
- * replacing the old two-key `mt:` + `mt_lu:` pair.
- *
- * `row: null` is a NEGATIVE cache — an invalid token is remembered so a
- * repeated bad token doesn't re-hit D1 every request. A token string only
- * exists after `createMachineToken` commits, and revoke/delete paths
- * `invalidate(cacheKeys.machineToken(token))`. The one null→non-null window
- * is read-replica lag on a freshly-created token, so negative entries use a
- * short `MT_NEG_TTL_S` to bound any false-401 lockout.
- */
-type MachineTokenRow = Awaited<ReturnType<typeof queries.machineToken.getMachineTokenByToken>>
-interface MachineTokenEntry {
-  row: MachineTokenRow
-  luAt: number
-}
-const MT_TTL_S = 900
-// Negative (`row: null`) entries live only briefly. D1 reads go through
-// read-replica sessions (`first-unconstrained`), so a freshly-created token
-// can momentarily read null due to replication lag; a full 15-min negative
-// TTL would then 401 a valid token for the whole window. 60s (KV's floor)
-// still absorbs repeated-bad-token storms without a long lockout.
-const MT_NEG_TTL_S = 60
-const MT_BUMP_INTERVAL_MS = 900_000
-
-/**
- * Warm the positive machine-token cache entry with a known-good row. Called at
- * activation time so the daemon's first poll — a separate Worker invocation
- * that may read a lagged replica (D1 uses `first-unconstrained` sessions) —
- * hits a positive KV entry instead of reading `null` and negative-caching a
- * 401 for `MT_NEG_TTL_S`. Best-effort (a KV blip just means the next poll does
- * a cold read); no-op without KV. This is the ONLY other writer of the `mt:`
- * entry, so it lives beside the reader to keep the `{ row, luAt }` shape and
- * `MT_TTL_S` in one place.
- */
-export async function warmMachineTokenCache(
-  kv: KVNamespace | null,
-  token: string,
-  row: NonNullable<MachineTokenRow>,
-): Promise<void> {
-  if (!kv) return
-  const entry: MachineTokenEntry = { row, luAt: Date.now() }
-  await kv
-    .put(cacheKeys.machineToken(token), JSON.stringify(entry), { expirationTtl: MT_TTL_S })
-    .catch(() => {})
 }
 
 export type AuthenticatedHandler = (
@@ -333,98 +283,14 @@ function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { al
         : context.params
       : undefined
 
-    const authHeader = req.headers.get("Authorization")
-    if (!authHeader?.startsWith("Bearer al_")) {
-      const unsupported = rejectUnknownCommunityContract(req)
-      if (unsupported) return unsupported
+    if (req.headers.get("Authorization")?.startsWith("Bearer al_")) {
+      return NextResponse.json({ error: "invalid token" }, { status: 401 })
     }
+    const unsupported = rejectUnknownCommunityContract(req)
+    if (unsupported) return unsupported
     const { env } = await getCloudflareContext({ async: true })
     const cloudflareEnv = env as Env
     bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
-    if (authHeader?.startsWith("Bearer ")) {
-      const raw = authHeader.slice(7)
-      if (raw.startsWith("al_")) {
-        try {
-          const db = getDb(cloudflareEnv.DB)
-          const kv = getKV()
-          const key = cacheKeys.machineToken(raw)
-          const now = Date.now()
-
-          // Read the merged entry. A KV blip must NOT turn a valid token into
-          // a 401 — on read failure we fall through to D1 (mirrors `cached`).
-          let entry: MachineTokenEntry | null = null
-          if (kv) {
-            try {
-              const cachedRaw = await kv.get(key)
-              if (cachedRaw) {
-                const parsed = JSON.parse(cachedRaw) as Partial<MachineTokenEntry>
-                // Shape guard: a pre-upgrade deploy stored the bare row under
-                // this same `mt:` key (old `cached()` format). Reading that as
-                // a MachineTokenEntry would leave `row` undefined → a false 401
-                // for a VALID token until the old entry's TTL expires (and the
-                // daemon treats sustained 401s as a dead token). Only accept the
-                // new `{ row, luAt }` shape; anything else falls through to a
-                // cold D1 miss that repopulates in the new format.
-                if (parsed && "row" in parsed && typeof parsed.luAt === "number") {
-                  entry = parsed as MachineTokenEntry
-                }
-              }
-            } catch {
-              entry = null
-            }
-          }
-
-          let bump = false
-          if (!entry) {
-            // Cold miss: hit D1 and populate. On a hit, bump immediately so
-            // `last_used_at` reflects first contact (preserves prior
-            // semantics), then remember it for the TTL window.
-            const row = await queries.machineToken.getMachineTokenByToken(db, raw)
-            entry = { row, luAt: now }
-            bump = row != null
-            if (kv) {
-              const ttl = row != null ? MT_TTL_S : MT_NEG_TTL_S
-              kv.put(key, JSON.stringify(entry), { expirationTtl: ttl }).catch(() => {})
-            }
-          } else if (entry.row && now - entry.luAt > MT_BUMP_INTERVAL_MS) {
-            // Warm hit, throttle window elapsed: bump and refresh luAt.
-            bump = true
-            if (kv) {
-              kv.put(key, JSON.stringify({ row: entry.row, luAt: now }), { expirationTtl: MT_TTL_S }).catch(() => {})
-            }
-          }
-
-          const mt = entry.row
-          if (!mt) {
-            // row === null is the ONLY "definitely invalid" signal (token
-            // doesn't exist). The daemon uses this 401 to mark a workspace
-            // as auth-failed, so it must never fire on transient infra
-            // failure — those throw and fall to the 503 catch below.
-            return NextResponse.json({ error: "invalid token" }, { status: 401 })
-          }
-          const unsupported = rejectUnknownCommunityContract(req, true)
-          if (unsupported) return unsupported
-          if (bump) {
-            Promise.resolve(queries.machineToken.updateMachineTokenLastUsed(db, mt.id)).catch(() => {})
-          }
-          const authCtx: AuthContext = {
-            env: cloudflareEnv,
-            userId: mt.userId,
-            email: mt.userEmail,
-            workspaceId: mt.workspaceId ?? undefined,
-          }
-          return handler(req, { ...authCtx, params: resolvedParams }).then(varyPrivateResponseByCredentials)
-        } catch {
-          // D1 query / getDb / getKV threw — transient infra failure, NOT an
-          // invalid token. Mirror the session path's 503 so the daemon retries
-          // instead of treating a DB blip as a revoked token (which would
-          // wrongly mark the workspace deleted).
-          return NextResponse.json({ error: "auth temporarily unavailable" }, { status: 503 })
-        }
-      }
-    }
-
-    // Fall back to Better Auth session (with returnHeaders to propagate cookie cache refresh)
     const session = await resolveSession(req, cloudflareEnv)
 
     if (session.kind === "error") {
@@ -461,9 +327,7 @@ function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { al
  * `withAuth`, it NEVER 401s on a missing session — the handler always runs.
  *
  * Red lines (Cecilia, /Gus/working #1131 #1 / #1147):
- * 1. Single-purpose: resolves the Better-Auth cookie session ONLY. It does NOT
- *    read the machine-token / bot `al_...` bearer path — that is `withAuth`'s
- *    private concern; a daemon/bot is not a use case for an optional-login page.
+ * 1. Single-purpose: resolves the Better-Auth cookie session ONLY.
  * 2. Never 401 for auth reasons. Missing session → anonymous. A bot/deleted
  *    session degrades to anonymous (cookies cleared best-effort) rather than
  *    blocking. A transient getSession failure also degrades to anonymous — the

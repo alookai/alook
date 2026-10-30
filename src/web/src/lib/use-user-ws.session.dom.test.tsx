@@ -97,7 +97,7 @@ beforeEach(async () => {
 
 function mount(onMessage = vi.fn()) {
   return renderHook(({ viewerUserId }) => useUserWs(onMessage, {
-    viewerUserId, communityContract: BUSINESS_SCHEMA_VERSION, requestDaemonStatusOnAuth: false,
+    viewerUserId, communityContract: BUSINESS_SCHEMA_VERSION,
   }), { initialProps: { viewerUserId: "account-a" } })
 }
 

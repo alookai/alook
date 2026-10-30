@@ -30,7 +30,6 @@ let mockHumanCtx: Record<string, unknown> | null = {
   env: { DB: {} },
   userId: "human_1",
   email: "h@t.com",
-  workspaceId: "ws_1",
   user: { isBot: false },
 }
 vi.mock("./auth", () => ({
@@ -50,7 +49,7 @@ const bearer = (v: string) => new NextRequest("http://localhost/x", { headers: {
 describe("withCommunityActor", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockHumanCtx = { env: { DB: {} }, userId: "human_1", email: "h@t.com", workspaceId: "ws_1", user: { isBot: false } }
+    mockHumanCtx = { env: { DB: {} }, userId: "human_1", email: "h@t.com", user: { isBot: false } }
   })
 
   const wrapped = withCommunityActor(handler)
@@ -82,18 +81,11 @@ describe("withCommunityActor", () => {
     const res = await wrapped(new NextRequest("http://localhost/x"))
     expect(res.status).toBe(200)
     const body = (await res.json()) as { actor: CommunityActor }
-    expect(body.actor).toEqual({ kind: "human", userId: "human_1", email: "h@t.com", workspaceId: "ws_1", isBot: false })
+    expect(body.actor).toEqual({ kind: "human", userId: "human_1", email: "h@t.com", isBot: false })
     // Bot resolution must not have been attempted for a non-crk_ request.
     expect(mockResolveBotActor).not.toHaveBeenCalled()
   })
 
-  it("routes an al_ machine-token bearer to the human path (not the bot path)", async () => {
-    const res = await wrapped(bearer("Bearer al_machinetoken"))
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { actor: CommunityActor }
-    expect(body.actor.kind).toBe("human")
-    expect(mockResolveBotActor).not.toHaveBeenCalled()
-  })
 
   it("propagates a human auth failure from withAuth unchanged", async () => {
     mockHumanCtx = null // simulate withAuth 401

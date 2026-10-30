@@ -4,8 +4,6 @@ import { NextRequest, NextResponse } from "next/server"
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   signOut: vi.fn(),
-  getMachineToken: vi.fn(),
-  updateMachineToken: vi.fn(),
   resolveBotActor: vi.fn(),
 }))
 
@@ -16,20 +14,6 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 vi.mock("@/lib/auth", () => ({
   getAuth: vi.fn(() => ({ api: { getSession: mocks.getSession, signOut: mocks.signOut } })),
 }))
-vi.mock("@alook/shared", async () => {
-  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
-  return {
-    ...actual,
-    queries: {
-      ...actual.queries,
-      machineToken: {
-        ...actual.queries.machineToken,
-        getMachineTokenByToken: mocks.getMachineToken,
-        updateMachineTokenLastUsed: mocks.updateMachineToken,
-      },
-    },
-  }
-})
 vi.mock("./community-agent-runner-auth", () => ({ resolveBotActor: mocks.resolveBotActor }))
 
 import { withAuth, type AuthenticatedHandler } from "./auth"
@@ -52,7 +36,6 @@ const media = (status = 200, headers: Record<string, string> = {}) =>
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.getSession.mockResolvedValue(session())
-  mocks.getMachineToken.mockResolvedValue({ id: "mt1", userId: "A", userEmail: "a@example.com", workspaceId: "ws1" })
   mocks.resolveBotActor.mockResolvedValue({
     kind: "bot",
     actor: { botUserId: "bot1", ownerUserId: "owner1", machineId: "machine1", isActive: true },
@@ -143,23 +126,13 @@ describe("real authentication wrappers inside media policy", () => {
     }
   })
 
-  it.each([200, 304])("retains Authorization on machine-authenticated media status %s", async (status) => {
-    const handler = vi.fn<AuthenticatedHandler>(async () => media(status))
-    const result = await withPrivateMediaCache(withAuth(handler))(request({ Authorization: "Bearer al_fixture" }))
-    expect(result.status).toBe(status)
-    expect(result.headers.get("Vary")).toBe("Authorization, X-Alook-Bot-Id")
-    expect(mocks.getSession).not.toHaveBeenCalled()
-    expect(handler.mock.lastCall?.[1]).toMatchObject({ userId: "A", workspaceId: "ws1" })
-  })
-
-  it.each(["invalid", "unavailable"])("makes early %s machine auth non-storable", async (kind) => {
-    if (kind === "invalid") mocks.getMachineToken.mockResolvedValue(null)
-    else mocks.getMachineToken.mockRejectedValue(new Error("database unavailable"))
+  it("makes retired token rejection non-storable even with a live Cookie", async () => {
     const handler = vi.fn<AuthenticatedHandler>(async () => media())
-    const result = await withPrivateMediaCache(withAuth(handler))(request({ Authorization: "Bearer al_fixture" }))
-    expect(result.status).toBe(kind === "invalid" ? 401 : 503)
+    const result = await withPrivateMediaCache(withAuth(handler))(request({ Authorization: "Bearer al_retired", Cookie: "better-auth.session_token=live" }))
+    expect(result.status).toBe(401)
     expect(result.headers.get("Cache-Control")).toBe("private, no-store")
     expect(handler).not.toHaveBeenCalled()
+    expect(mocks.getSession).not.toHaveBeenCalled()
   })
 
   it.each(["human", "bot"])("preserves %s actor resolution on fixed attachment thumbnails", async (kind) => {
