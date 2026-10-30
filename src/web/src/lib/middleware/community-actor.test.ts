@@ -2,14 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 
-// The unified actor is a thin router over two collaborators:
-//   - resolveBotActor (crk_ → bot identity) — the bot path;
-//   - withAuth (session/al_ → human AuthContext) — the human path, delegated
-//     VERBATIM so we don't re-test its internals here.
-// We mock both so this file tests only the routing + actor-shape adaptation +
-// the crk_-never-falls-through invariant. Behavior of each collaborator is
-// covered by their own suites (community-agent-runner-auth.test.ts, auth.test.ts).
-
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
 }))
@@ -22,10 +14,6 @@ vi.mock("./community-agent-runner-auth", () => ({
   resolveBotActor: (...a: unknown[]) => mockResolveBotActor(...a),
 }))
 
-// withAuth is a higher-order wrapper: withAuth(handler) → (req, ctx) => ….
-// Our mock invokes the wrapped handler with a canned human AuthContext so we
-// can assert the actor adaptation. `mockHumanCtx` lets a test simulate an
-// auth failure by having the mock short-circuit instead of calling through.
 let mockHumanCtx: Record<string, unknown> | null = {
   env: { DB: {} },
   userId: "human_1",
@@ -33,11 +21,10 @@ let mockHumanCtx: Record<string, unknown> | null = {
   user: { isBot: false },
 }
 vi.mock("./auth", () => ({
-  withAuth: (handler: (r: NextRequest, ctx: any) => Promise<Response>) =>
-    async (req: NextRequest, _ctx?: unknown) => {
-      if (!mockHumanCtx) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-      return handler(req, { ...mockHumanCtx, params: undefined })
-    },
+  resolveHumanAuth: async () => {
+    if (!mockHumanCtx) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    return { context: mockHumanCtx }
+  },
 }))
 
 import { withCommunityActor, rejectBot, requireBot, type CommunityActor } from "./community-actor"
@@ -77,7 +64,7 @@ describe("withCommunityActor", () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
-  it("routes a session request (no bearer) to the human path via withAuth", async () => {
+  it("routes a session request (no bearer) to the human path via the human credential resolver", async () => {
     const res = await wrapped(new NextRequest("http://localhost/x"))
     expect(res.status).toBe(200)
     const body = (await res.json()) as { actor: CommunityActor }
@@ -87,8 +74,8 @@ describe("withCommunityActor", () => {
   })
 
 
-  it("propagates a human auth failure from withAuth unchanged", async () => {
-    mockHumanCtx = null // simulate withAuth 401
+  it("propagates a human auth failure from the human credential resolver unchanged", async () => {
+    mockHumanCtx = null
     const res = await wrapped(new NextRequest("http://localhost/x"))
     expect(res.status).toBe(401)
     expect(handler).not.toHaveBeenCalled()

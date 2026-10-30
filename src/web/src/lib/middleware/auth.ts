@@ -1,3 +1,4 @@
+import { createAuth, type AuthPolicy, type AuthResolution } from "./auth-policy"
 import { observeWorkerOperation } from "@/lib/observability/worker"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
@@ -194,132 +195,118 @@ function isCookieHumanSameOrigin(req: NextRequest): boolean {
     && req.headers.get("Host") === originUrl.host
 }
 
-export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
-  const authenticate = createCookieHumanAuthHandler(handler)
-  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], await authenticate(...args))
+function rejectBotSelection(req: NextRequest): NextResponse | null {
+  return req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)
+    ? NextResponse.json({ error: "bot selection is not supported by this endpoint" }, { status: 403 })
+    : null
 }
 
-function createCookieHumanAuthHandler(handler: CookieHumanAuthHandler) {
-  return async (
-    req: NextRequest,
-    context?: { params?: Promise<Record<string, string>> | Record<string, string> },
-  ) => {
-    if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)) {
-      return NextResponse.json({ error: "bot selection is not supported by this endpoint" }, { status: 403 })
-    }
-    const resolvedParams = context?.params
-      ? context.params instanceof Promise
-        ? await context.params
-        : context.params
-      : undefined
-    if (req.method !== "POST" || !isCookieHumanSameOrigin(req)) {
-      return accountDeletionAuthError("FORBIDDEN", 403)
-    }
-    if (req.headers.has("Authorization")) {
-      return accountDeletionAuthError("UNAUTHORIZED", 401)
-    }
-    const unsupported = rejectUnknownCommunityContract(req)
-    if (unsupported) return unsupported
+async function resolveCookieHuman(req: NextRequest): Promise<AuthResolution<CookieHumanAuthContext>> {
+  if (req.method !== "POST" || !isCookieHumanSameOrigin(req)) {
+    return accountDeletionAuthError("FORBIDDEN", 403)
+  }
+  if (req.headers.has("Authorization")) {
+    return accountDeletionAuthError("UNAUTHORIZED", 401)
+  }
+  const unsupported = rejectUnknownCommunityContract(req)
+  if (unsupported) return unsupported
 
-    const cloudflare = await getCloudflareContext({ async: true })
-    const cloudflareEnv = cloudflare.env as Env
-    bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
-    const resolved = await resolveSession(req, cloudflareEnv)
-    if (resolved.kind === "error") {
-      return accountDeletionAuthError("SESSION_VALIDATION_FAILED", 503)
-    }
-    if (resolved.kind === "none") {
-      return accountDeletionAuthError("UNAUTHORIZED", 401)
-    }
-    if (resolved.kind === "invalid") {
-      const response = accountDeletionAuthError("UNAUTHORIZED", 401)
-      clearCookieHumanAuthCookies(response)
-      return response
-    }
+  const cloudflare = await getCloudflareContext({ async: true })
+  const cloudflareEnv = cloudflare.env as Env
+  bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
+  const resolved = await resolveSession(req, cloudflareEnv)
+  if (resolved.kind === "error") {
+    return accountDeletionAuthError("SESSION_VALIDATION_FAILED", 503)
+  }
+  if (resolved.kind === "none") {
+    return accountDeletionAuthError("UNAUTHORIZED", 401)
+  }
+  if (resolved.kind === "invalid") {
+    const response = accountDeletionAuthError("UNAUTHORIZED", 401)
+    clearCookieHumanAuthCookies(response)
+    return response
+  }
 
-    let liveUser: Awaited<ReturnType<typeof queries.user.getUserInternal>>
-    try {
-      liveUser = await queries.user.getUserInternal(
-        getPrimaryDb(cloudflareEnv.DB),
-        resolved.user.id,
-      )
-    } catch {
-      return accountDeletionAuthError("SESSION_VALIDATION_FAILED", 503)
-    }
-    if (!liveUser || liveUser.isBot || liveUser.deletedAt !== null) {
-      const response = accountDeletionAuthError("UNAUTHORIZED", 401)
-      clearCookieHumanAuthCookies(response)
-      return response
-    }
+  let liveUser: Awaited<ReturnType<typeof queries.user.getUserInternal>>
+  try {
+    liveUser = await queries.user.getUserInternal(
+      getPrimaryDb(cloudflareEnv.DB),
+      resolved.user.id,
+    )
+  } catch {
+    return accountDeletionAuthError("SESSION_VALIDATION_FAILED", 503)
+  }
+  if (!liveUser || liveUser.isBot || liveUser.deletedAt !== null) {
+    const response = accountDeletionAuthError("UNAUTHORIZED", 401)
+    clearCookieHumanAuthCookies(response)
+    return response
+  }
 
-    const response = await handler(req, {
+  return {
+    context: {
       env: cloudflareEnv,
       executionContext: cloudflare.ctx,
       userId: liveUser.id,
       email: liveUser.email,
       user: { isBot: false },
-      params: resolvedParams,
-    })
-    return forwardSetCookies(response, resolved.setCookies)
+    },
+    finish: response => forwardSetCookies(response, resolved.setCookies),
   }
 }
 
-export function withAuth(handler: AuthenticatedHandler, options: { allowBotSelection?: boolean } = {}) {
-  const authenticate = createAuthenticatedHandler(handler, options)
-  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], await authenticate(...args))
-}
+export async function resolveHumanAuth(req: NextRequest): Promise<AuthResolution<AuthContext>> {
+  if (req.headers.get("Authorization")?.startsWith("Bearer al_")) {
+    return NextResponse.json({ error: "invalid token" }, { status: 401 })
+  }
+  const unsupported = rejectUnknownCommunityContract(req)
+  if (unsupported) return unsupported
+  const { env } = await getCloudflareContext({ async: true })
+  const cloudflareEnv = env as Env
+  bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
+  const session = await resolveSession(req, cloudflareEnv)
 
-function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { allowBotSelection?: boolean }) {
-  return async (
-    req: NextRequest,
-    context?: { params?: Promise<Record<string, string>> | Record<string, string> }
-  ) => {
-    if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER) && !options.allowBotSelection) {
-      return NextResponse.json({ error: "bot selection is not supported by this endpoint" }, { status: 403 })
-    }
-    const resolvedParams = context?.params
-      ? context.params instanceof Promise
-        ? await context.params
-        : context.params
-      : undefined
+  if (session.kind === "error") {
+    return NextResponse.json({ error: "session validation failed" }, { status: 503 })
+  }
+  if (session.kind === "none") {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+  }
+  if (session.kind === "invalid") {
+    const invalid = NextResponse.json(
+      { error: "session no longer valid" },
+      { status: 401 },
+    )
+    clearAuthCookies(invalid)
+    return invalid
+  }
 
-    if (req.headers.get("Authorization")?.startsWith("Bearer al_")) {
-      return NextResponse.json({ error: "invalid token" }, { status: 401 })
-    }
-    const unsupported = rejectUnknownCommunityContract(req)
-    if (unsupported) return unsupported
-    const { env } = await getCloudflareContext({ async: true })
-    const cloudflareEnv = env as Env
-    bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
-    const session = await resolveSession(req, cloudflareEnv)
-
-    if (session.kind === "error") {
-      return NextResponse.json({ error: "session validation failed" }, { status: 503 })
-    }
-    if (session.kind === "none") {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-    }
-    if (session.kind === "invalid") {
-      const invalid = NextResponse.json(
-        { error: "session no longer valid" },
-        { status: 401 },
-      )
-      clearAuthCookies(invalid)
-      return invalid
-    }
-
-    const authCtx: AuthContext = {
-      env: cloudflareEnv,
-      userId: session.user.id,
-      email: session.user.email,
-      user: { isBot: session.user.isBot },
-    }
-    const res = await handler(req, { ...authCtx, params: resolvedParams })
-
-    // Forward Set-Cookie headers from Better Auth to refresh session_data cookie cache
-    return varyPrivateResponseByCredentials(forwardSetCookies(res, session.setCookies))
+  const authCtx: AuthContext = {
+    env: cloudflareEnv,
+    userId: session.user.id,
+    email: session.user.email,
+    user: { isBot: session.user.isBot },
+  }
+  return {
+    context: authCtx,
+    finish: response => varyPrivateResponseByCredentials(forwardSetCookies(response, session.setCookies)),
   }
 }
+
+export const humanAuthPolicy: AuthPolicy<AuthContext> = {
+  preflight: rejectBotSelection,
+  resolve: resolveHumanAuth,
+  respond: protectCommunityJsonResponse,
+}
+
+export const cookieHumanAuthPolicy: AuthPolicy<CookieHumanAuthContext> = {
+  preflight: rejectBotSelection,
+  resolve: resolveCookieHuman,
+  respond: protectCommunityJsonResponse,
+}
+
+export const withCookieHumanAuth = createAuth(cookieHumanAuthPolicy)
+
+export const withAuth = createAuth(humanAuthPolicy)
 
 /**
  * Session-optional wrapper for pages that render the SAME content whether or
@@ -336,54 +323,38 @@ function createAuthenticatedHandler(handler: AuthenticatedHandler, options: { al
  *    the route's decision; this wrapper carries no disclosure logic, so it is
  *    reusable by any future login-optional page.
  */
-export function withOptionalAuth(handler: OptionalAuthHandler) {
-  const authenticate = createOptionalAuthHandler(handler)
-  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], rejectUnknownCommunityContract(args[0]) ?? await authenticate(...args))
+export const optionalAuthPolicy: AuthPolicy<OptionalAuthContext> = {
+  preflight: req => rejectUnknownCommunityContract(req) ?? rejectBotSelection(req),
+  resolve: resolveOptionalHuman,
+  respond: protectCommunityJsonResponse,
 }
 
-function createOptionalAuthHandler(handler: OptionalAuthHandler) {
-  return async (
-    req: NextRequest,
-    context?: { params?: Promise<Record<string, string>> | Record<string, string> }
-  ) => {
-    if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)) {
-      return NextResponse.json({ error: "bot selection is not supported by this endpoint" }, { status: 403 })
-    }
-    const resolvedParams = context?.params
-      ? context.params instanceof Promise
-        ? await context.params
-        : context.params
-      : undefined
+export const withOptionalAuth = createAuth(optionalAuthPolicy)
 
-    const { env } = await getCloudflareContext({ async: true })
-    const cloudflareEnv = env as Env
-    bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
+async function resolveOptionalHuman(req: NextRequest): Promise<AuthResolution<OptionalAuthContext>> {
+  const { env } = await getCloudflareContext({ async: true })
+  const cloudflareEnv = env as Env
+  bindCacheKV(cloudflareEnv.CACHE_KV ?? null)
 
-    const session = await resolveSession(req, cloudflareEnv)
+  const session = await resolveSession(req, cloudflareEnv)
 
-    // Anonymous context for every non-`ok` outcome — the defining difference
-    // from withAuth. `invalid` (bot/deleted session) additionally clears the
-    // stale cookies on the way out so the bad session doesn't linger.
-    if (session.kind !== "ok") {
-      const anonCtx: OptionalAuthContext = { env: cloudflareEnv }
-      const res = await handler(req, { ...anonCtx, params: resolvedParams })
-      if (session.kind === "invalid") {
-        const mutableRes = new NextResponse(res.body, res)
+  if (session.kind !== "ok") {
+    return {
+      context: { env: cloudflareEnv },
+      finish: session.kind === "invalid" ? response => {
+        const mutableRes = new NextResponse(response.body, response)
         clearAuthCookies(mutableRes)
         return mutableRes
-      }
-      return res
+      } : undefined,
     }
-
-    const authCtx: OptionalAuthContext = {
+  }
+  return {
+    context: {
       env: cloudflareEnv,
       userId: session.user.id,
       email: session.user.email,
       user: { isBot: session.user.isBot },
-    }
-    const res = await handler(req, { ...authCtx, params: resolvedParams })
-
-    // Forward Set-Cookie headers from Better Auth to refresh session_data cookie cache
-    return forwardSetCookies(res, session.setCookies)
+    },
+    finish: response => forwardSetCookies(response, session.setCookies),
   }
 }

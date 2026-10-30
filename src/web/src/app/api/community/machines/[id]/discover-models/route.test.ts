@@ -7,10 +7,13 @@ vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, queries: { communityMachine: { getMachineByIdForUser: mocks.machine } } }
 })
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: any) => (req: any) => handler(req, { env: { DB: {} }, userId: "owner", params: { id: "machine" } }) }))
+vi.mock("@/lib/middleware/auth", () => ({
+  resolveHumanAuth: async () => ({ context: { env: { DB: {} }, userId: "owner" } }),
+}))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ env: { DB: {} } }) }))
 vi.mock("@/lib/middleware/community-agent-runner-auth", () => ({ resolveBotActor: mocks.bot }))
-import { POST } from "./route"
+import { POST as routePost } from "./route"
+const POST = (request: NextRequest, context = { params: { id: "machine" } }) => routePost(request, context)
 const payload = { runtimeId: "codex", requestId: "request" }
 const request = (body: unknown = payload) => new NextRequest("http://localhost/api/community/machines/machine/discover-models", { method: "POST", body: JSON.stringify(body) })
 describe("model discovery owner route", () => {

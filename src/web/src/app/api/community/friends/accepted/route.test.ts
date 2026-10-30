@@ -25,10 +25,7 @@ vi.mock("@alook/shared", async () => {
 // withAuth to inject a human ctx (this route's accepted human arm is the
 // inheritor of the retired aggregate GET /friends' friends[] projection).
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: {}, userId: "u1", email: "u@t.com", params })
-  }),
+  resolveHumanAuth: async () => ({ context: { env: {}, userId: "u1", email: "u@t.com" } }),
 }))
 
 import { GET } from "./route"

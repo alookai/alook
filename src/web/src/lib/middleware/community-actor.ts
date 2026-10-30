@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getDb } from "@/lib/db"
-import { withAuth, type AuthContext } from "./auth"
+import { resolveHumanAuth } from "./auth"
+import { createAuth, type AuthPolicy } from "./auth-policy"
 import { COMMUNITY_BOT_ACTOR_HEADER } from "@alook/shared"
 import { resolveBotActor, resolveOwnedBotActor } from "./community-agent-runner-auth"
 import { protectCommunityJsonResponse, rejectUnknownCommunityContract, varyPrivateResponseByCredentials } from "./response-cache"
@@ -44,91 +45,86 @@ export type CommunityActorHandler = (
   ctx: CommunityActorContext,
 ) => Promise<NextResponse | Response>
 
+export function communityActorPolicy(
+  options: { allowInactiveBot?: boolean } = {},
+): AuthPolicy<CommunityActorContext> {
+  return {
+    respond: protectCommunityJsonResponse,
+    resolve: async req => {
+      const authHeader = req.headers.get("Authorization")
+
+      if (authHeader?.startsWith("Bearer ") && authHeader.slice(7).trim().startsWith("crk_")) {
+        if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)) {
+          return NextResponse.json({ error: "runner keys cannot select another bot" }, { status: 403 })
+        }
+        const { env } = await getCloudflareContext({ async: true })
+        const cloudflareEnv = env as Env
+        const db = getDb(cloudflareEnv.DB)
+
+        const resolved = await resolveBotActor(db, authHeader, {
+          allowInactive: options.allowInactiveBot,
+        })
+        if (resolved.kind === "error") return resolved.response
+        // A crk_ bearer that resolves to `not_bot` is unreachable (the guard above
+        // guarantees the crk_ prefix), but treat it as an auth failure rather than
+        // silently falling through to the human path.
+        if (resolved.kind === "not_bot") {
+          return NextResponse.json({ error: "invalid runner key" }, { status: 401 })
+        }
+
+        const unsupported = rejectUnknownCommunityContract(req, true)
+        if (unsupported) return unsupported
+        return {
+          context: {
+            env: cloudflareEnv,
+            actor: {
+              kind: "bot",
+              userId: resolved.actor.botUserId,
+              ownerUserId: resolved.actor.ownerUserId,
+              machineId: resolved.actor.machineId,
+              isActive: resolved.actor.isActive,
+            },
+          },
+          finish: varyPrivateResponseByCredentials,
+        }
+      }
+
+      const human = await resolveHumanAuth(req)
+      if (human instanceof Response) return human
+      const humanCtx = human.context
+      const selectedBotId = req.headers.get(COMMUNITY_BOT_ACTOR_HEADER)
+      if (selectedBotId !== null) {
+        const resolved = await resolveOwnedBotActor(getDb(humanCtx.env.DB), selectedBotId, humanCtx.userId, { allowInactive: options.allowInactiveBot })
+        if (resolved.kind === "error") return human.finish ? human.finish(resolved.response) : resolved.response
+        return {
+          context: {
+            env: humanCtx.env,
+            actor: { kind: "bot", userId: resolved.actor.botUserId, ownerUserId: resolved.actor.ownerUserId, machineId: resolved.actor.machineId, isActive: resolved.actor.isActive, delegatedByUserId: humanCtx.userId },
+          },
+          finish: human.finish,
+        }
+      }
+      return {
+        context: {
+          env: humanCtx.env,
+          actor: {
+            kind: "human",
+            userId: humanCtx.userId,
+            email: humanCtx.email,
+            isBot: humanCtx.user?.isBot,
+          },
+        },
+        finish: human.finish,
+      }
+    },
+  }
+}
+
 export function withCommunityActor(
   handler: CommunityActorHandler,
   options: { allowInactiveBot?: boolean } = {},
 ) {
-  const authenticate = createCommunityActorHandler(handler, options)
-  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], await authenticate(...args))
-}
-
-function createCommunityActorHandler(
-  handler: CommunityActorHandler,
-  options: { allowInactiveBot?: boolean },
-) {
-  return async (
-    req: NextRequest,
-    context?: { params?: Promise<Record<string, string>> | Record<string, string> },
-  ): Promise<NextResponse | Response> => {
-    const resolvedParams = context?.params
-      ? context.params instanceof Promise
-        ? await context.params
-        : context.params
-      : undefined
-
-    const authHeader = req.headers.get("Authorization")
-
-    if (authHeader?.startsWith("Bearer ") && authHeader.slice(7).trim().startsWith("crk_")) {
-      if (req.headers.has(COMMUNITY_BOT_ACTOR_HEADER)) {
-        return NextResponse.json({ error: "runner keys cannot select another bot" }, { status: 403 })
-      }
-      const { env } = await getCloudflareContext({ async: true })
-      const cloudflareEnv = env as Env
-      const db = getDb(cloudflareEnv.DB)
-
-      const resolved = await resolveBotActor(db, authHeader, {
-        allowInactive: options.allowInactiveBot,
-      })
-      if (resolved.kind === "error") return resolved.response
-      // A crk_ bearer that resolves to `not_bot` is unreachable (the guard above
-      // guarantees the crk_ prefix), but treat it as an auth failure rather than
-      // silently falling through to the human path.
-      if (resolved.kind === "not_bot") {
-        return NextResponse.json({ error: "invalid runner key" }, { status: 401 })
-      }
-
-      const unsupported = rejectUnknownCommunityContract(req, true)
-      if (unsupported) return unsupported
-      return varyPrivateResponseByCredentials(await handler(req, {
-        env: cloudflareEnv,
-        actor: {
-          kind: "bot",
-          userId: resolved.actor.botUserId,
-          ownerUserId: resolved.actor.ownerUserId,
-          machineId: resolved.actor.machineId,
-          isActive: resolved.actor.isActive,
-        },
-        params: resolvedParams,
-      }))
-    }
-
-    // Human path — delegate verbatim to withAuth, adapting its AuthContext into
-    // the unified actor. withAuth owns all human auth behavior (KV cache,
-    // session guard, Set-Cookie refresh); we do not reimplement any of it.
-    const delegated = withAuth(async (r, humanCtx: AuthContext & { params?: Record<string, string> }) => {
-      const selectedBotId = r.headers.get(COMMUNITY_BOT_ACTOR_HEADER)
-      if (selectedBotId !== null) {
-        const resolved = await resolveOwnedBotActor(getDb(humanCtx.env.DB), selectedBotId, humanCtx.userId, { allowInactive: options.allowInactiveBot })
-        if (resolved.kind === "error") return resolved.response
-        return handler(r, {
-          env: humanCtx.env,
-          params: humanCtx.params,
-          actor: { kind: "bot", userId: resolved.actor.botUserId, ownerUserId: resolved.actor.ownerUserId, machineId: resolved.actor.machineId, isActive: resolved.actor.isActive, delegatedByUserId: humanCtx.userId },
-        })
-      }
-      return handler(r, {
-        env: humanCtx.env,
-        actor: {
-          kind: "human",
-          userId: humanCtx.userId,
-          email: humanCtx.email,
-          isBot: humanCtx.user?.isBot,
-        },
-        params: humanCtx.params,
-      })
-    }, { allowBotSelection: true })
-    return delegated(req, context)
-  }
+  return createAuth(communityActorPolicy(options))(handler)
 }
 
 /**

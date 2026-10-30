@@ -11,6 +11,7 @@ vi.mock("@/lib/community/fanout", () => ({
 
 vi.mock("@/lib/middleware/auth", async () => {
   return {
+    resolveHumanAuth: async () => ({ context: { userId: "u_caller", email: "caller@example.com", env: { DB: {} } } }),
     withAuth: (
       handler: (req: NextRequest, ctx: {
         userId: string

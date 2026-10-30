@@ -27,6 +27,10 @@ vi.mock("@alook/shared", async () => {
 
 let authOverride: { userId?: string; unauth?: boolean } = {}
 vi.mock("@/lib/middleware/auth", () => ({
+  resolveHumanAuth: async () => {
+    if (authOverride.unauth) return Response.json({ error: "Unauthorized" }, { status: 401 })
+    return { context: { env: { DB: {} }, userId: authOverride.userId ?? "u1", email: "u@t.com" } }
+  },
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     if (authOverride.unauth) {
       const { NextResponse } = require("next/server")

@@ -37,13 +37,8 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-// The human arm delegates through the real withAuth; mock it so a human ctx is
-// injected without exercising Better-Auth.
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u_owner", email: "o@t.com", params })
-  }),
+  resolveHumanAuth: async () => ({ context: { env: { DB: {} }, userId: "u_owner", email: "o@t.com" } }),
 }))
 
 import { GET } from "./route"

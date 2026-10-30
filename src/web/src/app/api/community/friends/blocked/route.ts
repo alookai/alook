@@ -1,8 +1,9 @@
+import { createAuth } from "@/lib/middleware/auth-policy"
 import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { NextResponse, type NextRequest } from "next/server"
 import { BUSINESS_SCHEMA_VERSION, CommunityBlockedFriendsReadSchema, type CommunityBlockedFriendsRead, queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, rejectBot } from "@/lib/middleware/community-actor"
 
 /**
  * GET /api/community/friends/blocked — the blocked bucket (route/disc trunk,
@@ -15,9 +16,10 @@ import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
  * `listFriends` verb never exposed blocked to bots; this keeps that invariant
  * while giving human a clean per-bucket read.
  */
-export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
-  const denied = rejectBot(ctx.actor)
-  if (denied) return denied
+export const GET = createAuth({
+  ...communityActorPolicy(),
+  authorize: (_req, ctx) => rejectBot(ctx.actor),
+})(async (_req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
   const { value } = await readOrStale<CommunityBlockedFriendsRead>(

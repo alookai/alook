@@ -56,6 +56,7 @@ vi.mock("@/lib/community/fanout", () => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
+  resolveHumanAuth: async () => ({ context: { env: { DB: {}, COMMUNITY_MEDIA: { delete: (...args: unknown[]) => mockMediaDelete(...args) } }, userId: "u1", email: "u@example.com" } }),
   withAuth: (handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
     return handler(req, {
