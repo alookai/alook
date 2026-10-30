@@ -7,6 +7,7 @@ import { communityActorPolicy, rejectBot, withCommunityActor } from "./community
 import { withCommunityDaemonAuth } from "./community-daemon-auth"
 import { withCommunityPairingToken } from "./community-pairing-token"
 import * as responses from "./response-cache"
+import { withAutomationManagement } from "../automation"
 
 vi.mock("./response-cache", async original => {
   const actual = await original<typeof import("./response-cache")>()
@@ -111,5 +112,31 @@ describe("composed credential execution", () => {
   it("forwards a business cookie in preference to the session refresh", async () => {
     const response = await withCommunityActor(async () => new Response("done", { headers: { "Set-Cookie": "better-auth.session_data=business; HttpOnly" } }))(request())
     expect(response.headers.getSetCookie()).toEqual(["better-auth.session_data=business; HttpOnly"])
+  })
+})
+
+
+describe("automation management composed with human auth", () => {
+  it.each(["", "Bearer aac_test", "Bearer crk_test", "Bearer cmk_test", "Basic unknown"])("rejects %j before session, bot selection and protocol checks", async authorization => {
+    const handler = vi.fn(async () => Response.json({ ok: true }))
+    const req = request({ Authorization: authorization, Cookie: "present", [COMMUNITY_BOT_ACTOR_HEADER]: "bot", [COMMUNITY_CONTRACT_HEADER]: "invalid" })
+    const response = await withAutomationManagement(handler)(req)
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: "Sign in to manage access codes" })
+    expect(response.headers.get("Cache-Control")).toBeNull()
+    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBeNull()
+    expect(m.session).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+    expect(responses.protectCommunityJsonResponse).not.toHaveBeenCalled()
+  })
+
+  it("shares human resolution once and retains Cookie refresh, params and response protection", async () => {
+    const handler = vi.fn(async (_req, ctx) => Response.json({ owner: ctx.userId, params: ctx.params }))
+    const response = await withAutomationManagement(handler)(request(), { params: Promise.resolve({ codeId: "own-code" }) })
+    expect(await response.json()).toEqual({ owner: "owner", params: { codeId: "own-code" } })
+    expect(response.headers.getSetCookie()).toEqual(["better-auth.session_data=fresh; HttpOnly"])
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0")
+    expect(m.session).toHaveBeenCalledOnce()
+    expect(responses.protectCommunityJsonResponse).toHaveBeenCalledOnce()
   })
 })

@@ -5,7 +5,10 @@ const { authenticate, expire, transport, fallback } = vi.hoisted(() => ({ authen
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ env: { DB: {} } }) }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }) }))
 vi.mock("@/lib/broadcast", () => ({ wsDoFetch: transport }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: unknown) => fallback.mockImplementation(async (request: NextRequest) => (handler as (req: NextRequest, ctx: unknown) => Promise<Response>)(request, { env: { DB: {} }, userId: "human" })) }))
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: {
+  resolve: fallback.mockImplementation(async () => ({ context: { env: { DB: {} }, userId: "human" } })),
+  respond: (_req: NextRequest, response: Response) => response,
+} }))
 vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(), queries: { automation: { authenticateAccessCode: authenticate, expireAccessCode: expire } } }))
 
 import { hashAutomationSecret, newAutomationSecret, withAutomation, withAutomationManagement } from "./automation"
@@ -16,7 +19,7 @@ const request = (token = secret) => new NextRequest("http://localhost/api/commun
 beforeEach(() => {
   vi.clearAllMocks()
   authenticate.mockResolvedValue({ codeId: "code", ownerId: "owner", permission: "bot.create", limit: 64, period: "hour" })
-  transport.mockResolvedValue(Response.json({ allowed: true }))
+  transport.mockImplementation(async () => Response.json({ allowed: true }))
 })
 afterEach(() => vi.restoreAllMocks())
 const create = async (_req: NextRequest, ctx: { userId: string; beforeCreate: () => Promise<Response | null> }) =>
@@ -116,4 +119,56 @@ it("refuses absent credentials and an HTTP failure from the rate limiter", async
   expect(authenticate).not.toHaveBeenCalled()
   transport.mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
   expect((await withAutomation("bot.create", create)(request())).status).toBe(503)
+})
+
+
+describe("automation execution order", () => {
+  it("does not read route params or consume quota until credential and policy validation succeeds", async () => {
+    const handler = vi.fn(async (_req, ctx) => Response.json({ owner: ctx.userId, params: ctx.params }))
+    const route = withAutomation("bot.create", handler)
+    const readParams = vi.fn(() => Promise.resolve({ id: "resource" }))
+    const context = { get params() { return readParams() } }
+    expect((await route(request("invalid"), context)).status).toBe(401)
+    authenticate.mockResolvedValueOnce(null)
+    expect((await route(request(), context)).status).toBe(401)
+    authenticate.mockResolvedValueOnce({ codeId: "code", ownerId: "owner", limit: 100, period: "hour" })
+    expect((await route(request(), context)).status).toBe(503)
+    expect(readParams).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+    const response = await route(request(), context)
+    expect(await response.json()).toEqual({ owner: "owner", params: { id: "resource" } })
+    expect(readParams).toHaveBeenCalledOnce()
+    expect(transport).not.toHaveBeenCalled()
+  })
+
+  it("sets no-store only after handler return and propagates thrown business errors", async () => {
+    const route = withAutomation("bot.create", async () => Response.json({ error: "invalid body" }, { status: 400 }))
+    expect((await route(request("invalid"))).headers.get("Cache-Control")).toBeNull()
+    expect((await route(request())).headers.get("Cache-Control")).toBe("no-store")
+    const failure = new Error("business failed")
+    await expect(withAutomation("bot.create", async () => { throw failure })(request())).rejects.toBe(failure)
+    expect(transport).not.toHaveBeenCalled()
+  })
+
+  it("keeps concurrent owners, quota keys and params isolated on a reused wrapper", async () => {
+    const secondSecret = "aac_" + "b".repeat(64)
+    const firstHash = await hashAutomationSecret(secret)
+    authenticate.mockImplementation(async (_db, hash) => ({ codeId: hash === firstHash ? "one" : "two", ownerId: hash === firstHash ? "owner-one" : "owner-two", limit: 4, period: "day" }))
+    const route = withAutomation("message.send", async (_req, ctx) => await ctx.beforeCreate() ?? Response.json({ owner: ctx.userId, params: ctx.params }))
+    const results = await Promise.all([route(request(), { params: Promise.resolve({ id: "one" }) }), route(request(secondSecret), { params: Promise.resolve({ id: "two" }) })])
+    expect(await Promise.all(results.map(result => result.json()))).toEqual([{ owner: "owner-one", params: { id: "one" } }, { owner: "owner-two", params: { id: "two" } }])
+    expect(transport.mock.calls.map(call => JSON.parse(call[2].body).key).sort()).toEqual(["one", "two"])
+    expect(authenticate).toHaveBeenCalledTimes(2)
+    expect(fallback).not.toHaveBeenCalled()
+  })
+})
+
+
+it("self-expiry ignores route params and never uses permission or quota resolution", async () => {
+  expire.mockResolvedValueOnce(true)
+  const context = { get params(): never { throw new Error("expiry has no route parameters") } }
+  expect((await expireCode(request(), context)).status).toBe(200)
+  expect(expire).toHaveBeenCalledOnce()
+  expect(authenticate).not.toHaveBeenCalled()
+  expect(transport).not.toHaveBeenCalled()
 })

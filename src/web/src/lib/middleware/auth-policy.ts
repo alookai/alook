@@ -12,6 +12,7 @@ export type AuthResolution<C> = Response | {
 }
 
 export interface AuthPolicy<C> {
+  params?: "afterAuth" | "ignore"
   preflight?: (request: NextRequest) => Response | null
   resolve: (request: NextRequest) => Promise<AuthResolution<C>>
   authorize?: (request: NextRequest, context: C & { params?: Record<string, string> }) => Response | null | Promise<Response | null>
@@ -25,13 +26,14 @@ export function createAuth<C>(policy: AuthPolicy<C>) {
   ): Promise<Response> => {
     let response = policy.preflight?.(request) ?? null
     if (!response) {
-      const params = route?.params instanceof Promise ? await route.params : route?.params
+      const params = policy.params ? undefined
+        : route?.params instanceof Promise ? await route.params : route?.params
       const resolved = await policy.resolve(request)
       if (resolved instanceof Response) {
         response = resolved
       } else {
         const context = resolved.context
-        context.params = params
+        context.params = policy.params === "afterAuth" ? await route?.params : params
         const result = (policy.authorize ? await policy.authorize(request, context) : null)
           ?? handler(request, context)
         if (!resolved.finish && !policy.respond) return result
