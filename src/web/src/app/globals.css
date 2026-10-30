@@ -2431,7 +2431,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   pointer-events: none !important;
 }
 
-[data-streamdown="code-block"]:hover>div:has([data-streamdown="code-block-actions"]) {
+[data-streamdown="code-block"]:is(:hover, :focus-within)>div:has([data-streamdown="code-block-actions"]) {
   pointer-events: auto !important;
 }
 
@@ -2443,11 +2443,11 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease;
-  background: oklch(0.2 0.01 60 / 80%) !important;
+  background: var(--popover) !important;
   backdrop-filter: blur(4px);
-  border: 1px solid oklch(1 0 0 / 10%) !important;
+  border: 1px solid var(--border) !important;
   border-radius: 0.5rem !important;
-  color: rgba(255, 255, 255, 0.7) !important;
+  color: var(--popover-foreground) !important;
   padding: 0.125rem !important;
   gap: 0.125rem !important;
 }
@@ -2463,15 +2463,17 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   align-items: center !important;
   justify-content: center !important;
   border-radius: 0.375rem !important;
-  color: rgba(255, 255, 255, 0.7) !important;
-  transition: color 150ms ease !important;
+  background: transparent !important;
+  color: var(--muted-foreground) !important;
+  transition: color 150ms ease, background-color 150ms ease !important;
 }
 
-[data-streamdown="code-block-actions"] button:hover,
-[data-streamdown="mermaid-block-actions"] button:hover,
-[data-html-preview-actions] button:hover,
-[data-streamdown="table-wrapper"]>div:first-child:not(:has([data-streamdown="table"])) button:hover {
-  color: #ffffff !important;
+[data-streamdown="code-block-actions"] button:not(:disabled):is(:hover, :focus-visible),
+[data-streamdown="mermaid-block-actions"] button:not(:disabled):is(:hover, :focus-visible),
+[data-html-preview-actions] button:not(:disabled):is(:hover, :focus-visible),
+[data-streamdown="table-wrapper"]>div:first-child:not(:has([data-streamdown="table"])) button:not(:disabled):is(:hover, :focus-visible) {
+  background: var(--muted) !important;
+  color: var(--foreground) !important;
 }
 
 [data-streamdown="code-block-actions"] button svg,
@@ -2502,7 +2504,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   min-width: 8rem;
   width: max-content !important;
   overflow: visible !important;
-  background: var(--background) !important;
+  background: var(--popover) !important;
   border: 1px solid var(--border) !important;
   border-radius: var(--radius-md) !important;
   color: var(--foreground) !important;
@@ -2522,14 +2524,14 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   cursor: pointer !important;
 }
 
-[data-streamdown="code-block-actions"] .absolute button:hover,
-[data-streamdown="mermaid-block-actions"] .absolute button:hover,
-[data-streamdown="table-wrapper"]>div:first-child:not(:has([data-streamdown="table"])) .absolute button:hover {
-  background: oklch(1 0 0 / 8%) !important;
+[data-streamdown="code-block-actions"] .absolute button:not(:disabled):is(:hover, :focus-visible),
+[data-streamdown="mermaid-block-actions"] .absolute button:not(:disabled):is(:hover, :focus-visible),
+[data-streamdown="table-wrapper"]>div:first-child:not(:has([data-streamdown="table"])) .absolute button:not(:disabled):is(:hover, :focus-visible) {
+  background: var(--muted) !important;
   color: var(--foreground) !important;
 }
 
-[data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"] {
+[data-streamdown="code-block"]:is(:hover, :focus-within) [data-streamdown="code-block-actions"] {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2580,12 +2582,12 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 }
 
 /* On hover of the ENTIRE mermaid block: make actions interactive */
-[data-streamdown="mermaid-block"]:hover>div:has([data-streamdown="mermaid-block-actions"]) {
+[data-streamdown="mermaid-block"]:is(:hover, :focus-within)>div:has([data-streamdown="mermaid-block-actions"]) {
   pointer-events: auto;
 }
 
 /* Mermaid actions: hover reveal */
-[data-streamdown="mermaid-block"]:hover [data-streamdown="mermaid-block-actions"] {
+[data-streamdown="mermaid-block"]:is(:hover, :focus-within) [data-streamdown="mermaid-block-actions"] {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2675,7 +2677,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   margin: 0 !important;
 }
 
-[data-streamdown="table-wrapper"]:hover>div:first-child:not(:has([data-streamdown="table"])) {
+[data-streamdown="table-wrapper"]:is(:hover, :focus-within)>div:first-child:not(:has([data-streamdown="table"])) {
   opacity: 1;
   pointer-events: auto;
 }
