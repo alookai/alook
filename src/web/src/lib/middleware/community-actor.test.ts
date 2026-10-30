@@ -64,6 +64,31 @@ describe("withCommunityActor", () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
+  it("fails closed when a runner resolver unexpectedly returns not_bot", async () => {
+    mockResolveBotActor.mockResolvedValue({ kind: "not_bot" })
+    const req = bearer("Bearer crk_unexpected")
+    req.headers.set("Cookie", "valid-human-session")
+    const response = await wrapped(req)
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: "invalid runner key" })
+    expect(handler).not.toHaveBeenCalled()
+    expect(mockResolveOwnedBotActor).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unsupported contract after validating a runner without invoking business code", async () => {
+    mockResolveBotActor.mockResolvedValue({
+      kind: "bot",
+      actor: { botUserId: "bot_1", ownerUserId: "owner_1", machineId: "m_1", isActive: true },
+    })
+    const req = new NextRequest("http://localhost/api/community/operation", {
+      headers: { Authorization: "Bearer crk_valid", [COMMUNITY_CONTRACT_HEADER]: "unsupported" },
+    })
+    const response = await wrapped(req)
+    expect(response.status).toBe(400)
+    expect(mockResolveBotActor).toHaveBeenCalledOnce()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it("routes a session request (no bearer) to the human path via the human credential resolver", async () => {
     const res = await wrapped(new NextRequest("http://localhost/x"))
     expect(res.status).toBe(200)
