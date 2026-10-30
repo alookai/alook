@@ -4,7 +4,7 @@ import type { Locator, Page, TestInfo } from "@playwright/test"
 import sharp from "sharp"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
-import { composerEditable, createServer } from "./_fixtures/actions"
+import { composerEditable, createServer, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { holdRoute } from "./_fixtures/held-route"
 import { solidPngFixture } from "../fixtures/media"
 import { REPO_ROOT } from "./_setup/paths"
@@ -940,14 +940,14 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect.poll(async () => {
       const host = await iframe.evaluate((element, tokens) => {
         const root = getComputedStyle(document.documentElement), painted = getComputedStyle(element)
-        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: root.backgroundColor }
+        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color }
       }, names)
       const embedded = await content.locator("html").evaluate((element, tokens) => {
         const root = getComputedStyle(element), painted = getComputedStyle(document.body)
-        return { dark: element.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: painted.backgroundColor }
+        return { dark: element.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, canvas: { html: root.backgroundColor, body: painted.backgroundColor, htmlImage: root.backgroundImage, bodyImage: painted.backgroundImage } }
       }, names)
-      return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, background: embedded.background === host.background }
-    }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, background: true })
+      return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, canvas: embedded.canvas }
+    }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, canvas: { html: "rgba(0, 0, 0, 0)", body: "rgba(0, 0, 0, 0)", htmlImage: "none", bodyImage: "none" } })
     await expect(iframe).toHaveCount(1)
     await expect(iframe).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   }
@@ -1001,13 +1001,17 @@ test("HTML attachment markers render once with interactive isolated content acro
   const { page: outsider } = await actors.asUser("carol")
   const denied = await outsider.request.get(previewUrl!)
   expect(denied.status()).toBe(404)
-  expect(denied.headers()["cache-control"]).toBe("private, no-store")
+  const deniedCacheControl = denied.headers()["cache-control"] ?? ""
+  const deniedCacheDirectives = deniedCacheControl.split(",").map(directive => directive.trim().toLowerCase())
+  expect(deniedCacheDirectives).toContain("private")
+  expect(deniedCacheDirectives).toContain("no-store")
+  expect(deniedCacheDirectives).not.toContain("public")
   await testInfo.attach("html-preview-headers.json", {
-    body: JSON.stringify({ serverId, channelId, messageId, attachmentId, preview: Object.fromEntries(Object.entries(direct.headers()).filter(([name]) => ["content-type", "content-disposition", "content-security-policy", "cache-control", "referrer-policy", "x-content-type-options"].includes(name))), download: Object.fromEntries(Object.entries(original.headers()).filter(([name]) => ["content-type", "content-disposition", "cache-control"].includes(name))), outsiderStatus: denied.status() }, null, 2),
+    body: JSON.stringify({ serverId, channelId, messageId, attachmentId, preview: Object.fromEntries(Object.entries(direct.headers()).filter(([name]) => ["content-type", "content-disposition", "content-security-policy", "cache-control", "referrer-policy", "x-content-type-options"].includes(name))), download: Object.fromEntries(Object.entries(original.headers()).filter(([name]) => ["content-type", "content-disposition", "cache-control"].includes(name))), outsiderStatus: denied.status(), outsiderCacheControl: deniedCacheControl }, null, 2),
     contentType: "application/json",
   })
 
-  const transparentHtml = '<!doctype html><html><head><style>:root{color-scheme:light dark}html,body{margin:0;background:transparent}body{min-height:112px;color:var(--foreground)}#authored{position:absolute;left:0;top:48px;width:160px;height:48px;background:#73a3b2;color:#112233}input{position:absolute;left:180px;top:48px}</style></head><body><div id="authored"></div><input id="state" value="original"></body></html>'
+  const transparentHtml = `<!doctype html><html style="background:purple!important;padding:17px;color:#123456"><head><style>:root{color-scheme:light dark;background:linear-gradient(red,blue)!important}html,body{margin:0;background:orange!important}body{min-height:112px;color:var(--foreground)}#authored{position:absolute;left:0;top:48px;width:160px;height:48px;background:#73a3b2;color:#112233}input{position:absolute;left:180px;top:48px}#repaint{position:absolute;left:180px;top:80px}</style></head><body style="background:yellow!important"><div id="authored"></div><input id="state" value="original"><button id="repaint" onclick="document.documentElement.style.setProperty('background','linear-gradient(red,blue)','important');document.body.style.setProperty('background','red','important');document.getElementById('rows').innerHTML='<div style=height:360px></div>'">Repaint canvas and grow</button><div id="rows"></div></body></html>`
   const transparentId = await upload("transparent.html", "text/html", transparentHtml)
   await appearance("Dark")
   const transparentPreviewUrl = new URL(`/api/community/channels/${channelId}/attachments/${transparentId}?preview=html&v=${encodeURIComponent(APP_VERSION)}`, page.url()).href
@@ -1082,7 +1086,21 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect(transparentFrame).toHaveCSS("color-scheme", mode.toLowerCase())
     await expect(transparentContent.locator("html")).toHaveCSS("color-scheme", "light dark")
     await expect.poll(() => transparentContent.locator("html").evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(mode === "Dark")
-    for (const selector of ["html", "body"]) await expect(transparentContent.locator(selector)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    let growth: { before: number; after: number } | undefined
+    if (mode === "Light") {
+      const before = (await transparentFrame.boundingBox())!.height
+      await transparentContent.getByRole("button", { name: "Repaint canvas and grow", exact: true }).click()
+      await expect.poll(async () => (await transparentFrame.boundingBox())!.height).toBeGreaterThan(before)
+      const after = (await transparentFrame.boundingBox())!.height
+      expect(after).toBeLessThanOrEqual(2000)
+      growth = { before, after }
+    }
+    for (const selector of ["html", "body"]) {
+      await expect(transparentContent.locator(selector)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+      await expect(transparentContent.locator(selector)).toHaveCSS("background-image", "none")
+    }
+    await expect(transparentContent.locator("html")).toHaveCSS("padding-top", "17px")
+    await expect(transparentContent.locator("html")).toHaveCSS("color", "rgb(18, 52, 86)")
     await expect(transparentContent.locator("#authored")).toHaveCSS("color", "rgb(17, 34, 51)")
     const inline = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-inline.png`)
     await transparentPreview.hover()
@@ -1091,7 +1109,7 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect(transparentActions.getByRole("button")).toHaveCount(1)
     await expect(transparentPreview).not.toHaveAttribute("aria-modal", "true")
     await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
-    canvasSamples.push({ mode, inline })
+    canvasSamples.push({ mode, growth, inline })
   }
   expect(canvasSamples[1]!.inline.canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]!.inline.canvas.reduce((sum, value) => sum + value, 0))
   expect(loading.canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]!.inline.canvas.reduce((sum, value) => sum + value, 0))
@@ -1101,5 +1119,113 @@ test("HTML attachment markers render once with interactive isolated content acro
   await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
   expect(await transparentFrame.evaluate((element, original) => element === original, originalTransparentFrame)).toBe(true)
   await originalTransparentFrame?.dispose()
-  await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas: loading.canvas, loadingCarrier: loading.carrier, themes: canvasSamples }, null, 2), contentType: "application/json" })
+  const originalCanvasFile = await page.request.get(`/api/community/channels/${channelId}/attachments/${transparentId}`)
+  expect(originalCanvasFile.status()).toBe(200)
+  expect(originalCanvasFile.headers()["content-disposition"]).toContain("attachment")
+  expect(await originalCanvasFile.text()).toBe(transparentHtml)
+  await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas: loading.canvas, loadingCarrier: loading.carrier, themes: canvasSamples, originalBytes: Buffer.byteLength(transparentHtml) }, null, 2), contentType: "application/json" })
 })
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 }, { width: 1280, height: 900 }]) {
+  test(`renderer menu stays above the adjacent HTML iframe and restores row order at ${viewport.width}px`, async ({ caseActors }, testInfo) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice"])
+    const serverId = await actors.seed.seedServer("alice", `Menu stacking ${Date.now()}`)
+    const channelId = await actors.seed.seedChannel("alice", serverId, "menu-stacking")
+    await actors.seed.seedMessage("alice", channelId, '```javascript\nconsole.log("theme");\n```')
+    await actors.seed.seedMessage("alice", channelId, '```text\nvalue=[REDACTED_SECRET]\n```')
+    const mermaidId = await actors.seed.seedMessage("alice", channelId, "```mermaid\nflowchart LR\nA[Start] --> B[End]\n```")
+    const tableId = await actors.seed.seedMessage("alice", channelId, "| Name | Value |\n| --- | --- |\n| Theme | Readable |")
+    const { page } = await actors.asUser("alice", { viewport, hasTouch: viewport.width < 1280,
+      isMobile: viewport.width === 390, reducedMotion: "reduce", colorScheme: "light" })
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+    const html = '<!doctype html><html><body><button onclick="document.querySelector(\'output\').textContent=\'Preview clicked\'">Use preview</button><output>Ready</output></body></html>'
+    const upload = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      multipart: { file: { name: "adjacent.html", mimeType: "text/html", buffer: Buffer.from(html) } },
+    }))
+    expect(upload.status()).toBe(200)
+    const attachmentId = (await upload.json() as { id: string }).id
+    const posted = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      data: { content: `[alook-html-preview](${attachmentId})`, attachments: [attachmentId] },
+    }))
+    expect(posted.status()).toBe(201)
+    const htmlMessageId = (await posted.json() as { message: { id: string } }).message.id
+    const preview = page.getByTestId(tid.message(htmlMessageId)).getByTestId(tid.htmlPreview(attachmentId))
+    const iframe = preview.getByTestId(tid.htmlPreviewFrame(attachmentId))
+    await preview.scrollIntoViewIfNeeded()
+    await expect(preview).toHaveAttribute("data-html-preview-status", "ready")
+    const content = iframe.contentFrame()
+    await expect(content.getByRole("button", { name: "Use preview", exact: true })).toBeVisible()
+    const mermaid = page.getByTestId(tid.message(mermaidId)).locator('[data-streamdown="mermaid-block"]')
+    await expect(mermaid.locator("svg .node")).toHaveCount(2)
+    await expect(iframe).toHaveCSS("height", "80px")
+    await expect(page.getByTestId(tid.messageScroller).locator("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
+    const table = page.getByTestId(tid.message(tableId)).locator('[data-streamdown="table-wrapper"]')
+    const group = table.locator(':scope > div:first-child:not(:has([data-streamdown="table"]))')
+    const row = table.locator('xpath=ancestor::div[@data-index][1]')
+    await expect(row).toHaveCount(1)
+    const rowState = () => row.evaluate(element => {
+      const style = getComputedStyle(element), rect = element.getBoundingClientRect()
+      return { transform: style.transform, zIndex: style.zIndex, width: rect.width, height: rect.height }
+    })
+    const before = await rowState()
+    const messageWrites: string[] = []
+    page.on("request", request => {
+      if (request.method() !== "GET" && /\/api\/community\/(?:channels\/[^/]+\/messages|messages\/[^/]+)$/.test(new URL(request.url()).pathname)) {
+        messageWrites.push(`${request.method()} ${new URL(request.url()).pathname}`)
+      }
+    })
+    await table.hover()
+    const trigger = group.getByTitle("Copy table", { exact: true })
+    await expect(trigger).toHaveCSS("width", "24px")
+    await expect(trigger).toHaveCSS("height", "24px")
+    await trigger.click()
+    const menu = group.locator(".absolute")
+    await expect(menu.getByRole("button")).toHaveCount(3)
+    const titles = ["Copy table as Markdown", "Copy table as CSV", "Copy table as TSV"]
+    const hits = []
+    for (const title of titles) {
+      const option = menu.getByTitle(title, { exact: true })
+      await option.hover()
+      await expect.poll(() => option.evaluate(element => {
+        const box = element.getBoundingClientRect()
+        return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+      })).toBe(true)
+      hits.push({ title, rect: await boundingRect(option) })
+    }
+    const tsv = menu.getByTitle("Copy table as TSV", { exact: true })
+    const target = await boundingRect(tsv), frame = await boundingRect(iframe)
+    const point = { x: target.x + target.width / 2, y: target.y + target.height / 2 }
+    expect(point.x).toBeGreaterThanOrEqual(frame.x)
+    expect(point.x).toBeLessThan(frame.x + frame.width)
+    expect(point.y).toBeGreaterThanOrEqual(frame.y)
+    expect(point.y).toBeLessThan(frame.y + frame.height)
+    await testInfo.attach(`renderer-menu-${viewport.width}-open-pointer.png`, { body: await page.screenshot(), contentType: "image/png" })
+    const open = await rowState()
+    await page.mouse.move(0, 0)
+    await expect(group).toHaveCSS("opacity", "1")
+    await expect(trigger).toBeFocused()
+    for (const title of titles) {
+      await page.keyboard.press("Tab")
+      await expect(menu.getByTitle(title, { exact: true })).toBeFocused()
+      await expect(group).toHaveCSS("opacity", "1")
+    }
+    await testInfo.attach(`renderer-menu-${viewport.width}-open-keyboard.png`, { body: await page.screenshot(), contentType: "image/png" })
+    for (let step = 0; step < titles.length; step += 1) await page.keyboard.press("Shift+Tab")
+    await expect(trigger).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(menu).toHaveCount(0)
+    await expect.poll(rowState).toEqual(before)
+    await expect.poll(() => page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.getAttribute("data-testid"), point))
+      .toBe(tid.htmlPreviewFrame(attachmentId))
+    await content.getByRole("button", { name: "Use preview", exact: true }).click()
+    await expect(content.locator("output")).toHaveText("Preview clicked")
+    expect(messageWrites).toEqual([])
+    await testInfo.attach(`renderer-menu-${viewport.width}-hit-and-row.json`, { body: JSON.stringify({ viewport,
+      input: "native mouse hover/click and keyboard Tab/Shift+Tab/Enter; not a pure-touch journey",
+      media: await page.evaluate(() => ({ coarse: matchMedia("(pointer: coarse)").matches, hover: matchMedia("(hover: hover)").matches })),
+      serverId, channelId, tableId, htmlMessageId, attachmentId, point, frame, target, hits, before, open, closed: await rowState(), messageWrites }), contentType: "application/json" })
+  })
+}

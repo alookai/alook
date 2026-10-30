@@ -51,7 +51,7 @@ export async function readHtmlPreview(body: ReadableStream<Uint8Array>, signal?:
 const CSS_SOURCE = /<!--[\s\S]*?(?:-->|$)|<style\b[^>]*(?:>|$)([\s\S]*?)(?:<\/style\s*>|$)|\sstyle\s*=\s*(?:"([^"]*)(?:"|$)|'([^']*)(?:'|$)|([^\s>]+))/gi
 const VIEWPORT_HEIGHT = /(?<![\w.+/])(?:\d+(?:\.\d+)?|\.\d+)[sld]?vh(?![\w-])/i
 
-const BASE_CSS = "html{background:var(--background);color:var(--foreground);font-family:var(--font-sans,system-ui);font-size:15px;line-height:1.6;color-scheme:light dark}body{margin:0}code,pre,kbd,samp{font-family:var(--font-mono,monospace)}:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}"
+const BASE_CSS = "html{background:transparent;color:var(--foreground);font-family:var(--font-sans,system-ui);font-size:15px;line-height:1.6;color-scheme:light dark}body{margin:0;background:transparent}code,pre,kbd,samp{font-family:var(--font-mono,monospace)}:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}"
 const BOOTSTRAP = String.raw`(() => {
   const framed = window.parent !== window;
   const themeStyle = document.getElementById("alook-preview-theme");
@@ -72,6 +72,11 @@ const BOOTSTRAP = String.raw`(() => {
     }
   }
   function schedule() {
+    for (const element of [document.documentElement, document.body]) {
+      if (element && (element.style.getPropertyValue("background") !== "transparent" || element.style.getPropertyPriority("background") !== "important")) {
+        element.style.setProperty("background", "transparent", "important");
+      }
+    }
     if (pending) return;
     pending = true;
     requestAnimationFrame(measure);
@@ -88,6 +93,8 @@ const BOOTSTRAP = String.raw`(() => {
     document.documentElement.classList.toggle("dark", data.dark === true);
     schedule();
   });
+  if (window.MutationObserver) new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true });
+  schedule();
   send("alook-html-theme-request");
   document.addEventListener("DOMContentLoaded", () => {
     send("alook-html-ready");
@@ -97,7 +104,6 @@ const BOOTSTRAP = String.raw`(() => {
       observer.observe(document.documentElement);
       observer.observe(document.body);
     }
-    if (window.MutationObserver) new MutationObserver(schedule).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
   });
   window.addEventListener("load", schedule);
   document.addEventListener("load", schedule, true);
