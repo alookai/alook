@@ -16,7 +16,7 @@ export function DmRouteErrorFrame({
 }) {
   return (
     <>
-      <DmHeaderSkeleton onBack={reserveBackSlot ? () => {} : undefined} />
+      <DmHeaderSkeleton titleState="unavailable" onBack={reserveBackSlot ? () => {} : undefined} />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div role="alert" className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <AlertCircle className="size-5 text-muted-foreground" aria-hidden />

@@ -102,6 +102,7 @@ export function ThreadSplitParentSurface({
         serverId={serverId}
         channelId={channel.id}
         channelName={channel.name}
+        channelTitleState={!metadata.canonical ? "pending" : metadata.canonical.name === null ? "unavailable" : "ready"}
         viewer={viewer}
         viewerRole={members.myRole}
         onNavigateParent={onNavigateParent}
@@ -124,6 +125,7 @@ export function ThreadSplitParentSurface({
       serverId={serverId}
       serverParam={serverParam}
       channelName={channel.name}
+      channelTitleState={!metadata.canonical ? "pending" : metadata.canonical.name === null ? "unavailable" : "ready"}
       viewer={viewer}
       canManagePins={canManageServer(members.myRole)}
       anchorMessageId={null}

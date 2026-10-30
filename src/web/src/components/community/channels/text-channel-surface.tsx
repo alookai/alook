@@ -24,12 +24,14 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import { tid } from "@/lib/community/testids"
 import { ConversationActivityContext, useConversationActivity } from "@/contexts/community/conversation-activity"
+import type { MessageHeaderTitleState } from "./message-header"
 
 export function TextChannelSurface({
   channelId,
   serverId,
   serverParam,
   channelName,
+  channelTitleState = "ready",
   viewer,
   canManagePins,
   anchorMessageId,
@@ -51,6 +53,7 @@ export function TextChannelSurface({
   serverId: string
   serverParam: string
   channelName: string
+  channelTitleState?: MessageHeaderTitleState
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
   canManagePins: boolean
   anchorMessageId: string | null
@@ -118,6 +121,7 @@ export function TextChannelSurface({
           header={(
             <ChannelHeader
               channel={channelName}
+              titleState={channelTitleState}
               kind="text"
               rightPanel={rightPanel}
               onToggle={togglePanel}

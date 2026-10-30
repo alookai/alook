@@ -3,6 +3,20 @@ import { ChevronLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 import { cn } from "@/lib/utils"
+import { Skeleton } from "@/components/ui/skeleton"
+import { tid } from "@/lib/community/testids"
+
+export type MessageHeaderTitleState = "ready" | "pending" | "unavailable"
+
+export function MessageHeaderTitlePlaceholder({ state }: { state: Exclude<MessageHeaderTitleState, "ready"> }) {
+  return <Skeleton
+    data-testid={tid.messageHeaderTitleLoading}
+    data-title-state={state}
+    role="img"
+    aria-label={state === "pending" ? "Loading title" : "Title unavailable"}
+    className={`h-4 w-32 rounded ${state === "unavailable" ? "animate-none" : ""}`}
+  />
+}
 
 export function MessageHeader({
   testId,

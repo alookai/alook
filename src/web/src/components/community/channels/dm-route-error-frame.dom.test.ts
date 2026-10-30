@@ -8,7 +8,7 @@ vi.mock("@/components/ui/button", () => ({
     PropsWithChildren<Record<string, unknown>>) => createElement("button", props, children),
 }))
 vi.mock("./dm-header", () => ({
-  DmHeaderSkeleton: () => createElement("div", { "data-testid": "dm-header-skeleton" }),
+  DmHeaderSkeleton: ({ titleState }: { titleState?: string }) => createElement("div", { "data-testid": "dm-header-skeleton", "data-title-state": titleState }),
 }))
 vi.mock("@/components/community/messages/composer", () => ({
   ComposerSkeleton: () => createElement("div", { "data-testid": "composer-skeleton" }),
@@ -27,6 +27,7 @@ describe("DmRouteErrorFrame", () => {
 
     await user.click(screen.getByRole("button", { name: "Retry" }))
     expect(retry).toHaveBeenCalledOnce()
+    expect(screen.getByTestId("dm-header-skeleton")).toHaveAttribute("data-title-state", "unavailable")
 
     rendered.rerender(createElement(DmRouteErrorFrame, {
       onRetry: retry,

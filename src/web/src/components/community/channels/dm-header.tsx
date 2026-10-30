@@ -6,12 +6,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import type { DM } from "@/lib/community/models/people"
 import { tid } from "@/lib/community/testids"
-import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
+import { MessageHeader, MessageHeaderMobileBack, MessageHeaderTitlePlaceholder, type MessageHeaderTitleState } from "./message-header"
 
-export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetNotifLevel, onRetryIdentity, retryingIdentity }: {
+export function DmHeader({ dm, onBack, titleAs: Title = "h1", titleState = "ready", notifLevel, onSetNotifLevel, onRetryIdentity, retryingIdentity }: {
   dm: DM
   onBack?: () => void
   titleAs?: "h1" | "div"
+  titleState?: MessageHeaderTitleState
   notifLevel?: NotifLevel
   onSetNotifLevel?: (level: NotifLevel) => void
   onRetryIdentity?: () => void
@@ -25,14 +26,14 @@ export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetN
       identity={(
         <>
           <Avatar label={dm.avatar} seed={dm.userId} size={24} presence={dm.status} />
-          <Title data-testid={tid.dmHeaderTitle} className="min-w-0 truncate font-heading text-base font-medium leading-[1.15] tracking-[-0.015em]">
+          {titleState === "ready" ? <Title data-testid={tid.dmHeaderTitle} className="min-w-0 truncate font-heading text-base font-medium leading-[1.15] tracking-[-0.015em]">
             {dm.name}
             {dm.discriminator && (
               <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
                 #{dm.discriminator}
               </span>
             )}
-          </Title>
+          </Title> : <MessageHeaderTitlePlaceholder state={titleState} />}
         </>
       )}
       actions={onRetryIdentity || notifLevel ? <>{onRetryIdentity && <RetryRecipient onRetry={onRetryIdentity} retrying={retryingIdentity} />}
@@ -70,7 +71,7 @@ function DmNotifDropdown({ level, onSetLevel }: { level: NotifLevel; onSetLevel?
 
 // Loading placeholder for <DmHeader> — same h-12 footprint so the body below
 // stays anchored across the route change.
-export function DmHeaderSkeleton({ onBack, onRetryIdentity, retryingIdentity }: { onBack?: () => void; onRetryIdentity?: () => void; retryingIdentity?: boolean }) {
+export function DmHeaderSkeleton({ onBack, onRetryIdentity, retryingIdentity, titleState = "pending" }: { onBack?: () => void; onRetryIdentity?: () => void; retryingIdentity?: boolean; titleState?: Exclude<MessageHeaderTitleState, "ready"> }) {
   return (
     <MessageHeader
       leading={onBack && onRetryIdentity ? <MessageHeaderMobileBack onNavigate={onBack} /> : onBack ? (
@@ -82,7 +83,7 @@ export function DmHeaderSkeleton({ onBack, onRetryIdentity, retryingIdentity }: 
       identity={(
         <>
           <Skeleton className="size-6 rounded-full" />
-          <Skeleton className="h-4 w-32 rounded" />
+          <MessageHeaderTitlePlaceholder state={titleState} />
         </>
       )}
       actions={onRetryIdentity ? <RetryRecipient onRetry={onRetryIdentity} retrying={retryingIdentity} /> : <Skeleton className="size-7 rounded-md" />}

@@ -3,7 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
+import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal, RotateCcw } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -19,7 +19,7 @@ import { ServerIcon } from "@/components/community/server-icon"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { EntityKind } from "@/lib/community/models/navigation"
 import { tid } from "@/lib/community/testids"
-import { MessageHeader, MessageHeaderMobileBack } from "./message-header"
+import { MessageHeader, MessageHeaderMobileBack, MessageHeaderTitlePlaceholder, type MessageHeaderTitleState } from "./message-header"
 import { ThreadPanelActionsFrame } from "./thread-panel-actions"
 
 const CHANNEL_OVERFLOW_GAP_CLASS_NAME = "ml-0.5"
@@ -53,7 +53,7 @@ export function ChannelHeaderSkeleton({
       identity={(
         <>
           <Skeleton data-channel-header-icon className={`size-6 rounded-md ${kind === "thread" ? compactActions ? "ml-1" : "" : "sm:ml-1"}`} />
-          <Skeleton className="h-4 w-32 rounded" />
+          <MessageHeaderTitlePlaceholder state="pending" />
         </>
       )}
       actions={(
@@ -88,9 +88,12 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
   kind = "text", server, mobileBack, mobileBackDisplay = "viewport", onBack, tools,
-  onRename, endActions, compactActions,
+  onRename, endActions, compactActions, titleState = "ready", onRetryTitle, retryingTitle,
 }: {
   channel: string
+  titleState?: MessageHeaderTitleState
+  onRetryTitle?: () => void
+  retryingTitle?: boolean
   kind?: EntityKind
   rightPanel: RightPanel
   onToggle: (k: Exclude<RightPanel, null>) => void
@@ -131,8 +134,13 @@ export function ChannelHeader({
       <div data-channel-header-icon className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${mobileBack ? (mobileBackDisplay === "viewport" ? "sm:ml-1" : "") : server ? "" : "ml-1"}`}>
         <EntityIcon kind={kind} className="size-4" />
       </div>
-      <span className="min-w-0 truncate text-base font-semibold" title={channel}>{channel}</span>
-      {onRename && (
+      {titleState === "ready" ? <span className="min-w-0 truncate text-base font-semibold" title={channel}>{channel}</span>
+        : <MessageHeaderTitlePlaceholder state={titleState} />}
+      {titleState === "unavailable" && onRetryTitle && <Button variant="ghost" size="icon-sm"
+        className="size-11 sm:size-7" aria-label="Retry title" disabled={retryingTitle} onClick={onRetryTitle}>
+        <RotateCcw className="size-4" />
+      </Button>}
+      {onRename && titleState === "ready" && (
         <span data-channel-header-full className="contents">
           <HeaderRename
             label={channel}

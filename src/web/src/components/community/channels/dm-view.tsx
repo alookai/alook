@@ -110,6 +110,8 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     return { ...profile, id: dmId, userId: peerId, status: profile.presence, preview: "" }
   }, [dms, dmId, peerId, peerProfile])
   const displayName = dm?.name ?? "Direct message"
+  const titleState = directoryDm?.userId === peerId || peerProfile?.name != null ? "ready"
+    : dmsQuery.isError || dmsQuery.isSuccess ? "unavailable" : "pending"
   const dmBlocked = !!peerId && blocked.some((b) => (b.userId ?? b.id) === peerId)
   const readDenied = metadata.denied || metadata.denialCode === "blocked"
   const historyAllowed = !dmBlocked && metadata.canRead
@@ -435,6 +437,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     <>
       {dm ? <DmHeader
         dm={dm}
+        titleState={titleState}
         onBack={goBack}
         onRetryIdentity={!peerProfile?.name ? () => { void dmsQuery.refetch({ cancelRefetch: false }) } : undefined}
         retryingIdentity={dmsQuery.isFetching}
@@ -442,7 +445,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
         onSetNotifLevel={(level) => setNotification.mutate({ channelId: dmId, level }, {
           onError: (error) => toastApiError(error, "Failed to update notification level"),
         })}
-      /> : <DmHeaderSkeleton onBack={goBack} onRetryIdentity={() => { void dmsQuery.refetch({ cancelRefetch: false }) }} retryingIdentity={dmsQuery.isFetching} />}
+      /> : <DmHeaderSkeleton titleState={titleState === "unavailable" ? "unavailable" : "pending"} onBack={goBack} onRetryIdentity={() => { void dmsQuery.refetch({ cancelRefetch: false }) }} retryingIdentity={dmsQuery.isFetching} />}
       <main
         data-slot="community-conversation-surface"
         data-channel-id={dmId}

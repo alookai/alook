@@ -22,6 +22,7 @@ import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
 import { ThreadOpener } from "@/components/community/messages/thread-opener"
 import { ThreadPanelActions } from "@/components/community/channels/thread-panel-actions"
+import type { MessageHeaderTitleState } from "./message-header"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
@@ -40,6 +41,9 @@ export function ThreadChannelSurface({
   serverId,
   serverParam,
   channelName,
+  channelTitleState = "ready",
+  onRetryTitle,
+  retryingTitle,
   viewer,
   canManagePins,
   anchorMessageId,
@@ -68,6 +72,9 @@ export function ThreadChannelSurface({
   serverId: string
   serverParam: string
   channelName: string
+  channelTitleState?: MessageHeaderTitleState
+  onRetryTitle?: () => void
+  retryingTitle?: boolean
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
   canManagePins: boolean
   anchorMessageId: string | null
@@ -199,6 +206,9 @@ export function ThreadChannelSurface({
           header={(
             <ChannelHeader
               channel={displayName}
+              titleState={localName !== null ? "ready" : channelTitleState}
+              onRetryTitle={onRetryTitle}
+              retryingTitle={retryingTitle}
               kind="thread"
               rightPanel={rightPanel}
               onToggle={togglePanel}
