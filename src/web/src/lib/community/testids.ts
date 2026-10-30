@@ -197,8 +197,6 @@ export const tid = {
   threadOpenerImage: (index: number) => `community-thread-opener-image-${index}`,
   htmlPreview: (id: string) => `community-html-preview-${id}`,
   htmlPreviewFrame: (id: string) => `community-html-preview-frame-${id}`,
-  htmlPreviewExpand: (id: string) => `community-html-preview-expand-${id}`,
-  htmlPreviewClose: (id: string) => `community-html-preview-close-${id}`,
   htmlPreviewDownload: (id: string) => `community-html-preview-download-${id}`,
   attachmentCard: (name: string) => `community-attachment-card-${name}`,
   attachmentPreviewSheet: "community-attachment-preview-sheet",

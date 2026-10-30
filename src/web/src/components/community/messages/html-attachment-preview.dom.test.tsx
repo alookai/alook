@@ -37,7 +37,10 @@ describe("HTML attachment frame", () => {
     const actions = view.getByRole("group", { name: "HTML preview actions" })
     expect(view.queryByText(file.name)).toBeNull()
     expect(actions).toContainElement(view.getByTestId(tid.htmlPreviewDownload("a1")))
-    expect(actions).toContainElement(view.getByTestId(tid.htmlPreviewExpand("a1")))
+    expect(actions.querySelectorAll("button")).toHaveLength(1)
+    expect(view.queryByRole("button", { name: /Expand HTML preview|Close fullscreen preview/ })).toBeNull()
+    expect(view.queryByRole("dialog")).toBeNull()
+    expect(view.getByTestId(tid.htmlPreview("a1"))).not.toHaveAttribute("aria-modal")
     expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAccessibleName(file.name)
   })
   it("keeps one opaque-origin frame and clamps valid current-frame measurements", () => {
@@ -72,65 +75,42 @@ describe("HTML attachment frame", () => {
     expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ dark: true }), "*")
     document.documentElement.style.removeProperty("--background")
   })
-  it("expands and returns the same frame, with Escape and focus recovery", () => {
-    const view = setup(), frame = view.getByTestId(tid.htmlPreviewFrame("a1"))
-    const dialog = view.getByTestId(tid.htmlPreview("a1")) as HTMLDialogElement
-    Object.assign(dialog, {
-      getBoundingClientRect() { return { height: 420 } },
-      close() { dialog.open = false },
-      show() { dialog.open = true },
-      showModal() { dialog.open = true },
-    })
-    fireEvent.click(view.getByTestId(tid.htmlPreviewExpand("a1")))
-    expect(view.getByRole("dialog")).toHaveAttribute("aria-modal", "true")
-    expect(dialog.parentElement!.style.height).toBe("420px")
+  it("keeps an icon-only loading status until the current lazy frame reports ready", () => {
+    let intersect: IntersectionObserverCallback | undefined
+    vi.stubGlobal("IntersectionObserver", class { constructor(callback: IntersectionObserverCallback) { intersect = callback } observe() {} disconnect() {} })
+    const view = setup()
+    const preview = view.getByTestId(tid.htmlPreview("a1"))
+    const loading = view.getByRole("status", { name: "Loading preview" })
+    expect(loading.textContent).toBe("")
+    expect(loading.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
+    expect(preview.style.height).toBe("320px")
+    expect(view.queryByTestId(tid.htmlPreviewFrame("a1"))).toBeNull()
+    act(() => intersect!([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver))
+    const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    expect(preview.style.height).toBe("")
+    expect(frame.style.height).toBe("320px")
+    fireEvent.load(frame)
+    frameMessage(frame, { type: "alook-html-ready" }, { source: window })
+    expect(view.getByRole("status", { name: "Loading preview" })).toBe(loading)
+    frameMessage(frame, { type: "alook-html-ready" })
+    expect(view.queryByRole("status", { name: "Loading preview" })).toBeNull()
     expect(view.getByTestId(tid.htmlPreviewFrame("a1"))).toBe(frame)
-    fireEvent(view.getByRole("dialog"), new Event("cancel", { cancelable: true }))
-    expect(view.queryByRole("dialog")).toBeNull()
-    expect(dialog.parentElement!.style.height).toBe("")
-    expect(view.getByTestId(tid.htmlPreviewFrame("a1"))).toBe(frame)
-    expect(view.getByTestId(tid.htmlPreviewExpand("a1"))).toHaveFocus()
+    expect(preview).toHaveAttribute("data-html-preview-status", "ready")
   })
-  it("returns native Back from fullscreen to the same inline document before page navigation", () => {
+  it("leaves native Back to the normal page route with an inline preview", () => {
     const originalUrl = window.location.href
     const replacePath = vi.fn((path: string) => window.history.replaceState(null, "", path))
     window.history.replaceState(null, "", "/c/channels/server/channel")
     try {
       const view = setup(<><BackListener replacePath={replacePath} /><textarea aria-label="Host draft" defaultValue="saved draft" /><HtmlAttachmentPreview attachment={file} /></>)
-      const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
-      const frameDocument = frame.contentDocument!
-      const html = frameDocument.createElement("html")
-      const body = frameDocument.createElement("body")
-      const input = frameDocument.createElement("input")
-      input.id = "preview-state"
-      input.value = "kept value"
-      body.appendChild(input)
-      html.appendChild(body)
-      frameDocument.replaceChildren(html)
-      const dialog = view.getByTestId(tid.htmlPreview("a1")) as HTMLDialogElement
-      Object.assign(dialog, {
-        close() { dialog.open = false },
-        show() { dialog.open = true },
-        showModal() { dialog.open = true },
-      })
-      fireEvent.click(view.getByTestId(tid.htmlPreviewExpand("a1")))
-      const url = window.location.href
-      const src = frame.src
+      const frame = view.getByTestId(tid.htmlPreviewFrame("a1"))
       const event = new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })
       act(() => { window.dispatchEvent(event) })
       expect(event.defaultPrevented).toBe(true)
-      expect(view.getByTestId(tid.htmlPreview("a1"))).not.toHaveAttribute("aria-modal", "true")
-      expect(replacePath).not.toHaveBeenCalled()
-      expect(window.location.href).toBe(url)
-      expect(view.getByTestId(tid.htmlPreviewFrame("a1"))).toBe(frame)
-      expect(frame.src).toBe(src)
-      expect(frame.contentDocument).toBe(frameDocument)
-      expect(frameDocument.getElementById("preview-state")).toBe(input)
-      expect(input.value).toBe("kept value")
-      expect(view.getByRole("textbox", { name: "Host draft" })).toHaveValue("saved draft")
-      expect(view.getByTestId(tid.htmlPreviewExpand("a1"))).toHaveFocus()
-      act(() => { window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true })) })
       expect(replacePath).toHaveBeenCalledExactlyOnceWith("/c/me")
+      expect(view.getByTestId(tid.htmlPreviewFrame("a1"))).toBe(frame)
+      expect(view.queryByRole("dialog")).toBeNull()
+      expect(view.getByRole("textbox", { name: "Host draft" })).toHaveValue("saved draft")
     } finally { window.history.replaceState(null, "", originalUrl) }
   })
   it("waits until near the viewport and cleans up on owner retirement", () => {
@@ -167,7 +147,7 @@ describe("HTML attachment frame", () => {
     expect(view.getByRole("status")).toHaveTextContent("Preview unavailable")
     expect(view.getAllByTestId(tid.htmlPreview("a1"))).toHaveLength(1)
     expect(view.getByTestId(tid.htmlPreviewDownload("a1"))).toBeEnabled()
-    expect(view.getByTestId(tid.htmlPreviewExpand("a1"))).toBeDisabled()
+    expect(view.queryByRole("status", { name: "Loading preview" })).toBeNull()
   })
 })
 
@@ -179,7 +159,7 @@ describe("HTML marker rendering", () => {
     expect(view.container.textContent).toContain("after")
     const body = view.container.querySelector(".message-markdown-blocks")!
     expect([...body.children].map((node) => node.tagName)).toEqual(["P", "DIV", "P"])
-    expect(view.container.querySelector("p dialog")).toBeNull()
+    expect(view.container.querySelector("p [data-html-preview]")).toBeNull()
   })
   it("does not execute typed HTML tags or let them duplicate a valid marker", () => {
     const literal = '<htmlpreview data-attachment-id="a1"></htmlpreview>'

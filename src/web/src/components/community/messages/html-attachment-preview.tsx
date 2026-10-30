@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useSelector } from "@tanstack/react-store"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Download, Expand, LoaderCircle, X } from "lucide-react"
+import { Download, LoaderCircle } from "lucide-react"
 import { useTheme } from "next-themes"
 import { collectHtmlPreviewFonts, loadHtmlPreviewFonts } from "@/lib/community/html-preview-fonts"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
@@ -12,8 +12,6 @@ import type { FileAttachment } from "@/lib/community/models/message"
 import { useAttachmentDownload, attachmentDownloadStatusText } from "@/lib/community/attachment-download"
 import { tid } from "@/lib/community/testids"
 import { buttonVariants } from "@/components/ui/button"
-import { useNativeBackOwner } from "@/components/ui/native-back-layer"
-import { cn } from "@/lib/utils"
 
 export function HtmlAttachmentPreview({ attachment }: { attachment: FileAttachment & { id: string } }) {
   const owner = useApplicationOwner()
@@ -30,8 +28,6 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   const [loaded, setLoaded] = useState(false)
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
   const [height, setHeight] = useState(320)
-  const [expanded, setExpanded] = useState(false)
-  const [inlineHeight, setInlineHeight] = useState(0)
   const fontSheet = useQuery({
     queryKey: applicationKey(owner, "html-preview-fonts", fonts), enabled: mounted && fonts.length > 0,
     staleTime: Infinity, retry: false,
@@ -43,10 +39,9 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
       return css
     },
   }, owner.queryClient).data
-  const root = useRef<HTMLDialogElement>(null)
+  const root = useRef<HTMLDivElement>(null)
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
-  const expandButton = useRef<HTMLButtonElement>(null)
   const download = useAttachmentDownload(attachment)
   const id = attachment.id
   const url = `${attachment.url}?preview=html`
@@ -94,42 +89,16 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
     return () => { clearTimeout(timeout); cancelAnimationFrame(themeFrame); window.removeEventListener("message", message) }
   }, [mounted, error, resolvedTheme, fontSheet])
 
-  function close() {
-    const dialog = root.current
-    if (!dialog) return
-    dialog.close()
-    dialog.show()
-    setExpanded(false)
-    expandButton.current?.focus()
-  }
-
-  useNativeBackOwner(() => expanded ? root.current : null, () => {
-    close()
-    return "requested"
-  })
-
-  function expand() {
-    const dialog = root.current
-    if (!dialog) return
-    setInlineHeight(dialog.getBoundingClientRect().height)
-    dialog.close()
-    dialog.showModal()
-    setExpanded(true)
-  }
-
   return (
-    <div className="min-w-0" style={expanded ? { height: inlineHeight } : undefined}>
-    <dialog
+    <div
       ref={root}
-      open
-      role={expanded ? "dialog" : "group"}
-      aria-modal={expanded || undefined}
+      role="group"
       aria-label={attachment.name}
       data-html-preview
       data-testid={tid.htmlPreview(id)}
       data-html-preview-status={status}
-      onCancel={(event) => { event.preventDefault(); close() }}
-      className="relative m-0 block w-full min-w-0 max-w-full overflow-hidden rounded-none border-0 bg-transparent p-0 text-foreground backdrop:bg-background/80 [&:modal]:fixed [&:modal]:inset-0 [&:modal]:m-auto [&:modal]:flex [&:modal]:h-[calc(100dvh-2rem)] [&:modal]:max-h-none [&:modal]:w-[calc(100vw-2rem)] [&:modal]:max-w-none [&:modal]:flex-col [&:modal]:bg-background"
+      className="relative m-0 block w-full min-w-0 max-w-full overflow-hidden rounded-none border-0 bg-transparent p-0 text-foreground"
+      style={!mounted && !error ? { height } : undefined}
     >
       <div role="group" aria-label="HTML preview actions" data-html-preview-actions className="absolute top-1.5 right-1.5 z-10 flex items-center">
         <button
@@ -144,24 +113,14 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
           {download.state.status === "downloading" ? <LoaderCircle className="size-4 motion-safe:animate-spin" /> : <Download className="size-4" />}
           <span className="sr-only" aria-live="polite">{attachmentDownloadStatusText(download.state)}</span>
         </button>
-        <button
-          ref={expandButton}
-          type="button"
-          className={buttonVariants({ variant: "ghost", size: "icon" })}
-          data-testid={expanded ? tid.htmlPreviewClose(id) : tid.htmlPreviewExpand(id)}
-          aria-label={expanded ? "Close fullscreen preview" : "Expand HTML preview"}
-          title={expanded ? "Close fullscreen preview" : "Expand HTML preview"}
-          onClick={expanded ? close : expand}
-          disabled={error && !expanded}
-        >
-          {expanded ? <X className="size-4" /> : <Expand className="size-4" />}
-        </button>
       </div>
       {error ? (
         <div role="status" className="p-4 text-sm text-muted-foreground">Preview unavailable. You can download this file.</div>
       ) : (
         <>
-          {status === "loading" && <div role="status" className="px-2 py-1 text-sm text-muted-foreground">Loading preview…</div>}
+          {status === "loading" && <div role="status" aria-label="Loading preview" className="pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
+            <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
+          </div>}
           {mounted && <iframe
             ref={frame}
             title={attachment.name}
@@ -171,12 +130,11 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
             referrerPolicy="no-referrer"
             allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
             onLoad={() => setLoaded(true)}
-            className={cn("block w-full border-0 bg-transparent scheme-light", expanded && "min-h-0 flex-1")}
-            style={{ height: expanded ? undefined : height, colorScheme: loaded ? resolvedTheme === "dark" ? "dark" : "light" : undefined }}
+            className="block w-full border-0 bg-transparent scheme-light"
+            style={{ height, colorScheme: loaded ? resolvedTheme === "dark" ? "dark" : "light" : undefined }}
           />}
         </>
       )}
-    </dialog>
     </div>
   )
 }
