@@ -936,14 +936,14 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect.poll(async () => {
       const host = await iframe.evaluate((element, tokens) => {
         const root = getComputedStyle(document.documentElement), painted = getComputedStyle(element)
-        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: root.backgroundColor }
+        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color }
       }, names)
       const embedded = await content.locator("html").evaluate((element, tokens) => {
         const root = getComputedStyle(element), painted = getComputedStyle(document.body)
-        return { dark: element.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: painted.backgroundColor }
+        return { dark: element.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, canvas: { html: root.backgroundColor, body: painted.backgroundColor, htmlImage: root.backgroundImage, bodyImage: painted.backgroundImage } }
       }, names)
-      return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, background: embedded.background === host.background }
-    }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, background: true })
+      return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, canvas: embedded.canvas }
+    }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, canvas: { html: "rgba(0, 0, 0, 0)", body: "rgba(0, 0, 0, 0)", htmlImage: "none", bodyImage: "none" } })
     await expect(iframe).toHaveCount(1)
     await expect(iframe).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   }
