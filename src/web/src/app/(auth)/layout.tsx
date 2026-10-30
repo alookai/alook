@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
+import { headers } from "next/headers";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
 
 export const metadata: Metadata = {
@@ -15,10 +15,12 @@ export default async function AuthLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getSession();
-  // Already signed in → community home. `/workspaces` was the retired legacy
-  // (v0) surface.
-  if (session) redirect("/c/me");
+  const requestHeaders = await headers();
+  if (requestHeaders.has("Cookie") || requestHeaders.has("Authorization")) {
+    const { getSession } = await import("@/lib/session");
+    const session = await getSession();
+    if (session) redirect("/c/me");
+  }
 
   return <>{children}</>;
 }
