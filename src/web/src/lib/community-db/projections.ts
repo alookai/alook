@@ -4,10 +4,10 @@ import type { CommunityResourceProfile } from "@alook/shared"
 
 import { getServerDirectoryWindow, readServerDirectoryWindow, serverDirectoryWindowComplete } from "@/lib/community/server-directory-window"
 import { communityKeys } from "@/lib/query-keys"
-import { skipToken, useQuery } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { forumSidebarWindowComplete, type ForumSidebarWindow } from "@/lib/community/forum-sidebar-window"
 
-import { createContext, createElement, useContext, useMemo, type Context, type ReactNode } from "react"
+import { createContext, createElement, useContext, useMemo, useCallback, useSyncExternalStore, type Context, type ReactNode } from "react"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
 import { DbProvider, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
 import { createStore, useSelector } from "@tanstack/react-store"
@@ -202,7 +202,14 @@ export function useServerRailProjection() {
 
 export function useServerTreeProjection(serverId: string | null) {
   const registry = useOptionalCommunityDbRegistry()
-  const directory = useQuery({ queryKey: communityKeys.server(serverId ?? "__none__"), queryFn: skipToken, enabled: false, select: readServerDirectoryWindow }).data
+  const queryClient = useQueryClient()
+  const read = useCallback(() => queryClient.getQueryData(communityKeys.server(serverId ?? "__none__")), [queryClient, serverId])
+  const subscribe = useCallback((notify: () => void) => queryClient.getQueryCache().subscribe((event) => {
+    const key = event.query.queryKey
+    if (key.length === 3 && key[0] === "community" && key[1] === "servers" && key[2] === (serverId ?? "__none__")) notify()
+  }), [queryClient, serverId])
+  const snapshot = useSyncExternalStore(subscribe, read, read)
+  const directory = useMemo(() => readServerDirectoryWindow(snapshot), [snapshot])
   const servers = useCollectionQuery("servers", ({ row }) => eq(row.id, serverId ?? ""))
   const categories = useCollectionQuery("categories", ({ row }) => eq(row.serverId, serverId ?? ""))
   const channels = useCollectionQuery("channels", ({ row }) => eq(row.serverId, serverId ?? ""))

@@ -30,6 +30,20 @@ function seed(qc: QueryClient, channels = true) {
 beforeEach(() => { api.mockReset() })
 beforeEach(() => () => { act(() => { clients.splice(0).forEach((qc) => qc.clear()) }) })
 describe("native canonical channel directory", () => {
+  it("keeps the request lease fetcher callable for a later invalidation", async () => {
+    const held = deferred()
+    api.mockReturnValueOnce(held.promise).mockResolvedValue(directoryResponse())
+    const qc = client(), view = mount(qc)
+    await waitFor(() => expect(api).toHaveBeenCalledOnce())
+    const query = qc.getQueryCache().find({ queryKey: communityKeys.channelRefDirectory(), exact: true })!
+    expect(query.observers.every(observer => typeof observer.options.queryFn === "function")).toBe(true)
+    await act(async () => held.resolve(directoryResponse()))
+    await waitFor(() => expect(view.result.current.isResolved).toBe(true))
+    await act(async () => { await qc.invalidateQueries({ queryKey: communityKeys.channelRefDirectory(), exact: true }) })
+    expect(api).toHaveBeenCalledTimes(2)
+    expect(view.result.current.isError).toBe(false)
+    view.unmount()
+  })
   it("uses the qualified lightweight API helper", async () => {
     api.mockResolvedValue(directoryResponse()); const options = { authenticationAccount: "viewer" }
     await expect(channelRefDirectoryQueryFn(options)).resolves.toEqual(directoryResponse())
