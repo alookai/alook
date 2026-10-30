@@ -188,7 +188,7 @@ function isCookieHumanSameOrigin(req: NextRequest): boolean {
     return false
   }
   if (originHeader !== originUrl.origin) return false
-  const requestUrl = new URL(req.url)
+  const requestUrl = req.nextUrl
   if (originUrl.origin === requestUrl.origin) return true
   return isLoopbackHostname(originUrl.hostname)
     && isLoopbackHostname(requestUrl.hostname)

@@ -5,8 +5,9 @@ export type AuthHandler<C> = (
   context: C & { params?: Record<string, string> },
 ) => Promise<Response>
 
+/** Each successful resolution owns a fresh context for this request. */
 export type AuthResolution<C> = Response | {
-  context: C
+  context: C & { params?: Record<string, string> }
   finish?: (response: Response) => Response
 }
 
@@ -29,7 +30,8 @@ export function createAuth<C>(policy: AuthPolicy<C>) {
       if (resolved instanceof Response) {
         response = resolved
       } else {
-        const context = { ...resolved.context, params }
+        const context = resolved.context
+        context.params = params
         const result = (policy.authorize ? await policy.authorize(request, context) : null)
           ?? handler(request, context)
         if (!resolved.finish && !policy.respond) return result
