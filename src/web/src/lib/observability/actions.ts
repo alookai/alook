@@ -10,10 +10,6 @@ export const actionVariants = {
     "delete": "machine.delete",
     "update": "machine.update"
   },
-  "device.authorization.command": {
-    "approve": "device.authorization.approve",
-    "deny": "device.authorization.deny"
-  },
   "account.deletion.command": {
     "code": "account.deletion.code.request",
     "delete": "account.delete"

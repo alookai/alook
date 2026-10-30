@@ -8,7 +8,7 @@ import { canonicalUserImage } from "@/lib/community/storage"
 
 /**
  * POST /api/community/invites/[token]/join — the unified join route (plan §4
- * FOLD, §9 phase 4). Serves both a human (session/al_) and a bot (crk_) via
+ * FOLD, §9 phase 4). Serves both a human (session) and a bot (crk_) via
  * `withCommunityActor`; the old /agent/joinServer folds in here (batch1
  * cab6c3e7 did the same fold). Two things branch on `actor.kind`:
  *   1. owner-gate — a bot may only consume an invite created by ITS OWN owner

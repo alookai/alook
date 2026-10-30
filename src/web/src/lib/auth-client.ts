@@ -1,6 +1,6 @@
 "use client"
 import { createAuthClient } from "better-auth/react"
-import { emailOTPClient, deviceAuthorizationClient } from "better-auth/client/plugins"
+import { emailOTPClient } from "better-auth/client/plugins"
 import { captureTelemetryIdentityRetirement } from "@/lib/observability/client"
 import {
   resumeMobileSystemNotificationRegistration,
@@ -10,7 +10,7 @@ import {
 
 export const authClient = createAuthClient({
   baseURL: process.env.NEXT_PUBLIC_APP_URL || "",
-  plugins: [emailOTPClient(), deviceAuthorizationClient()],
+  plugins: [emailOTPClient()],
 })
 
 export const { signIn, signUp, useSession } = authClient
