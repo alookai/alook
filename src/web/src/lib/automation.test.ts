@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 
 const { authenticate, expire, transport, fallback } = vi.hoisted(() => ({ authenticate: vi.fn(), expire: vi.fn(), transport: vi.fn(), fallback: vi.fn() }))
-vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ env: { DB: {} } }) }))
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })) }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }) }))
 vi.mock("@/lib/broadcast", () => ({ wsDoFetch: transport }))
 vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: {
@@ -169,6 +170,22 @@ it("self-expiry ignores route params and never uses permission or quota resoluti
   const context = { get params(): never { throw new Error("expiry has no route parameters") } }
   expect((await expireCode(request(), context)).status).toBe(200)
   expect(expire).toHaveBeenCalledOnce()
+  expect(authenticate).not.toHaveBeenCalled()
+  expect(transport).not.toHaveBeenCalled()
+})
+
+
+it("fails closed before expiry or permission lookup when request bindings are unavailable", async () => {
+  vi.mocked(getCloudflareContext).mockRejectedValueOnce(new Error("bindings unavailable"))
+  const expired = await expireCode(request())
+  expect(expired.status).toBe(503)
+  expect(await expired.json()).toEqual({ error: "Automation expiration unavailable" })
+  expect(expired.headers.get("Cache-Control")).toBeNull()
+  vi.mocked(getCloudflareContext).mockRejectedValueOnce(new Error("bindings unavailable"))
+  const response = await withAutomation("bot.create", create)(request())
+  expect(response.status).toBe(503)
+  expect(await response.json()).toEqual({ error: "Automation authentication unavailable" })
+  expect(expire).not.toHaveBeenCalled()
   expect(authenticate).not.toHaveBeenCalled()
   expect(transport).not.toHaveBeenCalled()
 })
