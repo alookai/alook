@@ -21,6 +21,20 @@ beforeEach(() => { vi.stubEnv("ALOOK_ACCESS_CODE", secret); vi.stubEnv("ALOOK_SE
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
 describe("use automation CLI", () => {
+  it("expires its supplied code without a target identity and refuses malformed success or repeated expiry", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ expired: true }))
+    const { run, output } = program()
+    await run(["use", "expire"])
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("http://localhost:4328/api/community/automation/expire", expect.objectContaining({
+      method: "POST", headers: expect.objectContaining({ Authorization: `Bearer ${secret}` }), body: "{}",
+    }))
+    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { expired: true } })
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ expired: false }))
+    await expect(program().run(["use", "expire"])).rejects.toThrow("invalid expiration result")
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "Invalid or unauthorized access code" }, { status: 401 }))
+    await expect(program().run(["use", "expire"])).rejects.toThrow("Invalid or unauthorized access code")
+  })
+
   it("creates a bot through the dedicated API without proxy or agent identity and maps backendId", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ bot: { id: "b1", name: "Helper", discriminator: "0042" } }, { status: 201 }))
     const { run, output } = program()

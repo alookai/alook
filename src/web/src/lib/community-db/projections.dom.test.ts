@@ -32,6 +32,17 @@ import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-pe
 import { profileSchema } from "./schema"
 
 describe("community DB projections", () => {
+  it("subscribes to an empty server cache without a missing query function warning", async () => {
+    const client = new QueryClient()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, children)
+    const view = renderHook(() => useServerTreeProjection(null), { wrapper })
+    try {
+      await act(async () => {})
+      expect(error.mock.calls.flat().join(" ")).not.toContain("queryFn")
+      expect(view.result.current).toBeUndefined()
+    } finally { view.unmount(); client.clear(); error.mockRestore() }
+  })
   it("carries native preparation and failure through member reads and recovers from actual canonical data", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     let reject!: (error: Error) => void

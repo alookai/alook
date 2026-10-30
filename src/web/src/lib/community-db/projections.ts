@@ -4,7 +4,7 @@ import type { CommunityResourceProfile } from "@alook/shared"
 
 import { getServerDirectoryWindow, readServerDirectoryWindow, serverDirectoryWindowComplete } from "@/lib/community/server-directory-window"
 import { communityKeys } from "@/lib/query-keys"
-import { useQuery } from "@tanstack/react-query"
+import { skipToken, useQuery } from "@tanstack/react-query"
 import { forumSidebarWindowComplete, type ForumSidebarWindow } from "@/lib/community/forum-sidebar-window"
 
 import { createContext, createElement, useContext, useMemo, type Context, type ReactNode } from "react"
@@ -202,7 +202,7 @@ export function useServerRailProjection() {
 
 export function useServerTreeProjection(serverId: string | null) {
   const registry = useOptionalCommunityDbRegistry()
-  const directory = useQuery({ queryKey: communityKeys.server(serverId ?? "__none__"), enabled: false, select: readServerDirectoryWindow }).data
+  const directory = useQuery({ queryKey: communityKeys.server(serverId ?? "__none__"), queryFn: skipToken, enabled: false, select: readServerDirectoryWindow }).data
   const servers = useCollectionQuery("servers", ({ row }) => eq(row.id, serverId ?? ""))
   const categories = useCollectionQuery("categories", ({ row }) => eq(row.serverId, serverId ?? ""))
   const channels = useCollectionQuery("channels", ({ row }) => eq(row.serverId, serverId ?? ""))

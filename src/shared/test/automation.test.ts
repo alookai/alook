@@ -44,6 +44,49 @@ describe("Automation access codes", () => {
     expect(await queries.authenticateAccessCode(db, "wrong", "bot.create")).toBeNull()
   })
 
+  it("lists only unexpired owned codes without deleting expired records", async () => {
+    const { db, sqlite } = fixture()
+    const now = "2026-10-30T04:00:00.000Z"
+    const codes = await Promise.all(["past", "boundary", "future", "permanent", "peer"].map((name) =>
+      queries.createAccessCode(db, name === "peer" ? "peer" : "author", { ...input(), name }, name)))
+    const expires = ["2026-10-30T03:59:59.999Z", now, "2026-10-30T04:00:00.001Z", null, null]
+    for (const [index, code] of codes.entries()) sqlite.prepare("UPDATE automation_access_code SET expires_at = ? WHERE id = ?").run(expires[index], code.id)
+    const listed = await queries.listAccessCodes(db, "author", now)
+    expect(listed.map((code) => code.name).sort()).toEqual(["future", "permanent"])
+    expect(listed.every((code) => code.permissions.length === 2)).toBe(true)
+    expect(await queries.authenticateAccessCode(db, "past", "bot.create", now)).toBeNull()
+    expect(await queries.authenticateAccessCode(db, "boundary", "bot.create", now)).toBeNull()
+    expect(await queries.getAccessCode(db, "author", codes[0].id)).toMatchObject({ name: "past" })
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM automation_access_code").get()).toEqual({ count: 5 })
+  })
+
+  it("atomically expires only the presented active code without requiring a grant", async () => {
+    const { db, sqlite } = fixture()
+    const code = await queries.createAccessCode(db, "author", { ...input(), expiresIn: "forever" }, "self-digest")
+    const peer = await queries.createAccessCode(db, "peer", input(), "peer-digest")
+    sqlite.prepare("DELETE FROM automation_access_permission WHERE code_id = ?").run(code.id)
+    const now = "2026-10-30T04:00:00.000Z"
+    expect(await queries.expireAccessCode(db, "unknown", now)).toBe(false)
+    expect(await queries.expireAccessCode(db, "self-digest", now)).toBe(true)
+    expect(await queries.expireAccessCode(db, "self-digest", now)).toBe(false)
+    expect(await queries.getAccessCode(db, "author", code.id)).toMatchObject({ expiresAt: now })
+    expect(await queries.getAccessCode(db, "peer", peer.id)).toEqual(peer)
+    expect(await queries.listAccessCodes(db, "author", now)).toEqual([])
+    expect(await queries.authenticateAccessCode(db, "self-digest", "bot.create", now)).toBeNull()
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM automation_access_code").get()).toEqual({ count: 2 })
+  })
+
+  it("does not self-expire codes that are expired or owned by retired humans or bots", async () => {
+    const { db, sqlite } = fixture()
+    const code = await queries.createAccessCode(db, "author", input(), "self-digest")
+    expect(await queries.expireAccessCode(db, "self-digest", code.expiresAt!)).toBe(false)
+    sqlite.prepare("UPDATE user SET deletedAt = 'deleted' WHERE id = 'author'").run()
+    expect(await queries.expireAccessCode(db, "self-digest")).toBe(false)
+    sqlite.prepare("UPDATE user SET deletedAt = NULL, isBot = 1 WHERE id = 'author'").run()
+    expect(await queries.expireAccessCode(db, "self-digest")).toBe(false)
+    expect(await queries.getAccessCode(db, "author", code.id)).toEqual(code)
+  })
+
   it("scopes edits and deletion, preserves expiry on policy edits and revokes removed policies", async () => {
     const { db, sqlite } = fixture()
     const code = await queries.createAccessCode(db, "author", input(), "digest")

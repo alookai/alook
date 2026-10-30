@@ -16,6 +16,62 @@ function setup() {
 }
 beforeEach(() => { mocks.api.mockReset(); mocks.api.mockResolvedValue({ accessCodes: [] }) })
 describe("Automation request ownership", () => {
+  it("filters expired codes and removes future codes while the page stays open", async () => {
+    const now = Date.now(), code = response.accessCode
+    mocks.api.mockResolvedValue({ accessCodes: [
+      { ...code, id: "expired", expiresAt: new Date(now - 1000).toISOString() },
+      { ...code, id: "soon", expiresAt: new Date(now + 10_000).toISOString() },
+      { ...code, id: "later", expiresAt: new Date(now + 20_000).toISOString() }, code,
+    ] })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    expect(view.result.current.list.data?.accessCodes.map(code => code.id)).toEqual(["soon", "later", "code"])
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(now + 10_000)
+      await act(async () => window.dispatchEvent(new Event("focus")))
+      expect(view.result.current.list.data?.accessCodes.map(code => code.id)).toEqual(["later", "code"])
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+      expect(view.result.current.list.data?.accessCodes.map(code => code.id)).toEqual(["code"])
+      expect(mocks.api).toHaveBeenCalledTimes(2)
+    } finally { view.unmount(); view.client.clear(); vi.useRealTimers() }
+  })
+  it("rechecks expiry and refreshes server state on visibility change", async () => {
+    const now = Date.now()
+    mocks.api.mockResolvedValue({ accessCodes: [{ ...response.accessCode, expiresAt: new Date(now + 60_000).toISOString() }] })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toHaveLength(1))
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(now + 60_000)
+      await act(async () => document.dispatchEvent(new Event("visibilitychange")))
+      expect(view.result.current.list.data?.accessCodes).toEqual([])
+      expect(mocks.api).toHaveBeenCalledTimes(2)
+    } finally { view.unmount(); view.client.clear(); vi.useRealTimers() }
+  })
+  it("does not refetch when the document is hidden or after unmount", async () => {
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden")
+    try {
+      await act(async () => document.dispatchEvent(new Event("visibilitychange")))
+      expect(mocks.api).toHaveBeenCalledTimes(1)
+      view.unmount()
+      visibility.mockReturnValue("visible")
+      await act(async () => window.dispatchEvent(new Event("focus")))
+      expect(mocks.api).toHaveBeenCalledTimes(1)
+    } finally { visibility.mockRestore(); view.unmount(); view.client.clear() }
+  })
+  it("removes a code expired by the CLI when the page becomes visible again", async () => {
+    mocks.api.mockResolvedValue({ accessCodes: [response.accessCode] })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toHaveLength(1))
+    mocks.api.mockResolvedValue({ accessCodes: [] })
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")))
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toEqual([]))
+    expect(mocks.api).toHaveBeenCalledTimes(2)
+    view.unmount(); view.client.clear()
+  })
   it("refreshes metadata after create without putting the secret in a query or mutation result", async () => {
     const view = setup()
     await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))

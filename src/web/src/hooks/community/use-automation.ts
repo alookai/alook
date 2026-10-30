@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback } from "react"
+import { useCallback, useEffect } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCreateStore } from "@tanstack/react-store"
+import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store"
 import type { AutomationAccessCodeCreate, AutomationAccessCodeUpdate, AutomationAccessCodeListResponse, AutomationAccessCodeCreateResponse } from "@alook/shared"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { useCommunityViewSource } from "./use-community-view-source"
@@ -20,6 +20,34 @@ export function useAutomation(userId: string) {
     queryKey, retry: false, staleTime: 0, gcTime: 0,
     queryFn: ({ signal }) => origin.fetch<AutomationAccessCodeListResponse>(path, { signal }),
   })
+  const refetch = list.refetch
+  const [now, setNow] = useAtom(useCreateAtom<number | null>(null))
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const refresh = () => {
+      clearTimeout(timer)
+      const current = Date.now()
+      setNow(current)
+      const next = list.data?.accessCodes.reduce((next, code) => {
+        const expires = code.expiresAt ? Date.parse(code.expiresAt) : Infinity
+        return expires > current ? Math.min(next, expires) : next
+      }, Infinity) ?? Infinity
+      if (Number.isFinite(next)) timer = setTimeout(refresh, Math.min(next - current, 2_147_483_647))
+    }
+    refresh()
+    const resume = () => {
+      refresh()
+      if (document.visibilityState === "visible") void refetch({ cancelRefetch: false })
+    }
+    window.addEventListener("focus", resume)
+    document.addEventListener("visibilitychange", resume)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener("focus", resume)
+      document.removeEventListener("visibilitychange", resume)
+    }
+  }, [list.data, setNow, refetch])
+  const data = list.data ? { ...list.data, accessCodes: list.data.accessCodes.filter((code) => !code.expiresAt || Date.parse(code.expiresAt) > (now ?? Infinity)) } : undefined
   type Intent = { action: Command; assert: ReturnType<typeof view.capture>; token: ReturnType<typeof origin.begin>["token"]; onCreated?: (result: AutomationAccessCodeCreateResponse) => void }
   const mutation = useMutation({
     meta: { observabilityAction: "automation.access_code.command" },
@@ -48,5 +76,5 @@ export function useAutomation(userId: string) {
       assert()
     } finally { lock.setState(() => ({ pending: false })) }
   }, [view, origin, mutateAsync, lock])
-  return { list, execute, pending: mutation.isPending }
+  return { list: { ...list, data }, execute, pending: mutation.isPending }
 }

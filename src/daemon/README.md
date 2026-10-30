@@ -427,6 +427,8 @@ npx @alook/daemon use message --send --target '/demo#0042/general' --as me --fil
 npx @alook/daemon use message --send --target '/.dm/alice#0042' --as '@Helper#0042' --file './message.txt'
 ```
 
+Run `npx @alook/daemon use expire` to expire the supplied access code immediately. It needs no extra permission or remaining quota and affects only that code. Later requests, including repeated expiry, are refused. Expired codes leave the active list; their records remain stored. Returning to Automation refreshes the list.
+
 These are examples. Use an existing machine ID owned by the code's user, an available backend, and a supported model. Optional bot fields are `description` and `reasoningEffort`. Bot creation keeps the same machine readiness, model and plan checks as the web form. The code grants each selected action directly. Machine, friend and server listing each require their own Read permission; other account actions are unavailable. Creating a server does not add bots to it.
 
 The invite command sends the normal server invitation link to an accepted friend by DM; it does not force that person to join. It accepts no arbitrary message content. The caller must be a member of that server. Server and friend arguments use the full name#NNNN handles returned by the list commands.

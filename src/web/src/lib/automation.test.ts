@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const { authenticate, transport, fallback } = vi.hoisted(() => ({ authenticate: vi.fn(), transport: vi.fn(), fallback: vi.fn() }))
+const { authenticate, expire, transport, fallback } = vi.hoisted(() => ({ authenticate: vi.fn(), expire: vi.fn(), transport: vi.fn(), fallback: vi.fn() }))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ env: { DB: {} } }) }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }) }))
 vi.mock("@/lib/broadcast", () => ({ wsDoFetch: transport }))
 vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: unknown) => fallback.mockImplementation(async (request: NextRequest) => (handler as (req: NextRequest, ctx: unknown) => Promise<Response>)(request, { env: { DB: {} }, userId: "human" })) }))
-vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(), queries: { automation: { authenticateAccessCode: authenticate } } }))
+vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(), queries: { automation: { authenticateAccessCode: authenticate, expireAccessCode: expire } } }))
 
 import { hashAutomationSecret, newAutomationSecret, withAutomation, withAutomationManagement } from "./automation"
+import { POST as expireCode } from "@/app/api/community/automation/expire/route"
 
 const secret = "aac_" + "a".repeat(64)
 const request = (token = secret) => new NextRequest("http://localhost/api/community/bots", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "test" }) })
@@ -22,6 +23,30 @@ const create = async (_req: NextRequest, ctx: { userId: string; beforeCreate: ()
   await ctx.beforeCreate() ?? Response.json({ ownerId: ctx.userId }, { status: 201 })
 
 describe("automation authorization boundary", () => {
+  it("self-expires a hashed credential without permissions, quota or normal-session authority", async () => {
+    expire.mockResolvedValueOnce(true)
+    const result = await expireCode(request())
+    expect(result.status).toBe(200)
+    expect(await result.json()).toEqual({ expired: true })
+    expect(result.headers.get("Cache-Control")).toBe("no-store")
+    expect(expire).toHaveBeenCalledExactlyOnceWith({ primary: true }, await hashAutomationSecret(secret))
+    expect(authenticate).not.toHaveBeenCalled()
+    expect(transport).not.toHaveBeenCalled()
+    expect(fallback).not.toHaveBeenCalled()
+    expire.mockResolvedValueOnce(false)
+    expect((await expireCode(request())).status).toBe(401)
+    expire.mockRejectedValueOnce(new Error("D1 unavailable"))
+    expect((await expireCode(request())).status).toBe(503)
+  })
+
+  it("refuses missing, malformed, bot and machine credentials before self-expiry", async () => {
+    for (const token of ["", "aac_bad", "al_machine", "crk_bot"]) expect((await expireCode(request(token))).status).toBe(401)
+    const cookieOnly = new NextRequest("http://localhost/api/community/automation/expire", { method: "POST", headers: { Cookie: "session=present" } })
+    expect((await expireCode(cookieOnly)).status).toBe(401)
+    expect(expire).not.toHaveBeenCalled()
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
   it("derives owner from a hashed primary lookup and uses the indexed permission for its own limiter", async () => {
     const response = await withAutomation("bot.create", create)(request())
     expect(response.status).toBe(201)

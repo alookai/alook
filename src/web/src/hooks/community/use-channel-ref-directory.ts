@@ -3,6 +3,7 @@ import type { CommunityResourceBundle } from "@alook/shared"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
 import {
+  skipToken,
   useQuery,
   QueryObserver,
   useQueryClient,
@@ -39,7 +40,7 @@ export function useChannelRefDirectory(enabled = true): {
   const query = useQuery<string[]>({
     queryKey: communityKeys.channelRefDirectory(),
     queryFn: async ({ signal }) => {
-      const observer = new QueryObserver<string[]>(queryClient, { queryKey: communityKeys.channelRefDirectory(), enabled: false })
+      const observer = new QueryObserver<string[]>(queryClient, { queryKey: communityKeys.channelRefDirectory(), queryFn: skipToken, enabled: false })
       const release = observer.subscribe(() => {
         if (queryClient.getQueryState(communityKeys.channelRefDirectory())?.fetchStatus === "idle") {
           signal.removeEventListener("abort", release)

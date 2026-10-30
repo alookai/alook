@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, ne, or } from "drizzle-orm"
+import { and, asc, desc, eq, exists, gt, inArray, isNull, ne, or } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import { automationAccessCode as code, automationAccessPermission as policy } from "../automation-schema"
 import { user } from "../schema"
@@ -10,9 +10,9 @@ import { automationExpiresAt, type AutomationAccessCode, type AutomationAccessCo
 
 const publicFields = { id: code.id, name: code.name, createdAt: code.createdAt, expiresAt: code.expiresAt }
 
-export async function listAccessCodes(db: Database, ownerId: string): Promise<AutomationAccessCode[]> {
+export async function listAccessCodes(db: Database, ownerId: string, now = new Date().toISOString()): Promise<AutomationAccessCode[]> {
   const rows = await db.select({ ...publicFields, permission: policy.permission, limit: policy.limit, period: policy.period })
-    .from(code).leftJoin(policy, eq(policy.codeId, code.id)).where(eq(code.ownerId, ownerId))
+    .from(code).leftJoin(policy, eq(policy.codeId, code.id)).where(and(eq(code.ownerId, ownerId), or(isNull(code.expiresAt), gt(code.expiresAt, now))))
     .orderBy(desc(code.createdAt), asc(policy.permission))
   const codes = new Map<string, AutomationAccessCode>()
   for (const row of rows) {
@@ -63,6 +63,14 @@ export async function updateAccessCode(db: Database, ownerId: string, id: string
 
 export async function deleteAccessCode(db: Database, ownerId: string, id: string): Promise<boolean> {
   const rows = await db.delete(code).where(and(eq(code.ownerId, ownerId), eq(code.id, id))).returning({ id: code.id })
+  return rows.length > 0
+}
+
+export async function expireAccessCode(db: Database, secretHash: string, now = new Date().toISOString()): Promise<boolean> {
+  const rows = await db.update(code).set({ expiresAt: now }).where(and(
+    eq(code.secretHash, secretHash), or(isNull(code.expiresAt), gt(code.expiresAt, now)),
+    exists(db.select({ id: user.id }).from(user).where(and(eq(user.id, code.ownerId), eq(user.isBot, false), isNull(user.deletedAt)))),
+  )).returning({ id: code.id })
   return rows.length > 0
 }
 

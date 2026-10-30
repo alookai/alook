@@ -86,6 +86,11 @@ export function registerUseCommands(program: Command, output: (value: { success:
     }
     return { result, origin }
   }
+  use.command("expire").description("expire the supplied access code immediately").action(async () => {
+    const { result } = await request("/api/community/automation/expire", {})
+    if (result.expired !== true) throw new Error("Automation returned an invalid expiration result")
+    output({ success: { expired: true } })
+  })
   use.command("message").exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} }).description("send a UTF-8 file as yourself or an owned bot")
     .option("--send", "send one message")
     .requiredOption("--target <ref>", "channel or DM ref")

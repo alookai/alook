@@ -25,9 +25,25 @@ export function withAutomationManagement(handler: AuthenticatedHandler) {
 type RouteContext = { params?: Promise<Record<string, string>> | Record<string, string> }
 type AutomationHandler = (req: NextRequest, ctx: { env: Env; userId: string; params?: Record<string, string>; beforeCreate: () => Promise<Response | null> }) => Promise<Response>
 
+function readAutomationSecret(req: NextRequest): string | undefined {
+  return /^Bearer (aac_[a-f0-9]{64})$/.exec(req.headers.get("Authorization") ?? "")?.[1]
+}
+
+export async function expireAutomationAccessCode(req: NextRequest): Promise<Response> {
+  const secret = readAutomationSecret(req)
+  if (!secret) return writeError("Invalid or unauthorized access code", 401)
+  try {
+    const env = (await getCloudflareContext({ async: true })).env as Env
+    const expired = await queries.automation.expireAccessCode(getPrimaryDb(env.DB), await hashAutomationSecret(secret))
+    return Response.json(expired ? { expired: true } : { error: "Invalid or unauthorized access code" }, {
+      status: expired ? 200 : 401, headers: { "Cache-Control": "no-store" },
+    })
+  } catch { return writeError("Automation expiration unavailable", 503) }
+}
+
 export function withAutomation(permission: AutomationPermission, handler: AutomationHandler) {
   return async (req: NextRequest, context?: RouteContext): Promise<Response> => {
-    const secret = /^Bearer (aac_[a-f0-9]{64})$/.exec(req.headers.get("Authorization") ?? "")?.[1]
+    const secret = readAutomationSecret(req)
     if (!secret) return writeError("Invalid or unauthorized access code", 401)
     let env: Env
     let access: Awaited<ReturnType<typeof queries.automation.authenticateAccessCode>>
