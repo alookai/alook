@@ -1107,7 +1107,7 @@ export function groupChannelRefDirectoryRows(
   }));
 }
 
-export async function listChannelRefDirectoryForUser(db: Database, userId: string) {
+export async function listChannelRefDirectoryForUser(db: Database, userId: string, options: { railOrder?: boolean } = {}) {
   const [servers, channels] = await Promise.all([
     db
       .select({
@@ -1168,7 +1168,7 @@ export async function listChannelRefDirectoryForUser(db: Database, userId: strin
         asc(communityChannel.id)
       ),
   ]);
-  return groupChannelRefDirectoryRows(sortServerRailRows(await readServerRailSnapshot(db, userId), servers), channels);
+  return groupChannelRefDirectoryRows(options.railOrder === false ? servers : sortServerRailRows(await readServerRailSnapshot(db, userId), servers), channels);
 }
 
 // Shared visibility computation for the nested-membership model. Assembles the

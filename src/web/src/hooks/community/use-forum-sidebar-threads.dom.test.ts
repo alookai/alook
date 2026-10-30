@@ -1055,6 +1055,29 @@ describe("forum sidebar canonical projection", () => {
     await invalidateForumSidebarBaseExact(queryClient, "server-1")
   })
 
+  it("keeps the server expiry deadline when a title update rebuilds the timer", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-30T00:00:00.000Z"))
+    const { queryClient, wrapper } = await setup()
+    const response = envelopeFor(["post-1"])
+    const serverNow = Date.now() + 60 * 60 * 1000
+    response.serverNow = new Date(serverNow).toISOString()
+    setActivity(response, 0, new Date(serverNow - 72 * 60 * 60 * 1000 + 60_000).toISOString())
+    publish(queryClient, response, true)
+    apiFetchMock.mockReturnValue(new Promise(() => {}))
+    const rendered = renderHook(() => useForumSidebarThreads("server-1", null), { wrapper })
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    act(() => { patchForumSidebarTitleExact(queryClient, "server-1", "post-1", "Changed") })
+    expect(rendered.result.current.threads[0]?.title).toBe("Changed")
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_024) })
+    expect(rendered.result.current.threads).toHaveLength(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(rendered.result.current.threads).toEqual([])
+    expect(getCanonicalCommunityChannels(queryClient).some(({ id }) => id === "post-1")).toBe(true)
+    rendered.unmount()
+    queryClient.clear()
+  })
+
   it("deduplicates one cold request across a StrictMode-style remount", async () => {
     const { wrapper, queryClient } = await setup()
     let resolveRequest!: (value: SidebarThreadEnvelope) => void

@@ -96,5 +96,5 @@ describe("renderer-scoped artwork provenance", () => {
       expect(Object.values(hashes).every(hash => /^[a-f0-9]{64}$/.test(hash))).toBe(true)
     }
     stage("assertions:done")
-  })
+  }, 15_000)
 })

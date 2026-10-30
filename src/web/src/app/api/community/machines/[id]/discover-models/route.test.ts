@@ -1,3 +1,4 @@
+import { fingerprintRuntimeModelCatalog } from "@alook/shared"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 const mocks = vi.hoisted(() => ({ machine: vi.fn(), dispatch: vi.fn(), bot: vi.fn() }))
@@ -5,7 +6,7 @@ vi.mock("@/lib/db", () => ({ getDb: () => ({ authDb: true }), getPrimaryDb: () =
 vi.mock("@/lib/broadcast", () => ({ wsDoFetch: mocks.dispatch }))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
-  return { ...actual, queries: { communityMachine: { getMachineByIdForUser: mocks.machine } } }
+  return { ...actual, queries: { ...actual.queries, communityMachine: { getMachineByIdForUser: mocks.machine } } }
 })
 vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: any) => (req: any) => handler(req, { env: { DB: {} }, userId: "owner", params: { id: "machine" } }) }))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ env: { DB: {} } }) }))
@@ -93,5 +94,53 @@ describe("bot model discovery error and dispatch contract", () => {
     const response = await POST(botRequest(), { params: { id: "machine" } })
     expect(response.status).toBe(status)
     expect(await response.json()).toMatchObject({ code, machineId: "machine" })
+  })
+})
+
+describe("bot synchronous cached model queries", () => {
+  const botRequest = (query = "?wait=1", body: unknown = payload) => new NextRequest(`http://localhost/api/community/machines/machine/discover-models${query}`, { method: "POST", headers: { authorization: "Bearer crk_synthetic" }, body: JSON.stringify(body) })
+  const catalog = { updateMode: "unsupported", catalogOrigin: "native_report", defaultModelId: "provider/model", models: [{ id: "provider/model", supportedReasoningEfforts: [{ value: "high" }], defaultReasoningEffort: "high" }] }
+  const fresh = { sent: 1, unsupported: 0, cached: false, observedAt: "2026-10-29T00:00:00Z", result: { status: "complete", catalog } }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.bot.mockResolvedValue({ kind: "bot", actor: { botUserId: "requester", ownerUserId: "owner", machineId: "source", isActive: true } })
+    mocks.machine.mockResolvedValue({ status: "online", availableRuntimes: [{ id: "codex" }] })
+    mocks.dispatch.mockImplementation(async () => Response.json(fresh))
+  })
+  it("uses the authenticated owner and returns fresh/cache model reports through the same wait path", async () => {
+    const response = await POST(botRequest(), { params: { id: "machine" } })
+    expect(response.status).toBe(200)
+    expect(mocks.machine).toHaveBeenCalledWith({ db: true }, "owner", "machine")
+    expect(mocks.dispatch.mock.lastCall?.[1]).toBe("/community-machine/by-id/machine/discover-models?wait=1&cache=1")
+    expect(await response.json()).toMatchObject({ source: "fresh_discovery", observedAt: fresh.observedAt, catalogState: "reported", catalogOrigin: "native_report", models: [{ id: "provider/model", reasoningEfforts: [{ value: "high" }] }] })
+    mocks.machine.mockResolvedValueOnce({ status: "online", availableRuntimes: [{ id: "codex", status: "healthy", reasoning: catalog }] })
+    mocks.dispatch.mockResolvedValueOnce(Response.json({ ...fresh, sent: 0, cached: true, catalogFingerprint: await fingerprintRuntimeModelCatalog(catalog as never) }))
+    expect(await (await POST(botRequest(), { params: { id: "machine" } })).json()).toMatchObject({ source: "cached_report", observedAt: fresh.observedAt })
+  })
+  it("preserves model-specific projection and forces refresh without forwarding CLI-only fields", async () => {
+    const response = await POST(botRequest("?wait=1&model=provider%2Fmodel", { ...payload, refresh: true }), { params: { id: "machine" } })
+    expect(mocks.dispatch.mock.lastCall?.[1]).toBe("/community-machine/by-id/machine/discover-models?wait=1")
+    expect(JSON.parse(mocks.dispatch.mock.lastCall?.[2].body)).toEqual(payload)
+    expect(await response.json()).toMatchObject({ source: "fresh_discovery", inCatalog: true, model: { id: "provider/model", reasoningEfforts: [{ value: "high" }], defaultReasoningEffort: "high" } })
+    const unknown = await POST(botRequest("?wait=1&model=custom%2Funknown"), { params: { id: "machine" } })
+    expect(await unknown.json()).toMatchObject({ inCatalog: false, model: { id: "custom/unknown", reasoningEfforts: null, defaultReasoningEffort: null } })
+  })
+  it("returns a discovery failure instead of a stored report and refuses corrupt force options", async () => {
+    mocks.dispatch.mockResolvedValueOnce(Response.json({ sent: 1, unsupported: 0, result: { status: "error", code: "failed", message: "Failed" } }))
+    const response = await POST(botRequest(), { params: { id: "machine" } })
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ code: "failed" })
+    expect((await POST(botRequest("?wait=1", { ...payload, refresh: "true" }), { params: { id: "machine" } })).status).toBe(400)
+  })
+  it("shares human fresh/cache/force discovery while returning the native UI catalog", async () => {
+    const human = (body: unknown = payload) => new NextRequest("http://localhost/api/community/machines/machine/discover-models?wait=1", { method: "POST", body: JSON.stringify(body) })
+    expect(await (await POST(human())).json()).toEqual({ machineId: "machine", backendId: "codex", requestId: "request", source: "fresh_discovery", observedAt: fresh.observedAt, result: fresh.result })
+    expect(mocks.dispatch.mock.lastCall?.[1]).toBe("/community-machine/by-id/machine/discover-models?wait=1&cache=1")
+    mocks.machine.mockResolvedValueOnce({ status: "online", availableRuntimes: [{ id: "codex", reasoning: catalog }] })
+    mocks.dispatch.mockResolvedValueOnce(Response.json({ sent: 0, unsupported: 0, cached: true, observedAt: fresh.observedAt, catalogFingerprint: await fingerprintRuntimeModelCatalog(catalog as never) }))
+    expect(await (await POST(human())).json()).toMatchObject({ source: "cached_report", result: fresh.result })
+    expect((await POST(human({ ...payload, refresh: true }))).status).toBe(200)
+    expect(mocks.dispatch.mock.lastCall?.[1]).toBe("/community-machine/by-id/machine/discover-models?wait=1")
+    expect(JSON.parse(mocks.dispatch.mock.lastCall?.[2].body)).toEqual(payload)
   })
 })

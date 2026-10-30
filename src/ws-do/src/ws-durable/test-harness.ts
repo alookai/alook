@@ -26,6 +26,12 @@ export class CFResponse {
   private _body: BodyInit | null
   private _headers: Headers
 
+  static json(body: unknown, init: ResponseInit = {}) {
+    const headers = new Headers(init.headers)
+    if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json")
+    return new CFResponse(JSON.stringify(body), { ...init, headers })
+  }
+
   constructor(body: BodyInit | null = null, init: ResponseInit & { webSocket?: unknown } = {}) {
     this._body = body
     this._headers = new Headers(init.headers)

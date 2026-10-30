@@ -7,6 +7,8 @@ vi.mock("@/lib/db", () => ({
   getPrimaryDb: vi.fn(() => ({})),
 }))
 
+let actorKind: "human" | "bot" = "bot"
+
 const mockSentStatement = vi.fn(() => ({ activity: "sent" }))
 const mockCreateMessageWithThread = vi.fn()
 const mockResolveTargetForMember = vi.fn()
@@ -53,7 +55,7 @@ vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn(async () => ({ allowe
 vi.mock("@/lib/middleware/community-actor", () => ({
   withCommunityActor: (handler: any) => async (req: any, ctx?: any) => handler(req, {
     env: { DB: {} },
-    actor: { kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" },
+    actor: { kind: actorKind, userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" },
     params: ctx?.params instanceof Promise ? await ctx.params : ctx?.params,
   }),
 }))
@@ -77,6 +79,7 @@ const request = (body: unknown) => new NextRequest("http://localhost/api/communi
 describe("forum sends open a thread through the canonical message route", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    actorKind = "bot"
     mockResolveTargetForMember.mockResolvedValue({ channelId: "forum_1" })
     mockRequireMessageSurfaceAccess.mockResolvedValue({
       ok: true,
@@ -198,4 +201,29 @@ describe("forum sends open a thread through the canonical message route", () => 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: "attachment not found or not attachable to this thread" })
   })
+  it.each([{}, { content: " " }, { content: 7 }])("rejects empty human forum titles before creating a thread %j", async (body) => {
+    actorKind = "human"
+    const response = await POST(request(body), { params: { id: "forum_1" } })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "content is required" })
+    expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
+  })
+
+  it("preserves human opener primitive failures without a success confirmation", async () => {
+    actorKind = "human"
+    mockCreateMessageWithThread.mockResolvedValueOnce({ ok: false, status: 409, error: "forum unavailable" })
+    const response = await POST(request({ content: "Title" }), { params: { id: "forum_1" } })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "forum unavailable" })
+  })
+
+  it("preserves a forum replay primitive failure instead of returning sent", async () => {
+    mockGetCommunityMessageReplay.mockResolvedValueOnce({ row: { id: "old" } })
+    mockCreateMessageWithThread.mockResolvedValueOnce({ ok: false, status: 400, error: "replay thread unavailable" })
+    const response = await POST(request({ channel: "/demo/forum", content: { text: "Title" }, nonce: "old-nonce" }), ctx)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "replay thread unavailable" })
+    expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
+  })
+
 })

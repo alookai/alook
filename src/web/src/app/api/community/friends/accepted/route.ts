@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { resolvePresence, toFriendCard } from "@/lib/community/friend-cards"
 
+
 export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId

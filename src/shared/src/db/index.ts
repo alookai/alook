@@ -6,8 +6,9 @@ import * as billingSchema from "./billing-schema";
 import * as productPlanSchema from "./product-plan-schema";
 import * as communityFunnelAnalyticsSchema from "./community-funnel-analytics-schema";
 import * as botCreationSchema from "./bot-creation-schema";
+import * as automationSchema from "./automation-schema";
 
-const allSchema = { ...schema, ...communitySchema, ...communityMachineSchema, ...productPlanSchema, ...billingSchema, ...communityFunnelAnalyticsSchema, ...botCreationSchema };
+const allSchema = { ...schema, ...communitySchema, ...communityMachineSchema, ...productPlanSchema, ...billingSchema, ...communityFunnelAnalyticsSchema, ...botCreationSchema, ...automationSchema };
 
 export function createDb(d1: AnyD1Database) {
   return drizzle(d1, { schema: allSchema });

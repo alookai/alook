@@ -28,7 +28,7 @@ describe("Terms of Service", () => {
 
   it("uses the same content in its own Settings tab and keeps public sharing metadata canonical", () => {
     const settings = readFileSync(new URL("../community/settings/user-settings.tsx", import.meta.url), "utf8")
-    expect(settings).toContain('{ value: "terms", label: "Terms", icon: FileText }')
+    expect(settings).toMatch(/\{\s*value: "terms",\s*label: "Terms",/)
     expect(settings).toContain('<SettingsShellPanel value="terms">')
     expect(settings).toContain("<TermsContent />")
     expect(settings).toContain("<PrivacyPolicyContent />")

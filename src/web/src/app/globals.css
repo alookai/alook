@@ -599,6 +599,11 @@ body.driver-active .community-ws-reconnect-overlay * {
   background-color: oklch(var(--forum-tag-bg-l) var(--forum-tag-bg-c) var(--forum-tag-hue));
 }
 
+.automation-write-color {
+  color: oklch(var(--forum-tag-bg-l) var(--forum-tag-bg-c) var(--forum-tag-hue));
+  background-color: oklch(var(--forum-tag-text-l) var(--forum-tag-text-c) var(--forum-tag-hue));
+}
+
 /* ── Object-mimicry card grain texture (shared) ── */
 .card-grain {
   position: relative;

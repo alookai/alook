@@ -1,0 +1,149 @@
+import React from "react"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { useAutomation } from "./use-automation"
+
+const mocks = vi.hoisted(() => ({ api: vi.fn() }))
+vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api }))
+const create = { kind: "create" as const, data: { name: "Script", expiresIn: "24h" as const, permissions: [{ permission: "bot.create" as const, limit: 64, period: "hour" as const }] } }
+const response = { accessCode: { id: "code", name: "Script", permissions: create.data.permissions, expiresAt: null, createdAt: "2026-01-01T00:00:00Z" }, secret: "synthetic-only-secret" }
+function setup() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const wrapper = ({ children }: { children: React.ReactNode }) => <CommunityTestProvider client={client}>{children}</CommunityTestProvider>
+  return { ...renderHook(() => useAutomation("owner"), { wrapper }), client }
+}
+beforeEach(() => { mocks.api.mockReset(); mocks.api.mockResolvedValue({ accessCodes: [] }) })
+describe("Automation request ownership", () => {
+  it("filters expired codes and removes future codes while the page stays open", async () => {
+    const now = Date.now(), code = response.accessCode
+    mocks.api.mockResolvedValue({ accessCodes: [
+      { ...code, id: "expired", expiresAt: new Date(now - 1000).toISOString() },
+      { ...code, id: "soon", expiresAt: new Date(now + 10_000).toISOString() },
+      { ...code, id: "later", expiresAt: new Date(now + 20_000).toISOString() }, code,
+    ] })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    expect(view.result.current.list.data?.accessCodes.map(code => code.id)).toEqual(["soon", "later", "code"])
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(now + 10_000)
+      await act(async () => window.dispatchEvent(new Event("focus")))
+      expect(view.result.current.list.data?.accessCodes.map(code => code.id)).toEqual(["later", "code"])
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+      expect(view.result.current.list.data?.accessCodes.map(code => code.id)).toEqual(["code"])
+      expect(mocks.api).toHaveBeenCalledTimes(2)
+    } finally { view.unmount(); view.client.clear(); vi.useRealTimers() }
+  })
+  it("rechecks expiry and refreshes server state on visibility change", async () => {
+    const now = Date.now()
+    mocks.api.mockResolvedValue({ accessCodes: [{ ...response.accessCode, expiresAt: new Date(now + 60_000).toISOString() }] })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toHaveLength(1))
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(now + 60_000)
+      await act(async () => document.dispatchEvent(new Event("visibilitychange")))
+      expect(view.result.current.list.data?.accessCodes).toEqual([])
+      expect(mocks.api).toHaveBeenCalledTimes(2)
+    } finally { view.unmount(); view.client.clear(); vi.useRealTimers() }
+  })
+  it("does not refetch when the document is hidden or after unmount", async () => {
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden")
+    try {
+      await act(async () => document.dispatchEvent(new Event("visibilitychange")))
+      expect(mocks.api).toHaveBeenCalledTimes(1)
+      view.unmount()
+      visibility.mockReturnValue("visible")
+      await act(async () => window.dispatchEvent(new Event("focus")))
+      expect(mocks.api).toHaveBeenCalledTimes(1)
+    } finally { visibility.mockRestore(); view.unmount(); view.client.clear() }
+  })
+  it("removes a code expired by the CLI when the page becomes visible again", async () => {
+    mocks.api.mockResolvedValue({ accessCodes: [response.accessCode] })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toHaveLength(1))
+    mocks.api.mockResolvedValue({ accessCodes: [] })
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")))
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toEqual([]))
+    expect(mocks.api).toHaveBeenCalledTimes(2)
+    view.unmount(); view.client.clear()
+  })
+  it("refreshes metadata after create without putting the secret in a query or mutation result", async () => {
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    const created = vi.fn()
+    mocks.api.mockResolvedValueOnce(response).mockResolvedValue({ accessCodes: [response.accessCode] })
+    await act(async () => { await view.result.current.execute(create, created) })
+    expect(created).toHaveBeenCalledWith(response)
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toHaveLength(1))
+    expect(JSON.stringify(view.client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(response.secret)
+    expect(view.client.getMutationCache().getAll().every((mutation) => mutation.state.data === undefined)).toBe(true)
+    view.unmount()
+  })
+  it("updates an encoded code path and refreshes its metadata", async () => {
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    const data = { name: "Renamed", permissions: create.data.permissions }
+    const updated = { ...response.accessCode, name: data.name }
+    const created = vi.fn()
+    mocks.api.mockResolvedValueOnce({ accessCode: updated }).mockResolvedValue({ accessCodes: [updated] })
+    await act(async () => { await view.result.current.execute({ kind: "update", id: "code/with space", data }, created) })
+    expect(mocks.api).toHaveBeenCalledWith("/api/community/automation/access-codes/code%2Fwith%20space", expect.objectContaining({ method: "PATCH", body: JSON.stringify(data) }))
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toEqual([updated]))
+    expect(created).not.toHaveBeenCalled()
+    view.unmount()
+  })
+  it("deletes an encoded code path without a body and refreshes the list", async () => {
+    mocks.api.mockResolvedValue({ accessCodes: [response.accessCode] })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toHaveLength(1))
+    const created = vi.fn()
+    mocks.api.mockResolvedValueOnce({ deleted: true }).mockResolvedValue({ accessCodes: [] })
+    await act(async () => { await view.result.current.execute({ kind: "delete", id: "code/with space" }, created) })
+    const deletion = mocks.api.mock.calls.find(([, options]) => options?.method === "DELETE")
+    expect(deletion?.[0]).toBe("/api/community/automation/access-codes/code%2Fwith%20space")
+    expect(deletion?.[1]).not.toHaveProperty("body")
+    await waitFor(() => expect(view.result.current.list.data?.accessCodes).toEqual([]))
+    expect(created).not.toHaveBeenCalled()
+    view.unmount()
+  })
+  it("rejects a delayed creation response after leaving the panel", async () => {
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    let resolve!: (value: typeof response) => void
+    mocks.api.mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    const created = vi.fn()
+    let work!: Promise<unknown>
+    await act(async () => { work = view.result.current.execute(create, created).catch((error: unknown) => error) })
+    view.unmount()
+    resolve(response)
+    const error = await work
+    expect(error).toMatchObject({ name: "AbortError" })
+    expect(created).not.toHaveBeenCalled()
+  })
+  it("does not replay a failed POST or allow duplicate in-flight submissions", async () => {
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    let reject!: (reason: Error) => void
+    mocks.api.mockReturnValueOnce(new Promise((_done, fail) => { reject = fail }))
+    let first!: Promise<unknown>
+    await act(async () => { first = view.result.current.execute(create).catch((error: unknown) => error) })
+    await expect(view.result.current.execute(create)).rejects.toMatchObject({ name: "AbortError" })
+    await act(async () => { reject(new Error("Network failed")); await first })
+    expect(mocks.api.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1)
+    view.unmount()
+  })
+  it("does not continue a callback saved from an unmounted account view", async () => {
+    const view = setup()
+    await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
+    const execute = view.result.current.execute
+    const calls = mocks.api.mock.calls.length
+    view.unmount()
+    await expect(execute(create)).rejects.toMatchObject({ name: "AbortError" })
+    expect(mocks.api).toHaveBeenCalledTimes(calls)
+  })
+})

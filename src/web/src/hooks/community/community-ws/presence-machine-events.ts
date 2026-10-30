@@ -4,6 +4,7 @@ import { replaceMachines, type MachinesResponse } from "@/hooks/community/use-ma
 import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
 import { assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import type {
+  RuntimeModelDiscoveryResult,
   CommunityBotAuditEvent,
   CommunityMachineCreated,
   CommunityMachineRemoved,
@@ -16,8 +17,12 @@ import type {
 import { communityKeys } from "@/lib/query-keys"
 
 
-import type { RuntimeModelsState } from "@/hooks/community/use-runtime-models"
 import type { PresenceMachineEventContext } from "@/hooks/community/community-ws/handler-context"
+
+export type RuntimeModelsState = { requestId: string; transport?: "http" } & (
+  | { status: "pending" | "cancelled" }
+  | RuntimeModelDiscoveryResult
+)
 
 export function handlePresenceUpdate(
   event: CommunityPresenceUpdate,
@@ -113,10 +118,10 @@ export async function handleMachineRemoved(
   )
 }
 
-export async function handleRuntimeModels(event: Extract<CommunityWsEvent, { type: "community:runtime.models" }>, { queryClient }: PresenceMachineEventContext) {
+export async function handleRuntimeModels(event: Extract<CommunityWsEvent, { type: "community:runtime.models" }>, { queryClient }: PresenceMachineEventContext, transport: "ws" | "http" = "ws") {
   const key = communityKeys.runtimeModels(event.machineId, event.runtimeId)
   const pending = queryClient.getQueryData<RuntimeModelsState>(key)
-  if (pending?.status !== "pending" || pending.requestId !== event.requestId) return
+  if (pending?.status !== "pending" || pending.requestId !== event.requestId || (pending.transport === "http" && transport !== "http")) return
   queryClient.setQueryData<RuntimeModelsState>(key, { requestId: event.requestId, ...event.result })
   if (event.result.status !== "complete") return
   const catalog = event.result.catalog

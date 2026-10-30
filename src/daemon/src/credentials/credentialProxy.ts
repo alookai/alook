@@ -548,7 +548,8 @@ export async function startCredentialProxy(
   };
 
   const server = http.createServer(async (req, res) => {
-    const pathname = new URL(req.url ?? "/", "http://placeholder").pathname;
+    const requestUrl = new URL(req.url ?? "/", "http://placeholder");
+    const pathname = requestUrl.pathname;
     if (pathname === LOCAL_PII_PATH && (req.method === "GET" || req.method === "POST")) {
       const localVerdict = broker.check(req.headers["authorization"], req.method === "GET" ? "read" : "send");
       if (!localVerdict.ok) { writeJson(res, localVerdict.status, { error: localVerdict.error, code: localVerdict.code }); req.resume(); return; }
@@ -856,7 +857,8 @@ export async function startCredentialProxy(
     // so it keeps firing across the whole exchange, not just while waiting
     // for headers — always destroy, but only write a 504 if we haven't
     // already committed to a response.
-    const upstreamTimeoutMs = options.upstreamTimeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
+    const waitingForModels = req.method === "POST" && /^\/api\/community\/machines\/[^/]+\/discover-models$/.test(pathname) && requestUrl.searchParams.get("wait") === "1";
+    const upstreamTimeoutMs = options.upstreamTimeoutMs ?? (waitingForModels ? 55_000 : DEFAULT_UPSTREAM_TIMEOUT_MS);
     upstreamReq.setTimeout(upstreamTimeoutMs, () => {
       upstreamReq.destroy();
       upstreamRes?.destroy();
