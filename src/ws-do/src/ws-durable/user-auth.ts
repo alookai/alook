@@ -95,7 +95,10 @@ export async function handleUserFetch(
       return deliverCommunityBundle(context, bundle, targetUserId)
     }
     try {
-      if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, bundle.prepared.events)) {
+      if (!await withD1Retry(
+        () => canDeliverCommunityContent(createDb(context.env.DB), targetUserId, bundle.prepared.events),
+        { route: "ws-do:community-delivery-access" },
+      )) {
         return jsonResponse({
           status: "cancelled",
           reason: "access-revoked",
@@ -132,7 +135,10 @@ export async function handleUserFetch(
       return jsonResponse({ sent: broadcastCommunity(context, event.event, targetUserId, event.contract) })
     }
     try {
-      if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event])) {
+      if (!await withD1Retry(
+        () => canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event]),
+        { route: "ws-do:community-content-access" },
+      )) {
         context.log.info("community_content_access_denied", { targetUserId, type: event.event.type })
         return jsonResponse({ sent: 0 }, 200)
       }

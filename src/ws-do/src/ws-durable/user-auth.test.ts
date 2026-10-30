@@ -1,4 +1,5 @@
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { makeD1Error } from "@alook/shared/db/resilience-testing"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   deriveCommunityDeliveryOperationId,
@@ -230,6 +231,47 @@ describe("WebSocketDurableObject", () => {
         }),
       })
     }
+
+    it.each([
+      ["recover", 2, 200, 1],
+      ["revoked", 2, 200, 0],
+      ["exhausted", 4, 503, 0],
+      ["permanent", 1, 503, 0],
+      ["healthy", 1, 200, 1],
+    ] as const)("uses real D1 retries for %s access checks on both routes", async (mode, calls, status, sent) => {
+      const { withD1Retry } = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+      mockWithD1Retry.mockImplementation(async <T>(fn: () => Promise<T>): Promise<T> =>
+        withD1Retry(fn, { baseDelayMs: 0 }))
+      for (const bundle of [false, true]) {
+        const { durable, ctx } = createDO()
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
+        ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+        mockListReadableChannelsForUser.mockReset()
+        const failure = makeD1Error(mode === "permanent" ? "sqlite_constraint" : "internal_error")
+        if (mode !== "permanent" && failure.cause instanceof Error) {
+          failure.cause.message = "D1_ERROR: Failed to get session commit token: internal error; reference = fixture"
+        }
+        if (mode === "exhausted" || mode === "permanent") {
+          mockListReadableChannelsForUser.mockRejectedValue(failure)
+        } else {
+          mockListReadableChannelsForUser.mockResolvedValue(mode === "revoked" ? [] : [{ id: "ch-1" }])
+          if (mode !== "healthy") mockListReadableChannelsForUser.mockRejectedValueOnce(failure)
+        }
+        const request = bundle ? await requestFor([events[0]]) : new Request("http://internal/community-broadcast", {
+          method: "POST",
+          headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), [INTERNAL_USER_TARGET_HEADER]: "user-42" },
+          body: JSON.stringify({ ...events[0], schemaVersion: BUSINESS_SCHEMA_VERSION }),
+        })
+        const response = await durable.fetch(request)
+        expect(response.status).toBe(status)
+        expect(mockListReadableChannelsForUser).toHaveBeenCalledTimes(calls)
+        expect(ws.send).toHaveBeenCalledTimes(sent)
+        if (mode === "revoked") {
+          expect(await response.json()).toMatchObject(bundle ? { status: "cancelled", reason: "access-revoked" } : { sent: 0 })
+        }
+      }
+    })
 
     it("cancels revoked content without changing progress, and retries transient failures", async () => {
       const { durable, ctx } = createDO()
