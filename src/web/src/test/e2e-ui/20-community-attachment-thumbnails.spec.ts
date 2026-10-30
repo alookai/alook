@@ -936,14 +936,14 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect.poll(async () => {
       const host = await iframe.evaluate((element, tokens) => {
         const root = getComputedStyle(document.documentElement), painted = getComputedStyle(element)
-        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: root.backgroundColor }
+        return { dark: document.documentElement.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color }
       }, names)
       const embedded = await content.locator("html").evaluate((element, tokens) => {
         const root = getComputedStyle(element), painted = getComputedStyle(document.body)
-        return { dark: element.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, background: painted.backgroundColor }
+        return { dark: element.classList.contains("dark"), variables: Object.fromEntries(tokens.map((name) => [name, root.getPropertyValue(`--${name}`).trim()])), foreground: painted.color, canvas: { html: root.backgroundColor, body: painted.backgroundColor, htmlImage: root.backgroundImage, bodyImage: painted.backgroundImage } }
       }, names)
-      return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, background: embedded.background === host.background }
-    }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, background: true })
+      return { hostDark: host.dark, frameDark: embedded.dark, tokens: JSON.stringify(embedded.variables) === JSON.stringify(host.variables), foreground: embedded.foreground === host.foreground, canvas: embedded.canvas }
+    }).toEqual({ hostDark: dark, frameDark: dark, tokens: true, foreground: true, canvas: { html: "rgba(0, 0, 0, 0)", body: "rgba(0, 0, 0, 0)", htmlImage: "none", bodyImage: "none" } })
     await expect(iframe).toHaveCount(1)
     await expect(iframe).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   }
@@ -999,7 +999,7 @@ test("HTML attachment markers render once with interactive isolated content acro
     contentType: "application/json",
   })
 
-  const transparentHtml = '<!doctype html><html><head><style>:root{color-scheme:light dark}html,body{margin:0;background:transparent}body{min-height:112px;color:var(--foreground)}#authored{position:absolute;left:0;top:48px;width:160px;height:48px;background:#73a3b2;color:#112233}input{position:absolute;left:180px;top:48px}</style></head><body><div id="authored"></div><input id="state" value="original"></body></html>'
+  const transparentHtml = `<!doctype html><html style="background:purple!important;padding:17px;color:#123456"><head><style>:root{color-scheme:light dark;background:linear-gradient(red,blue)!important}html,body{margin:0;background:orange!important}body{min-height:112px;color:var(--foreground)}#authored{position:absolute;left:0;top:48px;width:160px;height:48px;background:#73a3b2;color:#112233}input{position:absolute;left:180px;top:48px}#repaint{position:absolute;left:180px;top:80px}</style></head><body style="background:yellow!important"><div id="authored"></div><input id="state" value="original"><button id="repaint" onclick="document.documentElement.style.setProperty('background','linear-gradient(red,blue)','important');document.body.style.setProperty('background','red','important');document.getElementById('rows').innerHTML='<div style=height:360px></div>'">Repaint canvas and grow</button><div id="rows"></div></body></html>`
   const transparentId = await upload("transparent.html", "text/html", transparentHtml)
   await appearance("Dark")
   const transparentPreviewUrl = new URL(`/api/community/channels/${channelId}/attachments/${transparentId}?preview=html`, page.url()).href
@@ -1074,7 +1074,21 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect(transparentFrame).toHaveCSS("color-scheme", mode.toLowerCase())
     await expect(transparentContent.locator("html")).toHaveCSS("color-scheme", "light dark")
     await expect.poll(() => transparentContent.locator("html").evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(mode === "Dark")
-    for (const selector of ["html", "body"]) await expect(transparentContent.locator(selector)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    let growth: { before: number; after: number } | undefined
+    if (mode === "Light") {
+      const before = (await transparentFrame.boundingBox())!.height
+      await transparentContent.getByRole("button", { name: "Repaint canvas and grow", exact: true }).click()
+      await expect.poll(async () => (await transparentFrame.boundingBox())!.height).toBeGreaterThan(before)
+      const after = (await transparentFrame.boundingBox())!.height
+      expect(after).toBeLessThanOrEqual(2000)
+      growth = { before, after }
+    }
+    for (const selector of ["html", "body"]) {
+      await expect(transparentContent.locator(selector)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+      await expect(transparentContent.locator(selector)).toHaveCSS("background-image", "none")
+    }
+    await expect(transparentContent.locator("html")).toHaveCSS("padding-top", "17px")
+    await expect(transparentContent.locator("html")).toHaveCSS("color", "rgb(18, 52, 86)")
     await expect(transparentContent.locator("#authored")).toHaveCSS("color", "rgb(17, 34, 51)")
     const inline = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-inline.png`)
     await transparentPreview.hover()
@@ -1083,7 +1097,7 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect(transparentActions.getByRole("button")).toHaveCount(1)
     await expect(transparentPreview).not.toHaveAttribute("aria-modal", "true")
     await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
-    canvasSamples.push({ mode, inline })
+    canvasSamples.push({ mode, growth, inline })
   }
   expect(canvasSamples[1]!.inline.canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]!.inline.canvas.reduce((sum, value) => sum + value, 0))
   expect(loading.canvas.reduce((sum, value) => sum + value, 0)).toBeLessThan(canvasSamples[0]!.inline.canvas.reduce((sum, value) => sum + value, 0))
@@ -1093,7 +1107,11 @@ test("HTML attachment markers render once with interactive isolated content acro
   await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
   expect(await transparentFrame.evaluate((element, original) => element === original, originalTransparentFrame)).toBe(true)
   await originalTransparentFrame?.dispose()
-  await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas: loading.canvas, loadingCarrier: loading.carrier, themes: canvasSamples }, null, 2), contentType: "application/json" })
+  const originalCanvasFile = await page.request.get(`/api/community/channels/${channelId}/attachments/${transparentId}`)
+  expect(originalCanvasFile.status()).toBe(200)
+  expect(originalCanvasFile.headers()["content-disposition"]).toContain("attachment")
+  expect(await originalCanvasFile.text()).toBe(transparentHtml)
+  await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas: loading.canvas, loadingCarrier: loading.carrier, themes: canvasSamples, originalBytes: Buffer.byteLength(transparentHtml) }, null, 2), contentType: "application/json" })
 })
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 }, { width: 1280, height: 900 }]) {

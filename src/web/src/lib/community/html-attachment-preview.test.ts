@@ -48,8 +48,8 @@ describe("HTML preview response preparation", () => {
 
 
 describe("generated HTML bootstrap", () => {
-  it.each(["light dark", "only light"])("preserves the author's %s scheme and colors when styles load after the theme", async (scheme) => {
-    const dom = new JSDOM(prepareHtmlPreview(`<!doctype html><html><head><style data-authored>:root{color-scheme:${scheme}}html,body{background:transparent}#authored{background:#73a3b2;color:#112233}</style></head><body><section id="authored">Original colors</section><input id="state" value="original"></body></html>`), {
+  it.each(["light dark", "only light"])("preserves the author's %s scheme and internal colors while overriding document backgrounds", async (scheme) => {
+    const dom = new JSDOM(prepareHtmlPreview(`<!doctype html><html style="background:#102030!important"><head><style data-authored>:root{color-scheme:${scheme};background:#ff0000!important}html,body{background:linear-gradient(red,blue)!important}#authored{background:#73a3b2;color:#112233}</style></head><body style="background:#203040!important"><section id="authored">Original colors</section><input id="state" value="original"></body></html>`), {
       runScripts: "dangerously",
       beforeParse(window) {
         Object.defineProperty(window, "parent", { value: { postMessage: vi.fn() } })
@@ -73,6 +73,75 @@ describe("generated HTML bootstrap", () => {
         expect(input.value).toBe("retained edit")
       }
     } finally { dom.window.close() }
+  })
+
+  it("keeps root/body backgrounds transparent after style writes and body replacement with one observer", async () => {
+    const frames = new Map<number, FrameRequestCallback>()
+    let frameId = 0, observerCount = 0, mutationCalls = 0
+    const dom = new JSDOM(prepareHtmlPreview('<html style="background:red!important;padding:17px;color:#123456"><body style="background:blue!important;margin:12px;padding:7px"><section id="card" style="background:#73a3b2">Card</section><input id="state" value="original"></body></html>'), {
+      runScripts: "dangerously",
+      beforeParse(window) {
+        Object.defineProperty(window, "parent", { value: { postMessage: vi.fn() } })
+        window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId }
+        const NativeObserver = window.MutationObserver
+        window.MutationObserver = class extends NativeObserver {
+          constructor(callback: MutationCallback) {
+            super((records, observer) => { mutationCalls += 1; callback(records, observer) })
+            observerCount += 1
+          }
+        }
+      },
+    })
+    try {
+      await new Promise<void>(resolve => dom.window.document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }))
+      const { document } = dom.window
+      const input = document.querySelector<HTMLInputElement>("#state")!
+      input.value = "retained edit"
+      async function settle() {
+        for (let cycle = 0; cycle < 5; cycle += 1) {
+          await Promise.resolve()
+          for (const [id, callback] of [...frames]) { frames.delete(id); callback(0) }
+        }
+        await Promise.resolve()
+        expect(frames.size).toBe(0)
+      }
+      function canvas() {
+        for (const element of [document.documentElement, document.body]) {
+          expect(element.style.getPropertyValue("background")).toBe("transparent")
+          expect(element.style.getPropertyPriority("background")).toBe("important")
+          expect(dom.window.getComputedStyle(element).backgroundColor).toBe("rgba(0, 0, 0, 0)")
+        }
+        expect(document.documentElement.style.padding).toBe("17px")
+        expect(dom.window.getComputedStyle(document.documentElement).color).toBe("rgb(18, 52, 86)")
+        expect(document.body.style.margin).toBe("12px")
+        expect(document.body.style.padding).toBe("7px")
+        expect(dom.window.getComputedStyle(document.querySelector("#card")!).backgroundColor).toBe("rgb(115, 163, 178)")
+        expect(document.querySelector("#state")).toBe(input)
+        expect(input.value).toBe("retained edit")
+      }
+      await settle()
+      canvas()
+      expect(observerCount).toBe(1)
+      document.documentElement.style.setProperty("background", "linear-gradient(red,blue)", "important")
+      document.body.style.cssText = "background:yellow!important;margin:12px;padding:7px"
+      await settle()
+      canvas()
+      const replacement = document.createElement("body")
+      replacement.style.cssText = "background:purple!important;margin:12px;padding:7px"
+      while (document.body.firstChild) replacement.appendChild(document.body.firstChild)
+      document.body.replaceWith(replacement)
+      await settle()
+      canvas()
+      const calls = mutationCalls
+      for (const dark of [true, false, true]) {
+        dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: dom.window.parent,
+          data: { type: "alook-html-theme", dark, variables: { "--background": dark ? "#121314" : "#ffffff" } } }))
+      }
+      await settle()
+      canvas()
+      expect(observerCount).toBe(1)
+      expect(mutationCalls - calls).toBeLessThanOrEqual(2)
+    } finally { frames.clear(); dom.window.close() }
   })
 
   it("requests the host theme, reports readiness and rejects a different sender", async () => {
