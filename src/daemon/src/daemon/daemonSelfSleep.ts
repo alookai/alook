@@ -1,4 +1,4 @@
-export const DAEMON_SELF_SLEEP_TIMEOUT_MS = 15 * 24 * 60 * 60 * 1_000;
+export const DAEMON_SELF_SLEEP_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export interface DaemonSelfSleepClock {
   setTimer(callback: () => void, delayMs: number): ReturnType<typeof setTimeout>;

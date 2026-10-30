@@ -2,7 +2,7 @@ import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { channelResourceFixture, categoryResourceFixture, serverResourceFixture, messageSeedFixture } from "@/test/community-resource-fixtures"
 import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { serverDirectoryFixture } from "@/test/community-resource-fixtures"
-import { dehydrate, QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { dehydrate, QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query"
 import React, { type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
@@ -32,6 +32,32 @@ import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-pe
 import { profileSchema } from "./schema"
 
 describe("community DB projections", () => {
+  it("preserves the real fetcher when a passive tree mounts after a read and the key is invalidated", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.server("srv")
+    const queryFn = vi.fn().mockResolvedValue({ schemaVersion: BUSINESS_SCHEMA_VERSION, accountId: "viewer", serverId: "srv", categoryIds: [], channelIds: [] })
+    const owner = new QueryObserver(client, { queryKey: key, queryFn, staleTime: Infinity })
+    const release = owner.subscribe(() => {})
+    await owner.refetch()
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, children)
+    const view = renderHook(() => useServerTreeProjection("srv"), { wrapper })
+    try {
+      await act(async () => { await client.invalidateQueries({ queryKey: key, exact: true }) })
+      expect(queryFn).toHaveBeenCalledTimes(2)
+      expect(client.getQueryState(key)?.status).toBe("success")
+    } finally { view.unmount(); release(); client.clear() }
+  })
+  it("subscribes to an empty server cache without a missing query function warning", async () => {
+    const client = new QueryClient()
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, children)
+    const view = renderHook(() => useServerTreeProjection(null), { wrapper })
+    try {
+      await act(async () => {})
+      expect(error.mock.calls.flat().join(" ")).not.toContain("queryFn")
+      expect(view.result.current).toBeUndefined()
+    } finally { view.unmount(); client.clear(); error.mockRestore() }
+  })
   it("carries native preparation and failure through member reads and recovers from actual canonical data", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     let reject!: (error: Error) => void

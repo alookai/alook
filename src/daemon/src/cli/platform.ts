@@ -14,7 +14,7 @@ export function registerPlatformCommands(program: Command, getApi: () => ServerA
     .option("--id <id>", "owner machine ID")
     .option("--backend <id>", "backend ID from the selected machine")
     .option("--model <id>", "show effort for this full model ID")
-    .option("--refresh", "ask the target to refresh its reported models")
+    .option("--refresh", "bypass the five-minute model cache and wait for fresh models")
   machine.action(async () => {
     const opts = machine.opts()
     const actions = [opts.list, opts.backends, opts.models].filter(Boolean).length
@@ -27,7 +27,7 @@ export function registerPlatformCommands(program: Command, getApi: () => ServerA
     const api = getApi()
     if (!api.platformMachine) throw failure("Platform machine commands are unavailable", "UPGRADE_REQUIRED")
     const result = await api.platformMachine(opts.list ? { action: "list" } : opts.backends ? { action: "backends", machineId: opts.id }
-        : { action: "models", machineId: opts.id, backendId: opts.backend, ...(opts.model ? { model: opts.model } : {}), refresh: opts.refresh === true, ...(opts.refresh ? { requestId: randomUUID() } : {}) })
+        : { action: "models", machineId: opts.id, backendId: opts.backend, ...(opts.model ? { model: opts.model } : {}), refresh: opts.refresh === true, requestId: randomUUID() })
     output({ success: result })
   })
   const bot = platform.command("bot").description("read bots or request owner-approved creation").exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })

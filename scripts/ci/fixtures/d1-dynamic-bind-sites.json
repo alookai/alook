@@ -198,6 +198,27 @@
     "key": "src/shared/src/db/queries/agent.ts:getExistingHandles:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/automation.ts:createAccessCode:values:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:createAccessCode:values:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:friendScope:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:friendScope:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:getAccessCode:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:updateAccessCode:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/automation.ts:updateAccessCode:values:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/agent-inbox.ts:getInboxSnapshotForAgent:inArray:1"
   },
   {

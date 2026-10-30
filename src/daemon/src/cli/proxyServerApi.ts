@@ -694,8 +694,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     if (req.action === "list") return platformCall("/machines?view=list");
     const machine = `/machines/${encodeURIComponent(req.machineId)}`;
     if (req.action === "backends") return platformCall(machine);
-    if (req.refresh) return platformCall(`${machine}/discover-models`, "POST", { requestId: req.requestId ?? crypto.randomUUID(), runtimeId: req.backendId });
-    return platformCall(`${machine}/models?backend=${encodeURIComponent(req.backendId)}${req.model ? `&model=${encodeURIComponent(req.model)}` : ""}`);
+    return platformCall(`${machine}/discover-models?wait=1${req.model ? `&model=${encodeURIComponent(req.model)}` : ""}`, "POST", { requestId: req.requestId ?? crypto.randomUUID(), runtimeId: req.backendId, ...(req.refresh ? { refresh: true } : {}) });
   }
 
   async function callPlatformBot(req: PlatformBotRequest): Promise<Record<string, unknown>> {

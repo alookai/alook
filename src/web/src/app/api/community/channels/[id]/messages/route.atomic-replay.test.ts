@@ -98,6 +98,7 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     const bodies = await Promise.all(responses.map((response) => response.json()))
     expect(responses.map((response) => response.status)).toEqual(kind === "human" ? [201, 201] : [200, 200])
     expect(bodies[0].message.id).toBe(bodies[1].message.id)
+    if (kind === "human") expect(bodies.map((body) => body.message.clientNonce)).toEqual(["same-nonce", "same-nonce"])
     expect(bodies.filter((body) => body.deduped)).toHaveLength(1)
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_message").get()).toEqual({ count: 1 })
     expect(fixture.sqlite.prepare("SELECT message_id FROM community_message_attachment").get()).toEqual({ message_id: bodies[0].message.id })

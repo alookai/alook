@@ -125,6 +125,13 @@ describe("listChannelRefDirectoryForUser", () => {
 
   afterEach(() => sqlite.close());
 
+  it("can skip UI rail reads while keeping the same scoped channel directory", async () => {
+    const railOrdered = await listChannelRefDirectoryForUser(db, "viewer");
+    sqlite.exec("DROP TABLE community_server_rail; DROP TABLE community_server_folder; DROP TABLE community_server_folder_item;");
+    const directory = await listChannelRefDirectoryForUser(db, "viewer", { railOrder: false });
+    expect(directory).toEqual([railOrdered[1], railOrdered[0]]);
+  });
+
   it("returns one rail-ordered directory scoped to member-visible top-level channels", async () => {
     await expect(listChannelRefDirectoryForUser(db, "viewer")).resolves.toEqual([
       { id: "s2", name: "Second", discriminator: "0002", channels: [] },

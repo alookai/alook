@@ -1570,7 +1570,10 @@ export async function getMachineForOwner(
   // Normalize: legacy rows store `string[]`, current rows store
   // `{id, version?, status?, lastError?, lastErrorAt?}[]`. Drop empty ids so
   // the route's `.includes()` / `.find()` checks can't be fooled by `""`.
-  const raw = (r.availableRuntimes ?? []) as Array<unknown>;
+  return { id: r.id, displayName: r.displayName, status: r.status, availableRuntimes: normalizeMachineRuntimes(r.availableRuntimes ?? []) };
+}
+
+export function normalizeMachineRuntimes(raw: unknown[]): CommunityMachineRuntime[] {
   const normalized: CommunityMachineRuntime[] = [];
   for (const entry of raw) {
     if (typeof entry === "string") {
@@ -1580,5 +1583,5 @@ export async function getMachineForOwner(
       if (parsed.success) normalized.push(parsed.data);
     }
   }
-  return { id: r.id, displayName: r.displayName, status: r.status, availableRuntimes: normalized };
+  return normalized;
 }

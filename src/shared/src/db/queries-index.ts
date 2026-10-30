@@ -1,4 +1,5 @@
 import * as nativeOauthQueries from "./queries/native-oauth";
+export * as automation from "./queries/automation";
 
 export * as user from "./queries/user";
 export * as member from "./queries/member";

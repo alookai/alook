@@ -15,6 +15,7 @@
     "knip": "turbo run knip",
     "dev:web": "pnpm --filter @alook/web dev",
     "daemon": "pnpm --filter @alook/daemon exec tsx src/cli/index.ts daemon",
+    "daemon-use": "pnpm --filter @alook/daemon exec tsx src/cli/index.ts use",
     "dev:desktop": "pnpm --filter @alook/desktop dev",
     "build:desktop": "pnpm --filter @alook/desktop build",
     "dev:email": "pnpm --filter @alook/email-worker dev",

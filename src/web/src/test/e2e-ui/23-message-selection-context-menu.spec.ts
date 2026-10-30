@@ -1,5 +1,5 @@
 import { test, expect } from "./_fixtures/case-fixture"
-import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 
 import { tid } from "./_fixtures/testids"
 
@@ -47,6 +47,7 @@ test("message context menu preserves and copies selected text", async ({ caseAct
   await expect(messageBody).toContainText(body)
 
   await row.hover()
+  const contextMenu = page.locator('[data-slot="context-menu-content"]')
   const openContextMenu = page.locator('[data-slot="context-menu-content"][data-open]')
   const trigger = row.locator('[data-slot="context-menu-trigger"]')
   await expect(trigger).toHaveCount(1)
@@ -85,7 +86,17 @@ test("message context menu preserves and copies selected text", async ({ caseAct
     .toBe("copy only this phrase")
 
   await page.keyboard.press("Escape")
-  await expect(openContextMenu).toHaveCount(0)
+  await expect(contextMenu).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString()))
+    .toBe("copy only this phrase")
+  await page.keyboard.press("Shift+F10")
+  await expect(openContextMenu).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(contextMenu).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString()))
+    .toBe("copy only this phrase")
 
   await observeNextContextMenu(page)
   await page.mouse.click(points.outsideSelection.x, points.outsideSelection.y, { button: "right" })
@@ -95,18 +106,17 @@ test("message context menu preserves and copies selected text", async ({ caseAct
     .toBe("copy only this phrase")
   await openContextMenu.getByRole("menuitem", { name: "Copy Text", exact: true }).click()
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("copy only this phrase")
-  await expect(openContextMenu).toHaveCount(0)
+  await expect(contextMenu).toHaveCount(0)
 
   await page.evaluate(() => window.getSelection()?.removeAllRanges())
   await page.mouse.click(points.selection.x, points.selection.y, { button: "right" })
   await expect(openContextMenu).toBeVisible()
   await openContextMenu.getByRole("menuitem", { name: "Copy Text", exact: true }).click()
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(body)
-  await expect(openContextMenu).toHaveCount(0)
+  await expect(contextMenu).toHaveCount(0)
 
   await page.evaluate(() => navigator.clipboard.writeText("keyboard-copy-sentinel"))
   await trigger.evaluate((element) => {
-    element.setAttribute("tabindex", "0")
     element.focus()
   })
   await page.keyboard.press("Shift+F10")
@@ -114,5 +124,30 @@ test("message context menu preserves and copies selected text", async ({ caseAct
   await openContextMenu.getByRole("menuitem", { name: "Copy Text", exact: true }).focus()
   await page.keyboard.press("Enter")
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(body)
-  await expect(openContextMenu).toHaveCount(0)
+  await expect(contextMenu).toHaveCount(0)
+  await expect.poll(() => trigger.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  await page.keyboard.press("Shift+F10")
+  await expect(openContextMenu).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(contextMenu).toHaveCount(0)
+  await expect.poll(() => trigger.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+
+  await page.mouse.click(points.selection.x, points.selection.y, { button: "right" })
+  await expect(openContextMenu).toBeVisible()
+  const editor = composerEditable(page)
+  const editorBox = await editor.boundingBox()
+  if (!editorBox) throw new Error("composer has no visible bounds")
+  await page.mouse.click(editorBox.x + editorBox.width / 2, editorBox.y + editorBox.height / 2)
+  const focusDuringExit = await editor.evaluate((element) => {
+    const popup = document.querySelector('[data-slot="context-menu-content"]')
+    ;(element as HTMLElement).focus()
+    return {
+      popupMounted: popup?.isConnected === true,
+      popupClosing: popup?.hasAttribute("data-closed") === true,
+      editorFocused: document.activeElement === element,
+    }
+  })
+  expect(focusDuringExit).toEqual({ popupMounted: true, popupClosing: true, editorFocused: true })
+  await expect(contextMenu).toHaveCount(0)
+  await expect(editor).toBeFocused()
 })

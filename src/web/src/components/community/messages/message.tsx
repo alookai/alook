@@ -246,6 +246,7 @@ function MessageImpl({
   // Right-click context-menu open state — tracked so the Mark/Unmark label's
   // lazy read fires for the context menu too, not just the ⋯ dropdown.
   const [contextOpen, setContextOpen] = useAtom(useCreateAtom(false))
+  const contextRowRef = useRef<HTMLDivElement | null>(null)
   const [contextSelectedText, setContextSelectedText] = useAtom(useCreateAtom<string | null>(null))
   // Touch devices use a normal tap-triggered dropdown. Long-press is left to
   // the browser so message text keeps native selection/copy behavior.
@@ -405,6 +406,8 @@ function MessageImpl({
     <div
       data-base-ui-swipe-ignore={pageSwipe.page ? "y" : ""}
       data-page-swipe-reply-row=""
+      ref={contextRowRef}
+      tabIndex={interactive && contextMenuEnabled ? -1 : undefined}
       data-message-context-menu={interactive && contextMenuEnabled ? "true" : undefined}
       className={[
         "group relative -mx-2 -my-1 flex gap-2 rounded px-2 py-1 transition-colors",
@@ -969,7 +972,6 @@ function MessageImpl({
             setContextOpen(open && contextMenuEnabled)
             if (!open) {
               setLinkTarget(null)
-              setContextSelectedText(null)
             }
           }}
         >
@@ -979,7 +981,13 @@ function MessageImpl({
             render={row}
           />
           {activated && !touchMenuActive && (
-            <ContextMenuContent className="w-48">
+            <ContextMenuContent className="w-48" finalFocus={contextSelectedText ? (closeType) => {
+              // Keep this policy through the exit animation. The next context
+              // gesture replaces the selection snapshot, including with null.
+              // Editor focus would collapse the selected message text.
+              if (closeType === "keyboard") contextRowRef.current?.focus({ preventScroll: true })
+              return false
+            } : undefined}>
               <MessageContextItems
                 {...menuHandlers}
                 {...linkMenuHandlers}

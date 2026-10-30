@@ -131,6 +131,30 @@ describe("POST /api/community/bots — model", () => {
     expect(await response.json()).toMatchObject({ code: "MACHINE_OFFLINE", machineId: "mac1" })
     expect(mockCreateBot).not.toHaveBeenCalled()
   })
+  it("rejects a machine outside the caller's ownership before creation or dispatch", async () => {
+    mockGetMachineForOwner.mockResolvedValueOnce(null)
+
+    const response = await POST(postReq(base()), ctx)
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "machine not found" })
+    expect(mockGetMachineForOwner).toHaveBeenCalledExactlyOnceWith({}, "mac1", "u1")
+    expect(mockCreateBot).not.toHaveBeenCalled()
+    expect(mockGetUserPublic).not.toHaveBeenCalled()
+    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
+  })
+  it("reports an unresolved owner after creation without dispatching an ownerless bot", async () => {
+    mockGetUserPublic.mockResolvedValueOnce(null)
+
+    const response = await POST(postReq(base()), ctx)
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: "owner not resolvable — retry after re-authenticating" })
+    expect(mockCreateBot).toHaveBeenCalledOnce()
+    expect(mockGetUserPublic).toHaveBeenCalledExactlyOnceWith({}, "u1")
+    expect(mockEnsureNewSiblingBotFriendships).not.toHaveBeenCalled()
+    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
+  })
   it("persists model_name and returns it in the 201 body", async () => {
     const res = await POST(postReq(base("claude-opus-4-6")), ctx)
     expect(res.status).toBe(201)

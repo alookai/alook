@@ -9,16 +9,15 @@ import { join, relative, sep } from "path"
  * the set equals a hand-maintained allowlist — a NEW caller (e.g. a re-added flat
  * verb, or a route that should have folded into the canonical door) fails the
  * test until it's consciously added here. That's the point: the allowlist is the
- * positive proof that the flat tree stayed deleted and no fourth door-bypass
+ * positive proof that the flat tree stayed deleted and no unapproved door-bypass
  * caller crept in (Melly #346 / Aigneis ③).
  *
  * Paths are repo-relative to src/web (the vitest cwd). `message-handler.ts` is
  * excluded — it DEFINES createCommunityMessage, it doesn't call it.
  */
 const ALLOWLIST = [
-  // The canonical id-in-path message door (human + bot, folds flat `send` and
-  // the former dm/[id]/messages route — DM now flows through this one tree).
-  "src/app/api/community/channels/[id]/messages/route.ts",
+  // Shared canonical sender used by the normal and Automation message doors.
+  "src/lib/community/message-send.server.ts",
   // First-run onboarding placeholder. Role events start the bots first, then
   // this invokes the deferred canonical dispatcher so normal mention, wake,
   // broadcast, and typing behavior all remain intact.
@@ -27,6 +26,7 @@ const ALLOWLIST = [
   // primitive — shared by the send-fold (step 4) and the existing-data
   // migration (step 5) to open a message with its own auto-created thread.
   "src/lib/community/create-channels.ts",
+  "src/lib/community/automation-invite.server.ts",
 ].sort()
 
 function walk(dir: string, acc: string[] = []): string[] {

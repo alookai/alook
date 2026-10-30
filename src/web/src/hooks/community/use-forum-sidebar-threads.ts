@@ -502,10 +502,10 @@ export function useForumSidebarThreads(
     if (nextExpiry === undefined) return
     const timeout = globalThis.setTimeout(
       () => setClockNowMs(Date.now()),
-      Math.max(0, nextExpiry - serverNowMs) + 25,
+      Math.max(0, nextExpiry - (Date.now() + (query.data?.serverClockOffsetMs ?? 0))) + 25,
     )
     return () => globalThis.clearTimeout(timeout)
-  }, [projection.threads, retainId, serverNowMs, setClockNowMs])
+  }, [projection.threads, retainId, serverNowMs, setClockNowMs, query.data?.serverClockOffsetMs])
   return {
     ...query,
     threads: projection.threads,

@@ -335,7 +335,7 @@ export interface CreateDaemonOptions {
   /** Injectable daemon-local reminder clock; tests only, defaults to Node timers. */
   messageReminderClock?: Pick<MessageReminderSchedulerOptions, "now" | "setTimer" | "clearTimer">;
   providerQuotaReader?: (backend: BuiltinBackendId) => Promise<ProviderQuotaObservation | null>;
-  /** Called after one continuous 15-day window with no new message and no working agent. */
+  /** Called after one continuous 7-day window with no new message and no working agent. */
   onSelfSleep?: () => void;
   /** Injectable self-sleep clock; tests only, defaults to Node timers. */
   selfSleepClock?: DaemonSelfSleepClock;

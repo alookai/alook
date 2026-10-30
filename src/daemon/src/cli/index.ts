@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { registerPlatformCommands } from "./platform.js";
+import { registerUseCommands } from "./use.js";
 /**
  * `alook` — the agent-facing CLI.
  *
@@ -814,6 +815,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .option("--agent <id>", "agent identity (or ALOOK_AGENT_ID env)");
 
   registerPlatformCommands(program, getApi, printEnvelope);
+  registerUseCommands(program, printEnvelope);
 
   registerPiiCommands(program, printEnvelope);
   const message = program.command("message").description("message operations").exitOverride();

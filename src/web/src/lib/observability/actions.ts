@@ -1,4 +1,5 @@
 export const actionVariants = {
+  "automation.access_code.command": { create: "automation.access_code.create", update: "automation.access_code.update", delete: "automation.access_code.delete" },
   "friend.command": { "send": "friend.request.send", "accept": "friend.request.accept", "reject": "friend.request.reject", "remove": "friend.remove", "cancel": "friend.request.cancel", "owner-decision": "friend.owner_decision.command", "block": "user.block", "unblock": "user.unblock" },
   "friend.owner_decision.command": { "approve": "friend.request.approve", "deny": "friend.request.deny" },
   "member.management.command": { "kick": "server.member.kick", "leave": "channel.member.leave", "remove": "channel.member.remove" },

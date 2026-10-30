@@ -300,9 +300,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetDMBetween.mockResolvedValue(null)
   })
 
-  it.each([false, true])("confirms a full v3 human message with replay=%s", async (replay) => {
+  it.each([false, true])("confirms a full v3 human message from a nonce-free read-back with replay=%s", async (replay) => {
     const row = { id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorImage: null, authorAvatarVersion: 0,
-      content: "hello", type: "default", mentionType: null, replyToId: null, clientNonce: "v3-nonce", embeds: null, createdAt: "now" }
+      content: "hello", type: "default", mentionType: null, replyToId: null, embeds: null, createdAt: "now" }
     mockGetMessage.mockResolvedValue(row)
     mockGetMessageByAuthorAndNonce.mockResolvedValue(replay ? row : null)
     const request = postReq({ content: "hello", nonce: "v3-nonce" })
@@ -420,6 +420,24 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])("resolves a bot reply only within the selected channel (found=%s)", async (found) => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetMessageByChannelAndSeq.mockResolvedValueOnce(found ? { id: "reply_1" } : null)
+    if (found) mockGetMessageInScope.mockResolvedValueOnce({ id: "reply_1", authorId: "u2", content: "original" })
+    const response = await POST(botPostReq({ channel: "/demo#0042/general", content: { text: "reply" }, replyToSeq: 7 }), ctx)
+    expect(mockGetMessageByChannelAndSeq).toHaveBeenCalledWith({}, { channelId: "c1" }, 7)
+    if (found) {
+      expect(response.status).toBe(200)
+      expect((await response.json()).state).toBe("sent")
+      expect(mockCreateMessage.mock.calls[0][1].replyToId).toBe("reply_1")
+    } else {
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ error: "reply target #7 not found in /demo#0042/general" })
+      expect(mockCreateMessage).not.toHaveBeenCalled()
+    }
+  })
+
   it("preserves the alignment CAS when a message arrives during JEV evaluation", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
@@ -429,6 +447,17 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(await res.json()).toMatchObject({ state: "blocked", reason: "unaligned", latestSeq: 3 })
     expect(mockCreateMessage.mock.calls[0][1].expectedSeq).toBe(2)
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, "", "resolve"])("rejects a human send without a real path ID (%s), even with a body ref", async (id) => {
+    const params: Record<string, string> = id === undefined ? {} : { id }
+    const response = await POST(postReq({ content: "hello", channel: "/demo#0042/general" }), { params })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "missing channel id" })
+    expect(mockCheckMessageRateLimit).not.toHaveBeenCalled()
+    expect(mockGetChannel).not.toHaveBeenCalled()
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
   })
 
   it("starts the write path on a first-primary D1 session", async () => {

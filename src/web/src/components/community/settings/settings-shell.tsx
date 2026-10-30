@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 import {
   SETTINGS_NAV_CLASS,
   SETTINGS_NAV_FOOTER_CLASS,
@@ -20,6 +21,7 @@ export type SettingsShellTab<Value extends string> = {
   value: Value
   label: string
   icon: LucideIcon
+  hideIconOnDesktop?: boolean
 }
 
 export function SettingsShellPanel(
@@ -81,7 +83,7 @@ export function SettingsShell<Value extends string>({
       >
         <div className={SETTINGS_NAV_LABEL_CLASS} data-testid={tid.settingsLabel}>{label}</div>
         <TabsList variant="line" className={SETTINGS_TABS_LIST_CLASS}>
-          {tabs.map(({ value: tabValue, label: tabLabel, icon: Icon }) => (
+          {tabs.map(({ value: tabValue, label: tabLabel, icon: Icon, hideIconOnDesktop }) => (
             <TabsTrigger
               key={tabValue}
               value={tabValue}
@@ -89,7 +91,7 @@ export function SettingsShell<Value extends string>({
               className={SETTINGS_TAB_CLASS}
               data-testid={tid.settingsTab(tabValue)}
             >
-              <Icon className="size-4" />
+              <Icon className={cn("size-4", hideIconOnDesktop && "sm:invisible")} />
               <span className="sr-only whitespace-nowrap sm:not-sr-only">{tabLabel}</span>
             </TabsTrigger>
           ))}
