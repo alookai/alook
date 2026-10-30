@@ -52,6 +52,7 @@ export const apiRoutes = [
   "/api/community/automation/messages",
   "/api/community/automation/access-codes",
   "/api/community/automation/access-codes/[codeId]",
+  "/api/community/automation/expire",
   "/api/community/bots",
   "/api/community/bots/[id]",
   "/api/community/bots/[id]/active",
