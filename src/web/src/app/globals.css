@@ -2711,7 +2711,6 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 
 /* Table fullscreen */
 [data-streamdown="table-fullscreen"] {
-  background: oklch(0.1 0.01 60 / 95%) !important;
   backdrop-filter: blur(8px);
   overflow: hidden;
 }
