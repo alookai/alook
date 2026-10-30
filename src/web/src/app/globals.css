@@ -2536,6 +2536,19 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   pointer-events: auto;
 }
 
+[data-streamdown="code-block-actions"]:has(.absolute),
+[data-streamdown="mermaid-block-actions"]:has(.absolute),
+[data-streamdown="table-wrapper"]>div:first-child:has(.absolute) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+[data-message-list-content] [data-index]:has([data-streamdown="code-block-actions"] .absolute),
+[data-message-list-content] [data-index]:has([data-streamdown="mermaid-block-actions"] .absolute),
+[data-message-list-content] [data-index]:has([data-streamdown="table-wrapper"]>div:first-child .absolute) {
+  z-index: 1;
+}
+
 /* ── Streamdown mermaid block: match code-block visual style ── */
 
 /* Outer container: clean border + radius (overflow visible for dropdown menus) */

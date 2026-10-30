@@ -3,7 +3,7 @@ import type { Locator, Page, TestInfo } from "@playwright/test"
 import sharp from "sharp"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
-import { composerEditable, createServer } from "./_fixtures/actions"
+import { composerEditable, createServer, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { holdRoute } from "./_fixtures/held-route"
 import { solidPngFixture } from "../fixtures/media"
 
@@ -1095,3 +1095,107 @@ test("HTML attachment markers render once with interactive isolated content acro
   await originalTransparentFrame?.dispose()
   await testInfo.attach("transparent-canvas-pixels.json", { body: JSON.stringify({ loadingCanvas: loading.canvas, loadingCarrier: loading.carrier, themes: canvasSamples }, null, 2), contentType: "application/json" })
 })
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 }, { width: 1280, height: 900 }]) {
+  test(`renderer menu stays above the adjacent HTML iframe and restores row order at ${viewport.width}px`, async ({ caseActors }, testInfo) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice"])
+    const serverId = await actors.seed.seedServer("alice", `Menu stacking ${Date.now()}`)
+    const channelId = await actors.seed.seedChannel("alice", serverId, "menu-stacking")
+    await actors.seed.seedMessage("alice", channelId, '```javascript\nconsole.log("theme");\n```')
+    await actors.seed.seedMessage("alice", channelId, '```text\nvalue=[REDACTED_SECRET]\n```')
+    const mermaidId = await actors.seed.seedMessage("alice", channelId, "```mermaid\nflowchart LR\nA[Start] --> B[End]\n```")
+    const tableId = await actors.seed.seedMessage("alice", channelId, "| Name | Value |\n| --- | --- |\n| Theme | Readable |")
+    const { page } = await actors.asUser("alice", { viewport, hasTouch: viewport.width < 1280,
+      isMobile: viewport.width === 390, reducedMotion: "reduce", colorScheme: "light" })
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+    const html = '<!doctype html><html><body><button onclick="document.querySelector(\'output\').textContent=\'Preview clicked\'">Use preview</button><output>Ready</output></body></html>'
+    const upload = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      multipart: { file: { name: "adjacent.html", mimeType: "text/html", buffer: Buffer.from(html) } },
+    }))
+    expect(upload.status()).toBe(200)
+    const attachmentId = (await upload.json() as { id: string }).id
+    const posted = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
+      headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+      data: { content: `[alook-html-preview](${attachmentId})`, attachments: [attachmentId] },
+    }))
+    expect(posted.status()).toBe(201)
+    const htmlMessageId = (await posted.json() as { message: { id: string } }).message.id
+    const preview = page.getByTestId(tid.message(htmlMessageId)).getByTestId(tid.htmlPreview(attachmentId))
+    const iframe = preview.getByTestId(tid.htmlPreviewFrame(attachmentId))
+    await preview.scrollIntoViewIfNeeded()
+    await expect(preview).toHaveAttribute("data-html-preview-status", "ready")
+    const content = iframe.contentFrame()
+    await expect(content.getByRole("button", { name: "Use preview", exact: true })).toBeVisible()
+    const mermaid = page.getByTestId(tid.message(mermaidId)).locator('[data-streamdown="mermaid-block"]')
+    await expect(mermaid.locator("svg .node")).toHaveCount(2)
+    await expect(iframe).toHaveCSS("height", "80px")
+    await expect(page.getByTestId(tid.messageScroller).locator("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
+    const table = page.getByTestId(tid.message(tableId)).locator('[data-streamdown="table-wrapper"]')
+    const group = table.locator(':scope > div:first-child:not(:has([data-streamdown="table"]))')
+    const row = table.locator('xpath=ancestor::div[@data-index][1]')
+    await expect(row).toHaveCount(1)
+    const rowState = () => row.evaluate(element => {
+      const style = getComputedStyle(element), rect = element.getBoundingClientRect()
+      return { transform: style.transform, zIndex: style.zIndex, width: rect.width, height: rect.height }
+    })
+    const before = await rowState()
+    const messageWrites: string[] = []
+    page.on("request", request => {
+      if (request.method() !== "GET" && /\/api\/community\/(?:channels\/[^/]+\/messages|messages\/[^/]+)$/.test(new URL(request.url()).pathname)) {
+        messageWrites.push(`${request.method()} ${new URL(request.url()).pathname}`)
+      }
+    })
+    await table.hover()
+    const trigger = group.getByTitle("Copy table", { exact: true })
+    await expect(trigger).toHaveCSS("width", "24px")
+    await expect(trigger).toHaveCSS("height", "24px")
+    await trigger.click()
+    const menu = group.locator(".absolute")
+    await expect(menu.getByRole("button")).toHaveCount(3)
+    const titles = ["Copy table as Markdown", "Copy table as CSV", "Copy table as TSV"]
+    const hits = []
+    for (const title of titles) {
+      const option = menu.getByTitle(title, { exact: true })
+      await option.hover()
+      await expect.poll(() => option.evaluate(element => {
+        const box = element.getBoundingClientRect()
+        return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+      })).toBe(true)
+      hits.push({ title, rect: await boundingRect(option) })
+    }
+    const tsv = menu.getByTitle("Copy table as TSV", { exact: true })
+    const target = await boundingRect(tsv), frame = await boundingRect(iframe)
+    const point = { x: target.x + target.width / 2, y: target.y + target.height / 2 }
+    expect(point.x).toBeGreaterThanOrEqual(frame.x)
+    expect(point.x).toBeLessThan(frame.x + frame.width)
+    expect(point.y).toBeGreaterThanOrEqual(frame.y)
+    expect(point.y).toBeLessThan(frame.y + frame.height)
+    await testInfo.attach(`renderer-menu-${viewport.width}-open-pointer.png`, { body: await page.screenshot(), contentType: "image/png" })
+    const open = await rowState()
+    await page.mouse.move(0, 0)
+    await expect(group).toHaveCSS("opacity", "1")
+    await expect(trigger).toBeFocused()
+    for (const title of titles) {
+      await page.keyboard.press("Tab")
+      await expect(menu.getByTitle(title, { exact: true })).toBeFocused()
+      await expect(group).toHaveCSS("opacity", "1")
+    }
+    await testInfo.attach(`renderer-menu-${viewport.width}-open-keyboard.png`, { body: await page.screenshot(), contentType: "image/png" })
+    for (let step = 0; step < titles.length; step += 1) await page.keyboard.press("Shift+Tab")
+    await expect(trigger).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(menu).toHaveCount(0)
+    await expect.poll(rowState).toEqual(before)
+    await expect.poll(() => page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.getAttribute("data-testid"), point))
+      .toBe(tid.htmlPreviewFrame(attachmentId))
+    await content.getByRole("button", { name: "Use preview", exact: true }).click()
+    await expect(content.locator("output")).toHaveText("Preview clicked")
+    expect(messageWrites).toEqual([])
+    await testInfo.attach(`renderer-menu-${viewport.width}-hit-and-row.json`, { body: JSON.stringify({ viewport,
+      input: "native mouse hover/click and keyboard Tab/Shift+Tab/Enter; not a pure-touch journey",
+      media: await page.evaluate(() => ({ coarse: matchMedia("(pointer: coarse)").matches, hover: matchMedia("(hover: hover)").matches })),
+      serverId, channelId, tableId, htmlMessageId, attachmentId, point, frame, target, hits, before, open, closed: await rowState(), messageWrites }), contentType: "application/json" })
+  })
+}
