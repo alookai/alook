@@ -2,7 +2,7 @@ import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse }
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, expectMessageVisible, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import type { Frame, Page, Request, Response as PlaywrightResponse } from "@playwright/test"
-import { COMMUNITY_CONTRACT_VERSION, communityBrowserEventBatchType, CommunityMessageResourceSchema, requestedCommunityContract } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, communityBrowserEventBatchType, CommunityMessageResourceSchema, AccountAttentionSnapshotSchema, requestedCommunityContract } from "@alook/shared"
 import { decodeCommunityReadResponse } from "@/lib/community/read-response"
 import type { MessagesPage } from "@/lib/community/models/message"
 
@@ -295,36 +295,55 @@ test.describe("committed message delivery QA", () => {
     await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
 
     const requestsBeforeReload = attentionRequests.length
-    const pendingReloadRequests = new Set<Request>()
+    const pendingReloadRequests = new Map<Request, number>()
+    const completedReloadParses = new Set<Promise<void>>()
+    const cancelledReloadRequests: number[] = []
     const reloadFailures: string[] = []
     let reloadCommitted = false
-    let completedReloadRequests = 0
+    let reloadRequestCount = 0
+    let latestQualifiedReloadRequest = 0
     const trackReloadCommit = (frame: Frame) => {
       if (frame === bob.page.mainFrame()) reloadCommitted = true
     }
     const trackReloadRequest = (request: Request) => {
       if (reloadCommitted && request.method() === "GET"
         && new URL(request.url()).pathname === "/api/community/users/me/attention") {
-        pendingReloadRequests.add(request)
+        pendingReloadRequests.set(request, ++reloadRequestCount)
       }
     }
     const finishReloadRequest = (request: Request) => {
-      if (!pendingReloadRequests.has(request)) return
-      void request.response().then(async (response) => {
+      const sequence = pendingReloadRequests.get(request)
+      if (sequence === undefined) return
+      const completion = request.response().then(async (response) => {
         if (!response) throw new Error("Reload attention response missing")
         const failure = await response.finished()
         if (response.status() !== 200 || failure !== null) {
           reloadFailures.push(`HTTP ${response.status()}: ${failure?.message ?? "unexpected status"}`)
         } else {
-          completedReloadRequests += 1
+          if (new Headers(response.headers()).get(COMMUNITY_CONTRACT_HEADER) !== String(COMMUNITY_CONTRACT_VERSION)) {
+            throw new Error("Reload attention contract mismatch")
+          }
+          const snapshot = AccountAttentionSnapshotSchema.parse(await response.json())
+          if (snapshot.resources.viewerId !== userId("bob")) throw new Error("Reload attention account mismatch")
+          if (snapshot.scopes.length === 0 && snapshot.items.length === 0) {
+            latestQualifiedReloadRequest = Math.max(latestQualifiedReloadRequest, sequence)
+          }
         }
       }).catch((error: unknown) => {
         reloadFailures.push(error instanceof Error ? error.message : String(error))
-      }).finally(() => pendingReloadRequests.delete(request))
+      }).finally(() => {
+        pendingReloadRequests.delete(request)
+        completedReloadParses.delete(completion)
+      })
+      completedReloadParses.add(completion)
     }
     const failReloadRequest = (request: Request) => {
-      if (!pendingReloadRequests.delete(request)) return
-      reloadFailures.push(request.failure()?.errorText ?? "Reload attention request failed")
+      const sequence = pendingReloadRequests.get(request)
+      if (sequence === undefined) return
+      pendingReloadRequests.delete(request)
+      const reason = request.failure()?.errorText
+      if (reason === "net::ERR_ABORTED") cancelledReloadRequests.push(sequence)
+      else reloadFailures.push(reason ?? "Reload attention request failed")
     }
     bob.page.on("framenavigated", trackReloadCommit)
     bob.page.on("request", trackReloadRequest)
@@ -335,17 +354,19 @@ test.describe("committed message delivery QA", () => {
       await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
       await expect.poll(() => ({
         requestsIncreased: attentionRequests.length > requestsBeforeReload,
-        responseCompleted: completedReloadRequests > 0,
+        responseCompleted: latestQualifiedReloadRequest > 0 && latestQualifiedReloadRequest === reloadRequestCount,
         pending: pendingReloadRequests.size,
         failures: reloadFailures,
+        unreplacedCancellations: cancelledReloadRequests.filter(sequence => sequence >= latestQualifiedReloadRequest),
       }), { timeout: 20_000 }).toEqual({
-        requestsIncreased: true, responseCompleted: true, pending: 0, failures: [],
+        requestsIncreased: true, responseCompleted: true, pending: 0, failures: [], unreplacedCancellations: [],
       })
     } finally {
       bob.page.off("framenavigated", trackReloadCommit)
       bob.page.off("request", trackReloadRequest)
       bob.page.off("requestfinished", finishReloadRequest)
       bob.page.off("requestfailed", failReloadRequest)
+      await Promise.all(completedReloadParses)
     }
     const requestsBeforeReplay = attentionRequests.length
     proxy.replay(batch)
