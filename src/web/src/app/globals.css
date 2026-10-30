@@ -2718,14 +2718,15 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 [data-streamdown="table-fullscreen"] .flex-1.overflow-auto {
   overflow: auto !important;
   display: flex !important;
-  align-items: center;
-  justify-content: center !important;
+  align-items: flex-start;
+  justify-content: flex-start !important;
   padding: 1rem !important;
 }
 
 [data-streamdown="table-fullscreen"] .flex-1.overflow-auto>* {
   max-width: 64rem !important;
   width: 100% !important;
+  margin: auto;
 }
 
 [data-streamdown="table-fullscreen"] [data-streamdown="table"] {
