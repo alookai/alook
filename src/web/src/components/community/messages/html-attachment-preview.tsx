@@ -44,7 +44,7 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   const ready = useRef(false)
   const download = useAttachmentDownload(attachment)
   const id = attachment.id
-  const url = `${attachment.url}?preview=html`
+  const url = `${attachment.url}?preview=html&v=${encodeURIComponent(process.env.NEXT_PUBLIC_APP_VERSION ?? "")}`
   const error = status === "error"
 
   useEffect(() => {

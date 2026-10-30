@@ -7,6 +7,7 @@ import { ThreadOpener } from "./thread-opener"
 import { HtmlAttachmentPreview } from "./html-attachment-preview"
 import { MessageBodyView } from "./message-body-view"
 import { tid } from "@/lib/community/testids"
+import { attachmentDownloadKey } from "@/lib/community/attachment-download"
 import { NATIVE_MOBILE_BACK_EVENT, useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
 
 const opener = vi.hoisted(() => ({ message: {} }))
@@ -29,7 +30,7 @@ function BackListener({ replacePath }: { replacePath: (path: string) => void }) 
   useNativeMobileBack({ dismissShellOverlay: () => false, parentPath: "/c/me", replacePath })
   return null
 }
-afterEach(() => { for (const owner of owners.splice(0)) owner.queryClient.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); theme.resolvedTheme = "light"; vi.useRealTimers() })
+afterEach(() => { for (const owner of owners.splice(0)) owner.queryClient.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); theme.resolvedTheme = "light"; vi.useRealTimers() })
 
 describe("HTML attachment frame", () => {
   it("keeps the filename out of content and groups floating preview actions", () => {
@@ -44,9 +45,10 @@ describe("HTML attachment frame", () => {
     expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAccessibleName(file.name)
   })
   it("keeps one opaque-origin frame and clamps valid current-frame measurements", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_VERSION", "1.2.3")
     const view = setup()
     const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
-    expect(frame).toHaveAttribute("src", `${file.url}?preview=html`)
+    expect(frame).toHaveAttribute("src", `${file.url}?preview=html&v=1.2.3`)
     expect(frame.getAttribute("sandbox")).toContain("allow-scripts")
     expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin")
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer")
@@ -62,6 +64,19 @@ describe("HTML attachment frame", () => {
     expect(frame.style.height).toBe("80px")
     frameMessage(frame, { type: "alook-html-ready" })
     expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "ready")
+  })
+  it("changes only the preview URL with the existing application version", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_VERSION", "1.2.3")
+    const view = setup()
+    const frame = view.getByTestId(tid.htmlPreviewFrame("a1"))
+    expect(frame).toHaveAttribute("src", `${file.url}?preview=html&v=1.2.3`)
+    const download = view.owner.queryClient.getQueryCache().find({ queryKey: attachmentDownloadKey(view.owner, file), exact: true })
+    expect(download).toBeDefined()
+    vi.stubEnv("NEXT_PUBLIC_APP_VERSION", "1.2.4+build &next=2")
+    view.rerender(view.tree(<HtmlAttachmentPreview attachment={file} />))
+    expect(frame).toHaveAttribute("src", `${file.url}?preview=html&v=1.2.4%2Bbuild%20%26next%3D2`)
+    expect(view.owner.queryClient.getQueryCache().find({ queryKey: attachmentDownloadKey(view.owner, file), exact: true })).toBe(download)
+    expect(file.url).toBe("/api/community/channels/c1/attachments/a1")
   })
   it("posts updated Alook theme without replacing the document", () => {
     const view = setup(), frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement

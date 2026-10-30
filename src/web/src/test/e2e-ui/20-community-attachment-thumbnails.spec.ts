@@ -1,4 +1,5 @@
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
+import { readFileSync } from "node:fs"
 import type { Locator, Page, TestInfo } from "@playwright/test"
 import sharp from "sharp"
 import { test, expect } from "./_fixtures/case-fixture"
@@ -6,6 +7,9 @@ import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { holdRoute } from "./_fixtures/held-route"
 import { solidPngFixture } from "../fixtures/media"
+import { REPO_ROOT } from "./_setup/paths"
+
+const APP_VERSION = (JSON.parse(readFileSync(`${REPO_ROOT}/src/web/package.json`, "utf8")) as { version: string }).version
 
 const LANDSCAPE_FIXTURE = solidPngFixture(800, 450, [91, 110, 225])
 const PORTRAIT_FIXTURE = solidPngFixture(450, 800, [225, 91, 142])
@@ -971,11 +975,14 @@ test("HTML attachment markers render once with interactive isolated content acro
   await expect(actions.getByRole("button", { name: "Download interactive.html", exact: true })).toBeVisible()
   await expect(preview).not.toHaveAttribute("aria-modal", "true")
 
-  const previewUrl = `/api/community/channels/${channelId}/attachments/${attachmentId}?preview=html`
-  const direct = await page.request.get(previewUrl)
+  const previewUrl = await iframe.getAttribute("src")
+  expect(previewUrl).toBe(`/api/community/channels/${channelId}/attachments/${attachmentId}?preview=html&v=${encodeURIComponent(APP_VERSION)}`)
+  const direct = await page.request.get(previewUrl!)
   expect(direct.status()).toBe(200)
   expect(direct.headers()["content-security-policy"]).toContain("sandbox allow-scripts")
-  expect(direct.headers()["cache-control"]).toBe("private, no-store")
+  expect(direct.headers()["cache-control"]).toBe("private, max-age=31536000, immutable")
+  expect(direct.headers()["vary"].toLowerCase().split(",").map(field => field.trim())).toContain("authorization")
+  expect(direct.headers()["vary"].toLowerCase().split(",").map(field => field.trim())).not.toContain("cookie")
   const original = await page.request.get(`/api/community/channels/${channelId}/attachments/${attachmentId}`)
   expect(original.headers()["content-disposition"]).toContain("attachment")
   expect(await original.text()).toBe(html)
@@ -992,17 +999,22 @@ test("HTML attachment markers render once with interactive isolated content acro
   await expect(readerPreview).not.toHaveAttribute("aria-modal", "true")
   await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().locator("#count")).toHaveText("0")
   const { page: outsider } = await actors.asUser("carol")
-  const denied = await outsider.request.get(previewUrl)
+  const denied = await outsider.request.get(previewUrl!)
   expect(denied.status()).toBe(404)
+  const deniedCacheControl = denied.headers()["cache-control"] ?? ""
+  const deniedCacheDirectives = deniedCacheControl.split(",").map(directive => directive.trim().toLowerCase())
+  expect(deniedCacheDirectives).toContain("private")
+  expect(deniedCacheDirectives).toContain("no-store")
+  expect(deniedCacheDirectives).not.toContain("public")
   await testInfo.attach("html-preview-headers.json", {
-    body: JSON.stringify({ serverId, channelId, messageId, attachmentId, preview: Object.fromEntries(Object.entries(direct.headers()).filter(([name]) => ["content-type", "content-disposition", "content-security-policy", "cache-control", "referrer-policy", "x-content-type-options"].includes(name))), download: Object.fromEntries(Object.entries(original.headers()).filter(([name]) => ["content-type", "content-disposition", "cache-control"].includes(name))), outsiderStatus: denied.status() }, null, 2),
+    body: JSON.stringify({ serverId, channelId, messageId, attachmentId, preview: Object.fromEntries(Object.entries(direct.headers()).filter(([name]) => ["content-type", "content-disposition", "content-security-policy", "cache-control", "referrer-policy", "x-content-type-options"].includes(name))), download: Object.fromEntries(Object.entries(original.headers()).filter(([name]) => ["content-type", "content-disposition", "cache-control"].includes(name))), outsiderStatus: denied.status(), outsiderCacheControl: deniedCacheControl }, null, 2),
     contentType: "application/json",
   })
 
   const transparentHtml = `<!doctype html><html style="background:purple!important;padding:17px;color:#123456"><head><style>:root{color-scheme:light dark;background:linear-gradient(red,blue)!important}html,body{margin:0;background:orange!important}body{min-height:112px;color:var(--foreground)}#authored{position:absolute;left:0;top:48px;width:160px;height:48px;background:#73a3b2;color:#112233}input{position:absolute;left:180px;top:48px}#repaint{position:absolute;left:180px;top:80px}</style></head><body style="background:yellow!important"><div id="authored"></div><input id="state" value="original"><button id="repaint" onclick="document.documentElement.style.setProperty('background','linear-gradient(red,blue)','important');document.body.style.setProperty('background','red','important');document.getElementById('rows').innerHTML='<div style=height:360px></div>'">Repaint canvas and grow</button><div id="rows"></div></body></html>`
   const transparentId = await upload("transparent.html", "text/html", transparentHtml)
   await appearance("Dark")
-  const transparentPreviewUrl = new URL(`/api/community/channels/${channelId}/attachments/${transparentId}?preview=html`, page.url()).href
+  const transparentPreviewUrl = new URL(`/api/community/channels/${channelId}/attachments/${transparentId}?preview=html&v=${encodeURIComponent(APP_VERSION)}`, page.url()).href
   const heldPreview = await holdRoute(page, transparentPreviewUrl, caseResources)
   let transparentPreview: Locator, transparentFrame: Locator
   let loading: Awaited<ReturnType<typeof captureCanvas>>
