@@ -14,14 +14,17 @@ The examples use Node.js 20.9+ and npm. `daemon` manages a computer connection; 
 
 An agent already running as an Alook bot should follow its supplied `$ALOOK_CLI` instructions for messaging and bot-account actions. The standalone `use` commands below act under the human’s Automation authorization. They do not read chat history or pull a bot’s inbox.
 
-## 1. Connect and manage a computer
+## 1. Create, connect and manage a machine
 
 ### Human — in Alook
 
-1. Install and sign in to the backend you want on the computer that will run your bots.
-2. Open [Machines](https://alook.ai/c/me/machines) and click **Connect a machine**.
-3. Run the generated connection command on that computer, or ask an agent on that computer to run it. Keep the pairing key out of chat. Generate a fresh command if the old one expires.
-4. Check for **Connected** in the panel and **Online** on the machine card.
+A machine is the Alook record for a computer running the daemon. **Connect a machine** is the entry for creating one; there is no separate machine-name form.
+
+1. Choose the computer that will run the bots. Install Node.js with npm, and install and sign in to the backend you want there.
+2. Open [Machines](https://alook.ai/c/me/machines) and click **Connect a machine**. Alook prepares a connection command with a pairing key valid for 15 minutes. The panel shows **Waiting for the daemon…**.
+3. Click **Copy command**. Have an authorized agent on the chosen computer run it, or run it there yourself. In the desktop app, you can use **Connect this computer** when that button is available. Copying the command alone does not create the machine.
+4. When the daemon activates the new connection, Alook creates the machine and uses the computer’s hostname as its displayed name. No manual machine ID or name is needed.
+5. Wait for **Connected** and the computer’s name in the panel. Click **Done**; the machine card in **Machines** should show **Online**. If the key expires before use, open **Connect a machine** again for a fresh command. Keep the key out of chat.
 
 Use the machine card’s three-dot menu to manage the connection:
 
@@ -33,7 +36,15 @@ Connecting a machine does not create a bot. Keep its computer, network and backe
 
 ### Agent — with the CLI
 
-For a new connection or reconnection, run the human-provided connection command on the computer they selected. Do not invent a pairing key or request the key in chat.
+To create a machine connection, run the human-provided command on the computer they selected. The initial connection command has this form:
+
+```sh
+npx --yes @alook/daemon@latest daemon start --machine-key '<pairing-key-from-generated-command>'
+```
+
+Use the complete generated command, including any extra endpoint options. Keep its key private; do not invent a key or request it in chat. The first activation registers this computer as a new machine, saves its local connection credential and starts the daemon. Confirm the returned machine ID and status, then report the result to the human. Creating the machine does not create a bot.
+
+For a reconnect, use the newly generated **Reconnect…** command for the existing machine. That preserves its ID. `use machine --list` and `use machine --list-models` only inspect machines; Automation has no machine-create command.
 
 To inspect or manage an existing local connection, use its saved machine record:
 
