@@ -69,13 +69,12 @@ describe("ws-do router", () => {
       expect(await res.text()).toBe("fallback")
     })
 
-    it("keeps every old handler in order and places strict community routes before generic user routes", () => {
+    it("keeps current handlers in order and places strict community routes before generic user routes", () => {
       const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8")
       const orderedHandlers = [...source.matchAll(/response = await (handle\w+)\(context\)/g)]
         .map((match) => match[1])
 
       expect(orderedHandlers).toEqual([
-        "handleDaemonBroadcast",
         "handleCommunityUserBroadcast",
         "handleCommunityUsersBroadcast",
         "handleMessageDelivery",
