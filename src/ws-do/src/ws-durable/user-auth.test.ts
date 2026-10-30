@@ -150,8 +150,13 @@ describe("WebSocketDurableObject", () => {
     mockListReadableChannelsForUser.mockResolvedValueOnce([])
     await expect((await send(typing)).json()).resolves.toEqual({ sent: 0 })
     expect(socket.send).not.toHaveBeenCalled()
-    mockListReadableChannelsForUser.mockRejectedValueOnce(new Error("D1 temporary"))
+    const cause = new Error("D1_ERROR: Failed to get session commit token")
+    const error = new Error("Failed query", { cause })
+    mockListReadableChannelsForUser.mockRejectedValueOnce(error)
     expect((await send(typing)).status).toBe(503)
+    expect(mockLogWarn).toHaveBeenCalledWith("community_content_access_failed", {
+      targetUserId: "user-42", error: String(error), cause: cause.message,
+    })
     expect(socket.send).not.toHaveBeenCalled()
     const control = { type: "community:channel.membership.change", channelId: "private", serverId: "server", userId: "user-42", relation: "access", present: false }
     expect((await send(control)).status).toBe(200)
@@ -239,8 +244,13 @@ describe("WebSocketDurableObject", () => {
       expect(await denied.json()).toEqual({ status: "cancelled", reason: "access-revoked", targetUserId: "user-42", operationId: body.operationId, operationDigest: body.operationDigest, eventCount: body.events.length })
       expect(ws.send).not.toHaveBeenCalled()
       expect(ws.deserializeAttachment()).toEqual(original)
-      mockListReadableChannelsForUser.mockRejectedValueOnce(new Error("temporary"))
+      const cause = new Error("D1_ERROR: Failed to get session commit token")
+      const error = new Error("Failed query", { cause })
+      mockListReadableChannelsForUser.mockRejectedValueOnce(error)
       expect((await durable.fetch(request.clone())).status).toBe(503)
+      expect(mockLogWarn).toHaveBeenCalledWith("community_delivery_access_failed", {
+        targetUserId: "user-42", error: String(error), cause: cause.message,
+      })
       expect(ws.send).not.toHaveBeenCalled()
       expect((await durable.fetch(request.clone())).status).toBe(200)
       expect(ws.send).toHaveBeenCalledTimes(1)

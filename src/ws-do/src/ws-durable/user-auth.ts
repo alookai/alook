@@ -106,7 +106,11 @@ export async function handleUserFetch(
         } satisfies CommunityDeliveryCancellation, 200)
       }
     } catch (error) {
-      context.log.warn("community_delivery_access_failed", { targetUserId, error: String(error) })
+      context.log.warn("community_delivery_access_failed", {
+        targetUserId,
+        error: String(error),
+        cause: error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
+      })
       return jsonResponse({ operationId: bundle.operationId, error: "access_check_failed" }, 503)
     }
     return deliverCommunityBundle(context, bundle, targetUserId)
@@ -133,7 +137,11 @@ export async function handleUserFetch(
         return jsonResponse({ sent: 0 }, 200)
       }
     } catch (error) {
-      context.log.warn("community_content_access_failed", { targetUserId, error: String(error) })
+      context.log.warn("community_content_access_failed", {
+        targetUserId,
+        error: String(error),
+        cause: error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
+      })
       return jsonResponse({ error: "access_check_failed" }, 503)
     }
     const sent = broadcastCommunity(context, event.event, targetUserId, event.contract)
