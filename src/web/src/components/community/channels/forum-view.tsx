@@ -104,7 +104,7 @@ const ForumPostTitle = memo(function ForumPostTitle({ name, postId, seq }: { nam
     >
       <LineClamp
         text={name}
-        maxLines={2}
+        maxLines={1}
         textTestId={tid.forumThreadTitleText(postId)}
         after={seq === undefined ? undefined : (
           <span

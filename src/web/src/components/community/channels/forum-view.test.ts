@@ -149,7 +149,7 @@ describe("ForumView post card header", () => {
     expect(html).toContain(`title="${name}"`)
     expect(html).toContain(`<span class="opacity-60">#</span>9007199254740991`)
     expect(html).toContain(name)
-    expect(html).toContain("-webkit-line-clamp:2")
+    expect(html).toContain("-webkit-line-clamp:1")
   })
 
   it("uses a flat hairline row instead of the old bordered card", () => {

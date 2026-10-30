@@ -197,7 +197,7 @@ async function expectMobileGeometry(
   postId: string,
   visibleTags: string[],
   expectedTitle: string,
-  titleState: "single" | "double" | "truncated",
+  titleState: "single" | "truncated",
   role: "author" | "manager",
   width: (typeof MOBILE_WIDTHS)[number],
 ): Promise<void> {
@@ -250,7 +250,7 @@ async function expectMobileGeometry(
     }
     return { lines: lineTops.length, last: { top: last.top, bottom: last.bottom, right: last.right } }
   })
-  const expectedLines = titleState === "single" ? 1 : 2
+  const expectedLines = 1
   expect(titleMetrics.lines, `${role}/${postId}@${width}: actual inline lines`).toBe(expectedLines)
   const sequenceMetrics = await sequence.evaluate((element, titleId) => {
     const bounds = element.getBoundingClientRect()
@@ -263,14 +263,10 @@ async function expectMobileGeometry(
   expect(sequenceMetrics.insideTitleText, `${role}/${postId}@${width}: complete sequence outside cut text`).toBe(false)
   expect(sequenceMetrics.scrollWidth, `${role}/${postId}@${width}: complete sequence width`).toBeLessThanOrEqual(sequenceMetrics.width + 1)
   const sameLine = Math.abs(sequenceRect!.bottom - titleMetrics.last.bottom) <= 3
-  if (sameLine) {
-    const gap = sequenceRect!.left - titleMetrics.last.right
-    expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeGreaterThanOrEqual(4)
-    expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeLessThanOrEqual(8)
-  } else {
-    expect(sequenceRect!.top, `${role}/${postId}@${width}: whole sequence naturally wraps`).toBeGreaterThan(titleMetrics.last.top)
-    expect(sequenceRect!.left - titleRect!.left, `${role}/${postId}@${width}: wrapped sequence starts at inline inset`).toBeLessThanOrEqual(8)
-  }
+  expect(sameLine, `${role}/${postId}@${width}: sequence stays on the title line`).toBe(true)
+  const gap = sequenceRect!.left - titleMetrics.last.right
+  expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeGreaterThanOrEqual(4)
+  expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeLessThanOrEqual(8)
   expect(sequenceRect!.right, `${role}/${postId}@${width}: sequence containment`).toBeLessThanOrEqual(titleRect!.right + 0.5)
   const controls = [tagRect!, deleteRect!]
   for (const controlRect of controls) {
@@ -530,7 +526,7 @@ test("forum post actions stay discoverable on mobile without changing permission
   await seedJoinServer("alice", "bob", serverId)
   await seedJoinServer("alice", "carol", serverId)
   const primaryTitle = `UnbrokenForumTitle${Date.now()}${"abcdefghij".repeat(12)}`
-  const cjkTitle = `移动端论坛标题必须换到第二行展示${stamp}`
+  const cjkTitle = `移动端论坛长标题省略且编号保持同行${stamp}`
   const noTagTitle = `One line ${stamp}`
   const primaryPostId = await seedForumThread(
     "bob",
@@ -562,7 +558,7 @@ test("forum post actions stay discoverable on mobile without changing permission
   await seedTags(compactForumId, compactPostId, ["solo"])
   const postCases = [
     { id: primaryPostId, title: primaryTitle, tags: TAGS.slice(0, 2), titleState: "truncated" as const },
-    { id: cjkPostId, title: cjkTitle, tags: [], titleState: "double" as const },
+    { id: cjkPostId, title: cjkTitle, tags: [], titleState: "truncated" as const },
     { id: noTagPostId, title: noTagTitle, tags: [], titleState: "single" as const },
   ]
   const route = `/c/channels/${serverId}/${forumId}`
