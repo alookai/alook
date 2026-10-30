@@ -25,15 +25,15 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
   onOpenPost: (id: string) => void
   onCreatePost?: (post: NewForumThread) => Promise<void>
   onEditPostTags?: (post: ForumThread, tags: string[]) => Promise<void> | void
-  canEditPostTags?: (post: ForumThread) => boolean
+  canEditPostTags?: (post: ForumThread) => boolean | undefined
   savingTagsFor?: string | null
   onDeletePost?: (post: ForumThread) => void
-  canDeletePost?: (post: ForumThread) => boolean
+  canDeletePost?: (post: ForumThread) => boolean | undefined
   deletingPost?: string | null
 }) {
   const feed = useForumFeed(serverId, forumChannelId, { routeTag, onSelectTag })
   const readState = useConversationEntry(feed.selectionReady ? { channelId: forumChannelId, serverId, tag: feed.tag === "All" ? null : feed.tag } : null)
-  const proof = readState.resource?.proof
+  const proof = readState.scope?.proof
   const positionScope = useMemo<ConversationListScope | undefined>(() => readState.canRead && proof
     ? { proof, tag: feed.tag === "All" ? null : feed.tag } : undefined, [readState.canRead, proof, feed.tag])
   const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
@@ -42,8 +42,8 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
   const retryRef = useRef<{ scope: string } | null>(null)
   const retrying = retryAttempt?.scope === retryScope
   const accessError = isConversationAccessError(feed.error) || isConversationAccessError(readState.error)
-  const initialLoadError = accessError || (feed.data === undefined && (
-    feed.isError || !!readState.error || retrying
+  const initialLoadError = accessError || (!feed.displayReady && (
+    feed.isError || !!feed.initialLoadError || !!readState.error || retrying
   ))
   useTimelineReadObserver({
     channelId: forumChannelId,

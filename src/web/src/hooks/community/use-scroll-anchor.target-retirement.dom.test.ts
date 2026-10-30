@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
@@ -74,7 +74,11 @@ describe("current ready-window target retirement through the native position own
     })
     act(() => vi.advanceTimersByTime(20000))
     expect(scrollFixture.frames.size).toBe(0)
-    expect(settled).not.toHaveBeenCalled()
+    if (kind === "explicit") {
+      expect(settled).toHaveBeenCalledExactlyOnceWith("success")
+      expect(scrollFixture.latest.readPositionReady).toBe(false)
+      expect(scrollFixture.latest.paginationEnabled).toBe(false)
+    } else expect(settled).not.toHaveBeenCalled()
     const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
     h.update({ positionDataState: "ready", items: [...h.input.items, message("missing")] })
     expect(index).toHaveBeenCalledOnce()
@@ -98,4 +102,47 @@ describe("current ready-window target retirement through the native position own
     expect(settled).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
   })
+})
+
+
+it("reveals local cache while the explicit target is pending and retires that deferred target on real user takeover", () => {
+  const settled = vi.fn(), cancelled = vi.fn(), positioned = vi.fn()
+  const h = mount({ initialScrollReady: true, positionDataState: "pending", targetPositionDataState: "pending", scrollToMessageId: "later",
+    onInitialPositionSettled: settled, onScrollTargetCancelled: cancelled, onScrollTargetPositioned: positioned })
+  expect(settled).toHaveBeenCalledExactlyOnceWith("success")
+  expect(scrollFixture.latest.readPositionReady).toBe(false)
+  expect(scrollFixture.latest.paginationEnabled).toBe(false)
+  fireEvent.wheel(h.root, { deltaY: -20 })
+  const offset = h.root.scrollTop
+  expect(cancelled).toHaveBeenCalledExactlyOnceWith("later")
+  h.update({ positionDataState: "ready", targetPositionDataState: "ready", items: [...h.input.items, message("later")] })
+  expect(h.root.scrollTop).toBe(offset)
+  expect(positioned).not.toHaveBeenCalled()
+  expect(settled).toHaveBeenCalledOnce()
+})
+
+it("cancels a failed explicit target once while the local cache awaits its first viewport", () => {
+  scrollFixture.height = 0
+  const settled = vi.fn(), cancelled = vi.fn(), positioned = vi.fn()
+  const h = mount({ initialScrollReady: true, positionDataState: "pending", targetPositionDataState: "error", scrollToMessageId: "later",
+    onInitialPositionSettled: settled, onScrollTargetCancelled: cancelled, onScrollTargetPositioned: positioned }, false, undefined, undefined, 0)
+  const native = scrollFixture.latest.virtualizer
+  const end = vi.spyOn(native, "scrollToEnd"), index = vi.spyOn(native, "scrollToIndex")
+  expect(cancelled).toHaveBeenCalledExactlyOnceWith("later")
+  expect(settled).not.toHaveBeenCalled()
+  expect(scrollFixture.latest.readPositionReady).toBe(false)
+  expect(scrollFixture.latest.paginationEnabled).toBe(false)
+  scrollFixture.height = 500
+  resize()
+  expect(end).toHaveBeenCalledOnce()
+  expect(native.isAtEnd(1)).toBe(true)
+  expect(settled).toHaveBeenCalledExactlyOnceWith("success")
+  expect(scrollFixture.latest.readPositionReady).toBe(false)
+  expect(scrollFixture.latest.paginationEnabled).toBe(false)
+  expect(index).not.toHaveBeenCalled()
+  h.update({ targetPositionDataState: "ready", items: [...h.input.items, message("later")] })
+  expect(cancelled).toHaveBeenCalledExactlyOnceWith("later")
+  expect(positioned).not.toHaveBeenCalled()
+  expect(index).not.toHaveBeenCalled()
+  expect(settled).toHaveBeenCalledOnce()
 })

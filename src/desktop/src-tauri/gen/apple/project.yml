@@ -41,6 +41,8 @@ targets:
       properties:
         ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
+        UIRequiresFullScreen: true
+        UIRequiresFullScreen~iphone: false
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchStoryboardName: LaunchScreen
@@ -49,7 +51,7 @@ targets:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
-        CFBundleShortVersionString: 0.1.60
+        CFBundleShortVersionString: 0.1.61
         CFBundleVersion: "1"
         NSPhotoLibraryAddUsageDescription: Allow Alook to save shared message images to Photos.
         CFBundleURLTypes:

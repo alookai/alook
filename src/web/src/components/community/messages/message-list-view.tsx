@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
@@ -48,6 +49,12 @@ export function renderMessageListView(
           onClose={controller.closeShare}
         />
       )}
+      {props.targetLoadError && controller.initialPosition.contentVisible && <div role="alert" className="flex items-center justify-between gap-2 px-4 py-2 text-sm">
+        <span>Couldn’t load the requested messages</span>
+        <Button variant="ghost" className="h-11 sm:h-9" disabled={props.retryingInitialLoad} onClick={props.onRetryInitialLoad}>
+          {props.retryingInitialLoad ? "Retrying…" : "Retry"}
+        </Button>
+      </div>}
       <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
         <div
           ref={controller.scrollRef}

@@ -257,7 +257,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     // The door's single mask (requireMessageSurfaceAccess) probes getChannel
     // first to dispatch by surface; default = the same text channel.
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "text", parentChannelId: null })
-    mockCreateMessage.mockResolvedValue({ id: "m1" })
+    mockCreateMessage.mockImplementation(async (_db: unknown, data: { clientNonce?: string }) => ({ id: "m1", clientNonce: data.clientNonce ?? null }))
     // Human author by default.
     mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
     mockGetMessage.mockResolvedValue({
@@ -534,7 +534,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
       seq: 12,
-      clientNonce: "n1",
       authorId: "u1",
       authorName: "Alice",
       authorImage: null,

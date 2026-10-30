@@ -125,7 +125,7 @@ export function ForumChannelSurface({
             mentionCandidates={composerMentionCandidates}
             onOpenPost={onOpenPost}
             onCreatePost={createForumThread}
-            canEditPostTags={(post) => canManage || post.authorId === viewer.id}
+            canEditPostTags={(post) => post.authorId === viewer.id ? true : viewerRole === undefined ? undefined : canManage}
             savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
             onEditPostTags={async (post, tags) => {
               const assertActive = source.capture()
@@ -142,7 +142,7 @@ export function ForumChannelSurface({
                 { onError: (error) => toastApiError(error, "Failed to update tags", assertActive) },
               )
             }}
-            canDeletePost={(post) => canManage || post.authorId === viewer.id}
+            canDeletePost={(post) => post.authorId === viewer.id ? true : viewerRole === undefined ? undefined : canManage}
             deletingPost={deleteForumThreadMut.isPending ? deleteForumThreadMut.variables?.threadId ?? null : null}
             onDeletePost={(post) => {
               const assertActive = source.capture()

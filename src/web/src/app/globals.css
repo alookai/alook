@@ -2490,11 +2490,6 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
     opacity: 1;
     pointer-events: auto;
   }
-
-  [data-html-preview-actions] button {
-    width: 2.75rem !important;
-    height: 2.75rem !important;
-  }
 }
 
 /* ── Streamdown block actions: dropdown popups ── */

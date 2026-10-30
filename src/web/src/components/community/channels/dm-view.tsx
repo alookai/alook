@@ -157,8 +157,8 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     refetch: refetchMessages,
     navigationBlocked,
     anchorReconciled,
-    readSnapshot, readSnapshotFetching, initialPositionKnown,
-    initialLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow,
+    readSnapshot, readSnapshotFetching, initialDisplayReady, preserveInitialPresentation, onUserTakeover,
+    initialLoadError, targetLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow,
   } = useDmMessages(dmId, {
     enabled: !dmBlocked && !metadata.revoked && !metadata.denied,
     viewerUserId: currentUser.id,
@@ -456,6 +456,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             messages={messages}
             loading={!historyAllowed || loadingOwnership.messageBodyLoading}
             initialLoadError={initialLoadError}
+            targetLoadError={targetLoadError}
             observation={observation}
             retryingInitialLoad={retryingInitialLoad || messagesFetching}
             onRetryInitialLoad={retryInitialLoad}
@@ -474,7 +475,9 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             resolveUserName={resolveUserName}
             onScrollRoot={setScrollRootEl}
             viewerUserId={currentUser.id}
-            initialScrollReady={initialPositionKnown}
+            initialScrollReady={initialDisplayReady}
+            preserveInitialPresentation={preserveInitialPresentation}
+            onUserTakeover={onUserTakeover}
             hasMore={hasMoreMessages}
             historyStartKnown={historyStartKnown}
             initialPositionMessageId={initialPositionMessageId}
