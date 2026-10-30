@@ -1,6 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse } from "next/server"
-import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
+import { machineAuthPolicy } from "@/lib/middleware/community-daemon-auth"
 
-export const GET = withCommunityDaemonAuth(async (_req, ctx) =>
-  NextResponse.json({ machineId: ctx.machineId })
-)
+export const GET = withAuth(machineAuthPolicy, async (_req, ctx) =>
+  NextResponse.json({ machineId: ctx.machineId }))

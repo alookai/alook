@@ -35,14 +35,14 @@ vi.mock("@/lib/community/permissions", () => ({
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+  humanAuthPolicy: { resolve: async (req: any) => {
     if (req.headers.get("authorization")?.startsWith("Bearer crk_")) {
       const { NextResponse } = require("next/server")
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
-  }),
+
+    return ({ context: { env: { DB: {} }, userId: "u1", email: "u@t.com" } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

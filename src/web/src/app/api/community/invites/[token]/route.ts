@@ -1,10 +1,11 @@
-import { withAuth } from "@/lib/middleware/auth"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
-export const DELETE = withAuth(async (_req, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const token = ctx.params?.token
   if (!token) return writeError("invite token is required", 400)
 
@@ -17,7 +18,6 @@ export const DELETE = withAuth(async (_req, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   await queries.communityInvite.revokeInvite(db, invite.id)
-
 
   return new Response(null, { status: 204 })
 })

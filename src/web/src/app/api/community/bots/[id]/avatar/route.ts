@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { CACHE_REVALIDATE, createLogger, queries } from "@alook/shared"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -21,7 +22,7 @@ import { fanOutIdentityUpdate } from "@/lib/community/fanout"
 const log = createLogger({ service: "community-bot-avatar-route" })
 const PRIVATE_NO_STORE = "private, no-store"
 
-export const GET = withPrivateMediaCache(withAuth(async (req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const botId = ctx.params?.id
   if (!botId) return writeError("missing bot id", 400)
 
@@ -74,7 +75,7 @@ export const GET = withPrivateMediaCache(withAuth(async (req: NextRequest, ctx) 
   })
 }))
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const botId = ctx.params?.id
   if (!botId) return writeError("missing bot id", 400)
 

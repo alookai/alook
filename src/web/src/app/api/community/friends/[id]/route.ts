@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse } from "next/server"
 import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 
-export const DELETE = withAuth(async (_req, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const id = ctx.params?.id as string
 

@@ -21,7 +21,7 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-// Human arm delegates through the real withCommunityActor → withAuth; mock
+// Human arm delegates through the real communityActorPolicy → withAuth; mock
 // withAuth to inject a human ctx (this route's accepted human arm is the
 // inheritor of the retired aggregate GET /friends' friends[] projection).
 vi.mock("@/lib/middleware/auth", () => ({

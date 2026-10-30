@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, rejectBot } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isThread, DM_SERVER, formatHandle, parseRef, withD1Retry } from "@alook/shared"
@@ -31,7 +32,7 @@ import { resolveMessageTarget } from "@/lib/community/message-door"
  * any enumeration; human id → requireChannelAccess 403/404). Any caller with
  * access may read.
  */
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   if (ctx.actor.kind === "bot" && !requestsCommunityContract(req.headers)) {
@@ -53,7 +54,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
  * are rejected — they're the NOTIFY dimension, inherit the parent's roster,
  * and take PARTICIPANTS (via the participants route), not access members.
  */
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   // Human-only management op (add a member to a private access unit). There is
   // NO bot add-member verb, and this is a capability boundary (not an
   // existence-mask concern), so a bot is a plain 403, not an opaque 404.
@@ -112,7 +113,6 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   } as const
   const recipients = await queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
   await Promise.all([...new Set([...recipients, targetUserId])].map((uid) => broadcastToUserSafe(uid, event)))
-
 
   return writeJSON({ ok: true }, 201)
 })

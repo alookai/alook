@@ -1,3 +1,4 @@
+import { withAuth } from "./auth-policy"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
 
@@ -6,7 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 // Spy on every pairing-token / machine query the middleware could plausibly
-// call. The whole point of `withCommunityPairingToken` is that it validates
+// call. The whole point of `pairingTokenPolicy` is that it validates
 // the `cmt_` prefix but leaves the atomic exchange to the route handler
 // (`daemon/activate`). If any of these fire during middleware execution, the
 // middleware has stopped being stateless.
@@ -29,18 +30,18 @@ vi.mock("@alook/shared", () => ({
   },
 }))
 
-import { withCommunityPairingToken } from "./community-pairing-token"
+import { pairingTokenPolicy } from "./community-pairing-token"
 
 const handler = vi.fn(async (_req: NextRequest, ctx: any) =>
   NextResponse.json({ ok: true, ctx })
 )
 
-describe("withCommunityPairingToken", () => {
+describe("pairingTokenPolicy", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  const wrapped = withCommunityPairingToken(handler)
+  const wrapped = withAuth(pairingTokenPolicy, handler)
 
   it("rejects when Authorization is missing", async () => {
     const req = new NextRequest("http://localhost/x")

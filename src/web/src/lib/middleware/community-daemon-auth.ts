@@ -1,4 +1,4 @@
-import { createAuth, type AuthPolicy } from "./auth-policy"
+import type { AuthPolicy } from "./auth-policy"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, withD1Retry } from "@alook/shared"
@@ -58,5 +58,3 @@ export const machineAuthPolicy: AuthPolicy<CommunityDaemonAuthContext> = {
     }
   },
 }
-
-export const withCommunityDaemonAuth = createAuth(machineAuthPolicy)

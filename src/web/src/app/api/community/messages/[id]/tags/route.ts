@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { replaceForumTagsForActor } from "@/lib/community/forum-tag-operations"
 
 /** Replace the tag set on a forum opener message. */
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
   if (!messageId) return writeError("missing message id", 400)
 

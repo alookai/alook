@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { nanoid } from "nanoid"
 import {
@@ -21,7 +22,7 @@ import {
 import { createCommunityMessage } from "@/lib/community/message-handler"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers"
 
 function joinHandles(handles: string[]) {
@@ -53,7 +54,7 @@ export function onboardingPromptWithSpace(
   ].join("\n")
 }
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id as string
   if (!serverId) return writeError("server id is required", 400)
   const [body, bodyError] = await parseBody(req, CommunityServerOnboardRequestSchema)

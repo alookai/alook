@@ -62,14 +62,14 @@ vi.mock("@/lib/community/resolve-ref", () => ({
 // arm reaches resolveTargetForMember + the identity-only seq lookup; the human arm
 // carries the messageId in the path.
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params;
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
+
     const authz = req?.headers?.get?.("Authorization") ?? "";
     const actor = authz.startsWith("Bearer crk_")
       ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
       : { kind: "human", userId: "u1", email: "u@t.com" };
-    return handler(req, { env: { DB: {} }, actor, params });
-  },
+    return ({ context: { env: { DB: {} }, actor } });
+  } }),
 }));
 
 vi.mock("@/lib/middleware/helpers", async () => {

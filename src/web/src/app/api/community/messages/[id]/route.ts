@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { canManageServer, queries, WS_EVENTS } from "@alook/shared"
@@ -31,7 +32,7 @@ const REF_PLACEHOLDER_ID = "resolve"
  * GET /api/community/messages/[id] — single fully-hydrated message.
  *
  * Dual-actor hydrate door (route/disc trunk — folds the `resolve` bot verb).
- * withCommunityActor serves human (session, id-in-path) + bot (crk_, ref+seq).
+ * communityActorPolicy serves human (session, id-in-path) + bot (crk_, ref+seq).
  * The response FORM forks by the credential actor (Aigneis ②, never a field):
  *   - human/web → `mapMessageForApi` (attachments + reactions + reply preview),
  *     the thread-opener block shape. Addressing: messageId in the path.
@@ -50,7 +51,7 @@ const REF_PLACEHOLDER_ID = "resolve"
  * Both arms hydrate the SAME row (attachments + reply scoped to the message's
  * own surface); only the projection differs.
  */
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   if (ctx.actor.kind === "bot") {
@@ -68,7 +69,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
  * text-channel thread openers deliberately remain unsupported in this first
  * version.
  */
-export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
+export const DELETE = withAuth(communityActorPolicy(), async (_req: NextRequest, ctx) => {
   if (ctx.actor.kind !== "human") return writeError("human session required", 401)
   const openerId = ctx.params?.id
   if (!openerId || openerId === REF_PLACEHOLDER_ID) return writeError("missing message id", 400)

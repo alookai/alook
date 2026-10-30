@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -11,7 +12,7 @@ import {
 } from "@alook/shared"
 import { canonicalUserImage } from "@/lib/community/storage"
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const url = new URL(req.url)
   const q = url.searchParams.get("q")?.trim()
 

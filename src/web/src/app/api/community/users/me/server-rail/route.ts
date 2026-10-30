@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { nanoid } from "nanoid"
 import {
   MAX_SERVER_RAIL_REQUEST_BYTES,
@@ -8,10 +9,10 @@ import {
 } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { getPrimaryDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 
-export const PATCH = withAuth(async (req, ctx) => {
+export const PATCH = withAuth(humanAuthPolicy, async (req, ctx) => {
   const rawBody = await req.text()
   if (new TextEncoder().encode(rawBody).byteLength > MAX_SERVER_RAIL_REQUEST_BYTES) {
     return writeError("request body too large", 413)

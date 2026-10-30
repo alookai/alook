@@ -1,4 +1,4 @@
-import { createAuth, type AuthPolicy } from "./auth-policy"
+import type { AuthPolicy } from "./auth-policy"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 
@@ -21,7 +21,7 @@ export type CommunityPairingTokenAuthenticatedHandler = (
  *
  * Rejects with 401 on missing header, non-Bearer prefix, or wrong token
  * prefix. Response body is `{ error: string }`, matching the wire contract
- * used by the sibling `withCommunityDaemonAuth` middleware.
+ * used by the sibling `machineAuthPolicy` middleware.
  */
 export const pairingTokenPolicy: AuthPolicy<CommunityPairingTokenContext> = {
   resolve: async req => {
@@ -46,5 +46,3 @@ export const pairingTokenPolicy: AuthPolicy<CommunityPairingTokenContext> = {
     }
   },
 }
-
-export const withCommunityPairingToken = createAuth(pairingTokenPolicy)

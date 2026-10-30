@@ -31,12 +31,7 @@ vi.mock("@/lib/community/fanout", () => ({
 }))
 vi.mock("@/lib/logger", () => ({ log: { warn: (...args: unknown[]) => mockLogWarn(...args) } }))
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (req: any, ctx?: any) => handler(req, {
-    env: { DB: {} },
-    userId: "owner_1",
-    email: "owner@example.com",
-    params: ctx?.params,
-  }),
+  humanAuthPolicy: { resolve: async (req: any) => ({ context: { env: { DB: {} }, userId: "owner_1", email: "owner@example.com" } }) },
 }))
 vi.mock("@/lib/middleware/helpers", async () => {
   const { NextResponse } = require("next/server")

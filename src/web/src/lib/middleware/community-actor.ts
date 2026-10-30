@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getDb } from "@/lib/db"
 import { resolveHumanAuth } from "./auth"
-import { createAuth, type AuthPolicy } from "./auth-policy"
+import type { AuthPolicy } from "./auth-policy"
 import { COMMUNITY_BOT_ACTOR_HEADER } from "@alook/shared"
 import { resolveBotActor, resolveOwnedBotActor } from "./community-agent-runner-auth"
 import { protectCommunityJsonResponse, rejectUnknownCommunityContract, varyPrivateResponseByCredentials } from "./response-cache"
@@ -118,13 +118,6 @@ export function communityActorPolicy(
       }
     },
   }
-}
-
-export function withCommunityActor(
-  handler: CommunityActorHandler,
-  options: { allowInactiveBot?: boolean } = {},
-) {
-  return createAuth(communityActorPolicy(options))(handler)
 }
 
 /**

@@ -67,15 +67,15 @@ vi.mock("@/lib/community/community-media-cleanup", async () => {
 })
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, {
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: {
       env: { DB: {}, COMMUNITY_MEDIA: { delete: vi.fn() } },
       userId: "u1",
       email: "u@t.com",
-      params,
-    })
-  }),
+
+    } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

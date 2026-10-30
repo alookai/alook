@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries, BotCreationSubmitSchema, BOT_CREATION_BODY_MAX_BYTES, readBoundedJsonRequest, formatHandle } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
-import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { botCreationFailure } from "@/lib/community/bot-creation.server"
 import { dispatchCommittedMessage } from "@/lib/community/message-dispatcher"
 
-export const POST = withCommunityActor(async (req, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req, ctx) => {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
   const raw = await readBoundedJsonRequest(req, BOT_CREATION_BODY_MAX_BYTES)

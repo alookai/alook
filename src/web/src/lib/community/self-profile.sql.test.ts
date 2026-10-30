@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({ db: null as unknown }))
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }))
 vi.mock("@/lib/auth", () => ({ getAuth: vi.fn() }))
 vi.mock("@/lib/community/fanout", () => ({ fanOutProfileUpdate: vi.fn(), fanOutStatusUpdate: vi.fn() }))
-vi.mock("@/lib/middleware/community-actor", () => ({ withCommunityActor: (handler: (req: NextRequest, ctx: unknown) => Promise<Response>) => (req: NextRequest) => handler(req, { env: {}, actor: { kind: "human", userId: "new-user" } }) }))
+vi.mock("@/lib/middleware/community-actor", () => ({ communityActorPolicy: () => ({ resolve: async (req: NextRequest) => ({ context: { env: {}, actor: { kind: "human", userId: "new-user" } } }) }) }))
 import { GET } from "@/app/api/community/users/me/profile/route"
 
 const fixtures: ReturnType<typeof createCommunitySqliteDb>[] = []

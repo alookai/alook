@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({ actor: { kind: "bot", userId: "requester", own
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({}) }))
 vi.mock("@/lib/middleware/community-actor", async () => {
   const actual = await vi.importActual<typeof import("@/lib/middleware/community-actor")>("@/lib/middleware/community-actor")
-  return { ...actual, withCommunityActor: (handler: (req: NextRequest, context: any) => unknown) => (req: NextRequest) => handler(req, { env: { DB: {} }, actor: mocks.actor, params: { id: "request" } }) }
+  return { ...actual, communityActorPolicy: () => ({ resolve: async (req: NextRequest) => ({ context: { env: { DB: {} }, actor: mocks.actor } }) }) }
 })
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -39,7 +39,7 @@ describe("bot creation request API authorization and envelopes", () => {
   it("propagates unexpected decision failures without publishing an approval", async () => {
     mocks.actor = { kind: "human", userId: "owner", isBot: false }
     mocks.decide.mockRejectedValueOnce(new Error("decision storage unavailable"))
-    await expect(PATCH(request({ decision: "approve" }, "PATCH"))).rejects.toThrow("decision storage unavailable")
+    await expect(PATCH(request({ decision: "approve" }, "PATCH"), { params: { id: "request" } })).rejects.toThrow("decision storage unavailable")
     expect(mocks.complete).not.toHaveBeenCalled()
     expect(mocks.broadcast).not.toHaveBeenCalled()
   })
@@ -64,7 +64,7 @@ describe("bot creation request API authorization and envelopes", () => {
     mocks.actor = { kind: "human", userId: "owner", isBot: false }
     expect((await POST(request({ requestId: "request", bots: [proposal] }))).status).toBe(403)
     mocks.actor = { kind: "bot", userId: "requester", ownerUserId: "owner" }
-    expect((await PATCH(request({ decision: "approve" }, "PATCH"))).status).toBe(403)
+    expect((await PATCH(request({ decision: "approve" }, "PATCH"), { params: { id: "request" } })).status).toBe(403)
     expect(mocks.submit).not.toHaveBeenCalled()
     expect(mocks.decide).not.toHaveBeenCalled()
   })
@@ -72,20 +72,20 @@ describe("bot creation request API authorization and envelopes", () => {
     mocks.actor = { kind: "human", userId: "owner", isBot: false }
     const approved = { ...row, status: "approved", resolvedAt: row.createdAt, bots: [{ ...item, createdBot: { id: "newbot", name: item.name, discriminator: "0002", image: null, avatarVersion: 0 } }] }
     mocks.decide.mockResolvedValue({ row: approved, changed: true })
-    const response = await PATCH(request({ decision: "approve" }, "PATCH"))
+    const response = await PATCH(request({ decision: "approve" }, "PATCH"), { params: { id: "request" } })
     expect(response.status).toBe(200)
     expect(mocks.decide).toHaveBeenCalledWith(expect.anything(), "owner", "request", "approve")
     expect(mocks.complete).toHaveBeenCalledOnce()
     expect(mocks.broadcast).toHaveBeenCalledWith("owner", expect.objectContaining({ type: "community:message.updated", channelId: "dm", messageId: "card", botCreation: expect.objectContaining({ status: "approved" }) }))
     mocks.decide.mockResolvedValue({ row: approved, changed: false })
-    await PATCH(request({ decision: "approve" }, "PATCH"))
+    await PATCH(request({ decision: "approve" }, "PATCH"), { params: { id: "request" } })
     expect(mocks.complete).toHaveBeenCalledTimes(1)
     expect(mocks.broadcast).toHaveBeenCalledTimes(1)
   })
   it("keeps useful capacity errors and does not claim approval or dispatch effects", async () => {
     mocks.actor = { kind: "human", userId: "owner", isBot: false }
     mocks.decide.mockRejectedValue(new BotCreationError("BOT_LIMIT_REACHED", "Not enough bot slots", 409, { required: 2, available: 1 }))
-    const response = await PATCH(request({ decision: "approve" }, "PATCH"))
+    const response = await PATCH(request({ decision: "approve" }, "PATCH"), { params: { id: "request" } })
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ code: "BOT_LIMIT_REACHED", required: 2, available: 1 })
     expect(mocks.complete).not.toHaveBeenCalled()

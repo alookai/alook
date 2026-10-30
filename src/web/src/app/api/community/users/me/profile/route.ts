@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest, NextResponse } from "next/server"
 import {
   queries, parseCommunitySelfProfileRead,
@@ -9,20 +10,20 @@ import {
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { fanOutProfileUpdate, fanOutStatusUpdate } from "@/lib/community/fanout"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { readCommunitySelfProfile } from "@/lib/community/self-profile.server"
 
-export const GET = withCommunityActor(async (_req, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId
   const self = await readCommunitySelfProfile(db, userId)
   return self ? writeJSON(self.profile) : writeError("profile not found", 404)
 })
 
-export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
+export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId
 

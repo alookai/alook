@@ -5,7 +5,7 @@ import { getPrimaryDb } from "@/lib/db"
 import { wsDoFetch } from "@/lib/broadcast"
 import { writeError } from "@/lib/middleware/helpers"
 import { humanAuthPolicy, type AuthContext } from "@/lib/middleware/auth"
-import { createAuth, type AuthHandler, type AuthPolicy } from "@/lib/middleware/auth-policy"
+import { withAuth, type AuthPolicy } from "@/lib/middleware/auth-policy"
 
 export async function hashAutomationSecret(secret: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret))
@@ -26,10 +26,7 @@ export const automationManagementPolicy: AuthPolicy<AuthContext> = {
     : humanAuthPolicy.respond!(req, response),
 }
 
-export const withAutomationManagement = createAuth(automationManagementPolicy)
-
 type AutomationContext = { env: Env; userId: string; beforeCreate: () => Promise<Response | null> }
-type AutomationHandler = AuthHandler<AutomationContext>
 
 function readAutomationSecret(req: NextRequest): string | undefined {
   return /^Bearer (aac_[a-f0-9]{64})$/.exec(req.headers.get("Authorization") ?? "")?.[1]
@@ -49,7 +46,7 @@ export const automationExpiryPolicy: AuthPolicy<AutomationExpiryContext> = {
   },
 }
 
-export const expireAutomationAccessCode = createAuth(automationExpiryPolicy)(async (_req, ctx) => {
+export const expireAutomationAccessCode = withAuth(automationExpiryPolicy, async (_req, ctx) => {
   try {
     const expired = await queries.automation.expireAccessCode(ctx.db, ctx.secretHash)
     return Response.json(expired ? { expired: true } : { error: "Invalid or unauthorized access code" }, {
@@ -98,8 +95,4 @@ export function automationPolicy(permission: AutomationPermission): AuthPolicy<A
       }
     },
   }
-}
-
-export function withAutomation(permission: AutomationPermission, handler: AutomationHandler) {
-  return createAuth(automationPolicy(permission))(handler)
 }

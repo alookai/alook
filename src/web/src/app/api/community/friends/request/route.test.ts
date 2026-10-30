@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
+const authFixture = vi.hoisted(() => ({ humanIsBot: false }))
+
 const getUserInternal = vi.fn()
 const getUserByNameAndDiscriminator = vi.fn()
 const getUserByNameCaseInsensitive = vi.fn()
@@ -35,19 +37,15 @@ vi.mock("@alook/shared", async () => {
 // Dual-actor: crk_ bearer → bot arm, else human. The route dispatches by
 // actor.kind to two independent handlers.
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    // A test may inject a specific actor via ctx.actor (used to drive the
-    // isBot→403 backstop); otherwise derive it from the Authorization header
-    // (crk_ → bot arm, else human).
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
+
     const authz = req?.headers?.get?.("Authorization") ?? ""
     const actor =
-      ctx?.actor ??
       (authz.startsWith("Bearer crk_")
         ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
-        : { kind: "human", userId: "u1", email: "u@t.com", isBot: false })
-    return handler(req, { env: {}, actor, params })
-  },
+        : { kind: "human", userId: "u1", email: "u@t.com", isBot: authFixture.humanIsBot })
+    return ({ context: { env: {}, actor } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", async () => {
@@ -62,7 +60,6 @@ vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: (...a: unknown[]) => broadcastToUser(...a),
 }))
 
-
 import { POST } from "./route"
 
 function postReq(body: unknown) {
@@ -75,6 +72,7 @@ function postReq(body: unknown) {
 
 describe("POST /api/community/friends/request", () => {
   beforeEach(() => {
+    authFixture.humanIsBot = false
     vi.clearAllMocks()
     getUserInternal.mockResolvedValue({
       id: "u2",
@@ -276,11 +274,10 @@ describe("POST /api/community/friends/request", () => {
   // Backstop (Aigneis #541): the human arm auto-accepts with no owner gate, so a
   // bot must NEVER reach it. Dispatch is the main door; isBot→403 is the last
   // line if a future auth regression puts isBot=true on a human actor. The mock
-  // honors ctx.actor so we can inject the crafted (production-impossible) case.
+  // supplies a crafted actor to exercise this defensive business boundary.
   it("human arm rejects an isBot=true human actor with 403 (backstop survives the fold)", async () => {
-    const res = await POST(postReq({ username: "alex" }), {
-      actor: { kind: "human", userId: "u1", email: "u@t.com", isBot: true },
-    } as never)
+    authFixture.humanIsBot = true
+    const res = await POST(postReq({ username: "alex" }))
     expect(res.status).toBe(403)
     // Never reaches the friend-graph write.
     expect(sendRequest).not.toHaveBeenCalled()

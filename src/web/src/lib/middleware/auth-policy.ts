@@ -19,8 +19,8 @@ export interface AuthPolicy<C> {
   respond?: (request: NextRequest, response: Response) => Response | Promise<Response>
 }
 
-export function createAuth<C>(policy: AuthPolicy<C>) {
-  return (handler: AuthHandler<C>) => async (
+export function withAuth<C>(policy: AuthPolicy<C>, handler: AuthHandler<C>) {
+  return async (
     request: NextRequest,
     route?: { params?: Promise<Record<string, string>> | Record<string, string> },
   ): Promise<Response> => {

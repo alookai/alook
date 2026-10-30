@@ -24,9 +24,7 @@ vi.mock("@/lib/middleware/community-actor", async () => {
   const actual = await vi.importActual<typeof import("@/lib/middleware/community-actor")>("@/lib/middleware/community-actor")
   return {
     ...actual,
-    withCommunityActor: (handler: any) => (req: any, ctx: any) => handler(req, {
-      env: { DB: {} }, actor: { kind: mocks.kind, userId: "viewer" }, params: ctx?.params,
-    }),
+    communityActorPolicy: () => ({ resolve: async (req: any) => ({ context: { env: { DB: {} }, actor: { kind: mocks.kind, userId: "viewer" } } }) }),
   }
 })
 

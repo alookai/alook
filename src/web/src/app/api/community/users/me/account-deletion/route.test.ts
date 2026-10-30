@@ -8,13 +8,12 @@ const getPrimaryDb = vi.fn()
 const signOut = vi.fn()
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withCookieHumanAuth: (handler: (...args: any[]) => Promise<Response>) =>
-    (request: NextRequest) => handler(request, {
+  cookieHumanAuthPolicy: { resolve: async (request: NextRequest) => ({ context: {
       env: { DB: {} },
       executionContext: { waitUntil: vi.fn() },
       userId: "user-1",
       email: "owner@example.com",
-    }),
+    } }) },
 }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: (...args: unknown[]) => getPrimaryDb(...args) }))
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { signOut } }) }))

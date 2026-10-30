@@ -12,7 +12,7 @@ vi.mock("@alook/shared", async () => ({
   },
 }))
 vi.mock("@/lib/community/fanout", () => ({ fanOutToServerMembers: mocks.fanout }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: any) => (req: any, ctx?: any) => handler(req, { env: { DB: "binding" }, userId: "u1", params: ctx?.params }) }))
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: { resolve: async (req: any) => ({ context: { env: { DB: "binding" }, userId: "u1" } }) } }))
 import { PATCH } from "./route"
 const ctx = { params: { id: "s1" } } as never
 const request = (body: unknown) => new NextRequest("http://localhost/api/community/servers/s1/channels/reorder", { method: "PATCH", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } })

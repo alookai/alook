@@ -12,24 +12,15 @@ vi.mock("@/lib/community/fanout", () => ({
 vi.mock("@/lib/middleware/auth", async () => {
   return {
     resolveHumanAuth: async () => ({ context: { userId: "u_caller", email: "caller@example.com", env: { DB: {} } } }),
-    withAuth: (
-      handler: (req: NextRequest, ctx: {
-        userId: string
-        email: string
-        env: { DB: unknown }
-        params: Record<string, string>
-      }) => Promise<Response>,
-    ) => {
-      return async (req: NextRequest, ctx: { params?: Promise<Record<string, string>> }) => {
-        const params = (await ctx.params) ?? {}
-        return handler(req, {
+    humanAuthPolicy: { resolve: async (req: NextRequest) => {
+        const params = (await undefined) ?? {}
+        return ({ context: {
           userId: "u_caller",
           email: "caller@example.com",
           env: { DB: {} },
-          params,
-        })
-      }
-    },
+
+        } })
+      } },
   }
 })
 

@@ -1,6 +1,7 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityChannelResourceFromStorage } from "@alook/shared"
 import { NextRequest } from "next/server"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import {
@@ -21,7 +22,7 @@ import {
  * create-channels.ts and stay alive transitionally (deleted at the flat-delete
  * step after the deploy window closes).
  *
- * Dual-actor (`withCommunityActor`), but bot CAPABILITY is minimal and ORTHOGONAL
+ * Dual-actor (`communityActorPolicy`), but bot CAPABILITY is minimal and ORTHOGONAL
  * to the 4-type dispatch — supporting a type ≠ opening it to bots. The bot arm is
  * two DIFFERENT rejections, kept distinct on purpose (Melly #486 / Aigneis #475):
  *
@@ -50,7 +51,7 @@ import {
  * on `type`; the parent is addressed by the id each kind needs (serverId / peer
  * userId / root messageId).
  */
-export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   let body: {
     type?: unknown
     serverId?: unknown

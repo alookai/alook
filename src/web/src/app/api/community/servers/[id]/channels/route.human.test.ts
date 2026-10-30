@@ -39,11 +39,7 @@ vi.mock("@alook/shared", async () => {
   }
 })
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: any, ctx: any) => handler(req, {
-    env: { DB: {} },
-    actor: { kind: "human", userId: "user_1", email: "u@example.com" },
-    params: ctx.params,
-  }),
+  communityActorPolicy: () => ({ resolve: async (req: any) => ({ context: { env: { DB: {} }, actor: { kind: "human", userId: "user_1", email: "u@example.com" } } }) }),
 }))
 
 import { GET } from "./route"

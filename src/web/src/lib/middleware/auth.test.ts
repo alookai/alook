@@ -1,3 +1,4 @@
+import { withAuth } from "./auth-policy"
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
@@ -32,9 +33,9 @@ vi.mock("@/lib/auth", () => ({
   })),
 }));
 
-import { withAuth, withCookieHumanAuth, withOptionalAuth } from "./auth";
+import { humanAuthPolicy, cookieHumanAuthPolicy, optionalAuthPolicy } from "./auth";
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_BOT_ACTOR_HEADER, COMMUNITY_CONTRACT_HEADER, queries } from "@alook/shared";
-import { withCommunityActor, type CommunityActor } from "./community-actor";
+import { communityActorPolicy, type CommunityActor } from "./community-actor";
 
 const mockGetUserInternal = queries.user.getUserInternal as ReturnType<typeof vi.fn>;
 const mockGetCloudflareContext = getCloudflareContext as unknown as ReturnType<typeof vi.fn>;
@@ -50,7 +51,7 @@ describe("withAuth middleware", () => {
     mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} }, ctx: { waitUntil: vi.fn() } });
   });
 
-  const wrapped = withAuth(testHandler);
+  const wrapped = withAuth(humanAuthPolicy, testHandler);
 
   it("returns 401 when Authorization header is missing", async () => {
     const req = new NextRequest("http://localhost/api/test");
@@ -89,7 +90,7 @@ describe("withAuth middleware", () => {
   it("rejects a crk_ runner-key bearer — a bot never authenticates as a human here (§5 red line)", async () => {
     // Privilege-escalation invariant: the human-only community
     // surfaces (/bots/*, /daemon/*, human inbox, channel management) stay on
-    // withAuth, NOT withCommunityActor. A crk_ bearer is neither an al_ machine
+    // withAuth, NOT communityActorPolicy. A crk_ bearer is neither an al_ machine
     // token nor a session, so it falls through to the session path and finds no
     // session → 401. This is what keeps a bot structurally unable to reach a
     // human-only route after the actor unification.
@@ -162,7 +163,7 @@ describe("withAuth middleware", () => {
       ETag: '"media-v1"',
       ...(vary ? { Vary: vary } : {}),
     } });
-    const res = await withAuth(async () => original)(new NextRequest("http://localhost/media", { headers: { Cookie: "viewer=A" } }));
+    const res = await withAuth(humanAuthPolicy, async () => original)(new NextRequest("http://localhost/media", { headers: { Cookie: "viewer=A" } }));
     expect(res.headers.get("Vary")).toBe(expected === "*" ? expected : `${expected}, X-Alook-Bot-Id`);
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
     expect(res.headers.get("ETag")).toBe('"media-v1"');
@@ -174,7 +175,7 @@ describe("withAuth middleware", () => {
   it("preserves the declared public response policy", async () => {
     mockGetSession.mockResolvedValue({ headers: new Headers(), response: { user: { id: "A", email: "a@example.com" } } });
     const original = new Response("public", { headers: { "Cache-Control": "public, max-age=300", Vary: "Accept-Encoding" } });
-    const res = await withAuth(async () => original)(new NextRequest("http://localhost/public"));
+    const res = await withAuth(humanAuthPolicy, async () => original)(new NextRequest("http://localhost/public"));
     expect(res).toBe(original);
     expect(res.headers.get("Vary")).toBe("Accept-Encoding");
   });
@@ -251,13 +252,13 @@ describe("withAuth middleware", () => {
   });
 });
 
-describe("withOptionalAuth middleware", () => {
+describe("optionalAuthPolicy middleware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetCloudflareContext.mockResolvedValue({ env: { DB: {} }, ctx: { waitUntil: vi.fn() } });
   });
 
-  const wrapped = withOptionalAuth(testHandler);
+  const wrapped = withAuth(optionalAuthPolicy, testHandler);
 
   it("runs the handler anonymously (userId undefined, NOT 401) when there is no session", async () => {
     mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
@@ -355,8 +356,8 @@ describe("withOptionalAuth middleware", () => {
   });
 });
 
-describe("withCookieHumanAuth middleware", () => {
-  const wrapped = withCookieHumanAuth(testHandler);
+describe("cookieHumanAuthPolicy middleware", () => {
+  const wrapped = withAuth(cookieHumanAuthPolicy, testHandler);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -599,7 +600,7 @@ describe("withCookieHumanAuth middleware", () => {
       headers: { Origin: "https://alook.ai" },
     });
 
-    const res = await withCookieHumanAuth(deletingHandler)(req);
+    const res = await withAuth(cookieHumanAuthPolicy, deletingHandler)(req);
     const cookies = res.headers.getSetCookie();
 
     expect(cookies).not.toContain("better-auth.session_data=fresh; Path=/");
@@ -609,9 +610,9 @@ describe("withCookieHumanAuth middleware", () => {
 });
 
 describe("human-only bot-selection rejection", () => {
-  it.each([withAuth, withCookieHumanAuth, withOptionalAuth])("rejects bot selection before a human-only handler can mutate the owner (%#)", async (wrap) => {
+  it.each([humanAuthPolicy, cookieHumanAuthPolicy, optionalAuthPolicy])("rejects bot selection before a human-only handler can mutate the owner (%#)", async (policy) => {
     const handler = vi.fn(async () => NextResponse.json({ ok: true }))
-    const response = await wrap(handler)(new NextRequest("http://localhost/api/community/bots", { headers: { "X-Alook-Bot-Id": "bot_1", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST" }))
+    const response = await withAuth(policy, handler)(new NextRequest("http://localhost/api/community/bots", { headers: { "X-Alook-Bot-Id": "bot_1", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) }, method: "POST" }))
     expect(response.status).toBe(403)
     expect(handler).not.toHaveBeenCalled()
   })
@@ -632,7 +633,7 @@ describe("current contract with actual owner-delegated actor authentication", ()
     ownedBot.mockResolvedValue({ id: "selected-bot", machineId: "machine", isActive: true })
   })
   it("admits the current owner session only after real auth and scoped bot resolution", async () => {
-    const response = await withCommunityActor(route)(request())
+    const response = await withAuth(communityActorPolicy(), route)(request())
     expect(response.status).toBe(200)
     expect(ownedBot).toHaveBeenCalledWith({}, "selected-bot", "owner")
     expect(await response.json()).toEqual({ actor: { kind: "bot", userId: "selected-bot", ownerUserId: "owner", machineId: "machine", isActive: true, delegatedByUserId: "owner" } })
@@ -641,7 +642,7 @@ describe("current contract with actual owner-delegated actor authentication", ()
     for (const field of ["Cookie", "Authorization", COMMUNITY_CONTRACT_HEADER, COMMUNITY_BOT_ACTOR_HEADER]) expect(response.headers.get("Vary")).toContain(field)
   })
   it.each([null, "2", "3", String(BUSINESS_SCHEMA_VERSION + 1)])("does not exempt a cookie request with bot selection and contract %s", async version => {
-    const response = await withCommunityActor(route)(request(version))
+    const response = await withAuth(communityActorPolicy(), route)(request(version))
     expect(response.status).toBe(400)
     expect(mockGetSession).not.toHaveBeenCalled()
     expect(ownedBot).not.toHaveBeenCalled()
@@ -649,14 +650,14 @@ describe("current contract with actual owner-delegated actor authentication", ()
   })
   it("does not resolve or impersonate a selected bot without an authenticated owner", async () => {
     mockGetSession.mockResolvedValue({ headers: new Headers(), response: null })
-    const response = await withCommunityActor(route)(request())
+    const response = await withAuth(communityActorPolicy(), route)(request())
     expect(response.status).toBe(401)
     expect(ownedBot).not.toHaveBeenCalled()
     expect(route).not.toHaveBeenCalled()
   })
   it("keeps foreign or missing bot refusal after the owner is authenticated", async () => {
     ownedBot.mockResolvedValue(null)
-    const response = await withCommunityActor(route)(request())
+    const response = await withAuth(communityActorPolicy(), route)(request())
     expect(response.status).toBe(404)
     expect(ownedBot).toHaveBeenCalledWith({}, "selected-bot", "owner")
     expect(route).not.toHaveBeenCalled()
@@ -664,7 +665,7 @@ describe("current contract with actual owner-delegated actor authentication", ()
   it("rejects retired tokens before resolving an owner-selected bot", async () => {
     const req = request(null)
     req.headers.set("Authorization", "Bearer al_retired")
-    const response = await withCommunityActor(route)(req)
+    const response = await withAuth(communityActorPolicy(), route)(req)
     expect(response.status).toBe(401)
     expect(mockGetSession).not.toHaveBeenCalled()
     expect(ownedBot).not.toHaveBeenCalled()

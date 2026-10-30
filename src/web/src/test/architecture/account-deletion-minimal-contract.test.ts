@@ -15,7 +15,7 @@ describe("minimal account deletion architecture", () => {
       "src/app/api/community/users/me/account-deletion/code/route.ts",
       "src/app/api/community/users/me/account-deletion/route.ts",
     ]) {
-      expect(source(route)).toContain("withCookieHumanAuth")
+      expect(source(route)).toContain("withAuth(cookieHumanAuthPolicy,")
     }
   })
 

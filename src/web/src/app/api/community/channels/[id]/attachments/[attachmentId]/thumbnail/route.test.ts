@@ -9,11 +9,7 @@ vi.mock("@/lib/community/attachment-authorization", () => ({
   authorizeAttachment: (...args: unknown[]) => mockAuthorizeAttachment(...args),
 }))
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: NextRequest, ctx: any) => handler(req, {
-    params: ctx.params,
-    actor: { kind: "human", userId: "u1", email: "u@example.test", isBot: false },
-    env: { DB: {}, COMMUNITY_MEDIA: { get: (...args: unknown[]) => mockR2Get(...args) } },
-  }),
+  communityActorPolicy: () => ({ resolve: async (req: NextRequest) => ({ context: { actor: { kind: "human", userId: "u1", email: "u@example.test", isBot: false }, env: { DB: {}, COMMUNITY_MEDIA: { get: (...args: unknown[]) => mockR2Get(...args) } } } }) }),
 }))
 
 import { GET } from "./route"

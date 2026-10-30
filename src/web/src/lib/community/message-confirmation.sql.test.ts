@@ -8,11 +8,7 @@ import { projectPostedMessage } from "./message-wire"
 const state = vi.hoisted(() => ({ db: null as unknown, dispatch: vi.fn() }))
 vi.mock("@/lib/db", () => ({ getDb: () => state.db, getPrimaryDb: () => state.db }))
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: CommunityActorHandler) => (request: NextRequest, context: { params: Record<string, string> }) => handler(request, {
-    env: { DB: {} } as Env,
-    actor: { kind: "human", userId: "sender", email: "sender@example.test" },
-    params: context.params,
-  }),
+  communityActorPolicy: () => ({ resolve: async (request: NextRequest) => ({ context: { env: { DB: {} } as Env, actor: { kind: "human", userId: "sender", email: "sender@example.test" } } }) }),
 }))
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: async () => ({ allowed: true }) }))
 vi.mock("@/lib/community/message-dispatcher", () => ({ dispatchCommittedMessage: state.dispatch }))

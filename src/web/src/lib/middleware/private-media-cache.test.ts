@@ -1,3 +1,4 @@
+import { withAuth } from "./auth-policy"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
 
@@ -16,8 +17,8 @@ vi.mock("@/lib/auth", () => ({
 }))
 vi.mock("./community-agent-runner-auth", () => ({ resolveBotActor: mocks.resolveBotActor }))
 
-import { withAuth, type AuthenticatedHandler } from "./auth"
-import { withCommunityActor, type CommunityActorHandler } from "./community-actor"
+import { humanAuthPolicy, type AuthenticatedHandler } from "./auth"
+import { communityActorPolicy, type CommunityActorHandler } from "./community-actor"
 import { withPrivateMediaCache } from "./private-media-cache"
 
 const IMMUTABLE = "private, max-age=31536000, immutable"
@@ -95,7 +96,7 @@ describe("selected private media response policy", () => {
 describe("real authentication wrappers inside media policy", () => {
   it.each([200, 304])("keeps fixed media status %s independent of GA, session refresh and authenticated viewer cookies", async (status) => {
     const handler = vi.fn<AuthenticatedHandler>(async () => media(status, { Vary: "Accept-Encoding" }))
-    const route = withPrivateMediaCache(withAuth(handler))
+    const route = withPrivateMediaCache(withAuth(humanAuthPolicy, handler))
     const params = { params: Promise.resolve({ id: "fixed" }) }
     for (const [viewer, ga, sessionData] of [["A", "first", "old"], ["A", "second", "renewed"], ["B", "third", "other"]]) {
       mocks.getSession.mockResolvedValueOnce(session(viewer))
@@ -116,7 +117,7 @@ describe("real authentication wrappers inside media policy", () => {
     if (kind === "bot") mocks.getSession.mockResolvedValue(session("bot1", { isBot: true }))
     if (kind === "deleted") mocks.getSession.mockResolvedValue(session("A", { deletedAt: "2026-10-01" }))
     const handler = vi.fn<AuthenticatedHandler>(async () => media())
-    const result = await withPrivateMediaCache(withAuth(handler))(request())
+    const result = await withPrivateMediaCache(withAuth(humanAuthPolicy, handler))(request())
     expect(result.status).toBe(kind === "error" ? 503 : 401)
     expect(result.headers.get("Cache-Control")).toBe("private, no-store")
     expect(handler).not.toHaveBeenCalled()
@@ -128,7 +129,7 @@ describe("real authentication wrappers inside media policy", () => {
 
   it("makes retired token rejection non-storable even with a live Cookie", async () => {
     const handler = vi.fn<AuthenticatedHandler>(async () => media())
-    const result = await withPrivateMediaCache(withAuth(handler))(request({ Authorization: "Bearer al_retired", Cookie: "better-auth.session_token=live" }))
+    const result = await withPrivateMediaCache(withAuth(humanAuthPolicy, handler))(request({ Authorization: "Bearer al_retired", Cookie: "better-auth.session_token=live" }))
     expect(result.status).toBe(401)
     expect(result.headers.get("Cache-Control")).toBe("private, no-store")
     expect(handler).not.toHaveBeenCalled()
@@ -138,14 +139,14 @@ describe("real authentication wrappers inside media policy", () => {
   it.each(["human", "bot"])("preserves %s actor resolution on fixed attachment thumbnails", async (kind) => {
     const handler = vi.fn<CommunityActorHandler>(async () => media())
     const headers: Record<string, string> = kind === "bot" ? { Authorization: "Bearer crk_fixture" } : { Cookie: "viewer=A; _ga=changed" }
-    const result = await withPrivateMediaCache(withCommunityActor(handler))(request(headers))
+    const result = await withPrivateMediaCache(withAuth(communityActorPolicy(), handler))(request(headers))
     expect(result.headers.get("Vary")).toBe("Authorization, X-Alook-Bot-Id")
     expect(handler.mock.lastCall?.[1].actor.kind).toBe(kind)
     expect(mocks.getSession).toHaveBeenCalledTimes(kind === "human" ? 1 : 0)
   })
 
   it("adds no cache TTL to bot downloads and separates them by Authorization", async () => {
-    const result = await withPrivateMediaCache(withCommunityActor(async () => new Response("bot bytes", {
+    const result = await withPrivateMediaCache(withAuth(communityActorPolicy(), async () => new Response("bot bytes", {
       headers: { "X-Alook-Filename": "file.bin", "Content-Length": "9" },
     })))(request({ Authorization: "Bearer crk_fixture" }))
     expect(result.headers.get("Cache-Control")).toBeNull()
@@ -157,7 +158,7 @@ describe("real authentication wrappers inside media policy", () => {
   it.each([401, 503])("makes bot auth status %s non-storable without falling through to the human session", async (status) => {
     mocks.resolveBotActor.mockResolvedValue({ kind: "error", response: NextResponse.json({ error: "runner auth" }, { status }) })
     const handler = vi.fn<CommunityActorHandler>(async () => media())
-    const result = await withPrivateMediaCache(withCommunityActor(handler))(request({ Authorization: "Bearer crk_fixture" }))
+    const result = await withPrivateMediaCache(withAuth(communityActorPolicy(), handler))(request({ Authorization: "Bearer crk_fixture" }))
     expect(result.status).toBe(status)
     expect(result.headers.get("Cache-Control")).toBe("private, no-store")
     expect(handler).not.toHaveBeenCalled()
@@ -165,7 +166,7 @@ describe("real authentication wrappers inside media policy", () => {
   })
 
   it("keeps default private account responses credential-specific outside the selected media wrapper", async () => {
-    const result = await withAuth(async () => media())(request())
+    const result = await withAuth(humanAuthPolicy, async () => media())(request())
     expect(result.headers.get("Vary")).toBe("Cookie, Authorization, X-Alook-Bot-Id")
   })
 })

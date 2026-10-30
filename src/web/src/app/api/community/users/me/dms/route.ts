@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, parseCommunityDmsRead, CommunityResourceProfileSchema, CommunityMemberRelationSchema, communityChannelResourceFromStorage } from "@alook/shared"
 import { canonicalUserImage } from "@/lib/community/storage"
 
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const [rows, unreadRows] = await Promise.all([
     queries.communityDm.listDMs(db, ctx.userId),

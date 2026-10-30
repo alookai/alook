@@ -53,11 +53,7 @@ vi.mock("@/lib/community/message-handler", () => ({
 }))
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn(async () => ({ allowed: true })) }))
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => handler(req, {
-    env: { DB: {} },
-    actor: { kind: actorKind, userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" },
-    params: ctx?.params instanceof Promise ? await ctx.params : ctx?.params,
-  }),
+  communityActorPolicy: () => ({ resolve: async (req: any) => ({ context: { env: { DB: {} }, actor: { kind: actorKind, userId: "bot_1", ownerUserId: "owner_1", machineId: "m_1" } } }) }),
 }))
 vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")

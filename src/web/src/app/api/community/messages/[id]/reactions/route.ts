@@ -1,11 +1,12 @@
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { withAuth } from "@/lib/middleware/auth-policy"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { parseCommunityReactionDetailsRead, queries } from "@alook/shared"
 import { authorizeReaction } from "@/lib/community/reaction-access"
 import { canonicalUserImage } from "@/lib/community/storage"
 
-export const GET = withCommunityActor(async (_req, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (_req, ctx) => {
   if (ctx.actor.kind !== "human") return writeError("human session required", 401)
   const messageId = ctx.params?.id
   if (!messageId) return writeError("missing message id", 400)

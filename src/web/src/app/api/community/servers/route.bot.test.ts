@@ -4,7 +4,7 @@ import { NextRequest } from "next/server"
 
 // Bot-path coverage for the UNIFIED server-list route (listServers folded onto
 // GET /servers, plan §4/§9 phase 4-5). A `crk_` bearer drives
-// withCommunityActor's bot path; GET lists via listUserServers(actor.userId).
+// communityActorPolicy's bot path; GET lists via listUserServers(actor.userId).
 // The route returns the SUPERSET (full rows + icon) — the daemon/CLI projects
 // each row down to the lean {handle} shape. That daemon-side lean
 // projection is asserted by the daemon projection test, NOT here; here we lock

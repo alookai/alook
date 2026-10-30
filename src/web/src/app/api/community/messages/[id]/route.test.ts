@@ -102,21 +102,21 @@ vi.mock("@alook/shared", async () => {
 // Dual-actor: crk_ bearer → bot (folded resolve), else human. Human arm carries
 // messageId in the path; bot arm carries ref+seq on the query.
 vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: (handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+  communityActorPolicy: () => ({ resolve: async (req: any) => {
+
     const authz = req?.headers?.get?.("Authorization") ?? ""
     const actor = authz.startsWith("Bearer crk_")
       ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
       : { kind: "human", userId: "u1", email: "u@t.com" }
-    return handler(req, {
+    return ({ context: {
       env: {
         DB: {},
         COMMUNITY_MEDIA: { delete: (...a: unknown[]) => cloudflareMocks.mediaDelete(...a) },
       },
       actor,
-      params,
-    })
-  },
+
+    } })
+  } }),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

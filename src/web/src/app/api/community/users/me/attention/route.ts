@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import {
   AccountAttentionSnapshotSchema,
   DEFAULT_INBOX_PAGE_SIZE,
@@ -8,10 +9,10 @@ import {
 import { getPrimaryDb } from "@/lib/db"
 import { hydrateAttentionResources } from "@/lib/community/attention-resources.server"
 import { parseBoundedInt } from "@/lib/community/messages"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 
-export const GET = withAuth(async (request, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (request, ctx) => {
   const db = getPrimaryDb(ctx.env.DB)
   const url = new URL(request.url)
   const limit = parseBoundedInt(

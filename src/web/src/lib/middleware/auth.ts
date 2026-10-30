@@ -1,4 +1,4 @@
-import { createAuth, type AuthPolicy, type AuthResolution } from "./auth-policy"
+import type { AuthPolicy, AuthResolution } from "./auth-policy"
 import { observeWorkerOperation } from "@/lib/observability/worker"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
@@ -26,7 +26,7 @@ interface CookieHumanAuthContext extends AuthContext {
 }
 
 /**
- * Context for a `withOptionalAuth` handler: identical to `AuthContext` but
+ * Context for an `optionalAuthPolicy` handler: identical to `AuthContext` but
  * `userId`/`email` are OPTIONAL — absent when the caller is anonymous (no
  * session, an errored session lookup, or a bot/deleted session degraded to
  * anonymous). A distinct interface so `AuthContext.userId` stays required and
@@ -59,10 +59,10 @@ export type CookieHumanAuthHandler = (
 ) => Promise<NextResponse | Response>
 
 /**
- * Outcome of resolving a Better-Auth cookie session. Shared by `withAuth`
- * (which turns everything but `ok` into a 401/503) and `withOptionalAuth`
+ * Outcome of resolving a Better-Auth cookie session. Shared by `humanAuthPolicy`
+ * (which turns everything but `ok` into a 401/503) and `optionalAuthPolicy`
  * (which turns everything but `ok` into anonymous). Keeping the resolution in
- * ONE place means the two wrappers can never drift on session semantics — only
+ * ONE place means the two policies can never drift on session semantics — only
  * on what they DO with a non-`ok` outcome.
  *
  * - `ok`        — a valid, non-bot, non-deleted session; `user` is populated.
@@ -304,14 +304,10 @@ export const cookieHumanAuthPolicy: AuthPolicy<CookieHumanAuthContext> = {
   respond: protectCommunityJsonResponse,
 }
 
-export const withCookieHumanAuth = createAuth(cookieHumanAuthPolicy)
-
-export const withAuth = createAuth(humanAuthPolicy)
-
 /**
- * Session-optional wrapper for pages that render the SAME content whether or
+ * Session-optional policy for pages that render the SAME content whether or
  * not the visitor is logged in (e.g. the invite landing page). Unlike
- * `withAuth`, it NEVER 401s on a missing session — the handler always runs.
+ * `humanAuthPolicy`, it NEVER 401s on a missing session — the handler always runs.
  *
  * Red lines (Cecilia, /Gus/working #1131 #1 / #1147):
  * 1. Single-purpose: resolves the Better-Auth cookie session ONLY.
@@ -328,8 +324,6 @@ export const optionalAuthPolicy: AuthPolicy<OptionalAuthContext> = {
   resolve: resolveOptionalHuman,
   respond: protectCommunityJsonResponse,
 }
-
-export const withOptionalAuth = createAuth(optionalAuthPolicy)
 
 async function resolveOptionalHuman(req: NextRequest): Promise<AuthResolution<OptionalAuthContext>> {
   const { env } = await getCloudflareContext({ async: true })

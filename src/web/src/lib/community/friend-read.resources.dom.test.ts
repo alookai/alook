@@ -10,7 +10,7 @@ vi.mock("@/lib/db", () => ({ getDb: () => mocks.db }))
 vi.mock("@/lib/middleware/community-actor", () => {
   const context = () => ({ actor: { kind: "human", userId: "viewer" }, env: { DB: mocks.db } })
   return {
-    withCommunityActor: (handler: (request: NextRequest, context: unknown) => Promise<Response>) => (request: NextRequest) => handler(request, context()),
+
     communityActorPolicy: () => ({ resolve: async () => ({ context: context() }) }),
     rejectBot: () => null,
   }

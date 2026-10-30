@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { nanoid } from "nanoid"
 import { queries, makeRuntimeConfig, resolveModelConfig, formatHandle } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { pushBatchResetToMachine } from "@/lib/community/bot-push"
 
@@ -22,7 +23,7 @@ import { pushBatchResetToMachine } from "@/lib/community/bot-push"
  * delivery honesty. No per-agent success tracking (that'd be a v2 correlated-ack
  * path the control channel doesn't have).
  */
-export const POST = withAuth(async (_req, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const machineId = ctx.params?.id as string
   if (!machineId) return writeError("machine id is required", 400)
   const db = getDb(ctx.env.DB)

@@ -1,5 +1,6 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextRequest } from "next/server"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -11,7 +12,7 @@ import {
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
-export const PATCH = withAuth(async (req: NextRequest, ctx) => {
+export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   const categoryId = ctx.params?.catId
   if (!serverId || !categoryId) return writeError("missing params", 400)
@@ -69,11 +70,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     changes,
   })
 
-
   return writeJSON(updated)
 })
 
-export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
+export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   const categoryId = ctx.params?.catId
   if (!serverId || !categoryId) return writeError("missing params", 400)
@@ -102,7 +102,6 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     serverId,
     categoryId,
   })
-
 
   return new Response(null, { status: 204 })
 })

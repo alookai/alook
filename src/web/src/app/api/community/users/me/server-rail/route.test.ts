@@ -30,11 +30,11 @@ vi.mock("@alook/shared", async () => {
   }
 })
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any) => handler(req, {
+  humanAuthPolicy: { resolve: async (req: any) => ({ context: {
     env: { DB: {} },
     userId: "user_1",
     email: "u@example.com",
-  })),
+  } }) },
 }))
 
 import { PATCH } from "./route"

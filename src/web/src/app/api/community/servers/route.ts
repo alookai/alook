@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries, withD1Retry } from "@alook/shared"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getPrimaryDb } from "@/lib/db"
-import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, rejectBot } from "@/lib/middleware/community-actor"
 import { serverIconUrl } from "@/lib/community/storage"
 import { createServerForUser } from "@/lib/community/create-server.server"
 
-export const GET = withCommunityActor(async (_req, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (_req, ctx) => {
   const db = getPrimaryDb(ctx.env.DB)
   const rows = await withD1Retry(
     () => queries.communityServer.listUserServers(db, ctx.actor.userId),
@@ -55,7 +56,7 @@ export const GET = withCommunityActor(async (_req, ctx) => {
   })
 })
 
-export const POST = withCommunityActor(async (req, ctx) => {
+export const POST = withAuth(communityActorPolicy(), async (req, ctx) => {
   const denied = rejectBot(ctx.actor)
   if (denied) return denied
   return createServerForUser(req, { env: ctx.env, userId: ctx.actor.userId })

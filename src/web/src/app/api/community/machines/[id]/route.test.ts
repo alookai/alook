@@ -57,15 +57,15 @@ vi.mock("@/lib/community/fanout", () => ({
 
 vi.mock("@/lib/middleware/auth", () => ({
   resolveHumanAuth: async () => ({ context: { env: { DB: {}, COMMUNITY_MEDIA: { delete: (...args: unknown[]) => mockMediaDelete(...args) } }, userId: "u1", email: "u@example.com" } }),
-  withAuth: (handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, {
+  humanAuthPolicy: { resolve: async (req: any) => {
+
+    return ({ context: {
       env: { DB: {}, COMMUNITY_MEDIA: { delete: (...args: unknown[]) => mockMediaDelete(...args) } },
       userId: "u1",
       email: "u@example.com",
-      params,
-    })
-  },
+
+    } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -222,7 +222,6 @@ describe("DELETE /api/community/machines/[id]", () => {
     })
   })
 })
-
 
 describe("platform target machine queries", () => {
   it("returns a scoped 404 when the target does not belong to the caller", async () => {

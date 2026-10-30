@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries } from "@alook/shared"
 
 import { getDb } from "@/lib/db"
 import { requireChannelAccess } from "@/lib/community/permissions"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
   const db = getDb(ctx.env.DB)

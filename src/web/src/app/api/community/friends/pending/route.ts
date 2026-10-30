@@ -1,11 +1,12 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { readCommunityResourceBundle } from "@/lib/community/attention-resources.server"
 import { NextResponse, type NextRequest } from "next/server"
 import { BUSINESS_SCHEMA_VERSION, CommunityPendingFriendsReadSchema, type CommunityPendingFriendsRead, queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { resolvePresence, toFriendCard } from "@/lib/community/friend-cards"
 
-export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy(), async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const userId = ctx.actor.userId
 

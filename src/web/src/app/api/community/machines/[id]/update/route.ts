@@ -1,3 +1,4 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import {
   SELF_UPDATE_MIN_DAEMON_VERSION,
   queries,
@@ -5,10 +6,10 @@ import {
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { pushMachineUpdate } from "@/lib/community/bot-push"
-import { withAuth } from "@/lib/middleware/auth"
+import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 
-export const POST = withAuth(async (_request, ctx) => {
+export const POST = withAuth(humanAuthPolicy, async (_request, ctx) => {
   const machineId = ctx.params?.id as string
   if (!machineId) return writeError("machine id is required", 400)
 

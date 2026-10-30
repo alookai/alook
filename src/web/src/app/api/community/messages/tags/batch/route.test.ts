@@ -20,7 +20,7 @@ vi.mock("@alook/shared", async () => {
   }
 })
 vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: (...args: unknown[]) => mockRequireMessageSurfaceAccess(...args) }))
-vi.mock("@/lib/middleware/auth", () => ({ withAuth: (handler: any) => async (req: any) => handler(req, { env: { DB: {} }, userId: "user_1" }) }))
+vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: { resolve: async (req: any) => ({ context: { env: { DB: {} }, userId: "user_1" } }) } }))
 vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")
   return {

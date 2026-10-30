@@ -9,8 +9,10 @@ const attentionHttp = vi.hoisted(() => ({ db: null as unknown }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => attentionHttp.db, getDb: () => attentionHttp.db }))
 vi.mock("@/lib/middleware/auth", async () => {
   const { protectCommunityJsonResponse } = await import("@/lib/middleware/response-cache")
-  return { withAuth: (handler: AuthenticatedHandler) => async (request: NextRequest) => protectCommunityJsonResponse(request,
-    await handler(request, { env: { DB: {} } as Env, userId: "viewer", email: "viewer@example.test" })) }
+  return { humanAuthPolicy: {
+    resolve: async () => ({ context: { env: { DB: {} } as Env, userId: "viewer", email: "viewer@example.test" } }),
+    respond: protectCommunityJsonResponse,
+  } }
 })
 import { GET } from "@/app/api/community/users/me/attention/route"
 

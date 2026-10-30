@@ -65,13 +65,13 @@ vi.mock("@/lib/community/fanout", () => ({
 let isAuthed = true
 
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => async (req: any, ctx?: any) => {
+  humanAuthPolicy: { resolve: async (req: any) => {
     if (!isAuthed) {
       const { NextResponse } = require("next/server")
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, {
+
+    return ({ context: {
       env: {
         DB: {},
         COMMUNITY_MEDIA: {
@@ -83,9 +83,9 @@ vi.mock("@/lib/middleware/auth", () => ({
       },
       userId: "u1",
       email: "u@t.com",
-      params,
-    })
-  },
+
+    } })
+  } },
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {

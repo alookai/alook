@@ -1,7 +1,8 @@
+import { withAuth } from "@/lib/middleware/auth-policy"
 import { NextResponse, type NextRequest } from "next/server"
 import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
-import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 
 /**
  * GET /api/community/users/me/inbox/snapshot — a non-consuming, bodiless summary
@@ -15,7 +16,7 @@ import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor
  * scope is the caller's own userId (`gate.bot.userId`), NO target-user param —
  * a bot only ever sees its own inbox summary.
  */
-export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(communityActorPolicy({ allowInactiveBot: true }), async (_req: NextRequest, ctx) => {
   const gate = requireBot(ctx.actor)
   if (!gate.ok) return gate.response
   const { userId: botUserId, isActive } = gate.bot
@@ -43,4 +44,4 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
     pendingChannels: rows.length,
     pendingMessages: rows.reduce((n, r) => n + r.pendingCount, 0),
   })
-}, { allowInactiveBot: true })
+})
