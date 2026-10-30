@@ -1,4 +1,6 @@
 "use client"
+
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { getServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { readCommunityServerRailServers } from "@/lib/community-db/server-rail"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store";
@@ -607,15 +609,12 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
 
   return <>{serverReadFailed && !currentServer || forumSidebar.sidebar.status === "error" ? (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div role="alert" className="flex flex-col gap-2 p-4 text-sm text-muted-foreground">
-        <span>{serverReadFailed && !currentServer ? "Couldn't load server channels." : "Couldn't load threads."}</span>
-        <button
-          type="button"
-          disabled={!routeCommitted || serverReadPending || forumSidebar.isFetching}
-          onClick={() => { if (!currentServer) void retryServerRead(); else void forumSidebar.refetch() }}
-          className="h-11 self-start rounded-md px-2 text-foreground enabled:hover:bg-accent disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-9"
-        >Retry</button>
-      </div>
+      <ConversationResolutionErrorFrame
+        as="div"
+        title={serverReadFailed && !currentServer ? "Couldn't load server channels." : "Couldn't load threads."}
+        retrying={!routeCommitted || serverReadPending || forumSidebar.isFetching}
+        onRetry={() => { if (!currentServer) void retryServerRead(); else void forumSidebar.refetch() }}
+      />
     </aside>
   ) : sidebar()}{serverSettingsDialog}{iconCropDialog}</>
 }

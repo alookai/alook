@@ -357,6 +357,7 @@ describe("renderMessageListView", () => {
     expect(renderRows).not.toHaveBeenCalled()
     expect(view.getByRole("alert")).toBeVisible()
     expect(view.container.querySelector("[data-message-list-content]")).not.toHaveAttribute("inert")
+    expect(view.container.querySelector("[data-message-list-content]")).not.toHaveClass("pt-8", "pl-(--community-composer-inline-start)", "pr-(--community-composer-inline-end)")
     expect(view.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
     expect(view.queryByText(/Beginning of the channel/)).toBeNull()
     view.rerender(renderMessageListView({ ...input, retryingInitialLoad: true }, state, renderRows))

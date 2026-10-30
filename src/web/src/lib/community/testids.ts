@@ -43,6 +43,8 @@ export const tid = {
   channelSidebarPending: (serverId: string) => `community-channel-sidebar-pending-${serverId}`,
   messageHeaderLeadingLoading: "community-message-header-leading-loading",
   messageHeaderTitleLoading: "community-message-header-title-loading",
+  conversationLoadError: "community-conversation-load-error",
+  conversationLoadRetry: "community-conversation-load-retry",
   dmSidebarPending: "community-dm-sidebar-pending",
   createServerSubmit: "community-create-server-submit",
   createServerName: "community-create-server-name",

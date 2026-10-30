@@ -71,7 +71,7 @@ export function renderMessageListView(
             aria-hidden={hideContent}
             inert={hideContent}
             style={{ visibility: hideContent ? "hidden" : undefined }}
-            className={`${props.messages.length === 0 ? "flex min-h-full flex-col justify-end pt-8" : ""} pl-(--community-composer-inline-start) pr-(--community-composer-inline-end)`}
+            className={showError ? "flex min-h-full flex-col" : `${props.messages.length === 0 ? "flex min-h-full flex-col justify-end pt-8" : ""} pl-(--community-composer-inline-start) pr-(--community-composer-inline-end)`}
           >
           {showError ? (
             <ConversationResolutionErrorFrame as="div" retrying={!!props.retryingInitialLoad}

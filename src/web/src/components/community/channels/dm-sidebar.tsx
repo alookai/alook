@@ -111,7 +111,7 @@ export const DmSidebar = memo(function DmSidebar({
         </div>
         <div className="my-2 h-px bg-border" />
       </div>
-      <div data-slot="dm-sidebar-list" className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">
+      <div data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar px-2 pb-4">
         <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
           Direct Messages
         </div>
