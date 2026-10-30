@@ -897,8 +897,12 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: blob-report-${{ github.run_id }}-*
-          path: downloaded-blob-reports
+          path: downloaded-blob-report-archives
           merge-multiple: false
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Extract report archives using central-directory metadata
+        run: python3 scripts/ci/extract-report-artifacts.py --root downloaded-blob-report-archives --output downloaded-blob-reports
       - env:
           E2E_MATRIX: ${{ needs.scope.outputs.e2e_matrix }}
           GITHUB_TOKEN: ${{ github.token }}
