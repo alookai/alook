@@ -91,6 +91,7 @@ export const SPEC_SECONDS = {
   "67-text-sidebar-threads.spec.ts": DEFAULT_SPEC_SECONDS,
   "68-bot-memberships.spec.ts": DEFAULT_SPEC_SECONDS,
   "69-table-fullscreen-scroll.spec.ts": DEFAULT_SPEC_SECONDS,
+  "70-renderer-action-themes.spec.ts": DEFAULT_SPEC_SECONDS,
 }
 
 function walk(directory) {
