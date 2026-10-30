@@ -56,8 +56,45 @@ async function wheelToEnd(page: Page, table: Locator, trailing: boolean) {
   return cellGeometry(cell)
 }
 
+async function appearance(page: Page, mode: "Light" | "Dark") {
+  const dark = mode === "Dark"
+  await page.emulateMedia({ colorScheme: dark ? "dark" : "light" })
+  await expect.poll(() => page.evaluate(() => ({
+    mediaDark: matchMedia("(prefers-color-scheme: dark)").matches,
+    htmlDark: document.documentElement.classList.contains("dark"),
+  }))).toEqual({ mediaDark: dark, htmlDark: dark })
+}
+
+async function tableColors(fullscreen: Locator) {
+  return fullscreen.evaluate((root) => {
+    const cell = root.querySelector("tbody td")
+    const header = root.querySelector("thead th")
+    if (!cell || !header) throw new Error("Table body or header is missing")
+    const reference = document.createElement("span")
+    reference.style.cssText = "display:none;color:var(--foreground);background-color:var(--background)"
+    document.body.appendChild(reference)
+    try {
+      const expectedForeground = getComputedStyle(reference).color
+      const expectedBackground = getComputedStyle(reference).backgroundColor
+      reference.style.backgroundColor = "var(--muted)"
+      const expectedHeaderBackground = getComputedStyle(reference).backgroundColor
+      return {
+        background: getComputedStyle(root).backgroundColor,
+        htmlDark: document.documentElement.classList.contains("dark"),
+        mediaDark: matchMedia("(prefers-color-scheme: dark)").matches,
+        foreground: getComputedStyle(cell).color,
+        headerBackground: getComputedStyle(header).backgroundColor,
+        headerForeground: getComputedStyle(header).color,
+        expectedBackground, expectedForeground, expectedHeaderBackground,
+      }
+    } finally {
+      reference.remove()
+    }
+  })
+}
+
 for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 }, { width: 1280, height: 900 }]) {
-  test(`table fullscreen keeps both scroll ends reachable at ${viewport.width}px`, async ({ caseActors }, testInfo) => {
+  test(`table fullscreen follows Light and Dark and keeps both scroll ends reachable at ${viewport.width}px`, async ({ caseActors }, testInfo) => {
     test.setTimeout(120_000)
     const actors = await caseActors(["alice"])
     const serverId = await actors.seed.seedServer("alice", `Table scroll ${Date.now()}`)
@@ -65,7 +102,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
     const wideId = await actors.seed.seedMessage("alice", channelId, WIDE_TABLE)
     const fitId = await actors.seed.seedMessage("alice", channelId, FIT_TABLE)
     const { page } = await actors.asUser("alice", {
-      viewport, hasTouch: viewport.width < 1280, isMobile: viewport.width === 390, reducedMotion: "reduce",
+      viewport, hasTouch: viewport.width < 1280, isMobile: viewport.width === 390, reducedMotion: "reduce", colorScheme: "light",
     })
     const messageWrites: string[] = []
     page.on("request", (request) => {
@@ -74,49 +111,61 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
       }
     })
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
-    const wideMessage = page.getByTestId(tid.message(wideId))
-    const inline = wideMessage.locator('[data-streamdown="table"]')
-    await expect(inline).toHaveCount(1)
-    const inlineLeading = await wheelToEnd(page, inline, false)
-    const inlineTrailing = await wheelToEnd(page, inline, true)
-    await wideMessage.getByRole("button", { name: "View fullscreen", exact: true }).click()
-    const fullscreen = page.locator('[data-streamdown="table-fullscreen"]')
-    await expect(fullscreen).toHaveCount(1)
-    const table = fullscreen.locator('[data-streamdown="table"]')
-    const leading = await wheelToEnd(page, table, false)
-    expect(leading.maxLeft).toBeGreaterThan(0)
-    if (viewport.height < 1000) expect(leading.maxTop).toBeGreaterThan(0)
-    const trailing = await wheelToEnd(page, table, true)
-    const returned = await wheelToEnd(page, table, false)
-    await testInfo.attach("table-scroll-geometry", {
-      body: JSON.stringify({ viewport, input: "mouse click and wheel", inlineLeading, inlineTrailing, leading, trailing, returned,
-        media: await page.evaluate(() => ({ coarse: matchMedia("(pointer: coarse)").matches, hover: matchMedia("(hover: hover)").matches })) }),
-      contentType: "application/json",
-    })
-    await fullscreen.getByRole("button", { name: "Exit fullscreen", exact: true }).click()
-    await expect(fullscreen).toHaveCount(0)
-    await expect(inline.getByRole("cell", { name: "LAST_TABLE", exact: true })).toHaveCount(1)
-    expect(await wideMessage.locator("[data-community-message-body]").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("theme") || "system")).toBe("system")
+    for (const mode of ["Light", "Dark"] as const) {
+      await appearance(page, mode)
+      const wideMessage = page.getByTestId(tid.message(wideId))
+      const inline = wideMessage.locator('[data-streamdown="table"]')
+      await expect(inline).toHaveCount(1)
+      const inlineLeading = await wheelToEnd(page, inline, false)
+      const inlineTrailing = await wheelToEnd(page, inline, true)
+      await wideMessage.getByRole("button", { name: "View fullscreen", exact: true }).click()
+      const fullscreen = page.locator('[data-streamdown="table-fullscreen"]')
+      await expect(fullscreen).toHaveCount(1)
+      const colors = await tableColors(fullscreen)
+      expect(colors.background).toBe(colors.expectedBackground)
+      expect(colors.foreground).toBe(colors.expectedForeground)
+      expect(colors.headerBackground).toBe(colors.expectedHeaderBackground)
+      expect(colors.headerForeground).toBe(colors.expectedForeground)
+      expect(colors.foreground).not.toBe(colors.background)
+      expect(colors.headerForeground).not.toBe(colors.headerBackground)
+      await testInfo.attach(`table-theme-${mode}`, { body: JSON.stringify(colors), contentType: "application/json" })
+      const table = fullscreen.locator('[data-streamdown="table"]')
+      const leading = await wheelToEnd(page, table, false)
+      expect(leading.maxLeft).toBeGreaterThan(0)
+      if (viewport.height < 1000) expect(leading.maxTop).toBeGreaterThan(0)
+      const trailing = await wheelToEnd(page, table, true)
+      const returned = await wheelToEnd(page, table, false)
+      await testInfo.attach(`table-scroll-geometry-${mode}`, {
+        body: JSON.stringify({ viewport, input: "mouse click and wheel", inlineLeading, inlineTrailing, leading, trailing, returned,
+          media: await page.evaluate(() => ({ coarse: matchMedia("(pointer: coarse)").matches, hover: matchMedia("(hover: hover)").matches })) }),
+        contentType: "application/json",
+      })
+      await fullscreen.getByRole("button", { name: "Exit fullscreen", exact: true }).click()
+      await expect(fullscreen).toHaveCount(0)
+      await expect(inline.getByRole("cell", { name: "LAST_TABLE", exact: true })).toHaveCount(1)
+      expect(await wideMessage.locator("[data-community-message-body]").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 
-    const fitMessage = page.getByTestId(tid.message(fitId))
-    await fitMessage.hover()
-    await fitMessage.getByRole("button", { name: "View fullscreen", exact: true }).click()
-    const fitTable = fullscreen.locator('[data-streamdown="table"]')
-    await expect(fitTable).toBeVisible()
-    const fit = await fitTable.evaluate((element) => {
-      const table = element.getBoundingClientRect()
-      const owner = element.parentElement!.getBoundingClientRect()
-      return { top: table.top, bottom: table.bottom, left: table.left, right: table.right,
-        ownerTop: owner.top, ownerBottom: owner.bottom, ownerLeft: owner.left, ownerRight: owner.right }
-    })
-    expect(Math.abs((fit.top + fit.bottom) - (fit.ownerTop + fit.ownerBottom))).toBeLessThanOrEqual(2)
-    expect(fit.left).toBeGreaterThanOrEqual(fit.ownerLeft - 1)
-    expect(fit.right).toBeLessThanOrEqual(fit.ownerRight + 1)
-    await testInfo.attach("fitting-table-geometry", { body: JSON.stringify(fit), contentType: "application/json" })
-    await fullscreen.getByRole("button", { name: "Exit fullscreen", exact: true }).click()
-    await expect(fullscreen).toHaveCount(0)
-    await expect(fitMessage.getByRole("cell", { name: "Fits", exact: true })).toBeVisible()
-    expect(messageWrites).toEqual([])
+      const fitMessage = page.getByTestId(tid.message(fitId))
+      await fitMessage.hover()
+      await fitMessage.getByRole("button", { name: "View fullscreen", exact: true }).click()
+      const fitTable = fullscreen.locator('[data-streamdown="table"]')
+      await expect(fitTable).toBeVisible()
+      const fit = await fitTable.evaluate((element) => {
+        const table = element.getBoundingClientRect()
+        const owner = element.parentElement!.getBoundingClientRect()
+        return { top: table.top, bottom: table.bottom, left: table.left, right: table.right,
+          ownerTop: owner.top, ownerBottom: owner.bottom, ownerLeft: owner.left, ownerRight: owner.right }
+      })
+      expect(Math.abs((fit.top + fit.bottom) - (fit.ownerTop + fit.ownerBottom))).toBeLessThanOrEqual(2)
+      expect(fit.left).toBeGreaterThanOrEqual(fit.ownerLeft - 1)
+      expect(fit.right).toBeLessThanOrEqual(fit.ownerRight + 1)
+      await testInfo.attach(`fitting-table-geometry-${mode}`, { body: JSON.stringify(fit), contentType: "application/json" })
+      await fullscreen.getByRole("button", { name: "Exit fullscreen", exact: true }).click()
+      await expect(fullscreen).toHaveCount(0)
+      await expect(fitMessage.getByRole("cell", { name: "Fits", exact: true })).toBeVisible()
+      expect(messageWrites).toEqual([])
+    }
   })
 }
