@@ -474,6 +474,7 @@ body.driver-active .community-ws-reconnect-overlay * {
   --primary: oklch(0.22 0.03 230);
   --primary-foreground: oklch(0.985 0.005 80);
   --running-bots-primary: oklch(0.9 0.008 80);
+  --running-bots-accent: oklch(0.65 0.14 270);
   --composer-send-active: #34c759;
   --composer-send-active-foreground: #fff;
   --apple-signin: oklch(0 0 0);
@@ -545,6 +546,7 @@ body.driver-active .community-ws-reconnect-overlay * {
   --accent: oklch(0.27 0.008 60);
   --accent-foreground: oklch(0.93 0.006 80);
   --link: oklch(0.75 0.14 270);
+  --running-bots-accent: var(--link);
   --destructive: oklch(0.704 0.191 22.216);
   --warning: oklch(0.76 0.1 75);
   --approval-pass: oklch(0.8 0.14 155);
