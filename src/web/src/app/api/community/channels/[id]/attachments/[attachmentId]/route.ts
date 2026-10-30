@@ -85,7 +85,7 @@ export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequ
           "Content-Type": "text/html; charset=utf-8",
           "Content-Disposition": contentDisposition("inline", row.filename),
           "Content-Security-Policy": HTML_PREVIEW_CSP,
-          "Cache-Control": "private, no-store",
+          "Cache-Control": ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
           "X-Content-Type-Options": "nosniff",
           "Referrer-Policy": "no-referrer",
         } })
