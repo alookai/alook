@@ -8,12 +8,14 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { DmView } from "./dm-view"
 import { dmConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
+import { communityRowData } from "@/lib/community-db/write"
+import { profileSchema } from "@/lib/community-db/schema"
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), list: vi.fn(), positionEntry: null as object | null, failed: true, breakpoint: "mobile", identity: true, blocked: false, windowBlocked: false }))
+const mocks = vi.hoisted(() => ({ api: vi.fn(), advance: vi.fn(), list: vi.fn(), positionEntry: null as object | null, failed: true, breakpoint: "mobile", identity: true, identityName: "Peer", identityError: false, identitySettled: false, blocked: false, windowBlocked: false }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api, toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "u_me", name: "Me", avatar: "M" }) }))
-vi.mock("@/hooks/community/use-dms", () => ({ useDms: () => ({ dms: mocks.identity ? ["dm_1", "dm_2"].map(id => ({ id, userId: "peer", name: "Peer", avatar: "P" })) : [], isLoading: false, isFetching: false }) }))
+vi.mock("@/hooks/community/use-dms", () => ({ useDms: () => ({ dms: mocks.identity ? ["dm_1", "dm_2"].map(id => ({ id, userId: "peer", name: mocks.identityName, avatar: "P" })) : [], isLoading: false, isFetching: false, isError: mocks.identityError, isSuccess: mocks.identitySettled }) }))
 vi.mock("@/hooks/community/use-friends", () => ({ useFriends: () => ({ friends: [], blocked: mocks.blocked ? [{ id: "peer", userId: "peer" }] : [] }) }))
 vi.mock("@/hooks/community/use-messages", () => ({ useDmMessages: () => ({ messages: mocks.failed ? [{ id: "failed", clientNonce: "retry_nonce", authorId: "u_me", type: "chat", content: "retry" }] : [], positionEntry: mocks.positionEntry, positionDataState: "ready", isLoading: false, isPending: false, isError: false, latestSeq: 0, navigationBlocked: mocks.windowBlocked }) }))
 vi.mock("@/hooks/community/use-channel-metadata", () => ({ useChannelMetadata: () => ({ canRead: true, status: "readable" }) }))
@@ -26,7 +28,13 @@ vi.mock("@/hooks/community/use-notification-settings", () => ({ useNotificationS
 vi.mock("@/hooks/community/use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn(), communityWsSendTyping: vi.fn(), communityWsEndTyping: vi.fn() }))
 vi.mock("@/lib/community-onboarding", () => ({ readCommunityOnboardingState: () => ({ status: "active", stage: "dm", dmId: "dm_1" }), advanceCommunityOnboarding: mocks.advance }))
 vi.mock("@/hooks/community/mutations", async importOriginal => ({ ...await importOriginal<typeof import("@/hooks/community/mutations")>(), useAddReactionApi: () => vi.fn(), useToggleReactionApi: () => vi.fn(), useToggleMark: () => vi.fn(), useSetChannelNotif: () => ({ mutate: vi.fn() }) }))
-vi.mock("./dm-header", () => ({ DmHeaderSkeleton: () => React.createElement("header", { "data-testid": "pending-peer" }), DmHeader: ({ onBack }: { onBack?: () => void }) => React.createElement("header", null, onBack ? React.createElement("button", { onClick: onBack, "aria-label": "Back" }) : null) }))
+vi.mock("./dm-header", () => ({
+  DmHeaderSkeleton: () => React.createElement("header", { "data-testid": "pending-peer" }),
+  DmHeader: ({ onBack, dm, titleState = "ready" }: { onBack?: () => void; dm: { name: string }; titleState?: "ready" | "pending" | "unavailable" }) => React.createElement("header", null,
+    titleState === "ready" ? React.createElement("span", { "data-testid": "resolved-peer-title" }, dm.name)
+      : React.createElement("div", { "data-testid": "pending-peer-title", "data-title-state": titleState }),
+    onBack ? React.createElement("button", { onClick: onBack, "aria-label": "Back" }) : null),
+}))
 vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/conversation-footer-shell", () => ({ ConversationFooterSlotProvider: ({ children }: PropsWithChildren) => children, ConversationFooterShell: ({ children }: PropsWithChildren) => children }))
@@ -36,7 +44,7 @@ vi.mock("@/components/community/messages/message-list", () => ({ MessageList: (p
   return React.createElement("button", { onClick: () => props.onRetry?.("failed") }, "Retry")
 } }))
 
-beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.list.mockReset(); mocks.positionEntry = null; mocks.failed = true; mocks.breakpoint = "mobile"; mocks.identity = true; mocks.blocked = false; mocks.windowBlocked = false })
+beforeEach(() => { mocks.api.mockReset(); mocks.advance.mockReset(); mocks.list.mockReset(); mocks.positionEntry = null; mocks.failed = true; mocks.breakpoint = "mobile"; mocks.identity = true; mocks.identityName = "Peer"; mocks.identityError = false; mocks.identitySettled = false; mocks.blocked = false; mocks.windowBlocked = false })
 
 function posted(body: { content: string; nonce: string }) {
   return { profiles: messageProfilesFixture([messageResourceFixture({ id: "confirmed", channelId: "dm_1", authorId: "u_me", authorName: "Me", authorAvatarVersion: 0, seq: 9, content: body.content, clientNonce: body.nonce, createdAt: "2026-10-09T00:00:00Z", embeds: [] })]), deduped: false, message: messageResourceFixture({ id: "confirmed", channelId: "dm_1", authorId: "u_me", authorName: "Me", authorAvatarVersion: 0, seq: 9, content: body.content, clientNonce: body.nonce, createdAt: "2026-10-09T00:00:00Z", embeds: [] }) }
@@ -62,6 +70,58 @@ async function createDmOwner() {
 }
 
 describe("real DmView accepted send UI lifecycle", () => {
+  it.each(["error", "missing"] as const)("keeps a settled %s identity distinct from a pending name and recovers from canonical data", async outcome => {
+    const owner = await createDmOwner()
+    const profile = profileSchema.parse(communityRowData(owner.registry.collections.profiles.get("peer")))
+    mocks.identity = false
+    mocks.identityError = outcome === "error"
+    mocks.identitySettled = outcome === "missing"
+    await act(async () => owner.registry.collections.profiles.utils.writeDelete("peer"))
+    const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
+    const retained = screen.getByRole("button", { name: "Retry" })
+    expect(screen.getByTestId("pending-peer-title")).toHaveAttribute("data-title-state", "unavailable")
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument()
+    await act(async () => owner.registry.collections.profiles.utils.writeUpsert({ ...profile, name: "Direct message" }))
+    await waitFor(() => expect(screen.getByTestId("resolved-peer-title")).toHaveTextContent("Direct message"))
+    expect(screen.getByRole("button", { name: "Retry" })).toBe(retained)
+    expect(mocks.api).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it.each(["Recovered peer", "Direct message"])("retains qualified messages while the known peer waits for canonical name %s", async name => {
+    const owner = await createDmOwner()
+    const profile = profileSchema.parse(communityRowData(owner.registry.collections.profiles.get("peer")))
+    mocks.identity = false
+    await act(async () => owner.registry.collections.profiles.utils.writeDelete("peer"))
+    const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
+    const retained = screen.getByRole("button", { name: "Retry" })
+    expect(screen.getByTestId("pending-peer-title")).toBeInTheDocument()
+    expect(screen.queryByTestId("resolved-peer-title")).toBeNull()
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument()
+    await act(async () => owner.registry.collections.profiles.utils.writeUpsert({ ...profile, name }))
+    await waitFor(() => expect(screen.getByTestId("resolved-peer-title")).toHaveTextContent(name))
+    expect(screen.queryByTestId("pending-peer-title")).toBeNull()
+    expect(screen.getByRole("button", { name: "Retry" })).toBe(retained)
+    expect(mocks.api).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it.each(["Peer", "Direct message"])("uses the matching directory name %s while its canonical profile is absent", async name => {
+    const owner = await createDmOwner()
+    mocks.identityName = name
+    mocks.identityError = true
+    await act(async () => owner.registry.collections.profiles.utils.writeDelete("peer"))
+    const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
+    expect(screen.queryByTestId("pending-peer-title")).toBeNull()
+    expect(screen.getByTestId("resolved-peer-title")).toHaveTextContent(name)
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument()
+    expect(mocks.api).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
   it("keeps the known peer header and composer skeleton until its owned window is ready", async () => {
     const owner = await createDmOwner()
     mocks.windowBlocked = true

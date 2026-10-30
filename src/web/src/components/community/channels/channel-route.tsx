@@ -40,6 +40,7 @@ import { MobilePage } from "@/components/community/shell/mobile-page"
 import { ConversationActivityContext, ConversationPresentationContext, useConversationActivity, useConversationPresentation } from "@/contexts/community/conversation-activity"
 import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
+import type { MessageHeaderTitleState } from "./message-header"
 
 const THREAD_VIEW_PARAM = "threadView"
 
@@ -216,11 +217,24 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     isForumPostChild,
     isNotifyUnit,
   } = routeModel
+  const titleIdentity = useRouteChannelProjection(channelId)
+  const forumTitleEnabled = presented && isForumPostChild && !resolvingParent && routeModel.routeHydrated
+    && routeModel.windowReady && !!currentChannelMeta?.parentMessageId
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,
-    presented && isForumPostChild && !resolvingParent && routeModel.routeHydrated && routeModel.windowReady,
+    forumTitleEnabled,
   )
+  const channelTitleState: MessageHeaderTitleState = (() => {
+    if (isForumPostChild) {
+      if (forumPostOpener.data != null) return "ready"
+      if (!currentChannelMeta?.parentMessageId) return "unavailable"
+      if (!forumTitleEnabled) return "pending"
+      return forumPostOpener.isError || forumPostOpener.isSuccess ? "unavailable" : "pending"
+    }
+    const name = titleIdentity ? titleIdentity.name : channelInServer?.name ?? currentChannelMeta?.name
+    return name != null ? "ready" : titleIdentity ? "unavailable" : "pending"
+  })()
   const channelName = useMemo(() => resolveChannelDisplayName({
     forumPostTitle: isForumPostChild ? forumPostOpener.data?.content : null,
     topLevelName: channelInServer?.name,
@@ -341,6 +355,10 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
               serverId={serverId}
               serverParam={serverParam}
               channelName={channelName}
+              channelTitleState={channelTitleState}
+              onRetryTitle={forumTitleEnabled && channelTitleState === "unavailable"
+                ? () => { void forumPostOpener.refetch({ cancelRefetch: false }) } : undefined}
+              retryingTitle={forumPostOpener.isFetching}
               viewer={currentUser}
               canManagePins={canManageServer(myRole)}
               anchorMessageId={currentAnchorMessageId}
@@ -388,6 +406,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
           serverId={serverId}
           channelId={channelId}
           channelName={channelName}
+          channelTitleState={channelTitleState}
           routeTag={searchParams.get("tag")}
           onSelectTag={(tag) => {
             const next = new URLSearchParams(searchParams)
@@ -416,6 +435,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
         serverId={serverId}
         serverParam={serverParam}
         channelName={channelName}
+        channelTitleState={channelTitleState}
         viewer={currentUser}
         canManagePins={canManageServer(myRole)}
         anchorMessageId={currentAnchorMessageId}
