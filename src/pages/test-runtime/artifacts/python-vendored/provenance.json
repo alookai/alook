@@ -1,0 +1,52 @@
+{
+  "package": "six",
+  "version": "1.17.0",
+  "license": "MIT",
+  "source": "https://pypi.org/project/six/1.17.0/",
+  "wheel": {
+    "filename": "six-1.17.0-py2.py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+    "bytes": 11050,
+    "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"
+  },
+  "preparation": "Copy the six published wheel entries byte-for-byte into python_modules and add an empty pyvenv.cfg marker. No package code is changed or executed.",
+  "files": [
+    {
+      "path": "python_modules/six.py",
+      "bytes": 34703,
+      "sha256": "c51c91f703d3d4b3696c923cb5fec213e05e75d9215393befac7f2fa6a3904df"
+    },
+    {
+      "path": "python_modules/six-1.17.0.dist-info/LICENSE",
+      "bytes": 1066,
+      "sha256": "4375ba20e2b9c6c4e7cad2940a628fd90e95cc3d50ee92aae755715d8ba1fbd0"
+    },
+    {
+      "path": "python_modules/six-1.17.0.dist-info/METADATA",
+      "bytes": 1658,
+      "sha256": "562042078c2752549f6d8a7c86dbc5dd708088a7be6d80672ec7b07100b72468"
+    },
+    {
+      "path": "python_modules/six-1.17.0.dist-info/WHEEL",
+      "bytes": 109,
+      "sha256": "a7178d5f925db427b9f0f51260ff6ea6673b8dd44f82f4f41a6f646f5487955c"
+    },
+    {
+      "path": "python_modules/six-1.17.0.dist-info/top_level.txt",
+      "bytes": 4,
+      "sha256": "fe2547fe2604b445e70fc9d819062960552f9145bdb043b51986e478a4806a2b"
+    },
+    {
+      "path": "python_modules/six-1.17.0.dist-info/RECORD",
+      "bytes": 435,
+      "sha256": "5067d83422e8d7118fdca18230fc735d9f9afabf72647606bacc7a70d5f6901d"
+    }
+  ],
+  "expectedResponse": {
+    "message": "pages QA",
+    "dependency": "six",
+    "version": "1.17.0",
+    "value": 3,
+    "moduleSha256": "c51c91f703d3d4b3696c923cb5fec213e05e75d9215393befac7f2fa6a3904df"
+  }
+}

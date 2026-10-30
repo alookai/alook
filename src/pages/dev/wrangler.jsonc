@@ -1,0 +1,18 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "alook-pages-local-driver",
+  "main": "driver.ts",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "services": [
+    {
+      "binding": "MANAGER",
+      "service": "alook-pages-development",
+      "entrypoint": "PageManager"
+    }
+  ]
+}
