@@ -13,7 +13,6 @@ import {
   communityPin,
   communityServerMember,
 } from "../../../../../../../../shared/src/db/community-schema"
-import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 
 const { getTableConfig } = createRequire(import.meta.resolve("@alook/shared"))("drizzle-orm/sqlite-core") as {
   getTableConfig: (table: object) => { name: string; columns: Array<{ name: string; getSQLType: () => string; default?: unknown }> }

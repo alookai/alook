@@ -34,7 +34,7 @@ function readAutomationSecret(req: NextRequest): string | undefined {
 
 type AutomationExpiryContext = { db: ReturnType<typeof getPrimaryDb>; secretHash: string }
 
-export const automationExpiryPolicy: AuthPolicy<AutomationExpiryContext> = {
+const automationExpiryPolicy: AuthPolicy<AutomationExpiryContext> = {
   params: "ignore",
   resolve: async req => {
     const secret = readAutomationSecret(req)

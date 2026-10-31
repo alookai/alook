@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { queries, BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, AccountAttentionSnapshotSchema } from "@alook/shared"
-import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 import { createCommunitySqliteDb } from "@/test/community-sqlite-db"
 import { hydrateAttentionResources, readCommunityResourceBundle } from "./attention-resources.server"
 

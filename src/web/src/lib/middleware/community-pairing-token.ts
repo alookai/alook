@@ -1,5 +1,5 @@
 import type { AuthPolicy } from "./auth-policy"
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 
 interface CommunityPairingTokenContext {
@@ -7,11 +7,6 @@ interface CommunityPairingTokenContext {
   rawTokenId: string
   waitUntil?: (promise: Promise<unknown>) => void
 }
-
-export type CommunityPairingTokenAuthenticatedHandler = (
-  req: NextRequest,
-  ctx: CommunityPairingTokenContext & { params?: Record<string, string> }
-) => Promise<NextResponse | Response>
 
 /**
  * Community pairing-token middleware. Requires `Authorization: Bearer cmt_…`;
