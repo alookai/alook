@@ -21,11 +21,11 @@ test("first-signup mobile starts onboarding once and retains it on desktop", asy
   await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
   await page.getByTestId(tid.onboardingHarnessOption("grok")).click()
   await onboarding.getByRole("button", { name: "Continue", exact: true }).click()
-  await expect(page.getByTestId("onboarding-agent-dialog")).toBeVisible()
+  await expect(page.getByTestId(tid.onboardingAgentDialog)).toBeVisible()
 
   await page.setViewportSize({ width: 1280, height: 800 })
   await expect(page).toHaveURL(/\/c\/me\/machines$/)
-  await expect(page.getByTestId("onboarding-agent-dialog")).toBeVisible()
+  await expect(page.getByTestId(tid.onboardingAgentDialog)).toBeVisible()
   await expect(onboarding).toHaveCount(0)
 })
 
@@ -54,10 +54,10 @@ test("first-signup desktop opens onboarding before the empty Machines guide", as
   await grok.click()
   await onboarding.getByRole("button", { name: "Continue", exact: true }).click()
 
-  const agentStep = page.getByTestId("onboarding-agent-dialog")
+  const agentStep = page.getByTestId(tid.onboardingAgentDialog)
   await expect(agentStep).toBeVisible()
-  const manualMode = page.getByTestId("onboarding-mode-manual")
-  const agentMode = page.getByTestId("onboarding-mode-agent")
+  const manualMode = page.getByTestId(tid.onboardingModeManual)
+  const agentMode = page.getByTestId(tid.onboardingModeAgent)
   await manualMode.click()
 
   const machineStep = page.getByTestId(tid.onboardingMachineDialog)
