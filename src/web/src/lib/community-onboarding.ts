@@ -14,6 +14,7 @@ import {
 } from "@/lib/analytics";
 
 type JourneyResources = {
+  setupMode?: "agent" | "manual";
   harness?: string;
   machineId?: string;
   model?: string | null;
@@ -82,6 +83,12 @@ export function updateCommunityOnboardingInitialization(runtime: CommunityRuntim
   const current = readCommunityOnboardingState(runtime);
   if (current?.stage !== "initializing") throw new DOMException("Retired onboarding initialization", "AbortError");
   return publish(runtime, { ...current, initialization: update(current.initialization ?? { checkpoint: {}, step: "creating-bots", result: null, pendingDestination: null }) });
+}
+
+export function switchCommunityOnboardingSetup(runtime: CommunityRuntime, setupMode: "agent" | "manual") {
+  const current = readCommunityOnboardingState(runtime);
+  if (!current?.harness || !["machine", "model", "identity"].includes(current.stage)) return current;
+  return publish(runtime, { ...current, stage: "machine", setupMode });
 }
 
 export function recoverCommunityOnboardingHarness(runtime: CommunityRuntime) {

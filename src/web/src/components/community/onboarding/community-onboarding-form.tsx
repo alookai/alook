@@ -12,8 +12,9 @@ import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import { usePathname } from "next/navigation"
 
-import { advanceCommunityOnboarding, completeCommunityOnboarding, recoverCommunityOnboardingHarness, skipCommunityOnboarding, useCommunityOnboarding, readCommunityOnboardingState, updateCommunityOnboardingInitialization } from "@/lib/community-onboarding"
+import { switchCommunityOnboardingSetup, advanceCommunityOnboarding, completeCommunityOnboarding, recoverCommunityOnboardingHarness, skipCommunityOnboarding, useCommunityOnboarding, readCommunityOnboardingState, updateCommunityOnboardingInitialization } from "@/lib/community-onboarding"
 
+import { OnboardingAgentDialog } from "./onboarding-agent-dialog"
 import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
 import {
   ONBOARDING_HARNESSES,
@@ -150,8 +151,9 @@ export function CommunityOnboardingForm() {
     return (
       <OnboardingSelectDialog
         open
-        onOpenChange={() => undefined}
-        step={{ current: 1, total: totalSteps }}
+        onOpenChange={(open) => { if (!open) skipCommunityOnboarding(communityRuntime) }}
+        step={{ current: 1, total: 2 }}
+        dismissible
         stepLabel="Your harness"
         title="Which harness do you already use?"
         description="Pick the setup that already runs your bots."
@@ -160,12 +162,22 @@ export function CommunityOnboardingForm() {
         onValueChange={setHarness}
         submitLabel="Continue"
         onSubmit={(value) => {
-          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value })
+          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: "agent" })
         }}
         testId={tid.onboardingHarnessDialog}
         optionTestId={tid.onboardingHarnessOption}
       />
     )
+  }
+
+  if (state.stage === "machine" && state.setupMode === "agent") {
+    return <OnboardingAgentDialog
+      harness={state.harness ?? ""}
+      harnessLabel={harnessLabel(state.harness)}
+      onManual={() => switchCommunityOnboardingSetup(communityRuntime, "manual")}
+      onChooseAgent={() => recoverCommunityOnboardingHarness(communityRuntime)}
+      onExit={() => skipCommunityOnboarding(communityRuntime)}
+    />
   }
 
   if (state.stage === "machine") {
@@ -175,6 +187,8 @@ export function CommunityOnboardingForm() {
         harness={state.harness ?? ""}
         harnessLabel={harnessLabel(state.harness)}
         totalSteps={totalSteps}
+        onExit={() => skipCommunityOnboarding(communityRuntime)}
+        onAgentSetup={() => switchCommunityOnboardingSetup(communityRuntime, "agent")}
         onConnected={(machineId) => {
           advanceCommunityOnboarding(communityRuntime, "machine", requiredModel ? "model" : "identity", { machineId, model: null })
         }}
@@ -190,16 +204,19 @@ export function CommunityOnboardingForm() {
   }
 
   if (state.stage === "model") {
-    return <OnboardingModelDialog runtime={selectedRuntime ?? { id: state.harness! }} model={model} onModelChange={setModel} onContinue={() => advanceCommunityOnboarding(communityRuntime, "model", "identity", { model })} />
+    return <OnboardingModelDialog onExit={() => skipCommunityOnboarding(communityRuntime)} onAgentSetup={() => switchCommunityOnboardingSetup(communityRuntime, "agent")} runtime={selectedRuntime ?? { id: state.harness! }} model={model} onModelChange={setModel} onContinue={() => advanceCommunityOnboarding(communityRuntime, "model", "identity", { model })} />
   }
 
   if (state.stage === "identity") {
     return (
       <OnboardingSelectDialog
         open
-        onOpenChange={() => undefined}
+        onOpenChange={(open) => { if (!open) skipCommunityOnboarding(communityRuntime) }}
         step={{ current: totalSteps, total: totalSteps }}
         stepLabel="About you"
+        dismissible
+        secondaryLabel="Agent Setup"
+        onSecondaryAction={() => switchCommunityOnboardingSetup(communityRuntime, "agent")}
         title="Which best describes you?"
         description="We’ll shape the room around your work."
         options={[...ONBOARDING_IDENTITIES]}
@@ -227,6 +244,7 @@ export function CommunityOnboardingForm() {
   if (state.stage === "initializing") {
     return (
       <OnboardingStatusDialog
+        onExit={() => skipCommunityOnboarding(communityRuntime)}
         totalSteps={totalSteps}
         status={initializationStatus === "idle" ? "loading" : initializationStatus}
         currentStep={initializationStep}

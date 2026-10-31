@@ -8,7 +8,7 @@ vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: { resolve: () => { th
 vi.mock("@alook/shared", async (original) => ({ ...await original<typeof import("@alook/shared")>(), queries: { automation: { authenticateAccessCode: mocks.authenticate } } }))
 vi.mock("@/lib/community/create-bot.server", () => ({ createBotForUser: mocks.action }))
 vi.mock("@/lib/community/create-server.server", () => ({ createServerForUser: mocks.action }))
-vi.mock("@/lib/community/automation-read.server", () => ({ readAutomationMachines: mocks.action, readAutomationFriends: mocks.action, readAutomationServers: mocks.action }))
+vi.mock("@/lib/community/automation-read.server", () => ({ readAutomationMachines: mocks.action, readAutomationFriends: mocks.action, readAutomationServers: mocks.action, readAutomationMembers: mocks.action }))
 vi.mock("@/lib/community/automation-invite.server", () => ({ inviteAutomationFriend: mocks.action }))
 vi.mock("@/lib/community/automation-message.server", () => ({ sendAutomationMessage: mocks.action }))
 import { POST as createBot } from "@/app/api/community/automation/bots/route"
@@ -17,7 +17,8 @@ import { GET as machines } from "@/app/api/community/automation/machines/route"
 import { GET as friends } from "@/app/api/community/automation/friends/route"
 import { POST as invite } from "@/app/api/community/automation/servers/[id]/invites/route"
 import { POST as send } from "@/app/api/community/automation/messages/route"
-const routes = [[createBot, "bot.create"], [createServer, "server.create"], [servers, "server.read"], [machines, "machine.read"], [friends, "friend.read"], [invite, "server.invite"], [send, "message.send"]] as const
+import { GET as members } from "@/app/api/community/automation/servers/[id]/members/route"
+const routes = [[createBot, "bot.create"], [createServer, "server.create"], [servers, "server.read"], [members, "server.read"], [machines, "machine.read"], [friends, "friend.read"], [invite, "server.invite"], [send, "message.send"]] as const
 const secret = "aac_" + "a".repeat(64)
 const req = (token = secret) => new NextRequest("http://localhost/api/community/automation/test", { headers: { Authorization: `Bearer ${token}`, cookie: "session=present" } })
 beforeEach(() => {

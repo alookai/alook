@@ -35,6 +35,8 @@ export function OnboardingMachineDialog({
   onConnected,
   onChooseAnotherHarness,
   onManageMachines,
+  onExit,
+  onAgentSetup,
   previewConnectedMachine,
   previewCommand,
 }: {
@@ -45,6 +47,8 @@ export function OnboardingMachineDialog({
   onConnected: (machineId: string) => void
   onChooseAnotherHarness: () => void
   onManageMachines: () => void
+  onExit?: () => void
+  onAgentSetup?: () => void
   previewConnectedMachine?: { id: string; hostname: string }
   previewCommand?: string
 }) {
@@ -168,14 +172,14 @@ export function OnboardingMachineDialog({
   }
 
   return (
-    <Dialog open={open}>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onExit?.() }}>
       <DialogContent
         data-testid={tid.onboardingMachineDialog}
-        showCloseButton={false}
+        showCloseButton={Boolean(onExit)}
         className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-lg"
       >
         <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
-          <div className="flex gap-1" aria-label={`Step 2 of ${totalSteps}`}>
+          <div className="flex gap-1 pr-8" aria-label={`Step 2 of ${totalSteps}`}>
             {Array.from({ length: totalSteps }, (_, index) => index + 1).map((step) => (
               <span
                 key={step}
@@ -275,6 +279,7 @@ export function OnboardingMachineDialog({
         </div>
 
         <DialogFooter className="m-0 rounded-b-xl border-0 bg-transparent px-4 py-4 sm:px-6">
+          {onAgentSetup ? <Button type="button" variant="ghost" className="text-foreground h-11 sm:h-9" onClick={onAgentSetup}>Agent Setup</Button> : null}
           {unavailableMachine ? (
             <>
               <Button

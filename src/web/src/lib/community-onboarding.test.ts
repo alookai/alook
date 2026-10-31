@@ -21,6 +21,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections";
 
 import {
+  switchCommunityOnboardingSetup,
   advanceCommunityOnboarding,
   completeCommunityOnboarding,
   readCommunityOnboardingState,
@@ -45,6 +46,21 @@ describe("community onboarding journey", () => {
     void registry.cleanup();
     registry.queryClient.clear();
     vi.unstubAllGlobals();
+  });
+
+  it("switches setup methods before creation and preserves manual choices", () => {
+    startCommunityOnboarding(runtime());
+    advanceCommunityOnboarding(runtime(), "harness", "machine", { harness: "codex", setupMode: "agent" });
+    switchCommunityOnboardingSetup(runtime(), "manual");
+    expect(readCommunityOnboardingState(runtime())).toMatchObject({ stage: "machine", setupMode: "manual" });
+    advanceCommunityOnboarding(runtime(), "machine", "identity", { machineId: "machine-1", model: "model-1" });
+    switchCommunityOnboardingSetup(runtime(), "agent");
+    expect(readCommunityOnboardingState(runtime())).toMatchObject({ stage: "machine", setupMode: "agent", machineId: "machine-1", model: "model-1" });
+    advanceCommunityOnboarding(runtime(), "machine", "initializing");
+    switchCommunityOnboardingSetup(runtime(), "manual");
+    expect(readCommunityOnboardingState(runtime())).toMatchObject({ stage: "initializing", setupMode: "agent" });
+    skipCommunityOnboarding(runtime());
+    expect(readCommunityOnboardingState(runtime())).toBeNull();
   });
 
   it("starts once per explicit owner and never shares another account journey", () => {

@@ -16,6 +16,12 @@ const BackendList = z.array(z.object({
 
 const ServerChannels = z.array(z.object({ name: z.string().min(1), type: z.enum(["text", "forum"]), ref: z.string().min(1) }))
 
+const MemberList = z.object({
+  server: z.string().min(1), url: z.url(),
+  members: z.array(z.object({ handle: z.string().min(1), role: z.string().min(1) })),
+  hasMore: z.boolean(), cursor: z.string().min(1).optional(),
+}).refine((value) => !value.hasMore || Boolean(value.cursor))
+
 const ModelList = z.object({
   machineId: z.string().min(1), backendId: z.string().min(1), source: z.enum(["fresh_discovery", "cached_report"]), requestId: z.string().min(1),
   readAt: z.string(), observedAt: z.iso.datetime(), modelRequired: z.boolean(), defaultModelId: z.string().nullable(),
@@ -115,10 +121,20 @@ export function registerUseCommands(program: Command, output: (value: { success:
     if (kind === "bot" || kind === "server") command.option("--create <json>", kind === "bot" ? "bot JSON: name, machineId, backendId, optional description/model/reasoningEffort" : "server JSON: name, optional description")
     if (kind !== "bot") command.option("--list", `list minimal ${kind} identities`)
     if (kind === "machine") command.option("--list-models", "fetch fresh backend models and reasoning efforts").option("--refresh", "bypass the five-minute model cache").option("--id <machine-id>", "target machine ID for --list-models").option("--backend <backend-id>", "target backend ID for --list-models")
-    if (kind === "server") command.option("--invite <json>", "invite JSON: server and friend full handles")
+    if (kind === "server") command.option("--invite <json>", "invite JSON: server and friend full handles").option("--members <server>", "list joined members by full server handle").option("--cursor <cursor>", "next page cursor for --members")
     command.action(async () => {
-      const options = command.opts<{ create?: string; list?: boolean; invite?: string; listModels?: boolean; id?: string; backend?: string; refresh?: boolean }>()
-      if ([options.create !== undefined, options.list === true, options.invite !== undefined, options.listModels === true].filter(Boolean).length !== 1) throw new Error("Choose exactly one action: --create, --list, --invite, or --list-models")
+      const options = command.opts<{ create?: string; list?: boolean; invite?: string; listModels?: boolean; id?: string; backend?: string; refresh?: boolean; members?: string; cursor?: string }>()
+      if ([options.create !== undefined, options.list === true, options.invite !== undefined, options.listModels === true, options.members !== undefined].filter(Boolean).length !== 1) throw new Error("Choose exactly one action: --create, --list, --invite, --list-models, or --members")
+      if (options.cursor !== undefined && options.members === undefined) throw new Error("--cursor requires --members")
+      if (options.members !== undefined) {
+        if (!parseNameAndTag(options.members)) throw new Error("Use a full server handle")
+        const query = options.cursor ? `?${new URLSearchParams({ cursor: options.cursor })}` : ""
+        const { result } = await request(`/api/community/automation/servers/${encodeURIComponent(options.members)}/members${query}`)
+        const parsed = MemberList.safeParse(result)
+        if (!parsed.success || parsed.data.server !== options.members) throw new Error("Automation returned an invalid member list")
+        output({ success: parsed.data })
+        return
+      }
       if (options.listModels) {
         if (!options.id?.trim() || !options.backend?.trim()) throw new Error("--list-models requires --id and --backend")
         const requestId = randomUUID()

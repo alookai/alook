@@ -33,6 +33,7 @@ export function OnboardingStatusDialog({
   detail,
   onRetry,
   onContinue,
+  onExit,
 }: {
   status: "loading" | "error" | "success"
   totalSteps?: number
@@ -41,6 +42,7 @@ export function OnboardingStatusDialog({
   detail: string
   onRetry: () => void
   onContinue: () => void
+  onExit?: () => void
 }) {
   const currentStepIndex = ONBOARDING_INITIALIZATION_STEPS.indexOf(currentStep)
   const server = useCanonicalCommunityServer(checkpoint.serverId)
@@ -51,15 +53,15 @@ export function OnboardingStatusDialog({
   )
 
   return (
-    <Dialog open>
+    <Dialog open onOpenChange={(open) => { if (!open) onExit?.() }}>
       <DialogContent
         data-testid={tid.onboardingInitializeStatus}
-        showCloseButton={false}
+        showCloseButton={Boolean(onExit)}
         className="gap-0 overflow-hidden border-0 p-0 shadow-(--e2) ring-0 sm:max-w-md"
         aria-busy={status === "loading"}
       >
         <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
-          <div className="flex gap-1" aria-label={`Step ${totalSteps} of ${totalSteps}`}>
+          <div className="flex gap-1 pr-8" aria-label={`Step ${totalSteps} of ${totalSteps}`}>
             {Array.from({ length: totalSteps }, (_, index) => <span key={index} className={["h-1 flex-1 rounded-full bg-(--te)", "h-1 flex-1 rounded-full bg-(--ti)", "h-1 flex-1 rounded-full bg-(--tc)"][index % 3]} />)}
           </div>
           <div className="flex flex-col gap-2">
