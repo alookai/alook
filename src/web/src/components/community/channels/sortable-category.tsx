@@ -62,7 +62,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
         onTouchStart={(e) => e.stopPropagation()}
         onDragStart={(e) => { e.preventDefault(); e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onSettings() }}
-        className="grid size-4 place-items-center rounded opacity-0 hover:bg-accent group-hover:opacity-100"
+        className="grid size-4 place-items-center rounded opacity-100 hover:bg-accent sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
         aria-label={`Category settings for ${name}`}
       >
         <Settings className="size-3" />
@@ -74,7 +74,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
         onTouchStart={(e) => e.stopPropagation()}
         onDragStart={(e) => { e.preventDefault(); e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onAddChannel() }}
-        className="grid size-4 place-items-center rounded opacity-0 hover:bg-accent group-hover:opacity-100"
+        className="grid size-4 place-items-center rounded opacity-100 hover:bg-accent sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
         aria-label={`Create channel in ${name}`}
       >
         <Plus className="size-3" />
