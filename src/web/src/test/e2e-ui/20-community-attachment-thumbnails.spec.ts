@@ -895,7 +895,7 @@ test("HTML attachment markers render once with interactive isolated content acro
   const { page } = await actors.asUser("alice", { colorScheme: null })
   const channelPath = `/c/channels/${serverId}/${channelId}`
   await page.goto(channelPath)
-  const html = '<!doctype html><html><head><style>body{padding:16px;background:var(--background);color:var(--foreground)}button{background:var(--primary);color:var(--primary-foreground)}.row{height:64px}</style></head><body><h2>Interactive HTML</h2><button onclick="document.getElementById(\'rows\').insertAdjacentHTML(\'beforeend\',\'<div class=row>Added row</div>\');document.getElementById(\'count\').textContent=Number(document.getElementById(\'count\').textContent)+1">Add row</button><output id="count">0</output><div id="rows"></div><p id="isolation"></p><script>try{parent.document.body;document.getElementById("isolation").textContent="parent accessible"}catch(e){document.getElementById("isolation").textContent="parent isolated"}</script></body></html>'
+  const html = '<!doctype html><html><head><style>body{padding:16px;background:var(--background);color:var(--foreground)}button{background:var(--primary);color:var(--primary-foreground)}.row{height:64px}</style></head><body><h2>Interactive HTML</h2><button onclick="document.getElementById(\'rows\').insertAdjacentHTML(\'beforeend\',\'<div class=row>Added row</div>\');document.getElementById(\'count\').textContent=Number(document.getElementById(\'count\').textContent)+1">Add row</button><output id="count">0</output><button style="position:absolute;right:6px;top:6px;width:24px;height:24px;padding:0" aria-label="Use top-right content" onclick="document.getElementById(\'corner-count\').textContent=Number(document.getElementById(\'corner-count\').textContent)+1">+</button><output id="corner-count">0</output><div id="rows"></div><p id="isolation"></p><script>try{parent.document.body;document.getElementById("isolation").textContent="parent accessible"}catch(e){document.getElementById("isolation").textContent="parent isolated"}</script></body></html>'
   async function upload(name: string, mimeType: string, content: string) {
     const response = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
       headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
@@ -925,10 +925,12 @@ test("HTML attachment markers render once with interactive isolated content acro
   expect(await iframe.getAttribute("sandbox")).not.toContain("allow-same-origin")
   const content = iframe.contentFrame()
   await expect(content.locator("#isolation")).toHaveText("parent isolated")
-  const actions = preview.getByRole("group", { name: "HTML preview actions" })
+  const hostControls = preview.locator("button, a[download], [data-html-preview-actions]")
+  await expect(hostControls).toHaveCount(0)
+  await expect(preview.locator(":scope > *")).toHaveCount(1)
+  await expect(preview.locator(":scope > iframe")).toHaveCount(1)
   await expect(preview).toHaveCSS("border-top-width", "0px")
   await expect(preview.getByText("interactive.html", { exact: true })).toHaveCount(0)
-  await expect(actions).toHaveCSS("position", "absolute")
   async function appearance(mode: "Light" | "Dark") {
     await page.getByTestId(tid.userSettingsOpen).click()
     await page.getByTestId(tid.settingsTab("appearance")).click()
@@ -961,18 +963,21 @@ test("HTML attachment markers render once with interactive isolated content acro
   expect(await iframe.evaluate((element, original) => element === original, initialFrame)).toBe(true)
   await initialFrame?.dispose()
   await page.mouse.move(0, 0)
-  await expect(actions).toHaveCSS("opacity", "0")
+  await expect(hostControls).toHaveCount(0)
   await preview.hover()
-  await expect(actions).toHaveCSS("opacity", "1")
+  await expect(hostControls).toHaveCount(0)
+  await content.getByRole("button", { name: "Use top-right content", exact: true }).click()
+  await expect(content.locator("#corner-count")).toHaveText("1")
   await page.mouse.move(0, 0)
-  await message.getByTestId(tid.htmlPreviewDownload(attachmentId)).focus()
-  await expect(actions).toHaveCSS("opacity", "1")
+  await iframe.click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press("Tab")
+  await expect(content.getByRole("button", { name: "Add row" })).toBeFocused()
+  await expect(hostControls).toHaveCount(0)
   const beforeHeight = await iframe.evaluate((element) => element.getBoundingClientRect().height)
-  await content.getByRole("button", { name: "Add row" }).click()
+  await page.keyboard.press("Enter")
   await expect(content.locator("#count")).toHaveText("1")
   await expect.poll(() => iframe.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(beforeHeight)
-  await expect(actions.getByRole("button")).toHaveCount(1)
-  await expect(actions.getByRole("button", { name: "Download interactive.html", exact: true })).toBeVisible()
+  await expect(hostControls).toHaveCount(0)
   await expect(preview).not.toHaveAttribute("aria-modal", "true")
 
   const previewUrl = await iframe.getAttribute("src")
@@ -992,12 +997,14 @@ test("HTML attachment markers render once with interactive isolated content acro
   const readerPreview = reader.getByTestId(tid.message(messageId)).getByTestId(tid.htmlPreview(attachmentId))
   await expect(readerPreview).toHaveAttribute("data-html-preview-status", "ready")
   await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().getByRole("button", { name: "Add row" })).toBeVisible()
-  await expect(readerPreview.getByRole("group", { name: "HTML preview actions" })).toHaveCSS("opacity", "1")
-  await expect(readerPreview.getByRole("group", { name: "HTML preview actions" }).getByRole("button")).toHaveCount(1)
-  await expect(readerPreview.getByTestId(tid.htmlPreviewDownload(attachmentId))).toHaveCSS("width", "24px")
-  await expect(readerPreview.getByTestId(tid.htmlPreviewDownload(attachmentId))).toHaveCSS("height", "24px")
+  await expect(readerPreview.locator("button, a[download], [data-html-preview-actions]")).toHaveCount(0)
   await expect(readerPreview).not.toHaveAttribute("aria-modal", "true")
   await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().locator("#count")).toHaveText("0")
+  await readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().getByRole("button", { name: "Add row" }).tap()
+  await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().locator("#count")).toHaveText("1")
+  await readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().getByRole("button", { name: "Use top-right content", exact: true }).tap()
+  await expect(readerPreview.getByTestId(tid.htmlPreviewFrame(attachmentId)).contentFrame().locator("#corner-count")).toHaveText("1")
+  await expect(readerPreview.locator("button, a[download], [data-html-preview-actions]")).toHaveCount(0)
   const { page: outsider } = await actors.asUser("carol")
   const denied = await outsider.request.get(previewUrl!)
   expect(denied.status()).toBe(404)
@@ -1030,6 +1037,8 @@ test("HTML attachment markers render once with interactive isolated content acro
     await transparentPreview.scrollIntoViewIfNeeded()
     await expect.poll(heldPreview.held).toBeGreaterThan(0)
     await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "loading")
+    await expect(transparentPreview.locator("button, a[download], [data-html-preview-actions]")).toHaveCount(0)
+    await expect(transparentPreview.locator(":scope > *")).toHaveCount(2)
     const loadingStatus = transparentPreview.getByRole("status", { name: "Loading preview" })
     await expect(loadingStatus).toBeVisible()
     const region = await boundingRect(transparentPreview)
@@ -1040,6 +1049,8 @@ test("HTML attachment markers render once with interactive isolated content acro
     loading = await captureCanvas("transparent-canvas-dark-host-loading.png")
   } finally { await heldPreview.release() }
   await expect(transparentPreview).toHaveAttribute("data-html-preview-status", "ready")
+  await expect(transparentPreview.locator(":scope > *")).toHaveCount(1)
+  await expect(transparentPreview.locator(":scope > iframe")).toHaveCount(1)
   await expect(transparentPreview.getByRole("status", { name: "Loading preview" })).toHaveCount(0)
   await expect(transparentFrame).toHaveCSS("color-scheme", "dark")
   const transparentContent = transparentFrame.contentFrame()
@@ -1080,7 +1091,6 @@ test("HTML attachment markers render once with interactive isolated content acro
     return { canvas, authored, carrier }
   }
   const canvasSamples = []
-  const transparentActions = transparentPreview.getByRole("group", { name: "HTML preview actions" })
   for (const mode of ["Light", "Dark"] as const) {
     await appearance(mode)
     await expect(transparentFrame).toHaveCSS("color-scheme", mode.toLowerCase())
@@ -1104,9 +1114,7 @@ test("HTML attachment markers render once with interactive isolated content acro
     await expect(transparentContent.locator("#authored")).toHaveCSS("color", "rgb(17, 34, 51)")
     const inline = await transparentPixels(`transparent-canvas-${mode.toLowerCase()}-inline.png`)
     await transparentPreview.hover()
-    await expect(transparentActions).toHaveCSS("opacity", "1")
-    await expect(transparentActions).toHaveCSS("pointer-events", "auto")
-    await expect(transparentActions.getByRole("button")).toHaveCount(1)
+    await expect(transparentPreview.locator("button, a[download], [data-html-preview-actions]")).toHaveCount(0)
     await expect(transparentPreview).not.toHaveAttribute("aria-modal", "true")
     await expect(transparentContent.locator("#state")).toHaveValue("retained edit")
     canvasSamples.push({ mode, growth, inline })

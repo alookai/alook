@@ -3,15 +3,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { useSelector } from "@tanstack/react-store"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Download, LoaderCircle } from "lucide-react"
+import { LoaderCircle } from "lucide-react"
 import { useTheme } from "next-themes"
 import { collectHtmlPreviewFonts, loadHtmlPreviewFonts } from "@/lib/community/html-preview-fonts"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
 import { HTML_PREVIEW_SANDBOX, HTML_PREVIEW_THEME_VARIABLES } from "@/lib/community/html-preview-policy"
 import type { FileAttachment } from "@/lib/community/models/message"
-import { useAttachmentDownload, attachmentDownloadStatusText } from "@/lib/community/attachment-download"
 import { tid } from "@/lib/community/testids"
-import { buttonVariants } from "@/components/ui/button"
 
 export function HtmlAttachmentPreview({ attachment }: { attachment: FileAttachment & { id: string } }) {
   const owner = useApplicationOwner()
@@ -42,7 +40,6 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   const root = useRef<HTMLDivElement>(null)
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
-  const download = useAttachmentDownload(attachment)
   const id = attachment.id
   const url = `${attachment.url}?preview=html&v=${encodeURIComponent(process.env.NEXT_PUBLIC_APP_VERSION ?? "")}`
   const error = status === "error"
@@ -100,22 +97,8 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
       className="relative m-0 block w-full min-w-0 max-w-full overflow-hidden rounded-none border-0 bg-transparent p-0 text-foreground"
       style={!mounted && !error ? { height } : undefined}
     >
-      <div role="group" aria-label="HTML preview actions" data-html-preview-actions className="absolute top-1.5 right-1.5 z-10 flex items-center">
-        <button
-          type="button"
-          data-testid={tid.htmlPreviewDownload(id)}
-          className={buttonVariants({ variant: "ghost", size: "icon" })}
-          onClick={() => download.state.status === "downloading" ? download.cancel() : void download.start()}
-          aria-label={download.state.status === "downloading" ? "Cancel download" : `Download ${attachment.name}`}
-          aria-busy={download.state.status === "downloading"}
-          title={attachmentDownloadStatusText(download.state) ?? `Download ${attachment.name}`}
-        >
-          {download.state.status === "downloading" ? <LoaderCircle className="size-4 motion-safe:animate-spin" /> : <Download className="size-4" />}
-          <span className="sr-only" aria-live="polite">{attachmentDownloadStatusText(download.state)}</span>
-        </button>
-      </div>
       {error ? (
-        <div role="status" className="p-4 text-sm text-muted-foreground">Preview unavailable. You can download this file.</div>
+        <div role="status" className="p-4 text-sm text-muted-foreground">Preview unavailable.</div>
       ) : (
         <>
           {status === "loading" && <div role="status" aria-label="Loading preview" className="pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
