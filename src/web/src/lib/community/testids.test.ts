@@ -139,4 +139,8 @@ describe("community QA selectors", () => {
     expect(tid.botReportProblemSubmit).toBe("bot-report-problem-submit")
     expect(tid.botReportProblemStatus).toBe("bot-report-problem-status")
   })
+
+  it("exposes the sign-in horizontal step track selector from the canonical registry", () => {
+    expect(tid.signInStepTrack).toBe("sign-in-step-track")
+  })
 })

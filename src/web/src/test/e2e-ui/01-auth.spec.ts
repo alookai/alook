@@ -1,4 +1,5 @@
 import { test, expect } from "./_fixtures/case-fixture"
+import { tid } from "./_fixtures/testids"
 import {
   test as browserTest,
   expect as browserExpect,
@@ -144,6 +145,8 @@ browserTest.describe("production OTP error placement", () => {
 
     await page.getByRole("textbox", { name: "Email" }).fill("person@example.com")
     await sendCode.click()
+    const stepTrack = page.getByTestId(tid.signInStepTrack)
+    await browserExpect(stepTrack).toHaveAttribute("data-step-view", "code")
 
     const otp = page.getByRole("textbox", { name: "Verification code" })
     await otp.fill("123456")
@@ -193,9 +196,11 @@ browserTest.describe("production OTP error placement", () => {
     await otp.fill("111111")
     await browserExpect(alert).toHaveCount(1)
     await page.getByRole("button", { name: "Use a different email" }).click()
+    await browserExpect(stepTrack).toHaveAttribute("data-step-view", "email")
     await browserExpect(alert).toHaveCount(0)
     await browserExpect(page.getByRole("textbox", { name: "Email" })).toBeVisible()
     await page.getByRole("button", { name: "Continue with email" }).click()
+    await browserExpect(stepTrack).toHaveAttribute("data-step-view", "code")
 
     await otp.fill("654321")
     await page.waitForURL("**/c/me")

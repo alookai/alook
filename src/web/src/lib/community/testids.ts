@@ -315,4 +315,5 @@ export const tid = {
   inboxTabScroll: (tab: "unreads" | "mentions" | "marked") =>
     `community-inbox-${tab}-scroll`,
   channelRefPill: (id: string) => `community-channel-ref-pill-${id}`,
+  signInStepTrack: "sign-in-step-track",
 } as const

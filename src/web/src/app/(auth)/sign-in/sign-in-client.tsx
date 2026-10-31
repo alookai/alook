@@ -364,7 +364,7 @@ function SignInForm({
       <ObservedStaticContent />
       <div
         ref={trackRef}
-        data-testid="sign-in-step-track"
+        data-testid={tid.signInStepTrack}
         data-step-view={viewState}
         onTransitionEnd={handleTrackTransitionEnd}
         style={trackTransform ? { transform: trackTransform } : undefined}
