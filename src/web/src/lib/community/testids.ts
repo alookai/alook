@@ -161,6 +161,8 @@ export const tid = {
   landingFooterSlogan: "landing-footer-slogan",
   landingFooterNavigation: "landing-footer-navigation",
   landingFooterSocial: "landing-footer-social",
+  landingMotionStage: "landing-motion-stage",
+  landingIdentityCardTilt: "landing-identity-card-tilt",
   landingMobileMotionStage: "landing-mobile-motion-stage",
   homeButton: "community-home-button",
   alookLogo: "community-alook-logo",

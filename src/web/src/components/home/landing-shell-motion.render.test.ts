@@ -59,6 +59,19 @@ describe("landing community preview rendering", () => {
     },
   )
 
+  it.each([
+    ["server", "The headline is hard to read on my phone"],
+    ["machine", "Machines"],
+    ["identity", "Maya"],
+    ["continuity", "Saturday at six works"],
+  ] as const)("renders readable compact %s content without the desktop camera", (scene, content) => {
+    const markup = renderToStaticMarkup(createElement(LandingShellMotion, { scene, compact: true, beat: SCENE_MAX_BEAT[scene] }))
+    expect(markup).toContain(content)
+    expect(markup).toContain('class="compactStage"')
+    expect(markup).not.toContain("data-camera-scale")
+    expect(markup).not.toContain("Unknown")
+  })
+
   it.each(ALL_SCENES)("renders the final %s scene without unresolved fixture identities", (scene) => {
     const markup = renderToStaticMarkup(createElement(LandingShellMotion, {
       scene,

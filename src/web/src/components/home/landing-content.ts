@@ -6,17 +6,7 @@ export const LANDING_META_TITLE = "Alook | Multi-Agent Collaboration for Team an
 export const LANDING_META_DESCRIPTION =
   "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team."
 
-export const LANDING_SECTION_ORDER = [
-  "hero",
-  "product-proof",
-  "identity",
-  "continuity",
-  "reach",
-  "ownership",
-  "testimonials",
-  "faq",
-  "closing",
-] as const
+export const LANDING_SECTION_ORDER = ["hero", "testimonials", "workspace", "features", "faq", "closing"] as const
 
 export const LANDING_HERO = {
   headline: BRAND_SLOGAN,

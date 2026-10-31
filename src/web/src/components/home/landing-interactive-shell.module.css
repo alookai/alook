@@ -58,3 +58,6 @@
 :global(html):has(.previewRoot) :global(.chat-composer .tiptap p),
 :global(html):has(.previewRoot) :global(.chat-composer .tiptap li),
 :global(html):has(.previewRoot) :global(.chat-placeholder-overlay) { line-height: 1.5rem; }
+
+.demoHeading { max-width: 1080px; margin: 32px auto 48px; color: var(--landing-text); font-family: var(--font-crt); font-size: clamp(3rem, 4.6vw, 5rem); font-weight: 400; letter-spacing: -0.025em; line-height: 0.98; text-wrap: balance; }
+@media (max-width: 639px) { .demoHeading { margin: 24px 12px 32px; font-size: 2.75rem; } }

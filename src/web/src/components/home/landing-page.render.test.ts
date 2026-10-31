@@ -22,12 +22,7 @@ vi.mock("./landing-shell-motion", async () => {
 describe("landing identity profile preview", () => {
   it("renders the static Maya profile without consulting live profile state", () => {
     const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn: false }))
-    const identityCard = markup.match(
-      /data-testid="landing-identity-card-tilt"[\s\S]*?data-testid="landing-identity-motion"/,
-    )?.[0]
-
-    expect(identityCard).toBeDefined()
-    expect(identityCard).toContain("/landing/posters/profile.webp")
+    expect(markup).not.toContain("landing-identity-card-tilt")
     const profile = renderToStaticMarkup(createElement(LandingProfileContent))
     expect(profile).toContain("Maya")
     expect(profile).toContain("Free for dinner")
@@ -63,12 +58,12 @@ const LANDING_PROFILE_ABOUT =
   "I keep the same account, identity, and relationships across every room."
 
 describe("landing section calls to action", () => {
-  it.each([false, true])("routes all five section CTAs for signed-in=%s", (isLoggedIn) => {
+  it.each([false, true])("routes the selected feature CTA for signed-in=%s", (isLoggedIn) => {
     const markup = renderToStaticMarkup(createElement(LandingPage, { isLoggedIn }))
     const links = [...markup.matchAll(/<a\b[^>]*data-testid="landing-section-cta-([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)]
-    expect(links.map((match) => match[1])).toEqual(["product", "identity", "continuity", "reach", "ownership"])
+    expect(links.map((match) => match[1])).toEqual(["product"])
     const labels = links.map((match) => match[2])
-    expect(new Set(labels).size).toBe(5)
+    expect(new Set(labels).size).toBe(1)
     for (const link of links) {
       expect(link[0]).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
       expect(link[2].trim().split(/\s+/).length).toBeLessThanOrEqual(3)
@@ -82,7 +77,8 @@ describe("standalone interactive second screen", () => {
     expect(markup.indexOf('id="workspace"')).toBeLessThan(markup.indexOf('id="product"'))
     expect(markup).not.toContain('src="/demo"')
     expect(markup).toContain("Loading Alook workspace")
-    expect(markup).toContain('data-testid="landing-scene-server"')
+    expect(markup).toContain("/landing/posters/server.webp")
+    expect(markup.indexOf('id="testimonials"')).toBeLessThan(markup.indexOf('id="workspace"'))
     expect(markup).not.toContain("Reset demo")
     expect(markup).not.toContain("Sample conversations")
   })
