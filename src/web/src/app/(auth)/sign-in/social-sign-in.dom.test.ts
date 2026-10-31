@@ -1,4 +1,4 @@
-import { createElement, type ComponentProps } from "react"
+import { createElement } from "react"
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -17,15 +17,20 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   cancel: vi.fn(),
   dispose: vi.fn(),
+  remember: vi.fn(),
   emit: undefined as undefined | ((view: NativeOauthView) => void),
 }))
 
 vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.capture }))
-vi.mock("@alook/shared", async importOriginal => ({
-  ...await importOriginal<typeof import("@alook/shared")>(),
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@alook/shared")>()),
   isTauri: () => mocks.tauri,
 }))
 vi.mock("@/lib/auth-client", () => ({ signIn: { social: mocks.social } }))
+vi.mock("@/lib/last-login-method", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/last-login-method")>()),
+  rememberLastLoginMethod: mocks.remember,
+}))
 vi.mock("@/lib/native-oauth-client", () => ({
   nativeOauthBrowserDeps: {},
   createNativeOauthController: (
@@ -42,11 +47,7 @@ vi.mock("@/lib/native-oauth-client", () => ({
   },
 }))
 
-import { SocialSignIn as SocialSignInComponent } from "./social-sign-in"
-
-function SocialSignIn(props: Omit<ComponentProps<typeof SocialSignInComponent>, "requestConsent">) {
-  return createElement(SocialSignInComponent, { ...props, requestConsent: continuation => continuation() })
-}
+import { SocialSignIn } from "./social-sign-in"
 
 beforeEach(() => {
   mocks.tauri = false
@@ -67,57 +68,72 @@ const attempt = {
   waiting: true,
 }
 
-describe("social sign-in native boundary", () => {
-  it.each([false, true])("holds the selected provider until the shared consent gate admits it, native=%s", async native => {
-    mocks.tauri = native
-    let continuation: (() => void) | undefined
-    const gate = vi.fn((next: () => void) => { continuation = next })
-    render(createElement(SocialSignInComponent, { postLoginUrl: "/c/me?tab=1", appleEnabled: true, requestConsent: gate }))
-    await setupUser().click(button("native-oauth-apple"))
-    expect(gate).toHaveBeenCalledOnce()
-    expect(mocks.social).not.toHaveBeenCalled()
-    expect(mocks.start).not.toHaveBeenCalled()
-    await act(async () => continuation!())
-    if (native) expect(mocks.start).toHaveBeenCalledExactlyOnceWith("apple", "/c/me?tab=1")
-    else expect(mocks.social).toHaveBeenCalledExactlyOnceWith({ provider: "apple", callbackURL: "/c/me?tab=1" })
-  })
-  it.each(["google", "github"])("forwards %s rejection details and does not count successful starts as failures", async provider => {
-    const error = { code: "PROVIDER_NOT_FOUND", message: "Provider not found", status: 404 }
-    mocks.social.mockResolvedValueOnce({ error })
-    render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
-    await setupUser().click(button(`native-oauth-${provider}`))
-    expect(mocks.capture).toHaveBeenCalledExactlyOnceWith({ event: "sign_in_failed", method: provider, failureStage: "social_start", error })
-    await setupUser().click(button(`native-oauth-${provider}`))
-    expect(mocks.capture).toHaveBeenCalledOnce()
-  })
+describe("social sign-in stack and native boundary", () => {
+  it.each([false, true])(
+    "starts the selected provider immediately and records last-used method, native=%s",
+    async (native) => {
+      mocks.tauri = native
+      const onSelectMethod = vi.fn()
+      render(
+        createElement(SocialSignIn, {
+          postLoginUrl: "/c/me?tab=1",
+          appleEnabled: true,
+          onSelectMethod,
+        }),
+      )
+      await setupUser().click(button("native-oauth-apple"))
+      expect(mocks.remember).toHaveBeenCalledExactlyOnceWith("apple")
+      expect(onSelectMethod).toHaveBeenCalledExactlyOnceWith("apple")
+      if (native) expect(mocks.start).toHaveBeenCalledExactlyOnceWith("apple", "/c/me?tab=1")
+      else {
+        expect(mocks.social).toHaveBeenCalledExactlyOnceWith({
+          provider: "apple",
+          callbackURL: "/c/me?tab=1",
+        })
+      }
+    },
+  )
+
+  it.each(["google", "github"])(
+    "forwards %s rejection details and does not count successful starts as failures",
+    async (provider) => {
+      const error = { code: "PROVIDER_NOT_FOUND", message: "Provider not found", status: 404 }
+      mocks.social.mockResolvedValueOnce({ error })
+      render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
+      await setupUser().click(button(`native-oauth-${provider}`))
+      expect(mocks.capture).toHaveBeenCalledExactlyOnceWith({
+        event: "sign_in_failed",
+        method: provider,
+        failureStage: "social_start",
+        error,
+      })
+      await setupUser().click(button(`native-oauth-${provider}`))
+      expect(mocks.capture).toHaveBeenCalledOnce()
+    },
+  )
 
   it("forwards a social fetch rejection instead of discarding the error", async () => {
     const error = new TypeError("Failed to fetch")
     mocks.social.mockRejectedValueOnce(error)
     render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
     await setupUser().click(button("native-oauth-google"))
-    expect(mocks.capture).toHaveBeenCalledExactlyOnceWith({ event: "sign_in_failed", method: "google", failureStage: "social_start", error })
-  })
-
-  it("preserves normal browser social login and callback destination", async () => {
-    const user = setupUser()
-    render(createElement(SocialSignIn, { postLoginUrl: "/c/me?tab=1" }))
-
-    await user.click(button("native-oauth-google"))
-
-    expect(mocks.social).toHaveBeenCalledWith({
-      provider: "google",
-      callbackURL: "/c/me?tab=1",
+    expect(mocks.capture).toHaveBeenCalledExactlyOnceWith({
+      event: "sign_in_failed",
+      method: "google",
+      failureStage: "social_start",
+      error,
     })
-    expect(mocks.start).not.toHaveBeenCalled()
   })
 
-  it("keeps every provider's icon and title together at the visual center", async () => {
+  it("renders a full-width vertical stack with aligned icons, 44px touch targets, and Last used indicator", async () => {
     const user = setupUser()
-    render(createElement(SocialSignIn, {
-      postLoginUrl: "/c/me?tab=1",
-      appleEnabled: true,
-    }))
+    render(
+      createElement(SocialSignIn, {
+        postLoginUrl: "/c/me?tab=1",
+        appleEnabled: true,
+        lastUsedMethod: "google",
+      }),
+    )
 
     const socialButtons = screen.getAllByRole("button")
     expect(socialButtons.map((item) => item.dataset.testid)).toEqual([
@@ -128,33 +144,42 @@ describe("social sign-in native boundary", () => {
     const github = button("native-oauth-github")
     const google = button("native-oauth-google")
     const apple = button("native-oauth-apple")
+    expect(github).toHaveAccessibleName("Continue with GitHub")
+    expect(google).toHaveAccessibleName("Continue with Google")
+    expect(apple).toHaveAccessibleName("Continue with Apple")
+
     for (const provider of [github, google, apple]) {
       expect(provider).toHaveClass(
-        "h-9",
+        "h-11",
+        "w-full",
+        "justify-start",
         "border-0",
         "bg-apple-signin",
-        "text-base",
         "text-apple-signin-foreground",
         "hover:bg-apple-signin",
       )
     }
     for (const provider of ["github", "google", "apple"]) {
-      expect(screen.getByTestId(`native-oauth-${provider}-content`))
-        .toHaveClass("inline-flex", "items-center", "gap-2")
+      expect(screen.getByTestId(`native-oauth-${provider}-content`)).toHaveClass(
+        "flex",
+        "min-w-0",
+        "items-center",
+        "gap-2",
+      )
     }
-    expect(apple).toHaveClass("col-span-2")
-    expect(apple).toHaveClass("min-w-35")
-    expect(apple).toHaveAccessibleName("Continue with Apple")
-    expect(apple.tabIndex).toBe(0)
+
+    expect(screen.getByTestId("last-used-google")).toHaveTextContent("Last used")
+    expect(google).toHaveAttribute("aria-describedby", "last-used-google-badge")
+    expect(screen.queryByTestId("last-used-github")).toBeNull()
+    expect(screen.queryByTestId("last-used-apple")).toBeNull()
+
     apple.focus()
     expect(apple).toHaveFocus()
-
     await user.click(apple)
     expect(mocks.social).toHaveBeenCalledWith({
       provider: "apple",
       callbackURL: "/c/me?tab=1",
     })
-    expect(mocks.start).not.toHaveBeenCalled()
   })
 
   it("keeps every provider on Apple's mandated black-on-light and white-on-dark tokens", () => {
@@ -169,19 +194,21 @@ describe("social sign-in native boundary", () => {
   })
 
   it("embeds Apple's official left-aligned logo-with-text artwork", () => {
-    render(createElement(SocialSignIn, {
-      postLoginUrl: "/c/me",
-      appleEnabled: true,
-    }))
+    render(
+      createElement(SocialSignIn, {
+        postLoginUrl: "/c/me",
+        appleEnabled: true,
+      }),
+    )
 
-    const source = readFileSync(resolve(
-      webRoot,
-      "src/app/(auth)/sign-in/social-sign-in.tsx",
-    ), "utf8")
-    const artwork = readFileSync(resolve(
-      webRoot,
-      "src/app/(auth)/sign-in/apple-sign-in-artwork.ts",
-    ), "utf8")
+    const source = readFileSync(
+      resolve(webRoot, "src/app/(auth)/sign-in/social-sign-in.tsx"),
+      "utf8",
+    )
+    const artwork = readFileSync(
+      resolve(webRoot, "src/app/(auth)/sign-in/apple-sign-in-artwork.ts"),
+      "utf8",
+    )
     expect(source).not.toContain("SiApple")
     expect(source).not.toContain("appleid.cdn-apple.com/appleid/button/logo")
     expect(artwork).not.toContain("appleid.cdn-apple.com/appleid/button/logo")
@@ -203,17 +230,28 @@ describe("social sign-in native boundary", () => {
     expect(black).toHaveAttribute("width", "31")
     expect(black).toHaveAttribute("height", "44")
     expect(black).toHaveClass("col-start-1", "row-start-1", "h-9", "w-auto", "dark:block")
-    expect([white, black].map((image) => createHash("sha256")
-      .update(Buffer.from(image.getAttribute("src")!.split(",")[1], "base64"))
-      .digest("hex"))).toEqual([
+    expect(
+      [white, black].map((image) =>
+        createHash("sha256")
+          .update(Buffer.from(image.getAttribute("src")!.split(",")[1], "base64"))
+          .digest("hex"),
+      ),
+    ).toEqual([
       "f43d1ed5be59bcffdf4c20b5e29f8de041858678f549515377d0ba4f5ebd115e",
       "0f56330a7a4fe2db06ec79fdbfed1eec1d434557f052add6d848daa31877f380",
     ])
   })
 
-  it("does not expose Apple when server configuration is absent", () => {
-    render(createElement(SocialSignIn, { postLoginUrl: "/c/me" }))
+  it("does not expose Apple or an Apple Last used badge when server configuration is absent", () => {
+    render(
+      createElement(SocialSignIn, {
+        postLoginUrl: "/c/me",
+        appleEnabled: false,
+        lastUsedMethod: "apple",
+      }),
+    )
     expect(screen.queryByTestId("native-oauth-apple")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("last-used-apple")).not.toBeInTheDocument()
   })
 
   it("never falls back to embedded social OAuth in Tauri, including unsupported apps", async () => {
@@ -233,16 +271,20 @@ describe("social sign-in native boundary", () => {
 
   it("disables only Apple when an older app rejects that provider", () => {
     mocks.tauri = true
-    render(createElement(SocialSignIn, {
-      postLoginUrl: "/c/me",
-      appleEnabled: true,
-    }))
+    render(
+      createElement(SocialSignIn, {
+        postLoginUrl: "/c/me",
+        appleEnabled: true,
+      }),
+    )
 
-    act(() => mocks.emit!({
-      phase: "error",
-      message: "apple_update_required",
-      attempt: null,
-    }))
+    act(() =>
+      mocks.emit!({
+        phase: "error",
+        message: "apple_update_required",
+        attempt: null,
+      }),
+    )
 
     expect(button("native-oauth-apple")).toBeDisabled()
     expect(button("native-oauth-github")).toBeEnabled()
@@ -306,11 +348,7 @@ describe("social sign-in native boundary", () => {
     expect(status).toHaveAttribute("role", role)
     expect(status).toHaveTextContent(copy)
     expect(status).toHaveClass("text-center")
-    expect(status.nextElementSibling).toHaveClass(
-      "flex",
-      "justify-center",
-      "gap-2",
-    )
+    expect(status.nextElementSibling).toHaveClass("flex", "justify-center", "gap-2")
 
     const cancel = button("native-oauth-cancel")
     const retry = button("native-oauth-retry")

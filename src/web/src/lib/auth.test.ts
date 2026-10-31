@@ -31,6 +31,7 @@ vi.mock("better-auth/plugins", () => ({
   deviceAuthorization: vi.fn((cfg: unknown) => ({ __plugin: "deviceAuthorization", cfg })),
   bearer: vi.fn(() => ({ __plugin: "bearer" })),
   oneTimeToken: vi.fn((cfg: unknown) => ({ __plugin: "oneTimeToken", cfg })),
+  lastLoginMethod: vi.fn((cfg: unknown) => ({ __plugin: "lastLoginMethod", cfg })),
 }))
 
 vi.mock("@/lib/apple-auth", async (importOriginal) => {
@@ -1023,5 +1024,29 @@ describe("development OTP opt-in", () => {
     expect(options.plugins).toContainEqual(expect.objectContaining({ __plugin: "emailOTP" }))
     const defaultOptions = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
     expect(defaultOptions.plugins).not.toContainEqual(expect.objectContaining({ __plugin: "emailOTP" }))
+  })
+
+  it("registers lastLoginMethod across auth modes and resolves OAuth callback and email endpoints", async () => {
+    const { LAST_LOGIN_METHOD_COOKIE, LAST_LOGIN_METHOD_MAX_AGE } = await import("@/lib/last-login-method")
+    const createAuth = await loadCreateAuth()
+    for (const env of [
+      makeEnv({ NODE_ENV: "production" }),
+      makeEnv({ NODE_ENV: "development" }),
+    ]) {
+      const options = (createAuth(env as never) as { __options: AuthOptions }).__options
+      const plugin = (options.plugins as Array<{
+        __plugin?: string
+        cfg?: {
+          cookieName?: string
+          maxAge?: number
+          customResolveMethod?: (ctx: { path: string }) => string | null
+        }
+      }>).find((entry) => entry.__plugin === "lastLoginMethod")
+      expect(plugin?.cfg?.cookieName).toBe(LAST_LOGIN_METHOD_COOKIE)
+      expect(plugin?.cfg?.maxAge).toBe(LAST_LOGIN_METHOD_MAX_AGE)
+      expect(plugin?.cfg?.customResolveMethod?.({ path: "/callback/github" })).toBe("github")
+      expect(plugin?.cfg?.customResolveMethod?.({ path: "/sign-in/email-otp" })).toBe("email")
+      expect(plugin?.cfg?.customResolveMethod?.({ path: "/get-session" })).toBeNull()
+    }
   })
 })

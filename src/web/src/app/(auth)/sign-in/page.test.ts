@@ -1,11 +1,15 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   getCloudflareContext: vi.fn(),
+  cookies: vi.fn(),
 }))
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: mocks.getCloudflareContext,
+}))
+vi.mock("next/headers", () => ({
+  cookies: mocks.cookies,
 }))
 vi.mock("./sign-in-client", () => ({
   default: () => null,
@@ -14,14 +18,25 @@ vi.mock("./sign-in-client", () => ({
 import SignInPage from "./page"
 
 describe("sign-in server configuration", () => {
-  it("passes a disabled Apple flag when all Apple secrets are absent", async () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.cookies.mockResolvedValue({
+      get: vi.fn(() => undefined),
+    })
+  })
+
+  it("passes a disabled Apple flag and null last-used method when absent", async () => {
     mocks.getCloudflareContext.mockResolvedValueOnce({
       env: { NODE_ENV: "production" },
     })
 
     const page = await SignInPage()
 
-    expect(page.props).toMatchObject({ isProd: true, appleEnabled: false })
+    expect(page.props).toMatchObject({
+      isProd: true,
+      appleEnabled: false,
+      initialLastUsedMethod: null,
+    })
   })
 
   it("passes only an enabled boolean when all Apple secrets are present", async () => {
@@ -41,8 +56,29 @@ describe("sign-in server configuration", () => {
     expect(JSON.stringify(page.props)).not.toContain("private-key-never-passed-to-the-client")
   })
 
+  it("normalizes remembered login method cookies and drops unknown values", async () => {
+    mocks.cookies.mockResolvedValueOnce({
+      get: vi.fn((name: string) =>
+        name === "alook_last_login_method" ? { value: "email-otp" } : undefined),
+    })
+    mocks.getCloudflareContext.mockResolvedValueOnce({
+      env: { NODE_ENV: "production" },
+    })
+    expect((await SignInPage()).props.initialLastUsedMethod).toBe("email")
+
+    mocks.cookies.mockResolvedValueOnce({
+      get: vi.fn(() => ({ value: "unexpected-provider" })),
+    })
+    mocks.getCloudflareContext.mockResolvedValueOnce({
+      env: { NODE_ENV: "production" },
+    })
+    expect((await SignInPage()).props.initialLastUsedMethod).toBeNull()
+  })
+
   it("shows the real OTP form for the explicit local QA configuration", async () => {
-    mocks.getCloudflareContext.mockResolvedValueOnce({ env: { NODE_ENV: "development", DEV_AUTH_OTP: "1" } })
+    mocks.getCloudflareContext.mockResolvedValueOnce({
+      env: { NODE_ENV: "development", DEV_AUTH_OTP: "1" },
+    })
     expect((await SignInPage()).props.isProd).toBe(true)
   })
 
