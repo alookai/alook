@@ -300,9 +300,7 @@ static NSString *const kThemeObserverScript =
         replyHandler(nil, @"Keyboard view unavailable");
         return;
     }
-    if ([message.body isEqual:@"dismiss"]) {
-        [webView endEditing:YES];
-    } else if (![message.body isEqual:@"snapshot"]) {
+    if (![message.body isEqual:@"snapshot"]) {
         replyHandler(nil, @"Invalid keyboard command");
         return;
     }

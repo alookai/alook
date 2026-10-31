@@ -8,7 +8,6 @@ import { EditorContent, type Editor } from "@tiptap/react"
 import {
   FileIcon,
   ImageIcon,
-  Keyboard,
   PlusCircle,
   Smile,
   X,
@@ -33,7 +32,6 @@ import {
 import type { ComposerReplyTarget, MentionCandidateSource } from "./composer-types"
 import { SendStrokeRoundedIcon } from "./send-stroke-rounded-icon"
 import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
-import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
 
 const COMPOSER_OUTER_CLASS =
   "relative pl-[var(--community-composer-inline-start)] pr-[var(--community-composer-inline-end)] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:pb-3"
@@ -96,8 +94,6 @@ export function ComposerView({
   onEmojiPick,
 }: ComposerViewProps) {
   const nativeMobile = useHydratedClient() && isMobile()
-  const keyboard = useNativeKeyboard()
-  const trailingControl = showSend || !hideEmoji
   const replyPreview = replyingTo
     ? stripInlineMarkup(replyingTo.text).replace(/\s+/g, " ").trim()
     : null
@@ -211,9 +207,7 @@ export function ComposerView({
         />
         <div
           className={`chat-composer relative py-3 ${
-            keyboard.visible
-              ? `${isForumThreadBody ? "pl-2" : "pl-12"} ${trailingControl ? "pr-24" : "pr-12"}`
-              : isForumThreadBody
+            isForumThreadBody
               ? "px-2"
               : showSend ? "pl-12 pr-16 sm:px-12" : "px-12"
           }`}
@@ -244,17 +238,6 @@ export function ComposerView({
               <Smile className="size-5" />
             </button>
           </EmojiPickerPopover>
-        )}
-        {keyboard.visible && (
-          <button
-            type="button"
-            aria-label="Hide keyboard"
-            className={`absolute bottom-0.5 grid size-11 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${trailingControl ? "right-11" : "right-0.5"}`}
-            onPointerDown={(event) => event.preventDefault()}
-            onClick={keyboard.dismiss}
-          >
-            <Keyboard className="size-5" />
-          </button>
         )}
         {showSend && (
           <button
