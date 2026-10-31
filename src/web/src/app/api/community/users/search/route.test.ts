@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, CommunityReadErrorSchema, CommunityUserSearchReadSchema, DEFAULT_USER_SEARCH_LIMIT, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
-import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 import { createCommunitySqliteDb } from "@/test/community-sqlite-db"
 
 let database: ReturnType<typeof createCommunitySqliteDb>

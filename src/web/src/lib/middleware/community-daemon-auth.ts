@@ -1,5 +1,5 @@
 import type { AuthPolicy } from "./auth-policy"
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
@@ -10,11 +10,6 @@ interface CommunityDaemonAuthContext {
   machineId: string
   credentialId: string
 }
-
-export type CommunityDaemonAuthenticatedHandler = (
-  req: NextRequest,
-  ctx: CommunityDaemonAuthContext & { params?: Record<string, string> }
-) => Promise<NextResponse | Response>
 
 /**
  * Community-daemon auth middleware. Requires `Authorization: Bearer cmk_…`;
