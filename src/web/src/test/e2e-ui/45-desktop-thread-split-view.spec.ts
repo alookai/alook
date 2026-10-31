@@ -298,6 +298,7 @@ test.describe("desktop thread split view", () => {
     await expect(shell).toHaveAttribute("data-layout", "split", { timeout: 20_000 })
     await expect(thread.getByText("Switch reply A", { exact: false })).toBeVisible()
     await resizeThreadPanel(page, 520)
+    await expect(list.locator('[data-message-list-content][data-read-position-ready="true"][aria-hidden="false"]')).toBeVisible()
     await list.evaluate((node) => { node.scrollTop = node.scrollHeight })
     await expect(parent.getByTestId(tid.forumThreadCard(forumPostId))).toBeVisible()
     const scrollTop = await list.evaluate((node) => node.scrollTop)

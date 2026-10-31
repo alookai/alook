@@ -1,13 +1,17 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   formatLastLoginMethodSetCookie,
   LAST_LOGIN_METHOD_COOKIE,
   LAST_LOGIN_METHOD_MAX_AGE,
   normalizeLoginMethod,
+  rememberLastLoginMethod,
   resolveAuthPathLoginMethod,
 } from "./last-login-method"
 
 describe("last-login-method helpers", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
   it("normalizes known providers and email aliases while rejecting unknown values", () => {
     expect(normalizeLoginMethod("github")).toBe("github")
     expect(normalizeLoginMethod("GOOGLE")).toBe("google")
@@ -41,5 +45,24 @@ describe("last-login-method helpers", () => {
     expect(formatLastLoginMethodSetCookie("apple", true)).toBe(
       `${LAST_LOGIN_METHOD_COOKIE}=apple; Max-Age=${LAST_LOGIN_METHOD_MAX_AGE}; Path=/; SameSite=Lax; Secure`,
     )
+  })
+
+  it("no-ops without document and writes insecure or Secure document.cookie based on window protocol", () => {
+    vi.stubGlobal("document", undefined)
+    expect(() => rememberLastLoginMethod("github")).not.toThrow()
+
+    const cookieDoc = { cookie: "" }
+    vi.stubGlobal("document", cookieDoc)
+    vi.stubGlobal("window", { location: { protocol: "http:" } })
+    rememberLastLoginMethod("google")
+    expect(cookieDoc.cookie).toBe(formatLastLoginMethodSetCookie("google", false))
+
+    vi.stubGlobal("window", { location: { protocol: "https:" } })
+    rememberLastLoginMethod("email")
+    expect(cookieDoc.cookie).toBe(formatLastLoginMethodSetCookie("email", true))
+
+    vi.stubGlobal("window", undefined)
+    rememberLastLoginMethod("apple")
+    expect(cookieDoc.cookie).toBe(formatLastLoginMethodSetCookie("apple", false))
   })
 })
