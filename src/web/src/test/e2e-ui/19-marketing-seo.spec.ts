@@ -160,6 +160,8 @@ test("desktop landing keeps the embedded phone Back control on true mobile geome
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto("/")
 
+  await page.getByRole("tab", { name: "On your phone" }).click()
+  await page.getByRole("tabpanel").locator(":scope > div").last().scrollIntoViewIfNeeded()
   await page.locator('[data-slot="phone-mockup-card"]').scrollIntoViewIfNeeded()
   const stage = page.getByTestId(tid.landingMobileMotionStage)
   await stage.scrollIntoViewIfNeeded()
@@ -281,3 +283,45 @@ for (const width of [1440, 390]) {
     await expect.poll(contactLayout).toEqual(direct)
   })
 }
+
+
+test("landing gallery preserves order, responsive geometry, and keyboard selection", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  for (const width of [1440, 768, 639, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/")
+    const order = await page.locator("#testimonials, #workspace, #product").evaluateAll(elements => elements.map(element => element.id))
+    expect(order).toEqual(["testimonials", "workspace", "product"])
+    await expect(page.getByRole("heading", { name: "Try it. Imagine your team and friends here." })).toHaveCount(1)
+    const tabs = page.getByRole("tablist", { name: "Features" }).getByRole("tab")
+    await tabs.first().scrollIntoViewIfNeeded()
+    await expect(tabs).toHaveCount(5)
+    let stageTop: number | undefined
+    for (const tab of await tabs.all()) {
+      await tab.click()
+      await expect(tab).toHaveAttribute("aria-selected", "true")
+      await expect(page.getByRole("tabpanel")).toHaveCount(1)
+      const bounds = await tab.boundingBox()
+      expect(bounds!.height).toBeGreaterThanOrEqual(44)
+      expect(bounds!.x).toBeGreaterThanOrEqual(0)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+      const stage = page.getByRole("tabpanel").locator(":scope > div").last()
+      await stage.scrollIntoViewIfNeeded()
+      await expect(stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img])").first()).toBeVisible()
+      const geometry = await stage.evaluate(element => {
+        const box = element.getBoundingClientRect()
+        return { top: box.top + window.scrollY, height: box.height, children: [...element.children].map(child => {
+          const rect = child.getBoundingClientRect()
+          return { top: rect.top - box.top, bottom: rect.bottom - box.top }
+        }) }
+      })
+      if (stageTop !== undefined) expect(Math.abs(geometry.top - stageTop)).toBeLessThanOrEqual(1)
+      stageTop = geometry.top
+      expect(geometry.children.every(child => child.top >= -1 && child.bottom <= geometry.height + 1), JSON.stringify({ width, tab: await tab.textContent(), geometry })).toBe(true)
+    }
+    await tabs.last().press("Home")
+    await expect(tabs.first()).toBeFocused()
+    await expect(tabs.first()).toHaveAttribute("aria-selected", "true")
+  }
+})

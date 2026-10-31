@@ -191,7 +191,7 @@ State must be *visible*, and it must come from tokens — not ad-hoc tweaks. Eve
 
 ### Landing testimonials
 
-A landing-only extension of the inherited green/CRT world, immediately before the FAQ. This record describes `landing-testimonials.tsx`, its CSS module, and the shared MessageAuthorLine and Avatar primitives; it does not establish a new global direction.
+A landing-only extension of the inherited green/CRT world, immediately after the Hero and before the interactive workspace. This record describes `landing-testimonials.tsx`, its CSS module, and the shared MessageAuthorLine and Avatar primitives; it does not establish a new global direction.
 
 **Palette and type.** Transparent message rows use the landing background and text tokens; handles, source icons and avatar fallback initials use landing muted text. Hover and keyboard focus add the landing surface tint. The CRT heading keeps its regular weight, fluid display size (`clamp(3rem, 4.6vw, 5rem)`), tight leading (0.98) and tracking (-0.025em). Native author names are semibold (15px); handles are subordinate (12px). Quotes use the inherited sans family (15px, line-height 1.375), preserve line breaks and wrap long words.
 
@@ -275,3 +275,9 @@ Words are part of the interface. They should sound like the brand: **warm, sharp
 - Production loading has no QA hold switch or test-only URL controls.
 
 - The mobile landing Bot log retains 8px of visible paper below its content: 16px content padding minus its 8px paper inset.
+
+### Landing feature gallery
+
+The public landing keeps Hero → testimonials → interactive workspace → feature gallery → FAQ → closing CTA. The workspace invitation uses the existing VT323 display scale: “Try it. Imagine your team and friends here.”
+
+The gallery preserves the green landing tokens, DM Sans copy and existing feature animations. Five wrapping, 44px-minimum tabs select one concise heading, one short description, one CTA and one media scene. A reserved stage prevents automatic changes from moving the FAQ. Only the visible selected scene mounts. Rotation waits at least 15 seconds and a complete scene cycle; hover, focus, manual selection, hidden document and reduced motion pause it. The explicit pause/resume button controls rotation. Arrow keys, Home and End navigate the tabs. Mobile uses the 639px breakpoint.
