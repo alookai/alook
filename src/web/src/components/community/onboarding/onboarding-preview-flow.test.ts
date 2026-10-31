@@ -81,7 +81,7 @@ describe("onboarding preview flow", () => {
     ]) {
       const source = readFileSync(resolve(directory, filename), "utf8")
 
-      expect(source).not.toMatch(/\b(?:Guide|Builder|agents?)\b/)
+      expect(source).not.toMatch(/\b(?:Guide|Builder)\b/)
     }
 
     expect(previewSource).toMatch(/\bbots?\b/)

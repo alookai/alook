@@ -12,8 +12,14 @@ import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import { usePathname } from "next/navigation"
 
-import { advanceCommunityOnboarding, completeCommunityOnboarding, recoverCommunityOnboardingHarness, skipCommunityOnboarding, useCommunityOnboarding, readCommunityOnboardingState, updateCommunityOnboardingInitialization } from "@/lib/community-onboarding"
+import { finishCommunityOnboardingAgentSetup, switchCommunityOnboardingSetup, advanceCommunityOnboarding, completeCommunityOnboarding, recoverCommunityOnboardingHarness, skipCommunityOnboarding, useCommunityOnboarding, readCommunityOnboardingState, updateCommunityOnboardingInitialization } from "@/lib/community-onboarding"
 
+import { Button } from "@/components/ui/button"
+import { X } from "lucide-react"
+import { Dialog as SetupDialog } from "@base-ui/react/dialog"
+import { AppEdgeFade, appBackdropClassName } from "@/components/ui/app-edge-fade"
+import { OnboardingSurface } from "./onboarding-surface"
+import { OnboardingAgentDialog } from "./onboarding-agent-dialog"
 import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
 import {
   ONBOARDING_HARNESSES,
@@ -33,7 +39,7 @@ function harnessLabel(value?: string) {
   return ONBOARDING_HARNESSES.find((option) => option.value === value)?.label ?? "your harness"
 }
 
-export function CommunityOnboardingForm() {
+function CommunityOnboardingSteps() {
   const communityRuntime = useCommunityRuntime()
   const pathname = usePathname()
   const currentUser = useCurrentUser()
@@ -150,8 +156,9 @@ export function CommunityOnboardingForm() {
     return (
       <OnboardingSelectDialog
         open
-        onOpenChange={() => undefined}
-        step={{ current: 1, total: totalSteps }}
+        onOpenChange={(open) => { if (!open) skipCommunityOnboarding(communityRuntime) }}
+        step={{ current: 1, total: 2 }}
+        dismissible
         stepLabel="Your harness"
         title="Which harness do you already use?"
         description="Pick the setup that already runs your bots."
@@ -160,12 +167,22 @@ export function CommunityOnboardingForm() {
         onValueChange={setHarness}
         submitLabel="Continue"
         onSubmit={(value) => {
-          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value })
+          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: "agent" })
         }}
         testId={tid.onboardingHarnessDialog}
         optionTestId={tid.onboardingHarnessOption}
       />
     )
+  }
+
+  if (state.stage === "machine" && state.setupMode === "agent") {
+    return <OnboardingAgentDialog
+      harness={state.harness ?? ""}
+      harnessLabel={harnessLabel(state.harness)}
+      onConnected={() => finishCommunityOnboardingAgentSetup(communityRuntime)}
+      onChooseAgent={() => recoverCommunityOnboardingHarness(communityRuntime)}
+      onExit={() => skipCommunityOnboarding(communityRuntime)}
+    />
   }
 
   if (state.stage === "machine") {
@@ -175,6 +192,7 @@ export function CommunityOnboardingForm() {
         harness={state.harness ?? ""}
         harnessLabel={harnessLabel(state.harness)}
         totalSteps={totalSteps}
+        onExit={() => skipCommunityOnboarding(communityRuntime)}
         onConnected={(machineId) => {
           advanceCommunityOnboarding(communityRuntime, "machine", requiredModel ? "model" : "identity", { machineId, model: null })
         }}
@@ -190,16 +208,17 @@ export function CommunityOnboardingForm() {
   }
 
   if (state.stage === "model") {
-    return <OnboardingModelDialog runtime={selectedRuntime ?? { id: state.harness! }} model={model} onModelChange={setModel} onContinue={() => advanceCommunityOnboarding(communityRuntime, "model", "identity", { model })} />
+    return <OnboardingModelDialog onExit={() => skipCommunityOnboarding(communityRuntime)} runtime={selectedRuntime ?? { id: state.harness! }} model={model} onModelChange={setModel} onContinue={() => advanceCommunityOnboarding(communityRuntime, "model", "identity", { model })} />
   }
 
   if (state.stage === "identity") {
     return (
       <OnboardingSelectDialog
         open
-        onOpenChange={() => undefined}
+        onOpenChange={(open) => { if (!open) skipCommunityOnboarding(communityRuntime) }}
         step={{ current: totalSteps, total: totalSteps }}
         stepLabel="About you"
+        dismissible
         title="Which best describes you?"
         description="We’ll shape the room around your work."
         options={[...ONBOARDING_IDENTITIES]}
@@ -227,6 +246,7 @@ export function CommunityOnboardingForm() {
   if (state.stage === "initializing") {
     return (
       <OnboardingStatusDialog
+        onExit={() => skipCommunityOnboarding(communityRuntime)}
         totalSteps={totalSteps}
         status={initializationStatus === "idle" ? "loading" : initializationStatus}
         currentStep={initializationStep}
@@ -257,4 +277,35 @@ export function CommunityOnboardingForm() {
   }
 
   return null
+}
+
+export function CommunityOnboardingForm() {
+  const runtime = useCommunityRuntime()
+  const state = useCommunityOnboarding()
+  if (!state) return null
+  const selected = Boolean(state.harness)
+  const mode = state.setupMode === "agent" ? "agent" : "manual"
+  const switching = selected && ["machine", "model", "identity"].includes(state.stage)
+  return <SetupDialog.Root open onOpenChange={(open) => { if (!open) skipCommunityOnboarding(runtime) }}>
+    <SetupDialog.Portal>
+    <SetupDialog.Backdrop className={`fixed inset-0 z-50 ${appBackdropClassName}`}><AppEdgeFade /></SetupDialog.Backdrop>
+    <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col gap-1 text-foreground outline-none">
+    <OnboardingSurface>
+      <header className="flex shrink-0 items-center justify-between gap-4 px-2">
+        <nav aria-label="Setup method" className="flex gap-4">
+          {selected ? (["agent", "manual"] as const).map((value) => <button
+            key={value} type="button" data-testid={`onboarding-mode-${value}`} aria-pressed={mode === value}
+            disabled={!switching} onClick={() => { if (mode !== value) switchCommunityOnboardingSetup(runtime, value) }}
+            className={`inline-flex min-h-11 items-center bg-transparent px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${mode === value ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          ><span className={`border-b-2 pb-1 ${mode === value ? "border-foreground" : "border-transparent"}`}>{value === "agent" ? "Agent" : "Manual"}</span></button>) : <span className="text-sm text-muted-foreground">Set up Alook</span>}
+        </nav>
+        <Button type="button" variant="ghost" size="icon" aria-label="Exit setup" title="Exit setup" className="size-11 text-foreground" onClick={() => skipCommunityOnboarding(runtime)}><X aria-hidden className="size-4" /></Button>
+      </header>
+      <div className="min-h-0 overflow-y-auto thin-scrollbar rounded-xl bg-popover text-popover-foreground shadow-(--e2)">
+        <CommunityOnboardingSteps />
+      </div>
+    </OnboardingSurface>
+    </SetupDialog.Popup>
+    </SetupDialog.Portal>
+  </SetupDialog.Root>
 }
