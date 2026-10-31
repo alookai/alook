@@ -289,7 +289,7 @@ export function CommunityOnboardingForm() {
   return <SetupDialog.Root open onOpenChange={(open) => { if (!open) skipCommunityOnboarding(runtime) }}>
     <SetupDialog.Portal>
     <SetupDialog.Backdrop className={`fixed inset-0 z-50 ${appBackdropClassName}`}><AppEdgeFade /></SetupDialog.Backdrop>
-    <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col gap-2 text-foreground outline-none">
+    <SetupDialog.Popup aria-label="Set up Alook" data-testid="onboarding-surface" className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col gap-1 text-foreground outline-none">
     <OnboardingSurface>
       <header className="flex shrink-0 items-center justify-between gap-4 px-2">
         <nav aria-label="Setup method" className="flex gap-4">
