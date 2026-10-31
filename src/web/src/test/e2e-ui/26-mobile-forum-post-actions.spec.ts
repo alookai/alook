@@ -200,6 +200,7 @@ async function expectMobileGeometry(
   titleState: "single" | "truncated",
   role: "author" | "manager",
   width: (typeof MOBILE_WIDTHS)[number],
+  twoLinePreview = false,
 ): Promise<void> {
   await page.setViewportSize({ width, height: 844 })
   const tagButton = page.getByTestId(tid.forumThreadTagBtn(postId))
@@ -252,6 +253,11 @@ async function expectMobileGeometry(
   })
   const expectedLines = 1
   expect(titleMetrics.lines, `${role}/${postId}@${width}: actual inline lines`).toBe(expectedLines)
+  if (twoLinePreview) {
+    const previewLines = await card.locator('[data-slot="community-forum-post-preview"]').evaluate((element) =>
+      element.getBoundingClientRect().height / Number.parseFloat(getComputedStyle(element).lineHeight))
+    expect(previewLines, `${role}/${postId}@${width}: actual preview lines`).toBeCloseTo(2, 1)
+  }
   const sequenceMetrics = await sequence.evaluate((element, titleId) => {
     const bounds = element.getBoundingClientRect()
     return {
@@ -277,6 +283,8 @@ async function expectMobileGeometry(
     expect(controlRect.top, `${role}/${postId}@${width}: control top`).toBeGreaterThanOrEqual(cardRect!.top)
     expect(controlRect.bottom, `${role}/${postId}@${width}: control bottom`).toBeLessThanOrEqual(cardRect!.bottom)
     expect(intersects(titleRect!, controlRect), `${role}/${postId}@${width}: title/action overlap`).toBe(false)
+    expect(Math.abs((titleRect!.top + titleRect!.bottom) / 2 - (controlRect.top + controlRect.bottom) / 2),
+      `${role}/${postId}@${width}: title/action vertical centers`).toBeLessThanOrEqual(0.5)
     const centerTarget = await page.evaluate(({ x, y }) => {
       const target = document.elementFromPoint(x, y)
       return target?.closest("button")?.getAttribute("data-testid") ?? null
@@ -532,7 +540,7 @@ test("forum post actions stay discoverable on mobile without changing permission
     "bob",
     forumId,
     primaryTitle,
-    "mobile action geometry",
+    "Forum preview text uses two visible lines on narrow screens while the single-line title and its action group stay centered together. The preview remains below that row and retains its existing truncation.",
   )
   const cjkPostId = await seedForumThread(
     "bob",
@@ -588,6 +596,7 @@ test("forum post actions stay discoverable on mobile without changing permission
         post.titleState,
         "author",
         width,
+        post.id === primaryPostId,
       )
     }
     await testInfo.attach(`author-${width}.png`, {
@@ -635,6 +644,7 @@ test("forum post actions stay discoverable on mobile without changing permission
         post.titleState,
         "manager",
         width,
+        post.id === primaryPostId,
       )
     }
     await testInfo.attach(`manager-${width}.png`, {
@@ -665,11 +675,15 @@ test("forum post actions stay discoverable on mobile without changing permission
     await managerTagButton.evaluate((button) => button.blur())
     await manager.page.mouse.move(0, 0)
     await managerCard.scrollIntoViewIfNeeded()
+    const titleRect = await rect(manager.page.getByTestId(tid.forumThreadTitle(primaryPostId)))
+    expect(titleRect, `title geometry@${width}`).not.toBeNull()
     for (const button of [managerTagButton, managerArchiveButton, managerDeleteButton]) {
       await expect(button).toHaveCSS("opacity", width < 640 ? "1" : "0")
       const buttonRect = await rect(button)
       expect(buttonRect?.width, `action width@${width}`).toBe(32)
       expect(buttonRect?.height, `action height@${width}`).toBe(32)
+      expect(Math.abs((titleRect!.top + titleRect!.bottom) / 2 - (buttonRect!.top + buttonRect!.bottom) / 2),
+        `title/action vertical centers@${width}`).toBeLessThanOrEqual(0.5)
     }
     const baseline = await postActionGeometry(managerCard, primaryPostId)
     await managerCard.hover()
