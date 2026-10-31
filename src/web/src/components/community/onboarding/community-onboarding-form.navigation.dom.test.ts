@@ -62,9 +62,8 @@ vi.mock("./onboarding-machine-dialog", () => ({
   }), createElement("button", { onClick: () => onConnected("machine-1") }, "Machine connected"), createElement("button", { onClick: onExit }, "Exit manual")),
 }))
 vi.mock("./onboarding-agent-dialog", () => ({
-  OnboardingAgentDialog: ({ onManual, onExit }: { onManual: () => void; onExit: () => void }) => createElement("div", {},
+  OnboardingAgentDialog: ({ onExit }: { onExit: () => void }) => createElement("div", {},
     createElement("p", {}, "Agent Setup"),
-    createElement("button", { onClick: onManual }, "Manual"),
     createElement("button", { onClick: onExit }, "Exit agent")),
 }))
 vi.mock("./onboarding-select-dialog", () => ({
@@ -129,6 +128,21 @@ describe("CommunityOnboardingForm room navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manual" }))
     expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Exit manual" }))
+    expect(owner.runtime.ui.get().onboardingState).toBeNull()
+    expect(mocks.initialize).not.toHaveBeenCalled()
+  })
+
+  it.each(["machine", "model", "identity"])("keeps outer mode controls available from manual %s", (stage) => {
+    mocks.state = { status: "active", stage, harness: "opencode", setupMode: "manual", machineId: "machine-1" }
+    render(createElement(CommunityOnboardingForm))
+    const agent = screen.getByTestId("onboarding-mode-agent")
+    expect(agent).toBeEnabled()
+    fireEvent.click(agent)
+    expect(screen.getByText("Agent Setup")).toBeInTheDocument()
+    expect(screen.getByTestId("onboarding-mode-agent")).toBe(agent)
+    fireEvent.click(screen.getByTestId("onboarding-mode-manual"))
+    expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Exit setup" }))
     expect(owner.runtime.ui.get().onboardingState).toBeNull()
     expect(mocks.initialize).not.toHaveBeenCalled()
   })

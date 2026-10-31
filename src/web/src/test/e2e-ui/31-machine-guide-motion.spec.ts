@@ -21,11 +21,11 @@ test("first-signup mobile starts onboarding once and retains it on desktop", asy
   await expect(onboarding.getByRole("heading", { name: "Which harness do you already use?" })).toBeVisible()
   await page.getByTestId(tid.onboardingHarnessOption("grok")).click()
   await onboarding.getByRole("button", { name: "Continue", exact: true }).click()
-  await expect(page.getByTestId(tid.onboardingMachineDialog)).toBeVisible()
+  await expect(page.getByTestId("onboarding-agent-dialog")).toBeVisible()
 
   await page.setViewportSize({ width: 1280, height: 800 })
   await expect(page).toHaveURL(/\/c\/me\/machines$/)
-  await expect(page.getByTestId(tid.onboardingMachineDialog)).toBeVisible()
+  await expect(page.getByTestId("onboarding-agent-dialog")).toBeVisible()
   await expect(onboarding).toHaveCount(0)
 })
 
@@ -44,7 +44,7 @@ test("first-signup desktop opens onboarding before the empty Machines guide", as
   await expect(
     onboarding.getByRole("heading", { name: "Which harness do you already use?" }),
   ).toBeVisible()
-  await expect(onboarding.getByLabel("Step 1 of 3")).toBeVisible()
+  await expect(onboarding.getByLabel("Step 1 of 2")).toBeVisible()
   await expect(page.getByTestId(tid.machineFirstSignupGuide)).toHaveCount(0)
 
   const grok = page.getByTestId(tid.onboardingHarnessOption("grok"))
@@ -54,9 +54,23 @@ test("first-signup desktop opens onboarding before the empty Machines guide", as
   await grok.click()
   await onboarding.getByRole("button", { name: "Continue", exact: true }).click()
 
+  const agentStep = page.getByTestId("onboarding-agent-dialog")
+  await expect(agentStep).toBeVisible()
+  const manualMode = page.getByTestId("onboarding-mode-manual")
+  const agentMode = page.getByTestId("onboarding-mode-agent")
+  await manualMode.click()
+
   const machineStep = page.getByTestId(tid.onboardingMachineDialog)
   await expect(machineStep).toBeVisible()
   await expect(machineStep.getByRole("heading", { name: /Connect your Grok Build machine/ }))
     .toBeVisible()
   await expect(machineStep.locator('[data-provider-logo="grok"]')).toBeVisible()
+  await agentMode.focus()
+  await page.keyboard.press("Enter")
+  await expect(agentStep).toBeVisible()
+  await expect(agentMode).toHaveAttribute("aria-pressed", "true")
+  await manualMode.focus()
+  await page.keyboard.press("Enter")
+  await expect(machineStep).toBeVisible()
+  await expect(manualMode).toHaveAttribute("aria-pressed", "true")
 })

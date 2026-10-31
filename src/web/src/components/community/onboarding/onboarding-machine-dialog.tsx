@@ -22,7 +22,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "./onboarding-surface"
 import { useJoinServer } from "@/hooks/community/mutations/servers"
 import { useMachines } from "@/hooks/community/use-machines"
 import { tid } from "@/lib/community/testids"

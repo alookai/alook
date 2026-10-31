@@ -21,6 +21,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections";
 
 import {
+  finishCommunityOnboardingAgentSetup,
   switchCommunityOnboardingSetup,
   advanceCommunityOnboarding,
   completeCommunityOnboarding,
@@ -40,6 +41,20 @@ describe("community onboarding journey", () => {
   beforeEach(() => {
     registry = createCommunityDbRegistry(new QueryClient(), "viewer");
     vi.clearAllMocks();
+  });
+
+  it("finishes an agent handoff without counting it as skipped or a completed team", () => {
+    startCommunityOnboarding(runtime());
+    finishCommunityOnboardingAgentSetup(runtime());
+    expect(readCommunityOnboardingState(runtime())?.stage).toBe("harness");
+    advanceCommunityOnboarding(runtime(), "harness", "machine", { harness: "codex", setupMode: "manual" });
+    finishCommunityOnboardingAgentSetup(runtime());
+    expect(readCommunityOnboardingState(runtime())?.stage).toBe("machine");
+    switchCommunityOnboardingSetup(runtime(), "agent");
+    finishCommunityOnboardingAgentSetup(runtime());
+    expect(readCommunityOnboardingState(runtime())).toBeNull();
+    expect(analytics.skipped).not.toHaveBeenCalled();
+    expect(analytics.product).not.toHaveBeenCalled();
   });
 
   afterEach(() => {

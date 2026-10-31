@@ -3,7 +3,7 @@
 import type { CommunityMachineRuntime } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { ProviderLogo } from "@/components/provider-logo"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./onboarding-surface"
 import { ModelField } from "../bots/model-field"
 import { validateBotModel } from "../bots/bot-form-validation"
 import { ONBOARDING_HARNESSES } from "./onboarding-form-options"

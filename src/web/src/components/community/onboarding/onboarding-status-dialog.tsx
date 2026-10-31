@@ -13,7 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "./onboarding-surface"
 import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
 import { useCanonicalCommunityProfile, useCanonicalCommunityServer } from "@/lib/community-db/projections"

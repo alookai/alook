@@ -129,6 +129,14 @@ export function completeCommunityOnboarding(runtime: CommunityRuntime, pathname?
   return null;
 }
 
+export function finishCommunityOnboardingAgentSetup(runtime: CommunityRuntime) {
+  const state = readCommunityOnboardingState(runtime);
+  if (state?.stage !== "machine" || state.setupMode !== "agent") return state;
+  publish(runtime, null);
+  trackCommunityOnboardingStageCompleted("machine");
+  return null;
+}
+
 export function skipCommunityOnboarding(runtime: CommunityRuntime) {
   const currentState = readCommunityOnboardingState(runtime);
   if (!currentState) return null;
