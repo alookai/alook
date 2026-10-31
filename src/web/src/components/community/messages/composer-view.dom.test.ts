@@ -2,7 +2,7 @@ import { createElement, type ReactNode } from "react"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   mentionProps: vi.fn(),
@@ -18,7 +18,6 @@ vi.mock("lucide-react", () => ({
   FileIcon: (props: Record<string, unknown>) => createElement("span", { ...props, "data-file-icon": "" }),
   ImageIcon: (props: Record<string, unknown>) =>
     createElement("span", { ...props, "data-image-icon": "" }),
-  Keyboard: (props: Record<string, unknown>) => createElement("span", { ...props, "data-keyboard-icon": "" }),
   PlusCircle: (props: Record<string, unknown>) =>
     createElement("span", { ...props, "data-plus-icon": "" }),
   Smile: (props: Record<string, unknown>) => createElement("span", { ...props, "data-smile-icon": "" }),
@@ -86,15 +85,16 @@ function baseProps(
 }
 
 describe("ComposerView", () => {
-  it("dismisses the native keyboard without replacing draft, reply, attachments or send ownership", async () => {
+  it.each([false, true])("keeps the composer free of native keyboard controls and reservations (forum=%s)", async (isForumThreadBody) => {
     const descriptor = Object.getOwnPropertyDescriptor(window, "webkit")
     const tauriDescriptor = Object.getOwnPropertyDescriptor(window, "__TAURI__")
     Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
-    let visible = false
-    const postMessage = vi.fn(async () => ({ bottomInset: visible ? 300 : 0, viewportWidth: window.innerWidth }))
+    let bottomInset = 0
+    const postMessage = vi.fn(async () => ({ bottomInset, viewportWidth: window.innerWidth }))
     Object.defineProperty(window, "webkit", { configurable: true, value: { messageHandlers: { alookKeyboard: { postMessage } } } })
     try {
       const props = baseProps({
+        isForumThreadBody,
         showSend: true, sendDisabled: false, onCancelReply: vi.fn(), replyingTo: { authorName: "Alice", text: "Original reply" },
         pendingFiles: [{ file: new File(["image"], "draft.png", { type: "image/png" }), thumbnailUrl: null, thumbnailBlob: null }],
         editorContent: createElement("div", { contentEditable: true, suppressContentEditableWarning: true }, "Unsent draft"),
@@ -103,18 +103,17 @@ describe("ComposerView", () => {
       const input = view.getByTestId(tid.composerInput)
       const editor = input.firstElementChild
       const send = view.getByTestId(tid.composerSend)
-      expect(view.queryByRole("button", { name: "Hide keyboard" })).toBeNull()
-      visible = true
-      act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-      await waitFor(() => expect(view.getByRole("button", { name: "Hide keyboard" })).toBeVisible())
-      fireEvent.click(view.getByRole("button", { name: "Hide keyboard" }))
-      expect(postMessage).toHaveBeenLastCalledWith("dismiss")
+      const originalClass = input.className
+      for (const inset of [300, 0, 320]) {
+        bottomInset = inset
+        await act(async () => window.dispatchEvent(new Event("alook:keyboard-change")))
+        expect(view.queryByRole("button", { name: "Hide keyboard" })).toBeNull()
+        expect(input.className).toBe(originalClass)
+      }
+      expect(postMessage).not.toHaveBeenCalled()
       expect(props.onSend).not.toHaveBeenCalled()
       expect(props.onCancelReply).not.toHaveBeenCalled()
       expect(props.removePendingFile).not.toHaveBeenCalled()
-      visible = false
-      act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-      await waitFor(() => expect(view.queryByRole("button", { name: "Hide keyboard" })).toBeNull())
       expect(view.getByTestId(tid.composerInput)).toBe(input)
       expect(input.firstElementChild).toBe(editor)
       expect(input.textContent).toBe("Unsent draft")

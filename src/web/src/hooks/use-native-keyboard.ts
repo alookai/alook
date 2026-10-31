@@ -1,11 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { isTauri } from "@alook/shared"
 
 type KeyboardSnapshot = { bottomInset: number; viewportWidth: number }
 type KeyboardBridge = {
-  postMessage: (command: "snapshot" | "dismiss") => Promise<KeyboardSnapshot>
+  postMessage: (command: "snapshot") => Promise<KeyboardSnapshot>
 }
 type KeyboardWindow = Window & {
   webkit?: { messageHandlers?: { alookKeyboard?: KeyboardBridge } }
@@ -18,12 +18,10 @@ function keyboardBridge() {
 
 export function useNativeKeyboard() {
   const [bottomInset, setBottomInset] = useState(0)
-  const current = useRef<{ bridge: KeyboardBridge; active: boolean } | null>(null)
   useEffect(() => {
     const bridge = keyboardBridge()
     if (!bridge) return
-    const owner = { bridge, active: true }
-    current.current = owner
+    const owner = { active: true }
     let revision = 0
     const sync = async () => {
       if (!owner.active) return
@@ -52,7 +50,6 @@ export function useNativeKeyboard() {
     void sync()
     return () => {
       owner.active = false
-      if (current.current === owner) current.current = null
       revision++
       window.removeEventListener("alook:keyboard-change", sync)
       window.removeEventListener("resize", sync)
@@ -60,11 +57,5 @@ export function useNativeKeyboard() {
       window.removeEventListener("pageshow", show)
     }
   }, [])
-  const dismiss = useCallback(() => {
-    const owner = current.current
-    if (owner?.active) void owner.bridge.postMessage("dismiss").catch(() => {
-      if (owner.active) console.error("Native keyboard dismissal failed")
-    })
-  }, [])
-  return { visible: bottomInset > 0, bottomInset, dismiss }
+  return { bottomInset }
 }
