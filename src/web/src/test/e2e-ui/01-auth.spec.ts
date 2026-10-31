@@ -139,11 +139,10 @@ browserTest.describe("production OTP error placement", () => {
     }))
 
     await page.goto("/sign-in")
-    const sendCode = page.getByRole("button", { name: "Send Code" })
+    const sendCode = page.getByRole("button", { name: "Continue with email" })
     browserTest.skip(!(await sendCode.isVisible()), "production Email OTP UI is not active")
 
     await page.getByRole("textbox", { name: "Email" }).fill("person@example.com")
-    await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
     await sendCode.click()
 
     const otp = page.getByRole("textbox", { name: "Verification code" })
@@ -196,7 +195,7 @@ browserTest.describe("production OTP error placement", () => {
     await page.getByRole("button", { name: "Use a different email" }).click()
     await browserExpect(alert).toHaveCount(0)
     await browserExpect(page.getByRole("textbox", { name: "Email" })).toBeVisible()
-    await page.getByRole("button", { name: "Send Code" }).click()
+    await page.getByRole("button", { name: "Continue with email" }).click()
 
     await otp.fill("654321")
     await page.waitForURL("**/c/me")
@@ -226,12 +225,11 @@ browserTest.describe("production OTP error placement", () => {
     })
 
     await page.goto("/sign-in")
-    const sendCode = page.getByRole("button", { name: "Send Code" })
+    const sendCode = page.getByRole("button", { name: "Continue with email" })
     browserTest.skip(!(await sendCode.isVisible()), "production Email OTP UI is not active")
 
     const email = page.getByRole("textbox", { name: "Email" })
     await email.fill("person@example.com")
-    await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
     await sendCode.click()
 
     let alert = page.getByRole("alert").filter({ hasText: "Failed to send code" })
@@ -259,8 +257,8 @@ browserTest.describe("production OTP error placement", () => {
     browserExpect(alertBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height)
     browserExpect(alertBox!.y + alertBox!.height).toBeLessThanOrEqual(sendBox!.y)
     await browserExpect(page.getByRole("button", { name: /Wait \d+s/ })).toBeDisabled()
-    await browserExpect(page.getByRole("button", { name: "GitHub" })).toBeVisible()
-    await browserExpect(page.getByRole("button", { name: "Google" })).toBeVisible()
+    await browserExpect(page.getByRole("button", { name: "Continue with GitHub" })).toBeVisible()
+    await browserExpect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible()
   })
 })
 
@@ -337,9 +335,8 @@ browserTest.describe("native OAuth status actions", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto("/sign-in")
-    await browserExpect(page.getByRole("button", { name: "GitHub" })).toBeEnabled()
-    await page.getByRole("checkbox", { name: "I agree to the Terms of Service" }).check()
-    await page.getByRole("button", { name: "GitHub" }).click()
+    await browserExpect(page.getByRole("button", { name: "Continue with GitHub" })).toBeEnabled()
+    await page.getByRole("button", { name: "Continue with GitHub" }).click()
     await expectCenteredNativeOauthState(page, {
       copy: "Opening sign-in in your browser…",
       role: "status",

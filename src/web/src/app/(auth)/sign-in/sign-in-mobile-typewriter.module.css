@@ -1,0 +1,91 @@
+.stage {
+  --tw-blob-theme: var(--muted);
+  --tw-scale: 0.46;
+  --tw-rx: 11deg;
+  --tw-ry: -19deg;
+  --tw-tx: 0px;
+  --tw-ty: 0px;
+}
+
+.typewriter:global(.typewriter-visual) {
+  pointer-events: none;
+  flex-shrink: 0;
+  zoom: 1;
+  width: 420px;
+  height: 260px;
+  justify-content: center;
+  transform: translate3d(var(--tw-tx), var(--tw-ty), 0);
+  transition: transform 90ms ease-out;
+  will-change: transform;
+}
+
+.typewriter :global(.tw-paper-track) {
+  overflow: visible;
+  bottom: calc(100% - 24px);
+  transform: translateX(-50%) translateZ(78px);
+}
+
+.typewriter :global(.tw-paper) {
+  pointer-events: none;
+}
+
+.typewriter :global(.tw-paper.tw-paper-city) {
+  padding: 8px 8px 22px;
+}
+
+.typewriter :global(.tw-body-left),
+.typewriter :global(.tw-body-right),
+.typewriter :global(.tw-body-top),
+.typewriter :global(.tw-body-back),
+.typewriter :global(.tw-body-bottom) {
+  display: none;
+}
+
+.typewriter :global(.tw-body-front) {
+  box-shadow:
+    4px 2px 0 var(--tw-body-lo),
+    8px 4px 0 var(--tw-body-lo),
+    12px 6px 0 var(--tw-body-lo),
+    16px 8px 0 var(--tw-body-lo),
+    20px 10px 0 var(--tw-body-lo),
+    18px 22px 32px color-mix(in oklch, var(--foreground) 18%, transparent);
+}
+
+.typewriter :global(.typewriter-blob) {
+  top: 50%;
+  bottom: auto;
+  left: 50%;
+  width: 560px;
+  height: 460px;
+  opacity: 0.72;
+  transform: translate3d(
+      calc(-50% + var(--tw-tx) * -0.55),
+      calc(-50% + 16px * var(--tw-scale) + var(--tw-ty) * -0.55),
+      0
+    )
+    scale(calc(var(--tw-scale) * var(--blob-scale, 0.95)));
+  transition: transform 120ms ease-out;
+}
+
+.typewriter :global(.typewriter-scene) {
+  perspective: 1400px;
+  transform: none !important;
+}
+
+.typewriter :global(.tw-machine) {
+  transform-origin: 50% 15px;
+  transform: translate3d(0, 115px, 0)
+    scale3d(var(--tw-scale), var(--tw-scale), var(--tw-scale))
+    rotateY(var(--tw-ry))
+    rotateX(var(--tw-rx));
+  transition: transform 90ms ease-out;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typewriter:global(.typewriter-visual),
+  .typewriter :global(.typewriter-blob),
+  .typewriter :global(.tw-machine) {
+    transition: none;
+  }
+}

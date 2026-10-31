@@ -706,7 +706,39 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const mobileLandscapeLoaded = await previewRects(mobilePage, { width: 800, height: 450 })
   expectSameRect(mobileLandscapeLoaded.container, mobileLandscapeLoading.container)
   await attachScreenshot(testInfo, "mobile-landscape-loaded", mobilePage)
-  await mobilePage.keyboard.press("Escape")
+  const mobileLandscapeFrame = mobilePage.getByTestId(tid.imageLightbox)
+  const mobileLandscapeOriginal = mobilePage.getByTestId(tid.imageLightboxOriginal)
+  const paintedLandscape = mobileLandscapeLoaded.originalPainted!
+  const imageCenter = {
+    x: paintedLandscape.x + paintedLandscape.width / 2,
+    y: paintedLandscape.y + paintedLandscape.height / 2,
+  }
+  await mobilePage.mouse.click(imageCenter.x, imageCenter.y)
+  await expect(mobileLandscapeFrame).toBeVisible()
+  await mobilePage.getByRole("toolbar", { name: "Image controls" }).click({ position: { x: 2, y: 2 } })
+  await expect(mobileLandscapeFrame).toBeVisible()
+  expect(paintedLandscape.y - mobileLandscapeLoaded.original.y).toBeGreaterThan(24)
+  const letterbox = {
+    x: imageCenter.x,
+    y: (mobileLandscapeLoaded.original.y + paintedLandscape.y) / 2,
+  }
+  expect(await mobileLandscapeOriginal.evaluate((element, point) => (
+    document.elementFromPoint(point.x, point.y) === element
+  ), letterbox)).toBe(true)
+  await mobilePage.mouse.move(letterbox.x, letterbox.y)
+  await mobilePage.mouse.down()
+  await mobilePage.mouse.move(letterbox.x + 12, letterbox.y, { steps: 3 })
+  await mobilePage.mouse.up()
+  await expect(mobileLandscapeFrame).toBeVisible()
+  expect((await previewImageGeometry(mobileLandscapeOriginal)).translation.x).toBeCloseTo(12, 1)
+  await mobilePage.getByRole("button", { name: "Fit image", exact: true }).click()
+  await expect(mobileLandscapeFrame).toHaveAttribute("data-zoom-scale", "1")
+  expectSameRect(await boundingRect(mobileLandscapeOriginal), mobileLandscapeLoaded.original)
+  expect(await mobileLandscapeOriginal.evaluate((element, point) => (
+    document.elementFromPoint(point.x, point.y) === element
+  ), letterbox)).toBe(true)
+  await mobilePage.mouse.click(letterbox.x, letterbox.y)
+  await expect(mobileLandscapeFrame).toHaveCount(0)
   await mobilePage.unroute(`**${landscape.originalPath}`)
 
   let releaseMobilePortrait!: () => void

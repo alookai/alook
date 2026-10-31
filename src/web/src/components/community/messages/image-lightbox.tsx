@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { useLayoutEffect, useMemo, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react"
@@ -10,6 +10,7 @@ import type { ImagePreview } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import {
   type ImageDimensions,
+  isPointInsidePaintedImage,
   validImageDimensions,
 } from "./image-lightbox-layout"
 import { useRemoteImageAttempt } from "@/components/remote-image/remote-image-attempt"
@@ -24,7 +25,7 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
   const [
     thumbnailStatus,
     thumbnailAttempt,
-    ,
+    thumbnailImage,
     thumbnailRef,
     onThumbnailLoad,
     onThumbnailError,
@@ -42,6 +43,8 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
   const originalReady = originalStatus === "ready"
   const { frameRef, view, reset, zoomIn, zoomOut, handlers } = useImageLightboxZoom(originalReady)
+  const gestureRef = useRef<{ pointerId: number; x: number; y: number; suppressClose: boolean } | null>(null)
+  const activePointersRef = useRef(new Set<number>())
   const imageStyle = {
     maxWidth: dimensions?.width,
     maxHeight: dimensions?.height,
@@ -54,8 +57,82 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
     setDimensions(knownDimensions ?? naturalDimensions)
   }, [knownDimensions, originalImage, originalStatus, setDimensions])
 
+  function handleRootPointerDown(event: PointerEvent<HTMLDivElement>) {
+    activePointersRef.current.add(event.pointerId)
+    if (event.button !== 0 || activePointersRef.current.size > 1) {
+      if (gestureRef.current) gestureRef.current.suppressClose = true
+      return
+    }
+    gestureRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      suppressClose: false,
+    }
+  }
+
+  function handleRootPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const gesture = gestureRef.current
+    if (!gesture || gesture.pointerId !== event.pointerId) return
+    if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 6) {
+      gesture.suppressClose = true
+    }
+  }
+
+  function handleRootPointerEnd(event: PointerEvent<HTMLDivElement>) {
+    activePointersRef.current.delete(event.pointerId)
+  }
+
+  function handleBackdropClick(event: MouseEvent<HTMLDivElement>) {
+    const gesture = gestureRef.current
+    gestureRef.current = null
+    if (gesture?.suppressClose) return
+    const target = event.target instanceof Element ? event.target : null
+    if (
+      target?.closest(
+        `[role="toolbar"], [data-testid="${tid.imageLightboxLoading}"], [data-testid="${tid.imageLightboxError}"]`,
+      )
+    ) {
+      return
+    }
+    const activeImage = originalReady
+      ? originalImage
+      : thumbnailReady
+      ? thumbnailImage
+      : null
+    const bounds = frameRef.current?.getBoundingClientRect()
+    if (bounds && bounds.width > 0 && bounds.height > 0) {
+      const natural =
+        dimensions ?? validImageDimensions(activeImage?.naturalWidth, activeImage?.naturalHeight)
+      if (
+        activeImage
+        && natural
+        && isPointInsidePaintedImage({
+          point: { x: event.clientX, y: event.clientY },
+          frame: bounds,
+          natural,
+          maxDimensions: dimensions,
+          view,
+        })
+      ) {
+        return
+      }
+      onClose()
+      return
+    }
+    if (activeImage && (target === activeImage || activeImage.contains(target))) return
+    onClose()
+  }
+
   return (
-    <div className="relative flex size-full min-h-0 flex-col gap-2">
+    <div
+      className="relative flex size-full min-h-0 flex-col gap-2"
+      onPointerDownCapture={handleRootPointerDown}
+      onPointerMoveCapture={handleRootPointerMove}
+      onPointerUpCapture={handleRootPointerEnd}
+      onPointerCancelCapture={handleRootPointerEnd}
+      onClick={handleBackdropClick}
+    >
       <div
         role="toolbar"
         aria-label="Image controls"

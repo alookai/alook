@@ -31,6 +31,7 @@ vi.mock("better-auth/plugins", () => ({
   deviceAuthorization: vi.fn((cfg: unknown) => ({ __plugin: "deviceAuthorization", cfg })),
   bearer: vi.fn(() => ({ __plugin: "bearer" })),
   oneTimeToken: vi.fn((cfg: unknown) => ({ __plugin: "oneTimeToken", cfg })),
+  lastLoginMethod: vi.fn((cfg: unknown) => ({ __plugin: "lastLoginMethod", cfg })),
 }))
 
 vi.mock("@/lib/apple-auth", async (importOriginal) => {

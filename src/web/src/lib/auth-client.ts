@@ -1,6 +1,7 @@
 "use client"
 import { createAuthClient } from "better-auth/react"
-import { emailOTPClient } from "better-auth/client/plugins"
+import { emailOTPClient, lastLoginMethodClient } from "better-auth/client/plugins"
+import { LAST_LOGIN_METHOD_COOKIE } from "@/lib/last-login-method"
 import { captureTelemetryIdentityRetirement } from "@/lib/observability/client"
 import {
   resumeMobileSystemNotificationRegistration,
@@ -10,7 +11,7 @@ import {
 
 export const authClient = createAuthClient({
   baseURL: process.env.NEXT_PUBLIC_APP_URL || "",
-  plugins: [emailOTPClient()],
+  plugins: [emailOTPClient(), lastLoginMethodClient({ cookieName: LAST_LOGIN_METHOD_COOKIE })],
 })
 
 export const { signIn, signUp, useSession } = authClient

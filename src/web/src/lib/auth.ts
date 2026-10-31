@@ -1,6 +1,11 @@
 import { annotateWorkerSpan, observeWorkerOperation } from "./observability/worker"
 import { betterAuth } from "better-auth"
-import { emailOTP, oneTimeToken } from "better-auth/plugins"
+import { emailOTP, lastLoginMethod, oneTimeToken } from "better-auth/plugins"
+import {
+  LAST_LOGIN_METHOD_COOKIE,
+  LAST_LOGIN_METHOD_MAX_AGE,
+  resolveAuthPathLoginMethod,
+} from "@/lib/last-login-method"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
 import {
@@ -118,6 +123,19 @@ export function createAuth(env: Env) {
   const applePlugins = appleAuth.enabled
     ? [appleOauthHardeningPlugin(appleAuth.config.clientId)]
     : []
+  const sharedPlugins = [
+    ...applePlugins,
+    lastLoginMethod({
+      cookieName: LAST_LOGIN_METHOD_COOKIE,
+      maxAge: LAST_LOGIN_METHOD_MAX_AGE,
+      customResolveMethod: (ctx) => resolveAuthPathLoginMethod(ctx.path),
+    }),
+    oneTimeToken({
+      expiresIn: 2,
+      disableClientRequest: true,
+      storeToken: "hashed",
+    }),
+  ]
 
   return betterAuth({
     baseURL: env.BETTER_AUTH_URL,
@@ -332,12 +350,7 @@ export function createAuth(env: Env) {
     },
     plugins: (isProd || (mode === "dev" && env.DEV_AUTH_OTP === "1"))
       ? [
-          ...applePlugins,
-          oneTimeToken({
-            expiresIn: 2,
-            disableClientRequest: true,
-            storeToken: "hashed",
-          }),
+          ...sharedPlugins,
           emailOTP({
             expiresIn: 5 * 60,
             allowedAttempts: 3,
@@ -392,14 +405,7 @@ export function createAuth(env: Env) {
             },
           }),
         ]
-      : [
-          ...applePlugins,
-          oneTimeToken({
-            expiresIn: 2,
-            disableClientRequest: true,
-            storeToken: "hashed",
-          }),
-        ],
+      : sharedPlugins,
   })
 }
 
