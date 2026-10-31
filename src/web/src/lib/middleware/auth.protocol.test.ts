@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { communityActorPolicy } from "./community-actor"
 import { apiFetch } from "@/lib/api/client"
-import { humanAuthPolicy, cookieHumanAuthPolicy, optionalAuthPolicy, type OptionalAuthHandler } from "./auth"
+import { humanAuthPolicy, cookieHumanAuthPolicy, optionalAuthPolicy } from "./auth"
 
 const mocks = vi.hoisted(() => ({ session: vi.fn(), signOut: vi.fn(), user: vi.fn(), machine: vi.fn(), bump: vi.fn(), bot: vi.fn() }))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn(async () => ({ env: { DB: {} }, ctx: { waitUntil: vi.fn() } })) }))
@@ -37,7 +37,7 @@ const sameOrigin = { Origin: "https://alook.test" }
 describe("current auth wrapper producer to API consumer", () => {
   it("admits anonymous current invite info through optional auth", async () => {
     mocks.session.mockResolvedValue({ headers: new Headers(), response: null })
-    const handler = vi.fn(async (_req: NextRequest, ctx: Parameters<OptionalAuthHandler>[1]) => NextResponse.json({ serverId: "server", anonymous: ctx.userId === undefined }))
+    const handler = vi.fn(async (_req: NextRequest, ctx: Exclude<Awaited<ReturnType<typeof optionalAuthPolicy.resolve>>, Response>["context"]) => NextResponse.json({ serverId: "server", anonymous: ctx.userId === undefined }))
     const transport = connect(withAuth(optionalAuthPolicy, handler))
     expect(await apiFetch("/api/community/invites/token/info")).toEqual({ serverId: "server", anonymous: true })
     expect(transport.request.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))

@@ -32,7 +32,7 @@ interface CookieHumanAuthContext extends AuthContext {
  * anonymous). A distinct interface so `AuthContext.userId` stays required and
  * no existing `withAuth` handler is disturbed.
  *
- * Not exported: handlers infer this shape from `OptionalAuthHandler`, so no
+ * Not exported: handlers infer this shape from `optionalAuthPolicy`, so no
  * caller imports it by name yet. Export it once a handler needs the type
  * standalone (as `AuthContext` is, because withAuth handlers import it).
  */
@@ -42,21 +42,6 @@ interface OptionalAuthContext {
   email?: string
   user?: { isBot: boolean }
 }
-
-export type AuthenticatedHandler = (
-  req: NextRequest,
-  ctx: AuthContext & { params?: Record<string, string> }
-) => Promise<NextResponse | Response>
-
-export type OptionalAuthHandler = (
-  req: NextRequest,
-  ctx: OptionalAuthContext & { params?: Record<string, string> }
-) => Promise<NextResponse | Response>
-
-export type CookieHumanAuthHandler = (
-  req: NextRequest,
-  ctx: CookieHumanAuthContext & { params?: Record<string, string> },
-) => Promise<NextResponse | Response>
 
 /**
  * Outcome of resolving a Better-Auth cookie session. Shared by `humanAuthPolicy`

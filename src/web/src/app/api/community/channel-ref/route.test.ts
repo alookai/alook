@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { AuthenticatedHandler } from "@/lib/middleware/auth"
 const m = vi.hoisted(() => ({ db: {}, resolve: vi.fn() }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => m.db }))
 vi.mock("@/lib/community/channel-ref-target", () => ({ resolveChannelRefTarget: m.resolve }))
