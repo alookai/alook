@@ -1,10 +1,38 @@
 import { currentCommunityFixtureError } from "./_fixtures/business-contract"
-import type { Request } from "@playwright/test"
+import type { Locator, Page, Request } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer, sendMessage, expectMessageVisible } from "./_fixtures/actions"
 
-test("category actions are visible on mobile and reachable by keyboard without changing category state", async ({ caseActors }, testInfo) => {
+async function tabTo(page: Page, target: Locator) {
+  for (let step = 0; step < 40; step++) {
+    await page.keyboard.press("Tab")
+    if (await target.evaluate(element => document.activeElement === element)) return
+  }
+  await expect(target).toBeFocused()
+}
+
+async function openTouchCategoryMenu(page: Page, header: Locator) {
+  await header.scrollIntoViewIfNeeded()
+  const box = await header.boundingBox()
+  if (!box) throw new Error("category title is outside the viewport")
+  const session = await page.context().newCDPSession(page)
+  let started = false
+  try {
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2, radiusX: 1, radiusY: 1, force: 1, id: 2 }],
+    })
+    started = true
+    await expect(page.getByRole("menu")).toBeVisible()
+  } finally {
+    try {
+      if (started) await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+    } finally { await session.detach() }
+  }
+}
+
+test("mobile category actions stay hidden while title menus and desktop keyboard actions work", async ({ caseActors }, testInfo) => {
   test.setTimeout(120_000)
   const actors = await caseActors(["alice", "bob"])
   const serverId = await actors.seed.seedServer("alice", `Category actions ${Date.now()}`)
@@ -21,30 +49,26 @@ test("category actions are visible on mobile and reachable by keyboard without c
   }
   const { page } = await actors.asUser("alice", { viewport: { width: 1280, height: 900 }, hasTouch: false, reducedMotion: "reduce" })
   page.on("request", observe)
-  for (const width of [639, 640, 1280]) {
+  for (const width of [640, 1280]) {
     await page.setViewportSize({ width, height: 900 })
     await page.mouse.move(0, 0)
-    await page.goto(width < 640 ? `/c/channels/${serverId}` : `/c/channels/${serverId}/${channelId}`)
+    await page.goto(`/c/channels/${serverId}/${channelId}`)
     const header = page.getByTestId(tid.categoryHeader(categoryId))
     await expect(header).toBeVisible()
     await expect(header).toHaveAttribute("aria-expanded", "true")
     const settings = header.getByRole("button", { name: settingsLabel, exact: true })
     const create = header.getByRole("button", { name: createLabel, exact: true })
-    for (const button of [settings, create]) await expect(button).toHaveCSS("opacity", width < 640 ? "1" : "0")
-    await testInfo.attach(`category-actions-${width}-default.png`, { body: await page.screenshot(), contentType: "image/png" })
-    if (width >= 640) {
-      await header.hover()
-      for (const button of [settings, create]) await expect(button).toHaveCSS("opacity", "1")
-      await page.mouse.move(0, 0)
-      for (const button of [settings, create]) await expect(button).toHaveCSS("opacity", "0")
+    for (const button of [settings, create]) {
+      await expect(button).toHaveCSS("display", "grid")
+      await expect(button).toHaveCSS("opacity", "0")
     }
+    await testInfo.attach(`category-actions-${width}-mouse-default.png`, { body: await page.screenshot(), contentType: "image/png" })
+    await header.hover()
+    for (const button of [settings, create]) await expect(button).toHaveCSS("opacity", "1")
+    await page.mouse.move(0, 0)
+    for (const button of [settings, create]) await expect(button).toHaveCSS("opacity", "0")
     for (const action of ["settings", "create"] as const) {
-      let reached = false
-      for (let step = 0; step < 40; step++) {
-        await page.keyboard.press("Tab")
-        if (await header.evaluate(element => document.activeElement === element)) { reached = true; break }
-      }
-      expect(reached).toBe(true)
+      await tabTo(page, header)
       await page.keyboard.press("Tab")
       if (action === "create") await page.keyboard.press("Tab")
       const button = action === "settings" ? settings : create
@@ -62,36 +86,54 @@ test("category actions are visible on mobile and reachable by keyboard without c
   }
   const { page: touch } = await actors.asUser("alice", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: "reduce" })
   touch.on("request", observe)
-  await touch.goto(`/c/channels/${serverId}`)
-  const touchHeader = touch.getByTestId(tid.categoryHeader(categoryId))
-  await expect(touchHeader).toHaveAttribute("aria-expanded", "true")
-  for (const label of [settingsLabel, createLabel]) await expect(touchHeader.getByRole("button", { name: label, exact: true })).toHaveCSS("opacity", "1")
-  await testInfo.attach("category-actions-390-touch-default.png", { body: await touch.screenshot(), contentType: "image/png" })
-  for (const action of ["settings", "create"] as const) {
-    await touchHeader.getByRole("button", { name: action === "settings" ? settingsLabel : createLabel, exact: true }).tap()
-    const dialog = touch.getByRole("dialog", { name: action === "settings" ? "Category settings" : `New channel in ${categoryName}`, exact: true })
-    await expect(dialog).toBeVisible()
-    await expect(touchHeader).toHaveAttribute("aria-expanded", "true")
-    await expect(touchHeader).not.toHaveAttribute("data-dragging", "true")
-    await dialog.getByRole("button", { name: "Cancel", exact: true }).tap()
-    await expect(dialog).toHaveCount(0)
+  for (const width of [390, 639]) {
+    await touch.setViewportSize({ width, height: 844 })
+    await touch.goto(`/c/channels/${serverId}`)
+    const header = touch.getByTestId(tid.categoryHeader(categoryId))
+    const row = touch.getByTestId(tid.channelRow(channelId))
+    await expect(header).toBeVisible()
+    await expect(header).toHaveAttribute("aria-expanded", "true")
+    const buttons = [settingsLabel, createLabel].map(name => header.getByRole("button", { name, exact: true, includeHidden: true }))
+    for (const button of buttons) {
+      await expect(button).toHaveCount(1)
+      await expect(button).toHaveCSS("display", "none")
+      expect(await button.boundingBox()).toBeNull()
+    }
+    for (const name of [settingsLabel, createLabel]) await expect(header.getByRole("button", { name, exact: true })).toHaveCount(0)
+    await testInfo.attach(`category-actions-${width}-touch-default.png`, { body: await touch.screenshot(), contentType: "image/png" })
+    await tabTo(touch, header)
+    for (const button of buttons) await expect(button).toHaveCSS("display", "none")
+    await touch.keyboard.press("Tab")
+    await expect(row).toBeFocused()
+    for (const action of ["settings", "create"] as const) {
+      await openTouchCategoryMenu(touch, header)
+      await touch.getByRole("menuitem", { name: action === "settings" ? "Category settings" : "Create channel", exact: true }).tap()
+      const dialog = touch.getByRole("dialog", { name: action === "settings" ? "Category settings" : `New channel in ${categoryName}`, exact: true })
+      await expect(dialog).toBeVisible()
+      await expect(header).toHaveAttribute("aria-expanded", "true")
+      await expect(header).not.toHaveAttribute("data-dragging", "true")
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).tap()
+      await expect(dialog).toHaveCount(0)
+      await expect(row).toBeVisible()
+    }
+    await header.tap()
+    await expect(header).toHaveAttribute("aria-expanded", "false")
+    await expect(row).toHaveCount(0)
+    await header.tap()
+    await expect(header).toHaveAttribute("aria-expanded", "true")
+    await expect(row).toBeVisible()
   }
-  await touchHeader.tap()
-  await expect(touchHeader).toHaveAttribute("aria-expanded", "false")
-  await expect(touch.getByTestId(tid.channelRow(channelId))).toHaveCount(0)
-  await touchHeader.tap()
-  await expect(touchHeader).toHaveAttribute("aria-expanded", "true")
-  await expect(touch.getByTestId(tid.channelRow(channelId))).toBeVisible()
   const { page: member } = await actors.asUser("bob", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   member.on("request", observe)
   await member.goto(`/c/channels/${serverId}`)
   const memberHeader = member.getByTestId(tid.categoryHeader(categoryId))
   await expect(memberHeader).toBeVisible()
-  await expect(memberHeader.getByRole("button", { name: settingsLabel, exact: true })).toHaveCount(0)
-  await expect(memberHeader.getByRole("button", { name: createLabel, exact: true })).toHaveCount(0)
+  for (const name of [settingsLabel, createLabel]) await expect(memberHeader.getByRole("button", { name, exact: true, includeHidden: true })).toHaveCount(0)
   expect(mutations).toEqual([])
   await testInfo.attach("category-actions-input.json", { body: JSON.stringify({ serverId, categoryId, channelId,
-    widths: [390, 639, 640, 1280], input: "native Tab/Enter on mouse context, real mobile tap; no scripted focus or forced click", mutations }), contentType: "application/json" })
+    contexts: [{ widths: [640, 1280], hasTouch: false, input: "mouse hover and native Tab/Enter" },
+      { widths: [390, 639], hasTouch: true, isMobile: true, input: "stationary CDP touch hold, menu tap, native Tab and title tap" }],
+    mutations }), contentType: "application/json" })
 })
 
 test("server → channel → message", async ({ caseActors, caseResources }) => {

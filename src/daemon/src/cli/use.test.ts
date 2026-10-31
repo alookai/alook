@@ -350,3 +350,32 @@ describe("Automation file message send", () => {
     })
   })
 })
+
+it("reads a server roster page with encoded handles and cursor and strips extra fields", async () => {
+  const page = { server: "team#0042", url: "https://alook.ai/c/channels/s1", members: [{ handle: "Helper#0001", role: "member", email: "private" }], hasMore: true, cursor: "date|member" }
+  vi.mocked(fetch).mockResolvedValue(Response.json(page))
+  const { run, output } = program()
+  await run(["use", "server", "--members", "team#0042", "--cursor", "date|last"])
+  expect(fetch).toHaveBeenCalledExactlyOnceWith("http://localhost:4328/api/community/automation/servers/team%230042/members?cursor=date%7Clast", expect.objectContaining({ method: "GET" }))
+  expect(output).toHaveBeenCalledExactlyOnceWith({ success: { ...page, members: [{ handle: "Helper#0001", role: "member" }] } })
+})
+it("rejects malformed member pages and conflicting roster actions", async () => {
+  for (const args of [ ["use", "server", "--members", "bad"], ["use", "server", "--members", "team#0042", "--list"], ["use", "server", "--list", "--cursor", "date|id"] ]) {
+    await expect(program().run(args)).rejects.toThrow()
+  }
+  expect(fetch).not.toHaveBeenCalled()
+  for (const result of [ { server: "team#0042", members: [], hasMore: true }, { server: "team#0042", url: "https://alook.ai/c/channels/s1", members: [], hasMore: true } ]) {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(result))
+    await expect(program().run(["use", "server", "--members", "team#0042"])).rejects.toThrow("invalid member list")
+  }
+})
+
+it("accepts a final roster page and refuses a different server's roster", async () => {
+  const page = { server: "team#0042", url: "https://alook.ai/c/channels/s1", members: [{ handle: "Owner#0001", role: "owner" }], hasMore: false }
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json(page))
+  const { run, output } = program()
+  await run(["use", "server", "--members", "team#0042"])
+  expect(output).toHaveBeenCalledExactlyOnceWith({ success: page })
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...page, server: "other#0042" }))
+  await expect(program().run(["use", "server", "--members", "team#0042"])).rejects.toThrow("invalid member list")
+})

@@ -1,12 +1,10 @@
-import { readFile } from "node:fs/promises"
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { confirmCommunityFixtureApiResponse, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
-import { holdRoute } from "./_fixtures/held-route"
 import { tid } from "./_fixtures/testids"
 
-const HTML = "<!doctype html><html><body><p>Renderer action theme fixture</p></body></html>"
+const HTML = '<!doctype html><html><body><p>Renderer action theme fixture</p><button style="position:absolute;right:6px;top:6px;width:24px;height:24px;padding:0" aria-label="Use preview" onclick="document.querySelector(\'output\').textContent=Number(document.querySelector(\'output\').textContent)+1">+</button><output>0</output></body></html>'
 const TABLE_ACTIONS = ':scope > div:first-child:not(:has([data-streamdown="table"]))'
 
 async function colors(control: Locator, group: Locator) {
@@ -95,7 +93,7 @@ async function inspectMenu(page: Page, block: Locator, group: Locator, trigger: 
 }
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 }, { width: 1280, height: 900 }]) {
-  test(`shared renderer actions use readable theme pairs on hover and focus at ${viewport.width}px`, async ({ caseActors, caseResources }, testInfo) => {
+  test(`shared renderer actions use readable theme pairs on hover and focus at ${viewport.width}px`, async ({ caseActors }, testInfo) => {
     test.setTimeout(120_000)
     const actors = await caseActors(["alice"])
     const serverId = await actors.seed.seedServer("alice", `Action themes ${Date.now()}`)
@@ -123,13 +121,26 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
     const preview = page.getByTestId(tid.message(htmlMessageId)).getByTestId(tid.htmlPreview(attachmentId))
     await preview.scrollIntoViewIfNeeded()
     await expect(preview).toHaveAttribute("data-html-preview-status", "ready")
+    const mermaid = page.getByTestId(tid.message(mermaidId)).locator('[data-streamdown="mermaid-block"]')
+    await mermaid.scrollIntoViewIfNeeded()
+    await expect(mermaid.locator("svg .node")).toHaveCount(2)
     const messageWrites: string[] = []
+    const rawHtmlRequests: string[] = []
     page.on("request", request => {
-      if (request.method() !== "GET" && /\/api\/community\/(?:channels\/[^/]+\/messages|messages\/[^/]+)$/.test(new URL(request.url()).pathname)) {
-        messageWrites.push(`${request.method()} ${new URL(request.url()).pathname}`)
+      const url = new URL(request.url())
+      if (request.method() !== "GET" && /\/api\/community\/(?:channels\/[^/]+\/messages|messages\/[^/]+)$/.test(url.pathname)) {
+        messageWrites.push(`${request.method()} ${url.pathname}`)
       }
+      if (url.pathname === `/api/community/channels/${channelId}/attachments/${attachmentId}` && url.searchParams.get("preview") !== "html") rawHtmlRequests.push(request.url())
     })
     const samples = []
+    const htmlFrame = preview.getByTestId(tid.htmlPreviewFrame(attachmentId))
+    const htmlContent = htmlFrame.contentFrame()
+    const htmlHostControls = preview.locator("button, a[download], [data-html-preview-actions]")
+    await expect(htmlHostControls).toHaveCount(0)
+    await expect(preview.locator(":scope > *")).toHaveCount(1)
+    await expect(preview.locator(":scope > iframe")).toHaveCount(1)
+    let htmlActivations = 0
     for (const mode of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: mode })
       await expect.poll(() => page.evaluate(() => ({ media: matchMedia("(prefers-color-scheme: dark)").matches,
@@ -139,7 +150,6 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
         if (consumer === "redacted") await expect(block.locator("[data-redacted]")).toHaveCount(1)
         samples.push({ mode, consumer, controls: await inspectGroup(page, block, block.locator('[data-streamdown="code-block-actions"]'), ["Copy Code"]) })
       }
-      const mermaid = page.getByTestId(tid.message(mermaidId)).locator('[data-streamdown="mermaid-block"]')
       await mermaid.scrollIntoViewIfNeeded()
       await expect(mermaid.locator("svg .node")).toHaveCount(2)
       const mermaidActions = mermaid.locator('[data-streamdown="mermaid-block-actions"]')
@@ -157,36 +167,34 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
         menu: await inspectMenu(page, fullscreenTable, fullscreenActions, "Copy table", ["Copy table as Markdown", "Copy table as CSV", "Copy table as TSV"]) })
       await fullscreenActions.getByTitle("Exit fullscreen", { exact: true }).click()
       await expect(fullscreen).toHaveCount(0)
-      const htmlActions = preview.getByRole("group", { name: "HTML preview actions" })
-      samples.push({ mode, consumer: "html", controls: await inspectGroup(page, preview, htmlActions, ["Download theme.html"]) })
-      const downloadButton = preview.getByTestId(tid.htmlPreviewDownload(attachmentId))
-      const started = page.waitForEvent("download")
-      await downloadButton.click()
-      const download = await started
-      expect(download.suggestedFilename()).toBe("theme.html")
-      const path = await download.path()
-      expect(path).not.toBeNull()
-      expect(await readFile(path!, "utf8")).toBe(HTML)
-      const originalUrl = new URL(`/api/community/channels/${channelId}/attachments/${attachmentId}`, page.url()).href
-      const held = await holdRoute(page, originalUrl, caseResources)
-      const aborted = page.waitForEvent("requestfailed", { predicate: request => request.url() === originalUrl })
-      try {
-        await downloadButton.click()
-        await expect.poll(held.held).toBe(1)
-        await expect(downloadButton).toHaveAccessibleName("Cancel download")
-        await expect(downloadButton).toHaveAttribute("aria-busy", "true")
-        samples.push({ mode, consumer: "html-cancel", controls: await inspectControl(page, htmlActions, downloadButton, true, preview) })
-        await downloadButton.click()
-        await expect(downloadButton).toHaveAccessibleName("Download theme.html")
-        await expect(downloadButton).toHaveAttribute("aria-busy", "false")
-      } finally { await held.release() }
-      expect((await aborted).failure()?.errorText).toContain("ERR_ABORTED")
+      await preview.scrollIntoViewIfNeeded()
+      await expect(htmlHostControls).toHaveCount(0)
+      await preview.hover()
+      await expect(htmlHostControls).toHaveCount(0)
+      const htmlButton = htmlContent.getByRole("button", { name: "Use preview", exact: true })
+      const corner = await htmlButton.boundingBox()
+      const frameBounds = await htmlFrame.boundingBox()
+      expect(corner).not.toBeNull()
+      expect(frameBounds).not.toBeNull()
+      expect(Math.abs(frameBounds!.x + frameBounds!.width - corner!.x - corner!.width - 6)).toBeLessThanOrEqual(1)
+      expect(Math.abs(corner!.y - frameBounds!.y - 6)).toBeLessThanOrEqual(1)
+      await htmlButton.click()
+      await expect(htmlContent.locator("output")).toHaveText(String(++htmlActivations))
+      await testInfo.attach(`html-preview-host-${viewport.width}-${mode}.png`, { body: await page.screenshot(), contentType: "image/png" })
+      await htmlFrame.click({ position: { x: 2, y: 2 } })
+      await page.keyboard.press("Tab")
+      await expect(htmlButton).toBeFocused()
+      await expect(htmlHostControls).toHaveCount(0)
+      await page.keyboard.press("Enter")
+      await expect(htmlContent.locator("output")).toHaveText(String(++htmlActivations))
+      samples.push({ mode, consumer: "html", hostControls: await htmlHostControls.count(), corner, frameBounds, activations: htmlActivations })
       expect(messageWrites).toEqual([])
+      expect(rawHtmlRequests).toEqual([])
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     }
     await testInfo.attach(`renderer-actions-${viewport.width}-themes.json`, { body: JSON.stringify({ viewport,
-      input: "mouse hover/click and scripted focus after keyboard Tab; not a complete Tab-entry or pure-touch journey",
+      input: "shared controls: mouse hover/click and scripted focus after Tab; HTML: click blank iframe area, native Tab/Enter; not a page-start Tab or pure-touch journey",
       media: await page.evaluate(() => ({ coarse: matchMedia("(pointer: coarse)").matches, hover: matchMedia("(hover: hover)").matches })),
-      serverId, channelId, codeId, redactedId, mermaidId, tableId, htmlMessageId, attachmentId, messageWrites, samples }), contentType: "application/json" })
+      serverId, channelId, codeId, redactedId, mermaidId, tableId, htmlMessageId, attachmentId, messageWrites, rawHtmlRequests, samples }), contentType: "application/json" })
   })
 }

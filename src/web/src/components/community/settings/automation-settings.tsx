@@ -28,7 +28,7 @@ const permissionOptions = [
   { permission: "message.send", label: "Send messages", group: "Write" },
   { permission: "machine.read", label: "List machines", group: "Read" },
   { permission: "friend.read", label: "List friends", group: "Read" },
-  { permission: "server.read", label: "List servers", group: "Read" },
+  { permission: "server.read", label: "List servers and members", group: "Read" },
 ] as const
 const permissionColors: Record<"Read" | "Write", CSSProperties & { "--forum-tag-hue": number }> = {
   Read: { "--forum-tag-hue": 145 },

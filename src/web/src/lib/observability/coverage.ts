@@ -47,6 +47,7 @@ export const apiRoutes = [
   "/api/community/automation/machines",
   "/api/community/automation/friends",
   "/api/community/automation/servers/[id]/invites",
+  "/api/community/automation/servers/[id]/members",
   "/api/community/automation/machines/[id]/discover-models",
   "/api/community/automation/messages",
   "/api/community/automation/access-codes",

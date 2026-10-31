@@ -43,8 +43,17 @@ describe("retired CLI connection", () => {
     expect(response.status).toBe(404)
   })
 
-  it.each(["/device", "/onboard.md"])("%s no longer offers the old CLI connection", async path => {
+  it.each(["/device"])("%s no longer offers the old CLI connection", async path => {
     expect((await fetch(`${appUrl}${path}`, { redirect: "manual" })).status).toBe(404)
+  })
+
+  it("serves the current agent onboarding guide", async () => {
+    const response = await fetch(`${appUrl}/onboard.md`)
+    expect(response.status).toBe(200)
+    const guide = await response.text()
+    expect(guide).toContain("[agent.md](./agent.md)")
+    expect(guide).toContain("use server --members")
+    expect(guide).not.toContain("/api/auth/device")
   })
 
   it("keeps current Cookie login while rejecting an old CLI session bearer", async () => {

@@ -64,6 +64,8 @@ vi.mock("@/lib/perf/switch-mark", () => ({ markSwitch: vi.fn() }))
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => children,
   DialogContent: ({ children }: { children: React.ReactNode }) => children,
+  DialogHeader: ({ children }: { children: React.ReactNode }) => children,
+  DialogFooter: ({ children }: { children: React.ReactNode }) => children,
 }))
 vi.mock("@/components/community/channels/use-channel-tree", () => ({
   useChannelTree: () => [],
