@@ -696,9 +696,17 @@ export default function SignInPageClient({
       setMobileViewportHeight(null)
       return
     }
+    let active = true
     let inputFocused = false
+    let blurTimerId: number | null = null
+    const clearBlurTimer = () => {
+      if (blurTimerId !== null) {
+        window.clearTimeout(blurTimerId)
+        blurTimerId = null
+      }
+    }
     const syncViewport = () => {
-      if (mobileSlideActiveRef.current) return
+      if (!active || mobileSlideActiveRef.current) return
       const layoutHeight = window.innerHeight
       const visualHeight = window.visualViewport?.height ?? layoutHeight
       const keyboardLikelyOpen = layoutHeight - visualHeight > 80
@@ -714,13 +722,18 @@ export default function SignInPageClient({
         event.target instanceof HTMLInputElement
         || event.target instanceof HTMLTextAreaElement
       ) {
+        clearBlurTimer()
         inputFocused = true
         syncViewport()
       }
     }
     const onFocusOut = () => {
       inputFocused = false
-      window.setTimeout(syncViewport, 50)
+      clearBlurTimer()
+      blurTimerId = window.setTimeout(() => {
+        blurTimerId = null
+        syncViewport()
+      }, 50)
     }
     syncViewport()
     window.addEventListener("resize", syncViewport)
@@ -728,6 +741,8 @@ export default function SignInPageClient({
     document.addEventListener("focusin", onFocusIn)
     document.addEventListener("focusout", onFocusOut)
     return () => {
+      active = false
+      clearBlurTimer()
       syncViewportRef.current = null
       window.removeEventListener("resize", syncViewport)
       window.visualViewport?.removeEventListener("resize", syncViewport)

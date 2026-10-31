@@ -423,4 +423,116 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       window.cancelAnimationFrame = origCancelRaf
     }
   })
+
+  it("preserves delayed blur viewport recovery on mobile while deduplicating consecutive blurs and clearing pending timers on unmount", () => {
+    vi.useFakeTimers()
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query.includes("max-width"),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as never
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 640 })
+
+    try {
+      const firstView = render(
+        createElement(SignInPageClient, { isProd: true, appleEnabled: true }),
+      )
+      const stage = screen.getByTestId("sign-in-mobile-typewriter")
+      const email = screen.getByRole("textbox", { name: "Email" })
+      expect(stage).toHaveAttribute("data-collapsed", "false")
+
+      act(() => {
+        fireEvent.focusIn(email)
+      })
+      expect(stage).toHaveAttribute("data-collapsed", "true")
+
+      act(() => {
+        fireEvent.focusOut(email)
+        fireEvent.focusOut(email)
+      })
+      expect(vi.getTimerCount()).toBe(1)
+      expect(stage).toHaveAttribute("data-collapsed", "true")
+
+      act(() => {
+        vi.advanceTimersByTime(49)
+      })
+      expect(stage).toHaveAttribute("data-collapsed", "true")
+
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(stage).toHaveAttribute("data-collapsed", "false")
+      expect(vi.getTimerCount()).toBe(0)
+
+      act(() => {
+        fireEvent.focusOut(email)
+        fireEvent.focusOut(email)
+      })
+      expect(vi.getTimerCount()).toBe(1)
+      firstView.unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
+  })
+
+  it("clears pending blur timers and prevents stale mobile viewport updates after switching to desktop", () => {
+    vi.useFakeTimers()
+    let mobile = true
+    const mobileListeners = new Set<() => void>()
+    const mobileMql = {
+      get matches() {
+        return mobile
+      },
+      addEventListener: vi.fn((_event: string, listener: () => void) => {
+        mobileListeners.add(listener)
+      }),
+      removeEventListener: vi.fn((_event: string, listener: () => void) => {
+        mobileListeners.delete(listener)
+      }),
+    }
+    window.matchMedia = vi.fn((query: string) =>
+      query.includes("max-width")
+        ? mobileMql
+        : {
+          matches: false,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        },
+    ) as never
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 640 })
+
+    try {
+      const view = render(
+        createElement(SignInPageClient, { isProd: true, appleEnabled: true }),
+      )
+      const stage = screen.getByTestId("sign-in-mobile-typewriter")
+      const email = screen.getByRole("textbox", { name: "Email" })
+
+      act(() => {
+        fireEvent.focusIn(email)
+        fireEvent.focusOut(email)
+      })
+      expect(stage).toHaveAttribute("data-collapsed", "true")
+      expect(vi.getTimerCount()).toBe(1)
+
+      act(() => {
+        Object.defineProperty(window, "innerHeight", { configurable: true, value: 460 })
+        mobile = false
+        for (const listener of mobileListeners) listener()
+      })
+      expect(vi.getTimerCount()).toBe(0)
+      expect(stage).toHaveAttribute("data-collapsed", "false")
+
+      act(() => {
+        vi.advanceTimersByTime(100)
+      })
+      expect(stage).toHaveAttribute("data-collapsed", "false")
+      view.unmount()
+    } finally {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
+  })
 })
