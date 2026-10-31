@@ -405,6 +405,8 @@ static NSString *const kThemeObserverScript =
 
             WKWebView *webView = (WKWebView *)subview;
             if (isTauriRoot) {
+                webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+                webView.scrollView.scrollEnabled = NO;
                 NSNumber *previousTop = objc_getAssociatedObject(webView, kAlookSafeAreaTopKey);
                 if (previousTop == nil) {
                     AlookSafeAreaHandler *handler = [[AlookSafeAreaHandler alloc] init];

@@ -102,6 +102,13 @@ describe("native shell theme color contract", () => {
   it("separates full native framing from the current root's keyboard overlap", () => {
     const layout = iosRuntime.split("- (void)alook_viewDidLayoutSubviews {")[1]?.split("\n}\n")[0] ?? ""
     const install = iosRuntime.split("static void alookInstallKeyboardLayout(")[1]?.split("\n}\n")[0] ?? ""
+    const webViewSetup = layout.split("WKWebView *webView = (WKWebView *)subview;")[1] ?? ""
+    const rootScrollPolicy = webViewSetup.split("if (isTauriRoot) {")[1]?.split("NSNumber *previousTop")[0] ?? ""
+    expect(rootScrollPolicy).toContain("webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever")
+    expect(rootScrollPolicy).toContain("webView.scrollView.scrollEnabled = NO")
+    expect(layout).not.toContain("scrollView.delegate")
+    expect(layout).not.toContain("scrollView.contentOffset")
+    expect(layout).not.toContain("scrollView.contentInset =")
     expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeGreaterThanOrEqual(0)
     expect(layout.indexOf("alookInstallKeyboardLayout(self)")).toBeLessThan(layout.indexOf("alookPublishKeyboardSnapshots(self)"))
     expect(install).toContain("previous.superview == host")
