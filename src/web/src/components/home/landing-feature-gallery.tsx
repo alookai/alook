@@ -22,6 +22,7 @@ const features: { id: string; tab: string; title: string; description: string; c
 export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [selected, setSelected] = useState(0)
   const [visible, setVisible] = useState(false)
+  const [loadedFeature, setLoadedFeature] = useState<string | null>(null)
   const [paused, setPaused] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -40,6 +41,10 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    if (visible) setLoadedFeature(current.id)
+  }, [visible, current.id])
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -80,7 +85,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
     tabs.current[next]?.focus()
   }
 
-  return <section id="product" className={styles.section} aria-label="Explore Alook features"
+  return <section id="product" className={`${styles.section} ${current.id === "ownership" ? styles.dark : ""}`} aria-label="Explore Alook features"
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false) }}>
     <div className={styles.container} data-testid={tid.landingMainContainer}>
@@ -94,7 +99,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
         {!reduced && <button type="button" className={styles.rotation} aria-label={paused ? "Resume feature rotation" : "Pause feature rotation"}
           onClick={() => setPaused(value => !value)}>{paused ? <Play size={18} /> : <Pause size={18} />}</button>}
       </div>
-      <div id="feature-panel" role="tabpanel" aria-labelledby={`feature-tab-${current.id}`} className={styles.panel}>
+      <div id="feature-panel" role="tabpanel" aria-labelledby={`feature-tab-${current.id}`} className={`${styles.panel} ${current.id === "identity" ? styles.identity : ""}`}>
         <div className={styles.copy}>
           <h2>{current.title}</h2>
           <p>{current.description}</p>
@@ -103,8 +108,8 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
             onClick={() => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` })}>{current.cta}</a>
         </div>
         <div ref={section} className={styles.stage}>
-          {visible && documentVisible ? <MediaFallback key={current.id} fallback={<FeaturePoster scene={current.scene} />}><Suspense fallback={<FeaturePoster scene={current.scene} />}>
-            <SceneReady key={current.id} onReady={setMediaReady}><FeatureScene feature={current.id} /></SceneReady>
+          {loadedFeature === current.id ? <MediaFallback key={current.id} fallback={<FeaturePoster scene={current.scene} />}><Suspense fallback={<FeaturePoster scene={current.scene} />}>
+            <SceneReady key={current.id} onReady={setMediaReady}><FeatureScene feature={current.id} container={section.current} /></SceneReady>
           </Suspense></MediaFallback> : <FeaturePoster scene={current.scene} />}
         </div>
       </div>

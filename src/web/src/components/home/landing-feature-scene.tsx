@@ -1,14 +1,15 @@
 "use client"
 
-import { lazy, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react"
+import { lazy, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { ProviderLogo } from "@/components/provider-logo"
 import { LandingReachMotion } from "./landing-reach-motion"
 const LandingShellMotion = lazy(() => import("./landing-shell-motion").then(module => ({ default: module.LandingShellMotion })))
 const ProfileCard = lazy(() => import("./landing-profile-content"))
 import { LANDING_GALLERY, LANDING_MACHINE_INTRO, LANDING_PROVIDERS } from "./landing-content"
 import styles from "./landing-page.module.css"
+import galleryStyles from "./landing-feature-gallery.module.css"
 
-function ProductScene({ scene }: { scene: (typeof LANDING_GALLERY)[number]["scene"] }) {
+function ProductScene({ scene, compact }: { scene: (typeof LANDING_GALLERY)[number]["scene"]; compact?: boolean }) {
   const story = LANDING_GALLERY.find((item) => item.scene === scene)
 
   if (!story) return null
@@ -18,6 +19,7 @@ function ProductScene({ scene }: { scene: (typeof LANDING_GALLERY)[number]["scen
       <div className={styles.galleryFrame} role="img" aria-label={story.label}>
         <LandingShellMotion
           scene={story.scene}
+          compact={compact}
           machineIntroDescription={LANDING_MACHINE_INTRO}
         />
       </div>
@@ -25,11 +27,11 @@ function ProductScene({ scene }: { scene: (typeof LANDING_GALLERY)[number]["scen
   )
 }
 
-function ContinuityTimeline() {
+function ContinuityTimeline({ compact }: { compact: boolean }) {
   return (
     <div className={styles.timelineBoard} data-testid="landing-identity-timeline">
       <div className={styles.galleryFrame} role="img" aria-label="Alli follows one request through a DM, Studio, and Home">
-        <LandingShellMotion scene="continuity" />
+        <LandingShellMotion scene="continuity" compact={compact} />
       </div>
     </div>
   )
@@ -38,7 +40,7 @@ function ContinuityTimeline() {
 function RuntimeBadges() {
   return (
     <div
-      className={styles.runtimeBadges}
+      className={galleryStyles.runtimeBadges}
       aria-label="Supported local runtimes"
       data-testid="landing-runtime-badges"
     >
@@ -90,7 +92,7 @@ function InteractiveIdentityProfileCard() {
   return (
     <div
       ref={tiltRef}
-      className={styles.identityProfileCard}
+      className={`${styles.identityProfileCard} ${galleryStyles.profileCard}`}
       onPointerMove={tiltCard}
       onPointerLeave={resetTilt}
       onPointerCancel={resetTilt}
@@ -104,7 +106,7 @@ function InteractiveIdentityProfileCard() {
   )
 }
 
-function IdentityProof() {
+function IdentityProof({ compact }: { compact: boolean }) {
   const layoutRef = useRef<HTMLDivElement>(null)
   const cardSlotRef = useRef<HTMLDivElement>(null)
   const sceneSlotRef = useRef<HTMLDivElement>(null)
@@ -127,7 +129,7 @@ function IdentityProof() {
         const sideBySide =
           sceneBounds.left > cardSlotBounds.left &&
           Math.abs(sceneBounds.top - cardSlotBounds.top) < 2
-        const scale = sideBySide
+        const scale = sideBySide && !compact
           ? Math.min(1.08, Math.max(0.5, sceneBounds.height / card.offsetHeight))
           : 1
 
@@ -145,10 +147,10 @@ function IdentityProof() {
       cancelAnimationFrame(frame)
       observer.disconnect()
     }
-  }, [])
+  }, [compact])
 
   return (
-    <div ref={layoutRef} className={styles.identityMediaLayout} data-testid="landing-identity-proof">
+    <div ref={layoutRef} className={`${styles.identityMediaLayout} ${galleryStyles.identityMedia} ${compact ? galleryStyles.compactIdentity : ""}`} data-testid="landing-identity-proof">
       <div ref={cardSlotRef} className={styles.identityCardSlot}>
         <InteractiveIdentityProfileCard />
       </div>
@@ -159,17 +161,26 @@ function IdentityProof() {
           aria-label="Maya keeps one identity across Studio, Home, and Game Night"
           data-testid="landing-identity-motion"
         >
-          <LandingShellMotion scene="identity" />
+          <LandingShellMotion scene="identity" compact={compact} />
         </div>
       </div>
     </div>
   )
 }
 
-export default function LandingFeatureScene({ feature }: { feature: string }) {
-  if (feature === "identity") return <IdentityProof />
-  if (feature === "continuity") return <ContinuityTimeline />
-  if (feature === "reach") return <LandingReachMotion />
-  if (feature === "ownership") return <><ProductScene scene="machine" /><RuntimeBadges /></>
-  return <ProductScene scene="server" />
+export default function LandingFeatureScene({ feature, container }: { feature: string; container: HTMLDivElement | null }) {
+  const [compact, setCompact] = useState(false)
+  useEffect(() => {
+    if (!container) return
+    const sync = () => setCompact(container.getBoundingClientRect().width < (feature === "identity" ? 1040 : 700))
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [container, feature])
+  if (feature === "identity") return <IdentityProof compact={compact} />
+  if (feature === "continuity") return <ContinuityTimeline compact={compact} />
+  if (feature === "reach") return compact ? <ProductScene scene="server" compact /> : <LandingReachMotion />
+  if (feature === "ownership") return <><ProductScene scene="machine" compact={compact} /><RuntimeBadges /></>
+  return <ProductScene scene="server" compact={compact} />
 }

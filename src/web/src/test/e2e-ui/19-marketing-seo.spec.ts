@@ -156,7 +156,7 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
 })
 
 test("desktop landing keeps the embedded phone Back control on true mobile geometry", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto("/")
 
@@ -287,7 +287,7 @@ for (const width of [1440, 390]) {
 
 test("landing gallery preserves order, responsive geometry, and keyboard selection", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" })
-  for (const width of [1440, 768, 639, 390, 320]) {
+  for (const width of [1440, 1024, 820, 768, 640, 639, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto("/")
     const order = await page.locator("#testimonials, #workspace, #product").evaluateAll(elements => elements.map(element => element.id))
@@ -296,7 +296,6 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
     const tabs = page.getByRole("tablist", { name: "Features" }).getByRole("tab")
     await tabs.first().scrollIntoViewIfNeeded()
     await expect(tabs).toHaveCount(5)
-    let stageTop: number | undefined
     for (const tab of await tabs.all()) {
       await tab.click()
       await expect(tab).toHaveAttribute("aria-selected", "true")
@@ -309,6 +308,31 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
       const stage = page.getByRole("tabpanel").locator(":scope > div").last()
       await stage.scrollIntoViewIfNeeded()
       await expect(stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img])").first()).toBeVisible()
+      if (width <= 639) {
+        const media = stage.locator(":scope > figure, :scope > div[aria-label], :scope > div:has([role=img])").first()
+        const mediaBounds = await media.boundingBox()
+        const ctaBounds = await page.getByRole("tabpanel").getByRole("link").boundingBox()
+        expect(mediaBounds!.y - ctaBounds!.y - ctaBounds!.height, JSON.stringify({ width, tab: await tab.textContent() })).toBeLessThanOrEqual(140)
+      }
+      if (width <= 1024) {
+        await expect(stage.getByTestId(tid.landingMotionStage)).toHaveAttribute("data-layout", "compact")
+        if (await stage.getByTestId(tid.landingIdentityCardTilt).count()) {
+          await expect(stage.getByTestId(tid.landingIdentityCardTilt)).toHaveCSS("transform", "none")
+        }
+        const paragraphs = stage.locator('div[data-visible="true"] p:visible')
+        if (await paragraphs.count()) {
+          const text = await paragraphs.last().evaluate((element, motionStageId) => {
+            const box = element.getBoundingClientRect()
+            const frame = element.closest(`div[data-testid="${motionStageId}"]`)!.getBoundingClientRect()
+            return { size: parseFloat(getComputedStyle(element).fontSize), left: box.left - frame.left, right: box.right - frame.right, bottom: box.bottom - frame.bottom, overflow: element.scrollWidth - element.clientWidth }
+          }, tid.landingMotionStage)
+          expect(text.size).toBeGreaterThanOrEqual(14)
+          expect(text.left).toBeGreaterThanOrEqual(0)
+          expect(text.right).toBeLessThanOrEqual(1)
+          expect(text.overflow).toBeLessThanOrEqual(1)
+          expect(text.bottom).toBeLessThanOrEqual(1)
+        }
+      }
       const geometry = await stage.evaluate(element => {
         const box = element.getBoundingClientRect()
         return { top: box.top + window.scrollY, height: box.height, children: [...element.children].map(child => {
@@ -316,12 +340,35 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
           return { top: rect.top - box.top, bottom: rect.bottom - box.top }
         }) }
       })
-      if (stageTop !== undefined) expect(Math.abs(geometry.top - stageTop)).toBeLessThanOrEqual(1)
-      stageTop = geometry.top
       expect(geometry.children.every(child => child.top >= -1 && child.bottom <= geometry.height + 1), JSON.stringify({ width, tab: await tab.textContent(), geometry })).toBe(true)
     }
     await tabs.last().press("Home")
     await expect(tabs.first()).toBeFocused()
     await expect(tabs.first()).toHaveAttribute("aria-selected", "true")
   }
+})
+
+
+test("landing gallery mobile playback keeps full-size readable messages", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ reducedMotion: "no-preference" })
+  await page.goto("/", { waitUntil: "networkidle" })
+  const stage = page.getByRole("tabpanel").locator(":scope > div").last()
+  await stage.scrollIntoViewIfNeeded()
+  const motion = stage.getByTestId(tid.landingMotionStage)
+  await motion.scrollIntoViewIfNeeded()
+  await expect.poll(async () => Number(await motion.getAttribute("data-beat"))).toBeGreaterThanOrEqual(3)
+  const paragraph = stage.locator('div[data-visible="true"] p:visible').first()
+  const geometry = await paragraph.evaluate(element => {
+    let scale = 1
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      const transform = getComputedStyle(parent).transform
+      if (transform !== "none") scale *= new DOMMatrix(transform).a
+    }
+    return { scale, size: parseFloat(getComputedStyle(element).fontSize), overflow: element.scrollWidth - element.clientWidth }
+  })
+  expect(geometry.scale).toBeGreaterThanOrEqual(0.99)
+  expect(geometry.scale).toBeLessThanOrEqual(1.01)
+  expect(geometry.size).toBeGreaterThanOrEqual(14)
+  expect(geometry.overflow).toBeLessThanOrEqual(1)
 })

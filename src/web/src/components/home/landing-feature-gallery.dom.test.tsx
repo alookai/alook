@@ -27,7 +27,7 @@ async function show(visible = true) {
 async function advance(time = 30000) { await act(async () => { vi.advanceTimersByTime(time) }) }
 
 describe("feature gallery", () => {
-  it("mounts only the selected scene when visible and releases it offscreen", async () => {
+  it("loads only after entering view and keeps the selected layout offscreen", async () => {
     const view = render(<LandingFeatureGallery isLoggedIn={false} />)
     expect(screen.queryByTestId("active-feature")).toBeNull()
     await show()
@@ -36,7 +36,7 @@ describe("feature gallery", () => {
     expect(screen.getAllByTestId("active-feature")).toHaveLength(1)
     expect(screen.getByTestId("active-feature")).toHaveTextContent("identity")
     await show(false)
-    expect(screen.queryByTestId("active-feature")).toBeNull()
+    expect(screen.getByTestId("active-feature")).toHaveTextContent("identity")
     view.unmount()
     expect(disconnect).toHaveBeenCalled()
   })
@@ -80,7 +80,7 @@ describe("feature gallery", () => {
     fireEvent(document, new Event("visibilitychange"))
     await advance()
     expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("Collaborate")
-    expect(screen.queryByTestId("active-feature")).toBeNull()
+    expect(screen.getByTestId("active-feature")).toHaveTextContent("product")
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" })
     fireEvent(document, new Event("visibilitychange"))
     await act(async () => {})
@@ -100,6 +100,6 @@ describe("feature gallery", () => {
     expect(screen.queryByRole("button", { name: "Pause feature rotation" })).toBeNull()
     await show(false)
     await advance()
-    expect(screen.queryByTestId("active-feature")).toBeNull()
+    expect(screen.getByTestId("active-feature")).toHaveTextContent("product")
   })
 })
