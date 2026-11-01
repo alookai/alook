@@ -31,6 +31,21 @@ describe("middleware", () => {
     expect(mockGetSession).not.toHaveBeenCalled()
   })
 
+  it.each(["/sign-in", "/sign-up"])("skips session work for credential-free %s", async path => {
+    mockGetSession.mockImplementation(() => { throw new Error("No credentials") })
+    const res = await middleware(makeReq(`https://app.com${path}`))
+    expect(res.headers.get("x-middleware-next")).toBe("1")
+    expect(mockGetSession).not.toHaveBeenCalled()
+  })
+
+  it.each(["Cookie", "Authorization"])("validates %s credentials and preserves renewal cookies", async name => {
+    mockGetSession.mockResolvedValue({ headers: new Headers({ "Set-Cookie": "session=renewed; HttpOnly" }), response: { user: { id: "u1" } } })
+    const res = await middleware(makeReq("https://app.com/sign-up?redirect=%2Fc%2Fme", { [name]: "fixture" }))
+    expect(mockGetSession).toHaveBeenCalledOnce()
+    expect(res.headers.get("location")).toBe("https://app.com/c/me")
+    expect(res.headers.get("Set-Cookie")).toContain("session=renewed")
+  })
+
   describe("HTTPS enforcement", () => {
     it("301-redirects http → https for non-local hosts", async () => {
       const req = makeReq("http://example.com/c/me", { "x-forwarded-proto": "http" });
@@ -101,7 +116,7 @@ describe("middleware", () => {
         response: { user: { id: "u1" } },
       });
       const qs = redirectParam === null ? "" : `?redirect=${encodeURIComponent(redirectParam)}`;
-      const req = makeReq(`https://app.com/sign-in${qs}`, { "x-forwarded-proto": "https" });
+      const req = makeReq(`https://app.com/sign-in${qs}`, { "x-forwarded-proto": "https", Cookie: "session=fixture" });
       const res = await middleware(req);
       return new URL(res.headers.get("location")!);
     }
