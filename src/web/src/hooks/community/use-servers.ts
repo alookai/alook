@@ -257,9 +257,10 @@ function serverDetailReadSuperseded(queryClient: QueryClient, serverId: string, 
   if (!registry || registry !== token.registry) return false
   const state = registry.runtime.ws.get()
   const lifecycle = registry.runtime.lifecycle.get()
+  const channelScopesChanged = [...state.channelAccessScopes].some(([id, scope]) => scope.generation !== (token.channelScopes.get(id)?.generation ?? 0))
   return !signal?.aborted && lifecycle.active && lifecycle.generation === token.ownerGeneration
     && state.profileViewerId === token.viewerId && state.profileAccountEpoch === token.accountEpoch
-    && state.accessEpoch !== token.accessEpoch && !state.revokedServerIds.has(serverId)
+    && (state.accessEpoch !== token.accessEpoch || channelScopesChanged) && !state.revokedServerIds.has(serverId)
 }
 
 class SupersededServerDetailRead extends DOMException {
