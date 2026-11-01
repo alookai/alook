@@ -189,7 +189,7 @@ function SignInForm({
   }, [finishSlide, viewState])
 
   useEffect(() => {
-    if (!isProd || viewState !== "code") return
+    if (!isProd || viewState !== "code" || loading) return
     const focusOtp = () => {
       const otpInput = codePaneRef.current?.querySelector<HTMLInputElement>(
         'input[aria-label="Verification code"]',
@@ -201,7 +201,7 @@ function SignInForm({
     focusOtp()
     const rafId = window.requestAnimationFrame(focusOtp)
     return () => window.cancelAnimationFrame(rafId)
-  }, [isProd, viewState])
+  }, [isProd, loading, viewState])
 
   const rateLimitHandler = {
     onError: (ctx: { response: Response }) => {

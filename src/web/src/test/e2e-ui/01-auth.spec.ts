@@ -159,6 +159,7 @@ browserTest.describe("production OTP error placement", () => {
     await browserExpect(alert).toHaveCount(1)
     browserExpect((await page.context().cookies()).find((cookie) => cookie.name === "alook_last_login_method")?.value).toBe("github")
     await browserExpect(otp).toHaveAttribute("aria-invalid", "true")
+    await browserExpect(otp).toBeFocused()
     await browserExpect(otp).toHaveAttribute("aria-describedby", "sign-in-otp-error")
 
     const slots = page.locator('[data-slot="input-otp-slot"]')
