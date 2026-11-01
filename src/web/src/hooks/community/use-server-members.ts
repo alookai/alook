@@ -265,8 +265,8 @@ export const membersPageQueryFn = (serverId: string, search = "", limit?: number
     const data = parseCommunityServerMembersRead(await apiFetch<unknown>(path, communityRequestOptions(client, token, signal, assert)), serverId, registry.accountId!, !!search)
     assert()
     if (data.hasMore && !data.cursor) throw new Error("members page missing cursor")
-    writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
-    publishCommunityMembersSnapshot(client, serverId, data.members, { token, signal })
+    await writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
+    await publishCommunityMembersSnapshot(client, serverId, data.members, { token, signal })
     assert()
     return { members: data.members.map(({ id, userId }) => ({ id, userId })), hasMore: data.hasMore, cursor: data.cursor, limit: data.limit, ...("total" in data ? { total: data.total } : {}), liveRevision: protocol.liveRevision }
   }

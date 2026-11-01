@@ -77,7 +77,7 @@ export const friendsQueryFn = async (context: QueryFunctionContext) => {
     ...pendingData.pending,
     ...blockedData.blocked.map(row => ({ ...row, id: `blocked:${row.userId}`, kind: "blocked" as const })),
   ]
-  publishCommunityFriendships(context.client, rows, { token, signal: context.signal })
+  await publishCommunityFriendships(context.client, rows, { token, signal: context.signal })
   return { ids: rows.map(row => row.id) }
 }
 

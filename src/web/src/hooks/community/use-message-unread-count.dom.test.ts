@@ -21,7 +21,7 @@ it("projects admitted local progress without changing the frozen entry boundary 
   await waitFor(() => expect(rendered.result.current).toBe(1))
   expect(owner.registry.collections.readStates.get("c1")).toBeUndefined()
   expect(entry.lastReadSeq).toBe(2)
-  await act(async () => { publishCommunityConversationReadState(owner.client, { channelId: "c1", lastReadMessageId: "m9", lastReadAt: messages[2]!.createdAt, lastReadSeq: 9 }, 1, { token: captureCommunityLiveSnapshotToken(owner.client) }) })
+  await act(async () => { await publishCommunityConversationReadState(owner.client, { channelId: "c1", lastReadMessageId: "m9", lastReadAt: messages[2]!.createdAt, lastReadSeq: 9 }, 1, { token: captureCommunityLiveSnapshotToken(owner.client) }) })
   await waitFor(() => expect(rendered.result.current).toBe(0))
   confirmReadSurface(lease, 9)
   releaseReadSurface(lease)

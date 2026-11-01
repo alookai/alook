@@ -32,8 +32,8 @@ afterEach(async () => {
 function Owner({ children }: PropsWithChildren) { return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children)) }
 const args = { serverId: "s1", channelId: "ch_1", messageId: "m_1", emoji: "👍", userId: "u_me" }
 const mine = [{ emoji: "👍", count: 1, me: true, userIds: ["u_me"] }]
-function seed(reactions: Msg["reactions"] = [], channelId = "ch_1", id = "m_1") {
-  publishCommunityMessages(client, { profiles: messageProfilesFixture([messageResourceFixture({ id, channelId, seq: 1, content: "hello", reactions })]), channelId, messages: [messageResourceFixture({ id, channelId, seq: 1, content: "hello", reactions })], proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+async function seed(reactions: Msg["reactions"] = [], channelId = "ch_1", id = "m_1") {
+  await publishCommunityMessages(client, { profiles: messageProfilesFixture([messageResourceFixture({ id, channelId, seq: 1, content: "hello", reactions })]), channelId, messages: [messageResourceFixture({ id, channelId, seq: 1, content: "hello", reactions })], proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
 }
 function rows(id = "m_1") { return registry.collections.messages.get(id)?.reactions }
 function mounted() { return renderHook(() => ({ add: useAddReactionApi(), toggle: useToggleReactionApi(), messages: useCanonicalMessagesById() }), { wrapper: Owner }) }
@@ -46,7 +46,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(rendered.result.current.add).toBe(first)
   })
   it("treats add on me=true as a strict fact, mutation, and network no-op", async () => {
-    seed(mine)
+    await seed(mine)
     const rendered = mounted(), before = registry.collections.messages.get("m_1")
     vi.useFakeTimers()
     act(() => rendered.result.current.add(args))
@@ -56,7 +56,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(api).not.toHaveBeenCalled()
   })
   it("does not rewrite facts or postpone the first PUT when add is repeated", async () => {
-    seed(); api.mockResolvedValue(undefined)
+    await seed(); api.mockResolvedValue(undefined)
     const rendered = mounted()
     vi.useFakeTimers()
     act(() => rendered.result.current.add(args))
@@ -72,7 +72,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(api).toHaveBeenCalledWith(expect.stringContaining("/api/community/messages/m_1/reactions/"), expect.objectContaining({ method: "PUT", signal: expect.anything(), assertActive: expect.any(Function) }))
   })
   it("coalesces chip remove followed by picker add to the original state and zero requests", async () => {
-    seed(mine)
+    await seed(mine)
     const rendered = mounted()
     vi.useFakeTimers()
     act(() => { rendered.result.current.toggle(args); rendered.result.current.add(args) })
@@ -82,7 +82,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(client.getMutationCache().findAll({ status: "pending" })).toHaveLength(0)
   })
   it("drives additional consumers through canonical optimistic add and rollback", async () => {
-    seed()
+    await seed()
     const first = mounted(), second = mounted(), onError = vi.fn()
     api.mockRejectedValueOnce(new Error("boom")); vi.useFakeTimers()
     act(() => first.result.current.add({ ...args, onError }))
@@ -95,7 +95,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "boom" }))
   })
   it("optimistically patches and rolls back a thread opener shared by the single-message consumer", async () => {
-    seed([{ emoji: "👍", count: 1, me: false, userIds: ["other"] }])
+    await seed([{ emoji: "👍", count: 1, me: false, userIds: ["other"] }])
     client.setQueryData(communityKeys.message("m_1"), "m_1")
     const rendered = mounted()
     api.mockRejectedValueOnce(new Error("boom")); vi.useFakeTimers()
@@ -108,7 +108,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
   })
   it.each(["channel", "dm"] as const)("updates and rolls back a fallback-only %s row without creating a second row", async (kind) => {
     const id = kind === "dm" ? "dm_1" : "ch_1"
-    seed(mine, id)
+    await seed(mine, id)
     const scope = kind === "dm" ? { kind, id } : { kind, id, serverId: "s1" }
     registry.runtime.messageStream.actions.dispatch(scope, { type: "wsMessage", message: { id: "m_1", seq: 1, type: "chat", content: "hello", reactions: mine } })
     const key = kind === "dm" ? communityKeys.dmMessages(id) : communityKeys.channelMessages(id)
@@ -151,7 +151,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(client.getMutationCache().findAll({ status: "pending" })).toHaveLength(0)
   })
   it.each([3, 5])("%s rapid alternating clicks settle to exactly one API call at the end of the window", async (clicks) => {
-    seed(); api.mockResolvedValue(undefined)
+    await seed(); api.mockResolvedValue(undefined)
     const rendered = mounted()
     vi.useFakeTimers()
     act(() => { for (let index = 0; index < clicks; index++) rendered.result.current.toggle(args) })
@@ -163,7 +163,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(rows()).toEqual(mine)
   })
   it("flip-back (net-zero) cancels the intent — zero API calls fire", async () => {
-    seed(); api.mockResolvedValue(undefined)
+    await seed(); api.mockResolvedValue(undefined)
     const rendered = mounted()
     vi.useFakeTimers()
     act(() => { rendered.result.current.toggle(args); rendered.result.current.toggle(args) })
@@ -172,7 +172,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(rows()).toEqual([])
   })
   it("retiring the original account before the delay ends cancels the pending API call", async () => {
-    seed(); api.mockResolvedValue(undefined)
+    await seed(); api.mockResolvedValue(undefined)
     const rendered = mounted()
     vi.useFakeTimers()
     act(() => rendered.result.current.toggle(args))
@@ -184,7 +184,7 @@ describe("native reaction intents — original debounce and rollback guarantees"
     expect(client.getMutationCache().findAll({ status: "pending" })).toHaveLength(0)
   })
   it.each(["success", "failure"] as const)("preserves a newer WS reaction on original command %s", async (outcome) => {
-    seed()
+    await seed()
     let resolve!: () => void, reject!: (error: Error) => void
     api.mockReturnValueOnce(new Promise<void>((done, fail) => { resolve = done; reject = fail }))
     const rendered = mounted()

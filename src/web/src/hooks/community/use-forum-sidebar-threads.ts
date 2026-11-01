@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { getServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { useHydratedClient } from "@/hooks/use-hydrated-client"
@@ -157,7 +158,7 @@ async function fetchForumSidebar(
   return normalizeForumSidebarEnvelope(envelope, retainId)
 }
 
-function publishNormalizedForumSidebar(
+async function publishNormalizedForumSidebar(
   queryClient: QueryClient,
   serverId: string,
   normalized: NormalizedForumSidebarEnvelope,
@@ -166,7 +167,7 @@ function publishNormalizedForumSidebar(
   token: ReturnType<typeof captureCommunityLiveSnapshotToken>,
 ) {
   if (normalized.serverId !== serverId) throw new Error("Forum sidebar server mismatch")
-  publishCommunityForumSidebar(queryClient, {
+  await publishCommunityForumSidebar(queryClient, {
     serverId, resources: normalized.resources, channels: normalized.channels, openers: normalized.openers,
     negativeRetain: retainId && normalized.retainedDisposition !== "eligible"
       ? {
@@ -176,8 +177,8 @@ function publishNormalizedForumSidebar(
       : null,
     proof: { token, signal },
   })
-  const reconciliation = reconcileForumSidebarNotifyMembershipsFromBase(queryClient, serverId, normalized.base, { token, signal },
-    normalized.retainedDisposition === "eligible" ? normalized.retained?.id ?? null : null)
+  const reconciliation = await completeCommunityPublication(queryClient, () => reconcileForumSidebarNotifyMembershipsFromBase(queryClient, serverId, normalized.base, { token, signal },
+    normalized.retainedDisposition === "eligible" ? normalized.retained?.id ?? null : null))
   const reference = ({ id, parentChannelId, parentMessageId }: ForumSidebarThread) => ({ id, parentChannelId, parentMessageId })
   const result = {
     ...normalized.base, threads: [], verifiedEpoch: token.accessEpoch,
@@ -314,7 +315,7 @@ async function fetchForumSidebarBaseExact(
       normalized = await fetchForumSidebar(queryClient, serverId, null, signal, token)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
       proof = { token, signal }
-      const result = publishNormalizedForumSidebar(
+      const result = await publishNormalizedForumSidebar(
         queryClient,
         serverId,
         normalized,
@@ -425,7 +426,7 @@ export async function grantForumSidebarChild(queryClient: QueryClient, serverId:
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
       const normalized = await fetchForumSidebar(queryClient, serverId, childId, signal, token)
-      const result = publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, signal, token)
+      const result = await publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, signal, token)
       queryClient.setQueryData(communityKeys.forumSidebarThreads(serverId), result.data)
       return { id: childId, disposition: normalized.retainedDisposition, verifiedEpoch: token.accessEpoch }
     },
@@ -445,9 +446,9 @@ export async function reconcileForumSidebarArchiveTag(
   void queryClient.invalidateQueries({ queryKey: communityKeys.forumSidebarThreads(serverId), exact: true, refetchType: "none" })
   const cancellation = queryClient.cancelQueries({ queryKey: communityKeys.forumSidebarRetained(serverId, childId), exact: true })
   if (archived) {
-    removeCanonicalCommunityChannelMembership(queryClient, childId, "notify")
+    await completeCommunityPublication(queryClient, () => removeCanonicalCommunityChannelMembership(queryClient, childId, "notify"))
   } else {
-    setCanonicalCommunityChannelMembership(queryClient, childId, "notify", true)
+    await completeCommunityPublication(queryClient, () => setCanonicalCommunityChannelMembership(queryClient, childId, "notify", true))
   }
   await cancellation
   return invalidateForumSidebarBaseExact(queryClient, serverId)
@@ -468,7 +469,7 @@ export function useForumSidebarThreads(
       const token = captureCommunityLiveSnapshotToken(queryClient)
       const normalized = await fetchForumSidebar(queryClient, serverId, retainId, signal, token)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
-      const result = publishNormalizedForumSidebar(queryClient, serverId, normalized, retainId, signal, token)
+      const result = await publishNormalizedForumSidebar(queryClient, serverId, normalized, retainId, signal, token)
 
       return result.data
     },

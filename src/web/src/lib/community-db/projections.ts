@@ -13,7 +13,7 @@ import { DbProvider, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type 
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { serverRailTopOrder, sortServerRailRows, notifLevelDisplay } from "@alook/shared"
-import { projectForumSidebar, supportsSidebarThreads } from "@/lib/community/forum-sidebar"
+import { projectForumSidebarStructure, applyForumSidebarAttention, projectCommunityAttention, supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { avatarInitial } from "@/lib/community/avatar"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import type { DM } from "@/lib/community/models/people"
@@ -135,7 +135,7 @@ export function useServerRailProjection() {
     folders: useFolderRows(),
     folderItems: useFolderItemRows(),
   }
-  return useMemo(() => {
+  const structure = useMemo(() => {
     if (!rows.registry || !rows.servers || !rows.serverMemberships) return undefined
     const viewerId = rows.registry.accountId
     const allowed = new Set(
@@ -158,8 +158,8 @@ export function useServerRailProjection() {
         ownerId: server.ownerId,
         initial: avatarInitial(server.name),
         active: false,
-        unread: rows.attention.some(scope => scope.serverId === server.id && scope.ordinaryUnread),
-        mentions: rows.attention.reduce((sum, scope) => sum + (scope.serverId === server.id ? scope.attentionCount : 0), 0),
+        unread: false,
+        mentions: 0,
         official: server.official,
         isOwner: server.isOwner,
         icon: server.icon,
@@ -197,7 +197,17 @@ export function useServerRailProjection() {
     const topOrder = serverRailTopOrder(state)
     const byFolder = new Map(folders.map((folder) => [folder.id, folder]))
     return { servers: sortServerRailRows(state, servers), folders: topOrder.flatMap((entry) => entry.kind === "folder" ? [byFolder.get(entry.id)!] : []), topOrder }
-  }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems, rows.serverRail, rows.attention])
+  }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems, rows.serverRail])
+  return useMemo(() => {
+    if (!structure) return undefined
+    const attention = projectCommunityAttention(rows.attention)
+    const servers = structure.servers.map(server => {
+      const summary = attention.servers.get(server.id)
+      const unread = summary?.unread ?? false, mentions = summary?.mentions ?? 0
+      return unread === server.unread && mentions === server.mentions ? server : { ...server, unread, mentions }
+    })
+    return servers.every((server, index) => server === structure.servers[index]) ? structure : { ...structure, servers }
+  }, [structure, rows.attention])
 }
 
 export function useServerTreeProjection(serverId: string | null) {
@@ -216,26 +226,33 @@ export function useServerTreeProjection(serverId: string | null) {
   const attention = useAttentionScopes()
   const ready = servers.isReady && categories.isReady && channels.isReady
   const rows = { servers: servers.data, categories: categories.data, channels: channels.data }
-  return useMemo(() => {
+  const structure = useMemo(() => {
     if (!ready || !serverId || !rows.servers || !rows.categories || !rows.channels) return undefined
     const server = rows.servers.find((candidate) => candidate.id === serverId)
-    if (!server || !registry || !directory || !serverDirectoryWindowComplete(directory, { servers: [...registry.collections.servers.base.values()], categories: [...registry.collections.categories.base.values()], channels: [...registry.collections.channels.base.values()] }, registry.accountId, serverId)) return undefined
+    if (!server || !registry || !directory || !serverDirectoryWindowComplete(directory, { servers: [registry.collections.servers.base.get(serverId)].filter(row => row !== undefined), categories: directory.categoryIds.flatMap(id => { const row = registry.collections.categories.base.get(id); return row ? [row] : [] }), channels: directory.channelIds.flatMap(id => { const row = registry.collections.channels.base.get(id); return row ? [row] : [] }) }, registry.accountId, serverId)) return undefined
+    const channelIds = new Set(directory.channelIds), categoryIds = new Set(directory.categoryIds)
     const channels = rows.channels.filter((channel) => (
-      channel.serverId === serverId && channel.type !== "thread" && (directory.channelIds.includes(channel.id) || channel.pending)
+      channel.serverId === serverId && channel.type !== "thread" && (channelIds.has(channel.id) || channel.pending)
     ))
     const channelView = (channel: ChannelRow): Category["channels"][number] => ({
       id: channel.id,
       name: channel.name ?? "",
       active: false,
-      unread: attention.some((scope) => scope.serverId === serverId && (scope.channelId === channel.id || scope.parentChannelId === channel.id) && (scope.ordinaryUnread || scope.attentionCount > 0)),
+      unread: false,
       muted: channel.muted,
       type: channel.type === "forum" ? "forum" : "text",
       tags: channel.tags,
       creatorId: channel.creatorId,
       pending: channel.pending,
     })
+    const byCategory = new Map<string | null, ChannelRow[]>()
+    for (const channel of channels) {
+      const bucket = byCategory.get(channel.categoryId) ?? []
+      bucket.push(channel)
+      byCategory.set(channel.categoryId, bucket)
+    }
     const categories: Category[] = rows.categories
-      .filter((category) => category.serverId === serverId && (directory.categoryIds.includes(category.id) || category.pending))
+      .filter((category) => category.serverId === serverId && (categoryIds.has(category.id) || category.pending))
       .sort((a, b) => a.position - b.position)
       .map((category) => ({
         id: category.id,
@@ -243,13 +260,11 @@ export function useServerTreeProjection(serverId: string | null) {
         private: category.private,
         creatorId: category.creatorId,
         pending: category.pending,
-        channels: channels
-          .filter((channel) => channel.categoryId === category.id)
+        channels: (byCategory.get(category.id) ?? [])
           .sort((a, b) => a.position - b.position)
           .map(channelView),
       }))
-    const uncategorized = channels
-      .filter((channel) => !channel.categoryId)
+    const uncategorized = (byCategory.get(null) ?? [])
       .sort((a, b) => a.position - b.position)
       .map(channelView)
     if (uncategorized.length > 0) {
@@ -261,7 +276,19 @@ export function useServerTreeProjection(serverId: string | null) {
       ownerId: server.ownerId, categories,
     }
     return view
-  }, [attention, ready, rows.servers, rows.categories, rows.channels, serverId, directory, registry])
+  }, [ready, rows.servers, rows.categories, rows.channels, serverId, directory, registry])
+  return useMemo(() => {
+    if (!structure || !serverId) return undefined
+    const unread = projectCommunityAttention(attention).channels.get(serverId)
+    const categories = structure.categories.map(category => {
+      const channels = category.channels.map(channel => {
+        const value = unread?.has(channel.id) ?? false
+        return channel.unread === value ? channel : { ...channel, unread: value }
+      })
+      return channels.every((channel, index) => channel === category.channels[index]) ? category : { ...category, channels }
+    })
+    return categories.every((category, index) => category === structure.categories[index]) ? structure : { ...structure, categories }
+  }, [structure, attention, serverId])
 }
 
 export function useDmProjection() {
@@ -513,10 +540,11 @@ function useForumSidebarRows(serverId: string) {
 
 export function useForumSidebarProjection(serverId: string, retainId: string | null, serverNowMs: number | null) {
   const rows = useForumSidebarRows(serverId)
-  return useMemo(() => {
+  const structure = useMemo(() => {
     if (serverNowMs === null || !rows.ready || !rows.registry || !rows.channels || !rows.channelMemberships || !rows.messages) return undefined
-    return projectForumSidebar(rows.channels, rows.channelMemberships, rows.messages, rows.registry.accountId, serverId, retainId, serverNowMs, rows.attention)
-  }, [rows.attention, serverNowMs, rows.ready, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
+    return projectForumSidebarStructure(rows.channels, rows.channelMemberships, rows.messages, rows.registry.accountId, serverId, retainId, serverNowMs)
+  }, [serverNowMs, rows.ready, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
+  return useMemo(() => structure && applyForumSidebarAttention(structure, serverId, rows.attention), [structure, serverId, rows.attention])
 }
 
 export function useServerSidebarProjection(
@@ -524,16 +552,18 @@ export function useServerSidebarProjection(
 ) {
   const server = useServerTreeProjection(serverId)
   const { ready, registry, servers, channels, channelMemberships, messages, attention } = useForumSidebarRows(serverId)
-  return useMemo(() => {
-    if (serverNowMs === null || !ready || !registry || !servers || !channels || !channelMemberships || !messages) {
-      return { server, projection: undefined, status: failed ? "error" as const : "pending" as const, needsRead: false }
-    }
-    const complete = !!server && (!channels.some(row => supportsSidebarThreads(row.type))
-      || !!window && forumSidebarWindowComplete(window, { directory: getServerDirectoryWindow(registry, serverId), servers, channels, channelMemberships, messages }, registry.accountId, serverId, retainId, serverNowMs))
-    const projection = projectForumSidebar(channels, channelMemberships, messages, registry.accountId, serverId, retainId, serverNowMs, attention)
-    return { server, projection, status: complete ? "ready" as const : failed ? "error" as const : "pending" as const,
-      needsRead: !!server && !!window && !complete }
-  }, [attention, server, serverNowMs, ready, registry, servers, channels, channelMemberships, messages, window, serverId, retainId, failed])
+  const structure = useMemo(() => {
+    if (serverNowMs === null || !ready || !registry || !servers || !channels || !channelMemberships || !messages) return undefined
+    return projectForumSidebarStructure(channels, channelMemberships, messages, registry.accountId, serverId, retainId, serverNowMs)
+  }, [serverNowMs, ready, registry, servers, channels, channelMemberships, messages, serverId, retainId])
+  const hasServer = !!server
+  const complete = useMemo(() => !!structure && hasServer && !!registry && !!channels && !!servers && !!channelMemberships && !!messages && serverNowMs !== null
+    && (!channels.some(row => supportsSidebarThreads(row.type)) || !!window && forumSidebarWindowComplete(window,
+      { directory: getServerDirectoryWindow(registry, serverId), servers, channels, channelMemberships, messages }, registry.accountId, serverId, retainId, serverNowMs, structure.threads)),
+  [structure, hasServer, registry, channels, servers, channelMemberships, messages, window, serverId, retainId, serverNowMs])
+  const projection = useMemo(() => structure && applyForumSidebarAttention(structure, serverId, attention), [structure, serverId, attention])
+  return { server, projection, status: complete ? "ready" as const : failed ? "error" as const : "pending" as const,
+    needsRead: !!structure && hasServer && !!window && !complete }
 }
 
 export function useChannelReadStateProjection(channelId: string | null) {

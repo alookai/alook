@@ -35,7 +35,7 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   mocks.load.mockResolvedValueOnce(serverRailResponseFixture({ servers: [{ ...server, role: "owner", isOwner: true, memberId: "membership" }] }))
   await client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(client) })
   mocks.load.mockClear()
-  publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [{ id: "category", name: grouped ? "Group" : "", private: false, channels: [{ id: "channel", name: "Target channel", active: false, unread: true, muted: false, type: "text" }] }] }) }, proof })
+  await publishCommunityLiveSnapshot(client, { snapshot: { kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: [{ id: "category", name: grouped ? "Group" : "", private: false, channels: [{ id: "channel", name: "Target channel", active: false, unread: true, muted: false, type: "text" }] }] }) }, proof })
   client.setQueryData(communityKeys.forumSidebarThreads(server.id), { threads: [], verifiedEpoch: 0, serverNow: new Date().toISOString(), serverClockOffsetMs: 0, window: { version: BUSINESS_SCHEMA_VERSION, accountId: registry.accountId, serverId: server.id, parents: ["channel"], base: [], retained: null } })
   registry.collections.channelMemberships.utils.writeUpsert({ id: "channel:viewer:access", channelId: "channel", userId: "viewer", relation: "access", source: "explicit" })
   registry.runtime.ws.actions.rememberChannelAccess(server.id, "channel")
@@ -63,23 +63,23 @@ it.each([false, true])("keeps real same-server list, row and category nodes thro
   const row = view.getByTestId(tid.channelRow("channel"))
   const indicator = () => row.querySelector('[data-slot="community-channel-unread-indicator"]')
   expect(indicator()).toHaveClass("h-0")
-  const attention = (seq: number) => publishAccountAttentionSnapshot(client, {
+  const attention = async (seq: number) => await publishAccountAttentionSnapshot(client, {
     snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: "channel", channelId: "channel", serverId: server.id, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: seq, attentionCount: 0, lastAttentionSeq: null }], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
     proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined },
   })
-  await act(async () => { attention(4) })
+  await act(async () => { await attention(4) })
   await waitFor(() => expect(indicator()).toHaveClass("h-2.5"))
   let optimistic!: ReturnType<typeof clearAttentionScopeOptimistically>
   await act(async () => { optimistic = clearAttentionScopeOptimistically(registry, "channel", 4) })
   await waitFor(() => expect(indicator()).toHaveClass("h-0"))
   expect(registry.collections.channels.get("channel")).not.toHaveProperty("unread")
-  await act(async () => { attention(4) })
+  await act(async () => { await attention(4) })
   expect(indicator()).toHaveClass("h-0")
-  await act(async () => { attention(5) })
+  await act(async () => { await attention(5) })
   await waitFor(() => expect(indicator()).toHaveClass("h-2.5"))
   await act(async () => {
     restoreAttentionScopeOptimisticSnapshot(registry, optimistic)
-    publishAccountAttentionSnapshot(client, { snapshot: { resources: resourceBundleFixture(), scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }, proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    await publishAccountAttentionSnapshot(client, { snapshot: { resources: resourceBundleFixture(), scopes: [], items: [], limit: 100, truncated: false, included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } }, proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
   })
   await waitFor(() => expect(indicator()).toHaveClass("h-0"))
   const title = view.getByRole("button", { name: "Target server" })

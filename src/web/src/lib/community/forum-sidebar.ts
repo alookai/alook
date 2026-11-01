@@ -15,6 +15,39 @@ export function supportsSidebarThreads(type: string | null | undefined) {
 
 export const FORUM_SIDEBAR_ACTIVITY_WINDOW_MS = 72 * 60 * 60 * 1000
 
+type AttentionProjection = {
+  servers: Map<string, { unread: boolean; mentions: number }>
+  channels: Map<string, Set<string>>
+  parents: Map<string, Set<string>>
+  scopes: Set<string>
+}
+const attentionProjections = new WeakMap<readonly AttentionScopeRow[], AttentionProjection>()
+
+export function projectCommunityAttention(attention: readonly AttentionScopeRow[]) {
+  const previous = attentionProjections.get(attention)
+  if (previous) return previous
+  const result: AttentionProjection = { servers: new Map(), channels: new Map(), parents: new Map(), scopes: new Set() }
+  for (const scope of attention) {
+    const unread = scope.ordinaryUnread || scope.attentionCount > 0
+    if (unread) result.scopes.add(scope.scopeId)
+    if (!scope.serverId) continue
+    const server = result.servers.get(scope.serverId) ?? { unread: false, mentions: 0 }
+    server.unread ||= scope.ordinaryUnread
+    server.mentions += scope.attentionCount
+    result.servers.set(scope.serverId, server)
+    if (!unread) continue
+    const channels = result.channels.get(scope.serverId) ?? new Set<string>()
+    channels.add(scope.channelId)
+    if (scope.parentChannelId) channels.add(scope.parentChannelId)
+    result.channels.set(scope.serverId, channels)
+    const parents = result.parents.get(scope.serverId) ?? new Set<string>()
+    parents.add(scope.parentChannelId ?? scope.channelId)
+    result.parents.set(scope.serverId, parents)
+  }
+  attentionProjections.set(attention, result)
+  return result
+}
+
 export function viewerNotifyChannelIds(memberships: readonly ChannelMembershipRow[], viewerId: string | null) {
   return new Set(memberships.filter((row) => row.relation === "notify" && row.userId === viewerId).map((row) => row.channelId))
 }
@@ -48,11 +81,11 @@ export function forumSidebarCandidates(
   }).sort(compareForumSidebarThreads)
 }
 
-export function projectForumSidebar(
+export function projectForumSidebarStructure(
   channels: readonly ChannelRow[], memberships: readonly ChannelMembershipRow[], messages: readonly MessageRow[],
-  viewerId: string | null, serverId: string, retainId: string | null, serverNowMs: number, attention: readonly AttentionScopeRow[] = [],
+  viewerId: string | null, serverId: string, retainId: string | null, serverNowMs: number,
 ) {
-  const candidates = forumSidebarCandidates(channels, memberships, messages, viewerId, serverId, attention)
+  const candidates = forumSidebarCandidates(channels, memberships, messages, viewerId, serverId)
     .filter((thread) => thread.id === retainId || !Number.isFinite(Date.parse(thread.expiresAt)) || Date.parse(thread.expiresAt) > serverNowMs)
   const byParent = new Map<string, ForumSidebarThread[]>()
   for (const thread of candidates) {
@@ -65,9 +98,19 @@ export function projectForumSidebar(
     if (!retained || siblings.slice(0, 5).some((thread) => thread.id === retainId)) return siblings.slice(0, 5)
     return [...siblings.filter((thread) => thread.id !== retainId).slice(0, 4), retained].sort(compareForumSidebarThreads)
   })
-  const parentUnread: Record<string, boolean> = Object.fromEntries(channels.filter(channel => channel.serverId === serverId && channel.type !== "thread").map(channel => [channel.id, false]))
-  for (const scope of attention) {
-    if (scope.serverId === serverId && (scope.ordinaryUnread || scope.attentionCount > 0)) parentUnread[scope.parentChannelId ?? scope.channelId] = true
-  }
-  return { threads, parentUnread }
+  return { threads, parentIds: channels.filter(channel => channel.serverId === serverId && channel.type !== "thread").map(channel => channel.id) }
+}
+
+export function applyForumSidebarAttention(structure: ReturnType<typeof projectForumSidebarStructure>, serverId: string, attention: readonly AttentionScopeRow[]) {
+  const projected = projectCommunityAttention(attention)
+  const parentUnread: Record<string, boolean> = Object.fromEntries(structure.parentIds.map(id => [id, false]))
+  for (const id of projected.parents.get(serverId) ?? []) parentUnread[id] = true
+  return { threads: structure.threads.map(thread => projected.scopes.has(thread.id) ? { ...thread, unread: true } : thread), parentUnread }
+}
+
+export function projectForumSidebar(
+  channels: readonly ChannelRow[], memberships: readonly ChannelMembershipRow[], messages: readonly MessageRow[],
+  viewerId: string | null, serverId: string, retainId: string | null, serverNowMs: number, attention: readonly AttentionScopeRow[] = [],
+) {
+  return applyForumSidebarAttention(projectForumSidebarStructure(channels, memberships, messages, viewerId, serverId, retainId, serverNowMs), serverId, attention)
 }

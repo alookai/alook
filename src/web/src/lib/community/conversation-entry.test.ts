@@ -19,6 +19,21 @@ beforeEach(() => { load.mockReset() })
 import { conversationEntryFixture as entry, conversationEntryTarget as target, dmConversationEntryFixture, forumConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 
 describe("conversation entry canonical publication", () => {
+  it("shares the qualified display and landing window through unrelated profile changes", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = entry()
+    await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const scope = getQualifiedConversationScope(client, target)!
+    const first = findConversationDisplayWindow(client, target, scope)
+    expect(first).toBeDefined()
+    expect(findConversationEntryWindow(client, target, scope, value.readState)).toBe(first)
+    const profiles = [...registry.collections.profiles.values(), profileResourceFixture({ id: "unrelated" })]
+    await writeCommunityCollectionRows(registry, "profiles", profiles, row => row.id)
+    expect(findConversationDisplayWindow(client, target, scope)).toBe(first)
+    await writeCommunityCollectionRows(registry, "profiles", [], row => row.id)
+    expect(findConversationDisplayWindow(client, target, scope)).toBeUndefined()
+  })
+
   it("does not backfill entry phases when observation becomes eligible after that request began", async () => {
     const { client } = await createCommunityQueryOwner()
     const events: Array<{ name: string }> = []
@@ -59,7 +74,7 @@ describe("conversation entry canonical publication", () => {
       value.parent = { ...entry().channel, id: "parent" }
       value.surfaceReceipt = { channelId: "c1", surfaceKind: "thread" }
     }
-    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     const before = client.getQueryData(resource.windowKey)
     const channels = communityKeys.communityDbCollection("viewer", "channels")
     if (condition === "retired") registry.runtime.lifecycle.setState(state => ({ active: false, generation: state.generation + 1 }))
@@ -98,7 +113,7 @@ describe("conversation entry canonical publication", () => {
     }
     const destination = { channelId: "c1", serverId: value.channel.serverId }
     const options = conversationEntryOptions(client, destination)
-    const resource = publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const resource = await publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     client.setQueryData(options.queryKey, resource)
     client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
     const scope = getQualifiedConversationScope(client, destination)
@@ -112,7 +127,7 @@ describe("conversation entry canonical publication", () => {
 
   it("rejects residual entities without viewer access and retires the same cache on an account change", async () => {
     const { client, registry } = await createCommunityQueryOwner()
-    publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    await publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
     expect(getQualifiedConversationScope(client, target)).toBeDefined()
     const key = communityKeys.communityDbCollection("viewer", "channelMemberships")
     const rows = client.getQueryData(key)
@@ -127,7 +142,7 @@ describe("conversation entry canonical publication", () => {
   it("keeps a real cached display window distinct from an uncovered target and an isolated canonical entity", async () => {
     const { client, registry } = await createCommunityQueryOwner()
     const value = entry()
-    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     const scope = getQualifiedConversationScope(client, target)!
     const selected = { ...target, anchorMessageId: "elsewhere" }
     expect(findConversationDisplayWindow(client, selected, scope)?.key).toEqual(resource.windowKey)
@@ -194,7 +209,7 @@ describe("conversation entry canonical publication", () => {
   it.each(["child-missing", "child-type", "child-server", "child-parent", "opener-missing", "opener-channel"] as const)("rejects a cached Forum display window with %s without refreshing its qualification", async invalid => {
     const { client, registry } = await createCommunityQueryOwner()
     const value = forumConversationEntryFixture()
-    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     const scope = getQualifiedConversationScope(client, target)!
     expect(findConversationDisplayWindow(client, target, scope)?.key).toEqual(resource.windowKey)
     if (invalid === "child-missing") await registry.collections.channels.utils.writeDelete("t1")
@@ -223,7 +238,7 @@ describe("conversation entry canonical publication", () => {
       if (state === "failed-query") await expect(client.query({ queryKey: key, queryFn: () => Promise.reject(new Error("first read failed")), retry: false, select: undefined })).rejects.toThrow("first read failed")
       if (state === "empty-pages") client.setQueryData(key, { pages: [], pageParams: [] })
       if (state === "mismatched-params") client.setQueryData(key, { pages: [forum ? { threads: [] } : { messages: [] }], pageParams: [] })
-      const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+      const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
       expect(client.getQueryData<{ pages: unknown[] }>(key)?.pages).toHaveLength(1)
       expect(findConversationEntryWindow(client, target, resource, value.readState)?.key).toEqual(key)
     }
@@ -235,7 +250,7 @@ describe("conversation entry canonical publication", () => {
     const previous = { pages: [{ threads: [], nextCursor: "older" }, { threads: [], nextCursor: null }], pageParams: [null, "older"] }
     client.setQueryData(key, previous)
     const value = forumConversationEntryFixture()
-    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     expect(client.getQueryData(key)).toBe(previous)
     expect(findConversationEntryWindow(client, target, resource, value.readState)?.key).toEqual(key)
   })
@@ -257,24 +272,24 @@ describe("conversation entry canonical publication", () => {
     const token = captureCommunityLiveSnapshotToken(client, "c1")
     const { writeCommunityProfilePatches } = await import("./profile-seed")
     writeCommunityProfilePatches([{ id: "peer", identityAbout: { name: "Current", discriminator: "0042" }, avatar: { avatar: "new-avatar", avatarVersion: 8 } }], registry, { event: true })
-    publishConversationEntry(client, { channelId: "c1", serverId: null }, dmConversationEntryFixture(), { token })
+    await publishConversationEntry(client, { channelId: "c1", serverId: null }, dmConversationEntryFixture(), { token })
     expect(registry.collections.profiles.get("peer")).toMatchObject({ name: "Current", avatar: "new-avatar", avatarVersion: 8 })
   })
 
   it("keeps a freshly verified DM when an older full directory response omits it", async () => {
     const { client, registry } = await createCommunityQueryOwner()
     const previous = captureCommunityLiveSnapshotToken(client)
-    publishConversationEntry(client, { channelId: "c1", serverId: null }, dmConversationEntryFixture(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
-    publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [] } }, proof: { kind: "structural", token: previous, signal: undefined } })
+    await publishConversationEntry(client, { channelId: "c1", serverId: null }, dmConversationEntryFixture(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    await publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [] } }, proof: { kind: "structural", token: previous, signal: undefined } })
     expect(registry.collections.channels.get("c1")).toMatchObject({ type: "dm" })
     expect(registry.collections.channelMemberships.get("c1:peer:access")).toBeDefined()
-    publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    await publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
     expect(registry.collections.channels.get("c1")).toBeUndefined()
   })
 
   it("keeps a structural directory from creating a second reading-proof cache", async () => {
     const { client, registry } = await createCommunityQueryOwner()
-    publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "dm", userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0, status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    await publishCommunityLiveSnapshot(client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "dm", userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0, status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
     expect(registry.collections.channels.has("dm")).toBe(true)
     expect(client.getQueryData(communityKeys.channelMeta(null, "dm"))).toBeUndefined()
     expect(client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries("dm") })).toEqual([])
@@ -319,13 +334,13 @@ describe("conversation entry canonical publication", () => {
       pageParams: [{ mode: "anchor", anchor: "m1" }, { mode: "older", cursor: "old" }],
     }
     client.setQueryData(key, previous)
-    publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    await publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
     expect(client.getQueryData(key)).toBe(previous)
   })
 
   it("keeps an explicit missing anchor local to its window and does not retire readable history", async () => {
     const { client, registry } = await createCommunityQueryOwner()
-    publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    await publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
     const missing = new ApiError("anchor not found", 404, [COMMUNITY_CONVERSATION_ANCHOR_MISSING])
     load.mockRejectedValue(missing)
     await expect(client.query({ ...conversationEntryOptions(client, { ...target, anchorMessageId: "missing" }), select: undefined })).rejects.toBe(missing)
@@ -392,7 +407,7 @@ describe("conversation entry canonical publication", () => {
   it("finds its canonical window after channel transport query eviction", async () => {
     const { client, registry } = await createCommunityQueryOwner()
     const value = entry()
-    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     client.removeQueries({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "channels"), exact: true })
     expect(registry.collections.channels.get("c1")).toMatchObject(value.channel)
     expect(findConversationEntryWindow(client, target, resource, value.readState)?.key).toEqual(resource.windowKey)
@@ -403,7 +418,7 @@ describe("conversation entry canonical publication", () => {
     const value = entry()
     value.readState = { channelId: "c1", lastReadMessageId: "missing", lastReadAt: "at", lastReadSeq: 10 }
     value.selection = { reason: "read_pointer_missing", anchorMessageId: null }
-    const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     expect(findConversationEntryWindow(client, target, resource, value.readState)?.initial).toEqual({ mode: "newest" })
     expect(findConversationEntryWindow(client, target, resource, { ...value.readState, lastReadMessageId: "newer" })).toBeUndefined()
     expect(findConversationEntryWindow(client, { ...target, anchorMessageId: "explicit" }, resource, value.readState)).toBeUndefined()
@@ -446,7 +461,7 @@ it.each(["main", "opener"] as const)("validates the effective retained %s reply 
   expect(client.getQueryCache().getAll().map(query => [query.queryKey, query.state.data])).toEqual(queries)
   const prior = profileResourceFixture({ id: "prior-author", name: "Prior author" })
   writeCommunityProfilePatches([communityUserProfilePatch(prior.id, prior)], registry)
-  const resource = publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+  const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
   expect(registry.collections.messages.get(original.id)?.replyTo).toEqual(retainedReply)
   expect(findConversationEntryWindow(client, target, resource, value.readState)).toBeDefined()
 })

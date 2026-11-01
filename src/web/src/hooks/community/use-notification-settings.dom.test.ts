@@ -93,7 +93,7 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     const disposeRegistry = registry.cleanup.bind(registry)
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
-    publishCommunityLiveSnapshot(queryClient, {
+    await publishCommunityLiveSnapshot(queryClient, {
       snapshot: {
         kind: "notification-settings",
         data: {

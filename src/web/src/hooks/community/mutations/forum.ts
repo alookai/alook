@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import type { CommunityMessagePosted } from "@alook/shared"
 import type { CommunityChannelResource } from "@alook/shared"
@@ -70,11 +71,11 @@ export function useCreateForumThread() {
       assert()
       const parent = origin.registry!.collections.channels.get(channelId)
       if (parent && structure.message) {
-        publishCommunityMessages(queryClient, { channelId, profiles: structure.profiles, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
+        await publishCommunityMessages(queryClient, { channelId, profiles: structure.profiles, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
         const child = await origin.request<CommunityChannelResource>(token, `/api/community/channels/${structure.threadId}`, { method: "GET", signal: assertActive?.signal, assertActive })
         assert()
         if (child.parentChannelId !== channelId || child.parentMessageId !== structure.message.id || child.serverId !== parent.serverId) throw new Error("Created forum child scope mismatch")
-        publishCommunityCreatedChannel(queryClient, child, { token, signal: assertActive?.signal })
+        await completeCommunityPublication(queryClient, () => publishCommunityCreatedChannel(queryClient, child, { token, signal: assertActive?.signal }))
       }
       assert()
       const reply = await origin.request<Pick<CommunityMessagePosted, "message" | "profiles">>(token, `/api/community/channels/${structure.threadId}/messages`, {
@@ -82,7 +83,7 @@ export function useCreateForumThread() {
         body: JSON.stringify({ content, attachments: attachmentIds, nonce: `${nonce}:reply` }),
       })
       assert()
-      if (reply.message) publishCommunityMessages(queryClient, { channelId: structure.threadId, profiles: reply.profiles, messages: [projectPostedMessage(reply.message, `${nonce}:reply`, structure.threadId)], proof: { token, signal: assertActive?.signal } })
+      if (reply.message) await publishCommunityMessages(queryClient, { channelId: structure.threadId, profiles: reply.profiles, messages: [projectPostedMessage(reply.message, `${nonce}:reply`, structure.threadId)], proof: { token, signal: assertActive?.signal } })
       for (const query of resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
       return structure
     },
@@ -141,7 +142,7 @@ export function useUpdatePostTags() {
         result = { tags: [...new Set(result.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))] }
         const child = registry.collections.channels.get(args.threadId)
         if (currentCommand(args) && child?.serverId === args.serverId && child.parentChannelId === args.forumChannelId && child.parentMessageId === args.openerMessageId
-          && publishCommunityForumTags(queryClient, args.threadId, result.tags, { token, signal }) && previousArchived !== result.tags.includes(FORUM_ARCHIVE_TAG)) {
+          && await completeCommunityPublication(queryClient, () => publishCommunityForumTags(queryClient, args.threadId, result.tags, { token, signal })) && previousArchived !== result.tags.includes(FORUM_ARCHIVE_TAG)) {
           await reconcileForumSidebarArchiveTag(queryClient, args.serverId, args.threadId, result.tags.includes(FORUM_ARCHIVE_TAG))
           assert()
         }
@@ -238,10 +239,10 @@ export function useDeleteForumThread() {
           try { origin.assert(token) } catch { return }
           let navigationAllowed = true
           try { assert() } catch { navigationAllowed = false }
-          applyForumPostUnitClientEffects(queryClient, unit, { proof: { token, signal: controller.signal }, queries: new Set(args.resources), assertView: () => {
+          await completeCommunityPublication(queryClient, () => applyForumPostUnitClientEffects(queryClient, unit, { proof: { token, signal: controller.signal }, queries: new Set(args.resources), assertView: () => {
             if (!navigationAllowed) throw new DOMException("Retired post navigation", "AbortError")
             args.view.assertOwner()
-          } })
+          } }))
           for (const query of args.resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query && [communityKeys.channelMessages(args.forumChannelId), communityKeys.threads(args.forumChannelId), communityKeys.forumTags(args.forumChannelId), communityKeys.server(args.serverId)].some((key) => startsWithQueryKey(query.queryKey, key))) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
         } catch (error) { assertOwner(); throw error }
         finally { subscription.unsubscribe() }

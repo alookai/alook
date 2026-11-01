@@ -112,7 +112,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
   await seedConversationEntry(owner.client, options.cached ?? entry(kind, "c1", ownTail))
   await seedConversationEntry(owner.client, entry("channel", "c2"))
   if (options.readPointer) ingestReadStateSnapshot(owner.registry, { revision: 2, readStates: [options.readPointer] })
-  if (options.latestAttentionSeq) publishAccountAttentionSnapshot(owner.client, {
+  if (options.latestAttentionSeq) await publishAccountAttentionSnapshot(owner.client, {
     snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true,
       lastUnreadSeq: options.latestAttentionSeq, lastAttentionSeq: null, attentionCount: 0 }],
     items: [], limit: 100, truncated: false,
@@ -315,7 +315,7 @@ describe("conversation entry positioning through real reading owners", () => {
         expect({ latestSeq: latest.feed.latestSeq, messages: latest.feed.messages.map(message => message.id),
           fetching: latest.feed.isFetching, readSnapshotFetching: latest.feed.readSnapshotFetching,
           readReady: view.root().querySelector("[data-message-list-content]")!.getAttribute("data-read-position-ready"),
-        }).toEqual({ latestSeq: 13, messages: ["m1"], fetching: false, readSnapshotFetching: true, readReady: "false" })
+        }).toEqual({ latestSeq: previousTail ? 13 : 1, messages: ["m1"], fetching: !previousTail, readSnapshotFetching: true, readReady: "false" })
         await act(async () => { await publish(); await vi.advanceTimersByTimeAsync(0) })
         resize()
       }

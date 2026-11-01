@@ -71,7 +71,7 @@ const accountAttentionQueryFn = (queryClient: QueryClient) => {
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
     if (!query || queryClient.getQueryCache().get(query.queryHash) !== query) throw new DOMException("Attention query retired", "AbortError")
     if (currentReadRevision(token.registry) !== readRevision) throw new StaleAttentionReadError()
-    publishAccountAttentionSnapshot(queryClient, { snapshot, proof: { token: requestToken, signal } })
+    await publishAccountAttentionSnapshot(queryClient, { snapshot, proof: { token: requestToken, signal } })
     return { loaded: true, readRevision }
   }
 }

@@ -30,8 +30,32 @@ import {
 import { ingestMessages, ingestServerDetail, ingestServers, restoreCommunityCollections } from "./sync"
 import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
 import { profileSchema } from "./schema"
+import { writeCommunityCollectionRows } from "./write"
 
 describe("community DB projections", () => {
+  it("updates attention without rebuilding rail order or unrelated tree categories", async () => {
+    const client = new QueryClient(), registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+    ingestServers(registry, serverRailResponseFixture({ servers: [{ id: "s1", name: "Server", initial: "S", active: false, unread: false, mentions: 0, ownerId: "viewer" }] }, "viewer"))
+    ingestServerDetail(registry, serverDirectoryFixture({ id: "s1", name: "Server", categories: [
+      { id: "a", name: "A", channels: [{ id: "c1", name: "One", active: false, unread: false }] },
+      { id: "b", name: "B", channels: [{ id: "c2", name: "Two", active: false, unread: false }] },
+    ] }))
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    const view = renderHook(() => ({ rail: useServerRailProjection(), tree: useServerTreeProjection("s1") }), { wrapper })
+    try {
+      await waitFor(() => expect(view.result.current.tree?.categories).toHaveLength(2))
+      const order = view.result.current.rail!.topOrder, folders = view.result.current.rail!.folders
+      const unrelated = view.result.current.tree!.categories.find(row => row.id === "b")
+      await act(async () => { await writeCommunityCollectionRows(registry, "attentionScopes", [{ scopeId: "c1", channelId: "c1", serverId: "s1", parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 1, lastAttentionSeq: 1, attentionCount: 2 }], row => row.scopeId) })
+      await waitFor(() => expect(view.result.current.rail?.servers[0]).toMatchObject({ unread: true, mentions: 2 }))
+      expect(view.result.current.tree?.categories[0].channels[0].unread).toBe(true)
+      expect(view.result.current.rail!.topOrder).toBe(order)
+      expect(view.result.current.rail!.folders).toBe(folders)
+      expect(view.result.current.tree!.categories.find(row => row.id === "b")).toBe(unrelated)
+    } finally { view.unmount(); await registry.cleanup() }
+  })
+
   it("preserves the real fetcher when a passive tree mounts after a read and the key is invalidated", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.server("srv")

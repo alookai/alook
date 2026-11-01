@@ -33,8 +33,9 @@ type ChannelAccessScope = {
   denialCode?: CommunityApiError["code"]
 }
 
-type CommunityWsStoreState = {
+export type CommunityWsStoreState = {
   accessEpoch: number
+  serverAccessGenerations: Map<string, number>
   channelAccessScopes: Map<string, ChannelAccessScope>
   revokedServerIds: Set<string>
   beginChannelMembershipChange: (serverId: string | null, channelId: string, options?: { preserveRevocation: boolean }) => number
@@ -82,10 +83,11 @@ const initialState = (): Pick<
   "profileViewerId" | "profileAccountEpoch" | "presenceRevision"
   | "presenceByUserId" | "presenceRevisionsByUserId"
   | "seenMessageIds" | "seenDeliveryOperations"
-  | "accessEpoch" | "accessConnected" | "channelAccessScopes" | "revokedServerIds"
+  | "accessEpoch" | "accessConnected" | "channelAccessScopes" | "revokedServerIds" | "serverAccessGenerations"
   | "connectionStatus" | "reconnectNow"
 > => ({
   accessEpoch: 0,
+  serverAccessGenerations: new Map(),
   channelAccessScopes: new Map(),
   revokedServerIds: new Set(),
   accessConnected: false,
@@ -160,6 +162,7 @@ export function createCommunityWsStore(viewerId: string | null, publishPresence?
         profileAccountEpoch,
         accessEpoch: state.accessEpoch + 1,
         channelAccessScopes: new Map(),
+        serverAccessGenerations: new Map(),
         revokedServerIds: new Set(),
         presenceRevision: 0,
         presenceByUserId: new Map(),
@@ -287,7 +290,9 @@ export function createCommunityWsStore(viewerId: string | null, publishPresence?
 
   revokeServerAccess: (serverId) => {
     const revokedServerIds = new Set(get().revokedServerIds).add(serverId)
-    setState((state) => ({ ...state, ...{ revokedServerIds, accessEpoch: get().accessEpoch + 1 } }))
+    const serverAccessGenerations = new Map(get().serverAccessGenerations)
+    serverAccessGenerations.set(serverId, (serverAccessGenerations.get(serverId) ?? 0) + 1)
+    setState((state) => ({ ...state, ...{ revokedServerIds, serverAccessGenerations, accessEpoch: get().accessEpoch + 1 } }))
   },
 
   grantServerAccess: (serverId) => {

@@ -74,7 +74,7 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
     const ids = new Set(freshThreads.map((thread) => thread.id)), openerIds = new Set(freshThreads.map((thread) => thread.parentMessageId))
     const messages = page.included.messages.filter((message) => openerIds.has(message.id) || ids.has(message.channelId))
     const users = new Set([...page.included.members.filter((member) => ids.has(member.channelId)).map((member) => member.userId), ...messages.flatMap(messageProfileIds)])
-    publishCommunityForumFeed(queryClient, channelId, { ...page, threads: freshThreads, included: {
+    await publishCommunityForumFeed(queryClient, channelId, { ...page, threads: freshThreads, included: {
       messages,
       previews: page.included.previews.filter((message) => ids.has(message.channelId)),
       tags: page.included.tags.filter((row) => openerIds.has(row.messageId)),

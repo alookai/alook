@@ -78,7 +78,7 @@ describe("useForumOpenerHint", () => {
 
   it("keeps a readable canonical opener after a transient background failure", async () => {
     const { queryClient, wrapper } = await canonicalSetup()
-    publishCommunityMessages(queryClient, { profiles: messageProfilesFixture([messageResourceFixture({ id: "opener-1", channelId: "forum-1", content: "Warm title", seq: 7 })]), channelId: "forum-1", messages: [messageResourceFixture({ id: "opener-1", channelId: "forum-1", content: "Warm title", seq: 7 })], proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined } })
+    await publishCommunityMessages(queryClient, { profiles: messageProfilesFixture([messageResourceFixture({ id: "opener-1", channelId: "forum-1", content: "Warm title", seq: 7 })]), channelId: "forum-1", messages: [messageResourceFixture({ id: "opener-1", channelId: "forum-1", content: "Warm title", seq: 7 })], proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined } })
     apiFetchMock.mockRejectedValue(new Error("offline"))
     const rendered = renderHook(() => useForumOpenerHint("server-1", "opener-1", true), { wrapper })
     await waitFor(() => expect(rendered.result.current.isError).toBe(true))
@@ -126,7 +126,7 @@ describe("useForumOpenerHint", () => {
 
   it("exposes a warm canonical opener without waiting for its background transport", async () => {
     const { queryClient, wrapper } = await canonicalSetup()
-    publishCommunityMessages(queryClient, { profiles: messageProfilesFixture([messageResourceFixture({
+    await publishCommunityMessages(queryClient, { profiles: messageProfilesFixture([messageResourceFixture({
         id: "opener-1", channelId: "forum-1", content: "Warm title", seq: 7,
       })]),
       channelId: "forum-1",

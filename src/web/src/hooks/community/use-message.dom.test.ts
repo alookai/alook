@@ -35,7 +35,7 @@ const message = messageResourceFixture({ id: "m_1", channelId: scope.channelId, 
 
 describe("useMessage cache-first placeholder", () => {
   it("returns a cached canonical list message while the exact query is pending", async () => {
-    publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
+    await publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     client.setQueryData(communityKeys.channelMessages(scope.channelId), { pages: [{ ids: [message.id], hasMore: false }], pageParams: [{ mode: "newest" }] })
     const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.message).toMatchObject({ id: message.id, type: message.type, seq: message.seq, authorId: message.authorId, authorName: message.authorName, content: message.content, createdAt: message.createdAt }))
@@ -44,7 +44,7 @@ describe("useMessage cache-first placeholder", () => {
   })
 
   it.each(["body", "profile"] as const)("repairs a fresh cached ID with its native %s missing through the same query", async missing => {
-    publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
+    await publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     client.setQueryData(communityKeys.message(message.id), message.id)
     if (missing === "body") await writeCommunityCollectionRows(registry, "messages", [], row => row.id)
     else await writeCommunityCollectionRows(registry, "profiles", [], row => row.id)
@@ -72,7 +72,7 @@ describe("useMessage cache-first placeholder", () => {
 
   it("uses canonical identity exclusively when the DB provider is active", async () => {
     client.setQueryData(communityKeys.message(message.id), { ...message, authorId: "raw", content: "raw query" })
-    publishCommunityMessages(client, { channelId: scope.channelId, messages: [{ ...message, authorId: "canonical", authorName: "Canonical", content: "canonical row" }], profiles: messageProfilesFixture([{ ...message, authorId: "canonical", authorName: "Canonical" }]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
+    await publishCommunityMessages(client, { channelId: scope.channelId, messages: [{ ...message, authorId: "canonical", authorName: "Canonical", content: "canonical row" }], profiles: messageProfilesFixture([{ ...message, authorId: "canonical", authorName: "Canonical" }]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.message).toMatchObject({ authorId: "canonical", content: "canonical row" }))
   })
@@ -86,7 +86,7 @@ describe("useMessage cache-first placeholder", () => {
   })
 
   it.each(["current", "retired"] as const)("observes a %s native server retirement without copying access state", async lifetime => {
-    publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
+    await publishCommunityMessages(client, { channelId: scope.channelId, messages: [message], profiles: messageProfilesFixture([message]), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     client.setQueryData(communityKeys.message(message.id), message.id)
     const rendered = renderHook(() => useMessage(message.id, scope), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.message?.id).toBe(message.id))

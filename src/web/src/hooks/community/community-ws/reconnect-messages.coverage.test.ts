@@ -38,7 +38,7 @@ async function setup(sequences = [98, 99, 100], tag: string | null = null) {
     page: { ...fixture().page, latestSeq: last.seq, hasMoreOlder: true, hasMoreNewer: false },
   }
   const options = conversationEntryOptions(owner.client, target)
-  const resource = publishConversationEntry(owner.client, target, packet, { token: captureCommunityLiveSnapshotToken(owner.client, "c1") })
+  const resource = await publishConversationEntry(owner.client, target, packet, { token: captureCommunityLiveSnapshotToken(owner.client, "c1") })
   owner.client.setQueryData(options.queryKey, resource)
   const key = resource.windowKey
   const observer = new QueryObserver(owner.client, { queryKey: key, queryFn: vi.fn(), staleTime: Infinity })
@@ -57,7 +57,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     const fresh = { ...fixture(), messages: [{ ...row(100), content: "edited" }, row(101)],
       selection: { reason: "tail" as const, anchorMessageId: null }, page: { ...fixture().page, latestSeq: 101 },
     }
-    publishConversationEntry(h.client, h.target, fresh, { token: captureCommunityLiveSnapshotToken(h.client, "c1") })
+    await publishConversationEntry(h.client, h.target, fresh, { token: captureCommunityLiveSnapshotToken(h.client, "c1") })
     load.mockResolvedValue(page([row(101)], 101))
     try {
       await reconcileConversationLanding(h.client, { kind: "channel", scopeId: "c1", serverId: "s1" }, h.key,

@@ -316,7 +316,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
   it("invalidates the focused thread opener's single-message query on reconnect", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     getCapturedRuntime().ui.actions.setCurrentChannelId("thread_focus")
-    seedCanonicalFocusedChannel({
+    await seedCanonicalFocusedChannel({
       name: "thread",
       parentChannelId: "ch_parent",
       parentMessageId: "m_opener",

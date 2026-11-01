@@ -65,15 +65,15 @@ async function setup(ids = ["before", "p2", "after"], observeCatalog = false) {
     useLayoutEffect(() => { frames.push({ pending: tags.isPending, all: result.all.map(({ id }) => id), archived: result.archived.map(({ id }) => id) }) })
     return result
   }, { wrapper })
-  function seed(rows: string[], append = false) {
+  async function seed(rows: string[], append = false) {
     const page = wire(rows), token = captureCommunityLiveSnapshotToken(owner.client)
-    publishCommunityForumSidebar(owner.client, { serverId: "server_1", resources: fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server_1" })], [page.channel, ...page.threads], page.included.messages, page.included.profiles), channels: page.threads.map((row) => ({ ...row, name: row.name!, unread: false, parentChannelId: "forum_1", type: "thread", archived: false })), openers: page.included.messages.filter(message => message.channelId === "forum_1"), proof: { token, signal: undefined } })
-    publishCommunityForumFeed(owner.client, "forum_1", normalizeThreadResources("forum_1", page), { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
+    await publishCommunityForumSidebar(owner.client, { serverId: "server_1", resources: fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server_1" })], [page.channel, ...page.threads], page.included.messages, page.included.profiles), channels: page.threads.map((row) => ({ ...row, name: row.name!, unread: false, parentChannelId: "forum_1", type: "thread", archived: false })), openers: page.included.messages.filter(message => message.channelId === "forum_1"), proof: { token, signal: undefined } })
+    await publishCommunityForumFeed(owner.client, "forum_1", normalizeThreadResources("forum_1", page), { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
     for (const filter of [null, "bug", "archived"]) owner.client.setQueryData<InfiniteData<ForumFeedPage>>(communityKeys.forumFeed("forum_1", filter), (current) => ({ pages: append && current ? [{ ...current.pages[0], threads: [...current.pages[0].threads, ...forumFeedWindow(normalizeThreadResources("forum_1", page)).threads] }] : [forumFeedWindow(normalizeThreadResources("forum_1", page))], pageParams: [null] }))
   }
-  act(() => {
+  await act(async () => {
     projectCommunityWsEventToDb(owner.client, { type: "community:channel.create", serverId: "server_1", channel: channelResourceFixture({ id: "forum_1", serverId: "server_1", name: "Forum", type: "forum", createdAt: new Date().toISOString() }) })
-    seed(ids)
+    await seed(ids)
     owner.client.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [{ messages: ids.map((id) => ({ id: `opener_${id}` })) }], pageParams: [null] })
     owner.client.setQueryData([...communityKeys.channelMessages("forum_1"), "tag", "bug"], { pages: [], pageParams: [null] })
     if (!observeCatalog) owner.client.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] })
@@ -87,7 +87,7 @@ type View = Awaited<ReturnType<typeof setup>>
 async function begin(view: View, command: "tags" | "remove", input = command === "tags" ? tagInput : deleteInput) {
   const held = deferred(); mocks.api.mockReturnValueOnce(held.promise)
   let request!: Promise<unknown>
-  act(() => { request = command === "tags" ? view.view.result.current.tags.mutateAsync(input as typeof tagInput).catch((error) => error) : view.view.result.current.remove.mutateAsync(input).catch((error) => error) })
+  await act(() => { request = command === "tags" ? view.view.result.current.tags.mutateAsync(input as typeof tagInput).catch((error) => error) : view.view.result.current.remove.mutateAsync(input).catch((error) => error) })
   await waitFor(() => expect(mocks.api.mock.calls.some(([, options]) => options?.method === (command === "tags" ? "PUT" : "DELETE"))).toBe(true))
   return { held, request }
 }
@@ -120,7 +120,7 @@ describe("Native forum creation", () => {
     const view = await setup(), held = deferred()
     const { opener, replied } = mockForumCreation("create_1", "New post", "Body", held)
     let request!: Promise<unknown>
-    act(() => { request = view.view.result.current.create.mutateAsync({ nonce: "create_1", channelId: "forum_1", name: "New post", content: "Body" }) })
+    await act(() => { request = view.view.result.current.create.mutateAsync({ nonce: "create_1", channelId: "forum_1", name: "New post", content: "Body" }) })
     await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(3))
     expect(view.registry.collections.messages.get(opener.id)).toMatchObject({ channelId: "forum_1", content: "New post", clientNonce: "create_1:opener", seq: 40 })
     expect(view.registry.collections.channels.get("p_new")).toMatchObject({ serverId: "server_1", parentChannelId: "forum_1", parentMessageId: opener.id, name: "New post", type: "thread" })
@@ -163,7 +163,7 @@ describe("Native forum tag transactions", () => {
     let oldRead: Promise<void> | undefined
     if (kind === "refetch") {
       await waitFor(() => expect(view.view.result.current.catalog.data?.tags).toEqual(["bug"]))
-      act(() => { oldRead = view.client.refetchQueries({ queryKey: communityKeys.forumTags("forum_1"), exact: true }) })
+      await act(() => { oldRead = view.client.refetchQueries({ queryKey: communityKeys.forumTags("forum_1"), exact: true }) })
       await waitFor(() => expect(reads).toBe(2))
     } else {
       await waitFor(() => expect(reads).toBe(1))
@@ -182,7 +182,7 @@ describe("Native forum tag transactions", () => {
     await waitFor(() => expect(view.view.result.current.catalog.data?.tags).toEqual(["bug"]))
     const pending = await begin(view, "tags"), key = communityKeys.forumTags("forum_1"), held = deferred()
     let replacementSignal: AbortSignal | undefined, replacementRead!: Promise<{ tags: string[] }>
-    act(() => {
+    await act(() => {
       view.client.removeQueries({ queryKey: key, exact: true })
       replacementRead = view.client.query({ queryKey: key, queryFn: ({ signal }) => {
         replacementSignal = signal
@@ -203,7 +203,7 @@ describe("Native forum tag transactions", () => {
     const view = await setup(undefined, true)
     await waitFor(() => expect(view.view.result.current.catalog.data?.tags).toEqual(["bug"]))
     const pending = await begin(view, "tags")
-    act(() => view.view.unmount())
+    await act(() => view.view.unmount())
     await act(async () => { pending.held.resolve({ tags: ["bug", "archived"] }); await pending.request })
     expect(mocks.api.mock.calls.filter(([path]) => path.endsWith("/messages/tags"))).toHaveLength(1)
     expect(view.client.getQueryData(communityKeys.forumTags("forum_1"))).toEqual({ tags: ["bug"] })
@@ -231,7 +231,7 @@ describe("Native forum tag transactions", () => {
   })
   it("restores only the failed canonical slice while preserving updated and inserted siblings", async () => {
     const view = await setup(), { held, request } = await begin(view, "tags")
-    act(() => {
+    await act(() => {
       publishCommunityForumTags(view.client, "before", ["updated"], { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined })
       view.seed(["concurrent"], true)
     })
@@ -242,10 +242,10 @@ describe("Native forum tag transactions", () => {
   })
   it("keeps a newer confirmed archive through older failure and a concurrent unarchive rollback", async () => {
     const view = await setup(["p2"]), { held, request } = await begin(view, "tags"), newer = deferred()
-    act(() => publishCommunityForumTags(view.client, "p2", ["bug", "archived"], { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined }))
+    await act(() => publishCommunityForumTags(view.client, "p2", ["bug", "archived"], { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined }))
     mocks.api.mockReturnValueOnce(newer.promise)
     let newerRequest!: Promise<unknown>
-    act(() => { newerRequest = view.view.result.current.tags.mutateAsync({ ...tagInput, previousTags: ["bug", "archived"], tags: ["bug"] }).catch((error) => error) })
+    await act(() => { newerRequest = view.view.result.current.tags.mutateAsync({ ...tagInput, previousTags: ["bug", "archived"], tags: ["bug"] }).catch((error) => error) })
     await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(2))
     await act(async () => { held.reject(new Error("older failed")); await request })
     await waitFor(() => { expect(mocks.api).toHaveBeenCalledTimes(2); expect(view.view.result.current.archived).toEqual([]); expect(view.view.result.current.all.map(({ id }) => id)).toEqual(["p2"]) })
@@ -261,7 +261,7 @@ describe("Native forum tag transactions", () => {
   })
   it("restores notify on unarchive and derives ranking from current canonical activity", async () => {
     const view = await setup()
-    act(() => { publishCommunityForumTags(view.client, "p2", ["bug", "archived"], { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined }); removeCanonicalCommunityChannelMembership(view.client, "p2", "notify") })
+    await act(() => { publishCommunityForumTags(view.client, "p2", ["bug", "archived"], { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined }); removeCanonicalCommunityChannelMembership(view.client, "p2", "notify") })
     mocks.api.mockResolvedValueOnce({ tags: ["bug"] })
     await act(async () => { await view.view.result.current.tags.mutateAsync({ ...tagInput, previousTags: ["bug", "archived"], tags: ["bug"] }) })
     expect(getForumSidebarBase(view.client, "server_1").threads.map(({ id }) => id).sort()).toEqual(["after", "before", "p2"])
@@ -291,7 +291,7 @@ describe("Native forum post deletion", () => {
   it("clears local stream, unread and active route once without requiring a self WS frame", async () => {
     const view = await setup()
     const disk = vi.spyOn(view.registry, "retireReadingDisk").mockResolvedValue(undefined)
-    act(() => {
+    await act(() => {
       seedCommunityAttentionScope(view.client, { channelId: "p2", serverId: "server_1", seq: 1 })
       view.runtime.ui.actions.setCurrentServerId("server_1"); view.runtime.ui.actions.setCurrentChannelId("p2")
       view.runtime.ui.actions.registerUiHandlers({ replacePath: view.navigate })
@@ -310,7 +310,7 @@ describe("Native forum post deletion", () => {
     expect(view.navigate).toHaveBeenCalledWith("/c/channels/server_1/forum_1")
     expect(Boolean(view.registry.collections.attentionScopes.get("p2")?.ordinaryUnread)).toBe(false)
     expect(Boolean(view.registry.collections.attentionScopes.get("p2")?.ordinaryUnread)).toBe(false)
-    act(() => applyForumPostUnitClientEffects(view.client, { serverId: "server_1", forumChannelId: "forum_1", childChannelId: "p2", openerMessageId: "opener_p2" }))
+    await act(() => applyForumPostUnitClientEffects(view.client, { serverId: "server_1", forumChannelId: "forum_1", childChannelId: "p2", openerMessageId: "opener_p2" }))
     expect(mocks.clearLastChannel).toHaveBeenCalledOnce(); expect(view.navigate).toHaveBeenCalledOnce()
     expect(disk).toHaveBeenCalledOnce()
     expect(disk).toHaveBeenCalledWith(new Set(["p2"]), true)
@@ -343,17 +343,17 @@ describe("Native forum post deletion", () => {
 
 describe("Native forum partition and transaction controls", () => {
   const ids = (view: View, filter: "all" | "bug" | "archived" = "all") => view.view.result.current[filter].map(({ id }) => id)
-  function window(view: View, filter: string | null, pages: string[][], pageParams: (string | null)[] = pages.map((_, index) => index ? `cursor_${index}` : null)) {
-    act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", filter), { pages: pages.map((rows) => forumFeedWindow(normalizeThreadResources("forum_1", wire(rows)))), pageParams }))
+  async function window(view: View, filter: string | null, pages: string[][], pageParams: (string | null)[] = pages.map((_, index) => index ? `cursor_${index}` : null)) {
+    await act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", filter), { pages: pages.map((rows) => forumFeedWindow(normalizeThreadResources("forum_1", wire(rows)))), pageParams }))
   }
-  function wsTags(view: View, tags: string[], id = "p2") {
-    act(() => projectCommunityWsEventToDb(view.client, { type: "community:channel.update", serverId: "server_1", channelId: id, changes: { tags } }))
+  async function wsTags(view: View, tags: string[], id = "p2") {
+    await act(() => projectCommunityWsEventToDb(view.client, { type: "community:channel.update", serverId: "server_1", channelId: id, changes: { tags } }))
   }
   async function second(view: View, input = { ...tagInput, tags: ["help"] }) {
     const held = deferred(), count = mocks.api.mock.calls.length
     mocks.api.mockReturnValueOnce(held.promise)
     let request!: Promise<unknown>
-    act(() => { request = view.view.result.current.tags.mutateAsync(input).catch((error) => error) })
+    await act(() => { request = view.view.result.current.tags.mutateAsync(input).catch((error) => error) })
     await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(count + 1))
     return { held, request }
   }
@@ -364,12 +364,12 @@ describe("Native forum partition and transaction controls", () => {
   })
   it("removes Archive and Unarchive source rows without inserting a destination rank", async () => {
     const view = await setup(["p2"])
-    window(view, "archived", [[]])
+    await window(view, "archived", [[]])
     const first = await begin(view, "tags")
     await waitFor(() => expect(ids(view)).toEqual([]))
     expect(ids(view, "archived")).toEqual([])
     await act(async () => { first.held.resolve({ tags: ["bug", "archived"] }); await first.request })
-    window(view, null, [[]]); window(view, "archived", [["p2"]])
+    await window(view, null, [[]]); await window(view, "archived", [["p2"]])
     await waitFor(() => expect(ids(view, "archived")).toEqual(["p2"]))
     const next = await second(view, { ...tagInput, previousTags: ["bug", "archived"], tags: ["bug"] })
     await waitFor(() => expect(ids(view, "archived")).toEqual([]))
@@ -385,8 +385,8 @@ describe("Native forum partition and transaction controls", () => {
   })
   it("merges only the rolled-back canonical slice and preserves concurrent siblings", async () => {
     const view = await setup(), pending = await begin(view, "tags")
-    act(() => view.seed(["concurrent"], true))
-    wsTags(view, ["help"], "before")
+    await act(() => view.seed(["concurrent"], true))
+    await wsTags(view, ["help"], "before")
     await act(async () => { pending.held.reject(new Error("denied")); await pending.request })
     await waitFor(() => expect(ids(view)).toEqual(["concurrent", "before", "p2", "after"]))
     expect(view.registry.collections.channels.get("before")?.tags).toEqual(["help"])
@@ -408,7 +408,7 @@ describe("Native forum partition and transaction controls", () => {
   })
   it("retains an authoritative non-archive response in its moved cursor page", async () => {
     const view = await setup(), pending = await begin(view, "tags")
-    window(view, null, [["before"], ["p2", "after"]], [null, "moved_cursor"])
+    await window(view, null, [["before"], ["p2", "after"]], [null, "moved_cursor"])
     await act(async () => { pending.held.resolve({ tags: ["bug"] }); await pending.request })
     await waitFor(() => expect(ids(view)).toEqual(["before", "p2", "after"]))
     expect(view.client.getQueryData<InfiniteData<ForumFeedPage>>(communityKeys.forumFeed("forum_1", null))?.pageParams).toEqual([null, "moved_cursor"])
@@ -417,7 +417,7 @@ describe("Native forum partition and transaction controls", () => {
     const view = await setup(["p2"]), other = { value: "outside partition" }
     view.client.setQueryData(communityKeys.forumFeeds("forum_1"), other)
     const pending = await begin(view, "tags")
-    window(view, null, [[]], ["replacement_cursor"])
+    await window(view, null, [[]], ["replacement_cursor"])
     await act(async () => { pending.held.reject(new Error("denied")); await pending.request })
     await waitFor(() => expect(ids(view)).toEqual([]))
     expect(view.client.getQueryData(communityKeys.forumFeeds("forum_1"))).toBe(other)
@@ -451,23 +451,23 @@ describe("Native forum partition and transaction controls", () => {
     const view = await setup(["p2"])
     const invalid = forumFeedWindow(normalizeThreadResources("forum_1", wire(["p2"])))
     invalid.threads[0].openerMessageId = "retired_opener"
-    act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", "bug"), { pages: [invalid], pageParams: [null] }))
+    await act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", "bug"), { pages: [invalid], pageParams: [null] }))
     await waitFor(() => expect(ids(view, "bug")).toEqual([]))
-    wsTags(view, ["archived"])
+    await wsTags(view, ["archived"])
     await waitFor(() => expect(ids(view)).toEqual([]))
     expect(ids(view, "archived")).toEqual(["p2"])
   })
   it("does not manufacture opener evidence for a malformed transport window", async () => {
     const view = await setup(["p2"]), invalid = forumFeedWindow(normalizeThreadResources("forum_1", wire(["p2"])))
     invalid.threads[0].openerMessageId = null
-    act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", null), { pages: [invalid], pageParams: ["invalid_cursor"] }))
+    await act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", null), { pages: [invalid], pageParams: ["invalid_cursor"] }))
     await waitFor(() => expect(ids(view)).toEqual([]))
-    wsTags(view, ["archived"])
+    await wsTags(view, ["archived"])
     expect(view.client.getQueryData<InfiniteData<ForumFeedPage>>(communityKeys.forumFeed("forum_1", null))?.pages[0].threads[0].openerMessageId).toBeNull()
   })
   it("keeps a local optimistic intent dominant over an intervening WS frame", async () => {
     const view = await setup(["p2"]), pending = await begin(view, "tags")
-    wsTags(view, ["help"])
+    await wsTags(view, ["help"])
     expect(ids(view)).toEqual([])
     await act(async () => { pending.held.reject(new Error("denied")); await pending.request })
     await waitFor(() => expect(view.registry.collections.channels.get("p2")?.tags).toEqual(["help"]))
@@ -475,9 +475,9 @@ describe("Native forum partition and transaction controls", () => {
   })
   it("removes a WS Unarchive from Archived without inventing an All rank", async () => {
     const view = await setup(["p2"])
-    wsTags(view, ["bug", "archived"]); window(view, null, [[]])
+    await wsTags(view, ["bug", "archived"]); await window(view, null, [[]])
     await waitFor(() => expect(ids(view, "archived")).toEqual(["p2"]))
-    wsTags(view, ["bug"])
+    await wsTags(view, ["bug"])
     await waitFor(() => expect(ids(view, "archived")).toEqual([]))
     expect(ids(view)).toEqual([])
   })

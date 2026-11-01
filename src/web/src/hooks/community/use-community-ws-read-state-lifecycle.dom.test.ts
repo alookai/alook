@@ -73,12 +73,12 @@ describe("community read-state lifecycle reconciliation", () => {
     let outcome!: Promise<unknown>
     act(() => { outcome = Promise.resolve(capturedUseUserWsOptions!.onAuthenticated!()).then(() => null, error => error) })
     try {
-      expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
+      await vi.waitFor(() => expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1))
       expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_me")).toBe("online")
       await vi.waitFor(() => expect(attentionCalls()).toHaveLength(1))
       expect(capturedQueryClient.getQueryState(communityKeys.accountReadStateSnapshot())?.fetchStatus).toBe("fetching")
     } finally {
-      releaseSnapshot({ revision: 0, readStates: [] })
+      releaseSnapshot?.({ revision: 0, readStates: [] })
       await act(async () => { await vi.advanceTimersByTimeAsync(0) })
       expect(await outcome).toBeNull()
     }

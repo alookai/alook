@@ -36,7 +36,7 @@ export function useUpdateProfile() {
       const snapshot = beginCommunityProfileSeed(origin.registry)
       const profile = parseCommunitySelfProfileRead(await origin.request<unknown>(original, "/api/community/users/me/profile", { method: "PATCH", body: JSON.stringify(patch), signal: assertActive?.signal, assertActive }), original.viewerId!)
       origin.assert(original); assertActive?.()
-      writeCommunityProfilePatches([{
+      await writeCommunityProfilePatches([{
         id: profile.id,
         ...(patch.name !== undefined || patch.aboutMe !== undefined ? { identityAbout: { ...(patch.name === undefined ? {} : { name: profile.name }), ...(patch.aboutMe === undefined ? {} : { aboutMe: profile.aboutMe }) } } : {}),
         ...(patch.statusEmoji !== undefined || patch.statusText !== undefined ? { status: { ...(patch.statusEmoji === undefined ? {} : { statusEmoji: profile.statusEmoji }), ...(patch.statusText === undefined ? {} : { statusText: profile.statusText }) } } : {}),
@@ -69,7 +69,7 @@ export function useUploadUserAvatar() {
       formData.append("file", file)
       const data = await origin.request<UploadUserAvatarResult>(original, "/api/community/users/me/avatar", { method: "POST", body: formData, signal: assertActive?.signal, assertActive })
       origin.assert(original); assertActive?.()
-      if (original.viewerId) writeCommunityProfilePatches([{ id: original.viewerId, avatar: { avatar: data.url, avatarVersion: data.avatarVersion } }], snapshot.registry, { snapshot, command: true })
+      if (original.viewerId) await writeCommunityProfilePatches([{ id: original.viewerId, avatar: { avatar: data.url, avatarVersion: data.avatarVersion } }], snapshot.registry, { snapshot, command: true })
       return data
     },
   })

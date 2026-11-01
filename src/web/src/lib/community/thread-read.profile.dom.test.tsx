@@ -48,8 +48,8 @@ it.each(["same-channel", "foreign-channel"])("renders the real cold post author 
   expect(registry.collections.friendships.size).toBe(0)
   const structure = await readCommunityResourceBundle(db, "viewer", { channelIds: ["forum", "post"] })
   await act(async () => {
-    publishCommunityResourceBundle(client, structure, { token: captureCommunityLiveSnapshotToken(client) })
-    publishCommunityForumFeed(client, "forum", page, { token: captureCommunityLiveSnapshotToken(client) })
+    await publishCommunityResourceBundle(client, structure, { token: captureCommunityLiveSnapshotToken(client) })
+    await publishCommunityForumFeed(client, "forum", page, { token: captureCommunityLiveSnapshotToken(client) })
   })
   function Harness() {
     const channels = useCanonicalChannelsById()

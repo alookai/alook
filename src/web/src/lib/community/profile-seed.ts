@@ -6,13 +6,12 @@ import type {
 import type { MessageInput } from "@/lib/community/models/message"
 import { canonicalCommunityUserImage, type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
 import {
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
-import { writeCommunityCollectionRows } from "@/lib/community-db/write"
-import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { readCommunityCollectionRow, writeCommunityCollectionChanges, withCommunityCollectionWrites } from "@/lib/community-db/write"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 
 
 type ProfileFieldRevisions = {
@@ -65,8 +64,7 @@ export function retireCommunityProfile(userId: string, registry: CommunityDbRegi
   pendingFieldsByUserId.delete(userId)
   store.setState(() => ({ ...previous, revision, fieldsByUserId, deletedByUserId, pendingFieldsByUserId }))
   registry.runtime.ws.actions.forgetPresence(userId)
-  const rows = registry.queryClient.getQueryData<ProfileRow[]>(communityKeys.communityDbCollection(registry.scopeId, "profiles")) ?? [...registry.collections.profiles.values()]
-  writeCommunityCollectionRows(registry, "profiles", rows.filter(row => row.id !== userId), row => row.id)
+  return writeCommunityCollectionChanges(registry, "profiles", [], [userId])
 }
 
 export function beginCommunityProfileSeed(
@@ -171,10 +169,7 @@ export function writeCommunityProfilePatches(
 ) {
   if (!registry || patches.length === 0 || !registry.runtime.lifecycle.get().active) return
   if (options?.snapshot && options.snapshot.registry !== registry) return
-  const queryKey = communityKeys.communityDbCollection(registry.scopeId, "profiles")
-  const cached = registry.queryClient.getQueryData<ProfileRow[]>(queryKey)
-    ?? Array.from(registry.collections.profiles.values())
-  const profiles = new Map(cached.map((profile) => [profile.id, profile]))
+  const profiles = new Map<string, ProfileRow>()
   const revisionStore = revisionState(registry)
   const previous = revisionStore.get()
   const pendingOwner = JSON.stringify([registry.runtime.ws.get().profileAccountEpoch, registry.runtime.lifecycle.get().generation])
@@ -185,7 +180,7 @@ export function writeCommunityProfilePatches(
   for (const patch of patches) {
     const deletedAt = revisions.deletedByUserId.get(patch.id)
     if (deletedAt !== undefined && (options?.resourceSeed || guardedRevision !== undefined && guardedRevision < deletedAt)) continue
-    const current = profiles.get(patch.id)
+    const current = profiles.get(patch.id) ?? readCommunityCollectionRow(registry, "profiles", patch.id)
     const known = { ...current, ...revisions.pendingFieldsByUserId.get(patch.id) }
     const seedFields = <T extends object>(fields: T | undefined): T | undefined => {
       if (!fields || !options?.resourceSeed) return fields
@@ -242,7 +237,7 @@ export function writeCommunityProfilePatches(
   if (advanced && writeRevision !== null) revisions.revision = writeRevision
   revisionStore.setState(() => revisions)
   const rows = [...profiles.values()]
-  writeCommunityCollectionRows(registry, "profiles", rows, (row) => row.id)
+  return writeCommunityCollectionChanges(registry, "profiles", rows)
 }
 
 export async function loadAndSeedProfiles<T>(
@@ -260,19 +255,21 @@ export async function loadAndSeedProfiles<T>(
   if (token.registry !== registry) throw new DOMException("Mismatched community profile owner", "AbortError")
   const data = await loadCommunityRequest(load, token, signal)
   const projected = patches(data)
-  writeCommunityProfilePatches(projected, profileSnapshot.registry, {
+  await writeCommunityProfilePatches(projected, profileSnapshot.registry, {
     snapshot: profileSnapshot,
   })
+  assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal)
   const presence = projected.flatMap((patch) => (
     patch.presence === undefined
       ? []
       : [{ id: patch.id, presence: patch.presence }]
   ))
   if (presence.length > 0) {
-    overlay.seedPresence(
+    await withCommunityCollectionWrites(registry, () => overlay.seedPresence(
       overlaySnapshot,
       presence.map((patch) => [patch.id, patch.presence] as const),
-    )
+    ))
+    assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal)
   }
   return data
 }

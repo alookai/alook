@@ -40,8 +40,8 @@ type BotCommandContext = {
   resources: Query[]
   assert: () => void
   request: <T>(path: string, options?: ApiRequestOptions) => Promise<T>
-  publishProfile: (patch: CommunityProfilePatch) => void
-  removeProfile: (id: string) => void
+  publishProfile: (patch: CommunityProfilePatch) => Promise<void>
+  removeProfile: (id: string) => Promise<void>
 }
 const botSurfaceKeys = (id?: string) => [communityKeys.bots(), communityKeys.friends(), communityKeys.dms(), ...(id ? [communityKeys.profile(id)] : [])]
 
@@ -65,8 +65,8 @@ function useBotCommand<TInput extends BotViewInput, TResult>(kind: string, execu
       const context: BotCommandContext = {
         client, resources, assert,
         request: (path, options) => origin.request(original, path, { ...options, signal: input.assertActive?.signal, assertActive: assert }),
-        publishProfile: (patch) => { assert(); writeCommunityProfilePatches([patch], origin.registry, { snapshot, command: true }) },
-        removeProfile: (id) => { assert(); if (origin.registry) retireCommunityProfile(id, origin.registry) },
+        publishProfile: async (patch) => { assert(); await writeCommunityProfilePatches([patch], origin.registry, { snapshot, command: true }) },
+        removeProfile: async (id) => { assert(); if (origin.registry) await retireCommunityProfile(id, origin.registry) },
       }
       try {
         for (const resource of resources) if (client.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) await client.cancelQueries({ queryKey: resource.queryKey, exact: true })
@@ -110,7 +110,7 @@ export function invalidateBotSurfaces(client: ReturnType<typeof useQueryClient>,
 export function useCreateBot() {
   return useBotCommand<CreateBotInput, { bot: BotSummary }>("create-command", async ({ assertActive: _assertActive, ...input }, context) => {
     const data = await context.request<{ bot: BotSummary }>("/api/community/bots", { method: "POST", body: JSON.stringify(input) })
-    context.publishProfile(botProfilePatch(data.bot))
+    await context.publishProfile(botProfilePatch(data.bot))
     return data
   }, allBotSurfaceKeys)
 }
@@ -166,7 +166,7 @@ export type UpdateBotResponse = {
 export function useUpdateBot() {
   return useBotCommand<UpdateBotInput, UpdateBotResponse>("update-command", async ({ id, assertActive: _assertActive, ...input }, context) => {
     const data = await context.request<UpdateBotResponse>("/api/community/bots/" + id, { method: "PATCH", body: JSON.stringify(input) })
-    context.publishProfile(botProfilePatch(data.bot))
+    await context.publishProfile(botProfilePatch(data.bot))
     const key = communityKeys.bots(), resource = context.resources.find((resource) => context.client.getQueryCache().find({ queryKey: key, exact: true }) === resource)
     if (resource) context.client.setQueryData<BotsResourceResponse>(key, (current) => current ? { ...current, bots: current.bots.map((bot) => bot.id === id && bot.runtimeConfigRevision <= data.bot.runtimeConfigRevision ? { ...bot, runtime: data.bot.runtime, modelName: data.bot.modelName, reasoningEffort: data.bot.reasoningEffort, runtimeConfigRevision: data.bot.runtimeConfigRevision } : bot) } : current)
     return data
@@ -188,7 +188,7 @@ function useBotIdFacade<TResult>(native: ReturnType<typeof useBotCommand<BotIdIn
   return { ...native, mutate, mutateAsync }
 }
 export function useDeleteBot() {
-  const native = useBotCommand<BotIdInput, void>("delete-command", async ({ id }, context) => { await context.request<void>("/api/community/bots/" + id, { method: "DELETE" }); context.removeProfile(id) }, botIdSurfaceKeys)
+  const native = useBotCommand<BotIdInput, void>("delete-command", async ({ id }, context) => { await context.request<void>("/api/community/bots/" + id, { method: "DELETE" }); await context.removeProfile(id) }, botIdSurfaceKeys)
   return useBotIdFacade<void>(native)
 }
 
@@ -211,7 +211,7 @@ export function useUploadBotAvatar() {
     const body = new FormData()
     body.append("file", file)
     const data = await context.request<UploadBotAvatarResult>("/api/community/bots/" + botId + "/avatar", { method: "POST", body })
-    context.publishProfile({ id: botId, avatar: { avatar: data.url, avatarVersion: data.avatarVersion } })
+    await context.publishProfile({ id: botId, avatar: { avatar: data.url, avatarVersion: data.avatarVersion } })
     return data
   }, botAvatarSurfaceKeys)
 }

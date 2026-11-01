@@ -1,3 +1,5 @@
+import { canonicalChannelRow } from "@/lib/community-db/schema"
+import { createStore } from "@tanstack/store"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
 import type { CommunityDbRegistry } from "@/lib/community-db/collections"
@@ -9,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { useShellRailController } from "./use-shell-rail-controller"
+
+const canonicalChannelFixture = (fields: Parameters<typeof channelResourceFixture>[0]) => canonicalChannelRow(channelResourceFixture(fields))
 
 const mocks = vi.hoisted(() => ({
   servers: [{ id: "s1", name: "One" }, { id: "s2", name: "Two" }],
@@ -277,17 +281,17 @@ describe("useShellRailController", () => {
       ["s2", serverResourceFixture({ id: "s2" })],
     ])
     const channels = new Map([
-      ["pending", { ...channelResourceFixture({ id: "pending", serverId: "s1" }), pending: true }],
-      ["thread", { ...channelResourceFixture({ id: "thread", serverId: "s1", type: "thread", parentChannelId: "canonical", parentMessageId: "opener" }), pending: false }],
-      ["canonical", { ...channelResourceFixture({ id: "canonical", serverId: "s1" }), pending: false }],
-      ["foreign", { ...channelResourceFixture({ id: "foreign", serverId: "s2" }), pending: false }],
+      ["pending", { ...canonicalChannelFixture({ id: "pending", serverId: "s1" }), pending: true }],
+      ["thread", { ...canonicalChannelFixture({ id: "thread", serverId: "s1", type: "thread", parentChannelId: "canonical", parentMessageId: "opener" }), pending: false }],
+      ["canonical", { ...canonicalChannelFixture({ id: "canonical", serverId: "s1" }), pending: false }],
+      ["foreign", { ...canonicalChannelFixture({ id: "foreign", serverId: "s2" }), pending: false }],
     ])
     const directoryClient = new QueryClient()
     directoryClient.setQueryData(communityKeys.server("s1"), { schemaVersion: BUSINESS_SCHEMA_VERSION, accountId: "viewer", serverId: "s1", categoryIds: [], channelIds: ["canonical"] })
-    mocks.communityDb.current = { queryClient: directoryClient, scopeId: "viewer", accountId: "viewer", collections: {
+    mocks.communityDb.current = { queryClient: directoryClient, scopeId: "viewer", accountId: "viewer", runtime: { lifecycle: createStore({ active: true, generation: 0 }) }, collections: {
       categories: { values: () => [][Symbol.iterator]() },
       servers: { get: (id: string) => servers.get(id), values: () => servers.values(), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
-      channels: { values: () => channels.values(), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
+      channels: { get: (id: string) => channels.get(id), values: () => channels.values(), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
     } } as unknown as CommunityDbRegistry
     const hook = await renderController()
 

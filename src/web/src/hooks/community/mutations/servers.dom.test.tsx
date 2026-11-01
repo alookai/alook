@@ -32,7 +32,7 @@ async function setup(serverId: string, callbacks: Omit<Callbacks, "routeToken">)
   await act(async () => {
     const registry = getCommunityDbRegistry(client)!
     await registry.ready; await registry.preload()
-    publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: serverRailResponseFixture({ servers: [{ id: serverId, name: "Server", isOwner: true, ownerId: "viewer", role: "owner", memberId: `member-${serverId}` }] }) }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    await publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: serverRailResponseFixture({ servers: [{ id: serverId, name: "Server", isOwner: true, ownerId: "viewer", role: "owner", memberId: `member-${serverId}` }] }) }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
     client.setQueryData(communityKeys.servers(), [serverId])
   })
   return { client, routeToken: originalToken, result: { get current() { return current } }, unmount: () => mounted.rerender(<Root visible={false} />), rerender: ({ activeCallbacks }: { activeCallbacks: Callbacks }) => mounted.rerender(<Root activeCallbacks={activeCallbacks} />) }

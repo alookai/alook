@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { useMutation, useQueryClient, type Query, type MutateOptions } from "@tanstack/react-query"
 import { useCallback } from "react"
@@ -38,11 +39,11 @@ function useMemberCommand<TInput extends KickMemberArgs>(kind: "role" | "kick") 
         await origin.request(original, "/api/community/servers/" + input.serverId + "/members/" + input.memberId, { method: kind === "role" ? "PATCH" : "DELETE", signal: input.assertActive?.signal, assertActive: input.assertActive, ...(kind === "role" ? { body: JSON.stringify({ role: (input as SetMemberRoleArgs).role }) } : {}) })
         origin.assert(original)
         if (kind === "role") {
-          if (memberKey) publishCommunityMemberRole(queryClient, memberKey, input.memberId, (input as SetMemberRoleArgs).role, { token: proof, signal: input.assertActive?.signal })
+          if (memberKey) await completeCommunityPublication(queryClient, () => publishCommunityMemberRole(queryClient, memberKey, input.memberId, (input as SetMemberRoleArgs).role, { token: proof, signal: input.assertActive?.signal }))
         } else {
           const current = memberKey ? committed().find((row) => row.id === memberKey) : undefined
           if (!memberKey || current?.memberId === input.memberId) {
-            if (memberKey) publishCommunityMemberRemoval(queryClient, memberKey, input.memberId, { token: proof, signal: input.assertActive?.signal })
+            if (memberKey) await completeCommunityPublication(queryClient, () => publishCommunityMemberRemoval(queryClient, memberKey, input.memberId, { token: proof, signal: input.assertActive?.signal }))
             patchMemberKickWindows(queryClient, resources, input.memberId)
           }
         }

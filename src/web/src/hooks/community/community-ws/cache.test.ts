@@ -66,7 +66,7 @@ describe("community WS canonical publication and ID windows", () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")
     ingestMessages(registry, "ch_1", [messageResourceFixture({ id: "m_1", channelId: "ch_1" }), messageResourceFixture({ id: "m_2", channelId: "ch_1", seq: 2, content: "target", authorId: "author", createdAt: "2026-08-15T00:00:02.000Z" })])
     const messages = [...registry.collections.messages.values()].map(row => messageResourceFixture(Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith("$")))))
-    publishCommunityMessages(client, { channelId: "ch_1", messages, profiles: messageProfilesFixture(messages), proof: { token: captureCommunityLiveSnapshotToken(client) } })
+    await publishCommunityMessages(client, { channelId: "ch_1", messages, profiles: messageProfilesFixture(messages), proof: { token: captureCommunityLiveSnapshotToken(client) } })
     expect(findCachedMessage(client, "m_2")).toMatchObject({ id: "m_2", content: "target" })
     expect(findCachedMessage(client, "missing")).toBeUndefined()
   })

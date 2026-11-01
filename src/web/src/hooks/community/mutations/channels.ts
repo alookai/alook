@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { useCommunityCommandMutation, type CommunityCommandArgs } from "../use-community-command-mutation"
 import { beginCommunityCommandRevision } from "@/lib/community-db/sync"
@@ -109,7 +110,7 @@ export function useCreateChannel() {
         origin.assert(proof.token)
         const channel = CommunityChannelResourceSchema.parse(result.channel)
         if (channel.serverId !== args.serverId || channel.type !== args.type || channel.categoryId !== categoryId) throw new Error("Created channel scope mismatch")
-        publishCommunityCreatedChannel(queryClient, { ...channel, pending: false }, proof)
+        await completeCommunityPublication(queryClient, () => publishCommunityCreatedChannel(queryClient, { ...channel, pending: false }, proof))
         return result
       })
     },
@@ -149,7 +150,7 @@ export function useRenameChannel() {
             ...communityRequestOptions(queryClient, token, undefined, () => origin.assert(original)),
           })
           origin.assert(original)
-          publishCommunityChannelPatch(queryClient, args.channelId, (row) => ({ ...row, name: result.name }), { token, signal: undefined })
+          await completeCommunityPublication(queryClient, () => publishCommunityChannelPatch(queryClient, args.channelId, (row) => ({ ...row, name: result.name }), { token, signal: undefined }))
           return result
         } catch (error) {
           origin.assert(original)
@@ -184,7 +185,7 @@ export function useDeleteChannel() {
     }, async (proof, options) => {
       await apiFetch(`/api/community/channels/${args.channelId}`, { method: "DELETE", ...options })
       origin.assert(proof.token)
-      retireCommunityChannelReading(origin.registry!, args.channelId, { reason: "resource-deleted", serverId: args.serverId })
+      await completeCommunityPublication(origin.registry!, () => retireCommunityChannelReading(origin.registry!, args.channelId, { reason: "resource-deleted", serverId: args.serverId }))
     }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
@@ -218,7 +219,7 @@ export function useCreateCategory() {
         origin.assert(proof.token)
         const category = CommunityCategoryResourceSchema.parse(result.category)
         if (category.serverId !== args.serverId) throw new Error("Created category scope mismatch")
-        publishCommunityCreatedCategory(queryClient, { ...category, pending: false }, proof)
+        await completeCommunityPublication(queryClient, () => publishCommunityCreatedCategory(queryClient, { ...category, pending: false }, proof))
         return result
       })
     },
@@ -242,7 +243,7 @@ export function useUpdateCategory() {
     }, async (proof, options) => {
       const result = await apiFetch<{ name?: string }>(`/api/community/servers/${args.serverId}/categories/${args.categoryId}`, { method: "PATCH", body: JSON.stringify({ name: args.name }), ...options })
       origin.assert(proof.token)
-      if (args.name !== undefined) publishCommunityCategoryFields(queryClient, args.categoryId, { name: result?.name ?? args.name.trim() }, proof)
+      if (args.name !== undefined) await completeCommunityPublication(queryClient, () => publishCommunityCategoryFields(queryClient, args.categoryId, { name: result?.name ?? args.name!.trim() }, proof))
     }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
@@ -259,7 +260,7 @@ export function useDeleteCategory() {
     }, async (proof, options) => {
       await apiFetch(`/api/community/servers/${args.serverId}/categories/${args.categoryId}`, { method: "DELETE", ...options })
       origin.assert(proof.token)
-      publishCommunityDeletedCategory(queryClient, args.categoryId, proof)
+      await completeCommunityPublication(queryClient, () => publishCommunityDeletedCategory(queryClient, args.categoryId, proof))
     }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
@@ -276,7 +277,9 @@ export function useReorderCategories() {
     }, async (proof, options) => {
       await apiFetch(`/api/community/servers/${args.serverId}/categories/reorder`, { method: "PATCH", body: JSON.stringify({ categoryIds: args.categoryIds }), ...options })
       origin.assert(proof.token)
-      args.categoryIds.forEach((id, position) => publishCommunityCategoryFields(queryClient, id, { position }, proof))
+      await completeCommunityPublication(queryClient, () => {
+        args.categoryIds.forEach((id, position) => publishCommunityCategoryFields(queryClient, id, { position }, proof))
+      })
     }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
@@ -293,7 +296,9 @@ export function useReorderChannels() {
     }, async (proof, options) => {
       await apiFetch(`/api/community/servers/${args.serverId}/channels/reorder`, { method: "PATCH", body: JSON.stringify({ channelIds: args.channelIds, ...(args.move ? { move: args.move } : {}) }), ...options })
       origin.assert(proof.token)
-      args.channelIds.forEach((id, position) => publishCommunityChannelFields(queryClient, id, { position, ...(args.move?.channelId === id ? { categoryId: args.move.categoryId } : {}) }, proof))
+      await completeCommunityPublication(queryClient, () => {
+        args.channelIds.forEach((id, position) => publishCommunityChannelFields(queryClient, id, { position, ...(args.move?.channelId === id ? { categoryId: args.move.categoryId } : {}) }, proof))
+      })
     }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })

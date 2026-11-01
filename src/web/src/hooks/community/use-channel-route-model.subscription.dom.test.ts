@@ -548,7 +548,7 @@ it("mounts the qualified native child surface while its entry window is held and
   value.access.channelId = value.readState.channelId = value.surfaceReceipt.channelId = child.id
   value.surfaceReceipt.surfaceKind = "thread"
   value.parent = parent
-  publishCommunityResourceBundle(queryClient, fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server-1", ownerId: "viewer" })], [parent, child]), { token: captureCommunityLiveSnapshotToken(queryClient) })
+  await publishCommunityResourceBundle(queryClient, fullResourceBundleFixture("viewer", [serverResourceFixture({ id: "server-1", ownerId: "viewer" })], [parent, child]), { token: captureCommunityLiveSnapshotToken(queryClient) })
   mocks.dbParent = parent
   mocks.useRealMetadata = true
   let release!: (entry: typeof value) => void
@@ -626,7 +626,7 @@ it.each(["older", "newer", "jump"] as const)("rejects %s admission from a retain
     expect(mocks.load).not.toHaveBeenCalled()
     expect(feed.readSnapshot).toEqual(snapshot)
     const { publishCommunityMessages, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
-    await act(async () => { publishCommunityMessages(queryClient, { channelId: "post-1", messages: value.messages, profiles: value.profiles, proof: { token: captureCommunityLiveSnapshotToken(queryClient, "post-1") } }) })
+    await act(async () => { await publishCommunityMessages(queryClient, { channelId: "post-1", messages: value.messages, profiles: value.profiles, proof: { token: captureCommunityLiveSnapshotToken(queryClient, "post-1") } }) })
     await waitFor(() => expect(feed.navigationBlocked).toBe(false))
     act(() => { admitted = earlier() })
     expect(admitted.accepted).toBe(true)

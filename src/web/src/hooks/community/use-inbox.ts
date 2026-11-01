@@ -290,7 +290,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
       "/api/community/users/me/marks",
       signal ? { signal } : undefined, publicationToken,
     ))
-    publishCommunityResourceBundle(queryClient, data.resources, { token: publicationToken, signal }, data.marked.map(row => ({ id: row.m.id, channelId: row.channelId })))
+    await publishCommunityResourceBundle(queryClient, data.resources, { token: publicationToken, signal }, data.marked.map(row => ({ id: row.m.id, channelId: row.channelId })))
     return { marked: data.marked.map((row) => ({ ...row, m: { id: row.m.id } })) }
   }
 

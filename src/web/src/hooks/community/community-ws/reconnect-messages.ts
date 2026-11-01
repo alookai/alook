@@ -1,3 +1,4 @@
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { COMMUNITY_CONTRACT_HEADER, CommunityMessageResourceSchema } from "@alook/shared"
 import { CancelledError, hashKey, queryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
@@ -40,8 +41,7 @@ function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: Mess
 
 function cachedCoverage(queryClient: QueryClient, scopeId: string, cache: MessageCache, refreshed: MessagesPage, target: number, tag: string | null) {
   if (tag !== null || !Number.isSafeInteger(target)) return
-  const byId = new Map<string, MessageInput>(getCanonicalCommunityMessages(queryClient)
-    .filter(row => row.channelId === scopeId).map(row => [row.id, row]))
+  const byId = new Map<string, MessageInput>(getCanonicalCommunityMessages(queryClient, scopeId).map(row => [row.id, row]))
   for (const message of refreshed.messages) {
     const parsed = CommunityMessageResourceSchema.strip().safeParse(message)
     if (parsed.success && parsed.data.channelId === scopeId) byId.set(message.id, parsed.data)
@@ -194,7 +194,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
           cached = coverage?.page
           cachedCovered = coverage?.covered ?? 0
           if (coverage ? coverage.covered >= required : required <= latest(current, false)) return
-          if (cached?.messages.length) publish(refreshed)
+          if (cached?.messages.length) await publish(refreshed)
           const nextCursor = coverage?.cursor ?? cursor(current)
           if (!nextCursor && (refreshed.latestSeq ?? 0) >= target()) return
           const param: MessagesPageParam = nextCursor ? { mode: "since", since: nextCursor } : current.pageParams[0]
@@ -207,14 +207,14 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
             if (remaining) { cached = remaining.page; cachedCovered = remaining.covered }
           }
         }
-        const publish = (refreshed: MessagesReadPage) => {
+        const publish = async (refreshed: MessagesReadPage) => {
           assert()
           const fetchedEnd = Math.max(0, ...(prefetched?.page.messages.map(message => message.seq ?? 0) ?? []))
           const catchUp = cached && prefetched && cachedCovered >= fetchedEnd
             ? [prefetched.page, cached] : [...(cached ? [cached] : []), ...(prefetched ? [prefetched.page] : [])]
           const pending = [refreshed, ...(prefetched ? [prefetched.page] : [])].filter(page => !published.has(page))
           if (pending.length) {
-            publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), profiles: [...new Map(pending.flatMap(page => page.profiles).map(profile => [profile.id, profile])).values()], proof: { token, signal } })
+            await publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), profiles: [...new Map(pending.flatMap(page => page.profiles).map(profile => [profile.id, profile])).values()], proof: { token, signal } })
             for (const page of pending) published.add(page)
           }
           queryClient.setQueryData<MessageCache>(key, (cache) => isMessageCache(cache) ? mergeWindow(cache, refreshed, catchUp) : cache)
@@ -227,7 +227,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         const refreshed = landingPage.page
         if (!isMessageCache(originalQuery?.state.data)) { record("retired"); return { latestSeq: 0 } }
         await prefetch(current, refreshed)
-        publish(refreshed)
+        await publish(refreshed)
         if (pendingDirection && !paginationReplayed) {
           paginationReplayed = true
           await originalQuery?.fetch(undefined, { meta: { fetchMore: { direction: pendingDirection } } })
@@ -236,7 +236,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         const afterPagination = originalQuery?.state.data
         if (!prefetched && isMessageCache(afterPagination) && target() > latest(afterPagination, false)) {
           await prefetch(afterPagination, refreshed)
-          publish(refreshed)
+          await publish(refreshed)
         }
         assert()
         const latestSeq = Math.max(refreshed.latestSeq ?? 0, prefetched?.page.latestSeq ?? 0, cachedCovered)
@@ -249,10 +249,10 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         record(signal.aborted ? "cancelled" : isAbortError(error) ? "retired" : "error")
         assert()
         if (!(error instanceof ApiError) || (error.status !== 403 && error.status !== 404) || isConversationAnchorMissingError(error)) throw error
-        if (registry) retireCommunityChannelReading(registry, scopeId, {
+        if (registry) await completeCommunityPublication(registry, () => retireCommunityChannelReading(registry, scopeId, {
           reason: "read-denied", serverId,
           preserveQuery: queryClient.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true }),
-        })
+        }))
         return { latestSeq: 0 }
       }
     },
