@@ -105,7 +105,7 @@ describe("SignInMobileTypewriter", () => {
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-tx"))).toBeCloseTo(beforeTx, 1)
   })
 
-  it("defers iOS sensor permission until tapping the typewriter stage and falls back to touch drag when denied", async () => {
+  it("defers iOS sensor permission until releasing the typewriter stage and falls back to touch drag when denied", async () => {
     mockMatchMedia({ mobile: true })
     const requestPermission = vi.fn().mockResolvedValue("denied")
     ;(window as Window & { DeviceOrientationEvent?: unknown }).DeviceOrientationEvent = {
@@ -131,7 +131,7 @@ describe("SignInMobileTypewriter", () => {
       fireEvent.pointerDown(stage, { pointerId: 1, clientX: 330, clientY: 120 })
       await Promise.resolve()
     })
-    expect(requestPermission).toHaveBeenCalledOnce()
+    expect(requestPermission).not.toHaveBeenCalled()
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))).toBeGreaterThan(-19)
 
     await act(async () => {
@@ -141,6 +141,11 @@ describe("SignInMobileTypewriter", () => {
     })
     expect(requestPermission).toHaveBeenCalledOnce()
     expect(Number.parseFloat(stage.style.getPropertyValue("--tw-ry"))).toBeLessThan(-19)
+    await act(async () => {
+      fireEvent.pointerUp(stage, { pointerId: 2 })
+      await Promise.resolve()
+    })
+    expect(requestPermission).toHaveBeenCalledOnce()
   })
 
   it("reattaches sensors when permission is granted while still active", async () => {
@@ -159,11 +164,21 @@ describe("SignInMobileTypewriter", () => {
       name === "deviceorientation" || name === "devicemotion"
 
     render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    act(() => {
+      const motion = new Event("devicemotion")
+      Object.defineProperty(motion, "acceleration", { value: { x: 1, y: 1 } })
+      window.dispatchEvent(motion)
+    })
+    const stage = screen.getByTestId("sign-in-mobile-typewriter")
+    fireEvent.pointerDown(stage, { pointerId: 9 })
+    fireEvent.pointerCancel(stage, { pointerId: 9 })
+    expect(requestOrientation).not.toHaveBeenCalled()
     add.mockClear()
     remove.mockClear()
 
     await act(async () => {
       fireEvent.pointerDown(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 1 })
+      fireEvent.pointerUp(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 1 })
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -172,6 +187,30 @@ describe("SignInMobileTypewriter", () => {
     expect(requestMotion).toHaveBeenCalledOnce()
     expect(remove.mock.calls.filter(isSensorEvent)).toHaveLength(2)
     expect(add.mock.calls.filter(isSensorEvent)).toHaveLength(2)
+  })
+
+  it("retries after permission throws but deduplicates an in-flight request", async () => {
+    mockMatchMedia({ mobile: true })
+    let rejectPermission!: (error: Error) => void
+    const pending = new Promise<"granted">((_resolve, reject) => { rejectPermission = reject })
+    const requestPermission = vi.fn().mockReturnValueOnce(pending).mockResolvedValue("granted")
+    ;(window as Window & { DeviceOrientationEvent?: unknown }).DeviceOrientationEvent = { requestPermission }
+    render(createElement(SignInMobileTypewriter, { collapsed: false }))
+    const stage = screen.getByTestId("sign-in-mobile-typewriter")
+    const tap = () => {
+      fireEvent.pointerDown(stage, { pointerId: 1 })
+      fireEvent.pointerUp(stage, { pointerId: 1 })
+    }
+    tap()
+    tap()
+    expect(requestPermission).toHaveBeenCalledOnce()
+    await act(async () => {
+      rejectPermission(new DOMException("Gesture required", "NotAllowedError"))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => { tap(); await Promise.resolve() })
+    expect(requestPermission).toHaveBeenCalledTimes(2)
   })
 
   it("does not reattach sensors after a late permission result following unmount or collapse", async () => {
@@ -188,6 +227,7 @@ describe("SignInMobileTypewriter", () => {
     const add = vi.spyOn(window, "addEventListener")
     const unmountedView = render(createElement(SignInMobileTypewriter, { collapsed: false }))
     fireEvent.pointerDown(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 1 })
+    fireEvent.pointerUp(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 1 })
     unmountedView.unmount()
     add.mockClear()
     await act(async () => {
@@ -206,6 +246,7 @@ describe("SignInMobileTypewriter", () => {
     }
     const collapsedView = render(createElement(SignInMobileTypewriter, { collapsed: false }))
     fireEvent.pointerDown(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 2 })
+    fireEvent.pointerUp(screen.getByTestId("sign-in-mobile-typewriter"), { pointerId: 2 })
     collapsedView.rerender(createElement(SignInMobileTypewriter, { collapsed: true }))
     add.mockClear()
     await act(async () => {
