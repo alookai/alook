@@ -1860,6 +1860,11 @@ export function patchCanonicalCommunityChannel(
   ))
 }
 
+export function isCommunityChannelSnapshotCurrent(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  return (canonicalRevisionState(queryClient).entityRevisions.get(canonicalEntityKey("channels", channelId)) ?? 0) <= proof.token.canonicalRevision
+}
+
 export function publishCommunityChannelPatch(
   queryClient: QueryClient,
   channelId: string,

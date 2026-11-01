@@ -29,6 +29,7 @@ patchCanonicalCommunityMessage,
 publishCommunityForumSidebar,
 removeCanonicalCommunityChannelMembership,
 setCanonicalCommunityChannelMember,
+isCommunityChannelSnapshotCurrent,
 setCanonicalCommunityChannelMembership,
 type CommunityFreshQueryProof,
 type CommunityForumSidebarChannel,
@@ -384,6 +385,7 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
     if (
       channel.id === protectedRetainId
       || baseIds.has(channel.id)
+      || !isCommunityChannelSnapshotCurrent(queryClient, channel.id, proof)
       || !channel.parentChannelId
     ) continue
     const activityAt = forumSidebarActivityAt(channel)
