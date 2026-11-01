@@ -425,10 +425,10 @@ function SignInForm({
                   </FieldSeparator>
 
                 <div className="relative">
-                  <Button variant="outline" size="lg" type="button" aria-describedby={isEmailLastUsed ? "last-used-email-badge" : undefined} className={cn("h-11 w-full justify-start px-4 text-sm font-medium", isEmailLastUsed && "pr-22")} onClick={() => setViewState("email")}>
+                  <Button variant="outline" size="lg" type="button" aria-describedby={isEmailLastUsed ? "last-used-email-badge" : undefined} className="h-11 w-full justify-start px-4 text-sm font-medium" onClick={() => setViewState("email")}>
                     <span className="flex items-center gap-2"><span className="grid h-9 w-6 place-items-center"><Mail className="size-4" aria-hidden /></span>Continue with email</span>
                   </Button>
-                  {isEmailLastUsed ? <span id="last-used-email-badge" data-testid="last-used-email" className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] leading-none font-medium text-secondary-foreground">Last used</span> : null}
+                  {isEmailLastUsed ? <span id="last-used-email-badge" data-testid="last-used-email" className="pointer-events-none absolute -top-2 right-3 rounded-md border border-border bg-background px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">Last used</span> : null}
                 </div>
                 <SignInTermsNotice />
               </FieldGroup>
@@ -475,8 +475,6 @@ function SignInForm({
                       </div>
                     </div>
                   </form>
-
-                <SignInTermsNotice />
               </FieldGroup>
             </div>
           </div>
