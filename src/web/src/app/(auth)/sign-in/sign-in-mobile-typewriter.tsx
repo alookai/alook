@@ -10,8 +10,8 @@ type PermissionCapableEvent = {
   requestPermission?: () => Promise<"granted" | "denied" | "default">
 }
 
-const REST_RX = 11
-const REST_RY = -19
+const REST_RX = 10
+const REST_RY = -20
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -22,7 +22,6 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const sensorsActiveRef = useRef(false)
   const sensorsAttachedRef = useRef(false)
-  const receivedSensorEventRef = useRef(false)
   const permissionAttemptedRef = useRef(false)
   const detachSensorsRef = useRef<(() => void) | null>(null)
   const poseRef = useRef({
@@ -89,7 +88,6 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
     const onOrientation = (event: DeviceOrientationEvent) => {
       if (typeof event.beta !== "number" || typeof event.gamma !== "number") return
       if (!Number.isFinite(event.beta) || !Number.isFinite(event.gamma)) return
-      receivedSensorEventRef.current = true
       if (dragPointerRef.current !== null) return
       if (baselineBeta === null || baselineGamma === null) {
         baselineBeta = event.beta
@@ -115,11 +113,9 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
         && typeof linear.y === "number"
         && (Math.abs(linear.x) > 0.1 || Math.abs(linear.y) > 0.1)
       ) {
-        receivedSensorEventRef.current = true
         dx = linear.x
         dy = -linear.y
       } else if (gravity && typeof gravity.x === "number" && typeof gravity.y === "number") {
-        receivedSensorEventRef.current = true
         if (prevRawX !== null && prevRawY !== null) {
           dx = gravity.x - prevRawX
           dy = -(gravity.y - prevRawY)
@@ -183,7 +179,7 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
   const unlockSensorsOnGesture = () => {
     if (!sensorsActiveRef.current || typeof window === "undefined") return
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-    if (receivedSensorEventRef.current || permissionAttemptedRef.current) return
+    if (permissionAttemptedRef.current) return
     const orientationCtor = (
       window as Window & { DeviceOrientationEvent?: PermissionCapableEvent }
     ).DeviceOrientationEvent
@@ -193,11 +189,12 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
     if (typeof orientationCtor?.requestPermission === "function") {
       permissionAttemptedRef.current = true
       void Promise.all([
-        orientationCtor.requestPermission().catch(() => "denied" as const),
+        orientationCtor.requestPermission().catch(() => null),
         typeof motionCtor?.requestPermission === "function"
-          ? motionCtor.requestPermission().catch(() => "denied" as const)
+          ? motionCtor.requestPermission().catch(() => null)
           : Promise.resolve("denied" as const),
       ]).then(([oriResult, motResult]) => {
+        permissionAttemptedRef.current = oriResult === "denied" || (oriResult === "granted" && motResult !== null)
         if (!sensorsActiveRef.current) return
         if (oriResult === "granted" || motResult === "granted") {
           detachSensorsRef.current?.()
@@ -223,7 +220,6 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
   }
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    unlockSensorsOnGesture()
     dragPointerRef.current = event.pointerId
     event.currentTarget.setPointerCapture?.(event.pointerId)
     updateTouchTilt(event.clientX, event.clientY)
@@ -237,6 +233,7 @@ export function SignInMobileTypewriter({ collapsed }: { collapsed: boolean }) {
   const handlePointerEnd = (event: PointerEvent<HTMLDivElement>) => {
     if (dragPointerRef.current !== event.pointerId) return
     dragPointerRef.current = null
+    if (event.type === "pointerup") unlockSensorsOnGesture()
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }

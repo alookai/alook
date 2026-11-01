@@ -1,4 +1,4 @@
-import { communityFixtureFetch } from "./_fixtures/business-contract"
+import { communityFixtureFetch, confirmCommunityFixtureApiResponse, CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import type { CommunityConversationEntryRead } from "@alook/shared"
 import type { Locator, Page, Route, TestInfo } from "@playwright/test"
 import { test, expect, type CaseActors } from "./_fixtures/case-fixture"
@@ -24,6 +24,7 @@ import {
   type ScrollTraceResult,
 } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
+import { cancelControlledBackwardGrowth, controlledBackwardGrowth } from "./_fixtures/backward-growth"
 import { WEB_URL } from "./_setup/paths"
 import { expectUniqueSsrCommunityFrame, expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
 
@@ -95,6 +96,23 @@ function estimatePlainMessage(content: string): number {
   return 24 + Math.min(Math.max(1, Math.ceil(content.length / 55)) * 20, 400)
 }
 
+async function seedResizableHtmlPreview(page: Page, channelId: string) {
+  const html = '<!doctype html><html><body><div id="content" style="height:160px">Asynchronous content</div><script>addEventListener("message",event=>{if(event.source===parent&&event.data?.type==="scroll-fixture-height"&&Number.isFinite(event.data.height))document.getElementById("content").style.height=event.data.height+"px"})</script></body></html>'
+  const upload = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/attachments`, {
+    headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+    multipart: { file: { name: "scroll-resize.html", mimeType: "text/html", buffer: Buffer.from(html) } },
+  }))
+  expect(upload.status()).toBe(200)
+  const attachmentId = (await upload.json() as { id: string }).id
+  const posted = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${channelId}/messages`, {
+    headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,
+    data: { content: `[alook-html-preview](${attachmentId})`, attachments: [attachmentId] },
+  }))
+  expect(posted.status()).toBe(201)
+  const messageId = (await posted.json() as { message: { id: string } }).message.id
+  return { messageId, attachmentId }
+}
+
 async function seedProfile(
   actors: CaseActors,
   channelId: string,
@@ -154,11 +172,11 @@ async function setReadCheckpoint(actors: CaseActors, channelId: string, messageI
   expect(response.ok).toBe(true)
 }
 
-function identity(channelId: string) {
+function identity(channelId: string, viewport = VIEWPORT) {
   return createScrollTraceIdentity({
     account: "alice",
     channel: channelId,
-    viewport: { ...VIEWPORT, dpr: 1 },
+    viewport: { ...viewport, dpr: 1 },
   })
 }
 
@@ -585,6 +603,123 @@ function tracedAsUser(actors: CaseActors): CaseActors["asUser"] {
 }
 
 test.describe("message scroll characterization", () => {
+  test("measured reaction updates above the fold preserve reading during repeated controlled backward input", async ({ caseActors }, testInfo) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice"])
+    const serverId = await actors.seed.seedServer("alice", `Measured reactions ${Date.now()}`)
+    const channelId = await actors.seed.seedChannel("alice", serverId, "measured-reactions")
+    const { page } = await tracedAsUser(actors)("alice")
+    await page.setViewportSize({ width: 390, height: 800 })
+    await seedProfile(actors, channelId, 4, false, "alice")
+    const messageId = await actors.seed.seedMessage("alice", channelId, "A measured historical message")
+    await seedProfile(actors, channelId, 24, false, "alice")
+    const reactionFrame = (frame: Parameters<typeof communityFrameEvents>[0]) => communityFrameEvents(frame).some(event =>
+      event.type === "community:reaction.add" && event.messageId === messageId)
+    const proxy = await proxyCommunityWebSockets(page.context(), { decide: frame => reactionFrame(frame) ? "hold" : "forward" })
+    const batches = [["👍", "❤️", "😂", "🎉", "👀"], ["🚀", "✅", "🔥", "💯", "🤔"]]
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+    const scroller = page.getByTestId(tid.messageScroller)
+    await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")) })
+    await expect(page.getByTestId(tid.message(messageId))).toHaveCount(1)
+    await scroller.evaluate((element, id) => {
+      const row = element.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)
+      if (!row) throw new Error("The measured reaction message is required")
+      element.scrollTop += row.getBoundingClientRect().bottom - element.getBoundingClientRect().top + 256
+      element.dispatchEvent(new Event("scroll"))
+    }, messageId)
+    await waitForCommittedGeometry(scroller)
+    await installScrollTraceInCurrentDocument(page)
+    await startScrollTrace(page, { scenario: "measured-reactions-backward-growth", identity: identity(channelId, { width: 390, height: 800 }) })
+    await beginScrollTraceAnalysis(page, "above-fold-repeated-growth", { commandDirection: "backward" })
+    const samples: Array<{ at: number; rowHeight: number; lastInputAt: number }> = []
+    let trace: ScrollTraceResult | undefined
+    try {
+      for (const [round, emojis] of batches.entries()) {
+        for (const emoji of emojis) await actors.seed.seedReaction("alice", messageId, emoji)
+        await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).filter(event =>
+          event.type === "community:reaction.add" && event.messageId === messageId).length).toBe((round + 1) * 5)
+        await markScrollTrace(page, `stimulus:reactions-${round}`, { detail: { input: "controlled-wheel-and-scroll", emojis } })
+        const before = await scroller.evaluate(controlledBackwardGrowth, { start: messageId })
+        expect(before.growingBottom).toBeLessThan(0)
+        expect(proxy.releaseHeld(reactionFrame)).toBeGreaterThan(0)
+        await expect.poll(() => page.getByTestId(tid.message(messageId)).evaluate(element => element.closest("[data-index]")!.getBoundingClientRect().height))
+          .toBeGreaterThan(before.rowHeight)
+        const input = await scroller.evaluate(controlledBackwardGrowth, { finish: true as const })
+        expect(input.measurement, "Native row growth must be measured during controlled input").not.toBeNull()
+        expect(input.measurement!.direction).toBe("backward")
+        expect(input.measurement!.at - input.measurement!.lastInputAt).toBeLessThan(150)
+        expect(input.inputDelta).toBeLessThan(0)
+        samples.push({ at: before.at, rowHeight: before.rowHeight, lastInputAt: input.measurement!.lastInputAt })
+        await advanceScrollTraceFrame(scroller)
+        const after = await page.getByTestId(tid.message(before.id)).evaluate(element => {
+          const root = element.closest<HTMLElement>("[data-message-scroller-boundary]")?.querySelector<HTMLElement>("[data-pagination-enabled]")
+          if (!root) throw new Error("The reading scroller is required")
+          return element.getBoundingClientRect().top - root.getBoundingClientRect().top
+        })
+        await markScrollTrace(page, `observed:reactions-${round}`, { detail: { before, after, input } })
+        expect.soft(Math.abs(after - before.top + input.inputDelta), `Reading drift after reaction batch ${round}`).toBeLessThanOrEqual(1)
+      }
+    } finally {
+      await scroller.evaluate(cancelControlledBackwardGrowth)
+      await endScrollTraceAnalysis(page, "above-fold-repeated-growth")
+      trace = await finishAndAttach(page, testInfo)
+    }
+    if (!trace) throw new Error("The reaction-growth trace is required")
+    for (const sample of samples) {
+      const measurement = trace.measurements.find(row => row.id === messageId && row.timestamp >= sample.at && row.height > sample.rowHeight + 1)
+      expect(measurement, "A real growing-row measurement must precede the 150ms backward reset").toBeDefined()
+      expect(measurement!.timestamp - sample.lastInputAt).toBeLessThan(150)
+    }
+  })
+
+  test("controlled upward release before native movement prevents HTML tail resize follow", async ({ caseActors }, testInfo) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice"])
+    const serverId = await actors.seed.seedServer("alice", `Released HTML ${Date.now()}`)
+    const channelId = await actors.seed.seedChannel("alice", serverId, "released-html")
+    const { page } = await tracedAsUser(actors)("alice")
+    await page.setViewportSize(VIEWPORT)
+    await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+    await seedProfile(actors, channelId, 24, false, "alice")
+    const { attachmentId } = await seedResizableHtmlPreview(page, channelId)
+    const scroller = page.getByTestId(tid.messageScroller)
+    const iframe = page.getByTestId(tid.htmlPreviewFrame(attachmentId))
+    await expect(page.getByTestId(tid.htmlPreview(attachmentId))).toHaveAttribute("data-html-preview-status", "ready")
+    await expect(iframe).toHaveCSS("height", "160px")
+    await installScrollTraceInCurrentDocument(page)
+    await startScrollTrace(page, { scenario: "released-html-tail-growth", identity: identity(channelId) })
+    try {
+      for (const distance of [0, 1, 2]) {
+        await iframe.evaluate(element => (element as HTMLIFrameElement).contentWindow?.postMessage({ type: "scroll-fixture-height", height: 160 }, "*"))
+        await expect(iframe).toHaveCSS("height", "160px")
+        await establishScrollDistancePrecondition(scroller, `released-tail-${distance}`, distance, 0.05)
+        await beginScrollTraceAnalysis(page, `released-tail-${distance}`)
+        try {
+          const before = await scroller.evaluate((element, frameId) => {
+            const frame = element.querySelector<HTMLIFrameElement>(`[data-testid="${frameId}"]`)
+            if (!frame?.contentWindow) throw new Error("A real mounted HTML preview is required")
+            const wheel = new WheelEvent("wheel", { deltaY: -20, bubbles: true })
+            element.dispatchEvent(wheel)
+            const result = { top: element.scrollTop, distance: element.scrollHeight - element.clientHeight - element.scrollTop,
+              trusted: wheel.isTrusted }
+            frame.contentWindow.postMessage({ type: "scroll-fixture-height", height: 260 }, "*")
+            return result
+          }, tid.htmlPreviewFrame(attachmentId))
+          await markScrollTrace(page, `stimulus:released-tail-${distance}`, { detail: before })
+          await expect(iframe).toHaveCSS("height", "260px")
+          await advanceScrollTraceFrame(scroller)
+          const after = await scroller.evaluate(element => element.scrollTop)
+          await markScrollTrace(page, `observed:released-tail-${distance}`, { detail: { before, after } })
+          expect.soft(Math.abs(after - before.top), `Released reader movement at ${distance}px`).toBeLessThanOrEqual(1)
+        } finally {
+          await endScrollTraceAnalysis(page, `released-tail-${distance}`)
+        }
+      }
+    } finally {
+      await finishAndAttach(page, testInfo)
+    }
+  })
+
   test("cold and warm loading, older prepend, and jump-to-present remain observable", async ({ caseActors }, testInfo) => {
     test.setTimeout(180_000)
     const actors = await caseActors(["alice", "bob", "carol"])

@@ -383,7 +383,7 @@ function SignInForm({
             className={cn(
               "flex h-full min-h-0 w-full shrink-0 flex-col sm:h-auto sm:justify-center sm:overflow-visible sm:p-8",
               mobileTypewriterCollapsed
-                ? "overflow-y-auto py-4"
+                ? "overflow-y-auto thin-scrollbar pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
                 : "justify-center gap-4 overflow-hidden pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] [@media(min-height:740px)]:gap-8",
             )}
           >
@@ -395,7 +395,7 @@ function SignInForm({
               )}
             >
               <div className="mx-auto w-full max-w-80 sm:max-w-88">
-                <FieldGroup className="gap-4 sm:gap-4 [@media(max-height:579px)]:gap-2">
+                <FieldGroup className={cn("sm:gap-4", mobileTypewriterCollapsed ? "gap-2" : "gap-4 [@media(max-height:579px)]:gap-2")}>
                   {accountDeleted || accountDeletionPending ? (
                     <div
                       className="flex gap-3 rounded-xl bg-muted/70 p-4 text-left"
@@ -681,6 +681,10 @@ export default function SignInPageClient({
     useCreateAtom<number | null>(null),
   )
 
+  const [mobileViewportTop, setMobileViewportTop] = useAtom(
+    useCreateAtom(0),
+  )
+
   const handleSlideActiveChange = useCallback((active: boolean) => {
     mobileSlideActiveRef.current = active
     if (!active) {
@@ -694,6 +698,7 @@ export default function SignInPageClient({
       syncViewportRef.current = null
       setMobileTypewriterCollapsed(false)
       setMobileViewportHeight(null)
+      setMobileViewportTop(0)
       return
     }
     let active = true
@@ -710,6 +715,7 @@ export default function SignInPageClient({
       const layoutHeight = window.innerHeight
       const visualHeight = window.visualViewport?.height ?? layoutHeight
       const keyboardLikelyOpen = layoutHeight - visualHeight > 80
+      setMobileViewportTop(keyboardLikelyOpen ? Math.round(window.visualViewport?.offsetTop ?? 0) : 0)
       const shortSpace = visualHeight < 580 || (inputFocused && visualHeight < 700)
       setMobileTypewriterCollapsed(keyboardLikelyOpen || shortSpace)
       setMobileViewportHeight(
@@ -738,6 +744,7 @@ export default function SignInPageClient({
     syncViewport()
     window.addEventListener("resize", syncViewport)
     window.visualViewport?.addEventListener("resize", syncViewport)
+    window.visualViewport?.addEventListener("scroll", syncViewport)
     document.addEventListener("focusin", onFocusIn)
     document.addEventListener("focusout", onFocusOut)
     return () => {
@@ -746,19 +753,20 @@ export default function SignInPageClient({
       syncViewportRef.current = null
       window.removeEventListener("resize", syncViewport)
       window.visualViewport?.removeEventListener("resize", syncViewport)
+      window.visualViewport?.removeEventListener("scroll", syncViewport)
       document.removeEventListener("focusin", onFocusIn)
       document.removeEventListener("focusout", onFocusOut)
     }
-  }, [isMobile, setMobileTypewriterCollapsed, setMobileViewportHeight])
+  }, [isMobile, setMobileTypewriterCollapsed, setMobileViewportHeight, setMobileViewportTop])
 
   return (
     <div
       style={
         isMobile && mobileViewportHeight !== null
-          ? { height: `${mobileViewportHeight}px` }
+          ? { height: `${mobileViewportHeight}px`, top: `${mobileViewportTop}px` }
           : undefined
       }
-      className="relative flex h-dvh flex-col overflow-hidden p-0 sm:h-auto sm:min-h-svh sm:items-center sm:justify-center sm:overflow-visible sm:p-8"
+      className="fixed inset-x-0 top-0 flex h-dvh flex-col overflow-hidden p-0 sm:relative sm:h-auto sm:min-h-svh sm:items-center sm:justify-center sm:overflow-visible sm:p-8"
     >
       <GradientBackground />
       <div className="flex min-h-0 w-full flex-1 flex-col sm:max-w-5xl sm:flex-none">

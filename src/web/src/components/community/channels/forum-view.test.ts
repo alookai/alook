@@ -301,7 +301,7 @@ describe("ForumView responsive post actions", () => {
     expect(html).not.toContain("row-span-2")
     expect(html).toContain("col-span-full row-start-2")
     expect(html).not.toContain("min-h-8")
-    expect(html).toContain("w-full min-w-0 max-w-full self-start text-[15px] font-semibold leading-tight")
+    expect(html).toContain("w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-tight")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
     expect(html).toContain(tid.forumThreadSeq("p1"))

@@ -100,7 +100,7 @@ const ForumPostTitle = memo(function ForumPostTitle({ name, postId, seq }: { nam
       data-testid={tid.forumThreadTitle(postId)}
       aria-label={`${name}${seq === undefined ? "" : ` #${seq}`}`}
       title={name}
-      className="w-full min-w-0 max-w-full self-start text-[15px] font-semibold leading-tight"
+      className="w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-tight"
     >
       <LineClamp
         text={name}
@@ -327,7 +327,7 @@ export function ForumView({
                     <ForumPostTitle name={p.name} postId={p.id} seq={p.parentSeq} />
                     {(canEdit || canDelete) && (
                       <div
-                        className="col-start-2 row-start-1 z-10 flex items-start gap-1"
+                        className="col-start-2 row-start-1 z-10 flex self-center items-center gap-1"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >

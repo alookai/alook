@@ -1434,7 +1434,9 @@ for (const width of [1280, 390] as const) {
         steps.push({ phase, snapshot: await activityAnchorSnapshot(scroller), olderRequests: gate!.entries.map(entry => entry.url) })
         await attachPageScreenshot(testInfo, `activity-recovery-${width}-${phase}`, page)
       }
-      await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
+      await expect.poll(() => scroller.evaluate(element => Boolean(element.querySelector("[data-activity-event-id]"))
+        && element.scrollHeight > element.clientHeight
+        && element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
       await scroller.hover()
       await page.mouse.wheel(0, -1_000_000)
       await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(0)
