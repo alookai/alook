@@ -140,11 +140,16 @@ browserTest.describe("production OTP error placement", () => {
     }))
 
     await page.goto("/sign-in")
-    const sendCode = page.getByRole("button", { name: "Continue with email" })
+    await page.context().addCookies([{ name: "alook_last_login_method", value: "github", url: page.url() }])
+    await page.reload()
+    await browserExpect(page.getByRole("textbox", { name: "Email" })).toHaveCount(0)
+    await page.getByRole("button", { name: "Continue with email", exact: true }).click()
+    const sendCode = page.getByRole("button", { name: "Continue", exact: true })
     browserTest.skip(!(await sendCode.isVisible()), "production Email OTP UI is not active")
 
     await page.getByRole("textbox", { name: "Email" }).fill("person@example.com")
     await sendCode.click()
+    browserExpect((await page.context().cookies()).find((cookie) => cookie.name === "alook_last_login_method")?.value).toBe("github")
     const stepTrack = page.getByTestId(tid.signInStepTrack)
     await browserExpect(stepTrack).toHaveAttribute("data-step-view", "code")
 
@@ -152,7 +157,9 @@ browserTest.describe("production OTP error placement", () => {
     await otp.fill("123456")
     const alert = page.getByRole("alert").filter({ hasText: "Invalid OTP" })
     await browserExpect(alert).toHaveCount(1)
+    browserExpect((await page.context().cookies()).find((cookie) => cookie.name === "alook_last_login_method")?.value).toBe("github")
     await browserExpect(otp).toHaveAttribute("aria-invalid", "true")
+    await browserExpect(otp).toBeFocused()
     await browserExpect(otp).toHaveAttribute("aria-describedby", "sign-in-otp-error")
 
     const slots = page.locator('[data-slot="input-otp-slot"]')
@@ -199,11 +206,12 @@ browserTest.describe("production OTP error placement", () => {
     await browserExpect(stepTrack).toHaveAttribute("data-step-view", "email")
     await browserExpect(alert).toHaveCount(0)
     await browserExpect(page.getByRole("textbox", { name: "Email" })).toBeVisible()
-    await page.getByRole("button", { name: "Continue with email" }).click()
+    await page.getByRole("button", { name: "Continue", exact: true }).click()
     await browserExpect(stepTrack).toHaveAttribute("data-step-view", "code")
 
     await otp.fill("654321")
     await page.waitForURL("**/c/me")
+    browserExpect((await page.context().cookies()).find((cookie) => cookie.name === "alook_last_login_method")?.value).toBe("email")
     browserExpect(attempts).toEqual(["123456", "111111", "654321"])
   })
 
@@ -230,7 +238,8 @@ browserTest.describe("production OTP error placement", () => {
     })
 
     await page.goto("/sign-in")
-    const sendCode = page.getByRole("button", { name: "Continue with email" })
+    await page.getByRole("button", { name: "Continue with email", exact: true }).click()
+    const sendCode = page.getByRole("button", { name: "Continue", exact: true })
     browserTest.skip(!(await sendCode.isVisible()), "production Email OTP UI is not active")
 
     const email = page.getByRole("textbox", { name: "Email" })
@@ -262,6 +271,7 @@ browserTest.describe("production OTP error placement", () => {
     browserExpect(alertBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height)
     browserExpect(alertBox!.y + alertBox!.height).toBeLessThanOrEqual(sendBox!.y)
     await browserExpect(page.getByRole("button", { name: /Wait \d+s/ })).toBeDisabled()
+    await page.getByRole("button", { name: "Back", exact: true }).click()
     await browserExpect(page.getByRole("button", { name: "Continue with GitHub" })).toBeVisible()
     await browserExpect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible()
   })

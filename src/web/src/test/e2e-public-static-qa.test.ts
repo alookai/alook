@@ -71,17 +71,24 @@ describe("public static QA immutable input and phase controls", () => {
     }
   })
   it("submits only once for a separately owned same-device login and retains its original failure", async () => {
-    const visits: string[] = [], submits: number[] = []
+    const visits: string[] = [], submits: number[] = [], buttons: string[] = []
     const failure = new Error("UI response lost")
     const page = {
       goto: async (url: string) => { visits.push(url) },
-      getByRole: (role: string) => role === "textbox" ? { waitFor: async () => {}, fill: async () => {} } : role === "checkbox" ? { check: async () => {} } : { click: async () => { throw failure } },
+      getByRole: (role: string, options: { name: string }) => role === "textbox" ? { waitFor: async () => {}, fill: async () => {} } : {
+        click: async () => {
+          buttons.push(options.name)
+          if (options.name === "Sign in") throw failure
+          expect(options.name).toBe("Continue with email")
+        },
+      },
       waitForURL: async () => {},
     } as unknown as Parameters<typeof signIn>[0]
     await expect(signIn(page, "qa@example.invalid", { singleAttempt: true, onSubmission: () => { submits.push(1) } })).rejects.toBe(failure)
     expect(visits).toHaveLength(1)
     expect(visits[0]).toContain("/sign-in?redirect=/c")
     expect(submits).toEqual([1])
+    expect(buttons).toEqual(["Continue with email", "Sign in"])
   })
   it("binds the complete precache catalogue to actual frozen worker entries and rejects ambiguity", () => {
     expect(builtPrecacheEntries('new SW({precacheEntries:[{"url":"/a]b","revision":"actual"}]})')).toEqual([{ url: "/a]b", revision: "actual" }])

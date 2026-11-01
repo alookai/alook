@@ -11,13 +11,12 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
 import { signIn } from "@/lib/auth-client"
-import { rememberLastLoginMethod, type LoginMethod } from "@/lib/last-login-method"
+import { type LoginMethod } from "@/lib/last-login-method"
 import {
   createNativeOauthController,
   nativeOauthBrowserDeps,
   type NativeOauthView,
 } from "@/lib/native-oauth-client"
-import { cn } from "@/lib/utils"
 import {
   APPLE_LEFT_ALIGNED_LOGO_BLACK,
   APPLE_LEFT_ALIGNED_LOGO_WHITE,
@@ -37,12 +36,10 @@ export function SocialSignIn({
   postLoginUrl,
   appleEnabled = false,
   lastUsedMethod = null,
-  onSelectMethod,
 }: {
   postLoginUrl: string
   appleEnabled?: boolean
   lastUsedMethod?: LoginMethod | null
-  onSelectMethod?: (method: NativeOauthProvider) => void
 }) {
   const observed = useRef<Action | undefined>(undefined)
   const controller = useRef<ReturnType<typeof createNativeOauthController> | null>(null)
@@ -69,8 +66,6 @@ export function SocialSignIn({
   }, [setNative])
 
   const start = (provider: NativeOauthProvider) => {
-    rememberLastLoginMethod(provider)
-    onSelectMethod?.(provider)
     finishAction(observed.current, "superseded")
     observed.current = startAction("auth_social", { capability: "limited", phase: "auth" })
     lastProvider.current = provider
@@ -171,7 +166,7 @@ export function SocialSignIn({
 
   return (
     <>
-      <Field className="flex flex-col gap-2">
+      <Field className="flex flex-col gap-3">
         {providers.map((provider) => {
           const isLastUsed = lastUsedMethod === provider.id
           const badgeId = `last-used-${provider.id}-badge`
@@ -182,10 +177,7 @@ export function SocialSignIn({
                 type="button"
                 disabled={provider.disabled}
                 aria-describedby={isLastUsed ? badgeId : undefined}
-                className={cn(
-                  "peer h-11 w-full justify-start border-0 bg-apple-signin px-4 text-sm font-medium text-apple-signin-foreground hover:bg-apple-signin hover:opacity-90",
-                  isLastUsed && "pr-22",
-                )}
+                className="peer h-11 w-full justify-start border-0 bg-apple-signin px-4 text-sm font-medium text-apple-signin-foreground hover:bg-apple-signin hover:opacity-90"
                 data-testid={`native-oauth-${provider.id}`}
                 onClick={() => start(provider.id)}
               >
@@ -203,7 +195,7 @@ export function SocialSignIn({
                 <span
                   id={badgeId}
                   data-testid={`last-used-${provider.id}`}
-                  className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 rounded-full border border-apple-signin-foreground/25 bg-apple-signin-foreground/14 px-2 py-0.5 text-[11px] leading-none font-medium text-apple-signin-foreground peer-disabled:opacity-50"
+                  className="pointer-events-none absolute -top-2 right-3 rounded-md border border-border bg-background px-1.5 text-[10px] leading-4 font-medium text-muted-foreground peer-disabled:opacity-50"
                 >
                   Last used
                 </span>
