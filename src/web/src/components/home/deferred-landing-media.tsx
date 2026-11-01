@@ -8,9 +8,8 @@ import styles from "./deferred-landing-media.module.css"
 
 const Shell = lazy(() => import("./landing-shell-motion").then((module) => ({ default: module.LandingShellMotion })))
 const Mobile = lazy(() => import("./landing-shell-motion").then((module) => ({ default: module.LandingMobileChatMotion })))
-const Profile = lazy(() => import("./landing-profile-content"))
 
-class MediaFallback extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
+export class MediaFallback extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
   state = { failed: false }
   static getDerivedStateFromError() { return { failed: true } }
   render() { return this.state.failed ? this.props.fallback : this.props.children }
@@ -77,8 +76,4 @@ export function DeferredShellMotion(props: ComponentProps<typeof LandingShellMot
 
 export function DeferredMobileChatMotion(props: { beat: number }) {
   return <DeferredLandingMedia poster="/landing/posters/mobile.webp" darkPoster="/landing/posters/mobile-dark.webp" width={390} height={788}><Mobile {...props} /></DeferredLandingMedia>
-}
-
-export function DeferredProfileCard() {
-  return <DeferredLandingMedia poster="/landing/posters/profile.webp" darkPoster="/landing/posters/profile-dark.webp" width={300} height={308} alt="Maya — Free for dinner. I keep the same account, identity, and relationships across every room."><Profile /></DeferredLandingMedia>
 }

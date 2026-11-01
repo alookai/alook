@@ -4,6 +4,7 @@ import { tid } from "./_fixtures/testids"
 test("first-signup mobile starts onboarding once and retains it on desktop", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/sign-in")
+  await page.getByRole("button", { name: "Continue with email", exact: true }).click()
   await page.getByRole("textbox", { name: "Email" }).fill(
     `direct-onboarding-mobile-${process.pid}-${Date.now()}@example.com`,
   )
@@ -31,6 +32,7 @@ test("first-signup mobile starts onboarding once and retains it on desktop", asy
 test("first-signup desktop opens onboarding before the empty Machines guide", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto("/sign-in")
+  await page.getByRole("button", { name: "Continue with email", exact: true }).click()
   await page.getByRole("textbox", { name: "Email" }).fill(
     `direct-onboarding-desktop-${process.pid}-${Date.now()}@example.com`,
   )

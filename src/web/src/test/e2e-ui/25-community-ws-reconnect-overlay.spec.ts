@@ -269,6 +269,7 @@ let caseJourneyFailure1Present = false
   try {
     await installUserWsAuthConsumedBarrier(page)
     await page.goto("/sign-in")
+    await page.getByRole("button", { name: "Continue with email", exact: true }).click()
     await page.getByRole("textbox", { name: "Email" }).fill(
       `guide-reconnect-${process.pid}-${Date.now()}@example.com`,
     )
