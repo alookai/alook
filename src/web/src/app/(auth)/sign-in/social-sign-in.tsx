@@ -11,7 +11,7 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
 import { signIn } from "@/lib/auth-client"
-import { rememberLastLoginMethod, type LoginMethod } from "@/lib/last-login-method"
+import { type LoginMethod } from "@/lib/last-login-method"
 import {
   createNativeOauthController,
   nativeOauthBrowserDeps,
@@ -37,12 +37,10 @@ export function SocialSignIn({
   postLoginUrl,
   appleEnabled = false,
   lastUsedMethod = null,
-  onSelectMethod,
 }: {
   postLoginUrl: string
   appleEnabled?: boolean
   lastUsedMethod?: LoginMethod | null
-  onSelectMethod?: (method: NativeOauthProvider) => void
 }) {
   const observed = useRef<Action | undefined>(undefined)
   const controller = useRef<ReturnType<typeof createNativeOauthController> | null>(null)
@@ -69,8 +67,6 @@ export function SocialSignIn({
   }, [setNative])
 
   const start = (provider: NativeOauthProvider) => {
-    rememberLastLoginMethod(provider)
-    onSelectMethod?.(provider)
     finishAction(observed.current, "superseded")
     observed.current = startAction("auth_social", { capability: "limited", phase: "auth" })
     lastProvider.current = provider
