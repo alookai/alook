@@ -25,7 +25,6 @@ import { SocialSignIn } from "./social-sign-in"
 import { SignInTermsNotice } from "./sign-in-terms"
 import { SignInMobileTypewriter } from "./sign-in-mobile-typewriter"
 import { GradientBackground } from "@/components/gradient-background"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { Logo } from "@/components/logo"
 import { LandingShellMotion } from "@/components/home/landing-shell-motion"
 import {
@@ -57,6 +56,10 @@ function readClientLastLoginMethod(): LoginMethod | null {
 type StepViewState =
   | "methods"
   | "email"
+  | "prepare-from-methods"
+  | "sliding-from-methods"
+  | "prepare-to-methods"
+  | "sliding-to-methods"
   | "prepare-to-code"
   | "sliding-to-code"
   | "code"
@@ -72,7 +75,6 @@ function SignInForm({
   accountDeletionPending,
   appleEnabled,
   initialLastUsedMethod = null,
-  isMobile,
 }: {
   postLoginUrl: string
   isProd: boolean
@@ -80,7 +82,6 @@ function SignInForm({
   accountDeletionPending: boolean
   appleEnabled: boolean
   initialLastUsedMethod?: LoginMethod | null
-  isMobile: boolean
 }) {
   useEffect(() => {
     void captureProductAnalytics({ event: "login_page_view" })
@@ -109,16 +110,25 @@ function SignInForm({
   )
 
   const finishSlide = useCallback(
-    (target: "email" | "code") => {
+    (target: "methods" | "email" | "code") => {
       setViewState(target)
     },
     [setViewState],
   )
 
   const shouldAnimateSlide = () =>
-    isMobile
-    && typeof window !== "undefined"
+    typeof window !== "undefined"
     && !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+
+  const switchMethodsStep = (target: "methods" | "email") => {
+    if (isTransitioning) return
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    if (!shouldAnimateSlide()) {
+      setViewState(target)
+      return
+    }
+    setViewState(target === "email" ? "prepare-from-methods" : "prepare-to-methods")
+  }
 
   const enterCodeStep = () => {
     if (!shouldAnimateSlide()) {
@@ -159,33 +169,24 @@ function SignInForm({
   }, [retryAfter, setRetryAfter])
 
   useEffect(() => {
-    if (viewState !== "prepare-to-code" && viewState !== "prepare-to-email") return
+    if (!viewState.startsWith("prepare-")) return
     void trackRef.current?.getBoundingClientRect()
     const rafId = window.requestAnimationFrame(() => {
       setViewState(
-        viewState === "prepare-to-code" ? "sliding-to-code" : "sliding-to-email",
+        viewState.replace("prepare-", "sliding-") as StepViewState,
       )
     })
     return () => window.cancelAnimationFrame(rafId)
   }, [setViewState, viewState])
 
   useEffect(() => {
-    if (viewState !== "sliding-to-code" && viewState !== "sliding-to-email") return
-    const target = viewState === "sliding-to-code" ? "code" : "email"
+    if (!viewState.startsWith("sliding-")) return
+    const target = viewState === "sliding-to-code" ? "code" : viewState === "sliding-to-methods" ? "methods" : "email"
     const timerId = window.setTimeout(() => {
       finishSlide(target)
     }, STEP_SLIDE_FALLBACK_MS)
     return () => window.clearTimeout(timerId)
   }, [finishSlide, viewState])
-
-  useEffect(() => {
-    if (isMobile) return
-    if (viewState === "prepare-to-code" || viewState === "sliding-to-code") {
-      finishSlide("code")
-    } else if (viewState === "prepare-to-email" || viewState === "sliding-to-email") {
-      finishSlide("email")
-    }
-  }, [finishSlide, isMobile, viewState])
 
   useEffect(() => {
     if (!isProd || viewState !== "code") return
@@ -324,21 +325,22 @@ function SignInForm({
     ? `Wait ${retryAfter}s`
     : "Continue"
   const isEmailLastUsed = lastUsedMethod === "email"
-  const showEmailPane = viewState !== "methods" && (!isProd || viewState !== "code")
-  const showCodePane = isProd && viewState !== "methods" && viewState !== "email"
-  const isSliding = viewState === "sliding-to-code" || viewState === "sliding-to-email"
-  const isExitingEmail =
-    viewState === "prepare-to-code" || viewState === "sliding-to-code"
-  const isExitingCode =
-    viewState === "prepare-to-email" || viewState === "sliding-to-email"
-  const deferOtpFocus =
-    viewState === "prepare-to-code" || viewState === "sliding-to-code"
-  const trackTransform =
-    viewState === "sliding-to-code" || viewState === "prepare-to-email"
+  const methodsTransition = viewState.endsWith("methods") && viewState !== "methods"
+  const isTransitioning = viewState.startsWith("prepare-") || viewState.startsWith("sliding-")
+  const showMethodsPane = viewState === "methods" || methodsTransition
+  const showEmailPane = viewState === "email" || isTransitioning
+  const showCodePane = isProd && (viewState === "code" || (isTransitioning && !methodsTransition))
+  const isSliding = viewState.startsWith("sliding-")
+  const isExitingEmail = viewState === "prepare-to-code" || viewState === "sliding-to-code"
+    || viewState === "prepare-to-methods" || viewState === "sliding-to-methods"
+  const isExitingCode = viewState === "prepare-to-email" || viewState === "sliding-to-email"
+  const deferOtpFocus = isTransitioning
+  const trackTransform = isTransitioning
+    ? viewState === "sliding-to-code" || viewState === "prepare-to-email"
+      || viewState === "sliding-from-methods" || viewState === "prepare-to-methods"
       ? "translate3d(-100%, 0, 0)"
-      : viewState === "prepare-to-code" || viewState === "sliding-to-email"
-      ? "translate3d(0%, 0, 0)"
-      : undefined
+      : "translate3d(0%, 0, 0)"
+    : undefined
 
   const handleTrackTransitionEnd = (event: React.TransitionEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget || event.propertyName !== "transform") {
@@ -346,7 +348,9 @@ function SignInForm({
     }
     if (viewState === "sliding-to-code") {
       finishSlide("code")
-    } else if (viewState === "sliding-to-email") {
+    } else if (viewState === "sliding-to-methods") {
+      finishSlide("methods")
+    } else if (viewState === "sliding-to-email" || viewState === "sliding-from-methods") {
       finishSlide("email")
     }
   }
@@ -366,8 +370,8 @@ function SignInForm({
             && "transition-transform duration-500 ease-in-out will-change-transform motion-reduce:transition-none",
         )}
       >
-        {viewState === "methods" ? (
-          <div className="flex min-h-svh w-full shrink-0 flex-col justify-center gap-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:min-h-0 sm:p-8">
+        {showMethodsPane ? (
+          <div aria-hidden={isTransitioning || undefined} inert={isTransitioning || undefined} className="flex min-h-svh w-full shrink-0 flex-col justify-center gap-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:min-h-0 sm:p-8">
             <SignInMobileTypewriter collapsed={false} />
             <div className="mx-auto w-full max-w-88 px-4 sm:px-0">
               <FieldGroup className="gap-4">
@@ -425,7 +429,7 @@ function SignInForm({
                   </FieldSeparator>
 
                 <div className="relative">
-                  <Button variant="outline" size="lg" type="button" aria-describedby={isEmailLastUsed ? "last-used-email-badge" : undefined} className="h-11 w-full justify-start px-4 text-sm font-medium" onClick={() => setViewState("email")}>
+                  <Button variant="outline" size="lg" type="button" aria-describedby={isEmailLastUsed ? "last-used-email-badge" : undefined} className="h-11 w-full justify-start px-4 text-sm font-medium" onClick={() => switchMethodsStep("email")}>
                     <span className="flex items-center gap-2"><span className="grid h-9 w-6 place-items-center"><Mail className="size-4" aria-hidden /></span>Continue with email</span>
                   </Button>
                   {isEmailLastUsed ? <span id="last-used-email-badge" data-testid="last-used-email" className="pointer-events-none absolute -top-2 right-3 rounded-md border border-border bg-background px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">Last used</span> : null}
@@ -440,19 +444,19 @@ function SignInForm({
             key="email-pane"
             data-testid="sign-in-email-pane"
             aria-hidden={isExitingEmail || undefined}
-            inert={isExitingEmail || undefined}
+            inert={isTransitioning || undefined}
             className="flex min-h-svh w-full shrink-0 flex-col justify-center px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:min-h-0 sm:p-8"
           >
             <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">
-                <Button variant="ghost" type="button" className="h-11 w-fit gap-2 px-0" disabled={loading || isSliding} onClick={() => setViewState("methods")}>
+                <Button variant="ghost" type="button" className="h-11 w-fit gap-2 px-0" disabled={loading || isTransitioning} onClick={() => switchMethodsStep("methods")}>
                   <ArrowLeft className="size-4" aria-hidden />
                   Back
                 </Button>
                 <h1 className="text-2xl font-semibold tracking-tight">Continue with email</h1>
                 <p className="text-sm text-muted-foreground">We’ll send you a sign-in code.</p>
                   <form noValidate onSubmit={handleEmailSubmit}>
-                    <div className="flex flex-col gap-2">
+                    <fieldset disabled={isTransitioning} className="flex flex-col gap-2">
                       <SignInEmailField
                         email={email}
                         error={isProd ? emailFeedback : emailError}
@@ -466,14 +470,14 @@ function SignInForm({
                           variant="outline"
                           size="lg"
                           type="submit"
-                          disabled={loading || isSliding || (isProd && isCoolingDown)}
+                          disabled={loading || isTransitioning || (isProd && isCoolingDown)}
                           className="h-11 w-full justify-center px-4 text-sm font-medium"
                         >
                           {isProd ? sendLabel : loading ? "Signing in..." : "Sign in"}
                         </Button>
 
                       </div>
-                    </div>
+                    </fieldset>
                   </form>
               </FieldGroup>
             </div>
@@ -486,7 +490,7 @@ function SignInForm({
             ref={codePaneRef}
             data-testid="sign-in-code-pane"
             aria-hidden={isExitingCode || undefined}
-            inert={isExitingCode || undefined}
+            inert={isTransitioning || undefined}
             className="flex min-h-svh w-full shrink-0 flex-col px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:min-h-0 sm:justify-center sm:p-8"
           >
             <div className="mx-auto my-auto w-full max-w-80 sm:my-0 sm:max-w-88">
@@ -504,7 +508,7 @@ function SignInForm({
                 <SignInOtpField
                   code={code}
                   error={otpError}
-                  loading={loading}
+                  loading={loading || isTransitioning}
                   autoFocus={!deferOtpFocus}
                   onChange={handleVerifyCode}
                 />
@@ -512,7 +516,7 @@ function SignInForm({
                   variant="ghost"
                   type="button"
                   className="h-11 w-full sm:h-9"
-                  disabled={isSliding}
+                  disabled={isTransitioning}
                   onClick={returnToEmailStep}
                 >
                   Use a different email
@@ -645,7 +649,6 @@ export default function SignInPageClient({
   const postLoginUrl = safeRedirectUrl(searchParams.get("redirect"))
   const accountDeleted = searchParams.get("account_deleted") === "1"
   const accountDeletionPending = searchParams.get("account_deleted") === "pending"
-  const isMobile = useIsMobile()
 
   return (
     <div
@@ -662,7 +665,6 @@ export default function SignInPageClient({
               accountDeletionPending={accountDeletionPending}
               appleEnabled={appleEnabled}
               initialLastUsedMethod={initialLastUsedMethod}
-              isMobile={isMobile}
             />
             <div className="relative hidden min-h-124 overflow-hidden bg-muted sm:block">
               <ProductGallery />

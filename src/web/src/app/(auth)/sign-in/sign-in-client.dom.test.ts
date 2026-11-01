@@ -94,7 +94,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     mocks.verifyInput = undefined
     mocks.searchParams = new URLSearchParams("redirect=%2Fc%2Fme")
     window.matchMedia = vi.fn(() => ({
-      matches: false,
+      matches: true,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })) as never
@@ -316,7 +316,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
   )
 
   it("leaves layout and artwork unchanged when the keyboard viewport pans or resizes", async () => {
-    window.matchMedia = vi.fn((query: string) => ({ matches: query.includes("max-width"), addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never
+    window.matchMedia = vi.fn((query: string) => ({ matches: query.includes("max-width") || query.includes("prefers-reduced-motion"), addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never
     const original = Object.getOwnPropertyDescriptor(window, "visualViewport")
     const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0 })
     Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport })
@@ -348,7 +348,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     }
   })
 
-  it("slides the separate email pane left into a pure centered OTP pane and focuses the OTP input on completion", async () => {
+  it.each([390, 1440])("slides all steps in both directions at %ipx and focuses OTP only after completion", async (width) => {
     const rafQueue: FrameRequestCallback[] = []
     const origRaf = window.requestAnimationFrame
     const origCancelRaf = window.cancelAnimationFrame
@@ -363,13 +363,25 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       removeEventListener: vi.fn(),
     })) as never
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width })
 
     try {
       render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
       const user = setupUser()
 
       await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
-    await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
+      const methodsTrack = screen.getByTestId("sign-in-step-track")
+      expect(methodsTrack).toHaveAttribute("data-step-view", "prepare-from-methods")
+      expect(screen.getByRole("textbox", { name: "Email" })).toBeDisabled()
+      act(() => { rafQueue.shift()?.(16) })
+      expect(methodsTrack.style.transform).toBe("translate3d(-100%, 0, 0)")
+      act(() => {
+        const ev = new Event("transitionend", { bubbles: true })
+        Object.defineProperty(ev, "propertyName", { value: "transform" })
+        fireEvent(methodsTrack, ev)
+      })
+      expect(screen.getByRole("textbox", { name: "Email" })).toBeEnabled()
+      await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
       await user.click(screen.getByRole("button", { name: "Continue" }))
 
       const track = screen.getByTestId("sign-in-step-track")
@@ -416,6 +428,19 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       expect(track).toHaveAttribute("data-step-view", "email")
       expect(screen.queryByTestId("sign-in-code-pane")).toBeNull()
       expect(screen.queryByTestId("sign-in-mobile-typewriter")).toBeNull()
+      await user.click(screen.getByRole("button", { name: "Back", exact: true }))
+      expect(track).toHaveAttribute("data-step-view", "prepare-to-methods")
+      expect(track.style.transform).toBe("translate3d(-100%, 0, 0)")
+      act(() => { while (rafQueue.length) rafQueue.shift()?.(48) })
+      expect(track).toHaveAttribute("data-step-view", "sliding-to-methods")
+      expect(track.style.transform).toBe("translate3d(0%, 0, 0)")
+      act(() => {
+        const ev = new Event("transitionend", { bubbles: true })
+        Object.defineProperty(ev, "propertyName", { value: "transform" })
+        fireEvent(track, ev)
+      })
+      expect(track).toHaveAttribute("data-step-view", "methods")
+      expect(screen.queryByRole("textbox")).toBeNull()
     } finally {
       window.requestAnimationFrame = origRaf
       window.cancelAnimationFrame = origCancelRaf
