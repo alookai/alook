@@ -10,6 +10,7 @@ import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { expectPublicCommunityDocument, expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
 import { PERSIST_ACCOUNT_PREFIX, PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { expect, test } from "./_fixtures/case-fixture"
+import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 
 import { tid } from "./_fixtures/testids"
 import type { CaseResources } from "./_fixtures/case-fixture"
@@ -277,6 +278,60 @@ async function expectCacheFirstReload(
     await page.unroute("**/api/community/**")
   }
 }
+
+test("a relationship-only friend retains cached identity and presence until confirmed fields replace them", async ({ caseActors, caseResources }, testInfo) => {
+  test.setTimeout(120_000)
+  const actors = await caseActors(["alice", "bob"])
+  const peerId = actors.userId("bob"), oldName = actors.userName("bob"), newName = `Updated peer ${Date.now()}`
+  await actors.seed.seedFriendship("alice", "bob", peerId)
+  const bob = await actors.asUser("bob"), alice = await actors.asUser("alice")
+  await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
+  await gotoAfterUserWsAuth(alice.page, "/c/me/friends")
+  const before = alice.page.getByRole("button").filter({ hasText: oldName })
+  await expect(before).toBeVisible()
+  await expect(before.locator('[data-presence="online"]')).toHaveCount(1)
+  await expectPersistedClosure(alice.page, actors.userId("alice"), [
+    { key: ["community", "db", actors.userId("alice"), "friendships"], containsId: peerId },
+    { key: ["community", "db", actors.userId("alice"), "profiles"], containsId: peerId },
+  ])
+  await expect.poll(async () => {
+    const profiles = (await persistedQueries(alice.page, actors.userId("alice"))).find(query => query.queryKey[3] === "profiles")?.data as Array<{ id: string; presence?: string }> | undefined
+    return profiles?.find(row => row.id === peerId)?.presence
+  }).toBe("online")
+  for (const query of await persistedQueries(alice.page, actors.userId("alice"))) {
+    if (query.queryKey[1] === "db" && !["profiles", "friendships"].includes(String(query.queryKey[3]))) {
+      expect(containsPersistedId(query.data, peerId), `Unrelated retained reference in ${String(query.queryKey[3])}`).toBe(false)
+    }
+  }
+  await alice.page.goto("about:blank")
+  await actors.seed.renameUser("bob", newName)
+  await caseResources.closeContext(bob.context)
+  await expect.poll(async () => {
+    const response = await confirmCommunityFixtureApiResponse(alice.page.request.get(`${WEB_URL}/api/community/friends/presence`, { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+    expect(response.status()).toBe(200)
+    return (await response.json() as { offline: string[] }).offline.includes(peerId)
+  }, { timeout: 20_000 }).toBe(true)
+  const accepted = await holdFirstRealRead(alice.page, url => url.pathname === "/api/community/friends/accepted", caseResources)
+  const presence = await holdFirstRealRead(alice.page, url => url.pathname === "/api/community/friends/presence", caseResources)
+  await alice.page.routeWebSocket(url => url.pathname.endsWith("/user"), socket => { void socket.close({ code: 1012, reason: "cached friend awaiting confirmed refresh" }) })
+  try {
+    await alice.page.goto("/c/me/friends", { waitUntil: "commit" })
+    await expect.poll(() => !!accepted.captured() && !!presence.captured()).toBe(true)
+    await expect(before).toBeVisible()
+    await expect(before.locator('[data-presence="online"]')).toHaveCount(1)
+    expect(presence.captured()!.body).toMatchObject({ offline: expect.arrayContaining([peerId]) })
+    await accepted.close()
+    const after = alice.page.getByRole("button").filter({ hasText: newName })
+    await expect(after).toBeVisible()
+    await expect(after.locator('[data-presence="online"]')).toHaveCount(1)
+    await presence.close()
+    await expect(after.locator('[data-presence="offline"]')).toHaveCount(1)
+    await testInfo.attach("friend-cached-fields-then-confirmed-replacement", { body: JSON.stringify({ peerId, cachedName: oldName, confirmedName: newName, cachedPresence: "online", confirmedPresence: "offline" }), contentType: "application/json" })
+  } finally {
+    await accepted.close()
+    await presence.close()
+  }
+})
 
 test("a warm channel reload shows entry-qualified cached content while browser reads remain held", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)

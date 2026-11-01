@@ -28,7 +28,7 @@ export const serverMembershipSchema = CommunityServerMembershipResourceSchema.ex
 
 export const channelMembershipSchema = CommunityChannelMembershipResourceSchema.extend({ id: z.string().min(1) })
 
-export const profileSchema = CommunityResourceProfileSchema
+export const profileSchema = CommunityResourceProfileSchema.extend({ presence: z.enum(["online", "offline"]).optional() })
 export const messageSchema = CommunityMessageResourceSchema
 
 export const readStateSchema = CommunityReadStateResourceSchema.extend({ observedRevision: z.number().int().nonnegative().optional() })

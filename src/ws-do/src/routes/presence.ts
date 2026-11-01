@@ -75,6 +75,7 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
     }
   }, presenceBatchSize)
   const online: string[] = []
+  const offline: string[] = []
   let offlineCount = 0
   let staleCount = 0
   let failureCount = 0
@@ -98,6 +99,7 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
     if (result.value.kind === "online") {
       online.push(ids[index])
     } else if (result.value.kind === "offline") {
+      offline.push(ids[index])
       offlineCount += 1
     } else if (result.value.kind === "stale") {
       staleCount += 1
@@ -126,7 +128,7 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
     batchCount: Math.ceil(ids.length / presenceBatchSize),
     durationMs: Date.now() - startedAt,
   })
-  return Response.json({ online })
+  return Response.json({ online, offline })
 }
 
 export async function handleSinglePresence({ request, env, url }: RouterContext): Promise<Response | null> {

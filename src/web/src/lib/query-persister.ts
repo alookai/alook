@@ -1,7 +1,6 @@
 import { isServerDirectoryWindowKey, readServerDirectoryWindow, serverDirectoryWindowComplete, type ServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { forumSidebarWindowComplete, isForumSidebarWindowKey, readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
-import { messageProfileIds, type Msg } from "@/lib/community/models/message"
 import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
 import { clearPublicWorkerCaches, getPublicWorkerCacheSizeBytes } from "@/lib/service-worker/public-cache-storage"
 import { observeRestoreRead, observeRestoreDecode } from "@/lib/observability/restore"
@@ -25,7 +24,6 @@ export const PERSIST_CACHE_PREFIX = `alook:business:v${BUSINESS_SCHEMA_VERSION}`
 export const PERSIST_ACCOUNT_PREFIX = "alook:qc:cache"
 const IDB_PREFIX = PERSIST_CACHE_PREFIX
 
-/** Persister max-age; queries older than this are discarded on restore. */
 export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 export const MAX_PERSISTED_MESSAGE_SCOPES = 20
@@ -102,9 +100,6 @@ export function createCommunityRestorePersister(original: Persister, userId: str
   return { persister, takeCollections }
 }
 
-/**
- * Retain the bounded canonical read closure without mutating the live cache.
- */
 function scrubDehydratedClient(
   client: PersistedClient,
   userId: string | null,
@@ -156,7 +151,7 @@ function scrubDehydratedClient(
   const retainedDmIds = new Set(
     retainedChannels.filter((row) => row.type === "dm").map((row) => row.id),
   )
-  const allMessages = (rows("messages") as Array<CommunityCollectionRows["messages"] & Pick<Msg, "replyTo" | "thread" | "approval">>)
+  const allMessages = rows("messages")
     .filter((row) => !retired.has(row.channelId))
   const messagesByScope = new Map<string, typeof allMessages>()
   for (const message of allMessages) {
@@ -196,20 +191,6 @@ function scrubDehydratedClient(
         || row.relation === "access" && retainedDmIds.has(row.channelId)
       )
   ))
-  const referencedProfileIds = new Set<string>(userId ? [userId] : [])
-  for (const query of queries) if (query.queryKey[1] === "bots") {
-    for (const bot of (query.state.data as { bots: Array<{ id: string }> }).bots) referencedProfileIds.add(bot.id)
-  }
-  for (const server of rows("servers")) {
-    if (server.ownerId) referencedProfileIds.add(server.ownerId)
-  }
-  for (const membership of retainedServerMemberships) referencedProfileIds.add(membership.userId)
-  for (const membership of retainedChannelMemberships) referencedProfileIds.add(membership.userId)
-  for (const message of retainedMessages) {
-    for (const id of messageProfileIds(message)) referencedProfileIds.add(id)
-  }
-  for (const item of retainedAttentionItems) if (item.actorUserId) referencedProfileIds.add(item.actorUserId)
-
   const windowed: Partial<Record<CommunityCollectionName, unknown[]>> = {
     ...Object.fromEntries(canonical),
     categories: rows("categories").filter(
@@ -223,9 +204,7 @@ function scrubDehydratedClient(
     notificationSettings: rows("notificationSettings").filter((row) => !row.channelId || !retired.has(row.channelId)),
     attentionScopes,
     attentionItems: retainedAttentionItems,
-    profiles: rows("profiles").filter(
-      (row) => referencedProfileIds.has(row.id),
-    ),
+    profiles: rows("profiles"),
   }
   for (const q of client.clientState.queries) {
     if (!isCommunityDbCollectionKey(q.queryKey)) continue
@@ -455,7 +434,13 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
           if (!decoded || decoded.ownerEpochs.device !== expected.device || decoded.ownerEpochs.account !== expected.account) { store.delete(key); return undefined }
           return { ...decoded, retired: changedChannelFences(current, decoded.fences) }
         }), persister)
-        return input && observeRestoreDecode(persister, () => scrubDehydratedClient(input.snapshot, userId, input.retired), PERSIST_BUSTER, PERSIST_MAX_AGE_MS)
+        return input && observeRestoreDecode(persister, () => {
+          const snapshot = scrubDehydratedClient(input.snapshot, userId, input.retired)
+          if (!snapshot.timestamp || Date.now() - snapshot.timestamp <= PERSIST_MAX_AGE_MS) return snapshot
+          const profiles = snapshot.clientState.queries.filter(query => isCommunityDbCollectionKey(query.queryKey)
+            && query.queryKey[2] === userId && query.queryKey[3] === "profiles" && Array.isArray(query.state.data) && query.state.data.length > 0)
+          return profiles.length ? { ...snapshot, timestamp: Date.now(), clientState: { queries: profiles, mutations: [] } } : snapshot
+        }, PERSIST_BUSTER, PERSIST_MAX_AGE_MS)
       } finally { discardInitialSnapshot() }
     },
     removeClient: () => { discardInitialSnapshot(); return writer.removeClient() },

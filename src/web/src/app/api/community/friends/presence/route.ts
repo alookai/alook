@@ -3,7 +3,7 @@ import { queries, PRESENCE_MEMBER_CAP, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
-import { wsDoFetch } from "@/lib/broadcast"
+import { fetchUserPresence } from "@/lib/community/member-presence"
 
 /**
  * Bulk online-status check for the caller's own friends.
@@ -31,20 +31,6 @@ export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
     { route: "community/friends/presence" },
   )
 
-  let online: string[] = []
-  if (!stale && value.friendIds.length > 0) {
-    try {
-      const resp = await wsDoFetch(ctx.env, "/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: value.friendIds }),
-      }, { label: ctx.userId })
-      if (resp.ok) {
-        const data = await resp.json() as { online: string[] }
-        online = Array.isArray(data.online) ? data.online : []
-      }
-    } catch { /* skip */ }
-  }
-
-  return writeJSON(stale ? { online, stale: true } : { online })
+  const presence = stale ? undefined : await fetchUserPresence(ctx.env, value.friendIds, ctx.userId)
+  return writeJSON(presence ?? { online: [], offline: [], stale: true })
 })

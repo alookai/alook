@@ -13,7 +13,7 @@ const api = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: api, toastApiError: vi.fn() }))
 beforeEach(() => {
   api.mockImplementation(async (path: string) => {
-    if (path.endsWith("/presence")) return { online: [] }
+    if (path.endsWith("/presence")) return { online: [], offline: [] }
     if (path.endsWith("/invites")) return invitesReadFixture("srv_1")
     if (path.includes("/members")) return serverMembersReadFixture("srv_1", [])
     if (path.endsWith("/categories")) return { categories: [] }

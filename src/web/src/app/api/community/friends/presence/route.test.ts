@@ -56,7 +56,7 @@ describe("GET /api/community/friends/presence", () => {
   it("scopes the presence check to the caller's own friends, never client-supplied ids", async () => {
     mockGetFriendUserIds.mockResolvedValue(["f1", "f2", "f3"])
     mockWsDoWorkerFetch.mockResolvedValue(
-      new Response(JSON.stringify({ online: ["f1", "f3"] }), { status: 200 })
+      new Response(JSON.stringify({ online: ["f1", "f3"], offline: [] }), { status: 200 })
     )
 
     const res = await GET(getReq())
@@ -76,7 +76,7 @@ describe("GET /api/community/friends/presence", () => {
     const res = await GET(getReq())
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ online: [] })
+    expect(await res.json()).toEqual({ online: [], offline: [] })
     expect(mockWsDoWorkerFetch).not.toHaveBeenCalled()
     expect(mockFetch).not.toHaveBeenCalled()
   })
@@ -85,7 +85,7 @@ describe("GET /api/community/friends/presence", () => {
     const ids = Array.from({ length: PRESENCE_MEMBER_CAP + 10 }, (_, i) => `f${i}`)
     mockGetFriendUserIds.mockResolvedValue(ids)
     mockWsDoWorkerFetch.mockResolvedValue(
-      new Response(JSON.stringify({ online: [] }), { status: 200 })
+      new Response(JSON.stringify({ online: [], offline: [] }), { status: 200 })
     )
 
     await GET(getReq())
@@ -99,17 +99,17 @@ describe("GET /api/community/friends/presence", () => {
     mockGetFriendUserIds.mockResolvedValue(["f1"])
     mockWsDoWorkerFetch.mockRejectedValue(new Error("binding missing"))
     mockFetch.mockResolvedValue(
-      new Response(JSON.stringify({ online: ["f1"] }), { status: 200 })
+      new Response(JSON.stringify({ online: ["f1"], offline: [] }), { status: 200 })
     )
 
     const res = await GET(getReq())
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ online: ["f1"] })
+    expect(await res.json()).toEqual({ online: ["f1"], offline: [] })
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it("returns { online: [] } (not a 500) when wsDoFetch throws entirely", async () => {
+  it("marks the presence read stale when both upstream paths fail", async () => {
     mockGetFriendUserIds.mockResolvedValue(["f1"])
     mockWsDoWorkerFetch.mockRejectedValue(new Error("binding missing"))
     mockFetch.mockRejectedValue(new Error("network down"))
@@ -117,7 +117,7 @@ describe("GET /api/community/friends/presence", () => {
     const res = await GET(getReq())
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ online: [] })
+    expect(await res.json()).toEqual({ online: [], offline: [], stale: true })
   })
 
   it("degrades to { online: [], stale: true } (200) when D1 exhausts retries", async () => {
@@ -127,7 +127,7 @@ describe("GET /api/community/friends/presence", () => {
     const res = await GET(getReq())
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ online: [], stale: true })
+    expect(await res.json()).toEqual({ online: [], offline: [], stale: true })
     expect(mockWsDoWorkerFetch).not.toHaveBeenCalled()
   }, 10_000)
 })

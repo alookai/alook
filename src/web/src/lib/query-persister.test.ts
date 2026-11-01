@@ -333,7 +333,7 @@ describe("createIdbPersister — serialize filter", () => {
     expect(collection("profiles")).toEqual(data.profiles)
   })
 
-  it("windows canonical server trees, message tails, and referenced profiles", async () => {
+  it("windows canonical server trees and message tails while retaining learned user facts", async () => {
     const qc = new QueryClient()
     const detailKeys = Array.from({ length: 7 }, (_, index) => communityKeys.server(`srv_${index}`))
     detailKeys.forEach((key, index) => {
@@ -538,7 +538,7 @@ describe("createIdbPersister — serialize filter", () => {
     const profileIds = new Set((collection("profiles") as Array<{ id: string }>).map(
       (row) => row.id,
     ))
-    expect(profileIds.has("orphan")).toBe(false)
+    expect(profileIds.has("orphan")).toBe(true)
     expect(profileIds.has("u_1")).toBe(true)
     expect([...profileIds]).toEqual(expect.arrayContaining([
       "owner_0",
@@ -550,8 +550,8 @@ describe("createIdbPersister — serialize filter", () => {
       "thread_participant",
       "dm_peer",
     ]))
-    expect(profileIds.has("roster_only")).toBe(false)
-    expect(profileIds.has("notify_only")).toBe(false)
+    expect(profileIds.has("roster_only")).toBe(true)
+    expect(profileIds.has("notify_only")).toBe(true)
     expect(collection("serverMemberships")).toEqual([
       expect.objectContaining({ userId: "u_1", viewer: true }),
     ])

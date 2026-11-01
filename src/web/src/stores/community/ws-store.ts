@@ -62,6 +62,7 @@ type CommunityWsStoreState = {
     patches: ReadonlyMap<string, CommunityPresence> | readonly [string, CommunityPresence][],
   ) => boolean
   setPresence: (userId: string, presence: CommunityPresence) => boolean
+  forgetPresence: (userId: string) => void
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
   observeDeliveryOperation: (
@@ -110,7 +111,7 @@ export function communityScopeAllowsAccess(
     || channel?.revoked || (parentId && state.channelAccessScopes.get(parentId)?.revoked))
 }
 
-export function createCommunityWsStore(viewerId: string | null) {
+export function createCommunityWsStore(viewerId: string | null, publishPresence?: (patches: ReadonlyMap<string, CommunityPresence>) => void) {
   const store = createStore(initialState(), ({ setState, get }): Omit<CommunityWsStoreState, keyof ReturnType<typeof initialState>> => {
   const writePresence = (
     snapshot: CommunityPresenceSnapshot,
@@ -127,12 +128,14 @@ export function createCommunityWsStore(viewerId: string | null) {
     const revision = state.presenceRevision + 1
     let presenceByUserId: Map<string, CommunityPresence> | null = null
     let revisions: Map<string, number> | null = null
+    const changed = new Map<string, CommunityPresence>()
     for (const [userId, presence] of entries) {
       const previousRevision = state.presenceRevisionsByUserId.get(userId) ?? 0
       if (guardSnapshot && previousRevision > snapshot.revision) continue
       if ((presenceByUserId ?? state.presenceByUserId).get(userId) !== presence) {
         presenceByUserId ??= new Map(state.presenceByUserId)
         presenceByUserId.set(userId, presence)
+        changed.set(userId, presence)
       }
       if (!guardSnapshot) {
         revisions ??= new Map(state.presenceRevisionsByUserId)
@@ -143,6 +146,7 @@ export function createCommunityWsStore(viewerId: string | null) {
       ...(presenceByUserId ? { presenceByUserId } : {}),
       ...(revisions ? { presenceRevision: revision, presenceRevisionsByUserId: revisions } : {}),
     } }))
+    if (changed.size > 0) publishPresence?.(changed)
     return true
   }
 
@@ -180,6 +184,13 @@ export function createCommunityWsStore(viewerId: string | null) {
       [[userId, presence]],
       false,
     ),
+    forgetPresence: (userId) => {
+      const previous = get(), revision = previous.presenceRevision + 1
+      const presenceByUserId = new Map(previous.presenceByUserId), presenceRevisionsByUserId = new Map(previous.presenceRevisionsByUserId)
+      presenceByUserId.delete(userId)
+      presenceRevisionsByUserId.set(userId, revision)
+      setState(state => ({ ...state, presenceByUserId, presenceRevisionsByUserId, presenceRevision: revision }))
+    },
 
   hasSeenMessage: (id) => get().seenMessageIds.has(id),
 

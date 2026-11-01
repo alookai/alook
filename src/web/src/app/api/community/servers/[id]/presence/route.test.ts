@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest"
 import { NextRequest } from "next/server"
-import fs from "node:fs"
-import path from "node:path"
 
 const mockWsDoWorkerFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
 
@@ -62,11 +60,11 @@ function getReq() {
 const ctx = { params: { id: "s1" } } as any
 
 describe("GET /api/community/servers/[id]/presence", () => {
-  it("returns { online, truncated: false, limit: PRESENCE_MEMBER_CAP } identical to pre-refactor", async () => {
+  it("returns confirmed presence and the capped server scope", async () => {
     mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1", role: "member" })
     mockListMemberUserIds.mockResolvedValue(["u1", "u2", "u3"])
     mockWsDoWorkerFetch.mockResolvedValue(
-      new Response(JSON.stringify({ online: ["u1", "u3"] }), { status: 200 })
+      new Response(JSON.stringify({ online: ["u1", "u3"], offline: [] }), { status: 200 })
     )
 
     const res = await GET(getReq(), ctx)
@@ -75,8 +73,7 @@ describe("GET /api/community/servers/[id]/presence", () => {
     expect(body.online.sort()).toEqual(["u1", "u3"])
     expect(body.truncated).toBe(false)
     expect(body.limit).toBe(PRESENCE_MEMBER_CAP)
-    // Regression: response shape unchanged.
-    expect(Object.keys(body).sort()).toEqual(["limit", "online", "truncated"])
+    expect(Object.keys(body).sort()).toEqual(["limit", "offline", "online", "truncated"])
     expect(typeof body.limit).toBe("number")
     expect(typeof body.truncated).toBe("boolean")
     expect(Array.isArray(body.online)).toBe(true)
@@ -87,7 +84,7 @@ describe("GET /api/community/servers/[id]/presence", () => {
     const ids = Array.from({ length: PRESENCE_MEMBER_CAP + 5 }, (_, i) => `u${i}`)
     mockListMemberUserIds.mockResolvedValue(ids)
     mockWsDoWorkerFetch.mockResolvedValue(
-      new Response(JSON.stringify({ online: [] }), { status: 200 })
+      new Response(JSON.stringify({ online: [], offline: [] }), { status: 200 })
     )
 
     const res = await GET(getReq(), ctx)
@@ -104,7 +101,7 @@ describe("GET /api/community/servers/[id]/presence", () => {
       const ids = Array.from({ length: n }, (_, i) => `u${i}`)
       mockListMemberUserIds.mockResolvedValue(ids)
       mockWsDoWorkerFetch.mockResolvedValue(
-        new Response(JSON.stringify({ online: [] }), { status: 200 })
+        new Response(JSON.stringify({ online: [], offline: [] }), { status: 200 })
       )
 
       const res = await GET(getReq(), ctx)
@@ -124,7 +121,7 @@ describe("GET /api/community/servers/[id]/presence", () => {
     mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
     mockWsDoWorkerFetch.mockRejectedValue(new Error("binding missing"))
     mockFetch.mockResolvedValue(
-      new Response(JSON.stringify({ online: ["u1"] }), { status: 200 })
+      new Response(JSON.stringify({ online: ["u1"], offline: [] }), { status: 200 })
     )
 
     const res = await GET(getReq(), ctx)
@@ -146,7 +143,7 @@ describe("GET /api/community/servers/[id]/presence", () => {
     mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
     mockWsDoWorkerFetch.mockResolvedValue(new Response("boom", { status: 500 }))
     mockFetch.mockResolvedValue(
-      new Response(JSON.stringify({ online: ["u2"] }), { status: 200 })
+      new Response(JSON.stringify({ online: ["u2"], offline: [] }), { status: 200 })
     )
 
     const res = await GET(getReq(), ctx)
@@ -161,18 +158,13 @@ describe("GET /api/community/servers/[id]/presence", () => {
     expect(JSON.parse(init.body as string)).toEqual({ ids: ["u1", "u2"] })
   })
 
-  // Guard: the route must go through the shared `wsDoFetch` helper — never
-  // reinvent the "try binding → catch → HTTP fallback" ladder inline. If a
-  // future edit re-adds a direct WS_DO_WORKER.fetch or DEV_WS_DO_URL, this
-  // fails so the review catches the drift.
-  it("goes through the new helper (single wsDoFetch import, no ad-hoc fallback)", () => {
-    const routeSrc = fs.readFileSync(
-      path.resolve(__dirname, "route.ts"),
-      "utf8",
-    )
-    expect(routeSrc).toMatch(/wsDoFetch/)
-    expect(routeSrc).not.toMatch(/WS_DO_WORKER/)
-    expect(routeSrc).not.toMatch(/DEV_WS_DO_URL/)
+  it("rejects upstream ids outside the authorized server instead of inventing offline values", async () => {
+    mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1", role: "member" })
+    mockListMemberUserIds.mockResolvedValue(["u1"])
+    mockWsDoWorkerFetch.mockResolvedValue(Response.json({ online: ["another-server"], offline: [] }))
+    const response = await GET(getReq(), ctx)
+    expect(await response.json()).toEqual({ online: [], offline: [], truncated: false, limit: PRESENCE_MEMBER_CAP, stale: true })
+    expect(mockWsDoWorkerFetch).toHaveBeenCalledTimes(1)
   })
 })
 
