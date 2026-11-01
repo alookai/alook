@@ -1,210 +1,27 @@
 "use client"
 
 import Image from "next/image"
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useCallback, useState } from "react"
 import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { GeneratedAvatar } from "@/components/avatar"
-import { ProviderLogo } from "@/components/provider-logo"
 import { HeroSection } from "./hero-section"
 import { HeroAvatarSwarm } from "./hero-avatar-swarm"
 import { HomepageFaq } from "./homepage-faq"
 import { LandingTestimonials } from "./landing-testimonials"
-import { LandingReachMotion } from "./landing-reach-motion"
-import { DeferredShellMotion as LandingShellMotion, DeferredProfileCard } from "./deferred-landing-media"
+import { LandingFeatureGallery } from "./landing-feature-gallery"
 import { MarketingNav } from "./marketing-nav"
 import { LandingInteractiveDemo } from "./landing-interactive-demo"
 import { LandingFooter } from "./landing-footer"
-import {
-  LANDING_CONTINUITY,
-  LANDING_GALLERY,
-  LANDING_HERO,
-  LANDING_MACHINE_INTRO,
-  LANDING_PROVIDERS,
-} from "./landing-content"
+import { LANDING_HERO } from "./landing-content"
 import styles from "./landing-page.module.css"
 import { trackLandingCtaClicked } from "@/lib/analytics"
 import { tid } from "@/lib/community/testids"
-
-function SectionCta({ isLoggedIn, section, children }: {
-  isLoggedIn: boolean
-  section: string
-  children: React.ReactNode
-}) {
-  return (
-    <a
-      href={isLoggedIn ? "/c/me" : "/sign-in"}
-      className={styles.sectionCta}
-      data-testid={`landing-section-cta-${section}`}
-      onClick={() => trackLandingCtaClicked({ cta_name: `${section}_${isLoggedIn ? "open_app" : "get_started"}` })}
-    >
-      {children}
-    </a>
-  )
-}
-
-function ProductScene({ scene }: { scene: (typeof LANDING_GALLERY)[number]["scene"] }) {
-  const story = LANDING_GALLERY.find((item) => item.scene === scene)
-
-  if (!story) return null
-
-  return (
-    <figure className={styles.sceneFigure} data-testid={`landing-scene-${scene}`}>
-      <div className={styles.galleryFrame} role="img" aria-label={story.label}>
-        <LandingShellMotion
-          scene={story.scene}
-          machineIntroDescription={LANDING_MACHINE_INTRO}
-        />
-      </div>
-    </figure>
-  )
-}
-
-function ContinuityTimeline() {
-  return (
-    <div className={styles.timelineBoard} data-testid="landing-identity-timeline">
-      <div className={styles.galleryFrame} role="img" aria-label="Alli follows one request through a DM, Studio, and Home">
-        <LandingShellMotion scene="continuity" />
-      </div>
-    </div>
-  )
-}
-
-function RuntimeBadges() {
-  return (
-    <div
-      className={styles.runtimeBadges}
-      aria-label="Supported local runtimes"
-      data-testid="landing-runtime-badges"
-    >
-      {LANDING_PROVIDERS.map((provider) => (
-        <span key={provider.id}>
-          <ProviderLogo provider={provider.id} className="size-4" />
-          {provider.label}
-        </span>
-      ))}
-    </div>
-  )
-}
 
 const CLOSING_COMPANIONS = [
   { seed: "Maya", className: styles.closingCompanionLeft },
   { seed: "Alli", className: styles.closingCompanionTop },
   { seed: "Gus", className: styles.closingCompanionRight },
 ] as const
-
-function InteractiveIdentityProfileCard() {
-  const tiltRef = useRef<HTMLDivElement>(null)
-
-  const resetTilt = () => {
-    const element = tiltRef.current
-    if (!element) return
-    element.dataset.tilting = "false"
-    element.style.setProperty("--card-rotate-x", "0deg")
-    element.style.setProperty("--card-rotate-y", "0deg")
-    element.style.setProperty("--card-scale", "1")
-    element.style.setProperty("--card-light-opacity", "0")
-    element.style.setProperty("--card-shadow-x", "0px")
-    element.style.setProperty("--card-shadow-y", "20px")
-  }
-
-  const tiltCard = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === "touch") return
-    const element = tiltRef.current
-    if (!element) return
-
-    const bounds = element.getBoundingClientRect()
-    const x = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width))
-    const y = Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height))
-
-    element.dataset.tilting = "true"
-    element.style.setProperty("--card-rotate-x", `${(0.5 - y) * 14}deg`)
-    element.style.setProperty("--card-rotate-y", `${(x - 0.5) * 18}deg`)
-    element.style.setProperty("--card-scale", "1.015")
-    element.style.setProperty("--card-light-x", `${x * 100}%`)
-    element.style.setProperty("--card-light-y", `${y * 100}%`)
-    element.style.setProperty("--card-light-opacity", "0.72")
-    element.style.setProperty("--card-shadow-x", `${(0.5 - x) * 24}px`)
-    element.style.setProperty("--card-shadow-y", `${20 + y * 16}px`)
-  }
-
-  return (
-    <div
-      ref={tiltRef}
-      className={styles.identityProfileCard}
-      onPointerMove={tiltCard}
-      onPointerLeave={resetTilt}
-      onPointerCancel={resetTilt}
-      data-testid="landing-identity-card-tilt"
-    >
-      <span className={styles.identityProfileCardSensor} aria-hidden="true" />
-      <div className={styles.identityProfileCardSurface}>
-        <DeferredProfileCard />
-      </div>
-    </div>
-  )
-}
-
-function IdentityProof() {
-  const layoutRef = useRef<HTMLDivElement>(null)
-  const cardSlotRef = useRef<HTMLDivElement>(null)
-  const sceneSlotRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const layout = layoutRef.current
-    const cardSlot = cardSlotRef.current
-    const sceneSlot = sceneSlotRef.current
-    const card = cardSlot?.querySelector<HTMLElement>("[data-testid='landing-identity-card-tilt']")
-
-    if (!layout || !cardSlot || !sceneSlot || !card) return
-
-    let frame = 0
-
-    const fitCard = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        const cardSlotBounds = cardSlot.getBoundingClientRect()
-        const sceneBounds = sceneSlot.getBoundingClientRect()
-        const sideBySide =
-          sceneBounds.left > cardSlotBounds.left &&
-          Math.abs(sceneBounds.top - cardSlotBounds.top) < 2
-        const scale = sideBySide
-          ? Math.min(1.08, Math.max(0.5, sceneBounds.height / card.offsetHeight))
-          : 1
-
-        layout.style.setProperty("--identity-card-fit-scale", scale.toFixed(4))
-      })
-    }
-
-    const observer = new ResizeObserver(fitCard)
-    observer.observe(layout)
-    observer.observe(card)
-    observer.observe(sceneSlot)
-    fitCard()
-
-    return () => {
-      cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [])
-
-  return (
-    <div ref={layoutRef} className={styles.identityMediaLayout} data-testid="landing-identity-proof">
-      <div ref={cardSlotRef} className={styles.identityCardSlot}>
-        <InteractiveIdentityProfileCard />
-      </div>
-      <div ref={sceneSlotRef} className={styles.identitySceneSlot}>
-        <div
-          className={styles.galleryFrame}
-          role="img"
-          aria-label="Maya keeps one identity across Studio, Home, and Game Night"
-          data-testid="landing-identity-motion"
-        >
-          <LandingShellMotion scene="identity" />
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [heroReady, setHeroReady] = useState(false)
@@ -226,7 +43,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         onReady={handleHeroReady}
         staticPaper
         desktopSplit
-        nextSectionId="workspace"
+        nextSectionId="testimonials"
         isLoggedIn={isLoggedIn}
         headline={(
           <>
@@ -252,90 +69,11 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         backgroundDecoration={<HeroAvatarSwarm />}
       />
 
+      <LandingTestimonials />
+
       <LandingInteractiveDemo heroReady={heroReady} />
 
-      <section id="product" tabIndex={-1} className={styles.productSection} data-testid="landing-product-proof">
-        <div className={styles.productLayout} data-testid={tid.landingMainContainer}>
-          <div className={styles.sectionIntro}>
-            <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>AI agent collaboration</p>
-              <h2>Let teammates talk to your agent.</h2>
-            </div>
-            <p>
-              Coordinate multi-agent workflows in one conversation. Ask for a preview, request changes, and review results with your team.
-            </p>
-            <SectionCta isLoggedIn={isLoggedIn} section="product">Share your agent</SectionCta>
-          </div>
-          <ProductScene scene="server" />
-        </div>
-      </section>
-
-      <section id="identity" className={styles.identitySection}>
-        <div className={styles.identityLayout}>
-          <div className={styles.sectionIntro}>
-            <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>A familiar face</p>
-              <h2>A companion of your own.</h2>
-            </div>
-            <p>
-              Your agent belongs to you. Bring them along to any room or team you join.
-            </p>
-            <SectionCta isLoggedIn={isLoggedIn} section="identity">Invite your agent</SectionCta>
-          </div>
-          <IdentityProof />
-        </div>
-      </section>
-
-      <section id="continuity" className={styles.timelineSection}>
-        <div className={styles.productLayout}>
-          <div className={styles.sectionIntro}>
-            <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>{LANDING_CONTINUITY.kicker}</p>
-              <h2>{LANDING_CONTINUITY.headline}</h2>
-            </div>
-            <p>{LANDING_CONTINUITY.description}</p>
-            <SectionCta isLoggedIn={isLoggedIn} section="continuity">Start a task</SectionCta>
-          </div>
-          <ContinuityTimeline />
-        </div>
-      </section>
-
-      <section id="reach" className={styles.reachSection} data-testid="landing-reach">
-        <div className={styles.productLayout}>
-          <div className={styles.sectionIntro}>
-            <div className={styles.sectionLead}>
-              <p className={styles.sectionMuted}>Away from your desk</p>
-              <h2>Check in from your phone.</h2>
-            </div>
-            <p>
-              Read updates and give the next instruction wherever you are. Keep your agent’s computer online.
-            </p>
-            <SectionCta isLoggedIn={isLoggedIn} section="reach">Work anywhere</SectionCta>
-          </div>
-          <LandingReachMotion />
-        </div>
-      </section>
-
-      <section id="ownership" className={styles.ownershipSection}>
-        <div className={styles.ownershipInner}>
-          <div className={styles.ownershipCopy}>
-            <p className={styles.darkMuted}>Use your existing setup</p>
-            <h2>Keep your existing setup.</h2>
-            <p className={styles.ownershipDescription}>
-              Connect the agent you already use. It runs on your computer with your project, tools, and configured access.
-            </p>
-            <SectionCta isLoggedIn={isLoggedIn} section="ownership">Connect your agent</SectionCta>
-            <div className={styles.runtimeGroup}>
-              <RuntimeBadges />
-            </div>
-          </div>
-          <div className={styles.ownershipVisual}>
-            <ProductScene scene="machine" />
-          </div>
-        </div>
-      </section>
-
-      <LandingTestimonials />
+      <LandingFeatureGallery isLoggedIn={isLoggedIn} />
 
       <HomepageFaq />
 

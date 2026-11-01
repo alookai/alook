@@ -1,6 +1,6 @@
 .section {
   padding-block: clamp(72px, 9vw, 128px);
-  background: var(--landing-bg);
+  background: var(--landing-section-bg, var(--landing-surface));
   color: var(--landing-text);
   scroll-margin-top: 72px;
 }
