@@ -14,7 +14,7 @@
   height: 260px;
   justify-content: center;
   transform: translate3d(var(--tw-tx), var(--tw-ty), 0);
-  transition: transform 90ms ease-out;
+  transition: none;
   will-change: transform;
 }
 
@@ -31,7 +31,7 @@
       0
     )
     scale(calc(var(--tw-scale) * var(--blob-scale, 0.95)));
-  transition: transform 120ms ease-out;
+  transition: none;
 }
 
 .typewriter :global(.typewriter-scene) {
@@ -40,7 +40,7 @@
     scale3d(var(--tw-scale), var(--tw-scale), var(--tw-scale))
     rotateY(var(--tw-ry))
     rotateX(var(--tw-rx)) !important;
-  transition: transform 90ms ease-out;
+  transition: none;
   will-change: transform;
 }
 
