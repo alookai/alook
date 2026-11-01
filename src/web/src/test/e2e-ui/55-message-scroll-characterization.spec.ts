@@ -637,7 +637,7 @@ test.describe("message scroll characterization", () => {
         for (const emoji of emojis) await actors.seed.seedReaction("alice", messageId, emoji)
         await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).filter(event =>
           event.type === "community:reaction.add" && event.messageId === messageId).length).toBe((round + 1) * 5)
-        await markScrollTrace(page, `stimulus:reactions-${round}`, { detail: { input: "controlled-wheel-and-scroll", emojis } })
+        await markScrollTrace(page, `stimulus:reactions-${round}`, { detail: { input: "controlled-wheel-and-scroll", emojis, messageId } })
         const before = await scroller.evaluate((element, growingId) => {
           element.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }))
           element.scrollTop -= 1
