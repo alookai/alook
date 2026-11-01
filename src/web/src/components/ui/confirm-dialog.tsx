@@ -38,7 +38,7 @@ export function ConfirmDialog({
       <DialogContent showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription className="wrap-anywhere">{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button

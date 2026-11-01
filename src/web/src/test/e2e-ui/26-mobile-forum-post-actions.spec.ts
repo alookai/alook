@@ -756,6 +756,44 @@ test("forum post actions stay discoverable on mobile without changing permission
   await deleteDialog.getByRole("button", { name: "Cancel" }).focus()
   await manager.page.mouse.move(0, 0)
   await expect(managerActions).toHaveCSS("opacity", "1")
+  await expect(deleteDialog.locator('[data-slot="dialog-description"]')).toHaveText(
+    `This permanently deletes “${primaryTitle}” and all of its replies. This can't be undone.`,
+  )
+  const deleteGeometry = await deleteDialog.evaluate(dialog => {
+    const bounds = (element: Element) => {
+      const box = element.getBoundingClientRect()
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+    }
+    const description = dialog.querySelector<HTMLElement>('[data-slot="dialog-description"]')
+    if (!description) throw new Error("The full delete description is required")
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      popup: bounds(dialog),
+      description: { clientWidth: description.clientWidth, scrollWidth: description.scrollWidth },
+      buttons: Array.from(dialog.querySelectorAll("button")).map(button => {
+        const box = bounds(button)
+        const target = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2)
+        return { name: button.textContent?.trim(), bounds: box, centerHit: target?.closest("button") === button }
+      }),
+    }
+  })
+  await testInfo.attach("manager-delete-dialog.json", {
+    body: JSON.stringify(deleteGeometry),
+    contentType: "application/json",
+  })
+  expect(deleteGeometry.popup.left).toBeGreaterThanOrEqual(-0.5)
+  expect(deleteGeometry.popup.top).toBeGreaterThanOrEqual(-0.5)
+  expect(deleteGeometry.popup.right).toBeLessThanOrEqual(deleteGeometry.viewport.width + 0.5)
+  expect(deleteGeometry.popup.bottom).toBeLessThanOrEqual(deleteGeometry.viewport.height + 0.5)
+  expect(deleteGeometry.description.scrollWidth).toBeLessThanOrEqual(deleteGeometry.description.clientWidth + 1)
+  expect(deleteGeometry.buttons.map(button => button.name)).toEqual(["Cancel", "Delete post"])
+  for (const button of deleteGeometry.buttons) {
+    expect(button.bounds.left, `${button.name}: inside popup left`).toBeGreaterThanOrEqual(deleteGeometry.popup.left - 0.5)
+    expect(button.bounds.right, `${button.name}: inside popup right`).toBeLessThanOrEqual(deleteGeometry.popup.right + 0.5)
+    expect(button.bounds.top, `${button.name}: inside popup top`).toBeGreaterThanOrEqual(deleteGeometry.popup.top - 0.5)
+    expect(button.bounds.bottom, `${button.name}: inside popup bottom`).toBeLessThanOrEqual(deleteGeometry.popup.bottom + 0.5)
+    expect(button.centerHit, `${button.name}: pointer center hit`).toBe(true)
+  }
   await deleteDialog.getByRole("button", { name: "Cancel" }).click()
   await expect(deleteDialog).toHaveCount(0)
   await expect(managerActions).toHaveCSS("opacity", "1")
