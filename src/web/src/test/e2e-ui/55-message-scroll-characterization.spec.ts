@@ -24,6 +24,7 @@ import {
   type ScrollTraceResult,
 } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
+import { cancelControlledBackwardGrowth, controlledBackwardGrowth } from "./_fixtures/backward-growth"
 import { WEB_URL } from "./_setup/paths"
 import { expectUniqueSsrCommunityFrame, expectPublicCommunityDocument } from "./_fixtures/community-ssr-frame"
 
@@ -630,7 +631,7 @@ test.describe("message scroll characterization", () => {
     await installScrollTraceInCurrentDocument(page)
     await startScrollTrace(page, { scenario: "measured-reactions-backward-growth", identity: identity(channelId, { width: 390, height: 800 }) })
     await beginScrollTraceAnalysis(page, "above-fold-repeated-growth", { commandDirection: "backward" })
-    const samples: Array<{ at: number; rowHeight: number }> = []
+    const samples: Array<{ at: number; rowHeight: number; lastInputAt: number }> = []
     let trace: ScrollTraceResult | undefined
     try {
       for (const [round, emojis] of batches.entries()) {
@@ -638,35 +639,28 @@ test.describe("message scroll characterization", () => {
         await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).filter(event =>
           event.type === "community:reaction.add" && event.messageId === messageId).length).toBe((round + 1) * 5)
         await markScrollTrace(page, `stimulus:reactions-${round}`, { detail: { input: "controlled-wheel-and-scroll", emojis, messageId } })
-        const before = await scroller.evaluate((element, growingId) => {
-          element.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }))
-          element.scrollTop -= 1
-          element.dispatchEvent(new Event("scroll"))
-          const top = element.getBoundingClientRect().top
-          const growing = element.querySelector<HTMLElement>(`[data-msg-id="${growingId}"]`)
-          const reader = Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]"))
-            .find(row => row.getBoundingClientRect().bottom > top + 1)
-          const wrapper = growing?.closest<HTMLElement>("[data-index]")
-          if (!growing || !reader || !wrapper) throw new Error("Mounted growth and reading rows are required")
-          return { id: reader.dataset.msgId!, top: reader.getBoundingClientRect().top - top,
-            growingBottom: wrapper.getBoundingClientRect().bottom - top, scrollTop: element.scrollTop,
-            rowHeight: wrapper.getBoundingClientRect().height, at: performance.now() }
-        }, messageId)
+        const before = await scroller.evaluate(controlledBackwardGrowth, { start: messageId })
         expect(before.growingBottom).toBeLessThan(0)
-        samples.push({ at: before.at, rowHeight: before.rowHeight })
         expect(proxy.releaseHeld(reactionFrame)).toBeGreaterThan(0)
         await expect.poll(() => page.getByTestId(tid.message(messageId)).evaluate(element => element.closest("[data-index]")!.getBoundingClientRect().height))
           .toBeGreaterThan(before.rowHeight)
+        const input = await scroller.evaluate(controlledBackwardGrowth, { finish: true as const })
+        expect(input.measurement, "Native row growth must be measured during controlled input").not.toBeNull()
+        expect(input.measurement!.direction).toBe("backward")
+        expect(input.measurement!.at - input.measurement!.lastInputAt).toBeLessThan(150)
+        expect(input.inputDelta).toBeLessThan(0)
+        samples.push({ at: before.at, rowHeight: before.rowHeight, lastInputAt: input.measurement!.lastInputAt })
         await advanceScrollTraceFrame(scroller)
         const after = await page.getByTestId(tid.message(before.id)).evaluate(element => {
           const root = element.closest<HTMLElement>("[data-message-scroller-boundary]")?.querySelector<HTMLElement>("[data-pagination-enabled]")
           if (!root) throw new Error("The reading scroller is required")
           return element.getBoundingClientRect().top - root.getBoundingClientRect().top
         })
-        await markScrollTrace(page, `observed:reactions-${round}`, { detail: { before, after } })
-        expect.soft(Math.abs(after - before.top), `Reading drift after reaction batch ${round}`).toBeLessThanOrEqual(1)
+        await markScrollTrace(page, `observed:reactions-${round}`, { detail: { before, after, input } })
+        expect.soft(Math.abs(after - before.top + input.inputDelta), `Reading drift after reaction batch ${round}`).toBeLessThanOrEqual(1)
       }
     } finally {
+      await scroller.evaluate(cancelControlledBackwardGrowth)
       await endScrollTraceAnalysis(page, "above-fold-repeated-growth")
       trace = await finishAndAttach(page, testInfo)
     }
@@ -674,7 +668,7 @@ test.describe("message scroll characterization", () => {
     for (const sample of samples) {
       const measurement = trace.measurements.find(row => row.id === messageId && row.timestamp >= sample.at && row.height > sample.rowHeight + 1)
       expect(measurement, "A real growing-row measurement must precede the 150ms backward reset").toBeDefined()
-      expect(measurement!.timestamp - sample.at).toBeLessThan(150)
+      expect(measurement!.timestamp - sample.lastInputAt).toBeLessThan(150)
     }
   })
 

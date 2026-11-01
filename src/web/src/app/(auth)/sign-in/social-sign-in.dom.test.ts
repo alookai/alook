@@ -70,20 +70,19 @@ const attempt = {
 
 describe("social sign-in stack and native boundary", () => {
   it.each([false, true])(
-    "starts the selected provider immediately and records last-used method, native=%s",
+    "starts the selected provider without overwriting the last successful method, native=%s",
     async (native) => {
       mocks.tauri = native
-      const onSelectMethod = vi.fn()
       render(
         createElement(SocialSignIn, {
           postLoginUrl: "/c/me?tab=1",
           appleEnabled: true,
-          onSelectMethod,
+          lastUsedMethod: "github",
         }),
       )
       await setupUser().click(button("native-oauth-apple"))
-      expect(mocks.remember).toHaveBeenCalledExactlyOnceWith("apple")
-      expect(onSelectMethod).toHaveBeenCalledExactlyOnceWith("apple")
+      expect(mocks.remember).not.toHaveBeenCalled()
+      expect(button("native-oauth-github")).toHaveAccessibleDescription("Last used")
       if (native) expect(mocks.start).toHaveBeenCalledExactlyOnceWith("apple", "/c/me?tab=1")
       else {
         expect(mocks.social).toHaveBeenCalledExactlyOnceWith({
@@ -109,6 +108,7 @@ describe("social sign-in stack and native boundary", () => {
       })
       await setupUser().click(button(`native-oauth-${provider}`))
       expect(mocks.capture).toHaveBeenCalledOnce()
+      expect(mocks.remember).not.toHaveBeenCalled()
     },
   )
 

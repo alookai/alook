@@ -25,7 +25,6 @@ import { SocialSignIn } from "./social-sign-in"
 import { SignInTermsNotice } from "./sign-in-terms"
 import { SignInMobileTypewriter } from "./sign-in-mobile-typewriter"
 import { GradientBackground } from "@/components/gradient-background"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { Logo } from "@/components/logo"
 import { LandingShellMotion } from "@/components/home/landing-shell-motion"
 import {
@@ -34,7 +33,7 @@ import {
 } from "@/components/home/landing-shell-motion-timeline"
 import galleryStyles from "@/components/home/landing-shell-motion.module.css"
 import { DEV_PASSWORD } from "@alook/shared"
-import { CircleCheck, Mail } from "lucide-react"
+import { ArrowLeft, CircleCheck, Mail } from "lucide-react"
 import Image from "next/image"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { cn } from "@/lib/utils"
@@ -55,7 +54,12 @@ function readClientLastLoginMethod(): LoginMethod | null {
 }
 
 type StepViewState =
+  | "methods"
   | "email"
+  | "prepare-from-methods"
+  | "sliding-from-methods"
+  | "prepare-to-methods"
+  | "sliding-to-methods"
   | "prepare-to-code"
   | "sliding-to-code"
   | "code"
@@ -71,9 +75,6 @@ function SignInForm({
   accountDeletionPending,
   appleEnabled,
   initialLastUsedMethod = null,
-  isMobile,
-  mobileTypewriterCollapsed,
-  onSlideActiveChange,
 }: {
   postLoginUrl: string
   isProd: boolean
@@ -81,9 +82,6 @@ function SignInForm({
   accountDeletionPending: boolean
   appleEnabled: boolean
   initialLastUsedMethod?: LoginMethod | null
-  isMobile: boolean
-  mobileTypewriterCollapsed: boolean
-  onSlideActiveChange?: (active: boolean) => void
 }) {
   useEffect(() => {
     void captureProductAnalytics({ event: "login_page_view" })
@@ -105,24 +103,32 @@ function SignInForm({
   const [otpError, setOtpError] = useAtom(useCreateAtom(""))
   const [loading, setLoading] = useAtom(useCreateAtom(false))
   const [code, setCode] = useAtom(useCreateAtom(""))
-  const [viewState, setViewState] = useAtom(useCreateAtom<StepViewState>("email"))
+  const [viewState, setViewState] = useAtom(useCreateAtom<StepViewState>("methods"))
   const [retryAfter, setRetryAfter] = useAtom(useCreateAtom<number | null>(null))
   const [lastUsedMethod, setLastUsedMethod] = useAtom(
     useCreateAtom<LoginMethod | null>(initialLastUsedMethod),
   )
 
   const finishSlide = useCallback(
-    (target: "email" | "code") => {
-      onSlideActiveChange?.(false)
+    (target: "methods" | "email" | "code") => {
       setViewState(target)
     },
-    [onSlideActiveChange, setViewState],
+    [setViewState],
   )
 
   const shouldAnimateSlide = () =>
-    isMobile
-    && typeof window !== "undefined"
+    typeof window !== "undefined"
     && !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+
+  const switchMethodsStep = (target: "methods" | "email") => {
+    if (isTransitioning) return
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    if (!shouldAnimateSlide()) {
+      setViewState(target)
+      return
+    }
+    setViewState(target === "email" ? "prepare-from-methods" : "prepare-to-methods")
+  }
 
   const enterCodeStep = () => {
     if (!shouldAnimateSlide()) {
@@ -132,7 +138,6 @@ function SignInForm({
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur()
     }
-    onSlideActiveChange?.(true)
     setViewState("prepare-to-code")
   }
 
@@ -147,7 +152,6 @@ function SignInForm({
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur()
     }
-    onSlideActiveChange?.(true)
     setViewState("prepare-to-email")
   }
 
@@ -165,19 +169,19 @@ function SignInForm({
   }, [retryAfter, setRetryAfter])
 
   useEffect(() => {
-    if (viewState !== "prepare-to-code" && viewState !== "prepare-to-email") return
+    if (!viewState.startsWith("prepare-")) return
     void trackRef.current?.getBoundingClientRect()
     const rafId = window.requestAnimationFrame(() => {
       setViewState(
-        viewState === "prepare-to-code" ? "sliding-to-code" : "sliding-to-email",
+        viewState.replace("prepare-", "sliding-") as StepViewState,
       )
     })
     return () => window.cancelAnimationFrame(rafId)
   }, [setViewState, viewState])
 
   useEffect(() => {
-    if (viewState !== "sliding-to-code" && viewState !== "sliding-to-email") return
-    const target = viewState === "sliding-to-code" ? "code" : "email"
+    if (!viewState.startsWith("sliding-")) return
+    const target = viewState === "sliding-to-code" ? "code" : viewState === "sliding-to-methods" ? "methods" : "email"
     const timerId = window.setTimeout(() => {
       finishSlide(target)
     }, STEP_SLIDE_FALLBACK_MS)
@@ -185,28 +189,19 @@ function SignInForm({
   }, [finishSlide, viewState])
 
   useEffect(() => {
-    if (isMobile) return
-    if (viewState === "prepare-to-code" || viewState === "sliding-to-code") {
-      finishSlide("code")
-    } else if (viewState === "prepare-to-email" || viewState === "sliding-to-email") {
-      finishSlide("email")
-    }
-  }, [finishSlide, isMobile, viewState])
-
-  useEffect(() => {
-    if (!isProd || viewState !== "code") return
+    if (!isProd || viewState !== "code" || loading) return
     const focusOtp = () => {
       const otpInput = codePaneRef.current?.querySelector<HTMLInputElement>(
         'input[aria-label="Verification code"]',
       )
       if (otpInput && document.activeElement !== otpInput) {
-        otpInput.focus({ preventScroll: true })
+        otpInput.focus()
       }
     }
     focusOtp()
     const rafId = window.requestAnimationFrame(focusOtp)
     return () => window.cancelAnimationFrame(rafId)
-  }, [isProd, viewState])
+  }, [isProd, loading, viewState])
 
   const rateLimitHandler = {
     onError: (ctx: { response: Response }) => {
@@ -245,8 +240,6 @@ function SignInForm({
         failed("send_code", error)
         if (error.status !== 429) setEmailError(error.message ?? "Failed to send code")
       } else {
-        rememberLastLoginMethod("email")
-        setLastUsedMethod("email")
         setEmail(targetEmail)
         setEmailError("")
         setOtpError("")
@@ -330,23 +323,24 @@ function SignInForm({
     ? "Sending..."
     : isCoolingDown
     ? `Wait ${retryAfter}s`
-    : "Continue with email"
+    : "Continue"
   const isEmailLastUsed = lastUsedMethod === "email"
-  const showEmailPane = !isProd || viewState !== "code"
-  const showCodePane = isProd && viewState !== "email"
-  const isSliding = viewState === "sliding-to-code" || viewState === "sliding-to-email"
-  const isExitingEmail =
-    viewState === "prepare-to-code" || viewState === "sliding-to-code"
-  const isExitingCode =
-    viewState === "prepare-to-email" || viewState === "sliding-to-email"
-  const deferOtpFocus =
-    viewState === "prepare-to-code" || viewState === "sliding-to-code"
-  const trackTransform =
-    viewState === "sliding-to-code" || viewState === "prepare-to-email"
+  const methodsTransition = viewState.endsWith("methods") && viewState !== "methods"
+  const isTransitioning = viewState.startsWith("prepare-") || viewState.startsWith("sliding-")
+  const showMethodsPane = viewState === "methods" || methodsTransition
+  const showEmailPane = viewState === "email" || isTransitioning
+  const showCodePane = isProd && (viewState === "code" || (isTransitioning && !methodsTransition))
+  const isSliding = viewState.startsWith("sliding-")
+  const isExitingEmail = viewState === "prepare-to-code" || viewState === "sliding-to-code"
+    || viewState === "prepare-to-methods" || viewState === "sliding-to-methods"
+  const isExitingCode = viewState === "prepare-to-email" || viewState === "sliding-to-email"
+  const deferOtpFocus = isTransitioning
+  const trackTransform = isTransitioning
+    ? viewState === "sliding-to-code" || viewState === "prepare-to-email"
+      || viewState === "sliding-from-methods" || viewState === "prepare-to-methods"
       ? "translate3d(-100%, 0, 0)"
-      : viewState === "prepare-to-code" || viewState === "sliding-to-email"
-      ? "translate3d(0%, 0, 0)"
-      : undefined
+      : "translate3d(0%, 0, 0)"
+    : undefined
 
   const handleTrackTransitionEnd = (event: React.TransitionEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget || event.propertyName !== "transform") {
@@ -354,13 +348,15 @@ function SignInForm({
     }
     if (viewState === "sliding-to-code") {
       finishSlide("code")
-    } else if (viewState === "sliding-to-email") {
+    } else if (viewState === "sliding-to-methods") {
+      finishSlide("methods")
+    } else if (viewState === "sliding-to-email" || viewState === "sliding-from-methods") {
       finishSlide("email")
     }
   }
 
   return (
-    <div className="relative flex min-h-0 w-full flex-1 overflow-clip sm:min-h-124">
+    <div className="relative flex min-h-0 w-full flex-1 overflow-x-clip sm:min-h-124">
       <ObservedStaticContent />
       <div
         ref={trackRef}
@@ -374,28 +370,11 @@ function SignInForm({
             && "transition-transform duration-500 ease-in-out will-change-transform motion-reduce:transition-none",
         )}
       >
-        {showEmailPane ? (
-          <div
-            key="email-pane"
-            data-testid="sign-in-email-pane"
-            aria-hidden={isExitingEmail || undefined}
-            inert={isExitingEmail || undefined}
-            className={cn(
-              "flex h-full min-h-0 w-full shrink-0 flex-col sm:h-auto sm:justify-center sm:overflow-visible sm:p-8",
-              mobileTypewriterCollapsed
-                ? "overflow-y-auto thin-scrollbar pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
-                : "justify-center gap-4 overflow-hidden pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] [@media(min-height:740px)]:gap-8",
-            )}
-          >
-            <SignInMobileTypewriter collapsed={mobileTypewriterCollapsed} />
-            <div
-              className={cn(
-                "w-full shrink-0 px-4 sm:px-0",
-                mobileTypewriterCollapsed && "my-auto sm:my-0",
-              )}
-            >
-              <div className="mx-auto w-full max-w-80 sm:max-w-88">
-                <FieldGroup className={cn("sm:gap-4", mobileTypewriterCollapsed ? "gap-2" : "gap-4 [@media(max-height:579px)]:gap-2")}>
+        {showMethodsPane ? (
+          <div aria-hidden={isTransitioning || undefined} inert={isTransitioning || undefined} className="flex min-h-svh w-full shrink-0 flex-col justify-center gap-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:min-h-0 sm:p-8">
+            <SignInMobileTypewriter collapsed={false} />
+            <div className="mx-auto w-full max-w-88 px-4 sm:px-0">
+              <FieldGroup className="gap-4">
                   {accountDeleted || accountDeletionPending ? (
                     <div
                       className="flex gap-3 rounded-xl bg-muted/70 p-4 text-left"
@@ -443,15 +422,41 @@ function SignInForm({
                     postLoginUrl={postLoginUrl}
                     appleEnabled={appleEnabled}
                     lastUsedMethod={lastUsedMethod}
-                    onSelectMethod={setLastUsedMethod}
                   />
 
                   <FieldSeparator className="*:data-[slot=field-separator-content]:bg-background *:data-[slot=field-separator-content]:text-xs sm:*:data-[slot=field-separator-content]:bg-card">
                     or
                   </FieldSeparator>
 
+                <div className="relative">
+                  <Button variant="outline" size="lg" type="button" aria-describedby={isEmailLastUsed ? "last-used-email-badge" : undefined} className="h-11 w-full justify-start px-4 text-sm font-medium" onClick={() => switchMethodsStep("email")}>
+                    <span className="flex items-center gap-2"><span className="grid h-9 w-6 place-items-center"><Mail className="size-4" aria-hidden /></span>Continue with email</span>
+                  </Button>
+                  {isEmailLastUsed ? <span id="last-used-email-badge" data-testid="last-used-email" className="pointer-events-none absolute -top-2 right-3 rounded-md border border-border bg-background px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">Last used</span> : null}
+                </div>
+                <SignInTermsNotice />
+              </FieldGroup>
+            </div>
+          </div>
+        ) : null}
+        {showEmailPane ? (
+          <div
+            key="email-pane"
+            data-testid="sign-in-email-pane"
+            aria-hidden={isExitingEmail || undefined}
+            inert={isTransitioning || undefined}
+            className="flex min-h-svh w-full shrink-0 flex-col px-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:min-h-0 sm:justify-center sm:p-8"
+          >
+            <div className="mx-auto w-full max-w-80 sm:max-w-88">
+              <FieldGroup className="gap-4">
+                <Button variant="ghost" type="button" className="h-11 w-fit gap-2 px-0" disabled={loading || isTransitioning} onClick={() => switchMethodsStep("methods")}>
+                  <ArrowLeft className="size-4" aria-hidden />
+                  Back
+                </Button>
+                <h1 className="text-2xl font-semibold tracking-tight">Continue with email</h1>
+                <p className="text-sm text-muted-foreground">We’ll send you a sign-in code.</p>
                   <form noValidate onSubmit={handleEmailSubmit}>
-                    <div className="flex flex-col gap-2">
+                    <fieldset disabled={isTransitioning} className="flex flex-col gap-2">
                       <SignInEmailField
                         email={email}
                         error={isProd ? emailFeedback : emailError}
@@ -465,43 +470,16 @@ function SignInForm({
                           variant="outline"
                           size="lg"
                           type="submit"
-                          disabled={loading || isSliding || (isProd && isCoolingDown)}
-                          aria-describedby={
-                            isEmailLastUsed ? "last-used-email-badge" : undefined
-                          }
-                          className={cn(
-                            "peer h-11 w-full justify-start px-4 text-sm font-medium",
-                            isEmailLastUsed && "pr-22",
-                          )}
+                          disabled={loading || isTransitioning || (isProd && isCoolingDown)}
+                          className="h-11 w-full justify-center px-4 text-sm font-medium"
                         >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span
-                              className="grid h-9 w-6 shrink-0 place-items-center"
-                              aria-hidden
-                            >
-                              <Mail className="size-4" aria-hidden />
-                            </span>
-                            <span className="truncate">
-                              {isProd ? sendLabel : loading ? "Signing in..." : "Sign in"}
-                            </span>
-                          </span>
+                          {isProd ? sendLabel : loading ? "Signing in..." : "Sign in"}
                         </Button>
-                        {isEmailLastUsed ? (
-                          <span
-                            id="last-used-email-badge"
-                            data-testid="last-used-email"
-                            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] leading-none font-medium text-secondary-foreground peer-disabled:opacity-50"
-                          >
-                            Last used
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  </form>
 
-                  <SignInTermsNotice />
-                </FieldGroup>
-              </div>
+                      </div>
+                    </fieldset>
+                  </form>
+              </FieldGroup>
             </div>
           </div>
         ) : null}
@@ -512,10 +490,10 @@ function SignInForm({
             ref={codePaneRef}
             data-testid="sign-in-code-pane"
             aria-hidden={isExitingCode || undefined}
-            inert={isExitingCode || undefined}
-            className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-y-auto px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:h-auto sm:justify-center sm:overflow-visible sm:p-8"
+            inert={isTransitioning || undefined}
+            className="flex min-h-svh w-full shrink-0 flex-col px-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:min-h-0 sm:justify-center sm:p-8"
           >
-            <div className="mx-auto my-auto w-full max-w-80 sm:my-0 sm:max-w-88">
+            <div className="mx-auto w-full max-w-80 sm:max-w-88">
               <FieldGroup className="gap-4">
                 <div className="mb-4 flex flex-col items-center gap-2 text-center sm:mb-0 [@media(max-height:579px)]:mb-0">
                   <Logo size="lg" iconOnly className="size-11 justify-center rounded-lg" />
@@ -530,7 +508,7 @@ function SignInForm({
                 <SignInOtpField
                   code={code}
                   error={otpError}
-                  loading={loading}
+                  loading={loading || isTransitioning}
                   autoFocus={!deferOtpFocus}
                   onChange={handleVerifyCode}
                 />
@@ -538,7 +516,7 @@ function SignInForm({
                   variant="ghost"
                   type="button"
                   className="h-11 w-full sm:h-9"
-                  disabled={isSliding}
+                  disabled={isTransitioning}
                   onClick={returnToEmailStep}
                 >
                   Use a different email
@@ -671,106 +649,14 @@ export default function SignInPageClient({
   const postLoginUrl = safeRedirectUrl(searchParams.get("redirect"))
   const accountDeleted = searchParams.get("account_deleted") === "1"
   const accountDeletionPending = searchParams.get("account_deleted") === "pending"
-  const isMobile = useIsMobile()
-  const mobileSlideActiveRef = useRef(false)
-  const syncViewportRef = useRef<(() => void) | null>(null)
-  const [mobileTypewriterCollapsed, setMobileTypewriterCollapsed] = useAtom(
-    useCreateAtom(false),
-  )
-  const [mobileViewportHeight, setMobileViewportHeight] = useAtom(
-    useCreateAtom<number | null>(null),
-  )
-
-  const [mobileViewportTop, setMobileViewportTop] = useAtom(
-    useCreateAtom(0),
-  )
-
-  const handleSlideActiveChange = useCallback((active: boolean) => {
-    mobileSlideActiveRef.current = active
-    if (!active) {
-      syncViewportRef.current?.()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!isMobile) {
-      mobileSlideActiveRef.current = false
-      syncViewportRef.current = null
-      setMobileTypewriterCollapsed(false)
-      setMobileViewportHeight(null)
-      setMobileViewportTop(0)
-      return
-    }
-    let active = true
-    let inputFocused = false
-    let blurTimerId: number | null = null
-    const clearBlurTimer = () => {
-      if (blurTimerId !== null) {
-        window.clearTimeout(blurTimerId)
-        blurTimerId = null
-      }
-    }
-    const syncViewport = () => {
-      if (!active || mobileSlideActiveRef.current) return
-      const layoutHeight = window.innerHeight
-      const visualHeight = window.visualViewport?.height ?? layoutHeight
-      const keyboardLikelyOpen = layoutHeight - visualHeight > 80
-      setMobileViewportTop(keyboardLikelyOpen ? Math.round(window.visualViewport?.offsetTop ?? 0) : 0)
-      const shortSpace = visualHeight < 580 || (inputFocused && visualHeight < 700)
-      setMobileTypewriterCollapsed(keyboardLikelyOpen || shortSpace)
-      setMobileViewportHeight(
-        keyboardLikelyOpen ? Math.round(visualHeight) : null,
-      )
-    }
-    syncViewportRef.current = syncViewport
-    const onFocusIn = (event: FocusEvent) => {
-      if (
-        event.target instanceof HTMLInputElement
-        || event.target instanceof HTMLTextAreaElement
-      ) {
-        clearBlurTimer()
-        inputFocused = true
-        syncViewport()
-      }
-    }
-    const onFocusOut = () => {
-      inputFocused = false
-      clearBlurTimer()
-      blurTimerId = window.setTimeout(() => {
-        blurTimerId = null
-        syncViewport()
-      }, 50)
-    }
-    syncViewport()
-    window.addEventListener("resize", syncViewport)
-    window.visualViewport?.addEventListener("resize", syncViewport)
-    window.visualViewport?.addEventListener("scroll", syncViewport)
-    document.addEventListener("focusin", onFocusIn)
-    document.addEventListener("focusout", onFocusOut)
-    return () => {
-      active = false
-      clearBlurTimer()
-      syncViewportRef.current = null
-      window.removeEventListener("resize", syncViewport)
-      window.visualViewport?.removeEventListener("resize", syncViewport)
-      window.visualViewport?.removeEventListener("scroll", syncViewport)
-      document.removeEventListener("focusin", onFocusIn)
-      document.removeEventListener("focusout", onFocusOut)
-    }
-  }, [isMobile, setMobileTypewriterCollapsed, setMobileViewportHeight, setMobileViewportTop])
 
   return (
     <div
-      style={
-        isMobile && mobileViewportHeight !== null
-          ? { height: `${mobileViewportHeight}px`, top: `${mobileViewportTop}px` }
-          : undefined
-      }
-      className="fixed inset-x-0 top-0 flex h-dvh flex-col overflow-hidden p-0 sm:relative sm:h-auto sm:min-h-svh sm:items-center sm:justify-center sm:overflow-visible sm:p-8"
+      className="relative flex min-h-svh flex-col p-0 sm:items-center sm:justify-center sm:p-8"
     >
       <GradientBackground />
       <div className="flex min-h-0 w-full flex-1 flex-col sm:max-w-5xl sm:flex-none">
-        <Card className="min-h-0 flex-1 overflow-hidden rounded-none bg-transparent p-0 shadow-none ring-0 sm:flex-none sm:rounded-xl sm:bg-card sm:ring-1 sm:ring-foreground/10">
+        <Card className="min-h-0 flex-1 overflow-visible rounded-none bg-transparent p-0 shadow-none ring-0 sm:flex-none sm:overflow-hidden sm:rounded-xl sm:bg-card sm:ring-1 sm:ring-foreground/10">
           <CardContent className="flex min-h-0 flex-1 flex-col p-0 sm:grid sm:flex-none sm:grid-cols-[minmax(352px,0.88fr)_minmax(0,1.25fr)]">
             <SignInForm
               postLoginUrl={postLoginUrl}
@@ -779,9 +665,6 @@ export default function SignInPageClient({
               accountDeletionPending={accountDeletionPending}
               appleEnabled={appleEnabled}
               initialLastUsedMethod={initialLastUsedMethod}
-              isMobile={isMobile}
-              mobileTypewriterCollapsed={mobileTypewriterCollapsed}
-              onSlideActiveChange={handleSlideActiveChange}
             />
             <div className="relative hidden min-h-124 overflow-hidden bg-muted sm:block">
               <ProductGallery />

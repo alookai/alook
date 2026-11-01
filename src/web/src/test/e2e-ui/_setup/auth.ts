@@ -18,6 +18,7 @@ export async function signIn(page: Page, email: string, options: { singleAttempt
   for (const url of attempts) {
     await page.goto(url, { waitUntil: "load" })
     try {
+      await page.getByRole("button", { name: "Continue with email", exact: true }).click()
       const emailInput = page.getByRole("textbox", { name: "Email" })
       await emailInput.waitFor({ state: "visible", timeout: 15_000 })
       await emailInput.fill(email)

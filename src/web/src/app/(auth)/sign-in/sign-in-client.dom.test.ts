@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   getLastUsedLoginMethod: vi.fn<() => string | null>(() => null),
   rememberLastLoginMethod: vi.fn(),
   verifyInput: undefined as undefined | ((value: string) => Promise<void>),
-  selectSocial: undefined as undefined | ((method: "github" | "google" | "apple") => void),
 }))
 
 vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.capture }))
@@ -55,14 +54,11 @@ vi.mock("./social-sign-in", () => ({
     postLoginUrl,
     appleEnabled,
     lastUsedMethod,
-    onSelectMethod,
   }: {
     postLoginUrl: string
     appleEnabled: boolean
     lastUsedMethod?: LoginMethod | null
-    onSelectMethod?: (method: "github" | "google" | "apple") => void
   }) => {
-    mocks.selectSocial = onSelectMethod
     return createElement("div", {
       "data-testid": "social-sign-in-props",
       "data-post-login-url": postLoginUrl,
@@ -96,40 +92,25 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     mocks.verify.mockResolvedValue({ error: { code: "INVALID_OTP", status: 400 } })
     mocks.getLastUsedLoginMethod.mockReturnValue(null)
     mocks.verifyInput = undefined
-    mocks.selectSocial = undefined
     mocks.searchParams = new URLSearchParams("redirect=%2Fc%2Fme")
     window.matchMedia = vi.fn(() => ({
-      matches: false,
+      matches: true,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })) as never
   })
 
-  it("places social quick-sign-in above the separator, email form, and passive terms footer without auto-focusing email", () => {
+  it("shows only method buttons before opening a separate email screen", async () => {
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
-
-    expect(screen.queryByRole("checkbox")).toBeNull()
-    expect(screen.queryByRole("dialog")).toBeNull()
-
-    const heading = screen.getByRole("heading", { name: /Welcome to\s+Alook/i })
-    expect(heading).toHaveClass("whitespace-nowrap")
-    expect(heading.querySelector('img[src="/alook.svg"]')).not.toBeNull()
-
-    const social = screen.getByTestId("social-sign-in-props")
-    const emailInput = screen.getByRole("textbox", { name: "Email" })
-    const emailButton = screen.getByRole("button", { name: "Continue with email" })
-    const terms = screen.getByTestId("sign-in-terms")
-
-    expect(emailInput).not.toHaveFocus()
-    expect(
-      social.compareDocumentPosition(emailInput) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-    expect(
-      emailInput.compareDocumentPosition(emailButton) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-    expect(
-      emailButton.compareDocumentPosition(terms) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
+    expect(screen.queryByRole("textbox")).toBeNull()
+    expect(screen.getByRole("heading", { name: /Welcome to\s+Alook/i })).toBeVisible()
+    expect(screen.getByTestId("social-sign-in-props")).toBeVisible()
+    await setupUser().click(screen.getByRole("button", { name: "Continue with email", exact: true }))
+    expect(screen.getByRole("textbox", { name: "Email" })).toBeVisible()
+    expect(screen.queryByTestId("social-sign-in-props")).toBeNull()
+    expect(screen.queryByTestId("sign-in-mobile-typewriter")).toBeNull()
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(mocks.rememberLastLoginMethod).not.toHaveBeenCalled()
   })
 
   it("does not claim removal is complete while deletion remains pending", () => {
@@ -144,14 +125,15 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
     const user = setupUser()
 
+    await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await user.click(screen.getByRole("button", { name: "Continue with email" }))
+    await user.click(screen.getByRole("button", { name: "Continue" }))
 
     expect(mocks.send).toHaveBeenCalledOnce()
     expect(mocks.send).toHaveBeenCalledWith(
       expect.objectContaining({ email: "person@example.com", type: "sign-in" }),
     )
-    expect(mocks.rememberLastLoginMethod).toHaveBeenCalledWith("email")
+    expect(mocks.rememberLastLoginMethod).not.toHaveBeenCalled()
     expect(screen.queryByTestId("social-sign-in-props")).toBeNull()
     expect(screen.getByRole("heading", { name: "Check your email" })).toBeVisible()
 
@@ -165,7 +147,11 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
 
     await user.click(screen.getByRole("button", { name: "Use a different email" }))
     expect(screen.getByRole("textbox", { name: "Email" })).toHaveValue("person@example.com")
-    expect(screen.getByTestId("last-used-email")).toHaveTextContent("Last used")
+    expect(mocks.rememberLastLoginMethod).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Back", exact: true }))
+    expect(screen.queryByRole("textbox")).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
+    expect(screen.getByRole("textbox", { name: "Email" })).toHaveValue("person@example.com")
   })
 
   it("preserves development sign-in and signup fallback immediately on submit", async () => {
@@ -174,6 +160,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     render(createElement(SignInPageClient, { isProd: false, appleEnabled: false }))
     const user = setupUser()
 
+    await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
     await user.click(screen.getByRole("button", { name: "Sign in", exact: true }))
 
@@ -195,8 +182,9 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     async ({ isProd, email }) => {
       render(createElement(SignInPageClient, { isProd, appleEnabled: false }))
       const user = setupUser()
+      await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
       const input = screen.getByRole("textbox", { name: "Email" }) as HTMLInputElement
-      const label = isProd ? "Continue with email" : "Sign in"
+      const label = isProd ? "Continue" : "Sign in"
       const request = isProd ? mocks.send : mocks.devSignIn
       const onInvalid = vi.fn()
       input.addEventListener("invalid", onInvalid)
@@ -234,20 +222,14 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       "github",
     )
 
-    act(() => {
-      mocks.selectSocial?.("apple")
-    })
-    expect(screen.getByTestId("social-sign-in-props")).toHaveAttribute(
-      "data-last-used",
-      "apple",
-    )
   })
 
   it("counts login entry once and records only bounded OTP failure dimensions", async () => {
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
     expect(mocks.capture).toHaveBeenCalledWith({ event: "login_page_view" })
+    await setupUser().click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await setupUser().click(screen.getByRole("button", { name: "Continue with email" }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue" }))
     expect(mocks.capture).toHaveBeenCalledTimes(1)
     await act(async () => {
       await mocks.verifyInput!("123456")
@@ -265,8 +247,9 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
   it("records send-code failure without mistaking it for successful authentication", async () => {
     mocks.send.mockResolvedValueOnce({ error: { status: 429 } })
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await setupUser().click(screen.getByRole("button", { name: "Continue with email" }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue" }))
     expect(mocks.capture).toHaveBeenLastCalledWith({
       event: "sign_in_failed",
       method: "email_otp",
@@ -281,15 +264,16 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     const error = new TypeError("Failed to fetch")
     mocks.send.mockRejectedValueOnce(error)
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await setupUser().click(screen.getByRole("button", { name: "Continue with email" }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue" }))
     expect(mocks.capture).toHaveBeenLastCalledWith({
       event: "sign_in_failed",
       method: "email_otp",
       failureStage: "send_code",
       error,
     })
-    await setupUser().click(screen.getByRole("button", { name: "Continue with email" }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue" }))
     mocks.verify.mockRejectedValueOnce(error)
     await act(async () => {
       await mocks.verifyInput!("123456")
@@ -311,90 +295,60 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
   })
 
   it.each([
-    [true, "Continue with email"],
+    [true, "Continue"],
     [false, "Sign in"],
   ] as const)(
     "uses the outline secondary style and 44px touch target for the email action when isProd=%s",
     (isProd, label) => {
       render(createElement(SignInPageClient, { isProd, appleEnabled: true }))
 
+      fireEvent.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
       const button = screen.getByRole("button", { name: label, exact: true })
       expect(button).toHaveClass(
         "h-11",
-        "justify-start",
+        "justify-center",
         "border-border",
         "bg-background",
         "w-full",
       )
-      expect(button.querySelector("svg")).not.toBeNull()
+      expect(button.querySelector("svg")).toBeNull()
     },
   )
 
-  it("renders the borderless mobile typewriter above login and collapses it when the viewport shrinks for keyboard or short screens", () => {
-    window.matchMedia = vi.fn((query: string) => ({
-      matches: query.includes("max-width"),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })) as never
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 })
-
-    render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
-    const stage = screen.getByTestId("sign-in-mobile-typewriter")
-    expect(stage).toHaveAttribute("data-collapsed", "false")
-    expect(screen.getByTestId("mobile-typewriter-stub")).toBeVisible()
-
-    act(() => {
-      Object.defineProperty(window, "innerHeight", { configurable: true, value: 460 })
-      window.dispatchEvent(new Event("resize"))
-    })
-    expect(stage).toHaveAttribute("data-collapsed", "true")
-    expect(screen.queryByTestId("mobile-typewriter-stub")).toBeNull()
-  })
-
-  it("keeps the mobile form inside the panned visual viewport and restores it after keyboard dismissal", () => {
-    window.matchMedia = vi.fn((query: string) => ({
-      matches: query.includes("max-width"),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })) as never
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 })
+  it("leaves layout and artwork unchanged when the keyboard viewport pans or resizes", async () => {
+    window.matchMedia = vi.fn((query: string) => ({ matches: query.includes("max-width") || query.includes("prefers-reduced-motion"), addEventListener: vi.fn(), removeEventListener: vi.fn() })) as never
     const original = Object.getOwnPropertyDescriptor(window, "visualViewport")
     const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0 })
     Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport })
-    const remove = vi.spyOn(viewport, "removeEventListener")
     try {
       const view = render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
       const root = view.container.firstElementChild as HTMLElement
-      expect(root).toHaveClass("fixed", "sm:relative")
+      expect(root).not.toHaveClass("fixed", "h-dvh", "overflow-hidden")
+      const stage = screen.getByTestId("sign-in-mobile-typewriter")
       act(() => {
-        viewport.height = 420
-        viewport.offsetTop = 180
-        viewport.dispatchEvent(new Event("resize"))
-      })
-      expect(root.style.height).toBe("420px")
-      expect(root.style.top).toBe("180px")
-      act(() => {
+        viewport.height = 390
         viewport.offsetTop = 240
+        viewport.dispatchEvent(new Event("resize"))
         viewport.dispatchEvent(new Event("scroll"))
       })
-      expect(root.style.top).toBe("240px")
-      act(() => {
-        viewport.height = 844
-        viewport.offsetTop = 0
-        viewport.dispatchEvent(new Event("resize"))
-      })
+      expect(stage).toHaveAttribute("data-collapsed", "false")
+      await setupUser().click(screen.getByRole("button", { name: "Continue with email", exact: true }))
+      const email = screen.getByRole("textbox", { name: "Email" })
+      fireEvent.focusIn(email)
       expect(root.style.height).toBe("")
       expect(root.style.top).toBe("")
-      view.unmount()
-      expect(remove).toHaveBeenCalledWith("scroll", expect.any(Function))
-      expect(remove).toHaveBeenCalledWith("resize", expect.any(Function))
+      expect(screen.queryByTestId("sign-in-mobile-typewriter")).toBeNull()
+      expect(screen.getByTestId("sign-in-email-pane")).not.toHaveClass("overflow-y-auto", "overflow-hidden", "h-full")
+      act(() => { viewport.height = 844; viewport.offsetTop = 0; viewport.dispatchEvent(new Event("resize")) })
+      expect(root.style.height).toBe("")
+      expect(root.style.top).toBe("")
     } finally {
       if (original) Object.defineProperty(window, "visualViewport", original)
       else Reflect.deleteProperty(window, "visualViewport")
     }
   })
 
-  it("slides the mobile typewriter and login pane left into a pure centered OTP pane and focuses the OTP input on completion", async () => {
+  it.each([390, 1440])("slides all steps in both directions at %ipx and focuses OTP only after completion", async (width) => {
     const rafQueue: FrameRequestCallback[] = []
     const origRaf = window.requestAnimationFrame
     const origCancelRaf = window.cancelAnimationFrame
@@ -409,13 +363,26 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       removeEventListener: vi.fn(),
     })) as never
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width })
 
     try {
       render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
       const user = setupUser()
 
+      await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
+      const methodsTrack = screen.getByTestId("sign-in-step-track")
+      expect(methodsTrack).toHaveAttribute("data-step-view", "prepare-from-methods")
+      expect(screen.getByRole("textbox", { name: "Email" })).toBeDisabled()
+      act(() => { rafQueue.shift()?.(16) })
+      expect(methodsTrack.style.transform).toBe("translate3d(-100%, 0, 0)")
+      act(() => {
+        const ev = new Event("transitionend", { bubbles: true })
+        Object.defineProperty(ev, "propertyName", { value: "transform" })
+        fireEvent(methodsTrack, ev)
+      })
+      expect(screen.getByRole("textbox", { name: "Email" })).toBeEnabled()
       await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-      await user.click(screen.getByRole("button", { name: "Continue with email" }))
+      await user.click(screen.getByRole("button", { name: "Continue" }))
 
       const track = screen.getByTestId("sign-in-step-track")
       expect(track).toHaveAttribute("data-step-view", "prepare-to-code")
@@ -460,122 +427,36 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       })
       expect(track).toHaveAttribute("data-step-view", "email")
       expect(screen.queryByTestId("sign-in-code-pane")).toBeNull()
-      expect(screen.getByTestId("sign-in-mobile-typewriter")).toBeVisible()
+      expect(screen.queryByTestId("sign-in-mobile-typewriter")).toBeNull()
+      await user.click(screen.getByRole("button", { name: "Back", exact: true }))
+      expect(track).toHaveAttribute("data-step-view", "prepare-to-methods")
+      expect(track.style.transform).toBe("translate3d(-100%, 0, 0)")
+      act(() => { while (rafQueue.length) rafQueue.shift()?.(48) })
+      expect(track).toHaveAttribute("data-step-view", "sliding-to-methods")
+      expect(track.style.transform).toBe("translate3d(0%, 0, 0)")
+      act(() => {
+        const ev = new Event("transitionend", { bubbles: true })
+        Object.defineProperty(ev, "propertyName", { value: "transform" })
+        fireEvent(track, ev)
+      })
+      expect(track).toHaveAttribute("data-step-view", "methods")
+      expect(screen.queryByRole("textbox")).toBeNull()
     } finally {
       window.requestAnimationFrame = origRaf
       window.cancelAnimationFrame = origCancelRaf
     }
   })
 
-  it("preserves delayed blur viewport recovery on mobile while deduplicating consecutive blurs and clearing pending timers on unmount", () => {
-    vi.useFakeTimers()
-    window.matchMedia = vi.fn((query: string) => ({
-      matches: query.includes("max-width"),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })) as never
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 640 })
-
-    try {
-      const firstView = render(
-        createElement(SignInPageClient, { isProd: true, appleEnabled: true }),
-      )
-      const stage = screen.getByTestId("sign-in-mobile-typewriter")
-      const email = screen.getByRole("textbox", { name: "Email" })
-      expect(stage).toHaveAttribute("data-collapsed", "false")
-
-      act(() => {
-        fireEvent.focusIn(email)
-      })
-      expect(stage).toHaveAttribute("data-collapsed", "true")
-
-      act(() => {
-        fireEvent.focusOut(email)
-        fireEvent.focusOut(email)
-      })
-      expect(vi.getTimerCount()).toBe(1)
-      expect(stage).toHaveAttribute("data-collapsed", "true")
-
-      act(() => {
-        vi.advanceTimersByTime(49)
-      })
-      expect(stage).toHaveAttribute("data-collapsed", "true")
-
-      act(() => {
-        vi.advanceTimersByTime(1)
-      })
-      expect(stage).toHaveAttribute("data-collapsed", "false")
-      expect(vi.getTimerCount()).toBe(0)
-
-      act(() => {
-        fireEvent.focusOut(email)
-        fireEvent.focusOut(email)
-      })
-      expect(vi.getTimerCount()).toBe(1)
-      firstView.unmount()
-      expect(vi.getTimerCount()).toBe(0)
-    } finally {
-      vi.clearAllTimers()
-      vi.useRealTimers()
-    }
-  })
-
-  it("clears pending blur timers and prevents stale mobile viewport updates after switching to desktop", () => {
-    vi.useFakeTimers()
-    let mobile = true
-    const mobileListeners = new Set<() => void>()
-    const mobileMql = {
-      get matches() {
-        return mobile
-      },
-      addEventListener: vi.fn((_event: string, listener: () => void) => {
-        mobileListeners.add(listener)
-      }),
-      removeEventListener: vi.fn((_event: string, listener: () => void) => {
-        mobileListeners.delete(listener)
-      }),
-    }
-    window.matchMedia = vi.fn((query: string) =>
-      query.includes("max-width")
-        ? mobileMql
-        : {
-          matches: false,
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-        },
-    ) as never
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 640 })
-
-    try {
-      const view = render(
-        createElement(SignInPageClient, { isProd: true, appleEnabled: true }),
-      )
-      const stage = screen.getByTestId("sign-in-mobile-typewriter")
-      const email = screen.getByRole("textbox", { name: "Email" })
-
-      act(() => {
-        fireEvent.focusIn(email)
-        fireEvent.focusOut(email)
-      })
-      expect(stage).toHaveAttribute("data-collapsed", "true")
-      expect(vi.getTimerCount()).toBe(1)
-
-      act(() => {
-        Object.defineProperty(window, "innerHeight", { configurable: true, value: 460 })
-        mobile = false
-        for (const listener of mobileListeners) listener()
-      })
-      expect(vi.getTimerCount()).toBe(0)
-      expect(stage).toHaveAttribute("data-collapsed", "false")
-
-      act(() => {
-        vi.advanceTimersByTime(100)
-      })
-      expect(stage).toHaveAttribute("data-collapsed", "false")
-      view.unmount()
-    } finally {
-      vi.clearAllTimers()
-      vi.useRealTimers()
-    }
+  it("updates Last used only after OTP authentication succeeds", async () => {
+    mocks.getLastUsedLoginMethod.mockReturnValue("github")
+    mocks.verify.mockResolvedValueOnce({ error: null })
+    render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
+    const user = setupUser()
+    await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
+    await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
+    await user.click(screen.getByRole("button", { name: "Continue", exact: true }))
+    expect(mocks.rememberLastLoginMethod).not.toHaveBeenCalled()
+    await act(async () => { await mocks.verifyInput!("123456") })
+    expect(mocks.rememberLastLoginMethod).toHaveBeenCalledExactlyOnceWith("email")
   })
 })

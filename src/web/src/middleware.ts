@@ -13,7 +13,8 @@ export async function middleware(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl
-  if (pathname === "/sign-in" || pathname === "/sign-up") {
+  if ((pathname === "/sign-in" || pathname === "/sign-up") &&
+    (request.headers.has("Cookie") || request.headers.has("Authorization"))) {
     const [{ getCloudflareContext }, { getAuth, observeAuthSession }] = await Promise.all([
       import("@opennextjs/cloudflare"), import("@/lib/auth"),
     ])
