@@ -35,6 +35,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { DEV_PASSWORD, slugify } from "@alook/shared"
 import { log } from "../src/lib/logger"
+import { communityFixtureFetch } from "../src/test/e2e-ui/_fixtures/business-contract"
 
 export interface SeedStressOptions {
   servers: number
@@ -154,11 +155,12 @@ class SeedClient {
   }
 
   async post<T>(path: string, body?: unknown): Promise<T> {
+    const send = path.startsWith("/api/community/") ? communityFixtureFetch : fetch
     let lastStatus = 0
     // Rate-limit (429) can recur many times during a large message seed, so
     // allow generous attempts and honor Retry-After rather than failing.
     for (let attempt = 0; attempt < 12; attempt++) {
-      const res = await fetch(`${this.baseUrl}${path}`, {
+      const res = await send(`${this.baseUrl}${path}`, {
         method: "POST",
         headers: this.headers(),
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -179,7 +181,8 @@ class SeedClient {
   }
 
   async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() })
+    const send = path.startsWith("/api/community/") ? communityFixtureFetch : fetch
+    const res = await send(`${this.baseUrl}${path}`, { headers: this.headers() })
     if (!res.ok) throw new Error(`GET ${path} failed (${res.status})`)
     return (await res.json()) as T
   }

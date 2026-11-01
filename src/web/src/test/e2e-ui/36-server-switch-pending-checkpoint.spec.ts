@@ -127,10 +127,12 @@ async function historyEvents(page: Page): Promise<HistoryEvent[]> {
   ).__communityHistoryEvents ?? [])
 }
 
-async function sidebarFrames(page: Page): Promise<SidebarFrame[]> {
-  return page.evaluate(() => (
+async function sidebarFrames(page: Page, targetScope: string): Promise<SidebarFrame[]> {
+  const read = () => page.evaluate(() => (
     window as typeof window & { __communitySidebarFrames?: SidebarFrame[] }
   ).__communitySidebarFrames ?? [])
+  await expect.poll(async () => (await read()).some(frame => frame.scope === targetScope && !frame.skeleton)).toBe(true)
+  return read()
 }
 
 function expectAtomicTargetFrames(
@@ -272,7 +274,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     .toBeVisible({ timeout: 30_000 })
   await expect(page.getByTestId(tid.channelRow(channelB))).toBeVisible({ timeout: 30_000 })
   expectAtomicTargetFrames(
-    await sidebarFrames(page),
+    await sidebarFrames(page, `server:${serverB}`),
     `server:${serverB}`,
     channelB,
     [channelA],
@@ -308,7 +310,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     `community:lastChannel:${serverC}`)).toBe(rememberedC)
   const rememberedCHeading = await firstCMain.getByRole("heading").innerText()
   await expect(firstCMain.getByRole("heading", { name: rememberedCHeading, exact: true })).toBeVisible()
-  const coldFrames = await sidebarFrames(page)
+  const coldFrames = await sidebarFrames(page, `server:${serverC}`)
   const coldPendingFrames = coldFrames.filter((frame) => frame.pendingServer === serverC)
   expect(coldPendingFrames.length).toBeGreaterThan(0)
   expect(coldPendingFrames.every((frame) => frame.ownerId === null && frame.rows.length === 0))
@@ -348,7 +350,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
     await expect.poll(() => page.evaluate((key) => localStorage.getItem(key),
       `community:lastChannel:${serverC}`)).toBe(rememberedC)
     expectAtomicTargetFrames(
-      await sidebarFrames(page),
+      await sidebarFrames(page, `server:${serverC}`),
       `server:${serverC}`,
       channelC,
       [channelA, channelB],
@@ -394,7 +396,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await expect.poll(() => new URL(page.url()).pathname.startsWith(`/c/channels/${serverD}`))
     .toBe(true)
   await expect(page.getByTestId(tid.channelRow(channelD))).toBeVisible({ timeout: 30_000 })
-  const mobileColdFrames = await sidebarFrames(page)
+  const mobileColdFrames = await sidebarFrames(page, `server:${serverD}`)
   expectAtomicTargetFrames(
     mobileColdFrames,
     `server:${serverD}`,
@@ -421,7 +423,7 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await coldF.release()
   await expectDesktopServerDetail(page, serverF)
   await expect(page.getByTestId(tid.channelRow(channelF))).toBeVisible({ timeout: 30_000 })
-  const supersededFrames = await sidebarFrames(page)
+  const supersededFrames = await sidebarFrames(page, `server:${serverF}`)
   expect(supersededFrames.some((frame) => frame.scope === `server:${serverE}`)).toBe(false)
   expectAtomicTargetFrames(
     supersededFrames,

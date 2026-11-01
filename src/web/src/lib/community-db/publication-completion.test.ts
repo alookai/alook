@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, expect, it, vi } from "vitest"
 import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityDbRegistry } from "./collections"
-import { captureCommunityLiveSnapshotToken, completeCommunityPublication, patchCanonicalCommunityMessage, publishCommunityCreatedChannel, publishCommunityConversationReadState, ingestServerDetail } from "./sync"
+import { captureCommunityLiveSnapshotToken, completeCommunityPublication, patchCanonicalCommunityMessage, publishCommunityCreatedChannel, publishCommunityConversationReadState, publishCommunityChannelMembersSnapshot, ingestServerDetail } from "./sync"
 import { withCommunityCollectionWrites, writeCommunityCollectionRows, writeCommunityCollectionChanges, parseCommunityCollectionRows } from "./write"
 import { profileSchema, messageSchema, canonicalChannelRow } from "./schema"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
@@ -10,6 +10,7 @@ import { publishConversationEntry, conversationEntryOptions } from "@/lib/commun
 import { dmConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 import { profileResourceFixture, messageResourceFixture, channelResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import { communityKeys } from "@/lib/query-keys"
+import { BusinessSchemaMismatch } from "@/lib/business-schema-lifecycle"
 
 const owners: CommunityDbRegistry[] = []
 const releases: Array<() => void> = []
@@ -165,4 +166,27 @@ it("projects confirmed attention after the read-state row is accepted", async ()
   finally { await release() }
   await operation
   expect(db.collections.attentionScopes.has("c1")).toBe(false)
+})
+
+
+it.each(["schema", "write"] as const)("preserves the public query publication failure contract after native completion: %s", async kind => {
+  const db = await setup(), held = heldCompletion(db)
+  const invalid = profileSchema.safeParse({ id: "peer" })
+  if (invalid.success) throw new Error("Invalid canonical profile fixture was accepted")
+  const error = kind === "schema" ? invalid.error : new Error("native member profile write failed")
+  const operation = Promise.resolve(publishCommunityChannelMembersSnapshot(db.queryClient, null, "c1", "access", [
+    { channelId: "c1", userId: "peer", relation: "access", source: "added", isCreator: false, role: null, memberId: null },
+  ], { token: captureCommunityLiveSnapshotToken(db.queryClient, "c1") }, [profileResourceFixture({ id: "peer", name: "Peer" })]))
+  let settled = false
+  void operation.then(() => { settled = true }, () => { settled = true })
+  await Promise.resolve()
+  expect(settled).toBe(false)
+  held.reject(error)
+  const failure = await operation.then(() => null, cause => cause)
+  if (kind === "schema") {
+    expect(failure).toBeInstanceOf(BusinessSchemaMismatch)
+    expect(failure).not.toBe(error)
+  } else expect(failure).toBe(error)
+  expect(db.collections.profiles.get("peer")?.name).toBe("Peer")
+  expect(db.runtime.lifecycle.get().active).toBe(true)
 })

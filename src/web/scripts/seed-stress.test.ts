@@ -1,3 +1,4 @@
+import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { parseSeedArgs, runSeedStress, mergeSetCookies, extractSetCookies, RatePacer } from "./seed-stress"
 
@@ -103,15 +104,21 @@ function installFetchMock(handlers: {
   existingMessageCount?: number
   /** Return 429 (with tiny Retry-After) for the first N message POSTs. */
   messageFailWith429Times?: number
-}): { calls: FetchCall[] } {
+  communityResponseContract?: string | null
+}): { calls: FetchCall[]; requestHeaders: Array<{ url: string; headers: Headers }> } {
   const calls: FetchCall[] = []
+  const requestHeaders: Array<{ url: string; headers: Headers }> = []
   const existingServers = handlers.existingServers ?? []
   const existingChannels = handlers.existingChannels ?? []
   const msgCount = handlers.existingMessageCount ?? 0
   let remaining429 = handlers.messageFailWith429Times ?? 0
 
-  const jsonRes = (data: unknown): Response =>
-    ({ ok: true, status: 200, headers: { get: () => null }, json: async () => data }) as unknown as Response
+  const jsonRes = (data: unknown, community = false): Response => {
+    const headers = new Headers()
+    const contract = handlers.communityResponseContract === undefined ? String(BUSINESS_SCHEMA_VERSION) : handlers.communityResponseContract
+    if (community && contract !== null) headers.set(COMMUNITY_CONTRACT_HEADER, contract)
+    return new Response(JSON.stringify(data), { status: 200, headers })
+  }
   const rateLimited = (): Response =>
     ({
       ok: false,
@@ -124,35 +131,38 @@ function installFetchMock(handlers: {
     const method = init?.method ?? "GET"
     const body = init?.body ? JSON.parse(init.body as string) : undefined
     calls.push({ url, method, body })
+    const headers = new Headers(init?.headers)
+    requestHeaders.push({ url, headers })
+    if (new URL(url).pathname.startsWith("/api/community/") && headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) return new Response("Missing current community contract", { status: 400 })
 
     if (url.includes("/api/auth/sign-in/email")) return jsonRes({})
     if (url.endsWith("/api/ws/token")) return jsonRes({ userId: "user-seed-1" })
     if (url.endsWith("/api/community/servers") && method === "GET") {
-      return jsonRes({ servers: existingServers })
+      return jsonRes({ servers: existingServers }, true)
     }
     if (url.endsWith("/api/community/servers") && method === "POST") {
-      return jsonRes({ server: { id: "new-server" } })
+      return jsonRes({ server: { id: "new-server" } }, true)
     }
     if (/\/api\/community\/servers\/[^/]+\/channels$/.test(url) && method === "GET") {
-      return jsonRes({ channels: existingChannels })
+      return jsonRes({ channels: existingChannels }, true)
     }
     if (/\/channels$/.test(url) && method === "POST") {
-      return jsonRes({ channel: { id: "new-channel" } })
+      return jsonRes({ channel: { id: "new-channel" } }, true)
     }
     if (/\/messages\?limit=100/.test(url) && method === "GET") {
-      return jsonRes({ messages: new Array(msgCount).fill({}), hasMore: false })
+      return jsonRes({ messages: new Array(msgCount).fill({}), hasMore: false }, true)
     }
     if (/\/messages$/.test(url) && method === "POST") {
       if (remaining429 > 0) {
         remaining429--
         return rateLimited()
       }
-      return jsonRes({ message: { id: "m" } })
+      return jsonRes({ message: { id: "m" } }, true)
     }
     throw new Error(`unhandled ${method} ${url}`)
   })
   vi.stubGlobal("fetch", fetchMock)
-  return { calls }
+  return { calls, requestHeaders }
 }
 
 beforeEach(() => vi.unstubAllGlobals())
@@ -254,5 +264,26 @@ describe("runSeedStress — idempotency", () => {
     })
     const messagePosts = calls.filter((c) => /\/messages$/.test(c.url) && c.method === "POST")
     expect(messagePosts).toHaveLength(3) // 2 rate-limited + 1 success, no abort
+  })
+})
+
+
+describe("runSeedStress community contract", () => {
+  it("admits original community reads and writes while keeping auth and WS-token requests separate", async () => {
+    const { calls, requestHeaders } = installFetchMock({})
+    const manifest = await runSeedStress({ servers: 1, channels: 1, messages: 1, serverUrl: "http://localhost:3000", owner: "perf-seed" })
+    const community = requestHeaders.filter(({ url }) => new URL(url).pathname.startsWith("/api/community/"))
+    expect(community).toHaveLength(6)
+    expect(community.every(({ headers }) => headers.get(COMMUNITY_CONTRACT_HEADER) === String(BUSINESS_SCHEMA_VERSION))).toBe(true)
+    expect(requestHeaders.filter(({ url }) => !new URL(url).pathname.startsWith("/api/community/")).map(({ headers }) => headers.get(COMMUNITY_CONTRACT_HEADER))).toEqual([null, null])
+    expect(requestHeaders.every(({ headers }) => headers.get("Content-Type") === "application/json" && headers.get("Origin") === "http://localhost:3000")).toBe(true)
+    expect(calls.filter(({ method }) => method === "POST")).toHaveLength(4)
+    expect(manifest.servers).toEqual([{ id: "new-server", name: "Load-Test-01", channels: [{ id: "new-channel", name: "channel-01", messageCount: 1 }] }])
+  })
+
+  it.each([null, String(BUSINESS_SCHEMA_VERSION - 1)])("rejects successful community responses with contract=%s", async communityResponseContract => {
+    const { calls } = installFetchMock({ communityResponseContract })
+    await expect(runSeedStress({ servers: 1, channels: 1, messages: 1, serverUrl: "http://localhost:3000", owner: "perf-seed" })).rejects.toThrow("Fixture response did not confirm current business version")
+    expect(calls.filter(({ url, method }) => new URL(url).pathname.startsWith("/api/community/") && method === "POST")).toEqual([])
   })
 })

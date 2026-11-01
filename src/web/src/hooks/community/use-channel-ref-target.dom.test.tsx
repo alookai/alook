@@ -72,3 +72,34 @@ it("restarts an unknown target conservatively and rejects the older response", a
   expect(view.result.current.target).toEqual(target)
   expect(view.result.current.currentTarget()).toEqual(target)
 })
+
+
+it("contains cancellation failure, rejects the old target click and recovers through the original Query retry", async () => {
+  const owner = await setup()
+  load.mockResolvedValue({ target })
+  const view = renderHook(() => useChannelRefTarget("/studio#0042/general#1"), { wrapper: owner.wrapper })
+  await waitFor(() => expect(view.result.current.state).toBe("ready"))
+  const previousClick = view.result.current.currentTarget
+  const failure = new Error("native reference cancellation failed")
+  const cancel = vi.spyOn(owner.client, "cancelQueries").mockRejectedValueOnce(failure)
+  const invalidate = vi.spyOn(owner.client, "invalidateQueries")
+  try {
+    await act(async () => { owner.runtime.ws.actions.beginChannelMembershipChange("server", "child") })
+    await waitFor(() => expect(cancel).toHaveBeenCalledOnce())
+    await expect(cancel.mock.results[0]!.value).rejects.toBe(failure)
+    expect(invalidate).not.toHaveBeenCalled()
+    expect(previousClick()).toBeNull()
+    expect(view.result.current.target).toBeNull()
+    expect(view.result.current.state).toBe("loading")
+    expect(load).toHaveBeenCalledOnce()
+    const queryKey = cancel.mock.calls[0]![0]!.queryKey!
+    expect(queryKey).toBeDefined()
+    const original = owner.client.getQueryCache().find({ queryKey, exact: true })
+    expect(original).toBeDefined()
+    await act(async () => { await view.result.current.retry() })
+    await waitFor(() => expect(view.result.current.state).toBe("ready"))
+    expect(view.result.current.currentTarget()).toEqual(target)
+    expect(owner.client.getQueryCache().find({ queryKey, exact: true })).toBe(original)
+    expect(load).toHaveBeenCalledTimes(2)
+  } finally { cancel.mockRestore(); invalidate.mockRestore() }
+})
