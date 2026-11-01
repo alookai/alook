@@ -154,6 +154,7 @@ export function useMessageListController({
     onLoad: onLoadOlder,
     edge: "start",
     requestKey: messageWindow,
+    preloadWithinViewport: true,
   })
   useVirtualCursorPagination({
     virtualizer,
@@ -167,6 +168,7 @@ export function useMessageListController({
     onLoad: onLoadNewer,
     edge: "end",
     requestKey: messageWindow,
+    preloadWithinViewport: true,
   })
 
   const jumpClearTimerRef = useRef<number | null>(null)

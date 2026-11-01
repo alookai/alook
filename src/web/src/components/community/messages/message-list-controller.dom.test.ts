@@ -268,6 +268,7 @@ describe("useMessageListController", () => {
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: undefined,
         edge: "start",
+        preloadWithinViewport: true,
       },
       {
         virtualizer: mocks.virtualizer,
@@ -281,6 +282,7 @@ describe("useMessageListController", () => {
         onBeforeLoad: mocks.captureNewerPageAnchor,
         onLoad: undefined,
         edge: "end",
+        preloadWithinViewport: true,
       },
     ])
     expect(latest.scrollRef).toBe(mocks.scrollRef)
@@ -430,6 +432,7 @@ describe("useMessageListController", () => {
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: loadOlder,
         edge: "start",
+        preloadWithinViewport: true,
       },
       {
         virtualizer: mocks.virtualizer,
@@ -443,6 +446,7 @@ describe("useMessageListController", () => {
         onBeforeLoad: mocks.captureNewerPageAnchor,
         onLoad: loadNewer,
         edge: "end",
+        preloadWithinViewport: true,
       },
     ])
     expect(latest.pillCount).toBe(9)
