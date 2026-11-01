@@ -351,6 +351,49 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     expect(screen.queryByTestId("mobile-typewriter-stub")).toBeNull()
   })
 
+  it("keeps the mobile form inside the panned visual viewport and restores it after keyboard dismissal", () => {
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query.includes("max-width"),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as never
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 })
+    const original = Object.getOwnPropertyDescriptor(window, "visualViewport")
+    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0 })
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport })
+    const remove = vi.spyOn(viewport, "removeEventListener")
+    try {
+      const view = render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
+      const root = view.container.firstElementChild as HTMLElement
+      expect(root).toHaveClass("fixed", "sm:relative")
+      act(() => {
+        viewport.height = 420
+        viewport.offsetTop = 180
+        viewport.dispatchEvent(new Event("resize"))
+      })
+      expect(root.style.height).toBe("420px")
+      expect(root.style.top).toBe("180px")
+      act(() => {
+        viewport.offsetTop = 240
+        viewport.dispatchEvent(new Event("scroll"))
+      })
+      expect(root.style.top).toBe("240px")
+      act(() => {
+        viewport.height = 844
+        viewport.offsetTop = 0
+        viewport.dispatchEvent(new Event("resize"))
+      })
+      expect(root.style.height).toBe("")
+      expect(root.style.top).toBe("")
+      view.unmount()
+      expect(remove).toHaveBeenCalledWith("scroll", expect.any(Function))
+      expect(remove).toHaveBeenCalledWith("resize", expect.any(Function))
+    } finally {
+      if (original) Object.defineProperty(window, "visualViewport", original)
+      else Reflect.deleteProperty(window, "visualViewport")
+    }
+  })
+
   it("slides the mobile typewriter and login pane left into a pure centered OTP pane and focuses the OTP input on completion", async () => {
     const rafQueue: FrameRequestCallback[] = []
     const origRaf = window.requestAnimationFrame
