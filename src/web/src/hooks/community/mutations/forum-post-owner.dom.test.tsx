@@ -26,12 +26,12 @@ function Root({ id = sdk.id, show = true }: { id?: string; show?: boolean }) { r
 async function seed(qc: QueryClient) {
   const registry = getCommunityDbRegistry(qc)!
   await act(async () => { await registry.ready; await registry.preload() })
-  act(() => {
+  await act(async () => {
     projectCommunityWsEventToDb(qc, { type: "community:channel.create", serverId: "server", channel: { ...channelResourceFixture({ id: "forum", name: "Forum", type: "forum", serverId: "server" }), type: "forum" } })
     const parent = channelResourceFixture({ id: "forum", type: "forum", serverId: "server" })
     const child = channelResourceFixture({ id: "child", type: "thread", name: "Original", serverId: "server", parentChannelId: "forum", parentMessageId: "opener" })
     const opener = messageResourceFixture({ id: "opener", channelId: "forum", content: "Original opener" })
-    publishCommunityForumSidebar(qc, { serverId: "server", resources: fullResourceBundleFixture(registry.accountId!, [serverResourceFixture({ id: "server" })], [parent, child], [opener]),
+    await publishCommunityForumSidebar(qc, { serverId: "server", resources: fullResourceBundleFixture(registry.accountId!, [serverResourceFixture({ id: "server" })], [parent, child], [opener]),
       channels: [{ ...child, activityAt: new Date().toISOString(), unread: false, participating: true }], openers: [opener], proof: { token: captureCommunityLiveSnapshotToken(qc), signal: undefined } })
     const runtime = getCommunityRuntime(qc); runtime.ui.actions.setCurrentServerId("server"); runtime.ui.actions.setCurrentChannelId("child"); runtime.ui.actions.registerUiHandlers({ replacePath: navigate })
   })
@@ -65,19 +65,19 @@ function wsDelete(qc: QueryClient) { const runtime = getCommunityRuntime(qc); di
 beforeEach(async () => { await clearAllPersistedCaches(); api.mockReset(); sdk.id = "A"; navigate.mockClear(); client = undefined as unknown as QueryClient })
 describe("actual native forum post-unit deletion", () => {
   it("hides both canonical identities optimistically and restores them on ordinary failure", async () => {
-    const { reject } = await mount(); let result!: Promise<unknown>; act(() => { result = command() }); await pending()
+    const { reject } = await mount(); let result!: Promise<unknown>; await act(() => { result = command() }); await pending()
     expect(screen.getByTestId("child").textContent).toBe("missing"); expect(screen.getByTestId("opener").textContent).toBe("missing")
     await act(async () => { reject(new Error("denied")); await result })
     expect(screen.getByTestId("child").textContent).toBe("Original"); expect(screen.getByTestId("opener").textContent).toBe("Original opener"); expect(navigate).not.toHaveBeenCalled()
   })
   it("reveals newer committed child WS fields on failed deletion", async () => {
-    const { reject, original } = await mount(); let result!: Promise<unknown>; act(() => { result = command() }); await pending()
-    act(() => projectCommunityWsEventToDb(original, { type: "community:channel.child_update", parentChannelId: "forum", channelId: "child", changes: { name: "newer-ws" } }))
+    const { reject, original } = await mount(); let result!: Promise<unknown>; await act(() => { result = command() }); await pending()
+    await act(() => projectCommunityWsEventToDb(original, { type: "community:channel.child_update", parentChannelId: "forum", channelId: "child", changes: { name: "newer-ws" } }))
     await act(async () => { reject(new Error("denied")); await result })
     expect(screen.getByTestId("child").textContent).toBe("newer-ws"); expect(screen.getByTestId("opener").textContent).toBe("Original opener")
   })
   it("keeps newer authoritative WS post deletion absent when HTTP fails", async () => {
-    const { reject, original } = await mount(); let result!: Promise<unknown>; act(() => { result = command() }); await pending(); act(() => wsDelete(original))
+    const { reject, original } = await mount(); let result!: Promise<unknown>; await act(() => { result = command() }); await pending(); await act(() => wsDelete(original))
     await act(async () => { reject(new Error("denied")); await result })
     expect(screen.getByTestId("child").textContent).toBe("missing"); expect(screen.getByTestId("opener").textContent).toBe("missing")
     expect(navigate).toHaveBeenCalledTimes(1)
@@ -85,17 +85,17 @@ describe("actual native forum post-unit deletion", () => {
   it("finishes an issued DELETE after self WS and view retirement without repeating navigation", async () => {
     const { view, resolve, original } = await mount()
     let result!: Promise<unknown>
-    act(() => { result = command() })
+    await act(() => { result = command() })
     await pending()
     const mutation = original.getMutationCache().find({ mutationKey: ["community", "forum-post-delete"], exact: true })!
     const options = api.mock.calls.find(([, value]) => value.method === "DELETE")![1] as { signal: AbortSignal; assertActive: () => void }
-    act(() => wsDelete(original))
-    act(() => view.rerender(<Root show={false} />))
+    await act(() => wsDelete(original))
+    await act(() => view.rerender(<Root show={false} />))
     expect(options.signal.aborted).toBe(false)
     expect(() => options.assertActive()).not.toThrow()
     await act(async () => { resolve(undefined); expect(await result).toBeUndefined() })
     expect(mutation.state.status).toBe("success")
-    act(() => view.rerender(<Root />))
+    await act(() => view.rerender(<Root />))
     expect(screen.getByTestId("child").textContent).toBe("missing")
     expect(screen.getByTestId("opener").textContent).toBe("missing")
     expect(navigate).toHaveBeenCalledTimes(1)
@@ -104,13 +104,13 @@ describe("actual native forum post-unit deletion", () => {
   it("physically cancels the original DELETE through A to B to A without deleting the new A's facts", async () => {
     const { view, resolve, original } = await mount()
     let result!: Promise<unknown>
-    act(() => { result = command() })
+    await act(() => { result = command() })
     await pending()
     const signal = api.mock.calls.find(([, value]) => value.method === "DELETE")![1].signal as AbortSignal
-    act(() => { sdk.id = "B"; view.rerender(<Root id="B" />) })
+    await act(() => { sdk.id = "B"; view.rerender(<Root id="B" />) })
     await waitFor(() => expect(client).not.toBe(original))
     const accountB = client
-    act(() => { sdk.id = "A"; view.rerender(<Root id="A" />) })
+    await act(() => { sdk.id = "A"; view.rerender(<Root id="A" />) })
     await waitFor(() => { expect(client).not.toBe(original); expect(client).not.toBe(accountB) })
     await seed(client)
     navigate.mockClear()
@@ -122,15 +122,15 @@ describe("actual native forum post-unit deletion", () => {
     expect(navigate).not.toHaveBeenCalled()
   })
   it("commits both identities and ejects the active child once without self WS", async () => {
-    const { resolve, original } = await mount(); let result!: Promise<unknown>; act(() => { result = command() }); await pending()
+    const { resolve, original } = await mount(); let result!: Promise<unknown>; await act(() => { result = command() }); await pending()
     await act(async () => { resolve(undefined); expect(await result).toBeUndefined() })
     expect(screen.getByTestId("child").textContent).toBe("missing"); expect(screen.getByTestId("opener").textContent).toBe("missing")
     expect(navigate).toHaveBeenCalledTimes(1); expect(getCommunityRuntime(original).ui.get().currentChannelId).toBe("forum")
-    act(() => wsDelete(original)); expect(navigate).toHaveBeenCalledTimes(1)
+    await act(() => wsDelete(original)); expect(navigate).toHaveBeenCalledTimes(1)
   })
   it.each(["success", "failure"] as const)("rejects old account %s without restoring old caches or navigating B", async (outcome) => {
-    const { view, resolve, reject, original } = await mount(); let result!: Promise<unknown>; act(() => { result = command() }); await pending()
-    act(() => { sdk.id = "B"; view.rerender(<Root id="B" />) }); await waitFor(() => expect(client).not.toBe(original)); await seed(client); navigate.mockClear()
+    const { view, resolve, reject, original } = await mount(); let result!: Promise<unknown>; await act(() => { result = command() }); await pending()
+    await act(() => { sdk.id = "B"; view.rerender(<Root id="B" />) }); await waitFor(() => expect(client).not.toBe(original)); await seed(client); navigate.mockClear()
     await act(async () => { if (outcome === "success") resolve(undefined); else reject(new Error("old error")); expect(await result).toMatchObject({ name: "AbortError" }) })
     expect(original.getQueryCache().getAll()).toHaveLength(0); expect(screen.getByTestId("child").textContent).toBe("Original"); expect(screen.getByTestId("opener").textContent).toBe("Original opener"); expect(navigate).not.toHaveBeenCalled()
   })

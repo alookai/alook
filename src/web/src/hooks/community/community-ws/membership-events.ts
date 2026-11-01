@@ -29,6 +29,7 @@ import {
 } from "./reaction-details-invalidation"
 import {
   getCanonicalCommunityChannels,
+  completeCommunityPublication,
   retireCommunityChannelReading,
   setCanonicalCommunityChannelMember,
 } from "@/lib/community-db/sync"
@@ -50,7 +51,7 @@ function refreshChannelAccess(event: { serverId: string | null; channelId: strin
       await queryClient.query({ ...options, staleTime: 0, retry: false, select: undefined })
       if (!isChannelMetadataTokenCurrent(token)) return
       const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
-      if (channel?.archived) runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection }))
+      if (channel?.archived) await completeCommunityPublication(queryClient, () => runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection })))
     } catch {}
 
   })()
@@ -60,7 +61,7 @@ export function handleChannelMembershipChange(event: CommunityChannelMembershipC
   const { queryClient, projection, viewerUserIdRef } = context
   setCanonicalCommunityChannelMember(queryClient, event.channelId, event.userId, event.relation, event.present, { event: true })
   if (event.serverId) invalidateServerDetail(projection, event.serverId)
-  invalidateChannelRefDirectory(projection)
+  invalidateChannelRefDirectory(projection, { serverId: event.serverId, channelId: event.channelId })
   projection.fence("channel-roster", { queryKey: communityKeys.channelMembers(event.channelId, event.relation) })
   projection.invalidate("channel-addable-members", { queryKey: communityKeys.channelAddableMembers(event.channelId) })
   if (event.relation === "notify") projection.invalidate("thread-participants", { queryKey: communityKeys.threadParticipants(event.channelId) })
@@ -106,7 +107,7 @@ export function handleMemberJoin(
     if (viewerId) {
       getCommunityRuntime(context.queryClient).ws.actions.grantServerAccess(event.serverId)
     }
-    invalidateChannelRefDirectory(projection)
+    invalidateChannelRefDirectory(projection, { serverId: event.serverId })
     invalidateServersList(projection)
     invalidateServerDetail(projection, event.serverId)
   }
@@ -126,7 +127,7 @@ export function handleMemberLeave(
   if (event.userId === viewerUserIdRef.current) {
     evictServerChannelScopes(queryClient, event.serverId)
     removeServerReactionDetails(queryClient, event.serverId)
-    invalidateChannelRefDirectory(projection)
+    invalidateChannelRefDirectory(projection, { serverId: event.serverId })
     // Rail LIST only (the layout's eject effect reads it to route the
     // kicked viewer away). `exact` so a kick doesn't cascade-refetch
     // every server's nested detail subtree.

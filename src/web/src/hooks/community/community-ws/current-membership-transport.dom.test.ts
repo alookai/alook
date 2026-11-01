@@ -47,7 +47,7 @@ async function deliver(value: unknown, apply = true) {
 describe("current membership producer to consumer", () => {
   it("delivers committed participant notify membership through actual route, ingress and hook", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server-current", "parent-current", "text", "thread-current")
+    await seedCanonicalThread("server-current", "parent-current", "text", "thread-current")
     const value = JSON.parse(serializeMessageDeliveryBatch(batch()))
     const result = await act(() => deliver(value))
     expect(result.response?.status).toBe(200)
@@ -58,7 +58,7 @@ describe("current membership producer to consumer", () => {
 
   it("calibrates the actual singular dispatch on a normal current single relationship frame", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server-current", "parent-current", "text", "thread-current")
+    await seedCanonicalThread("server-current", "parent-current", "text", "thread-current")
     const encoded = encodeCommunityBrowserEvent({ type: "community:channel.membership.change", serverId: "server-current", channelId: "thread-current", userId: "u_me", relation: "notify", present: true })
     if (!encoded.ok) throw new Error("Current relationship fixture rejected")
     const dispatch = vi.spyOn(registry, "dispatchCommunityWsEvent")

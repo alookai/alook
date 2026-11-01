@@ -47,7 +47,7 @@ it.each(["messages", "entry", "committed-ws"].flatMap(scenario => [false, true].
   fixtures.response = decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, body)
   const { client, registry } = await createCommunityQueryOwner("viewer")
   const structure = await readCommunityResourceBundle(db, "viewer", { channelIds: ["channel"] })
-  await act(async () => { publishCommunityResourceBundle(client, structure, { token: captureCommunityLiveSnapshotToken(client) }) })
+  await act(async () => { await publishCommunityResourceBundle(client, structure, { token: captureCommunityLiveSnapshotToken(client) }) })
   expect(registry.collections.profiles.get("former")).toBeUndefined()
   function Consumer() {
     useCanonicalCommunityProfile("former")
@@ -69,7 +69,7 @@ it.each(["messages", "entry", "committed-ws"].flatMap(scenario => [false, true].
     const entry = await readCommunityConversationEntry(db, { viewerId: "viewer", target: target.value, window: parseCommunityMessageWindow(new URLSearchParams()), preferTail: true })
     if (!entry.ok) throw new Error(JSON.stringify(entry))
     wireProfiles = entry.entry.profiles
-    await act(async () => { publishConversationEntry(client, { serverId: "server", channelId: "channel" }, entry.entry, { token: captureCommunityLiveSnapshotToken(client, "channel") }) })
+    await act(async () => { await publishConversationEntry(client, { serverId: "server", channelId: "channel" }, entry.entry, { token: captureCommunityLiveSnapshotToken(client, "channel") }) })
   } else {
     const plan = await planCommittedMessage(db, "message")
     const encoded = encodeCommunityBrowserEvent(plan.messageEvent)
@@ -116,7 +116,7 @@ it.each(["initial", "two-hop"])("carries the actual SQL approval author through 
   expect(sqlite.prepare("SELECT status,needs_owner_approval AS owner FROM community_friendship WHERE id=?").get(request.friendship.id)).toMatchObject({ status: "pending", owner: viewer })
   const { client, registry } = await createCommunityQueryOwner(viewer)
   const structure = await readCommunityResourceBundle(db, viewer, { channelIds: [event.channelId] })
-  publishCommunityResourceBundle(client, structure, { token: captureCommunityLiveSnapshotToken(client) })
+  await publishCommunityResourceBundle(client, structure, { token: captureCommunityLiveSnapshotToken(client) })
   expect(registry.collections.profiles.get(author)).toBeUndefined()
   function Consumer() {
     useCanonicalCommunityProfile(author)
@@ -155,7 +155,7 @@ it.each([false, true])("keeps current actual DB profile facts on first native co
   if (!encoded.ok) throw new Error(JSON.stringify(encoded))
   const { client, registry } = await createCommunityQueryOwner("viewer")
   const structure = await readCommunityResourceBundle(db, "viewer", { channelIds: ["channel"], ...(warm ? { profileIds: ["former"] } : {}) })
-  publishCommunityResourceBundle(client, structure, { token: captureCommunityLiveSnapshotToken(client) })
+  await publishCommunityResourceBundle(client, structure, { token: captureCommunityLiveSnapshotToken(client) })
   const frames: string[] = []
   function Consumer() {
     useCanonicalCommunityProfile("former")

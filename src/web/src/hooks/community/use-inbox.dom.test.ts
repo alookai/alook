@@ -437,7 +437,7 @@ describe("useInboxAttention", () => {
       const child = harness.registry.collections.channels.get("child")!
       await writeCommunityCollectionRows(harness.registry, "channels", [{ ...child, openerSeq: 9, openerUnread: true }], row => row.id)
       projectCommunityWsEventToDb(harness.queryClient, { type: "community:channel.update", channelId: "child", serverId: "server", changes: { name: "Newer child" } })
-      publishAccountAttentionSnapshot(harness.queryClient, { snapshot, proof: { token, signal: undefined } })
+      await publishAccountAttentionSnapshot(harness.queryClient, { snapshot, proof: { token, signal: undefined } })
       expect(harness.registry.collections.channels.get("child")).toMatchObject({ name: "Newer child", openerSeq: 9, openerUnread: true })
     } finally { harness.dispose() }
   })

@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
@@ -56,7 +57,7 @@ function channelMembersOptions(client: QueryClient, channelId: string, serverId?
       const response = await apiFetch<CommunityMembersRead>("/api/community/channels/" + encodeURIComponent(channelId) + "/members?relation=" + dimension, communityRequestOptions(client, token, signal, assert))
       assert()
       const resources = response
-      publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, resources.members, { token, signal }, resources.profiles)
+      await publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, resources.members, { token, signal }, resources.profiles)
       assert()
       return { serverId: scopeId, relation: dimension, creatorIds: resources.members.filter(member => member.isCreator).map(member => member.userId), members: resources.members.map(({ memberId, userId }) => ({ id: memberId ?? userId, userId })) }
     },
@@ -156,7 +157,7 @@ export function useChannelMemberCommand(channelId: string, kind: "add" | "remove
         const endpoint = options?.endpoint ?? "members"
         await origin.request(original, "/api/community/channels/" + encodeURIComponent(channelId) + "/" + endpoint + (kind === "remove" ? "/" + encodeURIComponent(userId) : ""), { method: kind === "remove" ? "DELETE" : "POST", signal: assert.signal, assertActive: assert, ...(kind === "add" ? { body: JSON.stringify({ userId }) } : {}) })
         assert()
-        const confirmed = setCanonicalCommunityChannelMember(client, channelId, userId, relation, kind === "add", { proof: { token: proof } })
+        const confirmed = await completeCommunityPublication(client, () => setCanonicalCommunityChannelMember(client, channelId, userId, relation, kind === "add", { proof: { token: proof } }))
         if (confirmed) { assert(); await options?.onConfirmed?.(userId, assert); assert() }
       }
       try {

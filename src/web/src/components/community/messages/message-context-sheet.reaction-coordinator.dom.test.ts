@@ -92,7 +92,7 @@ function sheetCache(me: boolean) {
 
 async function renderSheet(me: boolean) {
   const initial = sheetCache(me)
-  publishCommunityMessages(owner.client, { profiles: messageProfilesFixture(initial.messages), channelId: "channel_1", messages: initial.messages, proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
+  await publishCommunityMessages(owner.client, { profiles: messageProfilesFixture(initial.messages), channelId: "channel_1", messages: initial.messages, proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
   owner.client.setQueryData(communityKeys.messageContext("channel", "channel_1", 1), { ...initial, messages: initial.messages.map(({ id }) => ({ id })) })
   const rendered = render(React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer_1", retainOwner: true }, React.createElement(MessageContextSheet, {
     open: true, onOpenChange: vi.fn(), channelId: "channel_1", targetSeq: 1,
@@ -129,7 +129,7 @@ describe("MessageContextSheet reaction coordinator", () => {
 
   it("rereads fresh context IDs with a missing author before exposing row actions", async () => {
     const initial = sheetCache(false)
-    publishCommunityMessages(owner.client, { profiles: messageProfilesFixture(initial.messages), channelId: "channel_1", messages: initial.messages, proof: { token: captureCommunityLiveSnapshotToken(owner.client) } })
+    await publishCommunityMessages(owner.client, { profiles: messageProfilesFixture(initial.messages), channelId: "channel_1", messages: initial.messages, proof: { token: captureCommunityLiveSnapshotToken(owner.client) } })
     owner.client.setQueryData(communityKeys.messageContext("channel", "channel_1", 1), { ...initial, messages: [{ id: "message_1" }] })
     await writeCommunityCollectionRows(owner.registry, "profiles", [], row => row.id)
     let release!: (value: ReturnType<typeof messageReadPageFixture>) => void

@@ -17,7 +17,7 @@
 import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, queries, truncateMessagePreview, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
 import type { BotCreationPayload, FriendApprovalPayload } from "@alook/shared"
 
-import { readCommunityResourceProfiles } from "./resource-profiles.server"
+import { readCommunityResourceProfiles, type CommunityResourceProfileReader } from "./resource-profiles.server"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectMessageWireType } from "@/lib/community/message-wire-type"
 import { groupAttachments, groupReactions } from "./messages"
@@ -162,8 +162,8 @@ export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext, contract
 }
 
 
-export async function readCommunityMessageProfiles(db: Database, messages: readonly CommunityMessageResource[]) {
-  const profiles = await readCommunityResourceProfiles(db, communityMessageProfileIds(messages))
+export async function readCommunityMessageProfiles(db: Database, messages: readonly CommunityMessageResource[], readProfiles: CommunityResourceProfileReader = ids => readCommunityResourceProfiles(db, ids)) {
+  const profiles = await readProfiles(communityMessageProfileIds(messages))
   CommunityMessageResourcesSchema.parse({ messages, profiles })
   return profiles
 }

@@ -98,9 +98,9 @@ function forumFeedFixture(rows: Parameters<typeof forumFeedTransportFixture>[0])
   return { ...transport, pages: transport.pages.map(page => forumFeedWindow(normalizeThreadResources("forum_1", page))) }
 }
 
-function seedKnownThread(serverId: string, parentId: string, parentType: "text" | "forum", childId: string, openerId: string) {
+async function seedKnownThread(serverId: string, parentId: string, parentType: "text" | "forum", childId: string, openerId: string) {
   seedCanonicalServer({ id: serverId, channels: [{ id: parentId, type: parentType, name: "Parent" }] })
-  publishCommunityChannelMetadata(capturedQueryClient, { metadata: channelResourceFixture({ id: childId, serverId, type: "thread", parentChannelId: parentId, parentMessageId: openerId }),
+  await publishCommunityChannelMetadata(capturedQueryClient, { metadata: channelResourceFixture({ id: childId, serverId, type: "thread", parentChannelId: parentId, parentMessageId: openerId }),
     proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient, childId) } })
 }
 
@@ -113,10 +113,10 @@ function forumFeedIds(filter: string | null) {
   return mapForumFeedPages(pages, messages, channels, new Map(), filter).map((thread) => thread.id)
 }
 
-function seedForumFeed(rows: Parameters<typeof forumFeedFixture>[0]) {
+async function seedForumFeed(rows: Parameters<typeof forumFeedFixture>[0]) {
   seedCanonicalServer({ id: "s1", categories: [{ id: "cat1", name: "Forum", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
   const page = forumFeedTransportFixture(rows).pages[0]!
-  act(() => { publishCommunityForumFeed(capturedQueryClient, "forum_1", normalizeThreadResources("forum_1", page), { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined }) })
+  await act(async () => { await publishCommunityForumFeed(capturedQueryClient, "forum_1", normalizeThreadResources("forum_1", page), { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined }) })
 }
 
 beforeEach(resetCommunityWsHarness)
@@ -217,8 +217,8 @@ describe("useCommunityWs — invite.create", () => {
     await mountHook()
     const matchingKey = communityKeys.invites("srv_1")
     const otherKey = communityKeys.invites("srv_2")
-    act(() => { capturedQueryClient.setQueryData(matchingKey, { invites: [] }) })
-    act(() => { capturedQueryClient.setQueryData(otherKey, { invites: [] }) })
+    await act(() => { capturedQueryClient.setQueryData(matchingKey, { invites: [] }) })
+    await act(() => { capturedQueryClient.setQueryData(otherKey, { invites: [] }) })
 
     capturedOnMessage!(currentCommunityEventFixture({
       type: "community:invite.create",
@@ -239,7 +239,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
   it("clears ephemeral channel state after scope eviction", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
-    act(() => { getCapturedRuntime().ui.setState((state) => ({ ...state, ...{
+    await act(() => { getCapturedRuntime().ui.setState((state) => ({ ...state, ...{
       typingByScope: new Map([["ch:ch_old", new Map([["u_typing", "Typer"]])]]),
     } })) })
     capturedOnMessage!(currentCommunityEventFixture({
@@ -275,7 +275,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     await act(async () => { capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] }) })
     await act(async () => { capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] }) })
     const sidebarKey = communityKeys.forumSidebarThreads("srv_1")
-    await act(async () => { seedCanonicalForumSidebar("srv_1", ["ch_dead"]) })
+    await act(async () => { await seedCanonicalForumSidebar("srv_1", ["ch_dead"]) })
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -310,7 +310,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       categories: [{ id: "cat_1", name: "Category", private: false, channels: [] }],
     }
     seedCanonicalServer({ ...freshServer, categories: [{ ...freshServer.categories[0], channels: [{ ...deletedChannel, active: false, unread: false }] }] })
-    act(() => { capturedQueryClient.setQueryData(serverKey, {
+    await act(() => { capturedQueryClient.setQueryData(serverKey, {
       ...freshServer,
       categories: [{
         ...freshServer.categories[0],
@@ -351,7 +351,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     await act(async () => { getCapturedRuntime().ui.actions.registerUiHandlers({ replacePath }) })
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentServerId("srv_1") })
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentChannelId("post_1") })
-    await act(async () => { seedCanonicalFocusedChannel({
+    await act(async () => { await seedCanonicalFocusedChannel({
       name: "Post",
       parentChannelId: "forum_1",
       parentMessageId: "opener-post_1",
@@ -374,7 +374,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     }
     await act(async () => { capturedQueryClient.setQueryData(communityKeys.forumFeed("forum_1", "bug"), forumFeed) })
     await act(async () => { capturedQueryClient.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] }) })
-    await act(async () => { seedCanonicalForumSidebar("srv_1", ["post_1", "post_keep"]) })
+    await act(async () => { await seedCanonicalForumSidebar("srv_1", ["post_1", "post_keep"]) })
     await act(async () => { capturedQueryClient.setQueryData(
       communityKeys.forumOpenerHint("srv_1", "opener-post_1"),
       { id: "opener-post_1", content: "Post" },
@@ -424,10 +424,10 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     seedCanonicalServer({ id: "s1", categories: [{ id: "cat1", name: "General", channels: [{ id: "ch_parent", name: "Parent", type: "text", active: false, unread: false }] }] })
     const { useCommunityStore } = await import("@/stores/community")
-    act(() => { getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_parent" }) })
+    await act(() => { getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_parent" }) })
     resetHookMemoization()
     await mountHook()
-    act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
+    await act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
       pages: [{ messages: [], hasMore: false }],
       pageParams: [null],
     }) })
@@ -462,11 +462,11 @@ describe("useCommunityWs — child_create patches parent thread badge with count
   it("child_create then message.create invalidates and preserves the enriched forum card", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
-    act(() => { getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_parent" }) })
+    await act(() => { getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_parent" }) })
     resetHookMemoization()
     await mountHook()
     const parentMessagesKey = communityKeys.channelMessages("ch_parent")
-    act(() => { capturedQueryClient.setQueryData(parentMessagesKey, {
+    await act(() => { capturedQueryClient.setQueryData(parentMessagesKey, {
       pages: [{ messages: [], hasMore: false }],
       pageParams: [null],
     }) })
@@ -486,7 +486,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     capturedOnMessage!(currentCommunityEventFixture(event))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: parentMessagesKey })
 
-    act(() => { capturedQueryClient.setQueryData(parentMessagesKey, {
+    await act(() => { capturedQueryClient.setQueryData(parentMessagesKey, {
       pages: [{
         messages: [{
           id: "m_parent",
@@ -508,9 +508,9 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("child_update still applies the reported messageCount unchanged", async () => {
     await mountHook()
-    seedKnownThread("s1", "ch_parent", "text", "ch_thread", "m_parent")
+    await seedKnownThread("s1", "ch_parent", "text", "ch_thread", "m_parent")
     seedCanonicalMessages("ch_parent", [{ id: "m_parent", content: "hello", thread: { id: "ch_thread", name: "old", messageCount: 0 } }])
-    act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
+    await act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
       pages: [
         {
           messages: [
@@ -548,7 +548,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     const tags = communityKeys.forumTags("forum_1")
     const messages = communityKeys.channelMessages("forum_1")
     for (const key of [allFeed, archivedFeed, tags, messages]) {
-      act(() => { capturedQueryClient.setQueryData(key, { value: "stale" }) })
+      await act(() => { capturedQueryClient.setQueryData(key, { value: "stale" }) })
     }
 
     capturedOnMessage!(currentCommunityEventFixture({
@@ -592,16 +592,16 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("projects remote Archive out of warm All and ordinary feeds synchronously", async () => {
     await mountHook()
-    seedForumFeed([{ id: "post_1", opener: "opener_1", tags: ["bug"] }])
-    act(() => { capturedQueryClient.setQueryData(
+    await seedForumFeed([{ id: "post_1", opener: "opener_1", tags: ["bug"] }])
+    await act(() => { capturedQueryClient.setQueryData(
       communityKeys.forumFeed("forum_1", null),
       forumFeedFixture([{ id: "post_1", opener: "opener_1", tags: ["bug"] }]),
     ) })
-    act(() => { capturedQueryClient.setQueryData(
+    await act(() => { capturedQueryClient.setQueryData(
       communityKeys.forumFeed("forum_1", "bug"),
       forumFeedFixture([{ id: "post_1", opener: "opener_1", tags: ["bug"] }]),
     ) })
-    act(() => { capturedQueryClient.setQueryData(
+    await act(() => { capturedQueryClient.setQueryData(
       communityKeys.forumFeed("forum_1", "archived"),
       forumFeedFixture([]),
     ) })
@@ -620,8 +620,8 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("projects remote Unarchive out of Archived without inventing an All rank", async () => {
     await mountHook()
-    seedForumFeed([{ id: "post_1", opener: "opener_1", tags: ["bug", "archived"] }])
-    act(() => { capturedQueryClient.setQueryData(
+    await seedForumFeed([{ id: "post_1", opener: "opener_1", tags: ["bug", "archived"] }])
+    await act(() => { capturedQueryClient.setQueryData(
       communityKeys.forumFeed("forum_1", "archived"),
       forumFeedFixture([{
         id: "post_1",
@@ -629,7 +629,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
         tags: ["bug", "archived"],
       }]),
     ) })
-    act(() => { capturedQueryClient.setQueryData(
+    await act(() => { capturedQueryClient.setQueryData(
       communityKeys.forumFeed("forum_1", null),
       forumFeedFixture([]),
     ) })
@@ -647,12 +647,12 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("leaves warm feeds untouched when parent and child resolve conflicting openers", async () => {
     await mountHook()
-    seedForumFeed([{ id: "post_1", opener: "opener_one", tags: ["bug"] }])
-    act(() => { capturedQueryClient.setQueryData(
+    await seedForumFeed([{ id: "post_1", opener: "opener_one", tags: ["bug"] }])
+    await act(() => { capturedQueryClient.setQueryData(
       communityKeys.forumFeed("forum_1", null),
       forumFeedFixture([{ id: "post_1", opener: "opener_one", tags: ["bug"] }]),
     ) })
-    act(() => { capturedQueryClient.setQueryData(
+    await act(() => { capturedQueryClient.setQueryData(
       communityKeys.forumFeed("forum_1", "bug"),
       forumFeedFixture([{ id: "post_1", opener: "opener_two", tags: ["bug"] }]),
     ) })
@@ -675,9 +675,9 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    await act(async () => { seedCanonicalForumSidebar("s1", ["post_1", "post_2"]) })
+    await act(async () => { await seedCanonicalForumSidebar("s1", ["post_1", "post_2"]) })
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentChannelId("post_1") })
-    await act(async () => { seedCanonicalFocusedChannel({
+    await act(async () => { await seedCanonicalFocusedChannel({
       name: "Post one",
       parentChannelId: "forum_1",
       parentMessageId: "opener-post_1",
@@ -708,10 +708,10 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("s1")
-    await act(async () => { seedCanonicalForumSidebar("s1", ["post_1", "post_2"]) })
+    await act(async () => { await seedCanonicalForumSidebar("s1", ["post_1", "post_2"]) })
     const before = canonicalForumSidebar("s1").threads
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentChannelId("post_1") })
-    await act(async () => { seedCanonicalFocusedChannel({
+    await act(async () => { await seedCanonicalFocusedChannel({
       name: "Post one",
       parentChannelId: "forum_1",
       parentMessageId: "opener-post_1",
@@ -733,14 +733,14 @@ describe("useCommunityWs — child_create patches parent thread badge with count
   it("child_update rename patches focused child metadata and its cached channel meta", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
-    act(() => { getCapturedRuntime().ui.actions.setCurrentServerId("s1") })
-    act(() => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_thread") })
-    seedCanonicalFocusedChannel({
+    await act(() => { getCapturedRuntime().ui.actions.setCurrentServerId("s1") })
+    await act(() => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_thread") })
+    await seedCanonicalFocusedChannel({
       name: "old",
       parentChannelId: "ch_parent",
       parentMessageId: "m_parent",
     })
-    act(() => { capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch_thread"), {
+    await act(() => { capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch_thread"), {
       id: "ch_thread",
       name: "old",
       parentChannelId: "ch_parent",
@@ -763,9 +763,9 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("s1")
-    await act(async () => { seedCanonicalForumSidebar("s1", ["ch_thread"]) })
+    await act(async () => { await seedCanonicalForumSidebar("s1", ["ch_thread"]) })
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_thread") })
-    await act(async () => { seedCanonicalFocusedChannel({
+    await act(async () => { await seedCanonicalFocusedChannel({
       name: "Private title",
       parentChannelId: "forum_1",
       parentMessageId: "opener-ch_thread",
@@ -791,7 +791,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("absorbs a failed unarchive ownership probe", async () => {
     await mountHook()
-    seedCanonicalForumSidebar("s1", [])
+    await seedCanonicalForumSidebar("s1", [])
     getCommunityApiFetchMock().mockRejectedValueOnce(new Error("offline"))
 
     capturedOnMessage!(currentCommunityEventFixture({
@@ -811,8 +811,8 @@ describe("useCommunityWs — child_create patches parent thread badge with count
   it("clears active child metadata synchronously on channel.delete", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
-    act(() => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_dead") })
-    seedCanonicalFocusedChannel({
+    await act(() => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_dead") })
+    await seedCanonicalFocusedChannel({
       name: "Private title",
       parentChannelId: "forum_1",
     })
@@ -833,14 +833,14 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     const retainedKey = communityKeys.forumSidebarRetained("s1", "forum_post")
     const metaKey = communityKeys.channelMeta("s1", "text_thread")
     const hintKey = communityKeys.forumOpenerHint("s1", "forum_opener")
-    act(() => { capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+    await act(() => { capturedQueryClient.setQueryData(communityKeys.server("s1"), {
       id: "s1",
       categories: [{ id: "cat_1", channels: [{ id: "text_parent", type: "text" }] }],
     }) })
-    act(() => { capturedQueryClient.setQueryData(baseKey, forumSidebarFixture()) })
-    act(() => { capturedQueryClient.setQueryData(retainedKey, { id: "forum_post" }) })
-    act(() => { capturedQueryClient.setQueryData(metaKey, { id: "text_thread", parentChannelId: "text_parent" }) })
-    act(() => { capturedQueryClient.setQueryData(hintKey, { id: "forum_opener", content: "Forum title" }) })
+    await act(() => { capturedQueryClient.setQueryData(baseKey, forumSidebarFixture()) })
+    await act(() => { capturedQueryClient.setQueryData(retainedKey, { id: "forum_post" }) })
+    await act(() => { capturedQueryClient.setQueryData(metaKey, { id: "text_thread", parentChannelId: "text_parent" }) })
+    await act(() => { capturedQueryClient.setQueryData(hintKey, { id: "forum_opener", content: "Forum title" }) })
     const before = [
       capturedQueryClient.getQueryData(baseKey),
       capturedQueryClient.getQueryData(retainedKey),
@@ -872,7 +872,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 
   it("child_update keeps newer thread fields from the current base row when refreshing fallback", async () => {
     await mountHook()
-    seedKnownThread("s1", "ch_parent", "text", "ch_thread", "m_parent")
+    await seedKnownThread("s1", "ch_parent", "text", "ch_thread", "m_parent")
     const { useCommunityStore } = await import("@/stores/community")
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentServerId("s1") })
     const scope = { kind: "channel" as const, id: "ch_parent", serverId: "s1" }
@@ -937,7 +937,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
 describe("useCommunityWs — channel.delete refreshes the parent forum feed", () => {
   it.each(["forum", "text"] as const)("invalidates the %s parent feed while preserving ordinary thread openers", async parentType => {
     await mountHook()
-    seedKnownThread("srv_1", "forum_1", parentType, "post_1", "opener_1")
+    await seedKnownThread("srv_1", "forum_1", parentType, "post_1", "opener_1")
     seedCanonicalServer({ id: "srv_1", categories: [{ id: "cat1", name: "Forum", channels: [{ id: "forum_1", name: "Forum", type: parentType, active: false, unread: false }] }] })
     seedCanonicalMessages("forum_1", [{ id: "opener_1", content: "Post", thread: { id: "post_1", name: "Post", messageCount: 0 } }])
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
@@ -947,8 +947,8 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
       pages: [{ messages: [{ id: "opener_1", thread: { id: "post_1" } }], hasMore: false }],
       pageParams: [null],
     }
-    act(() => { capturedQueryClient.setQueryData(allKey, page) })
-    act(() => { capturedQueryClient.setQueryData(bugKey, page) })
+    await act(() => { capturedQueryClient.setQueryData(allKey, page) })
+    await act(() => { capturedQueryClient.setQueryData(bugKey, page) })
 
     const event: CommunityChannelDelete = {
       type: "community:channel.delete",
@@ -968,7 +968,7 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
   it("does not throw and still evicts own caches when the optional parentChannelId is absent", async () => {
     await mountHook()
     // Seed the deleted channel's own message cache so we can assert eviction.
-    act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("post_1"), { pages: [], pageParams: [] }) })
+    await act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("post_1"), { pages: [], pageParams: [] }) })
     const query = capturedQueryClient.getQueryCache().find({ queryKey: communityKeys.channelMessages("post_1"), exact: true })!
     const removeSpy = vi.spyOn(capturedQueryClient, "removeQueries")
 
@@ -988,7 +988,7 @@ describe("useCommunityWs — server.update icon removal", () => {
   it("clears icon when changes.icon is null (does not fall back to the prior icon)", async () => {
     await mountHook()
     seedCanonicalServer({ id: "srv_1", name: "n", description: "d", icon: "https://cdn/x.png", ownerId: "u_1" })
-    act(() => { capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
+    await act(() => { capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
       name: "n",
       description: "d",
@@ -1024,9 +1024,9 @@ describe("useCommunityWs — server.delete resets store when focused server dies
   it("clears currentServerId + currentChannelId if the deleted server is currently focused", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
-    act(() => { getCapturedRuntime().ui.actions.setCurrentServerId("srv_doomed") })
-    act(() => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_1") })
-    seedCanonicalFocusedChannel({
+    await act(() => { getCapturedRuntime().ui.actions.setCurrentServerId("srv_doomed") })
+    await act(() => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_1") })
+    await seedCanonicalFocusedChannel({
       name: "Private title",
       parentChannelId: "private_parent",
     })
@@ -1045,8 +1045,8 @@ describe("useCommunityWs — server.delete resets store when focused server dies
   it("does NOT touch the store when a different server is deleted", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
-    act(() => { getCapturedRuntime().ui.actions.setCurrentServerId("srv_active") })
-    act(() => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_1") })
+    await act(() => { getCapturedRuntime().ui.actions.setCurrentServerId("srv_active") })
+    await act(() => { getCapturedRuntime().ui.actions.setCurrentChannelId("ch_1") })
 
     const event: CommunityServerDelete = {
       type: "community:server.delete",

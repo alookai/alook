@@ -1,8 +1,43 @@
 import { DM_SERVER, formatRef, parseNameAndTag, parseRef } from "@alook/shared"
+import type { CommunityWsStoreState } from "@/stores/community/ws-store"
 
 export type ChannelRefTarget = {
   server: { id: string; name: string }
   channel: { id: string; name: string; parentChannelId: string | null }
+}
+
+const referenceScopes = new WeakMap<CommunityWsStoreState["channelAccessScopes"], string>()
+const referenceServers = new WeakMap<CommunityWsStoreState["revokedServerIds"], string>()
+export type ChannelRefAccessState = Pick<CommunityWsStoreState, "profileAccountEpoch" | "accessEpoch" | "serverAccessGenerations" | "revokedServerIds" | "channelAccessScopes">
+
+export function channelRefAccessQualification(state: ChannelRefAccessState, target?: ChannelRefTarget) {
+  if (target) {
+    const scope = (id: string, parentId: string | null) => {
+      const value = state.channelAccessScopes.get(id)
+      return [id, value?.generation ?? 0, value?.revoked ?? false, value?.serverId ?? target.server.id, value?.parentChannelId ?? parentId]
+    }
+    return JSON.stringify([state.profileAccountEpoch, state.serverAccessGenerations.get(target.server.id) ?? 0,
+      state.revokedServerIds.has(target.server.id), scope(target.channel.id, target.channel.parentChannelId),
+      target.channel.parentChannelId ? scope(target.channel.parentChannelId, null) : null])
+  }
+  let scopes = referenceScopes.get(state.channelAccessScopes)
+  if (scopes === undefined) {
+    scopes = JSON.stringify([...state.channelAccessScopes].filter(([, scope]) => scope.generation > 0 || scope.revoked)
+      .sort(([left], [right]) => left.localeCompare(right)).map(([id, scope]) => [id, scope.generation, scope.revoked]))
+    referenceScopes.set(state.channelAccessScopes, scopes)
+  }
+  let servers = referenceServers.get(state.revokedServerIds)
+  if (servers === undefined) {
+    servers = JSON.stringify([...state.revokedServerIds].sort())
+    referenceServers.set(state.revokedServerIds, servers)
+  }
+  return JSON.stringify([state.profileAccountEpoch, state.accessEpoch, scopes, servers])
+}
+
+export function channelRefTargetAffected(target: ChannelRefTarget | undefined, scope?: { serverId?: string | null; channelId?: string }) {
+  return !scope || !target || (scope.channelId
+    ? target.channel.id === scope.channelId || target.channel.parentChannelId === scope.channelId
+    : target.server.id === scope.serverId)
 }
 
 export function parseChannelRefDestination(ref: string) {

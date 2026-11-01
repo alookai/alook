@@ -293,11 +293,11 @@ export function forumSidebarFixture(ids = ["post_1"]) {
   }
 }
 
-export function seedCanonicalForumSidebar(serverId: string, ids = ["post_1"]) {
+export async function seedCanonicalForumSidebar(serverId: string, ids = ["post_1"]) {
   if (!canonicalRegistry) throw new Error("Community test owner missing")
   const envelope = forumSidebarEnvelopeFixture(serverId, ids, canonicalRegistry.accountId!)
   seedCanonicalServer({ ...envelope.resources.servers[0], channels: [envelope.resources.channels[0]] })
-  act(() => publishCommunityForumSidebar(capturedQueryClient, {
+  await act(async () => await publishCommunityForumSidebar(capturedQueryClient, {
     serverId, resources: envelope.resources,
     channels: envelope.resources.channels.filter(channel => channel.type === "thread").map(channel => ({ ...channel, activityAt: envelope.serverNow, unread: false, participating: true })),
     openers: envelope.resources.messages,
@@ -309,10 +309,10 @@ export function canonicalForumSidebar(serverId: string) {
   return getForumSidebarBase(capturedQueryClient, serverId)
 }
 
-export function seedCanonicalThread(serverId: string, parentId: string, parentType: "text" | "forum", childId: string) {
+export async function seedCanonicalThread(serverId: string, parentId: string, parentType: "text" | "forum", childId: string) {
   if (!canonicalRegistry) throw new Error("Community test owner missing")
   seedCanonicalServer({ id: serverId, ownerId: "u_me", categories: [{ id: `${serverId}-category`, name: "Category", channels: [{ id: parentId, name: "Parent", type: parentType }] }] })
-  act(() => publishCommunityChannelMetadata(capturedQueryClient, {
+  await act(async () => await publishCommunityChannelMetadata(capturedQueryClient, {
     metadata: channelResourceFixture({ id: childId, serverId, name: "Child", type: "thread", parentChannelId: parentId,
       parentMessageId: `${childId}-opener`, creatorId: "u_me", lastMessageAt: "2026-08-01T00:00:00.000Z" }),
     proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined },
@@ -333,13 +333,13 @@ export function hasCanonicalChannelNotify(channelId: string, userId: string) {
     ?? false
 }
 
-export function seedCanonicalFocusedChannel(metadata: { name: string; parentChannelId?: string | null; parentMessageId?: string | null }) {
-  act(() => {
+export async function seedCanonicalFocusedChannel(metadata: { name: string; parentChannelId?: string | null; parentMessageId?: string | null }) {
+  await act(async () => {
     if (!canonicalRegistry) throw new Error("Community test owner missing")
     const state = canonicalRegistry.runtime.ui.get()
     const channelId = state.currentChannelId ?? state.subscription.channelId
     if (!channelId) throw new Error("Focused test channel missing")
-    publishCommunityChannelMetadata(capturedQueryClient, {
+    await publishCommunityChannelMetadata(capturedQueryClient, {
       metadata: channelResourceFixture({ ...Object.fromEntries(Object.entries(canonicalRegistry.collections.channels.get(channelId) ?? {}).filter(([key]) => key in CommunityChannelResourceSchema.shape)), id: channelId, serverId: canonicalRegistry.collections.channels.get(channelId)?.serverId ?? state.currentServerId ?? "s1", type: metadata.parentChannelId ? "thread" : "text", ...metadata }),
       proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined },
     })

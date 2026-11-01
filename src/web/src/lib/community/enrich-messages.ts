@@ -2,6 +2,7 @@ import { queries, withD1Retry, CommunityChannelResourceSchema, CommunityMessageT
 import type { getDb } from "@/lib/db"
 import { loadApiMessageContext, mapMessageForApi, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { canonicalUserImage } from "@/lib/community/storage"
+import type { CommunityResourceProfileReader } from "./resource-profiles.server"
 
 // Message enrichment shared by the channel messages route, the channel
 // bootstrap route, and the DM messages route (previously three near-identical
@@ -22,6 +23,7 @@ export async function enrichMessages(
   userId: string,
   scope: MessageScope,
   items: Array<Parameters<typeof mapMessageForApi>[0] & { channelId: string }>,
+  readProfiles?: CommunityResourceProfileReader,
 ): Promise<{ messages: CommunityMessageResource[]; profiles: CommunityResourceProfile[]; latestSeq: number }> {
   const isDm = scope.isDm === true
   const messageIds = items.map((m) => m.id)
@@ -113,5 +115,5 @@ export async function enrichMessages(
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
     }, scope.contract, scope.channelId),
   )
-  return { messages, profiles: await readCommunityMessageProfiles(db, messages), latestSeq }
+  return { messages, profiles: await readCommunityMessageProfiles(db, messages, readProfiles), latestSeq }
 }

@@ -1,6 +1,8 @@
 "use client"
 import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { withCommunityCollectionWrites } from "@/lib/community-db/write"
 import { bindCommunityTransport, useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime"
 
 
@@ -333,8 +335,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     void drainInvitedHumanJoined(runtime.lifecycle)
     runtime.ws.actions.markAccessConnected()
     const viewerId = viewerUserIdRef.current
-    if (viewerId) {
-      runtime.ws.actions.setPresence(viewerId, "online")
+    const registry = getCommunityDbRegistry(queryClient)
+    if (viewerId && registry) {
+      await withCommunityCollectionWrites(registry, () => runtime.ws.actions.setPresence(viewerId, "online"))
     }
     await reconcileAccountReadState(queryClient)
   }, [queryClient, runtime.ws.actions, runtime.lifecycle, viewToken])

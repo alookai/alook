@@ -103,7 +103,7 @@ describe.each(["text", "forum"] as const)("%s canonical thread scope eviction", 
     await mountHook({ viewerUserId: "u_me" })
     const parentControl = "channelId" in event
     if (parentControl) {
-      seedCanonicalThread("server", "parent", shape, "active_child")
+      await seedCanonicalThread("server", "parent", shape, "active_child")
     }
     seedThreads("server", "parent", ["active_child", "preview_child"], shape)
     seedThreads("server", "other_parent", ["other_child"], shape)

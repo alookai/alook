@@ -55,7 +55,7 @@ describe("useCommunityWs — member events", () => {
     const { useCommunityStore } = await import("@/stores/community")
     getCapturedRuntime().ui.actions.setCurrentServerId("srv_1")
     getCapturedRuntime().ui.actions.setCurrentChannelId("private_child")
-    seedCanonicalFocusedChannel({
+    await seedCanonicalFocusedChannel({
       name: "Private title",
       parentChannelId: "private_parent",
     })
@@ -432,7 +432,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
   it("retires notification arrivals on participant removal without retiring access", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    seedCanonicalThread("srv_1", "private_parent", "forum", "private")
+    await seedCanonicalThread("srv_1", "private_parent", "forum", "private")
 
     seedCommunityAttentionScope(capturedQueryClient, { channelId: "private", serverId: "srv_1", seq: 1 })
     capturedOnMessage!(currentCommunityEventFixture({ type: "community:channel.membership.change", relation: "notify", present: false, serverId: "srv_1", channelId: "private", userId: "u_me" }))
@@ -506,7 +506,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
   it("removes a private channel from the viewer's server tree on access loss", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const serverKey = communityKeys.server("srv_1")
-    seedCanonicalThread("srv_1", "ch_1", "text", "private-child")
+    await seedCanonicalThread("srv_1", "ch_1", "text", "private-child")
     capturedQueryClient.setQueryData(serverKey, {
       id: "srv_1",
       categories: [{ id: "cat_1", channels: [{ id: "ch_1", type: "text" }] }],
@@ -525,13 +525,13 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     const key = communityKeys.forumSidebarThreads("srv_1")
-    await act(async () => { seedCanonicalForumSidebar("srv_1", ["post_1", "post_2"]) })
+    await act(async () => { await seedCanonicalForumSidebar("srv_1", ["post_1", "post_2"]) })
     await act(async () => {
       patchCanonicalCommunityChannel(capturedQueryClient, "forum_1", row => ({ ...row, type: parentType }))
       seedCommunityAttentionScope(capturedQueryClient, { channelId: "post_1", serverId: "srv_1", parentChannelId: "forum_1", seq: 1 })
     })
     await act(async () => { getCapturedRuntime().ui.actions.setCurrentChannelId("post_1") })
-    await act(async () => { seedCanonicalFocusedChannel({
+    await act(async () => { await seedCanonicalFocusedChannel({
       name: "Private forum title",
       parentChannelId: "forum_1",
       parentMessageId: "opener-post_1",
@@ -560,14 +560,14 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     expect(hasCanonicalChannelNotify("post_2", "u_me")).toBe(true)
   })
 
-  it("does not touch forum resources for a known ordinary text child", async () => {
+  it("refreshes the shared text-thread sidebar without evicting other resources", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     const baseKey = communityKeys.forumSidebarThreads("srv_1")
     const retainedKey = communityKeys.forumSidebarRetained("srv_1", "forum_post")
     const metaKey = entryKey("srv_1", "text_thread")
     const hintKey = communityKeys.forumOpenerHint("srv_1", "forum_opener")
-    seedCanonicalThread("srv_1", "text_parent", "text", "text_thread")
+    await seedCanonicalThread("srv_1", "text_parent", "text", "text_thread")
     capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
       categories: [{
@@ -585,33 +585,33 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       hint: capturedQueryClient.getQueryData(hintKey),
     }
 
-    capturedOnMessage!(currentCommunityEventFixture({
+    await act(async () => { await capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.membership.change", relation: "notify", present: true,
       serverId: "srv_1",
       channelId: "text_thread",
       userId: "u_me",
-    }))
+    })) })
 
     expect(capturedQueryClient.getQueryData(baseKey)).toBe(before.base)
-    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
+    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
     expect(capturedQueryClient.getQueryData(retainedKey)).toBe(before.retained)
     expect(capturedQueryClient.getQueryData(metaKey)).toBe(before.meta)
     expect(capturedQueryClient.getQueryData(hintKey)).toBe(before.hint)
 
     getCapturedRuntime().ui.actions.setCurrentChannelId("text_thread")
-    seedCanonicalFocusedChannel({
+    await seedCanonicalFocusedChannel({
       name: "Private title",
       parentChannelId: "text_parent",
     })
-    capturedOnMessage!(currentCommunityEventFixture({
+    await act(async () => { await capturedOnMessage!(currentCommunityEventFixture({
       type: "community:channel.membership.change", relation: "notify", present: false,
       serverId: "srv_1",
       channelId: "text_thread",
       userId: "u_me",
-    }))
+    })) })
 
     expect(capturedQueryClient.getQueryData(baseKey)).toBe(before.base)
-    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
+    expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
     expect(capturedQueryClient.getQueryData(retainedKey)).toBe(before.retained)
     expect(capturedQueryClient.getQueryData(metaKey)).toBe(before.meta)
     expect(capturedQueryClient.getQueryData(hintKey)).toBe(before.hint)
@@ -624,7 +624,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
 describe("membership metadata and access lifetime", () => {
   it.each([false, true])("rechecks explicit access present=%s without treating it as a notify change", async present => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", "forum", "child")
+    await seedCanonicalThread("server", "parent", "forum", "child")
     const key = communityKeys.channelMessages("child")
     const content = { pages: [{ messages: [{ id: "private" }] }] }
     capturedQueryClient.setQueryData(key, content)
@@ -662,7 +662,7 @@ describe("membership metadata and access lifetime", () => {
 
   it.each([403, 404, 500])("lets the real metadata owner resolve access failure %s without a second retirement", async status => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", "forum", "child")
+    await seedCanonicalThread("server", "parent", "forum", "child")
     const key = communityKeys.channelMessages("child")
     const content = { pages: [{ messages: [{ id: "private" }] }] }
     capturedQueryClient.setQueryData(key, content)
@@ -684,7 +684,7 @@ describe("membership metadata and access lifetime", () => {
 
   it("retires a channel when its explicit access refresh confirms it is archived", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", "forum", "child")
+    await seedCanonicalThread("server", "parent", "forum", "child")
     const api = getCommunityApiFetchMock()
     const fallback = api.getMockImplementation()!
     const archived = new ApiError("archived", 403)
@@ -703,7 +703,7 @@ describe("membership metadata and access lifetime", () => {
 
   it("publishes the current notify roster and rejects the retired response without replacing the body", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", "forum", "child")
+    await seedCanonicalThread("server", "parent", "forum", "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
  }, "u_me")
@@ -752,7 +752,7 @@ describe("membership metadata and access lifetime", () => {
   })
   it.each([true, false])("keeps the verified body and access generation for explicit notify present=%s", async (present) => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", "forum", "child")
+    await seedCanonicalThread("server", "parent", "forum", "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z" }, "u_me")
     getCommunityApiFetchMock().mockResolvedValue(payload)
@@ -772,7 +772,7 @@ describe("membership metadata and access lifetime", () => {
   })
   it.each(["text", "forum"] as const)("replaces an in-flight %s child metadata read when explicit access refresh changes again", async (parentType) => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", parentType, "child")
+    await seedCanonicalThread("server", "parent", parentType, "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent",
       parentMessageId: "opener", creatorId: "u_me", name: "Current child", archived: false,
@@ -842,7 +842,7 @@ describe("membership metadata and access lifetime", () => {
 
   it("hands batched explicit access refreshes to the latest access generation", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", "text", "child")
+    await seedCanonicalThread("server", "parent", "text", "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
@@ -873,7 +873,7 @@ describe("membership metadata and access lifetime", () => {
 
   it("settles a failed current-generation read without rebuilding it and recovers on explicit Retry", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", "forum", "child")
+    await seedCanonicalThread("server", "parent", "forum", "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
@@ -899,7 +899,7 @@ describe("membership metadata and access lifetime", () => {
 
   it.each(["parent", "server", "account", "unmount"] as const)("does not restart participation metadata after %s retirement before handoff", async (race) => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", "forum", "child")
+    await seedCanonicalThread("server", "parent", "forum", "child")
     const payload = conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
@@ -940,7 +940,7 @@ describe("membership metadata and access lifetime", () => {
 
   it.each(["text", "forum"] as const)("keeps %s child content after notify removal with ID-only metadata", async (parentType) => {
     await mountHook({ viewerUserId: "u_me" })
-    seedCanonicalThread("server", "parent", parentType, "child")
+    await seedCanonicalThread("server", "parent", parentType, "child")
     act(() => { setCanonicalCommunityChannelMember(capturedQueryClient, "child", "u_me", "notify", true) })
     getCommunityApiFetchMock().mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent",
@@ -1048,7 +1048,7 @@ describe("membership metadata and access lifetime", () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const { useCommunityStore } = await import("@/stores/community")
-    seedCanonicalThread("server", "parent", "forum", "child")
+    await seedCanonicalThread("server", "parent", "forum", "child")
     getCapturedRuntime().ws.actions.rememberChannelAccess("server", "parent")
     getCapturedRuntime().ws.actions.rememberChannelAccess("server", "child", "parent")
     capturedQueryClient.setQueryData(communityKeys.pins("child"), { pins: [{ id: "m1" }] })

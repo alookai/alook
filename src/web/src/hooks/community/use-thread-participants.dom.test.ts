@@ -30,14 +30,14 @@ afterEach(async () => {
 function Owner({ children }: PropsWithChildren) {
   return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children))
 }
-function seedSidebar(parentType: "forum" | "text" = "forum") {
+async function seedSidebar(parentType: "forum" | "text" = "forum") {
   ingestServerDetail(registry, serverDirectoryFixture({ id: "server_1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer_1", categories: [{ id: "category", name: "Channels", channels: [{ id: "forum_1", name: "Forum", type: parentType, active: false, unread: false }] }] }))
   const key = communityKeys.forumSidebarThreads("server_1")
   const now = new Date().toISOString()
   const parent = channelResourceFixture({ id: "forum_1", serverId: "server_1", type: parentType })
   const child = channelResourceFixture({ id: "post_1", serverId: "server_1", type: "thread", name: "Post", parentChannelId: parent.id, parentMessageId: "opener_1", lastMessageAt: now })
   const opener = messageResourceFixture({ id: "opener_1", channelId: parent.id, authorId: "viewer_1", content: "Post" })
-  publishCommunityForumSidebar(client, {
+  await publishCommunityForumSidebar(client, {
     serverId: "server_1", resources: fullResourceBundleFixture("viewer_1", [serverResourceFixture({ id: "server_1", ownerId: "viewer_1" })], [parent, child], [opener]),
     channels: [{ ...child, activityAt: now, unread: false, participating: true }], openers: [opener],
     proof: { token: captureCommunityLiveSnapshotToken(client) },
@@ -56,7 +56,7 @@ async function command<T>(run: () => Promise<T>) {
 }
 describe("useRemoveThreadParticipant", () => {
   it.each(["forum", "text"] as const)("removes the %s child from every sidebar view when the viewer leaves", async (parentType) => {
-    seedSidebar(parentType)
+    await seedSidebar(parentType)
     const metaKey = communityKeys.channelMeta("server_1", "post_1")
     client.setQueryData(metaKey, { id: "post_1", parentChannelId: "forum_1" })
 
@@ -72,7 +72,7 @@ describe("useRemoveThreadParticipant", () => {
   })
 
   it("does not retire viewer unread scope when participant removal fails", async () => {
-    seedSidebar()
+    await seedSidebar()
 
     seedCommunityAttentionScope(client, { channelId: "post_1", serverId: "server_1", seq: 7 })
     apiFetchMock.mockRejectedValueOnce(new Error("failed"))
@@ -84,7 +84,7 @@ describe("useRemoveThreadParticipant", () => {
   })
 
   it("keeps the viewer's sidebar row when the creator removes someone else", async () => {
-    seedSidebar()
+    await seedSidebar()
 
     seedCommunityAttentionScope(client, { channelId: "post_1", serverId: "server_1", seq: 7 })
     const rendered = renderHook(() => useRemoveThreadParticipant("post_1", "server_1", "viewer_1"), { wrapper: Owner })
@@ -94,7 +94,7 @@ describe("useRemoveThreadParticipant", () => {
   })
 
   it("does not revalidate the viewer's forum access when adding someone else", async () => {
-    const key = seedSidebar()
+    const key = await seedSidebar()
     const rendered = renderHook(() => useAddThreadParticipant("post_1", "server_1", "viewer_1"), { wrapper: Owner })
     await command(() => rendered.result.current.mutateAsync("other_1"))
     expect(client.getQueryState(key)?.isInvalidated).toBe(false)
@@ -113,7 +113,7 @@ describe("useRemoveThreadParticipant", () => {
   })
 
   it("does not touch forum sidebar resources for an ordinary text thread", async () => {
-    const baseKey = seedSidebar(), retainedKey = communityKeys.forumSidebarRetained("server_1", "forum_post")
+    const baseKey = await seedSidebar(), retainedKey = communityKeys.forumSidebarRetained("server_1", "forum_post")
     const metaKey = communityKeys.channelMeta("server_1", "text_thread"), hintKey = communityKeys.forumOpenerHint("server_1", "opener_1")
     client.setQueryData(retainedKey, { id: "forum_post" })
     client.setQueryData(metaKey, { id: "text_thread", parentChannelId: "text_parent" })

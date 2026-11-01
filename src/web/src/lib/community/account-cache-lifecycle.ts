@@ -29,10 +29,11 @@ export async function loadCommunityRequest<T>(
   load: (options: ApiRequestOptions) => Promise<T>,
   token: CommunityLiveSnapshotToken,
   signal?: AbortSignal,
+  assertCurrent?: () => void,
 ): Promise<T> {
   const registry = token.registry
   if (!registry) throw new DOMException("Missing community profile owner", "AbortError")
-  const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal)
+  const assertActive = assertCurrent ?? (() => assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal))
   await registry.ready
   assertActive()
   await registry.collections.profiles.preload()
@@ -51,10 +52,11 @@ export function apiFetchCommunity<T>(
   path: string,
   options: ApiRequestOptions | undefined,
   token: CommunityLiveSnapshotToken,
+  assertCurrent?: () => void,
 ): Promise<T> {
   const observation = options?.observation ?? commandObservation(token) ?? { page: currentPageObservation(), reason: "unknown" }
   return loadCommunityRequest((origin) => apiFetch<T>(path, {
     ...options, ...origin, observation, signal: options?.signal,
     assertActive: () => { origin.assertActive?.(); options?.assertActive?.() },
-  }), token, options?.signal ?? undefined)
+  }), token, options?.signal ?? undefined, assertCurrent)
 }

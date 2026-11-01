@@ -54,7 +54,7 @@ export async function seedConversationEntry(client: import("@tanstack/react-quer
   const { publishConversationEntry, conversationEntryOptions } = await import("@/lib/community/conversation-entry")
   const { captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
   const options = conversationEntryOptions(client, target)
-  const resource = publishConversationEntry(client, target, entry, { token: captureCommunityLiveSnapshotToken(client, target.channelId), signal: undefined })
+  const resource = await publishConversationEntry(client, target, entry, { token: captureCommunityLiveSnapshotToken(client, target.channelId), signal: undefined })
   client.setQueryData(options.queryKey, resource)
   return { ...options, resource }
 }

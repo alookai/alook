@@ -22,7 +22,7 @@ it.each(["community:read_state.advanced", "community:inbox.changed"] as const)("
     { channelId: "c1", lastReadMessageId: "m8", lastReadAt: "2026-10-27T00:00:08.000Z", lastReadSeq: 8 },
     { channelId: "c2", lastReadMessageId: "m7", lastReadAt: "2026-10-27T00:00:07.000Z", lastReadSeq: 7 },
   ] }
-  publishCommunityConversationReadState(owner.client, snapshot.readStates[0], 8, { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
+  await publishCommunityConversationReadState(owner.client, snapshot.readStates[0], 8, { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
   expect(owner.registry.collections.readStateClock.get("account")).toBeUndefined()
   apiFetch.mockImplementation(async (path: string) => path.endsWith("/read-state") ? snapshot : emptyAttention)
   const event = { type, revision: 8, inboxChanged: true, ...(type === "community:inbox.changed" ? { reason: "read_all" as const } : {}) }

@@ -53,12 +53,12 @@ async function setup() {
 type View = Awaited<ReturnType<typeof setup>>
 async function begin(view: View, operation: "leave" | "remove") {
   let request!: Promise<unknown>
-  act(() => { request = view.view.result.current[operation].mutateAsync({ serverId: "srv_1" }).catch((error) => error) })
+  await act(() => { request = view.view.result.current[operation].mutateAsync({ serverId: "srv_1" }).catch((error) => error) })
   await waitFor(() => expect(api.mock.calls.some(([, options]) => options?.method)).toBe(true))
   return { request }
 }
-function seedPrivateScope(view: View) {
-  for (const channel of [{ id: "private_parent", name: "Private parent", type: "text" as const, parentChannelId: null, parentMessageId: null }, { id: "private_child", name: "Private title", type: "thread" as const, parentChannelId: "private_parent", parentMessageId: "private_opener" }]) publishCommunityCreatedChannel(view.client, channelResourceFixture({ ...channel, serverId: "srv_1" }), { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined })
+async function seedPrivateScope(view: View) {
+  for (const channel of [{ id: "private_parent", name: "Private parent", type: "text" as const, parentChannelId: null, parentMessageId: null }, { id: "private_child", name: "Private title", type: "thread" as const, parentChannelId: "private_parent", parentMessageId: "private_opener" }]) await publishCommunityCreatedChannel(view.client, channelResourceFixture({ ...channel, serverId: "srv_1" }), { token: captureCommunityLiveSnapshotToken(view.client), signal: undefined })
   view.runtime.ui.actions.setCurrentServerId("srv_1")
   view.runtime.ui.actions.setCurrentChannelId("private_child")
   view.runtime.messageStream.actions.dispatch({ kind: "channel", id: "private_child", serverId: "srv_1" }, { type: "wsMessage", message: messageResourceFixture({ id: "message_1", channelId: "private_child", authorId: "user_1", authorName: "User", content: "Private content" }) })
@@ -82,7 +82,7 @@ describe("Native server membership commands", () => {
     await waitFor(() => expect(view.view.result.current.rail.servers.map(({ id }) => id)).toEqual(["srv_1", "srv_2"]))
   })
   it.each(["leave", "remove"] as const)("%s success clears the server subtree, stream and private route", async (operation) => {
-    const view = await setup(); act(() => seedPrivateScope(view))
+    const view = await setup(); await act(async () => await seedPrivateScope(view))
     expect(view.registry.collections.channels.get("private_child")?.name).toBe("Private title")
     const { request } = await begin(view, operation)
     view.view.rerender({ detailActive: false })
@@ -90,7 +90,7 @@ describe("Native server membership commands", () => {
     if (operation === "remove") {
       expect(view.runtime.ui.get().currentServerId).toBe("srv_1")
       expect(observeOwnerServerDeleteRouteCommit(view.client, "/c/me")).toEqual(["srv_1"])
-      act(() => expect(flushOwnerServerDeleteRouteCommit(view.client)).toEqual(["srv_1"]))
+      await act(() => expect(flushOwnerServerDeleteRouteCommit(view.client)).toEqual(["srv_1"]))
     }
     expect(view.runtime.ui.get()).toMatchObject({ currentServerId: null, currentChannelId: null })
     expect(view.registry.collections.channels.has("private_child")).toBe(false)
@@ -127,7 +127,7 @@ describe("Native owner-delete navigation lifecycle", () => {
     expect(claimOwnerServerDeleteNavigation(view.client, "srv_1", view.routeToken, "/c/me")).toBe(false)
     view.view.rerender({ detailActive: false })
     expect(observeOwnerServerDeleteRouteCommit(view.client, "/c/me")).toEqual(["srv_1"])
-    act(() => expect(flushOwnerServerDeleteRouteCommit(view.client)).toEqual(["srv_1"]))
+    await act(() => expect(flushOwnerServerDeleteRouteCommit(view.client)).toEqual(["srv_1"]))
     expect(isOwnerServerDeleteRouteProtected(view.client, "srv_1")).toBe(false)
     expect(isOwnerServerDeleteRouteProtected(view.client, "srv_1", view.routeToken)).toBe(true)
   })
@@ -147,14 +147,14 @@ describe("Native owner-delete navigation lifecycle", () => {
 describe("Native server field commands", () => {
   it("restores the canonical detail and rail on PATCH failure", async () => {
     const view = await setup(); let request!: Promise<unknown>
-    act(() => { request = view.view.result.current.update.mutateAsync({ serverId: "srv_1", name: "new", description: "d2" }).catch((error) => error) })
+    await act(() => { request = view.view.result.current.update.mutateAsync({ serverId: "srv_1", name: "new", description: "d2" }).catch((error) => error) })
     await waitFor(() => { expect(view.view.result.current.detail.server?.name).toBe("new"); expect(view.view.result.current.rail.servers[0]?.name).toBe("new") })
     await act(async () => { view.held.reject(new Error("boom")); await request })
     await waitFor(() => { expect(view.view.result.current.detail.server?.name).toBe("old"); expect(view.view.result.current.rail.servers[0]).toMatchObject({ name: "old", description: "d" }) })
   })
   it("aligns optimistic detail and rail while preserving the unrelated server", async () => {
     const view = await setup(), untouched = view.registry.collections.servers.get("srv_2"); let request!: Promise<unknown>
-    act(() => { request = view.view.result.current.update.mutateAsync({ serverId: "srv_1", name: "new", description: "new description" }) })
+    await act(() => { request = view.view.result.current.update.mutateAsync({ serverId: "srv_1", name: "new", description: "new description" }) })
     await waitFor(() => { expect(view.view.result.current.detail.server?.name).toBe("new"); expect(view.view.result.current.rail.servers[0]).toMatchObject({ name: "new", description: "new description", initial: "N" }) })
     expect(view.registry.collections.servers.get("srv_2")).toBe(untouched)
     await act(async () => { view.held.resolve(); await request })
@@ -163,21 +163,21 @@ describe("Native server field commands", () => {
   })
   it("invalidates the original channel-ref directory after settling", async () => {
     const view = await setup(); let request!: Promise<unknown>
-    act(() => { request = view.view.result.current.update.mutateAsync({ serverId: "srv_1", name: "new", description: "updated" }) })
+    await act(() => { request = view.view.result.current.update.mutateAsync({ serverId: "srv_1", name: "new", description: "updated" }) })
     await waitFor(() => expect(api.mock.calls.some(([, options]) => options?.method === "PATCH")).toBe(true))
     await act(async () => { view.held.resolve(); await request })
     expect(view.client.getQueryState(communityKeys.channelRefDirectory())?.isInvalidated).toBe(true)
   })
   it("invalidates the actual server rail after create success", async () => {
     const view = await setup(); let request!: Promise<unknown>
-    act(() => { request = view.view.result.current.create.mutateAsync({ name: "n" }) })
+    await act(() => { request = view.view.result.current.create.mutateAsync({ name: "n" }) })
     await waitFor(() => expect(api.mock.calls.some(([path, options]) => path === "/api/community/servers" && options?.method === "POST")).toBe(true))
     await act(async () => { view.held.resolve({ server: { id: "srv_new" } }); await request })
     await waitFor(() => expect(api.mock.calls.some(([path, options]) => path === "/api/community/servers" && !options?.method)).toBe(true))
   })
   it("publishes the same canonical versioned icon to detail and rail", async () => {
     const view = await setup(), file = new File(["icon"], "icon.png", { type: "image/png" }); let request!: Promise<unknown>
-    act(() => { request = view.view.result.current.icon.mutateAsync({ serverId: "srv_1", file }) })
+    await act(() => { request = view.view.result.current.icon.mutateAsync({ serverId: "srv_1", file }) })
     await waitFor(() => expect(api.mock.calls.some(([path]) => path === "/api/community/servers/srv_1/icon")).toBe(true))
     const url = "/api/community/servers/srv_1/icon?v=server-icon%2Fsrv_1%2Fobject-one"
     await act(async () => { view.held.resolve({ url }); await request })

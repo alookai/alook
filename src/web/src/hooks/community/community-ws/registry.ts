@@ -56,6 +56,8 @@ import {
   handleProfileUpdate,
 } from "@/hooks/community/community-ws/identity-events"
 import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { withCommunityCollectionWrites } from "@/lib/community-db/write"
 import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
 
 type CommunityEventType = CommunityWsEvent["type"]
@@ -169,7 +171,9 @@ export function dispatchCommunityWsEvents(
   }
   const receipts: Array<{ id: string; start: number; type: CommunityEventType; operation?: PageOperation }> = []
   const publications: Promise<void>[] = []
-  try { runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
+  try {
+    const registry = getCommunityDbRegistry(context.queryClient)
+    const publish = () => runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
     const handlerContext: CommunityWsHandlerContext = {
       ...context,
       projection,
@@ -201,7 +205,10 @@ export function dispatchCommunityWsEvents(
         scheduleAccountAttentionReconcile(context.queryClient)
       }
     }
-  }) } catch (error) {
+    })
+    const publication = registry ? withCommunityCollectionWrites(registry, publish) : publish()
+    if (publication instanceof Promise) publications.push(publication.then(() => undefined))
+  } catch (error) {
     void Promise.allSettled(publications)
     for (const receipt of receipts) {
       finishPageOperation(receipt.operation, "partial")

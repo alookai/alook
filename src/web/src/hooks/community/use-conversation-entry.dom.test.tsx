@@ -41,9 +41,9 @@ function deferred<T>() {
 async function setup() {
   const owner = await createCommunityQueryOwner()
   const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, createElement(CommunityDbProvider, { registry: owner.registry }, children))
-  const publish = (value = fixture()) => {
+  const publish = async (value = fixture()) => {
     const options = conversationEntryOptions(owner.client, target)
-    const resource = publishConversationEntry(owner.client, target, value, { token: captureCommunityLiveSnapshotToken(owner.client, target.channelId) })
+    const resource = await publishConversationEntry(owner.client, target, value, { token: captureCommunityLiveSnapshotToken(owner.client, target.channelId) })
     owner.client.setQueryData(options.queryKey, resource)
     return resource
   }
@@ -54,7 +54,7 @@ describe("conversation entry selection", () => {
   it("keeps takeover on its original entry and retires that selection on a fresh navigation", async () => {
     const { client, wrapper: Owner, publish, registry } = await setup()
     const old = fixture()
-    const original = publish(old)
+    const original = await publish(old)
     const fresh = fixture()
     fresh.messages = [{ ...fresh.messages[0], id: "m2", seq: 2, createdAt: "2026-10-01T00:00:02.000Z" }]
     fresh.readState = { ...fresh.readState, lastReadMessageId: "m2", lastReadSeq: 2, lastReadAt: fresh.messages[0].createdAt }
@@ -92,7 +92,7 @@ describe("conversation entry selection", () => {
   it("ignores actual reconnect helper cache keys when the original entry hook consumes a complete warm window", async () => {
     const { client, wrapper, publish } = await setup()
     const value = fixture()
-    const resource = publish(value)
+    const resource = await publish(value)
     const observer = new QueryObserver(client, { queryKey: resource.windowKey, queryFn: async () => client.getQueryData(resource.windowKey), staleTime: Infinity })
     const stop = observer.subscribe(() => undefined)
     const repairPage = { profiles: value.profiles, messages: value.messages, ...value.page }
@@ -119,9 +119,9 @@ describe("conversation entry selection", () => {
     const { client, wrapper, registry, publish } = await setup()
     const value = fixture()
     value.selection = { reason: "tail", anchorMessageId: null }
-    const current = publish(value)
+    const current = await publish(value)
     const old = { ...value.messages[0], id: "old-message", authorId: "old-author", seq: 0 }
-    publishCommunityMessages(client, { channelId: "c1", messages: [old], profiles: [profileResourceFixture({ id: "old-author", name: "Old Author" })], proof: { token: captureCommunityLiveSnapshotToken(client, "c1") } })
+    await publishCommunityMessages(client, { channelId: "c1", messages: [old], profiles: [profileResourceFixture({ id: "old-author", name: "Old Author" })], proof: { token: captureCommunityLiveSnapshotToken(client, "c1") } })
     const oldKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: old.id })
     const oldWindow = { pages: [{ ...value.page, messages: [{ id: old.id, seq: old.seq }] }], pageParams: [{ mode: "anchor", anchor: old.id }] }
     client.setQueryData(oldKey, oldWindow)
@@ -143,7 +143,7 @@ describe("conversation entry selection", () => {
     const { client, wrapper, registry, publish } = await setup()
     const value = fixture()
     value.selection = { reason: "tail", anchorMessageId: null }
-    publish(value)
+    await publish(value)
     const oldKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "missing-old-body" })
     const oldWindow = { pages: [{ ...value.page, messages: [{ id: "missing-old-body", seq: 0 }] }], pageParams: [{ mode: "anchor", anchor: "missing-old-body" }] }
     client.setQueryData(oldKey, oldWindow)
@@ -168,7 +168,7 @@ describe("conversation entry selection", () => {
     const { client, wrapper, registry, publish } = await setup()
     const value = defect === "forum-shape" ? forumConversationEntryFixture() : fixture()
     const destination = { channelId: "c1", serverId: value.channel.serverId }
-    const resource = defect === "forum-shape" ? publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") }) : publish(value)
+    const resource = defect === "forum-shape" ? await publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") }) : await publish(value)
     client.setQueryData(conversationEntryOptions(client, destination).queryKey, resource)
     if (defect === "messages-shape") client.setQueryData(resource.windowKey, { pages: [{ messages: 42 }], pageParams: [{ mode: "newest" }] })
     if (defect === "forum-shape") client.setQueryData(communityKeys.forumFeed("c1", null), { pages: [{ threads: 42 }], pageParams: [null] })
@@ -191,7 +191,7 @@ describe("conversation entry selection", () => {
   ])("keeps current $kind permission separate from a missing owned entry window", async ({ kind, useSurface }) => {
     const { client, wrapper } = await setup()
     const value = kind === "dm" ? dmConversationEntryFixture() : fixture()
-    publishCommunityResourceBundle(client, fullResourceBundleFixture(value.viewerId,
+    await publishCommunityResourceBundle(client, fullResourceBundleFixture(value.viewerId,
       value.channel.serverId ? [serverResourceFixture({ id: value.channel.serverId, ownerId: value.viewerId })] : [],
       [value.channel], [], value.peer ? [value.peer] : []), { token: captureCommunityLiveSnapshotToken(client) })
     const held = deferred<typeof value>()
@@ -215,7 +215,7 @@ describe("conversation entry selection", () => {
   it("offers the existing retry after a scope-only entry window fails, while retaining identity", async () => {
     const { client, wrapper } = await setup()
     const value = dmConversationEntryFixture()
-    publishCommunityResourceBundle(client, fullResourceBundleFixture(value.viewerId, [], [value.channel], [], [value.peer!]),
+    await publishCommunityResourceBundle(client, fullResourceBundleFixture(value.viewerId, [], [value.channel], [], [value.peer!]),
       { token: captureCommunityLiveSnapshotToken(client) })
     load.mockRejectedValue(new ConversationReadTimeoutError())
     const hook = renderHook(() => ({ metadata: useChannelMetadata(null, "c1"), messages: useDmMessages("c1") }), { wrapper })
@@ -246,7 +246,7 @@ describe("conversation entry selection", () => {
       value.surfaceReceipt = { channelId: "c1", surfaceKind: "thread" }
     }
     const destination = { channelId: "c1", serverId: value.channel.serverId }
-    const resource = publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const resource = await publishConversationEntry(client, destination, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     client.setQueryData(conversationEntryOptions(client, destination).queryKey, resource)
     client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
     const held = deferred<typeof value>()
@@ -277,7 +277,7 @@ describe("conversation entry selection", () => {
     value.readState = { ...value.readState, lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 }
     value.selection = { reason: "tail", anchorMessageId: null }
     value.page = { ...value.page, olderCursor: null, hasMoreOlder: false, latestSeq: 0 }
-    publish(value)
+    await publish(value)
     client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
     load.mockReturnValue(new Promise(() => {}))
     const hook = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
@@ -292,7 +292,7 @@ describe("conversation entry selection", () => {
 
   it("keeps the current qualified cache while another server retires old entry proofs", async () => {
     const { wrapper, publish, registry } = await setup()
-    publish()
+    await publish()
     const held = deferred<ReturnType<typeof fixture>>()
     load.mockReturnValue(held.promise)
     const hook = renderHook(() => useMessages("c1", { serverId: "s1" }), { wrapper })
@@ -312,7 +312,7 @@ describe("conversation entry selection", () => {
     const value = fixture()
     value.messages.push({ ...value.messages[0], id: "m2", seq: 2, content: "Second" })
     value.page.latestSeq = 2
-    publish(value)
+    await publish(value)
     let active = true
     const navigation = { entryIntent: { href: "/c/channels/s1/c1" } as { href: string; resume?: boolean } }
     function Wrapper({ children }: PropsWithChildren) {
@@ -345,7 +345,7 @@ describe("conversation entry selection", () => {
     const { wrapper: Owner, registry, client } = await setup()
     const dmTarget = { channelId: "c1", serverId: null }
     const old = dmConversationEntryFixture()
-    const oldResource = publishConversationEntry(client, dmTarget, old, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const oldResource = await publishConversationEntry(client, dmTarget, old, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     client.setQueryData(conversationEntryOptions(client, dmTarget).queryKey, oldResource)
     ingestReadStateSnapshot(registry, { revision: 6, readStates: [{ channelId: "c1", lastReadMessageId: "m2", lastReadSeq: 2, lastReadAt: "later" }] })
     const next = dmConversationEntryFixture()
@@ -388,7 +388,7 @@ describe("conversation entry selection", () => {
     const value = fixture()
     value.messages.push({ ...value.messages[0], id: "m2", seq: 2, content: "Second" })
     value.page.latestSeq = 2
-    publish(value)
+    await publish(value)
     ingestReadStateSnapshot(registry, { revision: 5, readStates: [{ channelId: "c1", lastReadMessageId: "m2", lastReadAt: "at", lastReadSeq: 2 }] })
     const hook = renderHook(() => useConversationEntry(target), { wrapper })
     expect(hook.result.current.window).not.toBeNull()
@@ -403,7 +403,7 @@ describe("conversation entry selection", () => {
 
   it("keeps its selected window and NEW during a background timeout", async () => {
     const { wrapper, publish } = await setup()
-    publish()
+    await publish()
     const hook = renderHook(() => useConversationEntry(target), { wrapper })
     const window = hook.result.current.window
     const transport = deferred<ReturnType<typeof fixture>>()
@@ -434,7 +434,7 @@ describe("conversation entry selection", () => {
 
   it("loads one new entry when a newer current pointer is outside all cached windows", async () => {
     const { wrapper, publish, registry } = await setup()
-    publish()
+    await publish()
     ingestReadStateSnapshot(registry, { revision: 5, readStates: [{ channelId: "c1", lastReadMessageId: "m2", lastReadAt: "second", lastReadSeq: 2 }] })
     const transport = deferred<ReturnType<typeof fixture>>()
     load.mockReturnValue(transport.promise)
@@ -459,7 +459,7 @@ describe("conversation entry selection", () => {
     const packet = fixture()
     packet.messages.push({ ...packet.messages[0], id: "m2", seq: 2 })
     packet.page.latestSeq = 2
-    publish(packet)
+    await publish(packet)
     const navigation: { entryIntent: { href: string } | null } = { entryIntent: null }
     const wrapper = ({ children }: PropsWithChildren) => createElement(Owner, null, createElement(CommunityRouteContext, { value: { navigation } as never }, children))
     const hook = renderHook(() => useConversationEntry(target), { wrapper })
@@ -475,7 +475,7 @@ describe("conversation entry selection", () => {
 
   it("withdraws a selected window immediately on target revocation", async () => {
     const { wrapper, publish, registry } = await setup()
-    publish()
+    await publish()
     const hook = renderHook(() => useConversationEntry(target), { wrapper })
     expect(hook.result.current.canRead).toBe(true)
     await act(async () => { registry.runtime.ws.actions.revokeChannelAccess("s1", "c1") })
@@ -507,7 +507,7 @@ describe("conversation entry selection", () => {
 
   it("retires the old entry proof and refetches while qualifying the current canonical scope after registry registration changes", async () => {
     const { wrapper, publish, registry, client } = await setup()
-    const original = publish()
+    const original = await publish()
     const hook = renderHook(() => useConversationEntry({ ...target }), { wrapper })
     expect(hook.result.current.canRead).toBe(true)
     const invalidate = vi.spyOn(client, "invalidateQueries")
@@ -552,7 +552,7 @@ describe("conversation entry return during accepted reading", () => {
     value.readState = { channelId: "c1", lastReadMessageId: "m30", lastReadSeq: 30, lastReadAt: value.messages[29].createdAt }
     value.selection = { reason: "read_pointer", anchorMessageId: "m30" }
     value.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 42 }
-    owner.publish(value)
+    await owner.publish(value)
     const put = deferred<{ changed: boolean; revision: number; targetSeq: number }>()
     const canonical = deferred<{ revision: number; readStates: typeof value.readState[] }>()
     load.mockImplementation((url: string) => {
@@ -645,7 +645,7 @@ describe("conversation entry return during accepted reading", () => {
     fresh.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 45 }
     await act(async () => {
       ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [readState] })
-      publishAccountAttentionSnapshot(owner.client, {
+      await publishAccountAttentionSnapshot(owner.client, {
         snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1",
           ordinaryUnread: true, lastUnreadSeq: 45, lastAttentionSeq: null, attentionCount: 0 }], items: [], limit: 100, truncated: false,
           included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },
@@ -786,7 +786,7 @@ describe("conversation entry return during accepted reading", () => {
     } finally { view?.view.unmount(); releaseReadSurface(owner.lease); await owner.finish() }
   })
 
-  function evictOrdinaryEntryWithAlternateCoverage(owner: Awaited<ReturnType<typeof readingOwner>>) {
+  async function evictOrdinaryEntryWithAlternateCoverage(owner: Awaited<ReturnType<typeof readingOwner>>) {
     const alternateTarget = { ...target, anchorMessageId: "m42" }
     const alternate = fixture()
     alternate.messages = [{ ...alternate.messages[0], id: "m42", seq: 42, createdAt: owner.read42.lastReadAt! }]
@@ -794,7 +794,7 @@ describe("conversation entry return during accepted reading", () => {
     alternate.readState = { channelId: "c1", lastReadMessageId: "m30", lastReadSeq: 30, lastReadAt: "2026-10-01T00:00:30.000Z" }
     alternate.selection = { reason: "explicit_anchor", anchorMessageId: "m42" }
     alternate.page = { ...alternate.page, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 42 }
-    const alternateResource = publishConversationEntry(owner.client, alternateTarget, alternate,
+    const alternateResource = await publishConversationEntry(owner.client, alternateTarget, alternate,
       { token: captureCommunityLiveSnapshotToken(owner.client, "c1") })
     const alternateKey = conversationEntryOptions(owner.client, alternateTarget).queryKey
     owner.client.setQueryData(alternateKey, alternateResource)
@@ -808,7 +808,7 @@ describe("conversation entry return during accepted reading", () => {
 
   it.each([true, false])("uses qualified canonical coverage after ordinary entry eviction with alternate entry retained=%s", async qualified => {
     const owner = await readingOwner()
-    const { alternate, alternateResource, alternateKey, retainedWindow, ordinaryKey } = evictOrdinaryEntryWithAlternateCoverage(owner)
+    const { alternate, alternateResource, alternateKey, retainedWindow, ordinaryKey } = await evictOrdinaryEntryWithAlternateCoverage(owner)
     if (!qualified) owner.client.removeQueries({ queryKey: alternateKey, exact: true })
     expect(owner.client.getQueryData(ordinaryKey)).toBeUndefined()
     expect(owner.client.getQueryData(alternateKey)).toBe(qualified ? alternateResource : undefined)
@@ -874,7 +874,7 @@ describe("conversation entry return during accepted reading", () => {
 
   it.each([42, 100])("uses the higher canonical target %i with qualified cached coverage or its actual read", async seq => {
     const owner = await readingOwner()
-    const { alternate, alternateResource, retainedWindow } = evictOrdinaryEntryWithAlternateCoverage(owner)
+    const { alternate, alternateResource, retainedWindow } = await evictOrdinaryEntryWithAlternateCoverage(owner)
     const read = { channelId: "c1", lastReadMessageId: `m${seq}`, lastReadSeq: seq,
       lastReadAt: seq === 42 ? owner.read42.lastReadAt : "2026-10-01T00:01:40.000Z" }
     const response = { ...alternate, readState: read, readStateRevision: 5,
@@ -1122,7 +1122,7 @@ describe("native entry freshness with authoritative newer attention", () => {
     const original = await client.query(conversationEntryOptions(client, selectedTarget))
     expect(client.getQueryCache().find({ queryKey: original.windowKey, exact: true })?.isActive()).toBe(false)
     load.mockClear()
-    publishAccountAttentionSnapshot(client, {
+    await publishAccountAttentionSnapshot(client, {
       snapshot: { resources: resourceBundleFixture(), scopes: [{ scopeId: packet.channelId, channelId: packet.channelId, serverId: packet.channel.serverId,
         ordinaryUnread: newer, lastUnreadSeq: newer ? 2 : 1, lastAttentionSeq: null, attentionCount: 0 }], items: [], limit: 100, truncated: false,
         included: { servers: [], channels: [], dms: [], profiles: [], messages: [] } },

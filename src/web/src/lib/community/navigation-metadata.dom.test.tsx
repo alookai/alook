@@ -84,7 +84,7 @@ describe("native navigation warming and DM consumer mounting", () => {
       entry.selection = { reason: "read_pointer", anchorMessageId: "m28" }
       entry.page.latestSeq = 28
     } else {
-      publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
+      await publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
     }
     const pending = deferred<typeof entry>()
     load.mockReturnValue(pending.promise)
@@ -111,7 +111,7 @@ describe("native navigation warming and DM consumer mounting", () => {
   it.each(["account", "channel"] as const)("still cancels warming and rejects late data after %s retirement", async kind => {
     const owner = await createCommunityQueryOwner()
     const entry = dmConversationEntryFixture()
-    publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
+    await publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
     const pending = deferred<typeof entry>()
     load.mockReturnValue(pending.promise)
     const warming = prepareNavigationMetadata(owner.client, "/c/me/c1", "foreground")

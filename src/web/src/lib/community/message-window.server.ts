@@ -3,6 +3,7 @@ import { buildAnchorResponse, buildPaginatedResponse, buildSinceResponse, type p
 import { enrichMessages } from "./enrich-messages"
 import type { DoorTarget } from "./message-door"
 import type { MessagePage } from "./read-contract"
+import type { CommunityResourceProfileReader } from "./resource-profiles.server"
 
 export async function readCommunityMessageWindow(db: Database, input: {
   viewerId: string
@@ -10,6 +11,7 @@ export async function readCommunityMessageWindow(db: Database, input: {
   window: ReturnType<typeof parseCommunityMessageWindow>
   contract: CommunityContract
   tag?: string
+  readProfiles?: CommunityResourceProfileReader
 }): Promise<{ ok: true; page: MessagePage } | { ok: false; status: 404; error: string; details: string[] }> {
   const { viewerId, target, window: { anchorId, since, cursor, pageSize }, contract, tag } = input
   const channelId = target.target.channelId
@@ -25,19 +27,19 @@ export async function readCommunityMessageWindow(db: Database, input: {
     const { items, ...page } = buildAnchorResponse(around.older, around.newer, {
       hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer,
     })
-    const enriched = await enrichMessages(db, viewerId, scope, items)
+    const enriched = await enrichMessages(db, viewerId, scope, items, input.readProfiles)
     return { ok: true, page: { ...page, ...enriched, surfaceReceipt } }
   }
 
   if (since) {
     const rows = await queries.communityMessage.listMessagesSince(db, { channelId, since, limit: pageSize, tag })
     const { items, ...page } = buildSinceResponse(rows, pageSize)
-    const enriched = await enrichMessages(db, viewerId, scope, items)
+    const enriched = await enrichMessages(db, viewerId, scope, items, input.readProfiles)
     return { ok: true, page: { ...page, ...enriched, surfaceReceipt } }
   }
 
   const rows = await queries.communityMessage.listMessages(db, { channelId, cursor, limit: pageSize + 1, tag })
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
-  const enriched = await enrichMessages(db, viewerId, scope, items.slice().reverse())
+  const enriched = await enrichMessages(db, viewerId, scope, items.slice().reverse(), input.readProfiles)
   return { ok: true, page: { ...enriched, hasMore, cursor: nextCursor, surfaceReceipt } }
 }

@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { CommunityChannelResourceSchema, type CommunityChannelResource, type CommunityMessagePosted } from "@alook/shared"
 
@@ -185,7 +186,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       await origin.registry!.collections.messages.preload()
       origin.assert(token); (assertCommand ?? assertActive)?.()
       const message = postedMessageForIntent(result.message, nonce ?? "", scope.id)
-      publishCommunityMessages(queryClient, { channelId: scope.id, profiles: result.profiles,
+      await publishCommunityMessages(queryClient, { channelId: scope.id, profiles: result.profiles,
         messages: [{ ...message, ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
         proof: { token, ...(scope.kind === "channel" && !assertCommand ? { signal: assertActive?.signal } : {}) } })
       return result
@@ -212,7 +213,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       if (error instanceof ApiError && error.status === 429) toast.error("Rate limited — please wait a moment before trying again")
       else toastApiError(error, "Failed to send message", () => { origin.assert(args.original); args.assertActive?.() })
     },
-    onSuccess: (data, args) => {
+    onSuccess: async (data, args) => {
       try { origin.assert(args.original); args.assertCommand?.() } catch { return }
       if ("serverId" in args) captureOnboardingFirstMessage(args.author.id, args.serverId)
       if (
@@ -223,13 +224,13 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
           getForumSidebarBase(queryClient, args.serverId),
           args.channelId,
         )
-        patchForumSidebarActivityExact(
+        await completeCommunityPublication(queryClient, () => patchForumSidebarActivityExact(
           queryClient,
           args.serverId,
           args.channelId,
-          args.forumParentChannelId,
+          args.forumParentChannelId!,
           data.message.createdAt,
-        )
+        ))
         if (!canonical) {
           void invalidateForumSidebarBaseExact(queryClient, args.serverId)
         }
@@ -291,7 +292,7 @@ export function useCreateThread() {
       origin.assert(token); args.assertActive?.()
       const channel = CommunityChannelResourceSchema.parse(data)
       if (channel.type !== "thread" || channel.serverId !== args.serverId || channel.parentChannelId !== args.channelId || channel.parentMessageId !== args.messageId) throw new Error("Created thread scope mismatch")
-      publishCommunityCreatedChannel(queryClient, { ...channel, pending: false }, { token, signal: args.assertActive?.signal })
+      await completeCommunityPublication(queryClient, () => publishCommunityCreatedChannel(queryClient, { ...channel, pending: false }, { token, signal: args.assertActive?.signal }))
       if (args.resource && queryClient.getQueryCache().find({ queryKey: communityKeys.threads(args.channelId), exact: true }) === args.resource) void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId), exact: true }, { cancelRefetch: false }).catch(() => undefined)
       return data
     },

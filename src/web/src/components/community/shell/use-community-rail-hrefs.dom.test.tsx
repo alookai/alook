@@ -1,3 +1,5 @@
+import { canonicalChannelRow } from "@/lib/community-db/schema"
+import { createStore } from "@tanstack/store"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
@@ -10,6 +12,8 @@ import { clearLastChannel, setLastChannel } from "@/lib/community/last-channel"
 import { setLastMeLocation } from "@/lib/community/last-me-location"
 import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityRailHrefs } from "./use-community-rail-hrefs"
+
+const canonicalChannelFixture = (fields: Parameters<typeof channelResourceFixture>[0]) => canonicalChannelRow(channelResourceFixture(fields))
 
 const owner = vi.hoisted(() => ({ registry: null as CommunityDbRegistry | null }))
 vi.mock("@/lib/community-db/projections", () => ({ useOptionalCommunityDbRegistry: () => owner.registry }))
@@ -35,10 +39,10 @@ describe("rail hrefs derived from canonical rows and existing navigation memory"
   it.each(["desktop", "mobile", "unknown"] as const)("server-renders deterministic %s links without reading client memory or subscribing", (breakpoint) => {
     const servers = collection([["s", serverResourceFixture({ id: "s" })], ["other", serverResourceFixture({ id: "other" })]])
     const channels = collection([
-      ["first", channelResourceFixture({ id: "first", serverId: "s" })],
-      ["second", channelResourceFixture({ id: "second", serverId: "other" })],
+      ["first", canonicalChannelFixture({ id: "first", serverId: "s" })],
+      ["second", canonicalChannelFixture({ id: "second", serverId: "other" })],
     ])
-    owner.registry = { queryClient: new QueryClient(), accountId: "viewer", scopeId: "viewer", collections: { servers, categories: collection([]), channels } } as unknown as CommunityDbRegistry
+    owner.registry = { queryClient: new QueryClient(), accountId: "viewer", scopeId: "viewer", runtime: { lifecycle: createStore({ active: true, generation: 0 }) }, collections: { servers, categories: collection([]), channels } } as unknown as CommunityDbRegistry
     setLastMeLocation("/c/me/machines")
     setLastChannel("s", "remembered")
     setLastChannel("other", "other-remembered")
@@ -84,12 +88,12 @@ describe("rail hrefs derived from canonical rows and existing navigation memory"
   it("subscribes to complete canonical channels, filters placeholders/threads, and follows the latest memory", () => {
     const servers = collection([["s", serverResourceFixture({ id: "s" })]])
     const channels = collection<ReturnType<typeof channelResourceFixture> & { pending?: boolean }>([
-      ["pending", { ...channelResourceFixture({ id: "pending", serverId: "s" }), pending: true }],
-      ["thread", channelResourceFixture({ id: "thread", serverId: "s", type: "thread", parentChannelId: "first", parentMessageId: "opener" })],
-      ["first", channelResourceFixture({ id: "first", serverId: "s" })],
-      ["foreign", channelResourceFixture({ id: "foreign", serverId: "other" })],
+      ["pending", { ...canonicalChannelFixture({ id: "pending", serverId: "s" }), pending: true }],
+      ["thread", canonicalChannelFixture({ id: "thread", serverId: "s", type: "thread", parentChannelId: "first", parentMessageId: "opener" })],
+      ["first", canonicalChannelFixture({ id: "first", serverId: "s" })],
+      ["foreign", canonicalChannelFixture({ id: "foreign", serverId: "other" })],
     ])
-    owner.registry = { queryClient: new QueryClient(), accountId: "viewer", scopeId: "viewer", collections: { servers, categories: collection([]), channels } } as unknown as CommunityDbRegistry
+    owner.registry = { queryClient: new QueryClient(), accountId: "viewer", scopeId: "viewer", runtime: { lifecycle: createStore({ active: true, generation: 0 }) }, collections: { servers, categories: collection([]), channels } } as unknown as CommunityDbRegistry
     const rows = [{ id: "s" }]
     const view = renderHook(({ breakpoint }: { breakpoint: "desktop" | "mobile" }) =>
       useCommunityRailHrefs(rows, breakpoint), { initialProps: { breakpoint: "desktop" } })

@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import type { Transaction } from "@tanstack/react-db"
 import { createStore } from "@tanstack/store"
@@ -36,7 +37,7 @@ function useReactionIntent(intent: "toggle" | "add") {
     const proof = beginCommunityCommandRevision(queryClient, args.token)
     await origin.request(args.token, `/api/community/messages/${args.messageId}/reactions/${encodeURIComponent(args.emoji)}`, { method: args.nextMe ? "PUT" : "DELETE", signal: args.assertActive?.signal, assertActive: args.assertActive })
     assert(args)
-    publishCommunityMessageReaction(queryClient, args.messageId, args.emoji, args.userId, args.nextMe, { token: proof, signal: args.assertActive?.signal })
+    await completeCommunityPublication(queryClient, () => publishCommunityMessageReaction(queryClient, args.messageId, args.emoji, args.userId, args.nextMe, { token: proof, signal: args.assertActive?.signal }))
   }
   const mutation = useMutation<void, Error, Intent>({ meta: { observabilityAction: intent === "add" ? "message.reaction.add" : "message.reaction.toggle" },
     mutationKey: key, scope: { id: "community-reaction-commands" }, gcTime: 0,

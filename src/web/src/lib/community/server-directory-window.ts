@@ -2,6 +2,7 @@ import { z } from "zod"
 import { BUSINESS_SCHEMA_VERSION, CommunityChannelResourceSchema, categorySchema, serverSchema, type CommunityCollectionRows } from "@alook/shared"
 import type { CommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
+import { readCommunityCollectionRow } from "@/lib/community-db/write"
 
 export const ServerDirectorySnapshotSchema = z.strictObject({
   server: serverSchema,
@@ -30,10 +31,13 @@ export function serverDirectoryWindowComplete(window: ServerDirectoryWindow, row
   categories: readonly CommunityCollectionRows["categories"][]
   channels: readonly CommunityCollectionRows["channels"][]
 }, accountId: string | null, serverId: string) {
+  const categories = new Map(rows.categories.map(row => [row.id, row]))
+  const channels = new Map(rows.channels.map(row => [row.id, row]))
+  const categoryIds = new Set(window.categoryIds)
   return window.accountId === accountId && window.serverId === serverId && rows.servers.some(row => row.id === serverId)
-    && window.categoryIds.every(id => rows.categories.some(row => row.id === id && row.serverId === serverId && !row.pending))
-    && window.channelIds.every(id => rows.channels.some(row => row.id === id && row.serverId === serverId && row.parentChannelId === null && !row.pending
-      && (row.categoryId === null || window.categoryIds.includes(row.categoryId))))
+    && window.categoryIds.every(id => { const row = categories.get(id); return row?.serverId === serverId && !row.pending })
+    && window.channelIds.every(id => { const row = channels.get(id); return row?.serverId === serverId && row.parentChannelId === null && !row.pending
+      && (row.categoryId === null || categoryIds.has(row.categoryId)) })
 }
 
 function directoryRows(registry: CommunityDbRegistry) {
@@ -47,7 +51,14 @@ function directoryRows(registry: CommunityDbRegistry) {
 export function getServerDirectoryWindow(registry: CommunityDbRegistry | null | undefined, serverId: string) {
   if (!registry) return
   const window = readServerDirectoryWindow(registry.queryClient.getQueryData(communityKeys.server(serverId)))
-  return window && serverDirectoryWindowComplete(window, directoryRows(registry), registry.accountId, serverId) ? window : undefined
+  if (!window) return
+  const server = readCommunityCollectionRow(registry, "servers", serverId)
+  const rows = {
+    servers: server ? [server] : [],
+    categories: window.categoryIds.flatMap(id => { const row = readCommunityCollectionRow(registry, "categories", id); return row ? [row] : [] }),
+    channels: window.channelIds.flatMap(id => { const row = readCommunityCollectionRow(registry, "channels", id); return row ? [row] : [] }),
+  }
+  return serverDirectoryWindowComplete(window, rows, registry.accountId, serverId) ? window : undefined
 }
 
 export function recordServerDirectoryWindow(registry: CommunityDbRegistry, serverId: string) {
@@ -58,14 +69,20 @@ export function recordServerDirectoryWindow(registry: CommunityDbRegistry, serve
     categoryIds: rows.categories.filter(row => row.serverId === serverId && !row.pending).map(row => row.id),
     channelIds: rows.channels.filter(row => row.serverId === serverId && row.parentChannelId === null && !row.pending).map(row => row.id),
   })
+  const current = registry.queryClient.getQueryData<ServerDirectoryWindow>(communityKeys.server(serverId))
+  const previous = readServerDirectoryWindow(current)
+  if (previous?.accountId === window.accountId && previous.serverId === serverId
+    && previous.categoryIds.length === window.categoryIds.length && previous.channelIds.length === window.channelIds.length) {
+    const categories = new Set(previous.categoryIds), channels = new Set(previous.channelIds)
+    if (window.categoryIds.every(id => categories.has(id)) && window.channelIds.every(id => channels.has(id))) return current
+  }
   registry.queryClient.setQueryData(communityKeys.server(serverId), window)
   return window
 }
 
-export function reconcileExistingServerDirectoryWindows(registry: CommunityDbRegistry) {
-  for (const query of registry.queryClient.getQueryCache().findAll({ queryKey: communityKeys.servers() })) {
-    if (!isServerDirectoryWindowKey(query.queryKey)) continue
-    const window = readServerDirectoryWindow(query.state.data)
-    if (window?.accountId === registry.accountId) recordServerDirectoryWindow(registry, window.serverId)
+export function reconcileExistingServerDirectoryWindows(registry: CommunityDbRegistry, serverIds: ReadonlySet<string>) {
+  for (const serverId of serverIds) {
+    const window = readServerDirectoryWindow(registry.queryClient.getQueryData(communityKeys.server(serverId)))
+    if (window?.accountId === registry.accountId && window.serverId === serverId) recordServerDirectoryWindow(registry, serverId)
   }
 }

@@ -27,7 +27,7 @@ async function frame(events: CommunityWsEvent[], id: string) {
 it.each(["forum", "text"] as const)("retains a promoted %s participant when an older bounded response settles after live activity", async (parentType) => {
   await mountHook({ viewerUserId: "u_me" })
   const visible = ["post_7", "post_6", "post_5", "post_4", "post_3"]
-  seedCanonicalForumSidebar(serverId, [...visible, "post_old"])
+  await seedCanonicalForumSidebar(serverId, [...visible, "post_old"])
   act(() => { patchCanonicalCommunityChannel(capturedQueryClient, "post_old", row => ({ ...row, lastMessageAt: new Date(Date.now() - 60_000).toISOString() })) })
   const api = getCommunityApiFetchMock()
   const original = api.getMockImplementation()!

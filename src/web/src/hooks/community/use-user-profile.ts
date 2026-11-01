@@ -55,7 +55,7 @@ export const userProfileQueryFn = (userId: string) => async (context: QueryFunct
   } catch (error) {
     if (error instanceof ApiError && error.status === 404 && registry && presence) {
       assertCommunityLiveSnapshotTokenCurrent(context.client, token, context.signal)
-      if ((registry.runtime.ws.get().presenceRevisionsByUserId.get(userId) ?? 0) <= presence.revision) retireCommunityProfile(userId, registry, token.profileSnapshot)
+      if ((registry.runtime.ws.get().presenceRevisionsByUserId.get(userId) ?? 0) <= presence.revision) await retireCommunityProfile(userId, registry, token.profileSnapshot)
     }
     throw error
   }

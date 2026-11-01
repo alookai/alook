@@ -30,11 +30,11 @@ afterEach(async () => {
 function Owner({ children }: PropsWithChildren) { return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children)) }
 const server = { id: "s1", name: "Studio", discriminator: "0042", description: "", icon: null, ownerId: "viewer" }
 const categories: ServerDetail["categories"] = [{ id: "cat_1", name: "General", private: false, channels: [{ id: "c1", name: "general", active: false, unread: false }, { id: "c2", name: "random", active: false, unread: true }] }, { id: "cat_2", name: "Ideas", private: false, channels: [] }]
-function publish(snapshot: Parameters<typeof publishCommunityLiveSnapshot>[1]["snapshot"]) { publishCommunityLiveSnapshot(client, { snapshot, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } }) }
-function seed(cats = categories) {
-  publish({ kind: "servers", data: serverRailResponseFixture({ servers: [server, { ...server, id: "s2", name: "Elsewhere" }] }, "viewer") })
-  publish({ kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: cats.filter(category => category.id !== UNCATEGORIZED_CATEGORY_ID), channels: cats.filter(category => category.id === UNCATEGORIZED_CATEGORY_ID).flatMap(category => category.channels) }) })
-  publish({ kind: "server-detail", data: serverDirectoryFixture({ ...server, id: "s2", categories: [{ id: "other-cat", name: "Other", channels: [{ id: "c3", name: "other", active: false, unread: false }] }] }) })
+async function publish(snapshot: Parameters<typeof publishCommunityLiveSnapshot>[1]["snapshot"]) { await publishCommunityLiveSnapshot(client, { snapshot, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } }) }
+async function seed(cats = categories) {
+  await publish({ kind: "servers", data: serverRailResponseFixture({ servers: [server, { ...server, id: "s2", name: "Elsewhere" }] }, "viewer") })
+  await publish({ kind: "server-detail", data: serverDirectoryFixture({ ...server, categories: cats.filter(category => category.id !== UNCATEGORIZED_CATEGORY_ID), channels: cats.filter(category => category.id === UNCATEGORIZED_CATEGORY_ID).flatMap(category => category.channels) }) })
+  await publish({ kind: "server-detail", data: serverDirectoryFixture({ ...server, id: "s2", categories: [{ id: "other-cat", name: "Other", channels: [{ id: "c3", name: "other", active: false, unread: false }] }] }) })
   client.setQueryData(communityKeys.channelRefDirectory(), { serverIds: ["s1", "s2"] })
 }
 function mount<T>(hook: () => T) { return renderHook(() => { const command = hook(), tree = useServerTreeProjection("s1"), directory = useChannelRefDirectoryProjection(), sidebar = useChannelTree(tree?.categories ?? []); return { command, tree, directory, sidebar } }, { wrapper: Owner }) }
@@ -51,7 +51,7 @@ const treeChannels = (tree: ServerDetail | null | undefined) => tree?.categories
 
 describe("canonical channel rename", () => {
   it("cancels both exact queries before optimistically updating tree and directory consumers", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useRenameChannel)
+    await seed(); const held = deferred(), rendered = mount(commands.useRenameChannel)
     const cancel = vi.spyOn(client, "cancelQueries"), pending = start(rendered.result.current.command, rename)
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).find((row) => row.id === "c1")?.name).toBe("General Chat"))
     expect(rendered.result.current.directory?.[0]?.channels.find((row) => row.id === "c1")?.name).toBe("General Chat")
@@ -60,7 +60,7 @@ describe("canonical channel rename", () => {
     await act(async () => { held.resolve({ id: "c1", name: "General-Chat" }); await pending })
   })
   it("reconciles both consumers to the PATCH response normalized name", async () => {
-    seed(); api.mockResolvedValueOnce({ id: "c1", name: "General-Chat" })
+    await seed(); api.mockResolvedValueOnce({ id: "c1", name: "General-Chat" })
     const rendered = mount(commands.useRenameChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync(rename) })
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).find((row) => row.id === "c1")?.name).toBe("General-Chat"))
@@ -69,14 +69,14 @@ describe("canonical channel rename", () => {
     expect(registry.collections.channels.get("c3")?.name).toBe("other")
   })
   it("restores both consumers on failure without optimistic residue", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useRenameChannel), pending = start(rendered.result.current.command, rename)
+    await seed(); const held = deferred(), rendered = mount(commands.useRenameChannel), pending = start(rendered.result.current.command, rename)
     await waitFor(() => expect(registry.collections.channels.get("c1")?.name).toBe("General Chat"))
     await act(async () => { held.reject(new Error("duplicate")); expect(await pending).toMatchObject({ message: "duplicate" }) })
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).find((row) => row.id === "c1")?.name).toBe("general"))
     expect(rendered.result.current.directory?.[0]?.channels.find((row) => row.id === "c1")?.name).toBe("general")
   })
   it.each(["success", "error"] as const)("invalidates only original exact tree and directory after %s", async (outcome) => {
-    seed(); if (outcome === "success") api.mockResolvedValueOnce({ id: "c1", name: "renamed" }); else api.mockRejectedValueOnce(new Error("boom"))
+    await seed(); if (outcome === "success") api.mockResolvedValueOnce({ id: "c1", name: "renamed" }); else api.mockRejectedValueOnce(new Error("boom"))
     client.setQueryData(communityKeys.server("s2"), "s2")
     const rendered = mount(commands.useRenameChannel), invalidate = vi.spyOn(client, "invalidateQueries")
     await act(async () => { await rendered.result.current.command.mutateAsync(rename).catch(() => {}) })
@@ -84,7 +84,7 @@ describe("canonical channel rename", () => {
     expect(client.getQueryState(communityKeys.server("s2"))?.isInvalidated).toBe(false)
   })
   it("leaves present canonical facts and transports unchanged when the channel is missing", async () => {
-    seed(); api.mockResolvedValueOnce({ id: "missing", name: "renamed" })
+    await seed(); api.mockResolvedValueOnce({ id: "missing", name: "renamed" })
     const before = registry.collections.channels.get("c1"), directory = client.getQueryData(communityKeys.channelRefDirectory()), rendered = mount(commands.useRenameChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync({ ...rename, channelId: "missing" }) })
     expect(registry.collections.channels.get("c1")).toBe(before)
@@ -95,7 +95,7 @@ describe("canonical channel rename", () => {
 
 describe("canonical channel move and create", () => {
   it.each(["cat_2", null])("saves categoryId %s and final positions in one request", async (categoryId) => {
-    seed(); api.mockResolvedValueOnce(undefined)
+    await seed(); api.mockResolvedValueOnce(undefined)
     const rendered = mount(commands.useReorderChannels)
     const args = { serverId: "s1", channelIds: ["c2", "c1"], move: { channelId: "c1", categoryId } }
     await act(async () => { await rendered.result.current.command.mutateAsync(args) })
@@ -106,7 +106,7 @@ describe("canonical channel move and create", () => {
     for (const key of [communityKeys.server("s1"), communityKeys.channelRefDirectory()]) expect(client.getQueryState(key)?.isInvalidated).toBe(true)
   })
   it("rolls back category and ordering in the actual sidebar projection on one failed save", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useReorderChannels)
+    await seed(); const held = deferred(), rendered = mount(commands.useReorderChannels)
     const args = { serverId: "s1", channelIds: ["c2", "c1"], move: { channelId: "c1", categoryId: "cat_2" } }
     const pending = start(rendered.result.current.command, args)
     await waitFor(() => expect(rendered.result.current.sidebar.order.cat_2.map((row) => row.id)).toEqual(["c1"]))
@@ -119,14 +119,14 @@ describe("canonical channel move and create", () => {
     expect(api).toHaveBeenCalledTimes(1)
   })
   it("inserts a pending channel into the matching category", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)
+    await seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).find((row) => row.pending)).toMatchObject({ name: "hi", type: "text" }))
     const row = treeChannels(rendered.result.current.tree).find((row) => row.pending)!
     expect(row.id).toMatch(/^tmp_ch_/)
     await act(async () => { held.resolve({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) }); await pending })
   })
   it("physically cancels an in-flight server refetch before the optimistic write", async () => {
-    seed()
+    await seed()
     let signal!: AbortSignal
     const read = client.query({ queryKey: communityKeys.server("s1"), staleTime: 0, queryFn: (context) => { signal = context.signal; return new Promise<string>(() => {}) } }).catch((error) => error)
     const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)
@@ -135,7 +135,7 @@ describe("canonical channel move and create", () => {
     await act(async () => { held.resolve({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) }); await pending; await read })
   })
   it("leaves existing categories unchanged when the target category is absent", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, { ...create, categoryId: "missing" })
+    await seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, { ...create, categoryId: "missing" })
     await waitFor(() => expect(api).toHaveBeenCalledOnce())
     expect(treeChannels(rendered.result.current.tree).map((row) => row.id)).toEqual(["c1", "c2"])
     expect(registry.collections.categories.has("missing")).toBe(false)
@@ -143,14 +143,14 @@ describe("canonical channel move and create", () => {
     expect(registry.collections.channels.size).toBe(3)
   })
   it("rolls back a pending channel on failure", async () => {
-    seed(); api.mockRejectedValueOnce(new Error("boom"))
+    await seed(); api.mockRejectedValueOnce(new Error("boom"))
     const rendered = mount(commands.useCreateChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync(create).catch(() => {}) })
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).map((row) => row.id)).toEqual(["c1", "c2"]))
     expect(Array.from(registry.collections.channels.values()).some((row) => row.pending)).toBe(false)
   })
   it("swaps the temp id to the real id and clears pending on success", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)
+    await seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)
     await waitFor(() => expect(Array.from(registry.collections.channels.values()).some((row) => row.pending)).toBe(true))
     const temp = Array.from(registry.collections.channels.values()).find((row) => row.pending)!.id
     await act(async () => { held.resolve({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "normalized", position: 8 }) }); await pending })
@@ -158,27 +158,27 @@ describe("canonical channel move and create", () => {
     expect(registry.collections.channels.get("ch_real")).toMatchObject({ name: "normalized", pending: false, position: 8 })
   })
   it.each(["success", "failure"] as const)("invalidates the original server tree on create %s", async (outcome) => {
-    seed(); if (outcome === "success") api.mockResolvedValueOnce({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) }); else api.mockRejectedValueOnce(new Error("boom"))
+    await seed(); if (outcome === "success") api.mockResolvedValueOnce({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) }); else api.mockRejectedValueOnce(new Error("boom"))
     const rendered = mount(commands.useCreateChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync(create).catch(() => {}) })
     expect(client.getQueryState(communityKeys.server("s1"))?.isInvalidated).toBe(true)
   })
   it("POSTs type, serverId, categoryId and original name to the unified create door", async () => {
-    seed(); api.mockResolvedValueOnce({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) })
+    await seed(); api.mockResolvedValueOnce({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: "cat_1", name: "hi" }) })
     const rendered = mount(commands.useCreateChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync(create) })
     expect(api).toHaveBeenCalledWith("/api/community/channels", expect.objectContaining({ method: "POST" }))
     expect(JSON.parse(api.mock.calls[0][1].body)).toEqual(create)
   })
   it.each(["", UNCATEGORIZED_CATEGORY_ID, null])("creates one derived uncategorized bucket and sends null for categoryId %s", async (categoryId) => {
-    seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, { ...create, categoryId })
+    await seed(); const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, { ...create, categoryId })
     await waitFor(() => expect(rendered.result.current.tree?.categories.find((row) => row.id === UNCATEGORIZED_CATEGORY_ID)?.channels[0]).toMatchObject({ pending: true, name: "hi" }))
     expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ ...create, categoryId: null })
     await act(async () => { held.resolve({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: null, name: "hi" }) }); await pending })
     expect(rendered.result.current.tree?.categories.filter((row) => row.id === UNCATEGORIZED_CATEGORY_ID)).toHaveLength(1)
   })
   it("reuses the canonical uncategorized projection without a duplicate category", async () => {
-    seed([...categories, { id: UNCATEGORIZED_CATEGORY_ID, name: "", channels: [{ id: "top", name: "Top", active: false, unread: false }] }])
+    await seed([...categories, { id: UNCATEGORIZED_CATEGORY_ID, name: "", channels: [{ id: "top", name: "Top", active: false, unread: false }] }])
     api.mockResolvedValueOnce({ channel: channelResourceFixture({ id: "ch_real", serverId: "s1", categoryId: null, name: "hi", position: 1 }) })
     const rendered = mount(commands.useCreateChannel)
     await act(async () => { await rendered.result.current.command.mutateAsync({ ...create, categoryId: "" }) })
@@ -190,7 +190,7 @@ describe("canonical channel move and create", () => {
 
 describe("current create resource admission", () => {
   it.each(["channel", "category"] as const)("rejects incomplete successful %s confirmation without publishing a confirmed row", async kind => {
-    seed()
+    await seed()
     api.mockResolvedValueOnce({ [kind]: { id: "partial-real" } })
     const rendered = mount(kind === "channel" ? commands.useCreateChannel : commands.useCreateCategory)
     let error: unknown
@@ -206,26 +206,26 @@ describe("current create resource admission", () => {
 
 describe("canonical category commands and channel deletion", () => {
   it("appends a pending category with a tmp_cat_ id", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useCreateCategory), pending = start(rendered.result.current.command, { serverId: "s1", name: "  New Ideas  " })
+    await seed(); const held = deferred(), rendered = mount(commands.useCreateCategory), pending = start(rendered.result.current.command, { serverId: "s1", name: "  New Ideas  " })
     await waitFor(() => expect(rendered.result.current.tree?.categories.find((row) => row.pending)).toMatchObject({ name: "New Ideas" }))
     expect(rendered.result.current.tree?.categories.find((row) => row.pending)?.id).toMatch(/^tmp_cat_/)
     await act(async () => { held.resolve({ category: categoryResourceFixture({ id: "cat_real", serverId: "s1", name: "New Ideas" }) }); await pending })
   })
   it("swaps the temp category id to the real id and clears pending", async () => {
-    seed(); api.mockResolvedValueOnce({ category: categoryResourceFixture({ id: "cat_real", serverId: "s1", name: "New Ideas" }) })
+    await seed(); api.mockResolvedValueOnce({ category: categoryResourceFixture({ id: "cat_real", serverId: "s1", name: "New Ideas" }) })
     const rendered = mount(commands.useCreateCategory)
     await act(async () => { await rendered.result.current.command.mutateAsync({ serverId: "s1", name: "New Ideas" }) })
     expect(registry.collections.categories.get("cat_real")).toMatchObject({ name: "New Ideas", pending: false })
     expect(Array.from(registry.collections.categories.values()).some((row) => row.id.startsWith("tmp_cat_"))).toBe(false)
   })
   it("rolls back category creation on failure", async () => {
-    seed(); api.mockRejectedValueOnce(new Error("boom"))
+    await seed(); api.mockRejectedValueOnce(new Error("boom"))
     const rendered = mount(commands.useCreateCategory)
     await act(async () => { await rendered.result.current.command.mutateAsync({ serverId: "s1", name: "New Ideas" }).catch(() => {}) })
     await waitFor(() => expect(rendered.result.current.tree?.categories.map((row) => row.id)).toEqual(["cat_1", "cat_2"]))
   })
   it("retires projected unread after a successful DELETE without waiting for self WS", async () => {
-    seed()
+    await seed()
     seedCommunityAttentionScope(client, { channelId: "c1", serverId: "s1", seq: 1 })
     api.mockResolvedValueOnce(undefined)
     const rendered = mount(commands.useDeleteChannel)
@@ -235,7 +235,7 @@ describe("canonical category commands and channel deletion", () => {
     expect(registry.collections.channels.has("c1")).toBe(false)
   })
   it("keeps projected unread when DELETE fails", async () => {
-    seed()
+    await seed()
     seedCommunityAttentionScope(client, { channelId: "c1", serverId: "s1", seq: 1 })
     api.mockRejectedValueOnce(new Error("500"))
     const rendered = mount(commands.useDeleteChannel)
@@ -245,18 +245,18 @@ describe("canonical category commands and channel deletion", () => {
     expect(registry.collections.channels.has("c1")).toBe(true)
   })
   it("removes a category optimistically", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useDeleteCategory), pending = start(rendered.result.current.command, { serverId: "s1", categoryId: "cat_2" })
+    await seed(); const held = deferred(), rendered = mount(commands.useDeleteCategory), pending = start(rendered.result.current.command, { serverId: "s1", categoryId: "cat_2" })
     await waitFor(() => expect(rendered.result.current.tree?.categories.map((row) => row.id)).toEqual(["cat_1"]))
     await act(async () => { held.resolve(undefined); await pending })
   })
   it("restores the category on a rejected non-empty delete", async () => {
-    seed(); const held = deferred(), rendered = mount(commands.useDeleteCategory), pending = start(rendered.result.current.command, { serverId: "s1", categoryId: "cat_2" })
+    await seed(); const held = deferred(), rendered = mount(commands.useDeleteCategory), pending = start(rendered.result.current.command, { serverId: "s1", categoryId: "cat_2" })
     await waitFor(() => expect(registry.collections.categories.has("cat_2")).toBe(false))
     await act(async () => { held.reject(new Error("Move or delete its channels first")); await pending })
     await waitFor(() => expect(rendered.result.current.tree?.categories.map((row) => row.id)).toEqual(["cat_1", "cat_2"]))
   })
   it("sends the category name update and publishes it without self WS", async () => {
-    seed(); api.mockResolvedValueOnce(undefined)
+    await seed(); api.mockResolvedValueOnce(undefined)
     const rendered = mount(commands.useUpdateCategory)
     await act(async () => { await rendered.result.current.command.mutateAsync({ serverId: "s1", categoryId: "cat_1", name: "Renamed" }) })
     expect(api).toHaveBeenCalledWith("/api/community/servers/s1/categories/cat_1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Renamed" }) }))

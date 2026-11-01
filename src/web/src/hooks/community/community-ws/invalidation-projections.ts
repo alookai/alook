@@ -1,18 +1,24 @@
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityWsProjectionTransaction } from "./projection-transaction"
+import { channelRefTargetAffected, type ChannelRefTarget } from "@/lib/community/channel-ref"
+
+type ReferenceScope = { serverId?: string | null; channelId?: string }
 
 export function invalidateChannelRefDirectory(
   projection: CommunityWsProjectionTransaction,
+  scope?: ReferenceScope,
 ) {
   projection.invalidate("channel-ref-directory", {
     queryKey: communityKeys.channelRefDirectory(),
     exact: true,
   })
-  invalidateChannelRefTargets(projection)
+  invalidateChannelRefTargets(projection, scope)
 }
 
-export function invalidateChannelRefTargets(projection: CommunityWsProjectionTransaction) {
-  projection.fence("channel-ref-targets", { queryKey: communityKeys.channelRefTargets() })
+export function invalidateChannelRefTargets(projection: CommunityWsProjectionTransaction, scope?: ReferenceScope) {
+  projection.fence(`channel-ref-targets:${scope?.channelId ?? scope?.serverId ?? "all"}`, {
+    queryKey: communityKeys.channelRefTargets(), predicate: query => channelRefTargetAffected((query.state.data as { target?: ChannelRefTarget } | undefined)?.target, scope),
+  })
 }
 
 export function invalidateServerDetail(

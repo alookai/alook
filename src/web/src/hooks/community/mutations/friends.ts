@@ -1,4 +1,5 @@
 "use client"
+import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { resolveActionName } from "@/lib/observability/actions"
 
 import { useQueryClient } from "@tanstack/react-query"
@@ -38,8 +39,8 @@ function useFriendCommand<Args extends object>(action: string, build: (args: Arg
       const token = beginCommunityCommandRevision(queryClient, original)
       const persist = async () => {
         await origin.request(token, command.path, { method: command.method, ...(command.body ? { body: command.body } : {}) })
-        if (command.friendshipId && command.decision) publishCommunityFriendDecision(queryClient, command.friendshipId, command.decision, { token })
-        if (command.userId && command.blocked !== undefined) publishCommunityFriendBlock(queryClient, command.userId, command.blocked, { token })
+        if (command.friendshipId && command.decision) await completeCommunityPublication(queryClient, () => publishCommunityFriendDecision(queryClient, command.friendshipId!, command.decision!, { token }))
+        if (command.userId && command.blocked !== undefined) await completeCommunityPublication(queryClient, () => publishCommunityFriendBlock(queryClient, command.userId!, command.blocked!, { token }))
       }
       const transaction = registry!.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
       transaction.mutate(() => {
@@ -67,7 +68,7 @@ function useFriendCommand<Args extends object>(action: string, build: (args: Arg
         for (const mutation of queryClient.getMutationCache().findAll({ mutationKey: ["community", "friend-request"], predicate: (entry) => entry.state.variables === args })) queryClient.getMutationCache().remove(mutation)
       }
       const command = build(args)
-      if (!error && command.userId && command.blocked !== undefined) applyCommunityDmBlockAccess(origin.registry!, command.userId, command.blocked)
+      if (!error && command.userId && command.blocked !== undefined) await completeCommunityPublication(origin.registry!, () => applyCommunityDmBlockAccess(origin.registry!, command.userId!, command.blocked!))
     },
   }, action === "block" ? (args) => origin.assertOwner(args.original) : undefined)
 }

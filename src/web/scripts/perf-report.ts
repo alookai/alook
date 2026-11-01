@@ -26,6 +26,8 @@ export interface SwitchAnalysis {
   kind: string
   targetId: string
   cacheState: string
+  contentChannelId: string | null
+  contentKind: "messages" | "empty" | null
   /** click → content-stable (or painted if no resize settle). The headline. */
   perceivedMs: number | null
   clickToSkeletonMs: number | null
@@ -90,7 +92,9 @@ export function analyzeSwitch(sw: CapturedSwitch): SwitchAnalysis {
     sw.skeletonTs != null && sw.paintedTs != null ? sw.paintedTs - sw.skeletonTs : null
   const paintedToStableMs =
     sw.paintedTs != null && sw.contentStableTs != null ? sw.contentStableTs - sw.paintedTs : null
-  const stableTs = sw.contentStableTs ?? sw.paintedTs
+  const validAnchors = Number.isFinite(sw.clickTs) && sw.paintedTs != null && Number.isFinite(sw.paintedTs) && sw.paintedTs >= sw.clickTs
+    && (sw.contentStableTs == null || Number.isFinite(sw.contentStableTs) && sw.contentStableTs >= sw.paintedTs)
+  const stableTs = validAnchors ? sw.contentStableTs ?? sw.paintedTs : null
   const perceivedMs = stableTs != null ? stableTs - sw.clickTs : null
 
   const sorted = [...sw.resources].sort((a, b) => a.startTime - b.startTime)
@@ -102,12 +106,14 @@ export function analyzeSwitch(sw: CapturedSwitch): SwitchAnalysis {
   let curStart = -1
   let curEnd = -1
   for (const r of sorted) {
-    if (curEnd < r.startTime) {
+    const start = Math.max(sw.clickTs, r.startTime), end = Math.min(stableTs ?? Infinity, r.responseEnd)
+    if (end <= start) continue
+    if (curEnd < start) {
       if (curStart >= 0) networkMs += curEnd - curStart
-      curStart = r.startTime
-      curEnd = r.responseEnd
+      curStart = start
+      curEnd = end
     } else {
-      curEnd = Math.max(curEnd, r.responseEnd)
+      curEnd = Math.max(curEnd, end)
     }
   }
   if (curStart >= 0) networkMs += curEnd - curStart
@@ -150,14 +156,15 @@ export function analyzeSwitch(sw: CapturedSwitch): SwitchAnalysis {
         : `network-bound (${networkMs.toFixed(0)}ms of ${perceivedMs.toFixed(0)}ms)`
   } else {
     const nonNetwork = perceivedMs - networkMs
-    verdict = `NOT network-bound — ${nonNetwork.toFixed(0)}ms of ${perceivedMs.toFixed(0)}ms is render/remount/reflow (network only ${networkMs.toFixed(0)}ms); mounts=${mountUnique} fibers, unmounts=${sw.unmounts.length}`
+    verdict = `NOT network-bound — ${nonNetwork.toFixed(0)}ms of ${perceivedMs.toFixed(0)}ms is outside measured request intervals (network only ${networkMs.toFixed(0)}ms); mounts=${mountUnique} fibers, unmounts=${sw.unmounts.length}`
   }
 
   return {
     kind: sw.kind,
     targetId: sw.targetId,
     cacheState: sw.cacheState,
-    perceivedMs,
+    contentChannelId: sw.contentChannelId ?? null,
+    contentKind: sw.contentKind ?? null,    perceivedMs,
     clickToSkeletonMs,
     skeletonToPaintedMs,
     paintedToStableMs,
@@ -186,8 +193,8 @@ export function renderReport(file: CaptureFile): string {
   lines.push(`Captured: ${file.createdAt}`)
   lines.push("")
   lines.push(
-    "> Baseline: on local, network is ~0, so a visible loading spell is itself the anomaly. " +
-      "The headline is perceived latency (click → content stable). Counts are dev-mode. " +
+    "> Local development diagnostic: compare matched runs; these are not production latency measurements. " +
+      "The headline requires a valid target-content anchor. Counts are dev-mode. " +
       "Mounts are reported as `unique` (distinct fiber ids — the trustworthy number) and " +
       "`raw` (react-scan re-reports every still-mounted fiber on each later commit, inflating " +
       "the raw total 6-13×). Re-renders are NOT inflated (each is a genuine distinct render), " +
@@ -199,12 +206,13 @@ export function renderReport(file: CaptureFile): string {
     const a = analyzeSwitch(sw)
     lines.push(`## ${a.kind} switch → \`${a.targetId}\`  _(cache: ${a.cacheState})_`)
     lines.push("")
+    if (a.contentKind) lines.push(`- target content: **${a.contentKind === "empty" ? "empty channel (0 messages)" : "message content"}** · channel \`${a.contentChannelId ?? "unknown"}\`${a.contentKind === "empty" ? " · not a populated-message sample" : ""}`)
     lines.push(`- PERCEIVED (click → content stable): **${ms(a.perceivedMs)}**`)
     lines.push(`  - click → skeleton: ${ms(a.clickToSkeletonMs)}`)
     lines.push(`  - skeleton → painted: ${ms(a.skeletonToPaintedMs)}`)
     lines.push(`  - painted → stable: ${ms(a.paintedToStableMs)}`)
     lines.push(
-      `- network: ${ms(a.networkMs)} busy / ${ms(a.networkSpanMs)} span` +
+      `- network: ${ms(a.networkMs)} busy before stability / ${ms(a.networkSpanMs)} full span` +
         (a.readStateBlocksMessages == null
           ? ""
           : a.readStateBlocksMessages

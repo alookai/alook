@@ -57,7 +57,7 @@ describe("canonical message identity and reaction publication", () => {
   })
   it("WS reactions update canonical facts without overwriting the exact-message ID transport", async () => {
     const { original } = await mount(), runtime = getCommunityRuntime(original)
-    act(() => dispatchCommunityWsEvent({ type: "community:reaction.add", messageId: "m1", channelId: "c1", emoji: "👍", userId: "peer" },
+    await act(() => dispatchCommunityWsEvent({ type: "community:reaction.add", messageId: "m1", channelId: "c1", emoji: "👍", userId: "peer" },
       { deliveryMode: "single", queryClient: original, communityStore: runtime.ui, wsStore: runtime.ws, sub: {}, viewerUserIdRef: { current: "A" }, matchesFocus: () => false }))
     expect(original.getQueryData(communityKeys.message("m1"))).toBe("m1")
     expect(getCommunityDbRegistry(original)!.collections.messages.get("m1")?.reactions).toMatchObject([{ emoji: "👍", userIds: ["peer"] }])

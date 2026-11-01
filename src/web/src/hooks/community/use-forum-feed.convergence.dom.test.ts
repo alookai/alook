@@ -47,7 +47,7 @@ describe("useForumFeed", () => {
   it.each([null, "bug"])("refreshes a pending first list after child_create for tag %s", async (tag) => {
     client.setDefaultOptions({ queries: { retry: false, staleTime: Infinity } })
     const target = { channelId: "forum_one", serverId: "server_one", tag }
-    client.setQueryData(conversationEntryOptions(client, target).queryKey, publishConversationEntry(client, target, forumConversationEntryFixture("forum_one", "server_one", true), { token: captureCommunityLiveSnapshotToken(client, "forum_one") }))
+    client.setQueryData(conversationEntryOptions(client, target).queryKey, await publishConversationEntry(client, target, forumConversationEntryFixture("forum_one", "server_one", true), { token: captureCommunityLiveSnapshotToken(client, "forum_one") }))
     const page = (ids: string[]): ForumFeedTransportPage => (forumFeedScenarioFixture("forum_one", {
       serverId: "server_one", parentType: "forum", hasMore: false,
       threads: ids.map((id) => ({ id, name: id, creatorId: "author", messageCount: 1, parentMessageId: `opener_${id}`, createdAt: "2026-10-26T00:00:00Z", activityAt: "2026-10-26T00:00:00Z", lastMessageAt: null })),
@@ -63,8 +63,8 @@ describe("useForumFeed", () => {
       wrapper: ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children),
     })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
-    act(() => {
-      publishCommunityForumFeed(client, "forum_one", normalizeThreadResources("forum_one", page(["new"])), { token: captureCommunityLiveSnapshotToken(client, "forum_one") })
+    await act(async () => {
+      await publishCommunityForumFeed(client, "forum_one", normalizeThreadResources("forum_one", page(["new"])), { token: captureCommunityLiveSnapshotToken(client, "forum_one") })
       runCommunityWsProjectionTransaction(client, (projection) => handleChildChannelCreate({ type: "community:channel.child_create", parentChannelId: "forum_one", channel: { id: "new", name: "new", type: "thread", createdAt: "2026-10-26T00:00:00Z" }, parentMessageId: "opener_new" }, { queryClient: client, projection }))
       release(page(["old"]))
     })
@@ -77,7 +77,7 @@ describe("useForumFeed", () => {
   it("does not restart a pending forum list removed during child_create", async () => {
     client.setDefaultOptions({ queries: { retry: false, staleTime: Infinity } })
     const target = { channelId: "forum_one", serverId: "server_one" }
-    client.setQueryData(conversationEntryOptions(client, target).queryKey, publishConversationEntry(client, target, forumConversationEntryFixture("forum_one", "server_one", true), { token: captureCommunityLiveSnapshotToken(client, "forum_one") }))
+    client.setQueryData(conversationEntryOptions(client, target).queryKey, await publishConversationEntry(client, target, forumConversationEntryFixture("forum_one", "server_one", true), { token: captureCommunityLiveSnapshotToken(client, "forum_one") }))
     client.removeQueries({ queryKey: communityKeys.threads("forum_one") })
     let release!: (value: ForumFeedTransportPage) => void
     apiFetchMock.mockImplementation(() => new Promise((resolve) => { release = resolve }))

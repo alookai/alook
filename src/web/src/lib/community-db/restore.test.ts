@@ -71,7 +71,7 @@ describe("canonical disk input precedence", () => {
 
   it("preserves a WS patch that arrived before its disk row and a current message over old disk", async () => {
     const { client, registry } = owner()
-    publishCommunityMessages(client, { profiles: messageProfilesFixture([message("current", "c1", "RSC")]), channelId: "c1", messages: [message("current", "c1", "RSC")], proof: { token: captureCommunityLiveSnapshotToken(client) } })
+    await publishCommunityMessages(client, { profiles: messageProfilesFixture([message("current", "c1", "RSC")]), channelId: "c1", messages: [message("current", "c1", "RSC")], proof: { token: captureCommunityLiveSnapshotToken(client) } })
     projectCommunityWsEventToDb(client, { type: "community:reaction.add", serverId: "s1", channelId: "c1", messageId: "pending", emoji: "👍", userId: "peer" })
     await restoreCommunityCollections(registry, input({ messages: [message("current"), message("pending"), message("uncovered", "other")] }))
     const rows = client.getQueryData<Array<ReturnType<typeof message>>>(communityKeys.communityDbCollection("viewer", "messages"))!
@@ -95,11 +95,11 @@ describe("canonical disk input precedence", () => {
 
   it("preserves authoritative empty scopes and still restores an unrelated server", async () => {
     const { client, registry } = owner()
-    publishCommunityLiveSnapshot(client, {
+    await publishCommunityLiveSnapshot(client, {
       snapshot: { kind: "server-detail", data: serverDirectoryFixture({ id: "s1", name: "Fresh", discriminator: "0001", description: "", icon: null, ownerId: "viewer", categories: [] }) },
       proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined },
     })
-    publishCommunityLiveSnapshot(client, { snapshot: { kind: "folders", data: { folders: [] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    await publishCommunityLiveSnapshot(client, { snapshot: { kind: "folders", data: { folders: [] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
     const disk = input({
       servers: [server("s1"), server("s2")],
       categories: [{ id: "old-category", serverId: "s1", name: "Old", position: 0, private: false, creatorId: null, pending: false }],

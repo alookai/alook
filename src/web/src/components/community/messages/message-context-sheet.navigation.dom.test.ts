@@ -126,8 +126,7 @@ describe("MessageContextSheet native query publication", () => {
 
   it("publishes sorted complete context messages without inventing full author profiles from history hints", async () => {
     const owner = await createCommunityQueryOwner("context_viewer")
-    const writer = await import("@/lib/community-db/write")
-    const write = vi.spyOn(writer, "writeCommunityCollectionRows")
+    const write = vi.spyOn(owner.registry.collections.profiles.utils, "writeBatch")
     const signal = new AbortController().signal
     mocks.apiFetch.mockResolvedValueOnce({ id: "anchor" }).mockResolvedValueOnce(messageReadPageFixture({ messages: [
       messageResourceFixture({ id: "after", channelId: "context_channel", seq: 3, content: "after", authorId: "author", authorName: "Author" }),
@@ -141,7 +140,7 @@ describe("MessageContextSheet native query publication", () => {
       "/api/community/channels/context_channel/messages?anchor=anchor&limit=11",
     ])
     expect(mocks.apiFetch.mock.calls.every(([, options]) => options.signal === signal)).toBe(true)
-    expect(write.mock.calls.filter(([, collection]) => collection === "profiles")).toHaveLength(2)
+    expect(write).toHaveBeenCalledTimes(1)
     expect(owner.registry.collections.messages.get("anchor")).toMatchObject({ content: "anchor", channelId: "context_channel", authorId: "author" })
     expect(owner.registry.collections.profiles.get("author")).toMatchObject({ id: "author", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 })
     write.mockRestore()
@@ -177,7 +176,7 @@ describe("MessageContextSheet thread navigation", () => {
   beforeEach(async () => {
     navigationOwner = await createCommunityQueryOwner("viewer_1")
     const { publishCommunityMessages, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
-    publishCommunityMessages(navigationOwner.client, { channelId: "parent_1", messages: [messageResourceFixture({ id: "message_1", channelId: "parent_1", authorId: "author_1", authorName: "Author" })], profiles: [{ id: "author_1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }], proof: { token: captureCommunityLiveSnapshotToken(navigationOwner.client) } })
+    await publishCommunityMessages(navigationOwner.client, { channelId: "parent_1", messages: [messageResourceFixture({ id: "message_1", channelId: "parent_1", authorId: "author_1", authorName: "Author" })], profiles: [{ id: "author_1", name: "Author", discriminator: "0042", avatar: null, avatarVersion: 0 }], proof: { token: captureCommunityLiveSnapshotToken(navigationOwner.client) } })
     vi.clearAllMocks()
     mocks.openThread = undefined
     mocks.pin = undefined
