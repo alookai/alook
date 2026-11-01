@@ -322,7 +322,7 @@ function SignInForm({
     ? "Sending..."
     : isCoolingDown
     ? `Wait ${retryAfter}s`
-    : "Continue with email"
+    : "Continue"
   const isEmailLastUsed = lastUsedMethod === "email"
   const showEmailPane = viewState !== "methods" && (!isProd || viewState !== "code")
   const showCodePane = isProd && viewState !== "methods" && viewState !== "email"
@@ -467,35 +467,11 @@ function SignInForm({
                           size="lg"
                           type="submit"
                           disabled={loading || isSliding || (isProd && isCoolingDown)}
-                          aria-describedby={
-                            isEmailLastUsed ? "last-used-email-badge" : undefined
-                          }
-                          className={cn(
-                            "peer h-11 w-full justify-start px-4 text-sm font-medium",
-                            isEmailLastUsed && "pr-22",
-                          )}
+                          className="h-11 w-full justify-center px-4 text-sm font-medium"
                         >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span
-                              className="grid h-9 w-6 shrink-0 place-items-center"
-                              aria-hidden
-                            >
-                              <Mail className="size-4" aria-hidden />
-                            </span>
-                            <span className="truncate">
-                              {isProd ? sendLabel : loading ? "Signing in..." : "Sign in"}
-                            </span>
-                          </span>
+                          {isProd ? sendLabel : loading ? "Signing in..." : "Sign in"}
                         </Button>
-                        {isEmailLastUsed ? (
-                          <span
-                            id="last-used-email-badge"
-                            data-testid="last-used-email"
-                            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] leading-none font-medium text-secondary-foreground peer-disabled:opacity-50"
-                          >
-                            Last used
-                          </span>
-                        ) : null}
+
                       </div>
                     </div>
                   </form>

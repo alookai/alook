@@ -144,7 +144,7 @@ browserTest.describe("production OTP error placement", () => {
     await page.reload()
     await browserExpect(page.getByRole("textbox", { name: "Email" })).toHaveCount(0)
     await page.getByRole("button", { name: "Continue with email", exact: true }).click()
-    const sendCode = page.getByRole("button", { name: "Continue with email" })
+    const sendCode = page.getByRole("button", { name: "Continue", exact: true })
     browserTest.skip(!(await sendCode.isVisible()), "production Email OTP UI is not active")
 
     await page.getByRole("textbox", { name: "Email" }).fill("person@example.com")
@@ -205,7 +205,7 @@ browserTest.describe("production OTP error placement", () => {
     await browserExpect(stepTrack).toHaveAttribute("data-step-view", "email")
     await browserExpect(alert).toHaveCount(0)
     await browserExpect(page.getByRole("textbox", { name: "Email" })).toBeVisible()
-    await page.getByRole("button", { name: "Continue with email" }).click()
+    await page.getByRole("button", { name: "Continue", exact: true }).click()
     await browserExpect(stepTrack).toHaveAttribute("data-step-view", "code")
 
     await otp.fill("654321")
@@ -238,7 +238,7 @@ browserTest.describe("production OTP error placement", () => {
 
     await page.goto("/sign-in")
     await page.getByRole("button", { name: "Continue with email", exact: true }).click()
-    const sendCode = page.getByRole("button", { name: "Continue with email" })
+    const sendCode = page.getByRole("button", { name: "Continue", exact: true })
     browserTest.skip(!(await sendCode.isVisible()), "production Email OTP UI is not active")
 
     const email = page.getByRole("textbox", { name: "Email" })

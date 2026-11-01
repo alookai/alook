@@ -127,7 +127,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
 
     await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await user.click(screen.getByRole("button", { name: "Continue with email" }))
+    await user.click(screen.getByRole("button", { name: "Continue" }))
 
     expect(mocks.send).toHaveBeenCalledOnce()
     expect(mocks.send).toHaveBeenCalledWith(
@@ -184,7 +184,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       const user = setupUser()
       await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
       const input = screen.getByRole("textbox", { name: "Email" }) as HTMLInputElement
-      const label = isProd ? "Continue with email" : "Sign in"
+      const label = isProd ? "Continue" : "Sign in"
       const request = isProd ? mocks.send : mocks.devSignIn
       const onInvalid = vi.fn()
       input.addEventListener("invalid", onInvalid)
@@ -229,7 +229,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     expect(mocks.capture).toHaveBeenCalledWith({ event: "login_page_view" })
     await setupUser().click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await setupUser().click(screen.getByRole("button", { name: "Continue with email" }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue" }))
     expect(mocks.capture).toHaveBeenCalledTimes(1)
     await act(async () => {
       await mocks.verifyInput!("123456")
@@ -249,7 +249,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
     await setupUser().click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await setupUser().click(screen.getByRole("button", { name: "Continue with email" }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue" }))
     expect(mocks.capture).toHaveBeenLastCalledWith({
       event: "sign_in_failed",
       method: "email_otp",
@@ -266,14 +266,14 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
     await setupUser().click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await setupUser().type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await setupUser().click(screen.getByRole("button", { name: "Continue with email" }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue" }))
     expect(mocks.capture).toHaveBeenLastCalledWith({
       event: "sign_in_failed",
       method: "email_otp",
       failureStage: "send_code",
       error,
     })
-    await setupUser().click(screen.getByRole("button", { name: "Continue with email" }))
+    await setupUser().click(screen.getByRole("button", { name: "Continue" }))
     mocks.verify.mockRejectedValueOnce(error)
     await act(async () => {
       await mocks.verifyInput!("123456")
@@ -295,7 +295,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
   })
 
   it.each([
-    [true, "Continue with email"],
+    [true, "Continue"],
     [false, "Sign in"],
   ] as const)(
     "uses the outline secondary style and 44px touch target for the email action when isProd=%s",
@@ -306,12 +306,12 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       const button = screen.getByRole("button", { name: label, exact: true })
       expect(button).toHaveClass(
         "h-11",
-        "justify-start",
+        "justify-center",
         "border-border",
         "bg-background",
         "w-full",
       )
-      expect(button.querySelector("svg")).not.toBeNull()
+      expect(button.querySelector("svg")).toBeNull()
     },
   )
 
@@ -370,7 +370,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
 
       await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-      await user.click(screen.getByRole("button", { name: "Continue with email" }))
+      await user.click(screen.getByRole("button", { name: "Continue" }))
 
       const track = screen.getByTestId("sign-in-step-track")
       expect(track).toHaveAttribute("data-step-view", "prepare-to-code")
@@ -429,7 +429,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     const user = setupUser()
     await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
     await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
-    await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
+    await user.click(screen.getByRole("button", { name: "Continue", exact: true }))
     expect(mocks.rememberLastLoginMethod).not.toHaveBeenCalled()
     await act(async () => { await mocks.verifyInput!("123456") })
     expect(mocks.rememberLastLoginMethod).toHaveBeenCalledExactlyOnceWith("email")
