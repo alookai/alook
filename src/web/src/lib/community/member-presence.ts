@@ -1,17 +1,12 @@
 import { wsDoFetch } from "@/lib/broadcast"
-import type { CommunityCliMemberStatus as MemberStatus } from "@alook/shared"
+import { CommunityPresenceResultSchema, type CommunityPresenceResult, type CommunityCliMemberStatus as MemberStatus } from "@alook/shared"
 
-// One bulk presence read for a set of user ids — NEVER a per-member fan-out.
-// The ws-do worker fans out to each user's DO internally, so this stays a
-// single web-worker subrequest regardless of roster size. Best-effort: on any
-// failure the set is empty (callers then report `online: false`) — this is a
-// point-in-time snapshot, not a live signal, and we never fabricate presence.
-export async function fetchOnlineUserIds(
+export async function fetchUserPresence(
   env: Env,
   userIds: string[],
   label: string,
-): Promise<Set<string>> {
-  if (userIds.length === 0) return new Set()
+): Promise<CommunityPresenceResult | undefined> {
+  if (userIds.length === 0) return { online: [], offline: [] }
   try {
     const resp = await wsDoFetch(
       env,
@@ -24,13 +19,17 @@ export async function fetchOnlineUserIds(
       { label },
     )
     if (resp.ok) {
-      const data = (await resp.json()) as { online: string[] }
-      if (Array.isArray(data.online)) return new Set(data.online)
+      const data = CommunityPresenceResultSchema.parse(await resp.json())
+      const requested = new Set(userIds)
+      if ([...data.online, ...data.offline].every(id => requested.has(id))) return data
     }
   } catch {
-    /* presence best-effort — default everyone offline, never fabricate */
   }
-  return new Set()
+  return undefined
+}
+
+export async function fetchOnlineUserIds(env: Env, userIds: string[], label: string): Promise<Set<string>> {
+  return new Set((await fetchUserPresence(env, userIds, label))?.online ?? [])
 }
 
 // Map a profile's raw status columns into the structured wire shape. `text`

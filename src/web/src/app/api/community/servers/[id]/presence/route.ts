@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db"
 import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { requireServerMember } from "@/lib/community/permissions"
-import { wsDoFetch } from "@/lib/broadcast"
+import { fetchUserPresence } from "@/lib/community/member-presence"
 
 export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const serverId = ctx.params?.id
@@ -30,22 +30,10 @@ export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
 
   // Single subrequest — the ws-do worker fans out to each member's DO
   // internally, keeping the web-worker subrequest budget constant.
-  let online: string[] = []
-  if (!stale && value.userIds.length > 0) {
-    const body = JSON.stringify({ ids: value.userIds })
-    try {
-      const resp = await wsDoFetch(ctx.env, "/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      }, { label: serverId })
-      if (resp.ok) {
-        const data = await resp.json() as { online: string[] }
-        online = Array.isArray(data.online) ? data.online : []
-      }
-    } catch { /* skip */ }
-  }
-
-  const payload = { online, truncated: value.truncated, limit: PRESENCE_MEMBER_CAP }
-  return writeJSON(stale ? { ...payload, stale: true } : payload)
+  const presence = stale ? undefined : await fetchUserPresence(ctx.env, value.userIds, serverId)
+  return writeJSON({
+    ...(presence ?? { online: [], offline: [] }),
+    truncated: value.truncated, limit: PRESENCE_MEMBER_CAP,
+    ...(!presence ? { stale: true } : {}),
+  })
 })

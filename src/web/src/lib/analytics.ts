@@ -222,7 +222,6 @@ export type CommunityWsReconcilePolicy =
   | "all-cached-servers"
   | "server-rail"
   | "friends"
-  | "presence-overlay"
   | "status-overlay"
   | "identity-surfaces"
   | "ephemeral-typing"

@@ -51,7 +51,7 @@ describe("useInvites / invitesQueryFn", () => {
 
 describe("usePresence / presenceQueryFn", () => {
   it("returns the online id list from the presence endpoint", async () => {
-    apiFetchMock.mockResolvedValueOnce({ online: ["u_1", "u_2"], truncated: false, limit: 1000 })
+    apiFetchMock.mockResolvedValueOnce({ online: ["u_1", "u_2"], offline: [], truncated: false, limit: 1000 })
     const { presenceQueryFn } = await import("./use-server-panels")
     const { client: qc } = await createCommunityQueryOwner()
     const data = await qc.query({ queryKey: communityKeys.presence("srv_1"), queryFn: presenceQueryFn("srv_1") })
@@ -60,11 +60,11 @@ describe("usePresence / presenceQueryFn", () => {
   })
 
   it("populates queryClient at communityKeys.presence(serverId)", async () => {
-    apiFetchMock.mockResolvedValueOnce({ online: [] })
+    apiFetchMock.mockResolvedValueOnce({ online: [], offline: [] })
     const { presenceQueryFn } = await import("./use-server-panels")
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.presence("srv_1")
     await qc.query({ queryKey: key, queryFn: presenceQueryFn("srv_1") })
-    expect(qc.getQueryData(key)).toEqual({ online: [] })
+    expect(qc.getQueryData(key)).toEqual({ online: [], offline: [] })
   })
 })

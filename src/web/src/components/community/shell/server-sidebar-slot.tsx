@@ -143,12 +143,12 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
           discriminator: profile.discriminator,
           avatar: profile.avatar,
           avatarVersion: profile.avatarVersion,
-          status: m.userId === currentUser.id ? "online" as const : profile.presence,
+          status: profile.presence,
           statusEmoji: profile.statusEmoji,
           statusText: profile.statusText,
         }
       }),
-    [currentUser.id, membersHook.members, profilesByUserId],
+    [membersHook.members, profilesByUserId],
   )
   const role = useViewerServerRole(serverId, currentUser.id)
   const isAdmin = routeCommitted && canManageServer(role)

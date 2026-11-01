@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { PROFILE_STALE_TIME_MS, userProfileQueryFn } from "./use-user-profile"
+import { ApiError } from "@/lib/errors"
+import { communityUserProfilePatch, writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
@@ -12,6 +14,37 @@ const profile = {
   statusEmoji: null, statusText: null,
 }
 beforeEach(() => { apiFetchMock.mockReset() })
+
+it.each([404, 500])("handles an authoritative %s without confusing a failed refresh with deletion", async status => {
+  const { client, registry, runtime } = await createCommunityQueryOwner()
+  apiFetchMock.mockResolvedValueOnce(profile)
+  const options = { queryKey: communityKeys.profile(profile.id), queryFn: userProfileQueryFn(profile.id) }
+  await client.query(options)
+  runtime.ws.actions.setPresence(profile.id, "online")
+  apiFetchMock.mockRejectedValueOnce(new ApiError("response", status))
+  await expect(client.query(options)).rejects.toThrow()
+  if (status === 404) {
+    expect(registry.collections.profiles.get(profile.id)).toBeUndefined()
+    expect(runtime.ws.get().presenceByUserId.has(profile.id)).toBe(false)
+  } else expect(registry.collections.profiles.get(profile.id)).toMatchObject({ name: "Alice", presence: "online" })
+})
+
+it.each(["identity", "presence"])("does not let an older 404 retire a newer %s event", async field => {
+  const { client, registry, runtime } = await createCommunityQueryOwner()
+  apiFetchMock.mockResolvedValueOnce(profile)
+  const options = { queryKey: communityKeys.profile(profile.id), queryFn: userProfileQueryFn(profile.id) }
+  await client.query(options)
+  let reject!: (error: Error) => void
+  apiFetchMock.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+  const fetching = client.query(options).catch(error => error)
+  await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+  if (field === "identity") writeCommunityProfilePatches([communityUserProfilePatch(profile.id, { name: "New event" })], registry, { event: true })
+  else runtime.ws.actions.setPresence(profile.id, "online")
+  reject(new ApiError("not found", 404))
+  await fetching
+  expect(registry.collections.profiles.has(profile.id)).toBe(true)
+  expect(registry.collections.profiles.get(profile.id)?.name).toBe(field === "identity" ? "New event" : "Alice")
+})
 
 describe("useUserProfile / userProfileQueryFn", () => {
   it("fetches the profile envelope into canonical DB and caches only its ID", async () => {

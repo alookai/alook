@@ -5,6 +5,7 @@ import type { ApiRequestOptions } from "@/lib/api/client"
 import {
 beginCommunityProfileSeed,
 writeCommunityProfilePatches,
+retireCommunityProfile,
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityProfilePatch } from "@/lib/community/models/people"
@@ -40,6 +41,7 @@ type BotCommandContext = {
   assert: () => void
   request: <T>(path: string, options?: ApiRequestOptions) => Promise<T>
   publishProfile: (patch: CommunityProfilePatch) => void
+  removeProfile: (id: string) => void
 }
 const botSurfaceKeys = (id?: string) => [communityKeys.bots(), communityKeys.friends(), communityKeys.dms(), ...(id ? [communityKeys.profile(id)] : [])]
 
@@ -64,6 +66,7 @@ function useBotCommand<TInput extends BotViewInput, TResult>(kind: string, execu
         client, resources, assert,
         request: (path, options) => origin.request(original, path, { ...options, signal: input.assertActive?.signal, assertActive: assert }),
         publishProfile: (patch) => { assert(); writeCommunityProfilePatches([patch], origin.registry, { snapshot, command: true }) },
+        removeProfile: (id) => { assert(); if (origin.registry) retireCommunityProfile(id, origin.registry) },
       }
       try {
         for (const resource of resources) if (client.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) await client.cancelQueries({ queryKey: resource.queryKey, exact: true })
@@ -185,7 +188,7 @@ function useBotIdFacade<TResult>(native: ReturnType<typeof useBotCommand<BotIdIn
   return { ...native, mutate, mutateAsync }
 }
 export function useDeleteBot() {
-  const native = useBotCommand<BotIdInput, void>("delete-command", async ({ id }, context) => { await context.request<void>("/api/community/bots/" + id, { method: "DELETE" }) }, botIdSurfaceKeys)
+  const native = useBotCommand<BotIdInput, void>("delete-command", async ({ id }, context) => { await context.request<void>("/api/community/bots/" + id, { method: "DELETE" }); context.removeProfile(id) }, botIdSurfaceKeys)
   return useBotIdFacade<void>(native)
 }
 

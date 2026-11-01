@@ -19,8 +19,8 @@ function readServerMemberIdentities(queryClient: QueryClient, serverId: string, 
     if (!row || row.memberId !== identity.id) return []
     const canonical = registry.collections.profiles.get(identity.userId)
     const profile = readCommunityProfile(canonical ? { ...canonical, id: identity.userId } : undefined, identity.userId)
-    const presence = registry.runtime.ws.get().presenceByUserId.get(identity.userId)
-    return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: row.viewer ? "online" : presence ?? "offline", sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
+    const presence = registry.runtime.ws.get().presenceByUserId.get(identity.userId) ?? profile.presence
+    return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
   })
 }
 

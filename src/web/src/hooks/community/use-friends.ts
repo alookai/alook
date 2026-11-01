@@ -1,5 +1,5 @@
 "use client"
-import { CommunityAcceptedFriendsReadSchema, CommunityBlockedFriendsReadSchema, CommunityPendingFriendsReadSchema, type CommunityResourceBundle } from "@alook/shared"
+import { CommunityPresenceReadSchema, type CommunityPresenceRead, CommunityAcceptedFriendsReadSchema, CommunityBlockedFriendsReadSchema, CommunityPendingFriendsReadSchema, type CommunityResourceBundle } from "@alook/shared"
 import type { z } from "zod"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import type { QueryFunctionContext } from "@tanstack/react-query"
@@ -117,15 +117,15 @@ export function useFriends(options?: { enabled?: boolean }): UseQueryResult<{ id
  * global profile map on mount; WS `community:presence.update` events keep it
  * fresh afterward.
  */
-export type FriendsPresenceResponse = { online: string[] }
+export type FriendsPresenceResponse = CommunityPresenceRead
 
 export const friendsPresenceQueryFn = (context: QueryFunctionContext) =>
   loadAndSeedProfiles(
-    (origin) => apiFetch<FriendsPresenceResponse & { stale?: boolean }>(
+    (origin) => apiFetch<unknown>(
       "/api/community/friends/presence",
       origin,
-    ).then(throwIfStale),
-    (data) => data.online.map((id) => ({ id, presence: "online" })),
+    ).then(data => throwIfStale(CommunityPresenceReadSchema.parse(data))),
+    data => [...data.online.map(id => ({ id, presence: "online" as const })), ...data.offline.map(id => ({ id, presence: "offline" as const }))],
     getCommunityDbRegistry(context.client),
     context.signal,
   )

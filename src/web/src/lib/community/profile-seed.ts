@@ -4,7 +4,7 @@ import type {
   CommunityProfilePatch,
 } from "@/lib/community/models/people"
 import type { MessageInput } from "@/lib/community/models/message"
-import { canonicalCommunityUserImage, CommunityResourceProfileSchema, type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
+import { canonicalCommunityUserImage, type CommunityResourceProfile, type FriendApprovalPayload } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -25,6 +25,7 @@ type ProfileFieldRevisions = {
 type ProfileRevisionState = {
   revision: number
   fieldsByUserId: Map<string, ProfileFieldRevisions>
+  deletedByUserId: Map<string, number>
   pendingFieldsByUserId: Map<string, Partial<Omit<CommunityResourceProfile, "id">>>
   pendingOwner: string
 }
@@ -34,8 +35,8 @@ export type CommunityProfileSeedSnapshot = {
   revision: number
 }
 
-const createProfileRevisions = () => createStore<ProfileRevisionState>({ revision: 0, fieldsByUserId: new Map(), pendingFieldsByUserId: new Map(), pendingOwner: "" })
-const profileFactsSchema = CommunityResourceProfileSchema.partial()
+const createProfileRevisions = () => createStore<ProfileRevisionState>({ revision: 0, fieldsByUserId: new Map(), deletedByUserId: new Map(), pendingFieldsByUserId: new Map(), pendingOwner: "" })
+const profileFactsSchema = profileSchema.partial()
 const profileRevisionState = new WeakMap<CommunityDbRegistry, ReturnType<typeof createProfileRevisions>>()
 
 function revisionState(registry: CommunityDbRegistry) {
@@ -45,6 +46,27 @@ function revisionState(registry: CommunityDbRegistry) {
     profileRevisionState.set(registry, state)
   }
   return state
+}
+
+export function isCommunityProfileRetired(registry: CommunityDbRegistry, userId: string) {
+  return revisionState(registry).get().deletedByUserId.has(userId)
+}
+
+export function retireCommunityProfile(userId: string, registry: CommunityDbRegistry, snapshot?: CommunityProfileSeedSnapshot) {
+  if (!registry.runtime.lifecycle.get().active || snapshot && snapshot.registry !== registry) return
+  const store = revisionState(registry), previous = store.get()
+  const fields = previous.fieldsByUserId.get(userId)
+  if (snapshot && fields && Object.values(fields).some(revision => revision > snapshot.revision)) return
+  const revision = previous.revision + 1
+  const deletedByUserId = new Map(previous.deletedByUserId), pendingFieldsByUserId = new Map(previous.pendingFieldsByUserId)
+  const fieldsByUserId = new Map(previous.fieldsByUserId)
+  fieldsByUserId.set(userId, { identityAbout: revision, avatar: revision, status: revision, card: revision })
+  deletedByUserId.set(userId, revision)
+  pendingFieldsByUserId.delete(userId)
+  store.setState(() => ({ ...previous, revision, fieldsByUserId, deletedByUserId, pendingFieldsByUserId }))
+  registry.runtime.ws.actions.forgetPresence(userId)
+  const rows = registry.queryClient.getQueryData<ProfileRow[]>(communityKeys.communityDbCollection(registry.scopeId, "profiles")) ?? [...registry.collections.profiles.values()]
+  writeCommunityCollectionRows(registry, "profiles", rows.filter(row => row.id !== userId), row => row.id)
 }
 
 export function beginCommunityProfileSeed(
@@ -156,11 +178,13 @@ export function writeCommunityProfilePatches(
   const revisionStore = revisionState(registry)
   const previous = revisionStore.get()
   const pendingOwner = JSON.stringify([registry.runtime.ws.get().profileAccountEpoch, registry.runtime.lifecycle.get().generation])
-  const revisions = { ...previous, fieldsByUserId: new Map(previous.fieldsByUserId), pendingFieldsByUserId: previous.pendingOwner === pendingOwner ? new Map(previous.pendingFieldsByUserId) : new Map<string, Partial<Omit<CommunityResourceProfile, "id">>>(), pendingOwner }
+  const revisions = { ...previous, fieldsByUserId: new Map(previous.fieldsByUserId), deletedByUserId: new Map(previous.deletedByUserId), pendingFieldsByUserId: previous.pendingOwner === pendingOwner ? new Map(previous.pendingFieldsByUserId) : new Map<string, Partial<Omit<CommunityResourceProfile, "id">>>(), pendingOwner }
   const guardedRevision = options?.snapshot?.revision
   const writeRevision = options?.resourceSeed ? null : guardedRevision === undefined || options?.command ? revisions.revision + 1 : null
   let advanced = false
   for (const patch of patches) {
+    const deletedAt = revisions.deletedByUserId.get(patch.id)
+    if (deletedAt !== undefined && (options?.resourceSeed || guardedRevision !== undefined && guardedRevision < deletedAt)) continue
     const current = profiles.get(patch.id)
     const known = { ...current, ...revisions.pendingFieldsByUserId.get(patch.id) }
     const seedFields = <T extends object>(fields: T | undefined): T | undefined => {
@@ -190,12 +214,14 @@ export function writeCommunityProfilePatches(
     const fields = {
       ...known, id: patch.id,
       ...Object.fromEntries(Object.entries({ ...identityAbout, ...incomingAvatar, ...status, ...card }).filter(([, value]) => value !== undefined)),
+      ...(registry.runtime.ws.get().presenceByUserId.has(patch.id) ? { presence: registry.runtime.ws.get().presenceByUserId.get(patch.id) } : {}),
     }
     const facts = profileFactsSchema.safeParse(Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== undefined && !key.startsWith("$"))))
     if (!facts.success) continue
     const parsed = profileSchema.safeParse(facts.data)
     if (parsed.success) {
       profiles.set(patch.id, parsed.data)
+      revisions.deletedByUserId.delete(patch.id)
       revisions.pendingFieldsByUserId.delete(patch.id)
     } else if (!current && !options?.resourceSeed) {
       const { id: _id, ...pending } = facts.data

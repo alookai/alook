@@ -8,6 +8,7 @@ import {
   communityUserProfilePatch,
   messageProfilePatches,
   writeCommunityProfilePatches,
+  retireCommunityProfile,
 } from "./profile-seed"
 import {
   createCommunityDbRegistry,
@@ -295,4 +296,26 @@ describe("actual card facts through canonical mapper ownership",()=>{
     writeCommunityProfilePatches([ordinary],registry)
     expect(registry.collections.profiles.get(profile.id)).toMatchObject({...card,name:"New resource name"})
   })
+})
+
+it("retires a confirmed deleted user and fences older HTTP, resource seeds and restore input", async () => {
+  const fields = { name: "Peer", discriminator: "0042", avatar: null, avatarVersion: 0 }
+  writeCommunityProfilePatches([communityUserProfilePatch("deleted", fields)], registry)
+  registry.runtime.ws.actions.setPresence("deleted", "online")
+  const before = beginCommunityProfileSeed(registry)
+  const disk = registry.collections.profiles.get("deleted")!
+  retireCommunityProfile("deleted", registry, before)
+  expect(registry.collections.profiles.get("deleted")).toBeUndefined()
+  expect(registry.runtime.ws.get().presenceByUserId.has("deleted")).toBe(false)
+  writeCommunityProfilePatches([communityUserProfilePatch("deleted", fields)], registry, { snapshot: before })
+  writeCommunityProfilePatches([communityUserProfilePatch("deleted", fields)], registry, { resourceSeed: true })
+  const { restoreCommunityCollections } = await import("@/lib/community-db/sync")
+  await restoreCommunityCollections(registry, { profiles: { rows: [{ ...fields, id: "deleted" }], updatedAt: Date.now() } })
+  expect(registry.collections.profiles.get("deleted")).toBeUndefined()
+  const after = beginCommunityProfileSeed(registry)
+  writeCommunityProfilePatches([communityUserProfilePatch("deleted", { ...fields, name: "New confirmed read" })], registry, { snapshot: after })
+  expect(registry.collections.profiles.get("deleted")?.name).toBe("New confirmed read")
+  writeCommunityProfilePatches([communityUserProfilePatch("deleted", fields)], registry, { snapshot: before })
+  expect(registry.collections.profiles.get("deleted")?.name).toBe("New confirmed read")
+  expect(disk.name).toBe("Peer")
 })
