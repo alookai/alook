@@ -76,7 +76,9 @@ export function ConversationFooterShell({
       data-slot="community-conversation-footer"
       data-selection-active={selectionActive ? "true" : "false"}
       className={`relative shrink-0${className ? ` ${className}` : ""}`}
-      style={presented && keyboard.bottomInset > 0 ? { ...style, marginBottom: keyboard.bottomInset } : style}
+      style={presented && keyboard && keyboard.bottomInset > 0
+        ? { ...style, marginBottom: `${100 * keyboard.bottomInset / keyboard.viewportWidth}vw` }
+        : style}
     >
       <div
         ref={bindAccessoryTarget}

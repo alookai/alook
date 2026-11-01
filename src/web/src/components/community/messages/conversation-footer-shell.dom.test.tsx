@@ -33,11 +33,11 @@ describe("ConversationFooterShell", () => {
     try {
       const footer = view.getByTestId("fold-footer")
       const draft = view.getByRole("textbox", { name: "Fold draft" })
-      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "285px" }))
+      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: `${100 * 285 / 382}vw` }))
       native = { bottomInset: 244, viewportWidth: 867 }
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 867 })
       act(() => window.dispatchEvent(new Event("resize")))
-      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "244px" }))
+      await waitFor(() => expect(footer).toHaveStyle({ marginBottom: `${100 * 244 / 867}vw` }))
       expect(view.getByTestId("fold-footer")).toBe(footer)
       expect(view.getByRole("textbox", { name: "Fold draft" })).toBe(draft)
       expect(draft).toHaveValue("Keep this unsent")
@@ -73,7 +73,7 @@ describe("ConversationFooterShell", () => {
       .map(id => ({ node: renderer.getByTestId(id), style: renderer.getByTestId(id).getAttribute("style") }))
     bottomInset = 300
     act(() => window.dispatchEvent(new Event("alook:keyboard-change")))
-    await waitFor(() => expect(footer).toHaveStyle({ marginBottom: "300px", borderRadius: "8px" }))
+    await waitFor(() => expect(footer).toHaveStyle({ marginBottom: `${100 * 300 / window.innerWidth}vw`, borderRadius: "8px" }))
     for (const entry of stable) expect(entry.node.getAttribute("style")).toBe(entry.style)
     expect(renderer.getByRole("textbox", { name: "Native draft" })).toBe(draft)
     expect(draft).toHaveValue("Unsent draft")
@@ -98,7 +98,7 @@ describe("ConversationFooterShell", () => {
     await act(async () => {})
     expect(renderer.getByTestId("footer").style.marginBottom).toBe("")
     renderer.rerender(<Page presented />)
-    await waitFor(() => expect(renderer.getByTestId("footer")).toHaveStyle({ marginBottom: "200px" }))
+    await waitFor(() => expect(renderer.getByTestId("footer")).toHaveStyle({ marginBottom: `${100 * 200 / window.innerWidth}vw` }))
     renderer.rerender(<Page presented={false} />)
     expect(renderer.getByTestId("footer").style.marginBottom).toBe("")
     expect(renderer.getByRole("textbox", { name: "Retained draft" })).toBe(draft)

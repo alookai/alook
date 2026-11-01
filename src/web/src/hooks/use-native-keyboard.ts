@@ -16,7 +16,7 @@ function keyboardBridge() {
   return (window as KeyboardWindow).webkit?.messageHandlers?.alookKeyboard
 }
 
-export function useNativeKeyboard() {
+export function useNativeKeyboard(): KeyboardSnapshot | null {
   const [snapshot, setSnapshot] = useState<KeyboardSnapshot | null>(null)
   useEffect(() => {
     const bridge = keyboardBridge()
@@ -57,5 +57,5 @@ export function useNativeKeyboard() {
       window.removeEventListener("pageshow", show)
     }
   }, [])
-  return { bottomInset: snapshot ? snapshot.bottomInset * window.innerWidth / snapshot.viewportWidth : 0 }
+  return snapshot
 }
